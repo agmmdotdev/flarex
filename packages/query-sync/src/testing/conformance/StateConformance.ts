@@ -18,9 +18,6 @@ import type {
   RecordEvaluationAttemptOutcomeError,
 } from "../../kernel/EvaluationWork.js";
 import { QuerySyncInvariantDefect } from "../../kernel/Errors.js";
-import {
-  createEmptyQuerySyncState,
-} from "../../kernel/Model.js";
 import type {
   AdmittedInvalidationBatch,
   BeginQueryEvaluationRequest,
@@ -59,7 +56,6 @@ import type {
 } from "../../kernel/PublicationWork.js";
 import {
   QuerySyncStoredStateCorruptError,
-  QuerySyncStoredStateIncompatibleError,
 } from "../../state/Errors.js";
 import type {
   QuerySyncStateIntegrationError,
@@ -67,9 +63,9 @@ import type {
 } from "../../state/Errors.js";
 import type { QuerySyncTransitionState } from "../../state/Port.js";
 import {
-  epochReplacedReceipt,
-  initializedNamespaceReceipt,
-  modelReplacedReceipt,
+  applyInitializeNamespaceTransition,
+} from "../../state/Initialization.js";
+import {
   projectApplyReceipt,
   projectBeginReceipt,
   projectClaimEvaluationWorkReceipt,
@@ -213,76 +209,6 @@ function corruptState<Operation extends QuerySyncStateOperation>(
   });
 }
 
-function initializeOracle(
-  current: QuerySyncState | null,
-  binding: StateConformanceBinding,
-  bootstrapCursor: NamespaceCursor,
-): Result.Result<
-  OracleTransition,
-  | BuildQuerySyncStateError
-  | QuerySyncStateIntegrationError<"initializeOrInspectNamespace">
-> {
-  return Result.gen(function* () {
-    if (
-      bootstrapCursor.namespaceId !== binding.namespaceId
-      || bootstrapCursor.syncModelId !== binding.syncModelId
-      || bootstrapCursor.sourceEpoch !== binding.sourceEpoch
-    ) {
-      return yield* Result.fail(new QuerySyncStoredStateIncompatibleError<
-        "initializeOrInspectNamespace"
-      >({
-        operation: "initializeOrInspectNamespace",
-        commitCertainty: "notCommitted",
-        reason: "bootstrapBindingMismatch",
-        cause: null,
-      }));
-    }
-    if (current === null) {
-      const nextState = yield* createEmptyQuerySyncState(bootstrapCursor);
-      return Object.freeze({
-        receipt: initializedNamespaceReceipt(
-          "initialized",
-          nextState.cursor,
-          nextState.metrics,
-        ),
-        nextState,
-      });
-    }
-    if (current.cursor.namespaceId !== binding.namespaceId) {
-      return yield* Result.fail(corruptState(
-        "initializeOrInspectNamespace",
-        "namespaceBindingMismatch",
-      ));
-    }
-    if (current.cursor.syncModelId !== binding.syncModelId) {
-      return Object.freeze({
-        receipt: modelReplacedReceipt(
-          current.cursor,
-          binding.syncModelId,
-        ),
-        nextState: current,
-      });
-    }
-    if (current.cursor.sourceEpoch !== binding.sourceEpoch) {
-      return Object.freeze({
-        receipt: epochReplacedReceipt(
-          current.cursor,
-          binding.sourceEpoch,
-        ),
-        nextState: current,
-      });
-    }
-    return Object.freeze({
-      receipt: initializedNamespaceReceipt(
-        "existing",
-        current.cursor,
-        current.metrics,
-      ),
-      nextState: current,
-    });
-  });
-}
-
 function transitionState<Operation extends Exclude<
   QuerySyncStateOperation,
   "initializeOrInspectNamespace"
@@ -306,13 +232,19 @@ function transitionState<Operation extends Exclude<
 
 function reduceOracleCommand(
   current: QuerySyncState | null,
+  wasPreviouslyInitialized: boolean,
   binding: StateConformanceBinding,
   command: StateConformanceCommand,
   capturedNow: PublicationAttemptInstant | null,
 ): Result.Result<OracleTransition, StateConformanceError> {
   switch (command._tag) {
     case "initializeOrInspectNamespace":
-      return initializeOracle(current, binding, command.bootstrapCursor);
+      return applyInitializeNamespaceTransition({
+        current,
+        wasPreviouslyInitialized,
+        binding,
+        bootstrapCursor: command.bootstrapCursor,
+      });
     case "beginQueryEvaluation":
       return Result.gen(function* () {
         const state = yield* transitionState(
@@ -528,12 +460,14 @@ export const runStateConformanceCommands = Effect.fn(
 > {
   const steps: StateConformanceStep[] = [];
   let expectedState = run.initialExpectedState;
+  let expectedWasPreviouslyInitialized = expectedState !== null;
   for (const command of run.commands) {
     const capturedNow = isClockedPublicationCommand(command)
       ? yield* captureConformanceClockInstant(command._tag)
       : null;
     const expectedTransition = reduceOracleCommand(
       expectedState,
+      expectedWasPreviouslyInitialized,
       target.bindingForConformance,
       command,
       capturedNow,
@@ -559,6 +493,9 @@ export const runStateConformanceCommands = Effect.fn(
       expectedSnapshot: nextExpectedState,
     }));
     expectedState = nextExpectedState;
+    if (nextExpectedState !== null) {
+      expectedWasPreviouslyInitialized = true;
+    }
   }
   return Object.freeze(steps);
 });

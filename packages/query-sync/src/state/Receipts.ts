@@ -2,8 +2,6 @@ import type {
   CanonicalQueryKey,
   PublicationAttemptOrdinal,
   QueryGeneration,
-  SyncEpoch,
-  SyncModelId,
   SyncSequence,
 } from "../kernel/CanonicalValue.js";
 import type {
@@ -16,13 +14,33 @@ import type {
   ApplyInvalidationsDecision,
   BeginQueryEvaluationDecision,
   CompleteQueryEvaluationDecision,
-  NamespaceCursor,
   PublicationBlockReason,
-  QueryDescriptor,
   QueryEvaluationAttempt,
-  QuerySyncStateMetrics,
 } from "../kernel/Model.js";
-import { makeQueryEvaluationAttempt } from "../kernel/Model.js";
+import {
+  alreadyAdvancedBeginReceipt,
+  appliedBatchReceipt,
+  attemptedBeginReceipt,
+  duplicateApplyReceipt,
+  gapApplyReceipt,
+  notDirtyBeginReceipt,
+  resetRequiredApplyReceipt,
+} from "../transition-plan/Receipts.js";
+import type {
+  ApplyAdmittedBatchReceipt,
+  BeginQueryEvaluationReceipt,
+} from "../transition-plan/Receipts.js";
+
+export {
+  epochReplacedReceipt,
+  initializedNamespaceReceipt,
+  modelReplacedReceipt,
+} from "../transition-plan/Receipts.js";
+export type {
+  ApplyAdmittedBatchReceipt,
+  BeginQueryEvaluationReceipt,
+  InitializeNamespaceReceipt,
+} from "../transition-plan/Receipts.js";
 import {
   freezePublicationDisposition,
   freezeQueryPublicationIdentity,
@@ -37,73 +55,6 @@ import type {
   PublicationAttempt,
   RecordPublicationAttemptOutcomeDecision,
 } from "../kernel/PublicationWork.js";
-
-export type InitializeNamespaceReceipt =
-  | Readonly<{
-    readonly _tag: "initialized";
-    readonly cursor: NamespaceCursor;
-    readonly metrics: QuerySyncStateMetrics;
-  }>
-  | Readonly<{
-    readonly _tag: "existing";
-    readonly cursor: NamespaceCursor;
-    readonly metrics: QuerySyncStateMetrics;
-  }>
-  | Readonly<{
-    readonly _tag: "modelReplaced";
-    readonly existingCursor: NamespaceCursor;
-    readonly requestedSyncModelId: SyncModelId;
-  }>
-  | Readonly<{
-    readonly _tag: "epochReplaced";
-    readonly existingCursor: NamespaceCursor;
-    readonly requestedSourceEpoch: SyncEpoch;
-  }>;
-
-export type BeginQueryEvaluationReceipt =
-  | Readonly<{
-    readonly _tag: "created";
-    readonly attempt: QueryEvaluationAttempt;
-  }>
-  | Readonly<{
-    readonly _tag: "replayed";
-    readonly attempt: QueryEvaluationAttempt;
-  }>
-  | Readonly<{
-    readonly _tag: "alreadyAdvanced";
-    readonly descriptor: QueryDescriptor;
-    readonly requestedExpectedActiveGeneration: QueryGeneration | null;
-    readonly activeGeneration: QueryGeneration;
-    readonly freshThroughSequence: SyncSequence;
-  }>
-  | Readonly<{
-    readonly _tag: "notDirty";
-    readonly descriptor: QueryDescriptor;
-    readonly activeGeneration: QueryGeneration;
-    readonly requestedDirtyThroughSequence: SyncSequence;
-    readonly freshThroughSequence: SyncSequence;
-  }>;
-
-export type ApplyAdmittedBatchReceipt =
-  | Readonly<{
-    readonly _tag: "duplicate";
-    readonly observedSequence: SyncSequence;
-  }>
-  | Readonly<{
-    readonly _tag: "gap";
-    readonly expectedSequence: SyncSequence;
-    readonly observedSequence: SyncSequence;
-  }>
-  | Readonly<{
-    readonly _tag: "resetRequired";
-    readonly expectedSourceEpoch: SyncEpoch;
-    readonly observedSourceEpoch: SyncEpoch;
-  }>
-  | Readonly<{
-    readonly _tag: "applied";
-    readonly appliedSequence: SyncSequence;
-    readonly affectedQueryKeys: readonly CanonicalQueryKey[];
-  }>;
 
 export type CompleteQueryEvaluationReceipt =
   | Readonly<{
@@ -246,36 +197,6 @@ export type CompletePublicationReceipt =
     readonly identity: QueryPublicationIdentity;
   }>;
 
-function freezeCursor(cursor: NamespaceCursor): NamespaceCursor {
-  return Object.freeze({
-    namespaceId: cursor.namespaceId,
-    syncModelId: cursor.syncModelId,
-    sourceEpoch: cursor.sourceEpoch,
-    appliedThroughSequence: cursor.appliedThroughSequence,
-  });
-}
-
-function freezeMetrics(metrics: QuerySyncStateMetrics): QuerySyncStateMetrics {
-  return Object.freeze({
-    queryCount: metrics.queryCount,
-    retainedIdentityBytes: metrics.retainedIdentityBytes,
-    dependencyMemberships: metrics.dependencyMemberships,
-    pendingPublicationCount: metrics.pendingPublicationCount,
-    inFlightPublicationCount: metrics.inFlightPublicationCount,
-    retainedPublicationContentBytes:
-      metrics.retainedPublicationContentBytes,
-    settlementEnvelopeBytes: metrics.settlementEnvelopeBytes,
-    countedCanonicalBytes: metrics.countedCanonicalBytes,
-  });
-}
-
-function freezeDescriptor(descriptor: QueryDescriptor): QueryDescriptor {
-  return Object.freeze({
-    queryKey: descriptor.queryKey,
-    queryIdentity: descriptor.queryIdentity,
-  });
-}
-
 function freezeBlockedEvaluationWork(
   blockedWork: BlockedEvaluationWorkEvidence,
 ): BlockedEvaluationWorkEvidence {
@@ -287,63 +208,24 @@ function freezeBlockedEvaluationWork(
   });
 }
 
-export function initializedNamespaceReceipt(
-  tag: "initialized" | "existing",
-  cursor: NamespaceCursor,
-  metrics: QuerySyncStateMetrics,
-): InitializeNamespaceReceipt {
-  return Object.freeze({
-    _tag: tag,
-    cursor: freezeCursor(cursor),
-    metrics: freezeMetrics(metrics),
-  });
-}
-
-export function modelReplacedReceipt(
-  existingCursor: NamespaceCursor,
-  requestedSyncModelId: SyncModelId,
-): InitializeNamespaceReceipt {
-  return Object.freeze({
-    _tag: "modelReplaced",
-    existingCursor: freezeCursor(existingCursor),
-    requestedSyncModelId,
-  });
-}
-
-export function epochReplacedReceipt(
-  existingCursor: NamespaceCursor,
-  requestedSourceEpoch: SyncEpoch,
-): InitializeNamespaceReceipt {
-  return Object.freeze({
-    _tag: "epochReplaced",
-    existingCursor: freezeCursor(existingCursor),
-    requestedSourceEpoch,
-  });
-}
-
 export function projectBeginReceipt(
   decision: BeginQueryEvaluationDecision,
 ): BeginQueryEvaluationReceipt {
   switch (decision._tag) {
     case "created":
     case "replayed":
-      return Object.freeze({
-        _tag: decision._tag,
-        attempt: makeQueryEvaluationAttempt(decision.attempt),
-      });
+      return attemptedBeginReceipt(decision._tag, decision.attempt);
     case "alreadyAdvanced":
-      return Object.freeze({
-        _tag: "alreadyAdvanced",
-        descriptor: freezeDescriptor(decision.descriptor),
+      return alreadyAdvancedBeginReceipt({
+        descriptor: decision.descriptor,
         requestedExpectedActiveGeneration:
           decision.requestedExpectedActiveGeneration,
         activeGeneration: decision.activeGeneration,
         freshThroughSequence: decision.freshThroughSequence,
       });
     case "notDirty":
-      return Object.freeze({
-        _tag: "notDirty",
-        descriptor: freezeDescriptor(decision.descriptor),
+      return notDirtyBeginReceipt({
+        descriptor: decision.descriptor,
         activeGeneration: decision.activeGeneration,
         requestedDirtyThroughSequence:
           decision.requestedDirtyThroughSequence,
@@ -357,28 +239,22 @@ export function projectApplyReceipt(
 ): ApplyAdmittedBatchReceipt {
   switch (decision._tag) {
     case "duplicate":
-      return Object.freeze({
-        _tag: "duplicate",
-        observedSequence: decision.observedSequence,
-      });
+      return duplicateApplyReceipt(decision.observedSequence);
     case "gap":
-      return Object.freeze({
-        _tag: "gap",
-        expectedSequence: decision.expectedSequence,
-        observedSequence: decision.observedSequence,
-      });
+      return gapApplyReceipt(
+        decision.expectedSequence,
+        decision.observedSequence,
+      );
     case "resetRequired":
-      return Object.freeze({
-        _tag: "resetRequired",
-        expectedSourceEpoch: decision.expectedSourceEpoch,
-        observedSourceEpoch: decision.observedSourceEpoch,
-      });
+      return resetRequiredApplyReceipt(
+        decision.expectedSourceEpoch,
+        decision.observedSourceEpoch,
+      );
     case "applied":
-      return Object.freeze({
-        _tag: "applied",
-        appliedSequence: decision.appliedSequence,
-        affectedQueryKeys: Object.freeze([...decision.affectedQueryKeys]),
-      });
+      return appliedBatchReceipt(
+        decision.appliedSequence,
+        decision.affectedQueryKeys,
+      );
   }
 }
 

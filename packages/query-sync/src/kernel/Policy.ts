@@ -1,15 +1,11 @@
 import { Result } from "effect";
 
 import {
-  initialQueryGeneration,
-  successorQueryGeneration,
   successorQuerySyncWorkRevision,
   successorSyncSequence,
 } from "./CanonicalValue.js";
 import type {
   CanonicalDependencyKey,
-  CanonicalQueryKey,
-  QueryGeneration,
   SyncEpoch,
   SyncModelId,
   SyncNamespaceId,
@@ -18,33 +14,26 @@ import type {
 import {
   InvalidQueryCompletionReplayError,
   InvalidQueryEvidenceError,
-  InvalidQueryEvaluationRequestError,
   QueryEvaluationWorkBlockedError,
-  QueryGenerationExhaustedError,
   QueryGenerationMismatchError,
   QueryKeyCollisionError,
   QueryStateNotFoundError,
-  QuerySyncEpochMismatchError,
   QuerySyncInvariantDefect,
-  QuerySyncModelMismatchError,
-  QuerySyncNamespaceMismatchError,
   QuerySyncSequenceExhaustedError,
-  QuerySyncWorkRevisionExhaustedError,
-  QuerySyncWorkLimitError,
 } from "./Errors.js";
 import type {
+  InvalidQueryEvaluationRequestError,
+  QueryGenerationExhaustedError,
   QuerySyncAuthorityError,
-  QuerySyncAuthorityOperation,
   QuerySyncCanonicalValueError,
+  QuerySyncModelMismatchError,
+  QuerySyncNamespaceMismatchError,
+  QuerySyncWorkLimitError,
+  QuerySyncWorkRevisionExhaustedError,
 } from "./Errors.js";
 import {
-  findDependencyDirectoryEntry,
   findQueryState,
   findRetainedQueryPublication,
-  makeQueryEvaluationAttempt,
-  MAX_INVALIDATION_AFFECTED_QUERIES,
-  MAX_INVALIDATION_DEPENDENCY_LOOKUPS,
-  readyQueryEvaluationDisposition,
   rebuildQuerySyncState,
 } from "./Model.js";
 import type {
@@ -64,6 +53,12 @@ import type {
   QuerySyncState,
   SequenceDecision,
 } from "./Model.js";
+import { validateQuerySyncAuthority } from "./Authority.js";
+import { classifySequenceForOperation } from "./Sequence.js";
+import {
+  applyAdmittedInvalidationsTransition,
+  applyBeginQueryEvaluationTransition,
+} from "./TransitionPlanAggregate.js";
 import {
   captureQueryPublicationArtifact,
   makePendingQueryPublication,
@@ -110,77 +105,7 @@ export type CompleteQueryEvaluationError =
   | QueryEvaluationWorkBlockedError<"completeQueryEvaluation">
   | BuildQuerySyncStateError;
 
-function namespaceMismatch<Operation extends QuerySyncAuthorityOperation>(
-  operation: Operation,
-  expected: NamespaceCursor,
-  observedNamespaceId: string,
-): QuerySyncNamespaceMismatchError<Operation> {
-  return new QuerySyncNamespaceMismatchError<Operation>({
-    operation,
-    expectedNamespaceId: expected.namespaceId,
-    observedNamespaceId,
-  });
-}
-
-function modelMismatch<Operation extends QuerySyncAuthorityOperation>(
-  operation: Operation,
-  expected: NamespaceCursor,
-  observedSyncModelId: string,
-): QuerySyncModelMismatchError<Operation> {
-  return new QuerySyncModelMismatchError<Operation>({
-    operation,
-    expectedSyncModelId: expected.syncModelId,
-    observedSyncModelId,
-  });
-}
-
-function epochMismatch<Operation extends QuerySyncAuthorityOperation>(
-  operation: Operation,
-  expected: NamespaceCursor,
-  observedSourceEpoch: string,
-): QuerySyncEpochMismatchError<Operation> {
-  return new QuerySyncEpochMismatchError<Operation>({
-    operation,
-    expectedSourceEpoch: expected.sourceEpoch,
-    observedSourceEpoch,
-    resetRequired: true,
-  });
-}
-
-export function validateQuerySyncAuthority<
-  Operation extends QuerySyncAuthorityOperation,
->(
-  operation: Operation,
-  expected: NamespaceCursor,
-  observed: {
-    readonly namespaceId: string;
-    readonly syncModelId: string;
-    readonly sourceEpoch: string;
-  },
-): Result.Result<void, QuerySyncAuthorityError<Operation>> {
-  if (observed.namespaceId !== expected.namespaceId) {
-    return Result.fail(namespaceMismatch(
-      operation,
-      expected,
-      observed.namespaceId,
-    ));
-  }
-  if (observed.syncModelId !== expected.syncModelId) {
-    return Result.fail(modelMismatch(
-      operation,
-      expected,
-      observed.syncModelId,
-    ));
-  }
-  if (observed.sourceEpoch !== expected.sourceEpoch) {
-    return Result.fail(epochMismatch(
-      operation,
-      expected,
-      observed.sourceEpoch,
-    ));
-  }
-  return Result.succeed(undefined);
-}
+export { validateQuerySyncAuthority } from "./Authority.js";
 
 function invalidQueryEvidence(
   reason: InvalidQueryEvidenceError["reason"],
@@ -200,24 +125,6 @@ function dependencyKeysEqual(
     if (left[index] !== right[index]) return false;
   }
   return true;
-}
-
-function freezeSequenceDecision(
-  decision: SequenceDecision,
-): SequenceDecision {
-  return Object.freeze(decision);
-}
-
-function freezeBeginDecision(
-  decision: BeginQueryEvaluationDecision,
-): BeginQueryEvaluationDecision {
-  return Object.freeze(decision);
-}
-
-function freezeApplyDecision(
-  decision: ApplyInvalidationsDecision,
-): ApplyInvalidationsDecision {
-  return Object.freeze(decision);
 }
 
 function freezeCompleteDecision(
@@ -255,72 +162,6 @@ export function nextSyncSequence(
   return Result.succeed(successor);
 }
 
-function classifySequenceForOperation<
-  Operation extends "classifySequence" | "applyAdmittedInvalidations",
->(
-  operation: Operation,
-  cursor: NamespaceCursor,
-  position: {
-    readonly namespaceId: SyncNamespaceId;
-    readonly syncModelId: SyncModelId;
-    readonly sourceEpoch: SyncEpoch;
-    readonly sourceSequence: SyncSequence;
-  },
-): Result.Result<
-  SequenceDecision,
-  | QuerySyncNamespaceMismatchError<Operation>
-  | QuerySyncModelMismatchError<Operation>
-> {
-  if (position.namespaceId !== cursor.namespaceId) {
-    return Result.fail(namespaceMismatch(
-      operation,
-      cursor,
-      position.namespaceId,
-    ));
-  }
-  if (position.syncModelId !== cursor.syncModelId) {
-    return Result.fail(modelMismatch(
-      operation,
-      cursor,
-      position.syncModelId,
-    ));
-  }
-  if (position.sourceEpoch !== cursor.sourceEpoch) {
-    return Result.succeed(freezeSequenceDecision({
-      _tag: "resetRequired",
-      expectedSourceEpoch: cursor.sourceEpoch,
-      observedSourceEpoch: position.sourceEpoch,
-    }));
-  }
-  if (position.sourceSequence <= cursor.appliedThroughSequence) {
-    return Result.succeed(freezeSequenceDecision({
-      _tag: "duplicate",
-      observedSequence: position.sourceSequence,
-    }));
-  }
-
-  const expectedSequence = successorSyncSequence(
-    cursor.appliedThroughSequence,
-  );
-  if (expectedSequence === null) {
-    return Result.succeed(freezeSequenceDecision({
-      _tag: "duplicate",
-      observedSequence: position.sourceSequence,
-    }));
-  }
-  if (position.sourceSequence === expectedSequence) {
-    return Result.succeed(freezeSequenceDecision({
-      _tag: "exactNext",
-      nextSequence: expectedSequence,
-    }));
-  }
-  return Result.succeed(freezeSequenceDecision({
-    _tag: "gap",
-    expectedSequence,
-    observedSequence: position.sourceSequence,
-  }));
-}
-
 export function classifySequence(
   cursor: NamespaceCursor,
   position: {
@@ -333,439 +174,26 @@ export function classifySequence(
   return classifySequenceForOperation("classifySequence", cursor, position);
 }
 
-function invalidEvaluationRequest(
-  request: BeginQueryEvaluationRequest,
-  reason: InvalidQueryEvaluationRequestError["reason"],
-  observedDirtyThroughSequence: SyncSequence | null,
-): InvalidQueryEvaluationRequestError {
-  return new InvalidQueryEvaluationRequestError({
-    operation: "beginQueryEvaluation",
-    reason,
-    queryKey: request.target.descriptor.queryKey,
-    requestedDirtyThroughSequence: request.requestedDirtyThroughSequence,
-    observedDirtyThroughSequence,
-  });
-}
-
-function evaluationAttempt(
-  state: QuerySyncState,
-  query: QueryState,
-): QueryEvaluationAttempt {
-  const provisional = query.provisional;
-  if (provisional === null) {
-    throw new QuerySyncInvariantDefect({
-      operation: "beginQueryEvaluation",
-      invariant: "rebuiltEvaluationMissing",
-    });
-  }
-  return makeQueryEvaluationAttempt({
-    namespaceId: state.cursor.namespaceId,
-    syncModelId: state.cursor.syncModelId,
-    sourceEpoch: state.cursor.sourceEpoch,
-    descriptor: query.descriptor,
-    generation: provisional.generation,
-    expectedActiveGeneration: provisional.expectedActiveGeneration,
-    registrationCursor: provisional.registrationCursor,
-    requestedDirtyThroughSequence:
-      provisional.requestedDirtyThroughSequence,
-  });
-}
 
 export function beginQueryEvaluation(
   state: QuerySyncState,
   request: BeginQueryEvaluationRequest,
 ): Result.Result<BeginQueryEvaluationDecision, BeginQueryEvaluationError> {
-  return Result.gen(function* () {
-    yield* validateQuerySyncAuthority(
-      "beginQueryEvaluation",
-      state.cursor,
-      request.target,
-    );
-
-    if (
-      request.expectedActiveGeneration === null
-      && request.requestedDirtyThroughSequence !== null
-    ) {
-      return yield* Result.fail(invalidEvaluationRequest(
-        request,
-        "firstRegistrationHasDirtyFrontier",
-        null,
-      ));
-    }
-    if (
-      request.expectedActiveGeneration !== null
-      && request.requestedDirtyThroughSequence === null
-    ) {
-      return yield* Result.fail(invalidEvaluationRequest(
-        request,
-        "rerunMissingDirtyFrontier",
-        null,
-      ));
-    }
-    if (
-      request.requestedDirtyThroughSequence !== null
-      && request.requestedDirtyThroughSequence
-        > state.cursor.appliedThroughSequence
-    ) {
-      return yield* Result.fail(invalidEvaluationRequest(
-        request,
-        "dirtyFrontierAheadOfCursor",
-        null,
-      ));
-    }
-
-    const target = request.target;
-    const existing = findQueryState(state, target.descriptor.queryKey);
-    if (
-      existing !== undefined
-      && existing.descriptor.queryIdentity !== target.descriptor.queryIdentity
-    ) {
-      return yield* Result.fail(new QueryKeyCollisionError<
-        "beginQueryEvaluation"
-      >({
-        operation: "beginQueryEvaluation",
-        queryKey: target.descriptor.queryKey,
-      }));
-    }
-
-    const active = existing?.active ?? null;
-    if (active !== null) {
-      const expectedActiveGeneration = request.expectedActiveGeneration;
-      if (
-        expectedActiveGeneration === null
-        || expectedActiveGeneration < active.generation
-      ) {
-        return freezeBeginDecision({
-          _tag: "alreadyAdvanced",
-          state,
-          descriptor: existing?.descriptor ?? target.descriptor,
-          requestedExpectedActiveGeneration: expectedActiveGeneration,
-          activeGeneration: active.generation,
-          freshThroughSequence: active.freshThroughSequence,
-        });
-      }
-      if (expectedActiveGeneration > active.generation) {
-        return yield* Result.fail(new QueryGenerationMismatchError({
-          operation: "beginQueryEvaluation",
-          queryKey: target.descriptor.queryKey,
-          expectedGeneration: active.generation,
-          observedGeneration: expectedActiveGeneration,
-        }));
-      }
-
-      const requestedDirty = request.requestedDirtyThroughSequence;
-      if (requestedDirty === null) {
-        return yield* Result.fail(invalidEvaluationRequest(
-          request,
-          "rerunMissingDirtyFrontier",
-          active.dirtyThroughSequence,
-        ));
-      }
-    } else if (request.expectedActiveGeneration !== null) {
-      return yield* Result.fail(new QueryGenerationMismatchError({
-        operation: "beginQueryEvaluation",
-        queryKey: target.descriptor.queryKey,
-        expectedGeneration: null,
-        observedGeneration: request.expectedActiveGeneration,
-      }));
-    }
-
-    if (existing?.provisional !== null && existing?.provisional !== undefined) {
-      if (
-        existing.provisional.expectedActiveGeneration
-        !== request.expectedActiveGeneration
-      ) {
-        throw new QuerySyncInvariantDefect({
-          operation: "beginQueryEvaluation",
-          invariant: "provisionalFenceMismatch",
-        });
-      }
-      if (existing.provisional.evaluationDisposition._tag === "blocked") {
-        return yield* Result.fail(new QueryEvaluationWorkBlockedError<
-          "beginQueryEvaluation"
-        >({
-          operation: "beginQueryEvaluation",
-          queryKey: existing.descriptor.queryKey,
-          generation: existing.provisional.generation,
-          reason: existing.provisional.evaluationDisposition.reason,
-          resetRequired: true,
-        }));
-      }
-      if (
-        active !== null
-        && (
-          request.requestedDirtyThroughSequence === null
-          || active.dirtyThroughSequence === null
-          || request.requestedDirtyThroughSequence
-            > active.dirtyThroughSequence
-        )
-      ) {
-        return yield* Result.fail(invalidEvaluationRequest(
-          request,
-          "dirtyFrontierNotObserved",
-          active.dirtyThroughSequence,
-        ));
-      }
-      const observedDirty = active?.dirtyThroughSequence ?? null;
-      const currentDirty = existing.provisional.requestedDirtyThroughSequence;
-      const coalescedDirty = observedDirty === null
-        ? currentDirty
-        : currentDirty === null || observedDirty > currentDirty
-          ? observedDirty
-          : currentDirty;
-      let nextState = state;
-      if (
-        coalescedDirty
-        !== existing.provisional.requestedDirtyThroughSequence
-      ) {
-        const revision = yield* successorQuerySyncWorkRevision(
-          "beginQueryEvaluation",
-          state.evaluationWork.revision,
-        );
-        nextState = yield* rebuildQuerySyncState(state, {
-          queries: replaceQueryInArray(state.queries, {
-            descriptor: existing.descriptor,
-            active: existing.active,
-            provisional: {
-              ...existing.provisional,
-              requestedDirtyThroughSequence: coalescedDirty,
-            },
-            currentCompletion: existing.currentCompletion,
-            precedingCompletionIdentity: existing.precedingCompletionIdentity,
-          }),
-          evaluationWork: {
-            revision,
-            fairnessAnchor: state.evaluationWork.fairnessAnchor,
-          },
-        });
-      }
-      const nextQuery = findQueryState(nextState, target.descriptor.queryKey);
-      if (nextQuery === undefined) {
-        throw new QuerySyncInvariantDefect({
-          operation: "beginQueryEvaluation",
-          invariant: "rebuiltEvaluationMissing",
-        });
-      }
-      return freezeBeginDecision({
-        _tag: "replayed",
-        state: nextState,
-        attempt: evaluationAttempt(nextState, nextQuery),
-      });
-    }
-
-    if (
-      active !== null
-      && request.requestedDirtyThroughSequence !== null
-      && request.requestedDirtyThroughSequence
-        <= active.freshThroughSequence
-    ) {
-      return freezeBeginDecision({
-        _tag: "notDirty",
-        state,
-        descriptor: existing?.descriptor ?? target.descriptor,
-        activeGeneration: active.generation,
-        requestedDirtyThroughSequence:
-          request.requestedDirtyThroughSequence,
-        freshThroughSequence: active.freshThroughSequence,
-      });
-    }
-    if (
-      active !== null
-      && (
-        active.dirtyThroughSequence === null
-        || request.requestedDirtyThroughSequence === null
-        || request.requestedDirtyThroughSequence
-          > active.dirtyThroughSequence
-      )
-    ) {
-      return yield* Result.fail(invalidEvaluationRequest(
-        request,
-        "dirtyFrontierNotObserved",
-        active.dirtyThroughSequence,
-      ));
-    }
-
-    let generation: QueryGeneration;
-    if (active === null) {
-      generation = initialQueryGeneration();
-    } else {
-      const successor = successorQueryGeneration(active.generation);
-      if (successor === null) {
-        return yield* Result.fail(new QueryGenerationExhaustedError({
-          operation: "beginQueryEvaluation",
-          queryKey: existing?.descriptor.queryKey ?? target.descriptor.queryKey,
-          currentGeneration: active.generation,
-        }));
-      }
-      generation = successor;
-    }
-
-    const descriptor = existing?.descriptor ?? target.descriptor;
-    const replacement: QueryState = {
-      descriptor,
-      active,
-      provisional: {
-        generation,
-        expectedActiveGeneration: request.expectedActiveGeneration,
-        registrationCursor: state.cursor,
-        requestedDirtyThroughSequence: active?.dirtyThroughSequence ?? null,
-        evaluationDisposition: readyQueryEvaluationDisposition(),
-      },
-      currentCompletion: existing?.currentCompletion ?? null,
-      precedingCompletionIdentity:
-        existing?.precedingCompletionIdentity ?? null,
-    };
-    const revision = yield* successorQuerySyncWorkRevision(
-      "beginQueryEvaluation",
-      state.evaluationWork.revision,
-    );
-    const nextState = yield* rebuildQuerySyncState(state, {
-      queries: replaceQueryInArray(state.queries, replacement),
-      evaluationWork: {
-        revision,
-        fairnessAnchor: state.evaluationWork.fairnessAnchor,
-      },
-    });
-    const nextQuery = findQueryState(nextState, descriptor.queryKey);
-    if (nextQuery?.provisional === null || nextQuery?.provisional === undefined) {
-      throw new QuerySyncInvariantDefect({
-        operation: "beginQueryEvaluation",
-        invariant: "rebuiltEvaluationMissing",
-      });
-    }
-    return freezeBeginDecision({
-      _tag: "created",
-      state: nextState,
-      attempt: evaluationAttempt(nextState, nextQuery),
-    });
-  });
+  return applyBeginQueryEvaluationTransition(state, request).pipe(
+    Result.map((transition) => transition.decision),
+  );
 }
+
 
 export function applyAdmittedInvalidations(
   state: QuerySyncState,
   batch: AdmittedInvalidationBatch,
 ): Result.Result<ApplyInvalidationsDecision, ApplyInvalidationsError> {
-  return Result.gen(function* () {
-    const sequenceDecision = yield* classifySequenceForOperation(
-      "applyAdmittedInvalidations",
-      state.cursor,
-      batch,
-    );
-    if (sequenceDecision._tag === "duplicate") {
-      return freezeApplyDecision({
-        _tag: "duplicate",
-        state,
-        observedSequence: sequenceDecision.observedSequence,
-      });
-    }
-    if (sequenceDecision._tag === "gap") {
-      return freezeApplyDecision({
-        _tag: "gap",
-        state,
-        expectedSequence: sequenceDecision.expectedSequence,
-        observedSequence: sequenceDecision.observedSequence,
-      });
-    }
-    if (sequenceDecision._tag === "resetRequired") {
-      return freezeApplyDecision({
-        _tag: "resetRequired",
-        state,
-        expectedSourceEpoch: sequenceDecision.expectedSourceEpoch,
-        observedSourceEpoch: sequenceDecision.observedSourceEpoch,
-      });
-    }
-    if (
-      batch.dependencyKeys.length > MAX_INVALIDATION_DEPENDENCY_LOOKUPS
-    ) {
-      return yield* Result.fail(new QuerySyncWorkLimitError<
-        "applyAdmittedInvalidations"
-      >({
-        operation: "applyAdmittedInvalidations",
-        dimension: "dependencyLookups",
-        maximum: MAX_INVALIDATION_DEPENDENCY_LOOKUPS,
-        observed: batch.dependencyKeys.length,
-      }));
-    }
-
-    const affectedQueryKeys = new Set<CanonicalQueryKey>();
-    for (const dependencyKey of batch.dependencyKeys) {
-      const directoryEntry = findDependencyDirectoryEntry(
-        state,
-        dependencyKey,
-      );
-      if (directoryEntry === undefined) continue;
-      for (const queryKey of directoryEntry.queryKeys) {
-        affectedQueryKeys.add(queryKey);
-        if (
-          affectedQueryKeys.size > MAX_INVALIDATION_AFFECTED_QUERIES
-        ) {
-          return yield* Result.fail(new QuerySyncWorkLimitError<
-            "applyAdmittedInvalidations"
-          >({
-            operation: "applyAdmittedInvalidations",
-            dimension: "affectedQueries",
-            maximum: MAX_INVALIDATION_AFFECTED_QUERIES,
-            observed: affectedQueryKeys.size,
-          }));
-        }
-      }
-    }
-
-    const orderedAffectedQueryKeys = [...affectedQueryKeys];
-    orderedAffectedQueryKeys.sort();
-    const replacements = new Map<CanonicalQueryKey, QueryState>();
-    for (const queryKey of orderedAffectedQueryKeys) {
-      const query = findQueryState(state, queryKey);
-      if (query?.active === null || query?.active === undefined) {
-        throw new QuerySyncInvariantDefect({
-          operation: "applyAdmittedInvalidations",
-          invariant: "dependencyDirectoryEntryMissingActiveQuery",
-        });
-      }
-      const active: ActiveQueryState = {
-        ...query.active,
-        dirtyThroughSequence: sequenceDecision.nextSequence,
-      };
-      replacements.set(queryKey, {
-        descriptor: query.descriptor,
-        active,
-        provisional: query.provisional,
-        currentCompletion: query.currentCompletion,
-        precedingCompletionIdentity: query.precedingCompletionIdentity,
-      });
-    }
-
-    const cursor: NamespaceCursor = {
-      namespaceId: state.cursor.namespaceId,
-      syncModelId: state.cursor.syncModelId,
-      sourceEpoch: state.cursor.sourceEpoch,
-      appliedThroughSequence: sequenceDecision.nextSequence,
-    };
-    const queries = state.queries.map((query) => (
-      replacements.get(query.descriptor.queryKey) ?? query
-    ));
-    const revision = replacements.size === 0
-      ? state.evaluationWork.revision
-      : yield* successorQuerySyncWorkRevision(
-        "applyAdmittedInvalidations",
-        state.evaluationWork.revision,
-      );
-    const nextState = yield* rebuildQuerySyncState(state, {
-      cursor,
-      queries,
-      evaluationWork: {
-        revision,
-        fairnessAnchor: state.evaluationWork.fairnessAnchor,
-      },
-    });
-    return freezeApplyDecision({
-      _tag: "applied",
-      state: nextState,
-      appliedSequence: sequenceDecision.nextSequence,
-      affectedQueryKeys: Object.freeze(orderedAffectedQueryKeys),
-    });
-  });
+  return applyAdmittedInvalidationsTransition(state, batch).pipe(
+    Result.map((transition) => transition.decision),
+  );
 }
+
 
 function laterRelevantSequence(
   evaluation: QueryEvaluationEvidence,

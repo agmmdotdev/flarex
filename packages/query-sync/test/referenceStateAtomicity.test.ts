@@ -21,11 +21,14 @@ import {
 } from "@flarex/query-sync/testing/reference-model";
 
 import {
+  batch,
+  canonicalText,
   cursor,
   evaluation,
   firstEvaluationRequest,
   getSuccess,
   publicationArtifact,
+  rerunEvaluationRequest,
   target,
 } from "./fixtures.js";
 import { runEffect, runEffectFailure } from "./effectBoundary.js";
@@ -49,7 +52,255 @@ function requireState(state: QuerySyncState | null): QuerySyncState {
   return state;
 }
 
+async function prepareActiveReferenceQuery(
+  physicalNamespaceId: string,
+  dependency: string,
+) {
+  const bootstrapCursor = cursor();
+  const queryTarget = target();
+  const harness = await runEffect(makeReferenceQuerySyncStateHarness());
+  const transitionState = harness.bind(bindingFor(
+    physicalNamespaceId,
+    bootstrapCursor,
+  ));
+  await runEffect(
+    transitionState.initializeOrInspectNamespace(bootstrapCursor),
+  );
+  const begun = await runEffect(
+    transitionState.beginQueryEvaluation(firstEvaluationRequest(queryTarget)),
+  );
+  if (begun._tag !== "created") {
+    throw new Error("Expected an evaluation attempt to be created.");
+  }
+  const queryEvaluation = evaluation({
+    descriptor: begun.attempt.descriptor,
+    generation: begun.attempt.generation,
+    snapshot: begun.attempt.registrationCursor.appliedThroughSequence,
+    dependencies: [dependency],
+  });
+  const refresh = getSuccess(deriveGenerationRefreshEvidence(
+    queryEvaluation,
+    begun.attempt.registrationCursor,
+    [],
+    queryEvaluation.authorityWitness,
+  ));
+  const completed = await runEffect(transitionState.completeQueryEvaluation(
+    begun.attempt,
+    queryEvaluation,
+    refresh,
+    publicationArtifact("reference-active-query"),
+  ));
+  if (completed._tag !== "completed") {
+    throw new Error("Expected an active reference query.");
+  }
+  return { transitionState, queryTarget };
+}
+
 describe("reference transition-state atomicity", () => {
+  it("treats cursor-only apply as a write and leaves armed faults untouched on duplicate no-write", async () => {
+    const bootstrapCursor = cursor();
+    const harness = await runEffect(makeReferenceQuerySyncStateHarness());
+    const transitionState = harness.bind(bindingFor(
+      "physical-namespace-apply-disposition",
+      bootstrapCursor,
+    ));
+    await runEffect(
+      transitionState.initializeOrInspectNamespace(bootstrapCursor),
+    );
+    await runEffect(transitionState.injectNextFault({
+      operation: "applyAdmittedBatchAndAdvance",
+      timing: "beforeSwap",
+    }));
+
+    const duplicate = await runEffect(
+      transitionState.applyAdmittedBatchAndAdvance(batch({ sequence: 0n })),
+    );
+    expect(duplicate).toMatchObject({ _tag: "duplicate" });
+
+    const failure = await runEffectFailure(
+      transitionState.applyAdmittedBatchAndAdvance(batch({ sequence: 1n })),
+    );
+    expect(failure).toMatchObject({
+      _tag: "QuerySyncStateUnavailableError",
+      operation: "applyAdmittedBatchAndAdvance",
+      commitCertainty: "notCommitted",
+    });
+    expect(requireState(await runEffect(
+      transitionState.snapshotForConformance(),
+    )).cursor.appliedThroughSequence).toBe(0n);
+
+    const applied = await runEffect(
+      transitionState.applyAdmittedBatchAndAdvance(batch({ sequence: 1n })),
+    );
+    expect(applied).toMatchObject({
+      _tag: "applied",
+      affectedQueryKeys: [],
+    });
+    expect(requireState(await runEffect(
+      transitionState.snapshotForConformance(),
+    )).cursor.appliedThroughSequence).toBe(1n);
+  });
+
+  it("keeps affected-query apply atomic across both swap fault timings", async () => {
+    const dependency = canonicalText("fault:affected-apply");
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const { transitionState, queryTarget } =
+        await prepareActiveReferenceQuery(
+          `physical-affected-apply-${timing}`,
+          dependency,
+        );
+      const before = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      await runEffect(transitionState.injectNextFault({
+        operation: "applyAdmittedBatchAndAdvance",
+        timing,
+      }));
+      const admitted = batch({ sequence: 1n, dependencies: [dependency] });
+
+      const failure = await runEffectFailure(
+        transitionState.applyAdmittedBatchAndAdvance(admitted),
+      );
+      expect(failure).toMatchObject({
+        operation: "applyAdmittedBatchAndAdvance",
+        commitCertainty: timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
+      const afterFailure = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      const afterFailureQuery = afterFailure.queries.find(
+        (query) => query.descriptor.queryKey
+          === queryTarget.descriptor.queryKey,
+      );
+      if (timing === "beforeSwap") {
+        expect(afterFailure).toBe(before);
+        expect(afterFailureQuery?.active?.dirtyThroughSequence).toBeNull();
+        const retried = await runEffect(
+          transitionState.applyAdmittedBatchAndAdvance(admitted),
+        );
+        expect(retried).toMatchObject({
+          _tag: "applied",
+          affectedQueryKeys: [queryTarget.descriptor.queryKey],
+        });
+        const committed = requireState(await runEffect(
+          transitionState.snapshotForConformance(),
+        ));
+        expect(committed.cursor.appliedThroughSequence).toBe(1n);
+        expect(committed.queries.find(
+          (query) => query.descriptor.queryKey
+            === queryTarget.descriptor.queryKey,
+        )?.active?.dirtyThroughSequence).toBe(1n);
+      } else {
+        expect(failure).toBeInstanceOf(
+          QuerySyncStateCommitOutcomeUnknownError,
+        );
+        expect(afterFailure.cursor.appliedThroughSequence).toBe(1n);
+        expect(afterFailureQuery?.active?.dirtyThroughSequence).toBe(1n);
+        const replayed = await runEffect(
+          transitionState.applyAdmittedBatchAndAdvance(admitted),
+        );
+        expect(replayed).toMatchObject({ _tag: "duplicate" });
+        expect(await runEffect(
+          transitionState.snapshotForConformance(),
+        )).toBe(afterFailure);
+      }
+    }
+  });
+
+  it("keeps write-bearing begin replay atomic across both swap fault timings", async () => {
+    const dependency = canonicalText("fault:coalescing-begin");
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const { transitionState, queryTarget } =
+        await prepareActiveReferenceQuery(
+          `physical-coalescing-begin-${timing}`,
+          dependency,
+        );
+      await runEffect(transitionState.applyAdmittedBatchAndAdvance(batch({
+        sequence: 1n,
+        dependencies: [dependency],
+      })));
+      const dirtyAtOne = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      )).queries.find(
+        (query) => query.descriptor.queryKey === queryTarget.descriptor.queryKey,
+      )?.active;
+      if (
+        dirtyAtOne === null
+        || dirtyAtOne === undefined
+        || dirtyAtOne.dirtyThroughSequence === null
+      ) {
+        throw new Error("Expected the active query to be dirty.");
+      }
+      const rerun = rerunEvaluationRequest({
+        target: queryTarget,
+        activeGeneration: dirtyAtOne.generation,
+        dirtyThroughSequence: dirtyAtOne.dirtyThroughSequence,
+      });
+      expect(await runEffect(
+        transitionState.beginQueryEvaluation(rerun),
+      )).toMatchObject({
+        _tag: "created",
+        attempt: { requestedDirtyThroughSequence: 1n },
+      });
+      await runEffect(transitionState.applyAdmittedBatchAndAdvance(batch({
+        sequence: 2n,
+        dependencies: [dependency],
+      })));
+      const beforeCoalescing = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      expect(beforeCoalescing.queries.find(
+        (query) => query.descriptor.queryKey === queryTarget.descriptor.queryKey,
+      )).toMatchObject({
+        active: { dirtyThroughSequence: 2n },
+        provisional: { requestedDirtyThroughSequence: 1n },
+      });
+      await runEffect(transitionState.injectNextFault({
+        operation: "beginQueryEvaluation",
+        timing,
+      }));
+
+      const failure = await runEffectFailure(
+        transitionState.beginQueryEvaluation(rerun),
+      );
+      expect(failure).toMatchObject({
+        operation: "beginQueryEvaluation",
+        commitCertainty: timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
+      const afterFailure = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      if (timing === "beforeSwap") {
+        expect(afterFailure).toBe(beforeCoalescing);
+      } else {
+        expect(failure).toBeInstanceOf(
+          QuerySyncStateCommitOutcomeUnknownError,
+        );
+        expect(afterFailure).not.toBe(beforeCoalescing);
+        expect(afterFailure.queries.find(
+          (query) => query.descriptor.queryKey
+            === queryTarget.descriptor.queryKey,
+        )?.provisional?.requestedDirtyThroughSequence).toBe(2n);
+      }
+
+      const replayed = await runEffect(
+        transitionState.beginQueryEvaluation(rerun),
+      );
+      expect(replayed).toMatchObject({
+        _tag: "replayed",
+        attempt: { requestedDirtyThroughSequence: 2n },
+      });
+      const afterReplay = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      expect(afterReplay.queries.find(
+        (query) => query.descriptor.queryKey
+          === queryTarget.descriptor.queryKey,
+      )?.provisional?.requestedDirtyThroughSequence).toBe(2n);
+      if (timing === "afterSwap") expect(afterReplay).toBe(afterFailure);
+    }
+  });
+
   it("captures only declared binding and fault fields", async () => {
     const bootstrapCursor = cursor();
     let extraGetterReads = 0;

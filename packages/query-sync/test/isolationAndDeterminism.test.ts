@@ -18,6 +18,7 @@ import {
   MAX_REFRESH_KEY_EXAMINATIONS,
   MAX_RETAINED_QUERY_IDENTITY_BYTES,
   makeQueryPublicationIdentity,
+  QueryKeyCollisionError,
   QuerySyncStateLimitError,
   QuerySyncWorkLimitError,
   unchangedPublicationDisposition,
@@ -383,6 +384,61 @@ describe("isolation, limits, and determinism", () => {
     expect(accepted.state.queries).toHaveLength(MAX_REFERENCE_QUERIES);
   }, 30_000);
 
+  it("uses fixed multi-overflow priority and exact final observations independent of input order", () => {
+    const count = MAX_REFERENCE_QUERIES + 1;
+    const identity = canonicalBytes(
+      Math.floor(MAX_RETAINED_QUERY_IDENTITY_BYTES / count) + 1,
+      19,
+    );
+    const queries = Array.from({ length: count }, (_, index) => (
+      queryWithProvisional(getSuccess(captureQueryDescriptor({
+        queryKey: canonicalKey(index),
+        queryIdentity: identity,
+      })))
+    ));
+    const firstOrder = buildTestQuerySyncState(cursor(), queries);
+    const reverseOrder = buildTestQuerySyncState(
+      cursor(),
+      [...queries].reverse(),
+    );
+    for (const result of [firstOrder, reverseOrder]) {
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({
+          _tag: "QuerySyncStateLimitError",
+          operation: "buildQuerySyncState",
+          dimension: "queryCount",
+          maximum: MAX_REFERENCE_QUERIES,
+          observed: count,
+        });
+      }
+    }
+  }, 30_000);
+
+  it("preserves query collision precedence before the winning identity limit checkpoint", () => {
+    const repeated = queryWithProvisional(getSuccess(captureQueryDescriptor({
+      queryKey: canonicalKey(21_000),
+      queryIdentity: canonicalBytes(MAX_CANONICAL_QUERY_IDENTITY_BYTES, 31),
+    })));
+    const result = buildTestQuerySyncState(
+      cursor(),
+      Array.from({
+        length: (MAX_RETAINED_QUERY_IDENTITY_BYTES
+          / MAX_CANONICAL_QUERY_IDENTITY_BYTES) + 1,
+      }, () => repeated),
+    );
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(QueryKeyCollisionError);
+      expect(result.failure).toMatchObject({
+        _tag: "QueryKeyCollisionError",
+        operation: "buildQuerySyncState",
+        queryKey: repeated.descriptor.queryKey,
+      });
+    }
+  });
+
   it("enforces retained canonical identity bytes at the exact boundary", () => {
     const identity = canonicalBytes(MAX_CANONICAL_QUERY_IDENTITY_BYTES, 7);
     const descriptorAt = (index: number) => getSuccess(captureQueryDescriptor({
@@ -471,6 +527,24 @@ describe("isolation, limits, and determinism", () => {
       ...exactQueries.slice(1),
     ]);
     expectStateLimit(refused, "countedCanonicalBytes");
+    if (Result.isFailure(refused)) {
+      expect(refused.failure).toMatchObject({
+        dimension: "countedCanonicalBytes",
+        observed: MAX_COUNTED_CANONICAL_BYTES + 2,
+      });
+    }
+
+    const reorderedRefusal = buildTestQuerySyncState(cursor(), [
+      ...exactQueries.slice(1),
+      queryWithActive(0, higherActive),
+    ]);
+    expectStateLimit(reorderedRefusal, "countedCanonicalBytes");
+    if (Result.isFailure(reorderedRefusal)) {
+      expect(reorderedRefusal.failure).toMatchObject({
+        dimension: "countedCanonicalBytes",
+        observed: MAX_COUNTED_CANONICAL_BYTES + 2,
+      });
+    }
   }, 60_000);
 
   it("permits the exact affected-query work ceiling deterministically", () => {

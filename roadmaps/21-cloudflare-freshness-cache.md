@@ -15,10 +15,12 @@ owned by the accepted
 [`QSYNC-FX01` preflight](./query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md).
 `QSYNC-FX01-A` is complete, private, and production-inert. The docs-only
 [`QSYNC-FX01-B` verdict](./query-sync-engine/preflight/08-qsync-fx01-b-semantic-persistence-verdict.md)
-is complete and stops before schema because the portable core lacks a bounded
-operation-plan seam. The accepted docs-only
+is complete and stops before schema because the portable core lacks the
+complete nine-operation bounded plan seam. The accepted
 [`QSYNC01-D0` record](./query-sync-engine/preflight/09-qsync01-d-operation-scoped-transition-plans.md)
-now freezes that seam and its D1-D4 implementation order but adds no code.
+freezes that seam and its D1-D4 implementation order. The separately approved
+`QSYNC01-D1` portable-core slice is complete; D2-D4 and the package export
+remain gated.
 Roadmap 21 remains the accepted concrete Flarex/Cloudflare adapter authority.
 SQLite implementation, ordered Postgres catch-up, registration,
 reset/reconnect, rerun, Durable Streams delivery, and production caller
@@ -601,9 +603,10 @@ ordered gates are now:
 3. The accepted `QSYNC-FX01` preflight has completed A's mapping-only slice and
    B's docs-only access-plan verdict. B stopped before SQLite schema because an
    operation-scoped portable core seam is missing.
-4. `QSYNC01-D0` is accepted docs-only and freezes that seam. Next decide
-   whether to approve D1, the shared planner foundation plus initialization,
-   begin, and staged admitted-batch application. C1-C3 remain blocked until
+4. `QSYNC01-D0` is accepted and `QSYNC01-D1` is complete with the shared
+   planner foundation, exact accounting, initialization, begin, and staged
+   admitted-batch application. Next decide whether to approve D2, evaluation
+   completion alone. C1-C3 remain blocked until
    D1-D4 complete and a fresh adapter checkpoint is approved; do not add
    duplicate state, compatibility writes, a second reducer, or schema-first
    storage.
@@ -1348,7 +1351,7 @@ parent/child validation remains required above.
 Status: accepted split preflight. A is complete, private, and
 production-inert. B is complete docs-only with a stop-before-schema verdict.
 C1-C3 and all SQLite implementation remain blocked and unauthorized. D0 is an
-accepted docs-only portable-core design; D1-D4 are not implemented.
+accepted portable-core design and D1 is complete; D2-D4 are not implemented.
 
 The accepted umbrella record is
 [`query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md`](./query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md).

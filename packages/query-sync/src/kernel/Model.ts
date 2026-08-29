@@ -18,11 +18,7 @@ import {
   MAX_PUBLICATION_ATTEMPT_INSTANT,
   MAX_PUBLICATION_ATTEMPT_ORDINAL,
   MAX_QUERY_SYNC_WORK_REVISION,
-  QUERY_AUTHORITY_WITNESS_BYTES,
-  QUERY_KEY_BYTES,
-  QUERY_RESULT_DIGEST_BYTES,
   successorQueryGeneration,
-  wellFormedUtf8ByteLength,
 } from "./CanonicalValue.js";
 import type {
   CanonicalDependencyKey,
@@ -45,19 +41,16 @@ import {
   QueryKeyCollisionError,
   QuerySyncCanonicalValueError,
   QuerySyncInvariantDefect,
-  QuerySyncStateLimitError,
 } from "./Errors.js";
 import type {
   QueryDependencyLimitOperation,
+  QuerySyncStateLimitError,
 } from "./Errors.js";
 import {
-  canonicalPublicationContentDecodedLength,
   compareQueryPublicationIdentity,
   freezePublicationDisposition,
   freezeQueryPublicationIdentity,
   makePendingQueryPublication,
-  MAX_PENDING_PUBLICATIONS,
-  MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
   queryPublicationIdentityEquals,
 } from "./Publication.js";
 import type {
@@ -65,41 +58,46 @@ import type {
   QueryCompletionPublicationDisposition,
   QueryPublicationIdentity,
 } from "./Publication.js";
+import type {
+  ApplyAdmittedBatchReceipt,
+  BeginQueryEvaluationReceipt,
+} from "../transition-plan/Receipts.js";
+export {
+  isIssuedQueryEvaluationAttempt,
+  makeQueryEvaluationAttempt,
+} from "./EvaluationAttempt.js";
+export type { QueryEvaluationAttempt } from "./EvaluationAttempt.js";
+import {
+  addMetricContribution,
+  calculateQuerySyncStateMetrics,
+  emptyMetricContribution,
+  firstQuerySyncStateMetricLimit,
+  publicationLifecycleMetricContribution,
+  queryMetricContribution,
+  retainedPublicationMetricContribution,
+  scopeMetricContribution,
+} from "../transition-plan/Accounting.js";
+
+export {
+  MAX_AGGREGATE_DEPENDENCY_MEMBERSHIPS,
+  MAX_COUNTED_CANONICAL_BYTES,
+  MAX_REFERENCE_QUERIES,
+  MAX_RETAINED_QUERY_IDENTITY_BYTES,
+  PUBLICATION_SETTLEMENT_LIFECYCLE_BYTES,
+} from "../transition-plan/Accounting.js";
+export {
+  MAX_INVALIDATION_AFFECTED_QUERIES,
+  MAX_INVALIDATION_DEPENDENCY_LOOKUPS,
+} from "../transition-plan/Limits.js";
 
 export const MAX_QUERY_DEPENDENCY_KEYS = 8_192;
 export const MAX_INVALIDATION_KEYS = 65_536;
 export const MAX_QUERY_DEPENDENCY_BYTES = 4 * 1_024 * 1_024;
 export const MAX_INVALIDATION_BATCH_BYTES = 16 * 1_024 * 1_024;
-export const MAX_REFERENCE_QUERIES = 4_096;
-export const MAX_AGGREGATE_DEPENDENCY_MEMBERSHIPS = 262_144;
-export const MAX_RETAINED_QUERY_IDENTITY_BYTES = 32 * 1_024 * 1_024;
-export const MAX_COUNTED_CANONICAL_BYTES = 64 * 1_024 * 1_024;
-export const MAX_INVALIDATION_DEPENDENCY_LOOKUPS = 65_536;
-export const MAX_INVALIDATION_AFFECTED_QUERIES = 4_096;
 export const MAX_REFRESH_BATCHES = 65_536;
 export const MAX_REFRESH_KEY_EXAMINATIONS = 65_536;
 export const MAX_REFRESH_CANONICAL_BYTES = 16 * 1_024 * 1_024;
 
-const FIXED_WIDTH_INTEGER_BYTES = 8;
-const SLOT_PRESENCE_BYTES = 1;
-const PUBLICATION_ATTEMPT_DISPOSITION_BYTES = 3;
-const PUBLICATION_ATTEMPT_OUTCOME_BYTES = 1;
-const PUBLICATION_ATTEMPT_RECEIPT_BYTES = 10;
-const PUBLICATION_DELIVERED_TOMBSTONE_BYTES = QUERY_KEY_BYTES
-  + FIXED_WIDTH_INTEGER_BYTES
-  + QUERY_RESULT_DIGEST_BYTES;
-const PUBLICATION_IN_FLIGHT_METADATA_BYTES =
-  (3 * FIXED_WIDTH_INTEGER_BYTES)
-  + PUBLICATION_ATTEMPT_DISPOSITION_BYTES;
-const PUBLICATION_PRECEDING_OUTCOME_BYTES = QUERY_KEY_BYTES
-  + (2 * FIXED_WIDTH_INTEGER_BYTES)
-  + QUERY_RESULT_DIGEST_BYTES
-  + PUBLICATION_ATTEMPT_OUTCOME_BYTES
-  + PUBLICATION_ATTEMPT_RECEIPT_BYTES;
-export const PUBLICATION_SETTLEMENT_LIFECYCLE_BYTES =
-  PUBLICATION_IN_FLIGHT_METADATA_BYTES
-  + PUBLICATION_PRECEDING_OUTCOME_BYTES
-  + PUBLICATION_DELIVERED_TOMBSTONE_BYTES;
 
 export interface NamespaceCursor {
   readonly namespaceId: SyncNamespaceId;
@@ -392,50 +390,6 @@ export interface BeginQueryEvaluationRequest {
   readonly requestedDirtyThroughSequence: SyncSequence | null;
 }
 
-interface QueryEvaluationAttemptFields {
-  readonly namespaceId: SyncNamespaceId;
-  readonly syncModelId: SyncModelId;
-  readonly sourceEpoch: SyncEpoch;
-  readonly descriptor: QueryDescriptor;
-  readonly generation: QueryGeneration;
-  readonly expectedActiveGeneration: QueryGeneration | null;
-  readonly registrationCursor: NamespaceCursor;
-  readonly requestedDirtyThroughSequence: SyncSequence | null;
-}
-
-const issuedQueryEvaluationAttempts = new WeakSet<object>();
-
-class IssuedQueryEvaluationAttempt implements QueryEvaluationAttemptFields {
-  declare private readonly issuedQueryEvaluationAttempt: void;
-
-  readonly namespaceId: SyncNamespaceId;
-  readonly syncModelId: SyncModelId;
-  readonly sourceEpoch: SyncEpoch;
-  readonly descriptor: QueryDescriptor;
-  readonly generation: QueryGeneration;
-  readonly expectedActiveGeneration: QueryGeneration | null;
-  readonly registrationCursor: NamespaceCursor;
-  readonly requestedDirtyThroughSequence: SyncSequence | null;
-
-  constructor(attempt: QueryEvaluationAttemptFields) {
-    this.namespaceId = attempt.namespaceId;
-    this.syncModelId = attempt.syncModelId;
-    this.sourceEpoch = attempt.sourceEpoch;
-    this.descriptor = freezeQueryDescriptor(attempt.descriptor);
-    this.generation = attempt.generation;
-    this.expectedActiveGeneration = attempt.expectedActiveGeneration;
-    this.registrationCursor = freezeNamespaceCursor(
-      attempt.registrationCursor,
-    );
-    this.requestedDirtyThroughSequence =
-      attempt.requestedDirtyThroughSequence;
-    issuedQueryEvaluationAttempts.add(this);
-    Object.freeze(this);
-  }
-}
-
-export type QueryEvaluationAttempt = IssuedQueryEvaluationAttempt;
-
 export type SequenceDecision =
   | Readonly<{
     readonly _tag: "duplicate";
@@ -456,58 +410,16 @@ export type SequenceDecision =
     readonly observedSourceEpoch: SyncEpoch;
   }>;
 
+type StateBearingDecision<Receipt> = Receipt extends unknown
+  ? Readonly<Receipt & { readonly state: QuerySyncState }>
+  : never;
+
 export type BeginQueryEvaluationDecision =
-  | Readonly<{
-    readonly _tag: "created";
-    readonly state: QuerySyncState;
-    readonly attempt: QueryEvaluationAttempt;
-  }>
-  | Readonly<{
-    readonly _tag: "replayed";
-    readonly state: QuerySyncState;
-    readonly attempt: QueryEvaluationAttempt;
-  }>
-  | Readonly<{
-    readonly _tag: "alreadyAdvanced";
-    readonly state: QuerySyncState;
-    readonly descriptor: QueryDescriptor;
-    readonly requestedExpectedActiveGeneration: QueryGeneration | null;
-    readonly activeGeneration: QueryGeneration;
-    readonly freshThroughSequence: SyncSequence;
-  }>
-  | Readonly<{
-    readonly _tag: "notDirty";
-    readonly state: QuerySyncState;
-    readonly descriptor: QueryDescriptor;
-    readonly activeGeneration: QueryGeneration;
-    readonly requestedDirtyThroughSequence: SyncSequence;
-    readonly freshThroughSequence: SyncSequence;
-  }>;
+  StateBearingDecision<BeginQueryEvaluationReceipt>;
 
 export type ApplyInvalidationsDecision =
-  | Readonly<{
-    readonly _tag: "duplicate";
-    readonly state: QuerySyncState;
-    readonly observedSequence: SyncSequence;
-  }>
-  | Readonly<{
-    readonly _tag: "gap";
-    readonly state: QuerySyncState;
-    readonly expectedSequence: SyncSequence;
-    readonly observedSequence: SyncSequence;
-  }>
-  | Readonly<{
-    readonly _tag: "resetRequired";
-    readonly state: QuerySyncState;
-    readonly expectedSourceEpoch: SyncEpoch;
-    readonly observedSourceEpoch: SyncEpoch;
-  }>
-  | Readonly<{
-    readonly _tag: "applied";
-    readonly state: QuerySyncState;
-    readonly appliedSequence: SyncSequence;
-    readonly affectedQueryKeys: readonly CanonicalQueryKey[];
-  }>;
+  StateBearingDecision<ApplyAdmittedBatchReceipt>;
+
 
 export type CompleteQueryEvaluationDecision =
   | Readonly<{
@@ -620,20 +532,6 @@ function freezeQueryDescriptor(descriptor: QueryDescriptor): QueryDescriptor {
     queryKey: descriptor.queryKey,
     queryIdentity: descriptor.queryIdentity,
   });
-}
-
-export function makeQueryEvaluationAttempt(
-  attempt: QueryEvaluationAttemptFields,
-): QueryEvaluationAttempt {
-  return new IssuedQueryEvaluationAttempt(attempt);
-}
-
-export function isIssuedQueryEvaluationAttempt(
-  value: unknown,
-): value is QueryEvaluationAttempt {
-  return typeof value === "object"
-    && value !== null
-    && issuedQueryEvaluationAttempts.has(value);
 }
 
 function freezeDependencyKeys(
@@ -814,19 +712,6 @@ function dependencyLimitError<Operation extends QueryDependencyLimitOperation>(
 ): QueryDependencyLimitError<Operation> {
   return new QueryDependencyLimitError<Operation>({
     operation,
-    dimension,
-    maximum,
-    observed,
-  });
-}
-
-function stateLimitError(
-  dimension: QuerySyncStateLimitError["dimension"],
-  maximum: number,
-  observed: number,
-): QuerySyncStateLimitError {
-  return new QuerySyncStateLimitError({
-    operation: "buildQuerySyncState",
     dimension,
     maximum,
     observed,
@@ -1280,31 +1165,41 @@ function assertQueryStateInvariants(
 export function buildQuerySyncState(
   input: QuerySyncStateBuildInput,
 ): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
+  const queryCountLimit = firstQuerySyncStateMetricLimit(Object.freeze({
+    ...emptyMetricContribution(),
+    queryCount: input.queries.length,
+  }));
+  if (queryCountLimit !== null) return Result.fail(queryCountLimit);
+  const calculatedMetrics = calculateQuerySyncStateMetrics(input);
+  return buildQuerySyncStateWithValidatedMetrics(
+    input,
+    calculatedMetrics,
+    firstQuerySyncStateMetricLimit(calculatedMetrics),
+  );
+}
+
+function winningMetricLimitReached(
+  limit: QuerySyncStateLimitError | null,
+  metrics: QuerySyncStateMetrics,
+  dimensions: readonly QuerySyncStateLimitError["dimension"][],
+): limit is QuerySyncStateLimitError {
+  return limit !== null
+    && dimensions.includes(limit.dimension)
+    && metrics[limit.dimension] > limit.maximum;
+}
+
+function buildQuerySyncStateWithValidatedMetrics(
+  input: QuerySyncStateBuildInput,
+  calculatedMetrics: QuerySyncStateMetrics,
+  winningMetricLimit: QuerySyncStateLimitError | null,
+): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
   const cursor = input.cursor;
   const queryStates = input.queries;
   const evaluationWork = input.evaluationWork;
   const publicationWork = input.publicationWork;
-  if (queryStates.length > MAX_REFERENCE_QUERIES) {
-    return Result.fail(stateLimitError(
-      "queryCount",
-      MAX_REFERENCE_QUERIES,
-      queryStates.length,
-    ));
-  }
-
-  let retainedIdentityBytes = 0;
-  let dependencyMemberships = 0;
-  let retainedPublicationContentBytes = 0;
-  let countedCanonicalBytes = wellFormedUtf8ByteLength(cursor.namespaceId)
-    + wellFormedUtf8ByteLength(cursor.syncModelId)
-    + wellFormedUtf8ByteLength(cursor.sourceEpoch)
-    + FIXED_WIDTH_INTEGER_BYTES;
-  countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES
-    + SLOT_PRESENCE_BYTES
-    + (evaluationWork.fairnessAnchor === null ? 0 : QUERY_KEY_BYTES)
-    + (3 * SLOT_PRESENCE_BYTES);
   const observedQueryKeys = new Set<CanonicalQueryKey>();
   const queryByKey = new Map<CanonicalQueryKey, QueryState>();
+  let observedMetrics = scopeMetricContribution(cursor, evaluationWork);
 
   if (
     typeof evaluationWork.revision !== "bigint"
@@ -1325,18 +1220,7 @@ export function buildQuerySyncState(
     observedQueryKeys.add(query.descriptor.queryKey);
     queryByKey.set(query.descriptor.queryKey, query);
 
-    const identityBytes = canonicalBase64UrlDecodedLength(
-      query.descriptor.queryIdentity,
-    );
-    retainedIdentityBytes += identityBytes;
-    countedCanonicalBytes += QUERY_KEY_BYTES
-      + identityBytes
-      + (4 * SLOT_PRESENCE_BYTES);
-
     if (query.provisional !== null) {
-      countedCanonicalBytes += (2 * FIXED_WIDTH_INTEGER_BYTES)
-        + (2 * SLOT_PRESENCE_BYTES)
-        + 1;
       if (
         query.provisional.evaluationDisposition._tag !== "ready"
         && query.provisional.evaluationDisposition._tag !== "blocked"
@@ -1351,83 +1235,22 @@ export function buildQuerySyncState(
         ) {
           throw stateInvariantDefect("evaluationDispositionInvalid");
         }
-        countedCanonicalBytes += 2;
-      }
-      if (query.provisional.expectedActiveGeneration !== null) {
-        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
-      }
-      if (query.provisional.requestedDirtyThroughSequence !== null) {
-        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
       }
     }
-    if (query.active !== null) {
-      countedCanonicalBytes += (3 * FIXED_WIDTH_INTEGER_BYTES)
-        + QUERY_RESULT_DIGEST_BYTES
-        + QUERY_AUTHORITY_WITNESS_BYTES
-        + SLOT_PRESENCE_BYTES;
-      if (query.active.dirtyThroughSequence !== null) {
-        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
-      }
-      for (const dependencyKey of query.active.dependencyKeys) {
-        dependencyMemberships += 1;
-        countedCanonicalBytes += canonicalBase64UrlDecodedLength(
-          dependencyKey,
-        );
-      }
-    }
-    if (query.currentCompletion !== null) {
-      countedCanonicalBytes += QUERY_KEY_BYTES
-        + identityBytes
-        + (4 * FIXED_WIDTH_INTEGER_BYTES)
-        + (2 * QUERY_AUTHORITY_WITNESS_BYTES)
-        + QUERY_RESULT_DIGEST_BYTES
-        + (4 * SLOT_PRESENCE_BYTES);
-      if (query.currentCompletion.expectedActiveGeneration !== null) {
-        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
-      }
-      if (query.currentCompletion.relevantThroughSequence !== null) {
-        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
-      }
-      if (
-        query.currentCompletion.requestedDirtyThroughSequence !== null
-      ) {
-        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
-      }
-      for (
-        const dependencyKey of
-        query.currentCompletion.evaluationDependencyKeys
-      ) {
-        countedCanonicalBytes += canonicalBase64UrlDecodedLength(
-          dependencyKey,
-        );
-      }
-    }
-    if (query.precedingCompletionIdentity !== null) {
-      countedCanonicalBytes += QUERY_KEY_BYTES + FIXED_WIDTH_INTEGER_BYTES;
-    }
-
-    if (retainedIdentityBytes > MAX_RETAINED_QUERY_IDENTITY_BYTES) {
-      return Result.fail(stateLimitError(
+    observedMetrics = addMetricContribution(
+      observedMetrics,
+      queryMetricContribution(query),
+    );
+    if (winningMetricLimitReached(
+      winningMetricLimit,
+      observedMetrics,
+      [
         "retainedIdentityBytes",
-        MAX_RETAINED_QUERY_IDENTITY_BYTES,
-        retainedIdentityBytes,
-      ));
-    }
-    if (
-      dependencyMemberships > MAX_AGGREGATE_DEPENDENCY_MEMBERSHIPS
-    ) {
-      return Result.fail(stateLimitError(
         "dependencyMemberships",
-        MAX_AGGREGATE_DEPENDENCY_MEMBERSHIPS,
-        dependencyMemberships,
-      ));
-    }
-    if (countedCanonicalBytes > MAX_COUNTED_CANONICAL_BYTES) {
-      return Result.fail(stateLimitError(
         "countedCanonicalBytes",
-        MAX_COUNTED_CANONICAL_BYTES,
-        countedCanonicalBytes,
-      ));
+      ],
+    )) {
+      return Result.fail(winningMetricLimit);
     }
   }
 
@@ -1438,22 +1261,15 @@ export function buildQuerySyncState(
     throw stateInvariantDefect("fairnessAnchorQueryMissing");
   }
 
-  if (publicationWork.pending.length > MAX_PENDING_PUBLICATIONS) {
-    return Result.fail(stateLimitError(
-      "pendingPublicationCount",
-      MAX_PENDING_PUBLICATIONS,
-      publicationWork.pending.length,
-    ));
+  if (winningMetricLimitReached(
+    winningMetricLimit,
+    calculatedMetrics,
+    ["pendingPublicationCount"],
+  )) {
+    return Result.fail(winningMetricLimit);
   }
 
   const pendingByQuery = new Map<CanonicalQueryKey, PendingQueryPublication>();
-  const publicationCountedBytes = (
-    publication: PendingQueryPublication,
-  ): number => QUERY_KEY_BYTES
-    + canonicalBase64UrlDecodedLength(publication.queryIdentity)
-    + (2 * FIXED_WIDTH_INTEGER_BYTES)
-    + QUERY_RESULT_DIGEST_BYTES
-    + canonicalPublicationContentDecodedLength(publication.content);
   const validatePublicationIdentity = (
     identity: QueryPublicationIdentity,
   ): QueryState => {
@@ -1519,17 +1335,16 @@ export function buildQuerySyncState(
     }
 
     pendingByQuery.set(identity.queryKey, publication);
-    const contentBytes = canonicalPublicationContentDecodedLength(
-      publication.content,
+    observedMetrics = addMetricContribution(
+      observedMetrics,
+      retainedPublicationMetricContribution(publication, "pending"),
     );
-    retainedPublicationContentBytes += contentBytes;
-    countedCanonicalBytes += publicationCountedBytes(publication);
-    if (countedCanonicalBytes > MAX_COUNTED_CANONICAL_BYTES) {
-      return Result.fail(stateLimitError(
-        "countedCanonicalBytes",
-        MAX_COUNTED_CANONICAL_BYTES,
-        countedCanonicalBytes,
-      ));
+    if (winningMetricLimitReached(
+      winningMetricLimit,
+      observedMetrics,
+      ["countedCanonicalBytes"],
+    )) {
+      return Result.fail(winningMetricLimit);
     }
   }
 
@@ -1591,19 +1406,18 @@ export function buildQuerySyncState(
     ) {
       throw stateInvariantDefect("publicationAttemptStateInvalid");
     }
-    retainedPublicationContentBytes +=
-      canonicalPublicationContentDecodedLength(publication.content);
-    countedCanonicalBytes += publicationCountedBytes(publication);
+    observedMetrics = addMetricContribution(
+      observedMetrics,
+      retainedPublicationMetricContribution(publication, "inFlight"),
+    );
   }
 
-  if (
-    retainedPublicationContentBytes > MAX_RETAINED_PUBLICATION_CONTENT_BYTES
-  ) {
-    return Result.fail(stateLimitError(
-      "retainedPublicationContentBytes",
-      MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
-      retainedPublicationContentBytes,
-    ));
+  if (winningMetricLimitReached(
+    winningMetricLimit,
+    observedMetrics,
+    ["retainedPublicationContentBytes"],
+  )) {
+    return Result.fail(winningMetricLimit);
   }
 
   const latestDelivered = publicationWork.latestDelivered;
@@ -1816,35 +1630,19 @@ export function buildQuerySyncState(
     throw stateInvariantDefect("publicationLifecycleLinkInvalid");
   }
 
-  let publicationLifecycleBytes = 0;
-  if (inFlight !== null) {
-    publicationLifecycleBytes += (3 * FIXED_WIDTH_INTEGER_BYTES)
-      + (inFlight.disposition._tag === "blocked" ? 3 : 1);
+  observedMetrics = addMetricContribution(
+    observedMetrics,
+    publicationLifecycleMetricContribution(publicationWork),
+  );
+  if (winningMetricLimitReached(
+    winningMetricLimit,
+    observedMetrics,
+    ["countedCanonicalBytes"],
+  )) {
+    return Result.fail(winningMetricLimit);
   }
-  if (latestDelivered !== null) {
-    publicationLifecycleBytes += PUBLICATION_DELIVERED_TOMBSTONE_BYTES;
-  }
-  if (precedingAttemptOutcome !== null) {
-    publicationLifecycleBytes += QUERY_KEY_BYTES
-      + (2 * FIXED_WIDTH_INTEGER_BYTES)
-      + QUERY_RESULT_DIGEST_BYTES
-      + PUBLICATION_ATTEMPT_OUTCOME_BYTES
-      + (precedingAttemptOutcome.receipt._tag === "recorded" ? 10 : 3);
-  }
-  const settlementEnvelopeBytes = inFlight === null
-    ? 0
-    : Math.max(
-      0,
-      PUBLICATION_SETTLEMENT_LIFECYCLE_BYTES - publicationLifecycleBytes,
-    );
-  countedCanonicalBytes += publicationLifecycleBytes
-    + settlementEnvelopeBytes;
-  if (countedCanonicalBytes > MAX_COUNTED_CANONICAL_BYTES) {
-    return Result.fail(stateLimitError(
-      "countedCanonicalBytes",
-      MAX_COUNTED_CANONICAL_BYTES,
-      countedCanonicalBytes,
-    ));
+  if (winningMetricLimit !== null) {
+    return Result.fail(winningMetricLimit);
   }
 
   const queries = queryStates.map(freezeQueryState);
@@ -1881,25 +1679,15 @@ export function buildQuerySyncState(
     ));
   const frozenEvaluationWork = freezeEvaluationWorkState(evaluationWork);
   const frozenPublicationWork = freezePublicationWorkState(publicationWork);
-  const metrics = Object.freeze({
-    queryCount: queries.length,
-    retainedIdentityBytes,
-    dependencyMemberships,
-    pendingPublicationCount: frozenPublicationWork.pending.length,
-    inFlightPublicationCount:
-      frozenPublicationWork.inFlight === null ? 0 : 1,
-    retainedPublicationContentBytes,
-    settlementEnvelopeBytes,
-    countedCanonicalBytes,
-  });
-
+  const frozenCursor = freezeNamespaceCursor(cursor);
+  const frozenQueries = Object.freeze(queries);
   return Result.succeed(Object.freeze({
-    cursor: freezeNamespaceCursor(cursor),
-    queries: Object.freeze(queries),
+    cursor: frozenCursor,
+    queries: frozenQueries,
     dependencyDirectory: Object.freeze(directory),
     evaluationWork: frozenEvaluationWork,
     publicationWork: frozenPublicationWork,
-    metrics,
+    metrics: calculatedMetrics,
   }));
 }
 

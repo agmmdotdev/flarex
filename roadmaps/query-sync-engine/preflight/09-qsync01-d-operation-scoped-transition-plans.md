@@ -2,11 +2,13 @@
 
 ## Status
 
-**Preflight status:** accepted on 2026-08-29, docs only.
+**Preflight status:** `QSYNC01-D0` accepted on 2026-08-29; `QSYNC01-D1`
+implemented and verified on 2026-08-29.
 
-This record completes the `QSYNC01-D0` architecture freeze. It authorizes no
-TypeScript implementation. The first proposed code checkpoint is the separate
-`QSYNC01-D1` medium slice defined below and still requires explicit approval.
+This record completes the `QSYNC01-D0` architecture freeze and now records the
+separately approved `QSYNC01-D1` implementation. D1 adds the private source
+planner foundation plus initialization, begin, and staged admitted-batch
+application. `QSYNC01-D2` through D4 remain separately gated.
 
 `QSYNC-FX01-C1`, `QSYNC-FX01-C2`, and `QSYNC-FX01-C3` remain blocked. No
 Cloudflare SQLite schema, local storage generation, migration, Durable Object
@@ -544,7 +546,9 @@ nothing.
 
 ### `QSYNC01-D1` - foundation, initialize, begin, and apply
 
-The first proposed medium code slice will:
+**Status:** complete on 2026-08-29.
+
+The completed medium code slice:
 
 - add the shared fact, plan, nominal resume, receipt-facet, accounting, limit,
   and local-invariant foundations;
@@ -559,6 +563,26 @@ The first proposed medium code slice will:
 D1 adds no package export and no backend, schema, or host code. Its inclusion
 of apply is deliberate: the first slice must prove the staged-read architecture
 rather than defer its principal risk.
+
+The implementation keeps the source-only planner family under
+`packages/query-sync/src/transition-plan/`, with no package-manifest export.
+One shared accounting owner now supplies the aggregate oracle and bounded
+planners, including fixed-priority exact-final state-limit validation. Begin
+and apply aggregate APIs are planner-backed wrappers; the reference state
+adapter consumes the same applicators' explicit `write` or `noWrite`
+disposition. Both prior initialization reducers now delegate to the one
+initialization planner and shared integration-error mapping.
+
+The D1 proof includes the complete 325-test package suite, an independent
+normalized fact/read/change interpreter for begin and staged apply,
+deterministic mixed histories, replay and dirty coalescing, limit-plus-one
+staging, exact metric reconstruction, input-order-independent overflow
+receipts, keyed presence and bounded noninterference, nominal resume rejection,
+both swap-fault timings for cursor-only and affected-query apply plus
+write-bearing begin replay, concurrent reference histories, receipt ownership,
+package typecheck, both Oxlint gates, and the required final-diff reviews. The
+planner imports no complete aggregate, host runtime, database, Cloudflare, or
+Effect runtime capability.
 
 ### `QSYNC01-D2` - evaluation completion
 
@@ -610,7 +634,7 @@ They remain mandatory at their later adapter gates.
 
 This accepted preflight does not authorize:
 
-- D1, D2, D3, or D4 implementation without a separate approval;
+- D2, D3, or D4 implementation without a separate approval;
 - a public API, package-root export, new workspace package, or new dependency;
 - SQLite DDL, indexes, migration, storage generation, dual tables, aggregate
   blob, compatibility write, shadow reducer, or backend adapter;
@@ -626,9 +650,9 @@ This accepted preflight does not authorize:
 ## Next Checkpoint
 
 The next proposed action is an explicit approval or rejection of
-`QSYNC01-D1`: the shared transition-plan foundation plus initialization,
-begin, and staged admitted-batch application. Until D1 is approved, there is
-no code slice. Until D1-D4 all complete, there is no FX01 SQLite slice.
+`QSYNC01-D2`, moving `completeQueryEvaluation` alone onto the private planner
+seam. Until D1-D4 all complete, there is no FX01 SQLite slice and the package
+export remains withheld.
 
 `QSYNC-CF01` remains a separate delivery feasibility/selection gate and does
 not change this ordering.

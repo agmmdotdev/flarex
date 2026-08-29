@@ -407,6 +407,7 @@ export class QuerySyncInvariantDefect extends Data.TaggedError(
   "QuerySyncInvariantDefect",
 )<{
   readonly operation:
+    | "initializeOrInspectNamespace"
     | "beginQueryEvaluation"
     | "applyAdmittedInvalidations"
     | "completeQueryEvaluation"
@@ -470,7 +471,9 @@ export class QuerySyncInvariantDefect extends Data.TaggedError(
     | "publicationOutcomeStateInvalid"
     | "publicationOutcomeReceiptInvalid"
     | "publicationLifecycleLinkInvalid"
-    | "dirtyEvaluationClaimUnexpectedDecision";
+    | "dirtyEvaluationClaimUnexpectedDecision"
+    | "transitionPlanMetricsMismatch"
+    | "transitionPlanUnexpectedStep";
 }> {}
 
 export type QuerySyncAuthorityError<

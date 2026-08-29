@@ -18,9 +18,6 @@ import type {
   RecordEvaluationAttemptOutcomeError,
 } from "../../kernel/EvaluationWork.js";
 import { QuerySyncInvariantDefect } from "../../kernel/Errors.js";
-import {
-  createEmptyQuerySyncState,
-} from "../../kernel/Model.js";
 import type {
   AdmittedInvalidationBatch,
   BeginQueryEvaluationRequest,
@@ -32,8 +29,6 @@ import type {
   QuerySyncState,
 } from "../../kernel/Model.js";
 import {
-  applyAdmittedInvalidations,
-  beginQueryEvaluation,
   completeQueryEvaluation,
 } from "../../kernel/Policy.js";
 import type {
@@ -41,6 +36,10 @@ import type {
   BeginQueryEvaluationError,
   CompleteQueryEvaluationError,
 } from "../../kernel/Policy.js";
+import {
+  applyAdmittedInvalidationsTransition,
+  applyBeginQueryEvaluationTransition,
+} from "../../kernel/TransitionPlanAggregate.js";
 import type {
   QueryPublicationArtifact,
 } from "../../kernel/Publication.js";
@@ -61,18 +60,12 @@ import {
   QuerySyncStateCommitOutcomeUnknownError,
   QuerySyncStateUnavailableError,
   QuerySyncStoredStateCorruptError,
-  QuerySyncStoredStateIncompatibleError,
 } from "../../state/Errors.js";
 import type {
   QuerySyncStateIntegrationError,
   QuerySyncStateOperation,
 } from "../../state/Errors.js";
 import {
-  epochReplacedReceipt,
-  initializedNamespaceReceipt,
-  modelReplacedReceipt,
-  projectApplyReceipt,
-  projectBeginReceipt,
   projectClaimEvaluationWorkReceipt,
   projectClaimPublicationReceipt,
   projectCompleteReceipt,
@@ -80,6 +73,10 @@ import {
   projectRecordEvaluationAttemptOutcomeReceipt,
   projectRecordPublicationAttemptOutcomeReceipt,
 } from "../../state/Receipts.js";
+import {
+  applyInitializeNamespaceTransition,
+} from "../../state/Initialization.js";
+import type { TransitionDisposition } from "../../transition-plan/Model.js";
 import type {
   ApplyAdmittedBatchReceipt,
   BeginQueryEvaluationReceipt,
@@ -147,7 +144,7 @@ export interface ReferenceQuerySyncStateHarness {
 interface AtomicTransition<A> {
   readonly receipt: A;
   readonly nextState: QuerySyncState;
-  readonly changed: boolean;
+  readonly disposition: TransitionDisposition;
 }
 
 type AtomicReducer<A, E> = (
@@ -209,7 +206,7 @@ function applyAtomicTransition<
     onFailure: (failure) => [Result.fail(failure), cell],
     onSuccess: (transition) => {
       if (
-        transition.changed
+        transition.disposition === "write"
         && faultMatches(cell.fault, binding, operation, "beforeSwap")
       ) {
         return [
@@ -223,7 +220,7 @@ function applyAtomicTransition<
         ];
       }
 
-      const nextCell = transition.changed
+      const nextCell = transition.disposition === "write"
         ? replaceAggregate(
           cell,
           binding.physicalNamespaceId,
@@ -232,7 +229,7 @@ function applyAtomicTransition<
         )
         : cell;
       if (
-        transition.changed
+        transition.disposition === "write"
         && faultMatches(cell.fault, binding, operation, "afterSwap")
       ) {
         return [
@@ -367,86 +364,22 @@ function initializeReducer(
   | BuildQuerySyncStateError
   | QuerySyncStateIntegrationError<"initializeOrInspectNamespace">
 > {
-  return (current, wasPreviouslyInitialized) => Result.gen(function* () {
-    if (
-      bootstrapCursor.namespaceId !== binding.namespaceId
-      || bootstrapCursor.syncModelId !== binding.syncModelId
-      || bootstrapCursor.sourceEpoch !== binding.sourceEpoch
-    ) {
-      return yield* Result.fail(
-        new QuerySyncStoredStateIncompatibleError<
-          "initializeOrInspectNamespace"
-        >({
-          operation: "initializeOrInspectNamespace",
-          commitCertainty: "notCommitted",
-          reason: "bootstrapBindingMismatch",
-          cause: null,
-        }),
-      );
-    }
-    if (current === null) {
-      if (wasPreviouslyInitialized) {
-        return yield* Result.fail(new QuerySyncStoredStateCorruptError<
-          "initializeOrInspectNamespace"
-        >({
-          operation: "initializeOrInspectNamespace",
-          commitCertainty: "notCommitted",
-          reason: "aggregateMissing",
-          cause: null,
-        }));
-      }
-      const nextState = yield* createEmptyQuerySyncState(bootstrapCursor);
-      return Object.freeze({
-        receipt: initializedNamespaceReceipt(
-          "initialized",
-          nextState.cursor,
-          nextState.metrics,
-        ),
-        nextState,
-        changed: true,
-      });
-    }
-    if (current.cursor.namespaceId !== binding.namespaceId) {
-      return yield* Result.fail(new QuerySyncStoredStateCorruptError<
-        "initializeOrInspectNamespace"
-      >({
-        operation: "initializeOrInspectNamespace",
-        commitCertainty: "notCommitted",
-        reason: "namespaceBindingMismatch",
-        cause: null,
-      }));
-    }
-    if (current.cursor.syncModelId !== binding.syncModelId) {
-      return Object.freeze({
-        receipt: modelReplacedReceipt(
-          current.cursor,
-          binding.syncModelId,
-        ),
-        nextState: current,
-        changed: false,
-      });
-    }
-    if (current.cursor.sourceEpoch !== binding.sourceEpoch) {
-      return Object.freeze({
-        receipt: epochReplacedReceipt(
-          current.cursor,
-          binding.sourceEpoch,
-        ),
-        nextState: current,
-        changed: false,
-      });
-    }
-    return Object.freeze({
-      receipt: initializedNamespaceReceipt(
-        "existing",
-        current.cursor,
-        current.metrics,
-      ),
-      nextState: current,
-      changed: false,
+  return (current, wasPreviouslyInitialized) =>
+    applyInitializeNamespaceTransition({
+      current,
+      wasPreviouslyInitialized,
+      binding,
+      bootstrapCursor,
     });
-  });
 }
+
+function legacyAggregateDisposition(
+  previous: QuerySyncState,
+  next: QuerySyncState,
+): TransitionDisposition {
+  return previous === next ? "noWrite" : "write";
+}
+
 
 function makeReferencePort(
   cellRef: SynchronizedRef.SynchronizedRef<ReferenceStateCell>,
@@ -489,11 +422,14 @@ function makeReferencePort(
           binding,
           current,
         );
-        const decision = yield* beginQueryEvaluation(state, request);
+        const transition = yield* applyBeginQueryEvaluationTransition(
+          state,
+          request,
+        );
         return Object.freeze({
-          receipt: projectBeginReceipt(decision),
-          nextState: decision.state,
-          changed: decision.state !== state,
+          receipt: transition.plan.receipt,
+          nextState: transition.decision.state,
+          disposition: transition.disposition,
         });
       }),
     );
@@ -522,11 +458,14 @@ function makeReferencePort(
           binding,
           current,
         );
-        const decision = yield* applyAdmittedInvalidations(state, batch);
+        const transition = yield* applyAdmittedInvalidationsTransition(
+          state,
+          batch,
+        );
         return Object.freeze({
-          receipt: projectApplyReceipt(decision),
-          nextState: decision.state,
-          changed: decision.state !== state,
+          receipt: transition.plan.receipt,
+          nextState: transition.decision.state,
+          disposition: transition.disposition,
         });
       }),
     );
@@ -570,7 +509,7 @@ function makeReferencePort(
         return Object.freeze({
           receipt: projectCompleteReceipt(decision),
           nextState: decision.state,
-          changed: decision.state !== state,
+          disposition: legacyAggregateDisposition(state, decision.state),
         });
       }),
     );
@@ -601,7 +540,7 @@ function makeReferencePort(
         return Object.freeze({
           receipt: projectClaimEvaluationWorkReceipt(decision),
           nextState: decision.state,
-          changed: decision.state !== state,
+          disposition: legacyAggregateDisposition(state, decision.state),
         });
       }),
     );
@@ -641,7 +580,7 @@ function makeReferencePort(
         return Object.freeze({
           receipt: projectRecordEvaluationAttemptOutcomeReceipt(decision),
           nextState: decision.state,
-          changed: decision.state !== state,
+          disposition: legacyAggregateDisposition(state, decision.state),
         });
       }),
     );
@@ -676,7 +615,7 @@ function makeReferencePort(
           return Object.freeze({
             receipt: projectClaimPublicationReceipt(decision),
             nextState: decision.state,
-            changed: decision.state !== state,
+            disposition: legacyAggregateDisposition(state, decision.state),
           });
         });
       }),
@@ -722,7 +661,7 @@ function makeReferencePort(
           return Object.freeze({
             receipt: projectRecordPublicationAttemptOutcomeReceipt(decision),
             nextState: decision.state,
-            changed: decision.state !== state,
+            disposition: legacyAggregateDisposition(state, decision.state),
           });
         });
       }),
@@ -756,7 +695,7 @@ function makeReferencePort(
         return Object.freeze({
           receipt: projectCompletePublicationReceipt(decision),
           nextState: decision.state,
-          changed: decision.state !== state,
+          disposition: legacyAggregateDisposition(state, decision.state),
         });
       }),
     );
