@@ -46,7 +46,9 @@ allowed boundary categories are:
   - `packages/flarex-backend/src/registry/InternalRouteBoundary.ts`
   - `packages/flarex-backend/src/scheduler/InternalRouteBoundary.ts`
   - `packages/flarex-backend/src/partitionDO.ts`
-- Public Promise-shaped backend adapter APIs:
+- Public Promise-shaped backend and executor compatibility APIs:
+  - `packages/executor/src/health.ts`
+  - `packages/executor/src/sessions.ts`
   - `packages/flarex-backend/src/invoke.ts`
   - `packages/flarex-backend/src/transaction.ts`
   - `packages/flarex-backend/src/liveQueryDelivery.ts`
@@ -174,7 +176,10 @@ What changed:
   namespace aliases, runtime property aliases, and direct runtime imports from
   `effect` / `effect/Effect`.
 - The audited `Effect.runPromise` list now covers backend, local dev/analyzer,
-  executor HTTP, and artifact materializer production source boundaries.
+  executor, executor HTTP, and artifact materializer production source
+  boundaries. The executor entries are the public `health()` Promise facade and
+  the single session-lifecycle Promise bridge; internal session retry remains
+  Effect-native.
 - The Vite generated-directory watcher test asserts through the existing
   typecheck failure path, without adding private test hooks to the public plugin
   options type.

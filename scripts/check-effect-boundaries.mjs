@@ -42,6 +42,8 @@ const productionSourceExtensions = new Set([".ts", ".tsx", ".mts", ".cts", ".js"
 const allowedRunPromiseSites = new Map([
   [siteKey("packages/executor-http/src/liveQueryDelivery.ts", "runFlarexBackendLiveQueryPromise"), 1],
   [siteKey("packages/executor-http/src/routeEffects.ts", "handleExecutorHttpDecodedBody"), 1],
+  [siteKey("packages/executor/src/health.ts", "getExecutorHealth"), 1],
+  [siteKey("packages/executor/src/sessions.ts", "runInvokeSessionPromise"), 1],
   [siteKey("packages/executor/src/transactionGrant.ts", "verify"), 1],
   [siteKey("packages/flarex-backend/src/artifactRuntime.ts", "ServiceBindingExecutionArtifactRuntime.invoke"), 1],
   [siteKey("packages/flarex-backend/src/artifactRuntime.ts", "fetch"), 1],
