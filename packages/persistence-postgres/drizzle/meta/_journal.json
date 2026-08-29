@@ -547,6 +547,13 @@
       "when": 1787750851934,
       "tag": "0077_lame_human_torch",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1788028314037,
+      "tag": "0078_workable_the_captain",
+      "breakpoints": true
     }
   ]
 }

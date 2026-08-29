@@ -8658,6 +8658,13 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
       .where(sql`${table.definitionGeneration} = 'application_v1'
         and (${table.aggregateJson} #>> '{aggregate,phase}')
           is distinct from 'terminal'`),
+    index("fx_task_run_v1_application_list_idx")
+      .on(
+        table.scopeId,
+        table.createdAtMs.desc(),
+        sql`${table.runId} collate "C" desc`,
+      )
+      .where(sql`${table.definitionGeneration} = 'application_v1'`),
     check(
       "fx_task_run_v1_identity_check",
       sql`${table.runId} ~ '^run_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'

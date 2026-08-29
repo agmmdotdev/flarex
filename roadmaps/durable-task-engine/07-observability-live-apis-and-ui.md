@@ -2,8 +2,9 @@
 
 ## Status And Decision Boundary
 
-**Status:** Architecture roadmap with DTE07-B1/B2 and DTE07-C1/C2/C3/C4/C5/C6/C7 complete
-privately on 2026-08-29.
+**Status:** Architecture roadmap with DTE07-B1/B2 and
+DTE07-C1/C2/C3/C4/C5/C6/C7 complete privately through 2026-08-30. DTE07-C8 is
+implemented privately in PGlite; real-PostgreSQL acceptance remains pending.
 DTE07-B1 implements one
 production-inert run projection and pure projector under
 [`preflight/51-dte07-private-run-projection.md`](./preflight/51-dte07-private-run-projection.md).
@@ -27,10 +28,11 @@ DTE07-C6 implements the clean `cancelTask(run, options)` contract fixed by
 DTE07-B2/C7 define the production-inert bounded Task run-list contract and
 private Standard query bridge fixed by
 [`preflight/58-dte07-private-task-run-list-query.md`](./preflight/58-dte07-private-task-run-list-query.md).
+DTE07-C8 implements the located PostgreSQL/PGlite list store fixed by
+[`preflight/59-dte07-located-task-run-list-store.md`](./preflight/59-dte07-located-task-run-list-store.md).
 It does not authorize other commands, provider delivery, cancellation waiting,
-a persistence adapter, clean or public list/cancellation contracts, public
-routes, deployment, subscriptions, telemetry ingestion, retention/GC, or UI
-publication.
+a clean or public list contract, public routes, deployment, subscriptions,
+telemetry ingestion, retention/GC, or UI publication.
 
 DTE06-E5 and DTE06-F0A/F0B/F1/F2 are complete privately, including connected
 execution and fresh-host takeover in PGlite and ordinary-role PostgreSQL.
@@ -269,7 +271,7 @@ contract, domain-owned item decoding, safe page validation, and reuse of the
 existing point projection owner fixed by preflight 58. It adds no persistence
 adapter, filter, clean facade, or public cursor encoding.
 
-### DTE07-C: Private Query And Command Adapters — C7 Complete
+### DTE07-C: Private Query And Command Adapters — C8 PG Acceptance Pending
 
 - implement private HTTP-agnostic query capabilities;
 - compose exact cancellation through the admitted lifecycle;
@@ -304,8 +306,13 @@ one private command, and projects the receipt without exposing lifecycle or
 provider internals. It does not wait for execution to stop.
 
 DTE07-C7 implements only the private Standard Application Task run-list query
-bridge fixed by preflight 58. A real located-scope persistence adapter and the
-clean `listTaskRuns()` operation remain separate approvals.
+bridge fixed by preflight 58.
+
+DTE07-C8 implements only the captured-authority PostgreSQL/PGlite list store
+fixed by preflight 59. It uses compact JSONB projection, database observation
+time, exact C-collated keyset order, and a dedicated partial index. Its PGlite
+proof is accepted; real-PostgreSQL acceptance remains pending. The clean
+`listTaskRuns()` operation remains a separate approval.
 
 ### DTE07-D: Live Invalidation And Reconnect
 
@@ -387,6 +394,8 @@ DTE07-C5 is complete for the private Task cancellation command adapter under
 preflight 56. DTE07-C6 is complete for the clean `cancelTask(run, options)`
 handle contract under preflight 57. DTE07-B2/C7 are complete for the bounded
 production-inert Task run-list contract and private Standard bridge under
-preflight 58. The located persistence adapter and clean `listTaskRuns()` facade
-remain separate gates. Before attempt-history, event, other command, live,
-public, or hosted work, approve that owner separately.
+preflight 58. DTE07-C8 is implemented privately for the located compact
+PostgreSQL/PGlite list store under preflight 59, with real-PostgreSQL acceptance
+pending. After that acceptance, the clean `listTaskRuns()` facade is the next
+separate gate. Before attempt-history, event, other command, live, public, or
+hosted work, approve that owner separately.

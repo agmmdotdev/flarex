@@ -1,0 +1,1 @@
+CREATE INDEX "fx_task_run_v1_application_list_idx" ON "fx_system_durable_task_run_v1" USING btree ("scope_id","created_at_ms" DESC NULLS LAST,"run_id" collate "C" desc) WHERE "fx_system_durable_task_run_v1"."definition_generation" = 'application_v1';
