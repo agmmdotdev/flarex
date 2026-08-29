@@ -667,11 +667,13 @@ the test package is forbidden.
 
 ## Current Stop Condition
 
-The three `CAPI-F` entry/delivery checkpoints and the production-inert DTE07-B1
-authoritative single-run projection are complete. DTE07-B1 is recorded in
+The three `CAPI-F` entry/delivery checkpoints, production-inert DTE07-B1
+authoritative single-run projection, and DTE07-C1 clean point query are
+complete. DTE07-B1 is recorded in
 [`durable-task-engine/preflight/51-dte07-private-run-projection.md`](./durable-task-engine/preflight/51-dte07-private-run-projection.md).
-The next gate is a focused preflight for the scope-bound query adapter and its
-error contract. That adapter and the result-body owner must still precede
-waiting, and the private command adapter must precede cancellation. Scheduling,
-public SDK, deployment, routing, and production entry surfaces remain
-separately gated.
+The focused DTE07-C1 scope-bound point-query adapter and clean
+`inspectTask(run)` operation are complete under
+[`durable-task-engine/preflight/52-dte07-private-task-run-query.md`](./durable-task-engine/preflight/52-dte07-private-task-run-query.md).
+The separate result-body owner must still precede waiting, and the private
+command adapter must precede cancellation. Scheduling, public SDK, deployment,
+routing, and production entry surfaces remain separately gated.

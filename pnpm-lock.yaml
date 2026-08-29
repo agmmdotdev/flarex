@@ -909,6 +909,9 @@ importers:
       '@flarex/analysis':
         specifier: workspace:*
         version: link:../analysis
+      '@flarex/durable-task':
+        specifier: workspace:*
+        version: link:../durable-task
       '@flarex/executor':
         specifier: workspace:*
         version: link:../executor

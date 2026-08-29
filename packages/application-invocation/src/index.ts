@@ -26,8 +26,11 @@ export type {
 } from "./ResultContract.js";
 
 export {
+  inspectTask,
   startTask,
+  type InspectTaskError,
   type StartTaskError,
   type StartTaskOptions,
   type TaskRun,
+  type TaskRunStatus,
 } from "./Task.js";

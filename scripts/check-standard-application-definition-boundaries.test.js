@@ -432,6 +432,7 @@ describe("Application invocation boundary checker", () => {
           import type { FunctionReference } from "@flarex/application-definition";
           import { inspectFunctionReference } from "@flarex/application-definition/internal/function-reference";
           import { invokeApplicationQuery } from "@flarex/standard-application-invocation/internal/application-query-system";
+          import { inspectStandardApplicationTaskRun } from "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
           import { Effect } from "effect";
           import type { ExecutionIdentity } from "flarex-protocol/auth";
           import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";

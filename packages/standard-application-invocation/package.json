@@ -19,6 +19,7 @@
     "./internal/application-action-system": "./src/ApplicationActionSystem.ts",
     "./internal/application-task-system": "./src/ApplicationTaskSystem.ts",
     "./internal/standard-application-task-system": "./src/StandardApplicationTaskSystem.ts",
+    "./internal/standard-application-task-run-query": "./src/StandardApplicationTaskRunQuery.ts",
     "./internal/application-task-query-authority": "./src/ApplicationTaskQueryAuthority.ts",
     "./internal/application-task-mutation-authority": "./src/ApplicationTaskMutationAuthority.ts",
     "./internal/application-task-compute-delivery": "./src/ApplicationTaskComputeDelivery.ts",
@@ -36,6 +37,7 @@
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
+    "@flarex/durable-task": "workspace:*",
     "@flarex/executor": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
     "@flarex/standard-application-definition": "workspace:*",

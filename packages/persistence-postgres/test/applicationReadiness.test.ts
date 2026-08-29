@@ -7,6 +7,10 @@ import {
   makeTaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
+  makeTaskRunQueryLayer,
+  TaskRunQuery,
+} from "@flarex/durable-task/internal/run-projection";
+import {
   decideApplicationStartAttemptV1,
   decideApplicationRequestCancellationV1,
   decodeApplicationPersistedTaskRequestedEffectJsonV1,
@@ -1241,6 +1245,22 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const lifecycleStore = makeApplicationTaskSystemRunAttemptStoreV1(located, {
       randomUuid: uuidSequence(91),
     });
+    const projectedRun = await runEffect(Effect.gen(function* () {
+      const query = yield* TaskRunQuery;
+      return yield* query.inspect(created.runId);
+    }).pipe(Effect.provide(makeTaskRunQueryLayer(lifecycleStore))));
+    expect(projectedRun).toMatchObject({
+      runId: created.runId,
+      createdAtMs: created.createdAtMs,
+      runVersion: 1n,
+      state: {
+        kind: "ready",
+        eligibleAtMs: created.createdAtMs,
+        cancellation: { kind: "not_requested" },
+      },
+    });
+    expect(Object.isFrozen(projectedRun)).toBe(true);
+    expect(Object.isFrozen(projectedRun.state)).toBe(true);
     const startCommand = Object.freeze({
       type: "start_attempt" as const,
       runId: created.runId,

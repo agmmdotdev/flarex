@@ -12,6 +12,8 @@ const durableTaskManifestPath = "packages/durable-task/package.json";
 const durableTaskSourcePrefix = "packages/durable-task/";
 const standardApplicationDefinitionManifestPath =
   "packages/standard-application-definition/package.json";
+const standardApplicationInvocationManifestPath =
+  "packages/standard-application-invocation/package.json";
 const persistencePostgresManifestPath =
   "packages/persistence-postgres/package.json";
 const flarexBackendManifestPath = "packages/flarex-backend/package.json";
@@ -21,6 +23,8 @@ const standardApplicationTaskMutationAuthorityPath =
   "packages/standard-application-invocation/src/ApplicationTaskMutationAuthority.ts";
 const standardApplicationTaskSystemPath =
   "packages/standard-application-invocation/src/ApplicationTaskSystem.ts";
+const standardApplicationTaskRunQueryPath =
+  "packages/standard-application-invocation/src/StandardApplicationTaskRunQuery.ts";
 const systemTestManifestPath = "packages/system-test/package.json";
 const systemTestApplicationTaskSystemConnectedHarnessPath =
   "packages/system-test/support/applicationTaskSystemConnectedHarness.ts";
@@ -511,6 +515,13 @@ const admittedSystemTestConnectedHarnessControlTargetImports = new Map([
 ]);
 const admittedSystemTestConnectedHarnessControlFactoryImports = new Map([
   ["createTaskComputeDeliveryControlDirectoryTargetForSystemTest", "value"],
+]);
+const admittedStandardApplicationTaskRunQueryImports = new Map([
+  ["makeTaskRunQueryLayer", "value"],
+  ["TaskRunQuery", "value"],
+  ["TaskRunProjection", "type"],
+  ["TaskRunQueryApi", "type"],
+  ["TaskRunQueryError", "type"],
 ]);
 const admittedLaterDurableTaskImports = [
   makeExactImportAdmission(
@@ -1120,6 +1131,7 @@ const durableTaskAllowedExports = Object.freeze({
   "./internal/compute-provider-testing-v1": "./src/computeProvider/testing-v1.ts",
   "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
   "./internal/run-creation-v1": "./src/runCreation/v1.ts",
+  "./internal/run-projection": "./src/runProjection/index.ts",
   "./internal/run-read-v1": "./src/runRead/v1.ts",
   "./internal/scheduling-v1": "./src/scheduling/v1.ts",
   "./internal/scheduling-testing-v1": "./src/scheduling/testing-v1.ts",
@@ -1789,7 +1801,7 @@ export function analyzeDurableTaskManifest(manifest) {
     || !hasExactStringRecord(exportsField, durableTaskAllowedExports)
   ) {
     errors.push(
-      `${durableTaskManifestPath}: exports must contain only the admitted compute-provider, compute-provider-testing, run-attempt, run-creation, run-read, scheduling, and scheduling-testing internal subpaths.`,
+      `${durableTaskManifestPath}: exports must contain only the admitted compute-provider, compute-provider-testing, run-attempt, run-creation, run-projection, run-read, scheduling, and scheduling-testing internal subpaths.`,
     );
   }
 
@@ -2523,8 +2535,9 @@ function isDurableTaskPackageSpecifier(specifier) {
 }
 
 /**
- * DTE04-A2b through DTE04-B and the production-inert DTE06-C3 checkpoint admit
- * only the exact workspace consumers below. These are
+ * DTE04-A2b through DTE04-B, the production-inert DTE06-C3 checkpoint, and
+ * the private DTE07-C1 query checkpoint admit only the exact workspace
+ * consumers below. These are
  * definition/schema/private-adapter ownership edges, not host activation.
  *
  * @param {string} relativePath
@@ -2538,6 +2551,7 @@ function isAdmittedDurableTaskConsumerDependency(
 ) {
   return (
     relativePath === standardApplicationDefinitionManifestPath
+    || relativePath === standardApplicationInvocationManifestPath
     || relativePath === persistencePostgresManifestPath
     || relativePath === flarexBackendManifestPath
     || relativePath === systemTestManifestPath
@@ -2558,6 +2572,15 @@ function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
     specifier,
     node,
   )) return true;
+  if (
+    relativePath === standardApplicationTaskRunQueryPath
+    && specifier === "@flarex/durable-task/internal/run-projection"
+  ) {
+    return hasExactNamedImportModes(
+      node,
+      admittedStandardApplicationTaskRunQueryImports,
+    );
+  }
   return isAdmittedStandardApplicationTaskDefinitionImport(
     relativePath,
     specifier,

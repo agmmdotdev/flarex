@@ -2,12 +2,15 @@
 
 ## Status And Decision Boundary
 
-**Status:** Architecture roadmap with the first bounded private projection
-checkpoint complete on 2026-08-29. DTE07-B1 implements one production-inert
-run projection and pure projector under
+**Status:** Architecture roadmap with DTE07-B1 and the first bounded private
+query checkpoint complete on 2026-08-29. DTE07-B1 implements one
+production-inert run projection and pure projector under
 [`preflight/51-dte07-private-run-projection.md`](./preflight/51-dte07-private-run-projection.md).
-It does not authorize query adapters, public routes, deployment, subscriptions,
-telemetry ingestion, retention/GC, or UI publication.
+DTE07-C1 implements the point-query service and clean `inspectTask(run)`
+operation fixed by
+[`preflight/52-dte07-private-task-run-query.md`](./preflight/52-dte07-private-task-run-query.md).
+It does not authorize waiting, commands, public routes, deployment,
+subscriptions, telemetry ingestion, retention/GC, or UI publication.
 
 DTE06-E5 and DTE06-F0A/F0B/F1/F2 are complete privately, including connected
 execution and fresh-host takeover in PGlite and ordinary-role PostgreSQL.
@@ -240,12 +243,16 @@ DTE07-B1 implements only the single-run projection fixed by preflight 51.
 Attempt history, events, lists, pagination, result-body reads, and every live
 contract remain later bounded checkpoints.
 
-### DTE07-C: Private Query And Command Adapters
+### DTE07-C: Private Query And Command Adapters — C1 Complete
 
 - implement private HTTP-agnostic query capabilities;
 - compose exact cancellation through the admitted lifecycle;
 - keep result-body, trace/log, and output-stream owners separate; and
 - prove alternate identifiers cannot bypass authorization.
+
+DTE07-C1 implements only the scope-bound single-run query service and clean
+`inspectTask(run)` operation fixed by preflight 52. Commands and every broader
+read remain separate checkpoints.
 
 ### DTE07-D: Live Invalidation And Reconnect
 
@@ -317,7 +324,7 @@ cursor/page bound, and owns exact immutable/redacted output. It proceeds
 privately before DTE06-F3/F4 because it adds no route or hosted resource. Live
 invalidation remains unselected and unapproved.
 
-The next gate is a focused DTE07-C preflight for the private scope-bound query
-adapter and its error contract. Before any list, attempt-history, event,
-result-body, command, live, public, or hosted surface, approve that owner
-separately.
+DTE07-C1 is complete for the private scope-bound point-query adapter and clean
+`inspectTask(run)` operation. Before any list, attempt-history, event,
+result-body, waiting, command, live, public, or hosted surface, approve that
+owner separately.

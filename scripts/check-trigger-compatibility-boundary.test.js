@@ -117,6 +117,7 @@ describe("Trigger compatibility boundary checker", () => {
         "./internal/compute-provider-testing-v1": "./src/computeProvider/testing-v1.ts",
         "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
         "./internal/run-creation-v1": "./src/runCreation/v1.ts",
+        "./internal/run-projection": "./src/runProjection/index.ts",
         "./internal/run-read-v1": "./src/runRead/v1.ts",
         "./internal/scheduling-v1": "./src/scheduling/v1.ts",
         "./internal/scheduling-testing-v1": "./src/scheduling/testing-v1.ts",
@@ -150,7 +151,7 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/durable-task/package.json: version must be 0.0.1 during the private vertical.",
       "packages/durable-task/package.json: private must remain true during the private vertical.",
       "packages/durable-task/package.json: type must be module.",
-      "packages/durable-task/package.json: exports must contain only the admitted compute-provider, compute-provider-testing, run-attempt, run-creation, run-read, scheduling, and scheduling-testing internal subpaths.",
+      "packages/durable-task/package.json: exports must contain only the admitted compute-provider, compute-provider-testing, run-attempt, run-creation, run-projection, run-read, scheduling, and scheduling-testing internal subpaths.",
       "packages/durable-task/package.json: runtime dependencies must contain only workspace @flarex/utils, root-catalog effect, and workspace flarex-protocol.",
       "packages/durable-task/package.json: scripts must exactly match the admitted build, typecheck, and test commands.",
       "packages/durable-task/package.json: devDependencies must contain only root-catalog typescript and vitest.",
@@ -321,6 +322,45 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/standard-application-definition/src/taskDefinition/Schema.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/standard-application-definition/src/taskDefinition/Schema.ts:3 production source must not activate @flarex/durable-task before host admission.",
       "packages/standard-application-definition/src/v1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+    ]);
+  });
+
+  it("admits only the Standard invocation Task run-query bridge", () => {
+    const queryPath =
+      "packages/standard-application-invocation/src/StandardApplicationTaskRunQuery.ts";
+    const manifest = [{
+      relativePath: "packages/standard-application-invocation/package.json",
+      manifest: {
+        dependencies: { "@flarex/durable-task": "workspace:*" },
+      },
+    }];
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: queryPath,
+      text: `
+        import {
+          makeTaskRunQueryLayer,
+          TaskRunQuery,
+          type TaskRunProjection,
+          type TaskRunQueryApi,
+          type TaskRunQueryError,
+        } from "@flarex/durable-task/internal/run-projection";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: queryPath,
+      text: `
+        import {
+          makeTaskRunQueryLayer,
+          projectTaskRun,
+          TaskRunQuery,
+          type TaskRunProjection,
+          type TaskRunQueryApi,
+          type TaskRunQueryError,
+        } from "@flarex/durable-task/internal/run-projection";
+      `,
+    }]).errors).toEqual([
+      `${queryPath}:2 production source must not activate @flarex/durable-task before host admission.`,
     ]);
   });
 
