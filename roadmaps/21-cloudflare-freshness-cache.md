@@ -10,14 +10,17 @@ Completed `SYNC01-A` through `SYNC01-F` remain current implementation evidence.
 `SYNC01-GP` is retained adapter-design evidence but its authorization to
 implement `SYNC01-G` directly as backend-owned semantics is superseded and
 held. Portable semantic state and reference orchestration are complete through
-`QSYNC01-C4`; their first real Flarex mappings and SQLite implementation are
-described for discussion by the proposed
+`QSYNC01-C4`; their first real Flarex mappings and proposed SQLite adoption are
+owned by the accepted
 [`QSYNC-FX01` preflight](./query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md).
-Roadmap 21 remains the accepted Flarex/Cloudflare adapter authority unless that
-proposal is approved. The implementation, ordered Postgres catch-up,
-registration, reset/reconnect, rerun, Durable Streams delivery, and production
-caller integration remain incomplete. Cache Durable Objects remain deferred
-optimizations.
+`QSYNC-FX01-A` is complete, private, and production-inert. The docs-only
+[`QSYNC-FX01-B` verdict](./query-sync-engine/preflight/08-qsync-fx01-b-semantic-persistence-verdict.md)
+is complete and stops before schema because the portable core lacks a bounded
+operation-plan seam. Roadmap 21 remains the accepted concrete
+Flarex/Cloudflare adapter authority. SQLite implementation, ordered Postgres
+catch-up, registration, reset/reconnect, rerun, Durable Streams delivery, and
+production caller integration remain incomplete. Cache Durable Objects remain
+deferred optimizations.
 
 Reconnect-retention DDL is not part of FlarexDB foundation S07. Existing
 connection leases remain prototype mechanics, not the accepted replacement
@@ -591,38 +594,39 @@ ordered gates are now:
 2. Query Sync Engine `QSYNC01-B` through `QSYNC01-C4` completed the trusted
    change-model boundary, semantic atomic state contract, and Effect-native
    reference orchestration.
-3. Approve or correct the proposed `QSYNC-FX01` adapter preflight, then
-   separately authorize its first mapping-only slice. SQLite may follow only
-   after a docs-only operation/access-plan checkpoint proves the required core
-   seams; do not add duplicate state, compatibility writes, or schema-first
-   storage.
-4. Independently run `QSYNC-CF01` against pinned upstream Durable Streams
+3. The accepted `QSYNC-FX01` preflight has completed A's mapping-only slice and
+   B's docs-only access-plan verdict. B stopped before SQLite schema because an
+   operation-scoped portable core seam is missing.
+4. Decide whether to approve the proposed `QSYNC01-D` core preflight. C1-C3
+   remain blocked; do not add duplicate state, compatibility writes, a second
+   reducer, or schema-first storage.
+5. Independently run `QSYNC-CF01` against pinned upstream Durable Streams
    packages on real Cloudflare; accept or reject on conformance,
    auth/isolation, retention/rotation, payload, uncertainty recovery,
    lifecycle, and numeric cost gates. Rejection changes the delivery adapter,
    not the portable engine or Flarex state/source mapping.
-5. Implement duplicate/reverse/gap processing and ordered Postgres catch-up
+6. Implement duplicate/reverse/gap processing and ordered Postgres catch-up
    through the trusted Flarex `ChangeSource`; never advance across a missing
    commit.
-6. Add provisional registration, refresh against already processed commits,
+7. Add provisional registration, refresh against already processed commits,
    generation-fenced single-flight reruns, and unchanged-result suppression.
-7. Add the durable query-result publication outbox and the accepted delivery
+8. Add the durable query-result publication outbox and the accepted delivery
    adapter without making transport the trigger-recovery owner.
-8. Add a durable external lagging-scope sweep whose Postgres checkpoint mirror
+9. Add a durable external lagging-scope sweep whose Postgres checkpoint mirror
    may lag but can never lead the namespace cursor.
-9. Immediately before replacement sync admits reconnectable sessions, freeze
-   query leases, stream age/message/byte budgets, rotation, renewal, expiry,
-   auth change, and reset/resnapshot; add only the separately justified
-   retention storage.
-10. Prove real-Postgres mutation-to-client correctness for activation races,
-    lost wakes, gaps, concurrent reruns, actor eviction, epoch rollover,
-    publication uncertainty, stream rotation, reconnect, and broad dependency
-    fallbacks.
-11. Remove prototype SchedulerDO/Postgres registry and displaced unshipped sync
-    code only after target-only recovery parity and all supported callers move.
-12. Run `R03-B` through the accepted portable engine plus Flarex adapters; no
-    Legacy timestamp registry or compatibility `SchedulerDO` is an interim
-    owner.
+10. Immediately before replacement sync admits reconnectable sessions, freeze
+    query leases, stream age/message/byte budgets, rotation, renewal, expiry,
+    auth change, and reset/resnapshot; add only the separately justified
+    retention storage.
+11. Prove real-Postgres mutation-to-client correctness for activation races,
+     lost wakes, gaps, concurrent reruns, actor eviction, epoch rollover,
+     publication uncertainty, stream rotation, reconnect, and broad dependency
+     fallbacks.
+12. Remove prototype SchedulerDO/Postgres registry and displaced unshipped sync
+     code only after target-only recovery parity and all supported callers move.
+13. Run `R03-B` through the accepted portable engine plus Flarex adapters; no
+     Legacy timestamp registry or compatibility `SchedulerDO` is an interim
+     owner.
 
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are not next gates. They require a
 separate measured need and their own gap-free correctness proofs after v1 sync
@@ -1158,13 +1162,14 @@ replacement, collision/corruption rules, and cursor-plus-invalidation
 constraints below remain candidate requirements for a later Flarex/Cloudflare
 state-adapter preflight.
 
-`SYNC01-G` has not started and is on hold. Portable semantic state,
+`SYNC01-G` has not started and remains on hold. Portable semantic state,
 orchestration, and reference conformance are complete through `QSYNC01-C4`.
-The proposed `QSYNC-FX01` adapter preflight is a candidate successor that does
-not displace this accepted roadmap authority until it is approved. Completed
+The accepted `QSYNC-FX01` adapter preflight is the successor: A is complete and
+B stopped before schema pending a separate portable core-seam gate. It does not
+displace this roadmap's concrete Flarex/Cloudflare ownership. Completed
 `SYNC01-A` through `SYNC01-F` remain valid evidence. This correction authorizes
-no package, schema, migration, route, caller, dual registry, fallback,
-compatibility write, or production behavior.
+no schema, migration, route, caller, dual registry, fallback, compatibility
+write, or production behavior.
 
 The storage split preserves two different facts. The active generation is the
 last installed result and dependency set against which already admitted
@@ -1333,23 +1338,28 @@ parent/child validation remains required above.
 
 ### [ ] QSYNC-FX01 -- Flarex Mapping And Complete SQLite State Adapter
 
-Status: proposed docs-only preflight; implementation not authorized.
+Status: accepted split preflight. A is complete, private, and
+production-inert. B is complete docs-only with a stop-before-schema verdict.
+C1-C3 and all SQLite implementation remain blocked and unauthorized.
 
-The exact current proposal is
+The accepted umbrella record is
 [`query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md`](./query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md).
 It retains this roadmap as owner of concrete Flarex/Cloudflare schema and
 lifecycle decisions while leaving portable semantics in `@flarex/query-sync`.
 
-The recommended first medium slice is only `QSYNC-FX01-A`: versioned canonical
+The completed first medium slice, `QSYNC-FX01-A`, owns versioned canonical
 query/dependency/authority frames, one backend-owned Flarex model projector,
-and canonical result/publication vectors. It adds no SQLite schema, Durable
+and canonical result/publication vectors. It added no SQLite schema, Durable
 Object behavior, Postgres source read, evaluator, publisher, route, or caller.
 
-After A, a docs-only B checkpoint must prove all nine operation access and
-transition plans before any DDL. Only then may C1-C3 semantic verticals evolve
-the existing cursor database in place into the complete adapter and
-publication outbox. They must use one table set and cursor authority, pass
-reference conformance plus genuine Workerd restart/rollback/corruption proof,
-and remove or fence the old direct cursor/query-generation path. Nothing here
-reauthorizes the withdrawn direct-backend `SYNC01-G` design or unblocks
-`R03-B`.
+The completed docs-only B verdict is
+[`query-sync-engine/preflight/08-qsync-fx01-b-semantic-persistence-verdict.md`](./query-sync-engine/preflight/08-qsync-fx01-b-semantic-persistence-verdict.md).
+It proves bounded logical plans for all nine operations but rejects schema work
+until a separately approved portable operation-plan seam removes the current
+complete-aggregate/second-reducer choice. Only after that core gate may fresh
+C1-C3 checkpoints evolve the existing cursor database in place into the
+complete adapter and publication outbox. They must use one table set and cursor
+authority, pass reference conformance plus genuine Workerd
+restart/rollback/corruption proof, and remove or fence the old direct
+cursor/query-generation path. Nothing here reauthorizes the withdrawn
+direct-backend `SYNC01-G` design or unblocks `R03-B`.

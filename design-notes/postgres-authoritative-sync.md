@@ -4,7 +4,7 @@ Status: accepted Flarex Postgres/Cloudflare adapter design; portable engine
 semantics are owned by `runtime-agnostic-query-sync-engine.md`; caches remain
 deferred optimizations
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-29
 
 This note defines the sync design that follows from
 `flarex-db-accepted-design.md`. It replaces the earlier assumption that
@@ -150,18 +150,25 @@ deployment-sync:{scopeId}
 Durable Object SQLite stores:
 
 ```text
-epoch
-appliedThroughCommitSeq
-dirtyThroughCommitSeq
-canonical query definitions
-dependency -> canonical query index
-query generation / runningAt / result hash / requiredFreshThrough
-active ConnectionDO targets or recoverable registration handles
-bounded work continuation state
+local SQLite adapter-contract generation
+scope / epoch / fixed sync model / Flarex storage generation and fence
+applied-through commit sequence
+canonical query identities and active/provisional generations
+active and completion-fingerprint dependency memberships
+dirty frontiers, completion evidence, work revision, and fairness anchor
+pending/in-flight/latest-delivered publication state and replay evidence
+exact bounded-state counters
 ```
 
 Do not keep correctness state only in JavaScript memory. Do not use one global
 SchedulerDO singleton for unrelated scopes.
+
+Evaluation scan continuations are revision-fenced, process-local nominal
+capabilities, not persisted coordination rows. Connection targets and
+recoverable session registration belong to the later gateway/delivery owner,
+not to the nine-operation query-sync semantic state adapter. The exact SQLite
+schema remains blocked on the operation-scoped portable transition-plan seam
+recorded by `QSYNC-FX01-B`.
 
 The first per-scope DO is a correctness boundary and may be a throughput hot
 spot. Add coordination buckets only after measurement and an explicit rule for
@@ -245,9 +252,11 @@ activation:
 5. If no relevant change invalidated the result, it marks the DO generation
    active and publishes it. Otherwise it reruns before publication.
 
-Removal is idempotent in the same DeploymentSyncDO coordination authority. The
-Postgres cursor mirror remains conservative operational evidence, not a query
-registry or independent activation authority.
+Removal must eventually be idempotent in the same DeploymentSyncDO coordination
+authority, but release/removal is not one of the current nine semantic state
+operations and requires a separate transition preflight. The Postgres cursor
+mirror remains conservative operational evidence, not a query registry or
+independent activation authority.
 
 This follows the Convex idea that a query token is refreshed against already
 processed writes before the subscription is accepted.
