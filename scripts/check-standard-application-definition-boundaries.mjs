@@ -107,6 +107,7 @@ const applicationInvocationAllowedProductionImports = new Set([
   "@flarex/standard-application-invocation/internal/standard-application-task-system",
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query",
   "@flarex/standard-application-invocation/internal/standard-application-task-run-list-query",
+  "@flarex/standard-application-invocation/internal/standard-application-task-attempt-history-query",
   "@flarex/standard-application-invocation/internal/standard-application-task-result-query",
   "@flarex/standard-application-invocation/internal/standard-application-task-cancellation",
   "effect",
@@ -257,7 +258,7 @@ if (isCliEntrypoint()) {
       "Clean Application definition boundary check passed with one root and three exact internal bridges.",
     );
     console.log(
-      "Clean Application invocation boundary check passed with nine root operations and one internal Task run bridge.",
+      "Clean Application invocation boundary check passed with ten root operations and one internal Task run bridge.",
     );
   }
 }

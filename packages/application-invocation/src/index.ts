@@ -68,3 +68,10 @@ export {
   type TaskRunCursor,
   type TaskRunPage,
 } from "./TaskList.js";
+
+export {
+  listTaskAttempts,
+  type ListTaskAttemptsError,
+  type TaskAttempt,
+  type TaskAttemptHistory,
+} from "./TaskAttempts.js";

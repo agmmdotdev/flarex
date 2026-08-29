@@ -695,7 +695,13 @@ The DTE07-C9 clean production-inert `listTaskRuns()` facade is complete under
 [`durable-task-engine/preflight/60-dte07-clean-task-run-list-contract.md`](./durable-task-engine/preflight/60-dte07-clean-task-run-list-contract.md).
 The DTE07-C10 read-only process-local listed `TaskRunRef` is complete under
 [`durable-task-engine/preflight/61-dte07-listed-task-run-reference.md`](./durable-task-engine/preflight/61-dte07-listed-task-run-reference.md).
-It connects listed runs only to `inspectTask()`; result reads, waiting, and
-cancellation remain restricted to admitted typed Task handles.
+The production-inert DTE07-B3/C11/C12/C13 immutable attempt-admission query and
+clean `listTaskAttempts(ref)` facade are implemented under
+[`durable-task-engine/preflight/62-dte07-task-attempt-history.md`](./durable-task-engine/preflight/62-dte07-task-attempt-history.md).
+Its PGlite instance proof is complete; real PostgreSQL acceptance remains
+pending the configured database lane. Listed references now authorize only
+status inspection and bounded admission-history reads within their exact
+captured scope; result reads, waiting, and cancellation remain restricted to
+admitted typed Task handles.
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.

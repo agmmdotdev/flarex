@@ -2,8 +2,9 @@
 
 ## Status And Decision Boundary
 
-**Status:** Architecture roadmap with DTE07-B1/B2 and
-DTE07-C1/C2/C3/C4/C5/C6/C7/C8/C9/C10 complete privately through 2026-08-30.
+**Status:** Architecture roadmap with DTE07-B1/B2/B3 and
+DTE07-C1/C2/C3/C4/C5/C6/C7/C8/C9/C10/C11/C12/C13 implemented privately
+through 2026-08-30.
 DTE07-B1 implements one
 production-inert run projection and pure projector under
 [`preflight/51-dte07-private-run-projection.md`](./preflight/51-dte07-private-run-projection.md).
@@ -31,6 +32,14 @@ DTE07-C8 implements the located PostgreSQL/PGlite list store fixed by
 [`preflight/59-dte07-located-task-run-list-store.md`](./preflight/59-dte07-located-task-run-list-store.md).
 DTE07-C9 implements the clean unversioned `listTaskRuns()` facade fixed by
 [`preflight/60-dte07-clean-task-run-list-contract.md`](./preflight/60-dte07-clean-task-run-list-contract.md).
+DTE07-C10 implements the listed read-only `TaskRunRef` fixed by
+[`preflight/61-dte07-listed-task-run-reference.md`](./preflight/61-dte07-listed-task-run-reference.md).
+DTE07-B3/C11/C12/C13 implement immutable attempt-admission projection,
+scope-captured query composition, the located store, and clean
+`listTaskAttempts(ref)` facade fixed by
+[`preflight/62-dte07-task-attempt-history.md`](./preflight/62-dte07-task-attempt-history.md).
+Its PGlite proof is complete; the checked-in real PostgreSQL lane remains
+unexecuted until `FLAREX_POSTGRES_DATABASE_URL` is available.
 It does not authorize other commands, provider delivery, cancellation waiting,
 a public list contract, public routes, deployment, subscriptions,
 telemetry ingestion, retention/GC, or UI publication.
@@ -254,7 +263,7 @@ similarity alone is not evidence.
 This document completes only an architecture-level inventory. It is not an
 implementation receipt and does not admit source copying.
 
-### DTE07-B: Private Projection Contracts — B2 Complete
+### DTE07-B: Private Projection Contracts — B3 Implemented
 
 - define scope-authorized run, attempt, event, result-metadata, and cursor view
   models;
@@ -272,7 +281,11 @@ contract, domain-owned item decoding, safe page validation, and reuse of the
 existing point projection owner fixed by preflight 58. It adds no persistence
 adapter, filter, clean facade, or public cursor encoding.
 
-### DTE07-C: Private Query And Command Adapters — C10 Complete
+DTE07-B3 defines only bounded immutable attempt-admission history fixed by
+preflight 62. It exposes attempt identity, ordinal, and admitting run version;
+historical attempt state and lifecycle events remain unimplemented.
+
+### DTE07-C: Private Query And Command Adapters — C13 Implemented
 
 - implement private HTTP-agnostic query capabilities;
 - compose exact cancellation through the admitted lifecycle;
@@ -323,6 +336,11 @@ DTE07-C10 implements only the read-only process-local `TaskRunRef` fixed by
 preflight 61. The clean list issues it and `inspectTask()` accepts it, while
 result reads, waiting, and cancellation remain restricted to an admitted typed
 `TaskRun<Output>`.
+
+DTE07-C11/C12/C13 implement only the scope-captured attempt-history bridge,
+located PostgreSQL/PGlite store, and clean `listTaskAttempts(ref)` facade fixed
+by preflight 62. PGlite proves the connected store; real PostgreSQL acceptance
+remains pending its configured test lane.
 
 ### DTE07-D: Live Invalidation And Reconnect
 
@@ -408,5 +426,8 @@ preflight 58. DTE07-C8 is complete for the located compact PostgreSQL/PGlite
 list store under preflight 59, including disposable PostgreSQL 18 acceptance.
 DTE07-C9 is complete for the clean production-inert `listTaskRuns()` facade
 under preflight 60. DTE07-C10 is complete for the listed read-only Task-run
-reference under preflight 61. Before attempt-history, event, other command,
-live, public, or hosted work, approve that owner separately.
+reference under preflight 61. DTE07-B3/C11/C12/C13 are implemented for bounded
+attempt-admission history under preflight 62, with PGlite accepted and the real
+PostgreSQL receipt still pending. Before lifecycle-event history, enriched
+attempt state, other command, live, public, or hosted work, approve that owner
+separately.
