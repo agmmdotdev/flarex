@@ -157,9 +157,10 @@ not a complete uncertainty contract.
    [C2 checkpoint](./preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
    implemented its generation-3 six-operation evaluation vertical with focused
    migration, rollback, portable-oracle, and genuine Workerd proof on
-   2026-08-30.
-14. **Open C2 exit gate.** Complete the retained maximum-population,
-   migration-fault, branch, race/read-trace, and real Workerd proof matrix.
+   2026-08-30. Its exact fifteen-write generation-2 migration fault matrix and
+   SQLite-local 4,096-query streaming migration proof are also complete.
+14. **Open C2 exit gate.** Complete the retained non-migration maximum-
+   population, branch, race/read-trace, and genuine-Workerd proof matrix.
 15. **Separate later gate (`QSYNC-FX01-C3`).** Preflight, explicitly accept,
    implement, and prove the publication lifecycle plus complete nine-operation
    adapter. FX01 is not complete before this gate exits.

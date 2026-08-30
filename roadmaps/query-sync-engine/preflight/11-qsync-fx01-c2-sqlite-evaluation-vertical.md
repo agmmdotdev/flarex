@@ -948,9 +948,20 @@ This accepted implementation checkpoint does not authorize:
    together with typecheck, build, lint, and focused boundary gates.
 4. The adapter remains package-private, unrouted, and unable to claim or
    deliver publication work.
-5. Remaining C2 exit work includes the matrix's exhaustive operation branches,
-   maximum aggregate populations, staged migration faults, race/read-trace
-   cases, and maximum Workerd spelling/binding proofs.
+5. The generation-2 migration proof now pins the exact fifteen-write rebuild,
+   injects the same foreign defect immediately before and after every write,
+   proves exact catalog-and-row rollback, retries every failed position, and
+   proves post-commit readiness re-entry performs no compatibility write.
+6. The migration proof also admits the exact 4,096-query provisional-only
+   maximum through the portable transition planner and consumes both unbounded
+   generation-2 authentication scans through a real SQLite row iterator with
+   aggregate cursor reads forbidden. This is SQLite-local JavaScript
+   consumption evidence; it does not claim Cloudflare cursor-buffering or
+   Worker-heap behavior.
+7. Remaining C2 exit work includes the matrix's other exhaustive operation
+   branches, non-migration maximum aggregate populations, race/read-trace
+   cases, and maximum genuine-Workerd spelling, binding, buffering, and heap
+   proofs.
 
 C2 remains implementation-complete but proof-incomplete at that private
 boundary. The next correctness work is the remaining C2 proof matrix. A fresh

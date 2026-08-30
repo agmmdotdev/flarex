@@ -615,9 +615,10 @@ ordered gates are now:
    begin, and admitted-batch SQLite vertical in `b94abbb0`.
 5. `QSYNC-FX01-C2` implemented the private generation-3 six-operation
    evaluation vertical on 2026-08-30 without duplicate state, compatibility
-   writes, a second reducer, or production routing.
-6. Complete C2's retained exit-proof matrix across maximum populations,
-   migration faults, races/read traces, and real Workerd boundaries.
+   writes, a second reducer, or production routing. Its exact migration fault
+   matrix and SQLite-local 4,096-query streaming migration proof are complete.
+6. Complete C2's retained exit-proof matrix across non-migration maximum
+   populations, races/read traces, and genuine-Workerd boundaries.
 7. Separately preflight, accept, implement, and prove C3's publication lifecycle
    and complete nine-operation adapter. FX01 remains incomplete until C3 exits.
 8. Independently run `QSYNC-CF01` against pinned upstream Durable Streams
