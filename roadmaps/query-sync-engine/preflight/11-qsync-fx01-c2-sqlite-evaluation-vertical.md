@@ -960,9 +960,10 @@ This accepted implementation checkpoint does not authorize:
    aggregate cursor reads forbidden. This is SQLite-local JavaScript
    consumption evidence; it does not claim Cloudflare cursor-buffering or
    Worker-heap behavior.
-7. Remaining C2 exit work includes the matrix's other exhaustive operation
-   branches, non-migration maximum aggregate populations, races, and maximum
-   genuine-Workerd spelling, binding, buffering, and heap proofs.
+7. Remaining C2 exit work includes the matrix's other exhaustive typed and
+   corruption branches, non-migration maximum aggregate populations, claim and
+   outcome proofs, races, and maximum genuine-Workerd spelling, binding,
+   buffering, and heap proofs.
 8. The completion control-flow proof now covers all five start-stage no-write
    receipts, pending and unchanged exact replay, first material activation,
    unchanged-digest pending preservation, replay fingerprint and content
@@ -972,11 +973,34 @@ This accepted implementation checkpoint does not authorize:
 9. A changed-digest two-dependency replacement now records its exact ten-write
    sequence and injects the same foreign defect immediately before and after
    every write. Every position proves full query, dependency, pending, and
-   scope rollback followed by a successful retry. Completion's remaining exit
-   work still includes the exhaustive typed/corruption/affected-row matrix,
-   response-loss replay, preceding-window and all-counter assertions, maximum
-   populations/bytes, and race proof; claim/outcome and host read-trace work
-   also remains.
+   scope rollback followed by a successful retry.
+10. A three-generation completion history now proves first-pending activation,
+    changed-digest replacement, and unchanged-digest preservation against the
+    portable aggregate oracle. After every completion it pins the raw SQLite
+    scope revision/cursor plus all eight counters, both exact dependency roles,
+    the current completion projection, the one-entry preceding-generation
+    rotation, and the exact retained pending row.
+11. The one-dependency changed-digest path now refuses affected-row evidence at
+    all eight completion write families: zero-match CAS/deletes and a zero
+    physical-write receipt after each real insert. Every refusal pins the exact
+    adapter-invariant operation/stage, attempted DML prefix, complete rollback,
+    and successful retry.
+12. Completion response loss is injected at the simulated caller boundary only
+    after the synchronous SQLite method successfully commits and returns. The
+    test captures the hidden completed receipt, proves the full committed
+    snapshot, and proves an identical retry returns the corresponding replayed
+    receipt with no attempted DML and no state change. The adapter does not
+    fabricate an unknown-commit failure that its synchronous transaction does
+    not own.
+13. Portable D2 deliberately treats matching retained publication content as
+    optional during exact completion replay. Therefore absence of that content
+    alone is not a generation-3 corruption defect; the remaining orphan,
+    missing-row, and pending/completion-mismatch matrix must cover only states
+    the portable contract actually prohibits.
+
+Completion's remaining exit work still includes the exhaustive typed and
+prohibited-corruption matrix, non-migration maximum populations/bytes, and race
+proof. Claim/outcome and host read-trace/maximum proof also remains.
 
 C2 remains implementation-complete but proof-incomplete at that private
 boundary. The next correctness work is the remaining C2 proof matrix. A fresh

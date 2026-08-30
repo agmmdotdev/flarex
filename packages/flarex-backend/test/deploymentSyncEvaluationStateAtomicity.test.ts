@@ -2,6 +2,9 @@ import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  DeploymentQuerySyncAdapterInvariantDefect,
+} from "../src/deploymentSync/StateStorage";
+import {
   applyCompletionBatch,
   captureCompletionBatch,
   completeEvaluation,
@@ -32,6 +35,36 @@ const REPLACEMENT_WRITE_STAGES = Object.freeze([
   "pending-publication-insert",
   "scope-write",
 ] as const satisfies readonly CompletionSqlStage[]);
+
+const AFFECTED_ROW_WRITE_STAGES = Object.freeze([
+  "complete-query-write",
+  "active-dependencies-delete",
+  "active-dependency-insert",
+  "completion-dependencies-delete",
+  "completion-dependency-insert",
+  "pending-publication-delete",
+  "pending-publication-insert",
+  "scope-write",
+] as const satisfies readonly CompletionSqlStage[]);
+
+const AFFECTED_ROW_REFUSAL_SCENARIOS = [
+  { name: "query CAS", writeOrdinal: 1, mode: "skip",
+    expectedStage: "complete-query-cas" },
+  { name: "active dependency delete", writeOrdinal: 2, mode: "skip",
+    expectedStage: "active-dependency-delete" },
+  { name: "active dependency insert", writeOrdinal: 3,
+    mode: "zeroRowsWritten", expectedStage: "active-dependency-insert" },
+  { name: "completion dependency delete", writeOrdinal: 4, mode: "skip",
+    expectedStage: "completion-dependency-delete" },
+  { name: "completion dependency insert", writeOrdinal: 5,
+    mode: "zeroRowsWritten", expectedStage: "completion-dependency-insert" },
+  { name: "pending publication delete", writeOrdinal: 6, mode: "skip",
+    expectedStage: "pending-publication-delete" },
+  { name: "pending publication insert", writeOrdinal: 7,
+    mode: "zeroRowsWritten", expectedStage: "pending-publication-insert" },
+  { name: "scope CAS", writeOrdinal: 8, mode: "skip",
+    expectedStage: "write" },
+] as const;
 
 describe("deployment query-sync evaluation state atomicity", () => {
   it("rolls back completion rows, dependencies, pending work, and scope together", async () => {
@@ -113,7 +146,7 @@ describe("deployment query-sync evaluation state atomicity", () => {
         baseline.attempt,
         baseline.input,
       )).resolves.toMatchObject({ _tag: "completed" });
-      expect(onlyWrites(baseline.probe.stop())).toEqual(
+      expect(attemptedWriteStages(baseline.probe.stop())).toEqual(
         REPLACEMENT_WRITE_STAGES,
       );
     } finally {
@@ -144,7 +177,7 @@ describe("deployment query-sync evaluation state atomicity", () => {
           );
 
           expectDefect(exit, fault);
-          expect(onlyWrites(fixture.probe.stop())).toEqual(
+          expect(attemptedWriteStages(fixture.probe.stop())).toEqual(
             REPLACEMENT_WRITE_STAGES.slice(0, writeOrdinal),
           );
           expect(snapshotEvaluationState(fixture.prepared.database)).toEqual(
@@ -161,9 +194,100 @@ describe("deployment query-sync evaluation state atomicity", () => {
       }
     }
   }, 60_000);
+
+  it.each(AFFECTED_ROW_REFUSAL_SCENARIOS)(
+    "refuses $name affected-row evidence and rolls back",
+    async scenario => {
+      const fixture = await prepareReplacementFixture(1);
+      try {
+        const before = snapshotEvaluationState(fixture.prepared.database);
+        fixture.probe.startAffectedRowRefusal(
+          scenario.writeOrdinal,
+          scenario.mode,
+        );
+
+        const exit = await Effect.runPromiseExit(
+          fixture.prepared.state.completeQueryEvaluation(
+            fixture.attempt,
+            fixture.input.evaluation,
+            fixture.input.refresh,
+            fixture.input.publication,
+          ),
+        );
+
+        expectAdapterInvariantDefect(exit, scenario.expectedStage);
+        expect(attemptedWriteStages(fixture.probe.stop())).toEqual(
+          AFFECTED_ROW_WRITE_STAGES.slice(0, scenario.writeOrdinal),
+        );
+        expect(snapshotEvaluationState(fixture.prepared.database)).toEqual(
+          before,
+        );
+        await expect(completeEvaluation(
+          fixture.prepared,
+          fixture.attempt,
+          fixture.input,
+        )).resolves.toMatchObject({
+          _tag: "completed",
+          generation: fixture.attempt.generation,
+          publicationDisposition: { _tag: "pending" },
+        });
+      } finally {
+        fixture.prepared.database.close();
+      }
+    },
+  );
+
+  it("replays a committed completion after response loss without another write", async () => {
+    const fixture = await prepareReplacementFixture(1);
+    try {
+      const responseLoss = new Error("forced committed completion response loss");
+      fixture.probe.start();
+      let lostReceipt: unknown;
+
+      const lostExit = await Effect.runPromiseExit(
+        fixture.prepared.state.completeQueryEvaluation(
+          fixture.attempt,
+          fixture.input.evaluation,
+          fixture.input.refresh,
+          fixture.input.publication,
+        ).pipe(Effect.flatMap(receipt => {
+          lostReceipt = receipt;
+          return Effect.die(responseLoss);
+        })),
+      );
+
+      expectDefect(lostExit, responseLoss);
+      expect(attemptedWriteStages(fixture.probe.stop())).toEqual(
+        AFFECTED_ROW_WRITE_STAGES,
+      );
+      const afterCommit = snapshotEvaluationState(fixture.prepared.database);
+
+      fixture.probe.start();
+      const replayed = await completeEvaluation(
+        fixture.prepared,
+        fixture.attempt,
+        fixture.input,
+      );
+
+      expect(replayed).toMatchObject({
+        _tag: "replayed",
+        generation: fixture.attempt.generation,
+        publicationDisposition: { _tag: "pending" },
+      });
+      expect(lostReceipt).toEqual({ ...replayed, _tag: "completed" });
+      expect(attemptedWriteStages(fixture.probe.stop())).toEqual([]);
+      expect(snapshotEvaluationState(fixture.prepared.database)).toEqual(
+        afterCommit,
+      );
+    } finally {
+      fixture.prepared.database.close();
+    }
+  });
 });
 
-async function prepareReplacementFixture(): Promise<Readonly<{
+async function prepareReplacementFixture(
+  dependencyCount = 2,
+): Promise<Readonly<{
   readonly prepared: PreparedEvaluationState;
   readonly probe: ReturnType<typeof makeCompletionSqlProbe>;
   readonly attempt: Awaited<ReturnType<typeof beginEvaluation>>;
@@ -173,11 +297,23 @@ async function prepareReplacementFixture(): Promise<Readonly<{
   const prepared = await prepareEvaluationState(probe.hooks);
   const descriptor = queryDescriptor(71);
   const firstAttempt = await beginEvaluation(prepared, descriptor);
+  const oldDependencies = Array.from(
+    { length: dependencyCount },
+    (_value, index) => `old-${index}`,
+  );
+  const newDependencies = Array.from(
+    { length: dependencyCount },
+    (_value, index) => `new-${index}`,
+  );
+  const invalidatedDependency = oldDependencies[0];
+  if (invalidatedDependency === undefined) {
+    throw new Error("Replacement fixture requires at least one dependency.");
+  }
   await completeEvaluation(
     prepared,
     firstAttempt,
     makeCompletionEvidence(prepared, firstAttempt, {
-      dependencyLabels: ["old-a", "old-b"],
+      dependencyLabels: oldDependencies,
       resultSeed: 171,
       publicationLabel: "old-pending",
     }),
@@ -185,7 +321,7 @@ async function prepareReplacementFixture(): Promise<Readonly<{
   const batch = captureCompletionBatch(
     prepared.binding,
     12n,
-    ["old-a"],
+    [invalidatedDependency],
   );
   await applyCompletionBatch(prepared, batch);
   const attempt = await beginEvaluation(prepared, descriptor, {
@@ -197,14 +333,27 @@ async function prepareReplacementFixture(): Promise<Readonly<{
     probe,
     attempt,
     input: makeCompletionEvidence(prepared, attempt, {
-      dependencyLabels: ["new-a", "new-b"],
+      dependencyLabels: newDependencies,
       resultSeed: 172,
       publicationLabel: "replacement-pending",
     }),
   });
 }
 
-function onlyWrites(
+function expectAdapterInvariantDefect<A, E>(
+  exit: Exit.Exit<A, E>,
+  expectedStage: string,
+): void {
+  if (!Exit.isFailure(exit)) throw new Error("Expected Effect defect.");
+  const defect = success(Cause.findDefect(exit.cause));
+  expect(defect).toBeInstanceOf(DeploymentQuerySyncAdapterInvariantDefect);
+  expect(defect).toMatchObject({
+    operation: "completeQueryEvaluation",
+    stage: expectedStage,
+  });
+}
+
+function attemptedWriteStages(
   stages: readonly CompletionSqlStage[],
 ): readonly CompletionSqlStage[] {
   return stages.filter(stage => (

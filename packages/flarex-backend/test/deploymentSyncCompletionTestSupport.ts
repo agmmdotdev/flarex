@@ -20,8 +20,8 @@ import type { DeploymentQuerySyncBinding } from "../src/deploymentSync/Binding";
 import {
   canonicalKey,
   type EvaluationSqlCompletion,
-  type EvaluationSqlHooks,
   type EvaluationSqlInvocation,
+  type EvaluationStorageHooks,
   type PreparedEvaluationState,
   success,
 } from "./deploymentSyncEvaluationStateTestSupport";
@@ -55,8 +55,12 @@ export interface CompletionSqlFault {
 }
 
 export interface CompletionSqlProbe {
-  readonly hooks: EvaluationSqlHooks;
+  readonly hooks: EvaluationStorageHooks;
   readonly start: (fault?: CompletionSqlFault) => void;
+  readonly startAffectedRowRefusal: (
+    writeOrdinal: number,
+    mode: "skip" | "zeroRowsWritten",
+  ) => void;
   readonly stop: () => readonly CompletionSqlStage[];
   readonly snapshot: () => readonly CompletionSqlStage[];
 }
@@ -80,10 +84,14 @@ export interface CompletionEvidenceOptions {
 export function makeCompletionSqlProbe(): CompletionSqlProbe {
   let enabled = false;
   let fault: CompletionSqlFault | undefined;
+  let affectedRowFault: Readonly<{
+    readonly writeOrdinal: number;
+    readonly mode: "skip" | "zeroRowsWritten";
+  }> | undefined;
   let writeOrdinal = 0;
   let stages: CompletionSqlStage[] = [];
 
-  const hooks: EvaluationSqlHooks = Object.freeze({
+  const hooks: EvaluationStorageHooks = Object.freeze({
     beforeExecute: (invocation: EvaluationSqlInvocation) => {
       if (!enabled) return;
       const stage = classifyCompletionSql(invocation);
@@ -97,6 +105,20 @@ export function makeCompletionSqlProbe(): CompletionSqlProbe {
         throw fault.cause;
       }
     },
+    shouldSkipExecute: (invocation: EvaluationSqlInvocation) => (
+      enabled
+      && invocation.isWrite
+      && affectedRowFault?.mode === "skip"
+      && affectedRowFault.writeOrdinal === writeOrdinal
+    ),
+    overrideRowsWritten: (completion: EvaluationSqlCompletion) => (
+      enabled
+      && completion.isWrite
+      && affectedRowFault?.mode === "zeroRowsWritten"
+      && affectedRowFault.writeOrdinal === writeOrdinal
+        ? 0
+        : undefined
+    ),
     afterExecute: (completion: EvaluationSqlCompletion) => {
       if (
         enabled
@@ -109,17 +131,31 @@ export function makeCompletionSqlProbe(): CompletionSqlProbe {
     },
   });
 
+  const resetTrace = () => {
+    stages = [];
+    writeOrdinal = 0;
+    enabled = true;
+  };
+
   return Object.freeze({
     hooks,
     start: (nextFault?: CompletionSqlFault) => {
-      stages = [];
-      writeOrdinal = 0;
       fault = nextFault;
-      enabled = true;
+      affectedRowFault = undefined;
+      resetTrace();
+    },
+    startAffectedRowRefusal: (
+      ordinal: number,
+      mode: "skip" | "zeroRowsWritten",
+    ) => {
+      fault = undefined;
+      affectedRowFault = Object.freeze({ writeOrdinal: ordinal, mode });
+      resetTrace();
     },
     stop: () => {
       enabled = false;
       fault = undefined;
+      affectedRowFault = undefined;
       return Object.freeze([...stages]);
     },
     snapshot: () => Object.freeze([...stages]),

@@ -80,8 +80,17 @@ export interface EvaluationSqlHooks {
   readonly afterExecute?: (completion: EvaluationSqlCompletion) => void;
 }
 
+export interface EvaluationStorageHooks extends EvaluationSqlHooks {
+  readonly shouldSkipExecute?: (
+    invocation: EvaluationSqlInvocation,
+  ) => boolean;
+  readonly overrideRowsWritten?: (
+    physicalCompletion: EvaluationSqlCompletion,
+  ) => number | undefined;
+}
+
 export async function prepareEvaluationState(
-  hooks: EvaluationSqlHooks = {},
+  hooks: EvaluationStorageHooks = {},
 ): Promise<PreparedEvaluationState> {
   const database = new DatabaseSync(":memory:");
   const storage = makeSqliteStorage(database, hooks);
@@ -224,7 +233,7 @@ export function snapshotEvaluationState(database: DatabaseSync) {
 
 function makeSqliteStorage(
   database: DatabaseSync,
-  hooks: EvaluationSqlHooks,
+  hooks: EvaluationStorageHooks,
 ): DeploymentQuerySyncStorage {
   const exec: DeploymentQuerySyncSqlStorage["exec"] = <
     Row extends Record<string, SqlStorageValue>,
@@ -241,12 +250,18 @@ function makeSqliteStorage(
     hooks.beforeExecute?.(invocation);
     // SAFETY: production codecs validate every row after this test-only
     // adapter restores the caller-selected generic from SQLite's row edge.
-    const rows = database.prepare(query).all(...bindings) as Row[];
-    const rowsWritten = isWrite ? rows.length : 0;
-    hooks.afterExecute?.(Object.freeze({
+    const rows = hooks.shouldSkipExecute?.(invocation) === true
+      ? []
+      : database.prepare(query).all(...bindings) as Row[];
+    const physicalCompletion: EvaluationSqlCompletion = Object.freeze({
       ...invocation,
-      rowsWritten,
-    }));
+      rowsWritten: isWrite ? rows.length : 0,
+    });
+    const rowsWritten = hooks.overrideRowsWritten?.(physicalCompletion)
+      ?? physicalCompletion.rowsWritten;
+    hooks.afterExecute?.(rowsWritten === physicalCompletion.rowsWritten
+      ? physicalCompletion
+      : Object.freeze({ ...invocation, rowsWritten }));
     return cursorFor(rows, rowsWritten);
   };
   return Object.freeze({
