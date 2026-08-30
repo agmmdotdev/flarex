@@ -5,19 +5,20 @@ import type {
   TaskRunIdV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
-  makeApplicationTaskAttemptHistoryStore,
+  makeApplicationTaskReadStore,
   type ApplicationTaskReadStore,
 } from
-  "@flarex/persistence-postgres/internal/application-task-attempt-history-store";
+  "@flarex/persistence-postgres/internal/application-task-read-store";
 import { Brand, Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   listStandardApplicationTaskAttempts,
-  makeStandardApplicationTaskAttemptHistoryQueryLayer,
+  makeStandardApplicationTaskReadQueryLayer,
   StandardApplicationTaskAttemptHistoryQuery,
+  StandardApplicationTaskEventHistoryQuery,
   type StandardApplicationTaskAttemptHistoryQueryApi,
-} from "../src/StandardApplicationTaskAttemptHistoryQuery.js";
+} from "../src/StandardApplicationTaskReadQuery.js";
 import {
   StandardApplicationTaskRunQuery,
   type StandardApplicationTaskRunQueryApi,
@@ -34,12 +35,14 @@ describe("StandardApplicationTaskAttemptHistoryQuery", () => {
     const result = await Effect.runPromise(Effect.gen(function* () {
       const history = yield* StandardApplicationTaskAttemptHistoryQuery;
       const point = yield* StandardApplicationTaskRunQuery;
-      return { scope: history.scope, point };
+      const events = yield* StandardApplicationTaskEventHistoryQuery;
+      return { historyScope: history.scope, eventScope: events.scope, point };
     }).pipe(Effect.provide(
-      makeStandardApplicationTaskAttemptHistoryQueryLayer(store),
+      makeStandardApplicationTaskReadQueryLayer(store),
     )));
 
-    expect(result.scope).toBe(result.point);
+    expect(result.historyScope).toBe(result.point);
+    expect(result.eventScope).toBe(result.point);
   });
 
   it("rejects a structurally mixed read store before service construction", () => {
@@ -47,9 +50,10 @@ describe("StandardApplicationTaskAttemptHistoryQuery", () => {
       inspectRunAttempt: () => Effect.die("scope A"),
       listRuns: () => Effect.die("scope A"),
       listAttempts: () => Effect.die("scope B"),
+      listEvents: () => Effect.die("scope C"),
     }) as unknown as ApplicationTaskReadStore;
 
-    expect(() => makeStandardApplicationTaskAttemptHistoryQueryLayer(mixed))
+    expect(() => makeStandardApplicationTaskReadQueryLayer(mixed))
       .toThrow("Application Task read store is unavailable.");
   });
 
@@ -63,6 +67,7 @@ describe("StandardApplicationTaskAttemptHistoryQuery", () => {
       () => Effect.die("scope A"),
       () => Effect.die("scope A"),
       () => Effect.die("scope B"),
+      () => Effect.die("scope C"),
     )).toThrow("Application Task read store issuance is unavailable.");
   });
 
@@ -114,7 +119,7 @@ function authenticStoreWithoutIo(): ApplicationTaskReadStore {
     }),
     target: Object.freeze({}),
   }) as unknown as Parameters<
-    typeof makeApplicationTaskAttemptHistoryStore
+    typeof makeApplicationTaskReadStore
   >[0];
-  return makeApplicationTaskAttemptHistoryStore(located);
+  return makeApplicationTaskReadStore(located);
 }

@@ -14,7 +14,7 @@ import { makeStandardApplicationTaskSha256V1 } from
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { makeApplicationTaskAttemptHistoryStore } from
+import { makeApplicationTaskReadStore } from
   "../src/applicationTaskAttemptHistoryStore";
 import { makeApplicationTaskSystemRunCreationStore } from
   "../src/applicationTaskSystemRunCreation";
@@ -107,7 +107,7 @@ describePostgres("DTE07 located Task attempt-history store - PostgreSQL", {
       expect(started.outcome.kind).toBe("attempt_granted");
 
       const history = await runEffect(
-        makeApplicationTaskAttemptHistoryStore(located)
+        makeApplicationTaskReadStore(located)
           .listAttempts(receipt.runId),
       );
       expect(history.runVersion).toBe(2n);
@@ -116,6 +116,14 @@ describePostgres("DTE07 located Task attempt-history store - PostgreSQL", {
         attemptNumber: 1,
         acceptedRunVersion: 2n,
       }]);
+
+      const events = await runEffect(
+        makeApplicationTaskReadStore(located).listEvents(receipt.runId),
+      );
+      expect(events.runVersion).toBe(2n);
+      expect(events.events.map(item => item.event.kind)).toEqual([
+        "attempt_granted",
+      ]);
 
       const client = await target.pool.connect();
       try {
@@ -134,6 +142,23 @@ describePostgres("DTE07 located Task attempt-history store - PostgreSQL", {
         `, [located.authority.scopeId, receipt.runId]);
         const text = plan.rows.map(row => row["QUERY PLAN"]).join("\n");
         expect(text).toContain("fx_task_attempt_identity_v1_ordinal_unique");
+
+        const eventPlan = await client.query<{ "QUERY PLAN": string }>(`
+          explain (costs off)
+          select r.run_version, e.sequence, e.payload_json
+          from fx_system_durable_task_run_v1 r
+          left join fx_system_durable_task_requested_effect_v1 e
+            on e.scope_id = r.scope_id and e.run_id = r.run_id
+           and e.kind = 'publish_lifecycle_event'
+          where r.scope_id = $1 and r.run_id = $2
+            and r.definition_generation = 'application_v1'
+          order by e.sequence asc
+          limit 752
+        `, [located.authority.scopeId, receipt.runId]);
+        const eventPlanText = eventPlan.rows
+          .map(row => row["QUERY PLAN"])
+          .join("\n");
+        expect(eventPlanText).toContain("fx_task_requested_effect_v1_kind_idx");
       } finally {
         client.release();
       }

@@ -21,7 +21,7 @@
     "./internal/standard-application-task-system": "./src/StandardApplicationTaskSystem.ts",
     "./internal/standard-application-task-run-query": "./src/StandardApplicationTaskRunQuery.ts",
     "./internal/standard-application-task-run-list-query": "./src/StandardApplicationTaskRunListQuery.ts",
-    "./internal/standard-application-task-attempt-history-query": "./src/StandardApplicationTaskAttemptHistoryQuery.ts",
+    "./internal/standard-application-task-read-query": "./src/StandardApplicationTaskReadQuery.ts",
     "./internal/standard-application-task-result-query": "./src/StandardApplicationTaskResultQuery.ts",
     "./internal/standard-application-task-cancellation": "./src/StandardApplicationTaskCancellation.ts",
     "./internal/application-task-query-authority": "./src/ApplicationTaskQueryAuthority.ts",

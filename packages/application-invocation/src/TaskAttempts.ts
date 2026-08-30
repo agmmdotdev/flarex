@@ -3,7 +3,7 @@ import {
   type StandardApplicationTaskAttemptHistory,
   type StandardApplicationTaskAttemptHistoryQueryError,
 } from
-  "@flarex/standard-application-invocation/internal/standard-application-task-attempt-history-query";
+  "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
 import { Effect } from "effect";
 
 import {

@@ -19,7 +19,7 @@ import { eq } from "drizzle-orm";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { makeApplicationTaskAttemptHistoryStore } from
+import { makeApplicationTaskReadStore } from
   "../src/applicationTaskAttemptHistoryStore";
 import { makeApplicationTaskSystemRunCreationStore } from
   "../src/applicationTaskSystemRunCreation";
@@ -113,7 +113,7 @@ describe("DTE07 located Application Task attempt-history store - PGlite", () => 
       }
 
       const history = await runEffect(
-        makeApplicationTaskAttemptHistoryStore(fixture.located)
+        makeApplicationTaskReadStore(fixture.located)
           .listAttempts(runId),
       );
 
@@ -132,6 +132,23 @@ describe("DTE07 located Application Task attempt-history store - PGlite", () => 
       ]);
       expect(Object.isFrozen(history)).toBe(true);
       expect(Object.isFrozen(history.attempts)).toBe(true);
+
+      const events = await runEffect(
+        makeApplicationTaskReadStore(fixture.located)
+          .listEvents(runId),
+      );
+      expect(events.runVersion).toBe(4n);
+      expect(events.events.map(item => ({
+        recordedRunVersion: item.acceptedRunVersion,
+        kind: item.event.kind,
+      }))).toEqual([
+        { recordedRunVersion: 2n, kind: "attempt_granted" },
+        { recordedRunVersion: 3n, kind: "retry_scheduled" },
+        { recordedRunVersion: 4n, kind: "attempt_granted" },
+      ]);
+      expect(events.events[0]?.sequence < events.events[1]?.sequence).toBe(true);
+      expect(events.events[1]?.sequence < events.events[2]?.sequence).toBe(true);
+      expect(Object.isFrozen(events.events)).toBe(true);
     });
   });
 
@@ -139,7 +156,7 @@ describe("DTE07 located Application Task attempt-history store - PGlite", () => 
     await withFixture(async fixture => {
       const runId = await createRun(fixture);
       const history = await runEffect(
-        makeApplicationTaskAttemptHistoryStore(fixture.located)
+        makeApplicationTaskReadStore(fixture.located)
           .listAttempts(runId),
       );
 
@@ -153,11 +170,18 @@ describe("DTE07 located Application Task attempt-history store - PGlite", () => 
       const missing = Result.getOrThrow(decodeTaskRunIdV1(
         "run_75000000-0000-4000-8000-000000000099",
       ));
-      const store = makeApplicationTaskAttemptHistoryStore(fixture.located);
+      const store = makeApplicationTaskReadStore(fixture.located);
       await expect(runEffectFailure(store.listAttempts(missing))).resolves
         .toMatchObject({
           _tag: "TaskAttemptHistoryStoreError",
           operation: "list_task_attempts",
+          runId: missing,
+          reason: "run_not_found",
+        });
+      await expect(runEffectFailure(store.listEvents(missing))).resolves
+        .toMatchObject({
+          _tag: "TaskEventHistoryStoreError",
+          operation: "list_task_events",
           runId: missing,
           reason: "run_not_found",
         });
@@ -174,6 +198,11 @@ describe("DTE07 located Application Task attempt-history store - PGlite", () => 
       await expect(runEffectFailure(store.listAttempts(runId))).resolves
         .toMatchObject({
           _tag: "TaskAttemptHistoryStoreError",
+          reason: "stale_scope_authority",
+        });
+      await expect(runEffectFailure(store.listEvents(runId))).resolves
+        .toMatchObject({
+          _tag: "TaskEventHistoryStoreError",
           reason: "stale_scope_authority",
         });
     });

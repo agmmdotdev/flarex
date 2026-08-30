@@ -75,3 +75,10 @@ export {
   type TaskAttempt,
   type TaskAttemptHistory,
 } from "./TaskAttempts.js";
+
+export {
+  listTaskEvents,
+  type ListTaskEventsError,
+  type TaskEvent,
+  type TaskEventHistory,
+} from "./TaskEvents.js";

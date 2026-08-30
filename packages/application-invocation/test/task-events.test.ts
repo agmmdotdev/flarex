@@ -1,6 +1,6 @@
 import {
-  StandardApplicationTaskAttemptHistoryQuery,
-  type StandardApplicationTaskAttemptHistoryQueryApi,
+  StandardApplicationTaskEventHistoryQuery,
+  type StandardApplicationTaskEventHistoryQueryApi,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
 import {
@@ -17,89 +17,71 @@ import { Brand, Cause, Effect, Exit, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
-  listTaskAttempts,
+  listTaskEvents,
   listTaskRuns,
-  type TaskAttemptHistory,
+  type TaskEventHistory,
   type TaskRunRef,
 } from "../src/index.js";
 
 type RunStatus = Effect.Success<
   ReturnType<StandardApplicationTaskRunQueryApi["inspect"]>
 >;
-type History = Effect.Success<
-  ReturnType<StandardApplicationTaskAttemptHistoryQueryApi["list"]>
+type EventHistory = Effect.Success<
+  ReturnType<StandardApplicationTaskEventHistoryQueryApi["list"]>
 >;
 const databaseTime = Brand.nominal<RunStatus["observedAtMs"]>();
 const runId = Brand.nominal<RunStatus["runId"]>()(
-  "run_00000000-0000-4000-8000-0000000000c1",
+  "run_00000000-0000-4000-8000-0000000000e1",
 );
 const runVersion = Brand.nominal<RunStatus["runVersion"]>();
 
-describe("clean Task attempt-history primitive", () => {
-  it("lists admissions through the exact scope that issued the run ref", async () => {
+describe("clean Task lifecycle-event primitive", () => {
+  it("lists lifecycle events through the scope that issued the run ref", async () => {
     const scope = pointQueryScope();
-    const list = vi.fn<StandardApplicationTaskAttemptHistoryQueryApi["list"]>(
-      () => Effect.succeed(attemptHistory()),
+    const list = vi.fn<StandardApplicationTaskEventHistoryQueryApi["list"]>(
+      () => Effect.succeed(eventHistoryValue),
     );
     const reference = await issueReference(scope);
 
-    const history = await Effect.runPromise(listTaskAttempts(reference).pipe(
+    const history = await Effect.runPromise(listTaskEvents(reference).pipe(
       Effect.provideService(
-        StandardApplicationTaskAttemptHistoryQuery,
-        StandardApplicationTaskAttemptHistoryQuery.of({ scope, list }),
+        StandardApplicationTaskEventHistoryQuery,
+        StandardApplicationTaskEventHistoryQuery.of({ scope, list }),
       ),
     ));
 
-    expect(history).toBe(attemptHistoryValue);
-    expect(list).toHaveBeenCalledOnce();
+    expect(history).toBe(eventHistoryValue);
     expect(list).toHaveBeenCalledWith(runId);
-    expectTypeOf(history).toEqualTypeOf<TaskAttemptHistory>();
+    expectTypeOf(history).toEqualTypeOf<TaskEventHistory>();
   });
 
-  it("rejects a forged ref before attempt-history I/O", async () => {
+  it.each([
+    { name: "forged", reference: Object.freeze({}) as TaskRunRef },
+    { name: "cross-scope", reference: null },
+  ])("rejects a $name ref before event I/O", async ({ reference }) => {
+    const issuingScope = pointQueryScope();
+    const actualReference = reference ?? await issueReference(issuingScope);
     const scope = pointQueryScope();
-    const list = forbiddenHistoryList();
-
+    const list = vi.fn<StandardApplicationTaskEventHistoryQueryApi["list"]>(
+      () => Effect.die("must not list Task events"),
+    );
     const exit = await Effect.runPromise(Effect.exit(
-      listTaskAttempts(Object.freeze({}) as TaskRunRef).pipe(
-        Effect.provideService(
-          StandardApplicationTaskAttemptHistoryQuery,
-          StandardApplicationTaskAttemptHistoryQuery.of({ scope, list }),
-        ),
-      ),
-    ));
-
-    expectMetadataDefect(exit);
-    expect(list).not.toHaveBeenCalled();
-  });
-
-  it("rejects a genuine ref under a different history scope before I/O", async () => {
-    const reference = await issueReference(pointQueryScope());
-    const scope = pointQueryScope();
-    const list = forbiddenHistoryList();
-
-    const exit = await Effect.runPromise(Effect.exit(
-      listTaskAttempts(reference).pipe(Effect.provideService(
-        StandardApplicationTaskAttemptHistoryQuery,
-        StandardApplicationTaskAttemptHistoryQuery.of({ scope, list }),
+      listTaskEvents(actualReference).pipe(Effect.provideService(
+        StandardApplicationTaskEventHistoryQuery,
+        StandardApplicationTaskEventHistoryQuery.of({ scope, list }),
       )),
     ));
-
     expectMetadataDefect(exit);
     expect(list).not.toHaveBeenCalled();
   });
 });
 
-const attemptHistoryValue = Object.freeze({
+const eventHistoryValue = Object.freeze({
   runId,
   observedAtMs: databaseTime(2_000),
   runVersion: runVersion(2n),
-  attempts: Object.freeze([]),
-});
-
-function attemptHistory(): History {
-  return attemptHistoryValue;
-}
+  events: Object.freeze([]),
+}) satisfies EventHistory;
 
 function pointQueryScope(): StandardApplicationTaskRunQueryApi {
   return StandardApplicationTaskRunQuery.of({
@@ -120,14 +102,13 @@ async function issueReference(
 }
 
 function runListQuery(): StandardApplicationTaskRunListQueryApi {
-  const list = vi.fn<StandardApplicationTaskRunListQueryApi["list"]>(
-    () => Effect.succeed(Object.freeze({
+  return StandardApplicationTaskRunListQuery.of({
+    list: () => Effect.succeed(Object.freeze({
       observedAtMs: databaseTime(1_000),
       items: Object.freeze([readyRun()]),
       nextCursor: null,
     })),
-  );
-  return StandardApplicationTaskRunListQuery.of({ list });
+  });
 }
 
 function readyRun(): RunStatus {
@@ -145,21 +126,13 @@ function readyRun(): RunStatus {
   });
 }
 
-function forbiddenHistoryList() {
-  return vi.fn<StandardApplicationTaskAttemptHistoryQueryApi["list"]>(
-    () => Effect.die("must not list Task attempts"),
-  );
-}
-
 function expectMetadataDefect(exit: Exit.Exit<unknown, unknown>): void {
   expect(Exit.isFailure(exit)).toBe(true);
   if (Exit.isFailure(exit)) {
     const defect = Cause.findDefect(exit.cause);
     expect(Result.isSuccess(defect)).toBe(true);
-    if (Result.isSuccess(defect)) {
-      expect(defect.success).toEqual(
-        new TypeError("Task run metadata is unavailable."),
-      );
-    }
+    expect(Result.getOrThrow(defect)).toEqual(
+      new TypeError("Task run metadata is unavailable."),
+    );
   }
 }

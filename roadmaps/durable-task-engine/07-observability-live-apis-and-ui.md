@@ -2,8 +2,8 @@
 
 ## Status And Decision Boundary
 
-**Status:** Architecture roadmap with DTE07-B1/B2/B3 and
-DTE07-C1/C2/C3/C4/C5/C6/C7/C8/C9/C10/C11/C12/C13 implemented privately
+**Status:** Architecture roadmap with DTE07-B1/B2/B3/B4 and
+DTE07-C1/C2/C3/C4/C5/C6/C7/C8/C9/C10/C11/C12/C13/C14 implemented privately
 through 2026-08-30.
 DTE07-B1 implements one
 production-inert run projection and pure projector under
@@ -38,6 +38,12 @@ DTE07-B3/C11/C12/C13 implement immutable attempt-admission projection,
 scope-captured query composition, the located store, and clean
 `listTaskAttempts(ref)` facade fixed by
 [`preflight/62-dte07-task-attempt-history.md`](./preflight/62-dte07-task-attempt-history.md).
+Its PGlite proof is complete; the checked-in real PostgreSQL lane remains
+unexecuted until `FLAREX_POSTGRES_DATABASE_URL` is available.
+DTE07-B4/C14 implement the bounded durable lifecycle-event projection,
+central read composition, located store, and clean `listTaskEvents(ref)` facade
+fixed by
+[`preflight/63-dte07-task-lifecycle-event-history.md`](./preflight/63-dte07-task-lifecycle-event-history.md).
 Its PGlite proof is complete; the checked-in real PostgreSQL lane remains
 unexecuted until `FLAREX_POSTGRES_DATABASE_URL` is available.
 It does not authorize other commands, provider delivery, cancellation waiting,
@@ -263,7 +269,7 @@ similarity alone is not evidence.
 This document completes only an architecture-level inventory. It is not an
 implementation receipt and does not admit source copying.
 
-### DTE07-B: Private Projection Contracts — B3 Implemented
+### DTE07-B: Private Projection Contracts — B4 Implemented
 
 - define scope-authorized run, attempt, event, result-metadata, and cursor view
   models;
@@ -283,9 +289,13 @@ adapter, filter, clean facade, or public cursor encoding.
 
 DTE07-B3 defines only bounded immutable attempt-admission history fixed by
 preflight 62. It exposes attempt identity, ordinal, and admitting run version;
-historical attempt state and lifecycle events remain unimplemented.
+historical attempt state remains unavailable.
 
-### DTE07-C: Private Query And Command Adapters — C13 Implemented
+DTE07-B4 defines the complete bounded durable lifecycle-event timeline fixed by
+preflight 63. It exposes only the already-redacted lifecycle projection and its
+immutable recording coordinates; internal requested effects remain private.
+
+### DTE07-C: Private Query And Command Adapters — C14 Implemented
 
 - implement private HTTP-agnostic query capabilities;
 - compose exact cancellation through the admitted lifecycle;
@@ -340,6 +350,11 @@ result reads, waiting, and cancellation remain restricted to an admitted typed
 DTE07-C11/C12/C13 implement only the scope-captured attempt-history bridge,
 located PostgreSQL/PGlite store, and clean `listTaskAttempts(ref)` facade fixed
 by preflight 62. PGlite proves the connected store; real PostgreSQL acceptance
+remains pending its configured test lane.
+
+DTE07-C14 implements the central point/attempt/event read composition, located
+lifecycle ledger projection, and clean `listTaskEvents(ref)` facade fixed by
+preflight 63. PGlite proves the connected store; real PostgreSQL acceptance
 remains pending its configured test lane.
 
 ### DTE07-D: Live Invalidation And Reconnect
@@ -428,6 +443,7 @@ DTE07-C9 is complete for the clean production-inert `listTaskRuns()` facade
 under preflight 60. DTE07-C10 is complete for the listed read-only Task-run
 reference under preflight 61. DTE07-B3/C11/C12/C13 are implemented for bounded
 attempt-admission history under preflight 62, with PGlite accepted and the real
-PostgreSQL receipt still pending. Before lifecycle-event history, enriched
-attempt state, other command, live, public, or hosted work, approve that owner
-separately.
+PostgreSQL receipt still pending. DTE07-B4/C14 are implemented for bounded
+lifecycle-event history under preflight 63, with PGlite accepted and the real
+PostgreSQL receipt still pending. Before enriched attempt state, other command,
+live, public, or hosted work, approve that owner separately.

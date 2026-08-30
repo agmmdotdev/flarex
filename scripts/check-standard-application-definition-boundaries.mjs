@@ -107,7 +107,7 @@ const applicationInvocationAllowedProductionImports = new Set([
   "@flarex/standard-application-invocation/internal/standard-application-task-system",
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query",
   "@flarex/standard-application-invocation/internal/standard-application-task-run-list-query",
-  "@flarex/standard-application-invocation/internal/standard-application-task-attempt-history-query",
+  "@flarex/standard-application-invocation/internal/standard-application-task-read-query",
   "@flarex/standard-application-invocation/internal/standard-application-task-result-query",
   "@flarex/standard-application-invocation/internal/standard-application-task-cancellation",
   "effect",

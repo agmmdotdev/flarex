@@ -28,7 +28,7 @@
     "./internal/application-task-selection": "./src/applicationTaskSelection.ts",
     "./internal/application-task-system-run-creation": "./src/applicationTaskSystemRunCreation.ts",
     "./internal/application-task-run-list-store": "./src/applicationTaskRunListStore.ts",
-    "./internal/application-task-attempt-history-store": "./src/applicationTaskAttemptHistoryStore.ts",
+    "./internal/application-task-read-store": "./src/applicationTaskAttemptHistoryStore.ts",
     "./internal/task-system-run-attempt-store-v1": "./src/taskSystemRunAttemptStoreV1.ts",
     "./internal/task-attempt-lifecycle-gateway": "./src/taskAttemptLifecycleGateway.ts",
     "./internal/task-external-effect-authority": "./src/taskExternalEffectAuthority.ts",
