@@ -28,6 +28,7 @@ describe("executor live query subscriptions", () => {
     const base = memoryPersistence();
     const authorityFailure = new Error("scope authority is not ready");
     let sideEffects = 0;
+    let clockReads = 0;
     const executor = createBaseFlarexExecutor({
       persistence: {
         ...base,
@@ -53,6 +54,12 @@ describe("executor live query subscriptions", () => {
         async deleteExpiredLiveQuerySubscriptions(input) {
           sideEffects += 1;
           return base.deleteExpiredLiveQuerySubscriptions(input);
+        },
+      },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return new Date(100);
         },
       },
     });
@@ -97,6 +104,331 @@ describe("executor live query subscriptions", () => {
     ).rejects.toBe(authorityFailure);
 
     expect(sideEffects).toBe(0);
+    expect(clockReads).toBe(0);
+  });
+
+  it("preserves configured clock, override identity, and lease observation order", async () => {
+    const basePersistence = memoryPersistence();
+    const connectionLeaseTimes: Date[] = [];
+    const subscriptionLeaseTimes: Date[] = [];
+    const connectionExpiryTimes: Date[] = [];
+    const closeTimes: Date[] = [];
+    const expiryCutoffs: Date[] = [];
+    const activeCutoffs: Date[] = [];
+    const persistence = {
+      ...basePersistence,
+      async upsertLiveQueryConnectionLease(
+        input: Parameters<
+          typeof basePersistence.upsertLiveQueryConnectionLease
+        >[0],
+      ) {
+        connectionLeaseTimes.push(input.lastSeenAt);
+        connectionExpiryTimes.push(input.expiresAt);
+        return await basePersistence.upsertLiveQueryConnectionLease(input);
+      },
+      async upsertLiveQuerySubscriptionWithLease(
+        input: Parameters<
+          typeof basePersistence.upsertLiveQuerySubscriptionWithLease
+        >[0],
+      ) {
+        subscriptionLeaseTimes.push(input.lastSeenAt);
+        return await basePersistence.upsertLiveQuerySubscriptionWithLease(input);
+      },
+      async closeLiveQueryConnection(
+        input: Parameters<typeof basePersistence.closeLiveQueryConnection>[0],
+      ) {
+        closeTimes.push(input.closedAt);
+        return await basePersistence.closeLiveQueryConnection(input);
+      },
+      async deleteExpiredLiveQuerySubscriptions(
+        input: Parameters<
+          typeof basePersistence.deleteExpiredLiveQuerySubscriptions
+        >[0],
+      ) {
+        expiryCutoffs.push(input.expiredAt);
+        return await basePersistence.deleteExpiredLiveQuerySubscriptions(input);
+      },
+      async listExpiredLiveQueryConnectionDeployments(
+        input: Parameters<
+          typeof basePersistence.listExpiredLiveQueryConnectionDeployments
+        >[0],
+      ) {
+        expiryCutoffs.push(input.expiredAt);
+        return await basePersistence.listExpiredLiveQueryConnectionDeployments(
+          input,
+        );
+      },
+      async listActiveLiveQuerySubscriptions(
+        input: Parameters<
+          typeof basePersistence.listActiveLiveQuerySubscriptions
+        >[0],
+      ) {
+        activeCutoffs.push(input.activeAt);
+        return await basePersistence.listActiveLiveQuerySubscriptions(input);
+      },
+    };
+    const configuredDates = [new Date(100), new Date(200), new Date(500)];
+    let clockReads = 0;
+    const executor = createBaseFlarexExecutor({
+      persistence,
+      clock: {
+        now: () => {
+          const value = configuredDates[clockReads];
+          clockReads += 1;
+          if (value === undefined) {
+            throw new Error("live query clock read more than expected");
+          }
+          return value;
+        },
+      },
+    });
+    const deploymentId = "deployment_live_query_time_compat";
+    const projectId = "project_live_query_time_compat";
+    const explicitUpdatedAt = new Date(300);
+    const explicitExpiredAt = new Date(50);
+    const explicitActiveAt = new Date(400);
+    const freshnessStore = createMemoryFreshnessMirrorStore();
+
+    await executor.touchLiveQueryConnection({
+      deploymentId,
+      projectId,
+      connectionId: "connection_touch",
+      leaseDurationMs: 25,
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId,
+      projectId,
+      connectionId: "connection_subscription",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 1,
+      readSet: {},
+      resultJson: null,
+    });
+    await executor.recordLiveQuerySubscription({
+      deploymentId,
+      projectId,
+      connectionId: "connection_explicit",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 1,
+      readSet: {},
+      resultJson: null,
+      updatedAt: explicitUpdatedAt,
+    });
+    await executor.removeExpiredLiveQuerySubscriptions({
+      deploymentId,
+      projectId,
+      expiredAt: explicitExpiredAt,
+    });
+    await executor.listExpiredLiveQueryConnectionDeployments({
+      expiredAt: explicitExpiredAt,
+    });
+    await executor.findStaleLiveQuerySubscriptions({
+      deploymentId,
+      freshnessStore,
+      activeAt: explicitActiveAt,
+    });
+    await executor.rerunStaleLiveQuerySubscriptions({
+      deploymentId,
+      freshnessStore,
+      activeAt: explicitActiveAt,
+      async runQuery() {
+        throw new Error("fresh subscriptions must not rerun");
+      },
+    });
+    await executor.removeLiveQuerySubscriptionsForConnection({
+      deploymentId,
+      projectId,
+      connectionId: "connection_touch",
+    });
+
+    expect(clockReads).toBe(3);
+    expect(connectionLeaseTimes).toEqual([configuredDates[0]]);
+    expect(connectionExpiryTimes).toEqual([new Date(125)]);
+    expect(subscriptionLeaseTimes).toEqual([
+      configuredDates[1],
+      explicitUpdatedAt,
+    ]);
+    expect(expiryCutoffs).toEqual([explicitExpiredAt, explicitExpiredAt]);
+    expect(activeCutoffs).toEqual([explicitActiveAt, explicitActiveAt]);
+    expect(closeTimes).toEqual([configuredDates[2]]);
+  });
+
+  it("preserves clock and persistence failures at the public boundary", async () => {
+    const clockFailure = new Error("live query clock failed");
+    const clockBasePersistence = memoryPersistence();
+    let leaseWrites = 0;
+    const clockExecutor = createBaseFlarexExecutor({
+      persistence: {
+        ...clockBasePersistence,
+        async upsertLiveQueryConnectionLease(input) {
+          leaseWrites += 1;
+          return await clockBasePersistence.upsertLiveQueryConnectionLease(input);
+        },
+      },
+      clock: { now: () => { throw clockFailure; } },
+    });
+
+    await expect(clockExecutor.touchLiveQueryConnection({
+      deploymentId: "deployment_live_query_clock_failure",
+      projectId: "project_live_query_clock_failure",
+      connectionId: "connection_failure",
+    })).rejects.toBe(clockFailure);
+    expect(leaseWrites).toBe(0);
+
+    const invalidLeaseBase = memoryPersistence();
+    let invalidLeaseClockReads = 0;
+    let invalidLeaseWrites = 0;
+    const invalidLeaseExecutor = createBaseFlarexExecutor({
+      persistence: {
+        ...invalidLeaseBase,
+        async upsertLiveQueryConnectionLease(input) {
+          invalidLeaseWrites += 1;
+          return await invalidLeaseBase.upsertLiveQueryConnectionLease(input);
+        },
+      },
+      clock: {
+        now: () => {
+          invalidLeaseClockReads += 1;
+          return new Date(100);
+        },
+      },
+    });
+
+    await expect(invalidLeaseExecutor.touchLiveQueryConnection({
+      deploymentId: "deployment_live_query_invalid_lease",
+      projectId: "project_live_query_invalid_lease",
+      connectionId: "connection_invalid_lease",
+      leaseDurationMs: 0,
+    })).rejects.toThrow("leaseDurationMs must be a positive integer.");
+    expect(invalidLeaseClockReads).toBe(1);
+    expect(invalidLeaseWrites).toBe(0);
+
+    const persistenceFailure = new Error("live query expiry scan failed");
+    const persistenceBase = memoryPersistence();
+    let persistenceClockReads = 0;
+    const persistenceExecutor = createBaseFlarexExecutor({
+      persistence: {
+        ...persistenceBase,
+        async listExpiredLiveQueryConnectionDeployments(): Promise<never> {
+          throw persistenceFailure;
+        },
+      },
+      clock: {
+        now: () => {
+          persistenceClockReads += 1;
+          return new Date(100);
+        },
+      },
+    });
+    const expiredAt = new Date(50);
+
+    await expect(
+      persistenceExecutor.listExpiredLiveQueryConnectionDeployments({
+        expiredAt,
+      }),
+    ).rejects.toBe(persistenceFailure);
+    expect(persistenceClockReads).toBe(0);
+  });
+
+  it("reads close and cutoff deployment keys before acquiring time", async () => {
+    const deploymentId = "deployment_live_query_key_order";
+    const projectId = "project_live_query_key_order";
+    const closeKeyFailure = new Error("close deployment key read failed");
+    const expiryKeyFailure = new Error("expiry deployment key read failed");
+    const activeKeyFailure = new Error("active deployment key read failed");
+    const basePersistence = memoryPersistence();
+    let closeCalls = 0;
+    let expiryCalls = 0;
+    let activeListCalls = 0;
+    let clockReads = 0;
+    const executor = createBaseFlarexExecutor({
+      persistence: {
+        ...basePersistence,
+        async ensureDeploymentAuthority() {
+          return {
+            deployment: deploymentMetadata({ deploymentId, projectId }),
+            createdDeployment: false,
+          };
+        },
+        async closeLiveQueryConnection(input) {
+          closeCalls += 1;
+          return await basePersistence.closeLiveQueryConnection(input);
+        },
+        async deleteExpiredLiveQuerySubscriptions(input) {
+          expiryCalls += 1;
+          return await basePersistence.deleteExpiredLiveQuerySubscriptions(input);
+        },
+        async listActiveLiveQuerySubscriptions(input) {
+          activeListCalls += 1;
+          return await basePersistence.listActiveLiveQuerySubscriptions(input);
+        },
+      },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return new Date(100);
+        },
+      },
+    });
+
+    await expect(executor.removeLiveQuerySubscriptionsForConnection({
+      get deploymentId(): string {
+        throw closeKeyFailure;
+      },
+      projectId,
+      connectionId: "connection_key_order",
+    })).rejects.toBe(closeKeyFailure);
+    await expect(executor.removeExpiredLiveQuerySubscriptions({
+      get deploymentId(): string {
+        throw expiryKeyFailure;
+      },
+      projectId,
+    })).rejects.toBe(expiryKeyFailure);
+    await expect(executor.findStaleLiveQuerySubscriptions({
+      get deploymentId(): string {
+        throw activeKeyFailure;
+      },
+      freshnessStore: createMemoryFreshnessMirrorStore(),
+    })).rejects.toBe(activeKeyFailure);
+
+    expect(clockReads).toBe(0);
+    expect(closeCalls).toBe(0);
+    expect(expiryCalls).toBe(0);
+    expect(activeListCalls).toBe(0);
+  });
+
+  it("reads persistence methods before acquiring their inline clock value", async () => {
+    const methodFailure = new Error("close method getter failed");
+    const basePersistence = memoryPersistence();
+    let methodReads = 0;
+    let clockReads = 0;
+    const executor = createBaseFlarexExecutor({
+      persistence: {
+        ...basePersistence,
+        get closeLiveQueryConnection(): never {
+          methodReads += 1;
+          throw methodFailure;
+        },
+      },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          throw new Error("clock must not win failure precedence");
+        },
+      },
+    });
+
+    await expect(executor.removeLiveQuerySubscriptionsForConnection({
+      deploymentId: "deployment_live_query_method_order",
+      projectId: "project_live_query_method_order",
+      connectionId: "connection_method_order",
+    })).rejects.toBe(methodFailure);
+    expect(methodReads).toBe(1);
+    expect(clockReads).toBe(0);
   });
 
   it("records a live query subscription with timestamped read set and result hash", async () => {
@@ -688,13 +1020,34 @@ describe("executor live query subscriptions", () => {
   });
 
   it("validates expired live query connection deployment scan limits", async () => {
-    const executor = createLiveQueryExecutor({ persistence: memoryPersistence() });
+    const basePersistence = memoryPersistence();
+    let listCalls = 0;
+    let clockReads = 0;
+    const executor = createLiveQueryExecutor({
+      persistence: {
+        ...basePersistence,
+        async listExpiredLiveQueryConnectionDeployments(input) {
+          listCalls += 1;
+          return await basePersistence.listExpiredLiveQueryConnectionDeployments(
+            input,
+          );
+        },
+      },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return new Date(100);
+        },
+      },
+    });
 
     await expect(
       executor.listExpiredLiveQueryConnectionDeployments({
         limit: 0,
       }),
     ).rejects.toThrow(LiveQueryDeliveryPolicyError);
+    expect(listCalls).toBe(0);
+    expect(clockReads).toBe(0);
   });
 
   it("reruns a live query subscription and reports changed results", async () => {
@@ -1853,8 +2206,24 @@ describe("executor live query subscriptions", () => {
   });
 
   it("rejects invalid stale live query rerun limits", async () => {
-    const persistence = memoryPersistence();
-    const executor = createLiveQueryExecutor({ persistence });
+    const basePersistence = memoryPersistence();
+    let listCalls = 0;
+    let clockReads = 0;
+    const executor = createLiveQueryExecutor({
+      persistence: {
+        ...basePersistence,
+        async listActiveLiveQuerySubscriptions(input) {
+          listCalls += 1;
+          return await basePersistence.listActiveLiveQuerySubscriptions(input);
+        },
+      },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return new Date(100);
+        },
+      },
+    });
     const freshnessStore = createMemoryFreshnessMirrorStore();
 
     await expect(
@@ -1869,6 +2238,8 @@ describe("executor live query subscriptions", () => {
         }),
       }),
     ).rejects.toThrow("limit must be a positive integer.");
+    expect(listCalls).toBe(0);
+    expect(clockReads).toBe(0);
   });
 });
 

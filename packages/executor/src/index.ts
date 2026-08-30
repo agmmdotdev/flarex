@@ -38,16 +38,18 @@ import {
   runLiveQueryDeliveryBatch,
 } from "./liveQueryDeliveries";
 import {
-  findStaleLiveQuerySubscriptions,
-  listExpiredLiveQueryConnectionDeployments,
-  recordLiveQuerySubscription,
-  removeExpiredLiveQuerySubscriptions,
+  findStaleLiveQuerySubscriptionsEffect,
+  listExpiredLiveQueryConnectionDeploymentsEffect,
+  makeLiveQueryTimeEffect,
+  recordLiveQuerySubscriptionEffect,
+  removeExpiredLiveQuerySubscriptionsEffect,
   removeLiveQuerySubscription,
-  removeLiveQuerySubscriptionsForConnection,
+  removeLiveQuerySubscriptionsForConnectionEffect,
+  runLiveQueryPromise,
   runLiveQuerySubscriptionWithInvoke,
   rerunLiveQuerySubscription,
-  rerunStaleLiveQuerySubscriptions,
-  touchLiveQueryConnection,
+  rerunStaleLiveQuerySubscriptionsEffect,
+  touchLiveQueryConnectionEffect,
 } from "./liveQueries";
 import {
   listMaintenanceDeploymentsEffect,
@@ -265,6 +267,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
   });
   const maintenanceTimeEffect = makeSessionTimeEffect(configuredClock);
   const outboxTimeEffect = makeOutboxTimeEffect(configuredClock);
+  const liveQueryTimeEffect = makeLiveQueryTimeEffect(configuredClock);
 
   function runInvokeWithRetriesForExecutor(
     input: RunQueryInvokeWithRetriesInput,
@@ -347,26 +350,55 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     recordLiveQueryDeliveryFailure: (input) =>
       recordLiveQueryDeliveryFailure(persistence, input),
     touchLiveQueryConnection: (input) =>
-      touchLiveQueryConnection(persistence, clock, input),
+      runLiveQueryPromise(touchLiveQueryConnectionEffect(
+        persistence,
+        liveQueryTimeEffect,
+        input,
+      )),
     recordLiveQuerySubscription: (input) =>
-      recordLiveQuerySubscription(persistence, clock, input),
+      runLiveQueryPromise(recordLiveQuerySubscriptionEffect(
+        persistence,
+        liveQueryTimeEffect,
+        input,
+      )),
     removeLiveQuerySubscription: (input) =>
       removeLiveQuerySubscription(persistence, input),
     removeLiveQuerySubscriptionsForConnection: (input) =>
-      removeLiveQuerySubscriptionsForConnection(persistence, clock, input),
+      runLiveQueryPromise(removeLiveQuerySubscriptionsForConnectionEffect(
+        persistence,
+        liveQueryTimeEffect,
+        input,
+      )),
     removeExpiredLiveQuerySubscriptions: (input) =>
-      removeExpiredLiveQuerySubscriptions(persistence, clock, input),
+      runLiveQueryPromise(removeExpiredLiveQuerySubscriptionsEffect(
+        persistence,
+        liveQueryTimeEffect,
+        input,
+      )),
     listExpiredLiveQueryConnectionDeployments: (input) =>
-      listExpiredLiveQueryConnectionDeployments(persistence, clock, input),
+      runLiveQueryPromise(listExpiredLiveQueryConnectionDeploymentsEffect(
+        persistence,
+        liveQueryTimeEffect,
+        input,
+      )),
     findStaleLiveQuerySubscriptions: (input) =>
-      findStaleLiveQuerySubscriptions(persistence, clock, input),
+      runLiveQueryPromise(findStaleLiveQuerySubscriptionsEffect(
+        persistence,
+        liveQueryTimeEffect,
+        input,
+      )),
     rerunLiveQuerySubscription: (input) =>
       rerunLiveQuerySubscription(persistence, {
         ...input,
         deliveryId: input.deliveryId ?? ids.nextId(),
       }),
     rerunStaleLiveQuerySubscriptions: (input) =>
-      rerunStaleLiveQuerySubscriptions(persistence, clock, ids, input),
+      runLiveQueryPromise(rerunStaleLiveQuerySubscriptionsEffect(
+        persistence,
+        liveQueryTimeEffect,
+        ids,
+        input,
+      )),
     runLiveQuerySubscriptionWithInvoke: (input) =>
       runLiveQuerySubscriptionWithInvoke(
         persistence,

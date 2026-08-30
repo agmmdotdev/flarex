@@ -101,9 +101,12 @@ migration. It requires its own compatibility evidence and approval.
    operations; see
    `roadmaps/time/04-executor-maintenance-clock-preflight.md`. ECLK01-D now runs
    package-only outbox delivery time through Effect-native operations; see
-   `roadmaps/time/05-executor-outbox-clock-preflight.md`. `PartitionDO` commit
-   metadata remains a separate host authority decision outside these
-   package-only gates.
+   `roadmaps/time/05-executor-outbox-clock-preflight.md`. ECLK01-E now gates the
+   package-only live-query connection/subscription lease, close, expiry, and
+   stale-cutoff family; see
+   `roadmaps/time/06-executor-live-query-lease-clock-preflight.md`. Live-query
+   delivery timing and `PartitionDO` commit metadata remain separate authority
+   decisions outside this gate.
 4. Persistence codecs: centralize representation conversion only where row
    decoding, corruption ownership, transaction order, and database authority
    remain unchanged.

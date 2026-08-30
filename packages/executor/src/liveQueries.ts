@@ -9,6 +9,7 @@ import {
   encodeCanonicalJson,
   type CanonicalJsonEncodingInvariantIssue,
 } from "flarex-protocol/json";
+import { Data, Effect } from "effect";
 
 import {
   DeploymentNotFoundError,
@@ -17,6 +18,7 @@ import {
   LiveQuerySubscriptionRerunError,
 } from "./errors";
 import { ensureDeployment } from "./deployments";
+import { makeExecutorTimeEffect } from "./executorTime";
 import type {
   Clock,
   DeleteExpiredLiveQuerySubscriptionsResult,
@@ -47,82 +49,189 @@ import type {
 const DEFAULT_LIVE_QUERY_CONNECTION_LEASE_MS = 60_000;
 const DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_LIMIT = 100;
 
-export async function touchLiveQueryConnection(
-  persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
-  input: TouchLiveQueryConnectionInput,
-): Promise<TouchLiveQueryConnectionResult> {
-  await assertLiveQueryDeploymentProject(persistence, input);
-  return await upsertLiveQueryConnectionLease(persistence, clock, input);
+export class ConfiguredLiveQueryClockError extends Data.TaggedError(
+  "ConfiguredLiveQueryClockError",
+)<{
+  readonly cause: unknown;
+}> {}
+
+export class LiveQueryForeignOperationError extends Data.TaggedError(
+  "LiveQueryForeignOperationError",
+)<{
+  readonly operation: LiveQueryForeignOperation;
+  readonly cause: unknown;
+}> {}
+
+export type LiveQueryForeignOperation =
+  | "assert live query deployment project"
+  | "build live query connection lease"
+  | "check live query read set freshness"
+  | "classify live query subscription freshness"
+  | "close live query connection"
+  | "delete expired live query subscriptions"
+  | "delete live query subscriptions for connection"
+  | "deliver stale live query changes"
+  | "list active live query subscriptions"
+  | "list expired live query connection deployments"
+  | "prepare live query connection close key"
+  | "prepare live query subscription lease input"
+  | "prepare stale live query scan input"
+  | "project live query subscription evidence"
+  | "project stale live query change"
+  | "project stale live query result"
+  | "read live query active cutoff override"
+  | "read live query active deployment id"
+  | "read live query expiry cutoff override"
+  | "read live query expiry deployment id"
+  | "read live query lease time override"
+  | "rerun stale live query subscription"
+  | "select stale live query subscriptions"
+  | "upsert live query connection lease"
+  | "upsert live query subscription with lease"
+  | "validate expired live query deployment limit"
+  | "validate stale live query rerun limit";
+
+type LiveQueryTimeEffect = Effect.Effect<
+  Date,
+  ConfiguredLiveQueryClockError
+>;
+
+type LiveQueryLeaseEffectError =
+  | ConfiguredLiveQueryClockError
+  | LiveQueryForeignOperationError;
+
+type LiveQueryAuthorityLeaseEffectError =
+  | DeploymentProjectMismatchError
+  | LiveQueryLeaseEffectError;
+
+interface LiveQueryConnectionLease {
+  readonly lastSeenAt: Date;
+  readonly expiresAt: Date;
 }
 
-async function upsertLiveQueryConnectionLease(
+export const touchLiveQueryConnectionEffect = Effect.fn(
+  "Executor.liveQuery.touchConnection",
+)(function* (
   persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
+  readTime: LiveQueryTimeEffect,
+  input: TouchLiveQueryConnectionInput,
+): Effect.fn.Return<
+  TouchLiveQueryConnectionResult,
+  LiveQueryAuthorityLeaseEffectError
+> {
+  yield* assertLiveQueryDeploymentProjectEffect(persistence, input);
+  return yield* upsertLiveQueryConnectionLeaseEffect(
+    persistence,
+    readTime,
+    input,
+  );
+});
+
+const upsertLiveQueryConnectionLeaseEffect = Effect.fn(
+  "Executor.liveQuery.upsertConnectionLease",
+)(function* (
+  persistence: FlarexExecutorControlPersistence,
+  readTime: LiveQueryTimeEffect,
   input: Omit<TouchLiveQueryConnectionInput, "projectId">,
-): Promise<TouchLiveQueryConnectionResult> {
-  const lease = liveQueryConnectionLease(clock, input);
-  const connection = await persistence.upsertLiveQueryConnectionLease({
-    deploymentId: input.deploymentId,
-    connectionId: input.connectionId,
-    lastSeenAt: lease.lastSeenAt,
-    expiresAt: lease.expiresAt,
-  });
+): Effect.fn.Return<TouchLiveQueryConnectionResult, LiveQueryLeaseEffectError> {
+  const lease = yield* liveQueryConnectionLeaseEffect(readTime, input);
+  const connection = yield* tryLiveQueryPromise(
+    "upsert live query connection lease",
+    () => persistence.upsertLiveQueryConnectionLease({
+      deploymentId: input.deploymentId,
+      connectionId: input.connectionId,
+      lastSeenAt: lease.lastSeenAt,
+      expiresAt: lease.expiresAt,
+    }),
+  );
   return { connection };
-}
+});
+
+const liveQueryConnectionLeaseEffect = Effect.fn(
+  "Executor.liveQuery.connectionLease",
+)(function* (
+  readTime: LiveQueryTimeEffect,
+  input: Pick<TouchLiveQueryConnectionInput, "leaseDurationMs" | "now">,
+): Effect.fn.Return<
+  LiveQueryConnectionLease,
+  LiveQueryLeaseEffectError
+> {
+  const nowOverride = yield* tryLiveQuerySync(
+    "read live query lease time override",
+    () => input.now,
+  );
+  const now = nowOverride ?? (yield* readTime);
+  return yield* tryLiveQuerySync(
+    "build live query connection lease",
+    () => liveQueryConnectionLease(now, input.leaseDurationMs),
+  );
+});
 
 function liveQueryConnectionLease(
-  clock: Clock,
-  input: Pick<TouchLiveQueryConnectionInput, "leaseDurationMs" | "now">,
-): { lastSeenAt: Date; expiresAt: Date } {
-  const now = input.now ?? clock.now();
-  const leaseDurationMs =
-    input.leaseDurationMs ?? DEFAULT_LIVE_QUERY_CONNECTION_LEASE_MS;
-  if (!Number.isInteger(leaseDurationMs) || leaseDurationMs <= 0) {
+  now: Date,
+  leaseDurationMs: number | undefined,
+): LiveQueryConnectionLease {
+  const duration =
+    leaseDurationMs ?? DEFAULT_LIVE_QUERY_CONNECTION_LEASE_MS;
+  if (!Number.isInteger(duration) || duration <= 0) {
     throw new Error("leaseDurationMs must be a positive integer.");
   }
   return {
     lastSeenAt: now,
-    expiresAt: new Date(now.getTime() + leaseDurationMs),
+    expiresAt: new Date(now.getTime() + duration),
   };
 }
 
-export async function recordLiveQuerySubscription(
+export const recordLiveQuerySubscriptionEffect = Effect.fn(
+  "Executor.liveQuery.recordSubscription",
+)(function* (
   persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
+  readTime: LiveQueryTimeEffect,
   input: RecordLiveQuerySubscriptionInput,
-): Promise<RecordLiveQuerySubscriptionResult> {
-  await assertLiveQueryDeploymentProject(persistence, input);
-  const lease = liveQueryConnectionLease(
-    clock,
-    input.updatedAt === undefined ? {} : { now: input.updatedAt },
+): Effect.fn.Return<
+  RecordLiveQuerySubscriptionResult,
+  LiveQueryAuthorityLeaseEffectError
+> {
+  yield* assertLiveQueryDeploymentProjectEffect(persistence, input);
+  const leaseInput = yield* tryLiveQuerySync(
+    "prepare live query subscription lease input",
+    () => input.updatedAt === undefined ? {} : { now: input.updatedAt },
   );
-  const readSet = readSetToFreshnessReadSet(input.readSet, input.beginTs);
-  const resultHash = fingerprintJson(input.resultJson);
-  const subscription = await persistence.upsertLiveQuerySubscriptionWithLease({
-    deploymentId: input.deploymentId,
-    connectionId: input.connectionId,
-    queryId: input.queryId,
-    functionPath: input.functionPath,
-    argsJson: input.argsJson,
-    identityJson: input.identity ?? { kind: "anonymous" },
-    partitionKey: input.partitionKey ?? null,
-    beginTs: input.beginTs,
-    // SAFETY: readSetToFreshnessReadSet returns a plain JSON-object read
-    // set, which is what the persistence JSON column accepts.
-    readSetJson: readSet as Record<string, unknown>,
-    resultJson: input.resultJson,
-    resultHash,
-    lastSeenAt: lease.lastSeenAt,
-    expiresAt: lease.expiresAt,
-    ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
-  });
+  const lease = yield* liveQueryConnectionLeaseEffect(readTime, leaseInput);
+  const evidence = yield* tryLiveQuerySync(
+    "project live query subscription evidence",
+    () => ({
+      readSet: readSetToFreshnessReadSet(input.readSet, input.beginTs),
+      resultHash: fingerprintJson(input.resultJson),
+    }),
+  );
+  const subscription = yield* tryLiveQueryPromise(
+    "upsert live query subscription with lease",
+    () => persistence.upsertLiveQuerySubscriptionWithLease({
+      deploymentId: input.deploymentId,
+      connectionId: input.connectionId,
+      queryId: input.queryId,
+      functionPath: input.functionPath,
+      argsJson: input.argsJson,
+      identityJson: input.identity ?? { kind: "anonymous" },
+      partitionKey: input.partitionKey ?? null,
+      beginTs: input.beginTs,
+      // SAFETY: readSetToFreshnessReadSet returns a plain JSON-object read
+      // set, which is what the persistence JSON column accepts.
+      readSetJson: evidence.readSet as Record<string, unknown>,
+      resultJson: input.resultJson,
+      resultHash: evidence.resultHash,
+      lastSeenAt: lease.lastSeenAt,
+      expiresAt: lease.expiresAt,
+      ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
+    }),
+  );
 
   return {
     subscription,
-    resultHash,
+    resultHash: evidence.resultHash,
   };
-}
+});
 
 export async function removeLiveQuerySubscription(
   persistence: FlarexExecutorControlPersistence,
@@ -132,44 +241,139 @@ export async function removeLiveQuerySubscription(
   return await persistence.deleteLiveQuerySubscription(input);
 }
 
-export async function removeLiveQuerySubscriptionsForConnection(
+export const removeLiveQuerySubscriptionsForConnectionEffect = Effect.fn(
+  "Executor.liveQuery.removeSubscriptionsForConnection",
+)(function* (
   persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
+  readTime: LiveQueryTimeEffect,
   input: RemoveLiveQuerySubscriptionsForConnectionInput,
-): Promise<DeleteLiveQuerySubscriptionResult> {
-  await assertLiveQueryDeploymentProject(persistence, input);
-  await persistence.closeLiveQueryConnection({
-    deploymentId: input.deploymentId,
-    connectionId: input.connectionId,
-    closedAt: clock.now(),
-  });
-  return await persistence.deleteLiveQuerySubscriptionsForConnection(input);
-}
+): Effect.fn.Return<
+  DeleteLiveQuerySubscriptionResult,
+  LiveQueryAuthorityLeaseEffectError
+> {
+  yield* assertLiveQueryDeploymentProjectEffect(persistence, input);
+  const closeLiveQueryConnection = yield* tryLiveQuerySync(
+    "close live query connection",
+    () => persistence.closeLiveQueryConnection,
+  );
+  const closeKey = yield* tryLiveQuerySync(
+    "prepare live query connection close key",
+    () => ({
+      deploymentId: input.deploymentId,
+      connectionId: input.connectionId,
+    }),
+  );
+  const closedAt = yield* readTime;
+  yield* tryLiveQueryPromise(
+    "close live query connection",
+    () => Reflect.apply(
+      closeLiveQueryConnection,
+      persistence,
+      [{
+        deploymentId: closeKey.deploymentId,
+        connectionId: closeKey.connectionId,
+        closedAt,
+      }],
+    ),
+  );
+  return yield* tryLiveQueryPromise(
+    "delete live query subscriptions for connection",
+    () => persistence.deleteLiveQuerySubscriptionsForConnection(input),
+  );
+});
 
-export async function removeExpiredLiveQuerySubscriptions(
+export const removeExpiredLiveQuerySubscriptionsEffect = Effect.fn(
+  "Executor.liveQuery.removeExpiredSubscriptions",
+)(function* (
   persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
+  readTime: LiveQueryTimeEffect,
   input: RemoveExpiredLiveQuerySubscriptionsInput,
-): Promise<DeleteExpiredLiveQuerySubscriptionsResult> {
-  await assertLiveQueryDeploymentProject(persistence, input);
-  return await persistence.deleteExpiredLiveQuerySubscriptions({
-    deploymentId: input.deploymentId,
-    expiredAt: input.expiredAt ?? clock.now(),
-  });
-}
+): Effect.fn.Return<
+  DeleteExpiredLiveQuerySubscriptionsResult,
+  LiveQueryAuthorityLeaseEffectError
+> {
+  yield* assertLiveQueryDeploymentProjectEffect(persistence, input);
+  const deleteExpiredLiveQuerySubscriptions = yield* tryLiveQuerySync(
+    "delete expired live query subscriptions",
+    () => persistence.deleteExpiredLiveQuerySubscriptions,
+  );
+  const deploymentId = yield* tryLiveQuerySync(
+    "read live query expiry deployment id",
+    () => input.deploymentId,
+  );
+  const expiredAtOverride = yield* tryLiveQuerySync(
+    "read live query expiry cutoff override",
+    () => input.expiredAt,
+  );
+  const expiredAt = expiredAtOverride ?? (yield* readTime);
+  return yield* tryLiveQueryPromise(
+    "delete expired live query subscriptions",
+    () => Reflect.apply(
+      deleteExpiredLiveQuerySubscriptions,
+      persistence,
+      [{
+        deploymentId,
+        expiredAt,
+      }],
+    ),
+  );
+});
 
-export async function listExpiredLiveQueryConnectionDeployments(
+export const listExpiredLiveQueryConnectionDeploymentsEffect = Effect.fn(
+  "Executor.liveQuery.listExpiredConnectionDeployments",
+)(function* (
   persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
+  readTime: LiveQueryTimeEffect,
   input: ListExpiredLiveQueryConnectionDeploymentsInput,
-): Promise<ListExpiredLiveQueryConnectionDeploymentsResult> {
-  const limit = liveQueryConnectionCleanupLimit(input.limit);
-  return await persistence.listExpiredLiveQueryConnectionDeployments({
-    expiredAt: input.expiredAt ?? clock.now(),
-    limit,
-    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+): Effect.fn.Return<
+  ListExpiredLiveQueryConnectionDeploymentsResult,
+  LiveQueryDeliveryPolicyError | LiveQueryLeaseEffectError
+> {
+  const limit = yield* Effect.try({
+    try: () => liveQueryConnectionCleanupLimit(input.limit),
+    catch: (cause) => cause instanceof LiveQueryDeliveryPolicyError
+      ? cause
+      : new LiveQueryForeignOperationError({
+        operation: "validate expired live query deployment limit",
+        cause,
+      }),
   });
-}
+  const listExpiredLiveQueryConnectionDeployments = yield* tryLiveQuerySync(
+    "list expired live query connection deployments",
+    () => persistence.listExpiredLiveQueryConnectionDeployments,
+  );
+  const expiredAtOverride = yield* tryLiveQuerySync(
+    "read live query expiry cutoff override",
+    () => input.expiredAt,
+  );
+  const expiredAt = expiredAtOverride ?? (yield* readTime);
+  return yield* tryLiveQueryPromise(
+    "list expired live query connection deployments",
+    () => Reflect.apply(
+      listExpiredLiveQueryConnectionDeployments,
+      persistence,
+      [{
+        expiredAt,
+        limit,
+        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+      }],
+    ),
+  );
+});
+
+const assertLiveQueryDeploymentProjectEffect = Effect.fn(
+  "Executor.liveQuery.assertDeploymentProject",
+)(function* (
+  persistence: FlarexExecutorControlPersistence,
+  input: { deploymentId: string; projectId: string },
+): Effect.fn.Return<
+  void,
+  DeploymentProjectMismatchError | LiveQueryForeignOperationError
+> {
+  yield* tryLiveQueryAuthorityPromise(
+    () => assertLiveQueryDeploymentProject(persistence, input),
+  );
+});
 
 async function assertLiveQueryDeploymentProject(
   persistence: FlarexExecutorControlPersistence,
@@ -184,15 +388,40 @@ function liveQueryConnectionCleanupLimit(limit: number | undefined): number {
   throw new LiveQueryDeliveryPolicyError("limit must be a positive integer.");
 }
 
-export async function findStaleLiveQuerySubscriptions(
+export const findStaleLiveQuerySubscriptionsEffect = Effect.fn(
+  "Executor.liveQuery.findStaleSubscriptions",
+)(function* (
   persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
+  readTime: LiveQueryTimeEffect,
   input: FindStaleLiveQuerySubscriptionsInput,
-): Promise<FindStaleLiveQuerySubscriptionsResult> {
-  const subscriptions = await persistence.listActiveLiveQuerySubscriptions({
-    deploymentId: input.deploymentId,
-    activeAt: input.activeAt ?? clock.now(),
-  });
+): Effect.fn.Return<
+  FindStaleLiveQuerySubscriptionsResult,
+  LiveQueryLeaseEffectError
+> {
+  const listActiveLiveQuerySubscriptions = yield* tryLiveQuerySync(
+    "list active live query subscriptions",
+    () => persistence.listActiveLiveQuerySubscriptions,
+  );
+  const deploymentId = yield* tryLiveQuerySync(
+    "read live query active deployment id",
+    () => input.deploymentId,
+  );
+  const activeAtOverride = yield* tryLiveQuerySync(
+    "read live query active cutoff override",
+    () => input.activeAt,
+  );
+  const activeAt = activeAtOverride ?? (yield* readTime);
+  const subscriptions = yield* tryLiveQueryPromise(
+    "list active live query subscriptions",
+    () => Reflect.apply(
+      listActiveLiveQuerySubscriptions,
+      persistence,
+      [{
+        deploymentId,
+        activeAt,
+      }],
+    ),
+  );
   const result: FindStaleLiveQuerySubscriptionsResult = {
     fresh: [],
     stale: [],
@@ -200,25 +429,33 @@ export async function findStaleLiveQuerySubscriptions(
   };
 
   for (const subscription of subscriptions) {
-    const freshness = await checkReadSetFreshness({
-      store: input.freshnessStore,
-      deploymentId: input.deploymentId,
-      // SAFETY: this module persisted readSetJson from a validated
-      // FreshnessReadSet produced by readSetToFreshnessReadSet.
-      readSet: subscription.readSetJson as FreshnessReadSet,
-    });
-    const entry = { subscription, freshness };
-    if (freshness.status === "fresh") {
-      result.fresh.push(entry);
-    } else if (freshness.status === "stale") {
-      result.stale.push(entry);
-    } else {
-      result.unsupported.push(entry);
-    }
+    const freshness = yield* tryLiveQueryPromise(
+      "check live query read set freshness",
+      () => checkReadSetFreshness({
+        store: input.freshnessStore,
+        deploymentId: input.deploymentId,
+        // SAFETY: this module persisted readSetJson from a validated
+        // FreshnessReadSet produced by readSetToFreshnessReadSet.
+        readSet: subscription.readSetJson as FreshnessReadSet,
+      }),
+    );
+    yield* tryLiveQuerySync(
+      "classify live query subscription freshness",
+      () => {
+        const entry = { subscription, freshness };
+        if (freshness.status === "fresh") {
+          result.fresh.push(entry);
+        } else if (freshness.status === "stale") {
+          result.stale.push(entry);
+        } else {
+          result.unsupported.push(entry);
+        }
+      },
+    );
   }
 
   return result;
-}
+});
 
 export async function rerunLiveQuerySubscription(
   persistence: FlarexExecutorControlPersistence,
@@ -332,61 +569,95 @@ export async function rerunLiveQuerySubscription(
   };
 }
 
-export async function rerunStaleLiveQuerySubscriptions(
+export const rerunStaleLiveQuerySubscriptionsEffect = Effect.fn(
+  "Executor.liveQuery.rerunStaleSubscriptions",
+)(function* (
   persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
+  readTime: LiveQueryTimeEffect,
   ids: IdGenerator,
   input: RerunStaleLiveQuerySubscriptionsInput,
-): Promise<RerunStaleLiveQuerySubscriptionsResult> {
-  if (
-    input.limit !== undefined &&
-    (!Number.isInteger(input.limit) || input.limit <= 0)
-  ) {
-    throw new Error("limit must be a positive integer.");
-  }
+): Effect.fn.Return<
+  RerunStaleLiveQuerySubscriptionsResult,
+  LiveQueryLeaseEffectError
+> {
+  yield* tryLiveQuerySync(
+    "validate stale live query rerun limit",
+    () => {
+      if (
+        input.limit !== undefined &&
+        (!Number.isInteger(input.limit) || input.limit <= 0)
+      ) {
+        throw new Error("limit must be a positive integer.");
+      }
+    },
+  );
 
-  const scanned = await findStaleLiveQuerySubscriptions(persistence, clock, {
-    deploymentId: input.deploymentId,
-    freshnessStore: input.freshnessStore,
-    ...(input.activeAt === undefined ? {} : { activeAt: input.activeAt }),
-  });
-  const staleToRerun =
-    input.limit === undefined
+  const scanInput = yield* tryLiveQuerySync(
+    "prepare stale live query scan input",
+    () => ({
+      deploymentId: input.deploymentId,
+      freshnessStore: input.freshnessStore,
+      ...(input.activeAt === undefined ? {} : { activeAt: input.activeAt }),
+    }),
+  );
+  const scanned = yield* findStaleLiveQuerySubscriptionsEffect(
+    persistence,
+    readTime,
+    scanInput,
+  );
+  const staleToRerun = yield* tryLiveQuerySync(
+    "select stale live query subscriptions",
+    () => input.limit === undefined
       ? scanned.stale
-      : scanned.stale.slice(0, input.limit);
+      : scanned.stale.slice(0, input.limit),
+  );
   const changed: RerunLiveQuerySubscriptionResult[] = [];
   const unchanged: RerunLiveQuerySubscriptionResult[] = [];
   const changes: LiveQueryChange[] = [];
 
   for (const entry of staleToRerun) {
-    const rerun = await rerunLiveQuerySubscription(persistence, {
-      subscription: entry.subscription,
-      deliveryId: ids.nextId(),
-      ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
-      runQuery: input.runQuery,
-    });
-    if (rerun.changed) {
-      changed.push(rerun);
-      changes.push(liveQueryChangeFromRerun(rerun));
-    } else {
-      unchanged.push(rerun);
-    }
+    const rerun = yield* tryLiveQueryPromise(
+      "rerun stale live query subscription",
+      () => rerunLiveQuerySubscription(persistence, {
+        subscription: entry.subscription,
+        deliveryId: ids.nextId(),
+        ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
+        runQuery: input.runQuery,
+      }),
+    );
+    yield* tryLiveQuerySync(
+      "project stale live query change",
+      () => {
+        if (rerun.changed) {
+          changed.push(rerun);
+          changes.push(liveQueryChangeFromRerun(rerun));
+        } else {
+          unchanged.push(rerun);
+        }
+      },
+    );
   }
 
   if (changes.length > 0) {
-    await input.deliverChanges?.(changes);
+    yield* tryLiveQueryPromise(
+      "deliver stale live query changes",
+      () => Promise.resolve(input.deliverChanges?.(changes)),
+    );
   }
 
-  return {
-    scanned,
-    changed,
-    unchanged,
-    changes,
-    unsupported: scanned.unsupported,
-    hasMoreStale:
-      input.limit !== undefined && scanned.stale.length > staleToRerun.length,
-  };
-}
+  return yield* tryLiveQuerySync(
+    "project stale live query result",
+    () => ({
+      scanned,
+      changed,
+      unchanged,
+      changes,
+      unsupported: scanned.unsupported,
+      hasMoreStale:
+        input.limit !== undefined && scanned.stale.length > staleToRerun.length,
+    }),
+  );
+});
 
 export async function runLiveQuerySubscriptionWithInvoke(
   persistence: FlarexExecutorControlPersistence,
@@ -494,4 +765,65 @@ function liveQueryFingerprintInvariantViolation(
   throw new Error(
     `Live-query result lost its validated JSON shape while fingerprinting (${issue.reason}).`,
   );
+}
+
+export function makeLiveQueryTimeEffect(
+  clock: Clock | undefined,
+): LiveQueryTimeEffect {
+  return makeExecutorTimeEffect(
+    clock,
+    (cause) => new ConfiguredLiveQueryClockError({ cause }),
+  );
+}
+
+export function runLiveQueryPromise<A, E>(
+  effect: Effect.Effect<A, E>,
+): Promise<A> {
+  return Effect.runPromise(
+    effect.pipe(Effect.mapError(liveQueryFailureCause)),
+  );
+}
+
+export function liveQueryFailureCause(error: unknown): unknown {
+  return error instanceof ConfiguredLiveQueryClockError ||
+      error instanceof LiveQueryForeignOperationError
+    ? error.cause
+    : error;
+}
+
+function tryLiveQueryPromise<A>(
+  operation: LiveQueryForeignOperation,
+  evaluate: () => PromiseLike<A>,
+): Effect.Effect<A, LiveQueryForeignOperationError> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => new LiveQueryForeignOperationError({ operation, cause }),
+  });
+}
+
+function tryLiveQueryAuthorityPromise<A>(
+  evaluate: () => PromiseLike<A>,
+): Effect.Effect<
+  A,
+  DeploymentProjectMismatchError | LiveQueryForeignOperationError
+> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => cause instanceof DeploymentProjectMismatchError
+      ? cause
+      : new LiveQueryForeignOperationError({
+        operation: "assert live query deployment project",
+        cause,
+      }),
+  });
+}
+
+function tryLiveQuerySync<A>(
+  operation: LiveQueryForeignOperation,
+  evaluate: () => A,
+): Effect.Effect<A, LiveQueryForeignOperationError> {
+  return Effect.try({
+    try: evaluate,
+    catch: (cause) => new LiveQueryForeignOperationError({ operation, cause }),
+  });
 }
