@@ -820,6 +820,7 @@ regression suites:
   outcome-specific test support;
 - `test/deploymentSyncEvaluationClaim.test.ts` and its claim-specific test
   support;
+- `test/deploymentSyncEvaluationClaimBoundaries.test.ts`;
 - `test/deploymentSyncEvaluationStateAtomicity.test.ts`;
 - `test/deploymentSyncEvaluationStateLimits.test.ts`;
 - `test/deploymentQuerySyncC2.workerd.test.ts`; and
@@ -966,8 +967,8 @@ This accepted implementation checkpoint does not authorize:
    Worker-heap behavior.
 7. Remaining C2 exit work includes the matrix's other exhaustive typed and
    corruption branches, non-migration maximum aggregate populations, claim
-   maximum/corruption/exhaustion proofs, remaining races, and maximum genuine-
-   Workerd spelling, binding, buffering, and heap proofs.
+   races, and maximum genuine-Workerd spelling, binding, buffering, and heap
+   proofs.
 8. The completion control-flow proof now covers all five start-stage no-write
    receipts, pending and unchanged exact replay, first material activation,
    unchanged-digest pending preservation, replay fingerprint and content
@@ -1028,16 +1029,27 @@ This accepted implementation checkpoint does not authorize:
     successful retry. Caller-side loss after a committed ready claim proves a
     fresh request selects new work from the durable fairness anchor rather than
     replaying the hidden nominal attempt.
+16. The claim boundary proof now admits an exact planner-derived 4,096-row
+    blocked population through one generation-3 SQLite fixture transaction.
+    Fresh and resumed scans pin the physical 4,097 lookahead, the exact
+    1-plus-4,095 combined maximum, and no-write stable blocked result. An extra
+    DDL-admitted but noncanonical last row proves both fresh and resumed 4,097
+    overflow fail as transition-fact stored corruption before decoding the
+    sentinel. Malformed and well-formed-crossed prefix facts retain their
+    distinct stored-corruption and invalid-continuation channels. Missing,
+    crossed, and malformed selected point facts fail before write, and every
+    injected in-transaction mutation rolls back exactly. Dirty selected facts
+    at maximum revision prove revision exhaustion, while simultaneous maximum
+    generation and revision proves generation exhaustion wins first.
 
 Completion's remaining exit work still includes the exhaustive typed and
 prohibited-corruption matrix, non-migration maximum populations/bytes, and race
-proof. Claim, remaining cross-operation races, and host maximum proof also
+proof. Claim races, remaining cross-operation races, and host maximum proof also
 remain. The accepted nominal claim and attempt-outcome branch/read-trace,
 write-rollback, affected-row, and response-loss matrices are complete. Claim's
-4,096/4,097 physical scan sentinel, crossed/corrupt point and prefix facts,
-generation/revision exhaustion, competing claims, and claim-versus-invalidation
-race remain under the broader C2 exit matrix above, alongside exhaustive
-attempt-outcome authority, typed-mismatch, corruption, and exhaustion branches.
+competing-claim and claim-versus-invalidation races remain under the broader C2
+exit matrix above, alongside exhaustive attempt-outcome authority,
+typed-mismatch, corruption, and exhaustion branches.
 
 C2 remains implementation-complete but proof-incomplete at that private
 boundary. The next correctness work is the remaining C2 proof matrix. A fresh

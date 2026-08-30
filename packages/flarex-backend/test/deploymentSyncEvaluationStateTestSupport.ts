@@ -73,7 +73,13 @@ export interface EvaluationSqlInvocation {
 }
 
 export interface EvaluationSqlCompletion extends EvaluationSqlInvocation {
+  readonly rowsRead: number;
   readonly rowsWritten: number;
+}
+
+export interface EvaluationSqlObservation<Stage extends string>
+  extends EvaluationSqlCompletion {
+  readonly stage: Stage;
 }
 
 export interface EvaluationSqlHooks {
@@ -107,6 +113,7 @@ export interface EvaluationSqlProbe<Stage extends string> {
   ) => void;
   readonly stop: () => readonly Stage[];
   readonly snapshot: () => readonly Stage[];
+  readonly completed: () => readonly EvaluationSqlObservation<Stage>[];
 }
 
 export function makeEvaluationSqlProbe<Stage extends string>(
@@ -120,6 +127,7 @@ export function makeEvaluationSqlProbe<Stage extends string>(
   }> | undefined;
   let writeOrdinal = 0;
   let stages: Stage[] = [];
+  let observations: EvaluationSqlObservation<Stage>[] = [];
 
   const hooks: EvaluationStorageHooks = Object.freeze({
     beforeExecute: (invocation: EvaluationSqlInvocation) => {
@@ -149,6 +157,12 @@ export function makeEvaluationSqlProbe<Stage extends string>(
         : undefined
     ),
     afterExecute: (completion: EvaluationSqlCompletion) => {
+      if (enabled) {
+        observations.push(Object.freeze({
+          ...completion,
+          stage: classify(completion),
+        }));
+      }
       if (
         enabled
         && completion.isWrite
@@ -162,6 +176,7 @@ export function makeEvaluationSqlProbe<Stage extends string>(
 
   const resetTrace = () => {
     stages = [];
+    observations = [];
     writeOrdinal = 0;
     enabled = true;
   };
@@ -188,6 +203,7 @@ export function makeEvaluationSqlProbe<Stage extends string>(
       return Object.freeze([...stages]);
     },
     snapshot: () => Object.freeze([...stages]),
+    completed: () => Object.freeze([...observations]),
   });
 }
 
@@ -401,13 +417,14 @@ function makeSqliteStorage(
       : database.prepare(query).all(...bindings) as Row[];
     const physicalCompletion: EvaluationSqlCompletion = Object.freeze({
       ...invocation,
+      rowsRead: rows.length,
       rowsWritten: isWrite ? rows.length : 0,
     });
     const rowsWritten = hooks.overrideRowsWritten?.(physicalCompletion)
       ?? physicalCompletion.rowsWritten;
     hooks.afterExecute?.(rowsWritten === physicalCompletion.rowsWritten
       ? physicalCompletion
-      : Object.freeze({ ...invocation, rowsWritten }));
+      : Object.freeze({ ...physicalCompletion, rowsWritten }));
     return cursorFor(rows, rowsWritten);
   };
   return Object.freeze({
