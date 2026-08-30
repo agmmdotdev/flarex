@@ -89,3 +89,28 @@ export class FrameworkSchemaArtifactInvariantDefect extends Data.TaggedError(
     | "unexpectedCaptureFailure";
   readonly observedByteLength?: number;
 }> {}
+
+export class FrameworkSchemaArtifactRepositoryConfigurationError extends
+  Data.TaggedError("FrameworkSchemaArtifactRepositoryConfigurationError")<{
+    readonly reason: "invalidTimeoutPolicy";
+    readonly message:
+      "Framework schema artifact repository timeout policy is invalid";
+  }>
+{
+  private constructor(fields: Readonly<{
+    reason: "invalidTimeoutPolicy";
+    message:
+      "Framework schema artifact repository timeout policy is invalid";
+  }>) {
+    super(fields);
+  }
+
+  static invalidTimeoutPolicy():
+    FrameworkSchemaArtifactRepositoryConfigurationError
+  {
+    return new FrameworkSchemaArtifactRepositoryConfigurationError({
+      reason: "invalidTimeoutPolicy",
+      message: "Framework schema artifact repository timeout policy is invalid",
+    });
+  }
+}

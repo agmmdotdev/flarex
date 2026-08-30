@@ -2,9 +2,11 @@
 
 ## Status And Authorization
 
-Status: accepted on 2026-08-30; additive DDL, runtime-authenticated
-admission preparation, and stored reconstruction sub-checkpoints implemented;
-repository/session behavior and genuine PostgreSQL acceptance remain incomplete
+Status: accepted on 2026-08-30; additive DDL, runtime-authenticated admission
+preparation, stored reconstruction, and opaque repository identity/control-
+database composition sub-checkpoints implemented; repository operations,
+executable control-session behavior and starter authenticity, and genuine
+PostgreSQL acceptance remain incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -1014,7 +1016,7 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next step is the remaining private repository and control-session
-implementation above. The implemented DDL, preparation capability, and stored
-reconstruction do not open any installation, framework-adapter, runtime,
-public, or production gate.
+The next step is the complete private control-session lifecycle and repository
+operations above. The implemented DDL, preparation capability, stored
+reconstruction, and repository identity do not open any installation,
+framework-adapter, runtime, public, or production gate.

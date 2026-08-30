@@ -1,8 +1,15 @@
 import { copyBytes } from "@flarex/utils/bytes";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { Result } from "effect";
 
+import type { FlarexMetadataDatabase } from "../../deployments";
 import { copyCapturedFrameworkSchemaArtifactEvidence } from "./canonical";
-import { FrameworkSchemaArtifactError } from "./errors";
+import type { FrameworkSchemaArtifactControlSessionStarter } from
+  "./controlSession";
+import {
+  FrameworkSchemaArtifactError,
+  FrameworkSchemaArtifactRepositoryConfigurationError,
+} from "./errors";
 import {
   FRAMEWORK_SCHEMA_ARTIFACT_FORMAT,
   FRAMEWORK_SCHEMA_ARTIFACT_VERSION,
@@ -13,6 +20,10 @@ import {
 const preparedFrameworkSchemaArtifactAdmissionBrand: unique symbol = Symbol(
   "FlarexDB/PreparedFrameworkSchemaArtifactAdmission",
 );
+const frameworkSchemaArtifactRepositoryBrand: unique symbol = Symbol(
+  "FlarexDB/FrameworkSchemaArtifactRepository",
+);
+const MAXIMUM_FRAMEWORK_SCHEMA_ARTIFACT_TIMEOUT_MILLISECONDS = 60_000;
 
 export interface PreparedFrameworkSchemaArtifactAdmission {
   readonly [preparedFrameworkSchemaArtifactAdmissionBrand]: true;
@@ -29,13 +40,86 @@ export interface FrameworkSchemaArtifactAdmissionEvidence {
   readonly frameVersion: typeof FRAMEWORK_SCHEMA_ARTIFACT_VERSION;
 }
 
+export interface FrameworkSchemaArtifactRepositoryTimeoutPolicy {
+  readonly readTimeoutMilliseconds: number;
+  readonly attemptTimeoutMilliseconds: number;
+  readonly recoveryTimeoutMilliseconds: number;
+  readonly lockTimeoutMilliseconds: number;
+}
+
+export interface MakeFrameworkSchemaArtifactRepositoryInput
+  extends FrameworkSchemaArtifactRepositoryTimeoutPolicy
+{
+  readonly controlDb: FlarexMetadataDatabase;
+  readonly controlSessionStarter:
+    FrameworkSchemaArtifactControlSessionStarter;
+}
+
+export interface FrameworkSchemaArtifactRepository {
+  readonly [frameworkSchemaArtifactRepositoryBrand]: true;
+}
+
 interface PreparedFrameworkSchemaArtifactAdmissionState
   extends FrameworkSchemaArtifactAdmissionEvidence {}
+
+interface FrameworkSchemaArtifactRepositoryState {
+  readonly controlDb: FlarexMetadataDatabase;
+  readonly controlSessionStarter:
+    FrameworkSchemaArtifactControlSessionStarter;
+  readonly timeoutPolicy: FrameworkSchemaArtifactRepositoryTimeoutPolicy;
+}
 
 const preparedFrameworkSchemaArtifactAdmissionStates = new WeakMap<
   PreparedFrameworkSchemaArtifactAdmission,
   PreparedFrameworkSchemaArtifactAdmissionState
 >();
+const frameworkSchemaArtifactRepositoryStates = new WeakMap<
+  object,
+  FrameworkSchemaArtifactRepositoryState
+>();
+
+/** Construct one opaque repository identity after validating its fixed policy. */
+export function makeFrameworkSchemaArtifactRepository(
+  input: MakeFrameworkSchemaArtifactRepositoryInput,
+): Result.Result<
+  FrameworkSchemaArtifactRepository,
+  FrameworkSchemaArtifactRepositoryConfigurationError
+> {
+  const timeoutPolicy = {
+    readTimeoutMilliseconds: input.readTimeoutMilliseconds,
+    attemptTimeoutMilliseconds: input.attemptTimeoutMilliseconds,
+    recoveryTimeoutMilliseconds: input.recoveryTimeoutMilliseconds,
+    lockTimeoutMilliseconds: input.lockTimeoutMilliseconds,
+  } satisfies FrameworkSchemaArtifactRepositoryTimeoutPolicy;
+  if (!isFrameworkSchemaArtifactRepositoryTimeoutPolicy(timeoutPolicy)) {
+    return Result.fail(
+      FrameworkSchemaArtifactRepositoryConfigurationError
+        .invalidTimeoutPolicy(),
+    );
+  }
+
+  const frozenTimeoutPolicy = Object.freeze(timeoutPolicy);
+  const state = Object.freeze({
+    controlDb: input.controlDb,
+    controlSessionStarter: input.controlSessionStarter,
+    timeoutPolicy: frozenTimeoutPolicy,
+  } satisfies FrameworkSchemaArtifactRepositoryState);
+  const repository = Object.freeze({
+    [frameworkSchemaArtifactRepositoryBrand]: true,
+  } satisfies FrameworkSchemaArtifactRepository);
+  frameworkSchemaArtifactRepositoryStates.set(repository, state);
+  return Result.succeed(repository);
+}
+
+/** Exact same-factory control-database composition check. */
+export function hasFrameworkSchemaArtifactRepositoryComposition(
+  repository: unknown,
+  controlDb: FlarexMetadataDatabase,
+): repository is FrameworkSchemaArtifactRepository {
+  if (typeof repository !== "object" || repository === null) return false;
+  const state = frameworkSchemaArtifactRepositoryStates.get(repository);
+  return state?.controlDb === controlDb;
+}
 
 /** Authenticate and snapshot one captured artifact before any SQL is built. */
 export function prepareFrameworkSchemaArtifactAdmission(
@@ -114,4 +198,20 @@ function snapshotFrameworkSchemaArtifactIdentities(
   return Object.freeze(identities.map(
     snapshotFrameworkSchemaArtifactIdentity,
   ));
+}
+
+function isFrameworkSchemaArtifactRepositoryTimeoutPolicy(
+  policy: FrameworkSchemaArtifactRepositoryTimeoutPolicy,
+): boolean {
+  return isFrameworkSchemaArtifactTimeout(policy.readTimeoutMilliseconds) &&
+    isFrameworkSchemaArtifactTimeout(policy.attemptTimeoutMilliseconds) &&
+    isFrameworkSchemaArtifactTimeout(policy.recoveryTimeoutMilliseconds) &&
+    isFrameworkSchemaArtifactTimeout(policy.lockTimeoutMilliseconds) &&
+    policy.lockTimeoutMilliseconds <= policy.attemptTimeoutMilliseconds &&
+    policy.lockTimeoutMilliseconds <= policy.recoveryTimeoutMilliseconds;
+}
+
+function isFrameworkSchemaArtifactTimeout(value: unknown): value is number {
+  return isPositiveSafeInteger(value) &&
+    value <= MAXIMUM_FRAMEWORK_SCHEMA_ARTIFACT_TIMEOUT_MILLISECONDS;
 }

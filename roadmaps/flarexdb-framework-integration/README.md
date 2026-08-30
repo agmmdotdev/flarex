@@ -3,9 +3,10 @@
 ## Status And Scope
 
 Status: active accepted roadmap domain. The private artifact-value, additive
-DDL, runtime-authenticated admission-preparation, and stored-reconstruction
-sub-checkpoints are implemented. The artifact repository remains an incomplete
-private checkpoint, and its genuine-PostgreSQL lane is not yet run.
+DDL, runtime-authenticated admission-preparation, stored-reconstruction, and
+repository-construction sub-checkpoints are implemented. Repository operations
+and the control-session lifecycle remain incomplete, and the
+genuine-PostgreSQL lane is not yet run.
 Installation, binding, adapter, and production work remains pending and
 production-inert
 
@@ -85,7 +86,7 @@ Preflight records:
 | File | Status | Decision |
 | --- | --- | --- |
 | [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; first checkpoint implemented | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred repository, installation, and binding contracts |
-| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; DDL, preparation, and reconstruction sub-checkpoints implemented, repository incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
+| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; DDL, preparation, reconstruction, and repository construction implemented; operations incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 
 ## Current Architecture
 
@@ -175,7 +176,7 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Artifact value, additive DDL, admission preparation, and stored reconstruction implemented privately; repository behavior and genuine-PostgreSQL acceptance remain incomplete; later lifecycle codecs stay gated |
+| Framework-neutral artifact/install/binding model | Artifact value, additive DDL, admission preparation, stored reconstruction, and repository construction implemented privately; repository operations, control-session lifecycle, and genuine-PostgreSQL acceptance remain incomplete; later lifecycle codecs stay gated |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |
@@ -216,22 +217,26 @@ and its first private artifact-value checkpoint is implemented.
 The repository and DDL contract is accepted in
 [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
 Its additive tables, PGlite DDL evidence, runtime-authenticated admission
-preparation, and operation-neutral stored reconstruction are implemented
-privately. Repository/session behavior and genuine-PostgreSQL acceptance remain
+preparation, operation-neutral stored reconstruction, and control-bound
+repository construction are implemented privately. Repository operations,
+control-session lifecycle behavior, and genuine-PostgreSQL acceptance remain
 incomplete. The implemented sub-boundary contains only:
 
 - an additive private control registry plus dependency sidecar;
 - database-only compact storage identities while retaining the full natural
-  artifact identity as the domain key; and
+  artifact identity as the domain key;
 - private Drizzle migration declarations and PGlite DDL evidence;
 - capture-issued artifact authenticity plus detached evidence behind an opaque
-  prepared-admission capability; and
+  prepared-admission capability;
 - fail-closed stored parent, canonical-frame, and dependency reconstruction
-  through the same capture owner.
+  through the same capture owner; and
+- a frozen opaque repository identity bound to its exact control database,
+  nominal session-starter dependency, and validated fixed timeout policy.
 
 The remaining bounded private implementation may add only:
 
-- a control-bound transaction-owning admission repository;
+- the complete control-session lifecycle and transaction-owning repository
+  operations;
 - exact replay, digest-collision, dependency, corruption, point-read, and
   bounded identity-list behavior; and
 - genuine-PostgreSQL migration, repository, settlement, and concurrency
