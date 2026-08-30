@@ -70,7 +70,7 @@ function bootstrapMatchesBinding(
     && bootstrapCursor.sourceEpoch === binding.sourceEpoch;
 }
 
-function makeEmptyScope(
+export function makeEmptyQuerySyncScopeFacts(
   cursor: NamespaceCursor,
 ): QuerySyncScopeFacts {
   const evaluationWork = Object.freeze({
@@ -110,7 +110,7 @@ export function planInitializeOrInspectNamespace(input: {
     return Result.fail(policyError("aggregateMissing"));
   }
   if (input.presence._tag === "authorizedFreshAbsence") {
-    const nextScope = makeEmptyScope(input.bootstrapCursor);
+    const nextScope = makeEmptyQuerySyncScopeFacts(input.bootstrapCursor);
     return Result.succeed(Object.freeze({
       _tag: "write",
       receipt: initializedNamespaceReceipt(

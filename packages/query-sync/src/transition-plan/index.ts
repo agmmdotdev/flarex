@@ -49,6 +49,7 @@ export type {
 } from "./ApplyAdmittedBatch.js";
 
 export {
+  makeEmptyQuerySyncScopeFacts,
   planInitializeOrInspectNamespace,
 } from "./Initialization.js";
 export type {

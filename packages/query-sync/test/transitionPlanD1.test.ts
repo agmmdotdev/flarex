@@ -9,9 +9,14 @@ import {
 } from "@flarex/query-sync/internal/kernel";
 import type {
   AdmittedInvalidationBatch,
+  NamespaceCursor,
   QueryDescriptor,
   QuerySyncState,
 } from "@flarex/query-sync/internal/kernel";
+import {
+  makeEmptyQuerySyncScopeFacts,
+  planInitializeOrInspectNamespace,
+} from "@flarex/query-sync/internal/transition-plan";
 import {
   projectApplyReceipt,
   projectBeginReceipt,
@@ -39,9 +44,6 @@ import {
   MAX_INVALIDATION_AFFECTED_QUERY_SENTINEL,
   MAX_INVALIDATION_DEPENDENCY_LOOKUPS,
 } from "../src/transition-plan/Limits.js";
-import {
-  planInitializeOrInspectNamespace,
-} from "../src/transition-plan/Initialization.js";
 import {
   executeNormalizedApplyAdmittedBatch,
   executeNormalizedBeginQueryEvaluation,
@@ -101,6 +103,56 @@ function installActiveQuery(
 }
 
 describe("QSYNC01-D1 transition plans", () => {
+  it("constructs exact owned empty scope facts reused by initialization", () => {
+    const mutableCursor = {
+      ...cursor({
+        namespaceId: "empty-scope-owner",
+        syncModelId: "empty-scope-model",
+        sourceEpoch: "empty-scope-epoch",
+        sequence: 17n,
+      }),
+    } satisfies NamespaceCursor;
+    const facts = makeEmptyQuerySyncScopeFacts(mutableCursor);
+    const secondFacts = makeEmptyQuerySyncScopeFacts(mutableCursor);
+    const reference = getSuccess(createEmptyQuerySyncState(mutableCursor));
+
+    expect(facts).toEqual({
+      cursor: reference.cursor,
+      evaluationWork: reference.evaluationWork,
+      metrics: reference.metrics,
+    });
+    expect(secondFacts).toEqual(facts);
+    expect(secondFacts).not.toBe(facts);
+    expect(secondFacts.cursor).not.toBe(facts.cursor);
+    expect(secondFacts.evaluationWork).not.toBe(facts.evaluationWork);
+    expect(secondFacts.metrics).not.toBe(facts.metrics);
+    expect(facts.cursor).not.toBe(mutableCursor);
+    expect(Object.isFrozen(facts)).toBe(true);
+    expect(Object.isFrozen(facts.cursor)).toBe(true);
+    expect(Object.isFrozen(facts.evaluationWork)).toBe(true);
+    expect(Object.isFrozen(facts.metrics)).toBe(true);
+
+    const replacementCursor = cursor({ sequence: 18n });
+    mutableCursor.appliedThroughSequence =
+      replacementCursor.appliedThroughSequence;
+    expect(facts.cursor.appliedThroughSequence).toBe(17n);
+
+    const binding = Object.freeze({
+      namespaceId: facts.cursor.namespaceId,
+      syncModelId: facts.cursor.syncModelId,
+      sourceEpoch: facts.cursor.sourceEpoch,
+    });
+    const initialized = getSuccess(planInitializeOrInspectNamespace({
+      binding,
+      bootstrapCursor: facts.cursor,
+      presence: Object.freeze({ _tag: "authorizedFreshAbsence" }),
+    }));
+    if (initialized._tag !== "write") {
+      throw new Error("Expected fresh initialization facts.");
+    }
+    expect(initialized.nextScope).toEqual(facts);
+  });
+
   it("plans initialization from explicit presence without minting authority", () => {
     const bootstrapCursor = cursor();
     const binding = Object.freeze({
