@@ -378,8 +378,11 @@ the presence discriminator.
 Readiness classifies the database before any write. Catalog inspection uses
 fully consumed `PRAGMA table_list`, `PRAGMA table_info`, `PRAGMA index_list`,
 and `PRAGMA index_xinfo` results plus `sqlite_schema` object kinds and SQL
-definitions. It ignores only SQLite-owned names beginning `sqlite_` and
-Cloudflare's documented hidden KV table `__cf_kv`; any other unaccepted table,
+definitions. It ignores SQLite-owned names beginning `sqlite_` and exactly two
+provider-owned KV spellings: `_cf_KV`, exposed by the pinned Workerd runtime,
+and `__cf_kv`, named by Cloudflare's current production documentation. It must
+not pattern-ignore arbitrary `_cf_%` or `__cf_%` objects. Provider-owned KV
+schema is outside the application contract; every other unaccepted table,
 index, view, or trigger is an incompatible catalog.
 
 PRAGMA metadata does not expose table `CHECK` expressions. Readiness therefore
@@ -664,10 +667,22 @@ and [storage/migration guidance](https://developers.cloudflare.com/durable-objec
 plus SQLite's official [STRICT-table contract](https://www.sqlite.org/stricttables.html)
 and [`CREATE TABLE` contract](https://www.sqlite.org/lang_createtable.html).
 The platform evidence supports per-object synchronous transactions, the
-100-bound-parameter budget, hidden `__cf_kv` catalog presence, ordinary DDL,
-constraints, and STRICT tables. It does not make SQL constraints a replacement
-for domain row decoding or authorize a foreign-key assumption C1 has not
-proved in Workerd.
+100-bound-parameter budget, provider-owned hidden-KV catalog presence, ordinary
+DDL, constraints, and STRICT tables. The pinned Workerd runtime exposes that KV
+table as `_cf_KV`; current Cloudflare documentation names it `__cf_kv`, so both
+exact spellings are provider-owned while broad prefix filtering remains
+forbidden. This evidence does not make SQL constraints a replacement for
+domain row decoding or authorize a foreign-key assumption C1 has not proved in
+Workerd.
+
+Reproducible platform discrepancy: after one synchronous KV `put` in pinned
+Workerd `1.20260611.1`, `PRAGMA table_list` reports `_cf_KV` with two columns,
+`wr = 1`, and `strict = 0`; `sqlite_schema.sql` reports
+`CREATE TABLE _cf_KV (key TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID`.
+Cloudflare's current documentation instead names `__cf_kv`. The affected owner
+is C1 catalog classification, not portable query-sync semantics. The accepted
+disposition is the two-name exact allowlist above plus a Workerd regression;
+there is no wildcard provider-prefix exemption.
 
 ## Validation And Commit Gates
 
