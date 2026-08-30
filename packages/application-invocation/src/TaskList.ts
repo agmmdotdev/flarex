@@ -3,13 +3,16 @@ import {
   StandardApplicationTaskRunListQuery,
   type StandardApplicationTaskRunListOptions,
   type StandardApplicationTaskRunListPage,
-  type StandardApplicationTaskRunListQueryError,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
 import type { StandardApplicationTaskRunQueryApi } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
 import { Data, Effect, Result } from "effect";
 
+import {
+  projectListTaskRunsError,
+  type TaskReadError,
+} from "./TaskReadError.js";
 import {
   projectTaskRunStatus,
   type TaskRunStatus,
@@ -52,13 +55,9 @@ class ListTaskRunsOptionsFailure extends Data.TaggedError(
 }> {}
 
 export type ListTaskRunsOptionsError = ListTaskRunsOptionsFailure;
-type StandardApplicationTaskRunListNonOptionsError = Exclude<
-  StandardApplicationTaskRunListQueryError,
-  { readonly _tag: "TaskRunListOptionsError" }
->;
 export type ListTaskRunsError =
   | ListTaskRunsOptionsError
-  | StandardApplicationTaskRunListNonOptionsError;
+  | TaskReadError<"listTaskRuns">;
 
 const taskRunCursorStates = new WeakMap<
   TaskRunCursor,
@@ -92,6 +91,11 @@ export const listTaskRuns = Effect.fn("Application.listTaskRuns")(function* (
         field: error.field,
         reason: error.reason,
       }))
+    ),
+    Effect.mapError(error =>
+      error._tag === "ListTaskRunsOptionsError"
+        ? error
+        : projectListTaskRunsError(error)
     ),
   );
   return projectPage(page, listQuery.scope);

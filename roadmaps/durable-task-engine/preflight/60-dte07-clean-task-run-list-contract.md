@@ -48,10 +48,11 @@ reference or output validator.
 
 The facade snapshots page size before cursor, validates the clean page-size
 contract, and authenticates a supplied cursor before service invocation. It
-maps only the private options error into `ListTaskRunsOptionsError`. Store and
-store-contract failures retain identity without retry, logging, or
-normalization. Defects and interruption remain outside the typed failure
-channel.
+maps the private options error into `ListTaskRunsOptionsError`. A later
+clean-root checkpoint maps store and store-contract failures once into the
+shared `TaskReadError<"listTaskRuns">` contract while retaining the exact owner
+failure as its opaque cause. Neither boundary retries nor logs. Defects and
+interruption remain outside the typed failure channel.
 
 ## Ownership
 

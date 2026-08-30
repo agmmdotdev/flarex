@@ -29,7 +29,7 @@ import {
   type StandardApplicationTaskResultQueryLive,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-result-query";
-import { Brand, Cause, Effect, Exit, Result } from "effect";
+import { Brand, Cause, Data, Effect, Exit, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
@@ -38,10 +38,21 @@ import {
   startTask,
   type ApplicationRequestKeyError,
   type ApplicationTaskResultContractError,
+  type InspectTaskError,
   type StartTaskError,
+  type TaskReadError,
   type TaskRun,
   type TaskRunStatus,
 } from "../src/index.js";
+
+class TestTaskRunQueryFailure extends Data.TaggedError(
+  "TaskSystemRunAttemptTransientStoreError",
+)<{
+  readonly operation: "inspect_current_attempt";
+  readonly runId: ReturnType<typeof makeReceipt>["runId"];
+  readonly reason: "timeout";
+  readonly cause: unknown;
+}> {}
 
 const tasksModule = defineModule({
   path: "tasks/cooking",
@@ -217,6 +228,41 @@ describe("clean Task invocation primitive", () => {
     expect(inspect).toHaveBeenCalledOnce();
     expect(inspect).toHaveBeenCalledWith(receipt.runId);
     expectTypeOf(status).toEqualTypeOf<TaskRunStatus>();
+  });
+
+  it("projects an inspection owner failure into the clean read contract", async () => {
+    const receipt = makeReceipt();
+    const run = await startRun(StandardApplicationTaskSystem.of({
+      createRun: () => Effect.succeed(receipt),
+    }));
+    const upstream = new TestTaskRunQueryFailure({
+      operation: "inspect_current_attempt",
+      runId: receipt.runId,
+      reason: "timeout",
+      cause: "database timeout",
+    });
+    const inspect = vi.fn<StandardApplicationTaskRunQueryApi["inspect"]>(
+      () => Effect.fail(upstream),
+    );
+
+    const failure = await Effect.runPromise(Effect.flip(inspectTask(run).pipe(
+      Effect.provideService(
+        StandardApplicationTaskRunQuery,
+        StandardApplicationTaskRunQuery.of({ inspect }),
+      ),
+    )));
+
+    expect(failure).not.toBe(upstream);
+    expect(failure).toMatchObject({
+      _tag: "TaskReadError",
+      operation: "inspectTask",
+      runId: receipt.runId,
+      reason: "transient",
+      cause: upstream,
+    });
+    expectTypeOf(failure).toEqualTypeOf<InspectTaskError>();
+    expectTypeOf(failure).toEqualTypeOf<TaskReadError<"inspectTask">>();
+    expect(inspect).toHaveBeenCalledOnce();
   });
 
   it("defects on a forged handle before query I/O", async () => {

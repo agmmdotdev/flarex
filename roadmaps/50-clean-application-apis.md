@@ -691,8 +691,17 @@ Task observability histories follow the same boundary:
 - event cancellation codes and failures reuse the exact clean status
   projections instead of defining a second vocabulary; and
 - both operations preserve their existing scope-captured Standard services,
-  ordering, bounds, errors, and read-only authority. No history result is
+  ordering, bounds, and read-only authority. No history result is
   returned by identity with its Standard source.
+
+Task read failures now follow one root-owned contract as well. `inspectTask()`,
+`listTaskRuns()`, `listTaskAttempts()`, and `listTaskEvents()` expose the stable
+`TaskReadError` tag with an operation-specific type, clean run identity when a
+single run owns the request, camel-case reason, and opaque diagnostic cause.
+Private Standard and durable error unions no longer appear in these root
+signatures. Caller-invalid list options remain a separate clean error because
+they fail before read authority is exercised. `awaitTask()` forwards its
+already-clean `InspectTaskError` without a second translation.
 
 The root operations remain deliberately separated by capability:
 
@@ -793,5 +802,7 @@ authorities remain intact.
 The same audit now projects attempt and lifecycle-event histories into
 root-owned unversioned shapes while preserving the existing history services
 and their scope checks.
+The clean Task read-error checkpoint is complete under
+[`durable-task-engine/preflight/66-dte07-clean-task-read-errors.md`](./durable-task-engine/preflight/66-dte07-clean-task-read-errors.md).
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.

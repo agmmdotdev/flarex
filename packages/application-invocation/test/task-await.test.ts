@@ -38,7 +38,9 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   awaitTask,
   startTask,
+  type AwaitTaskError,
   type AwaitTaskOptions,
+  type TaskReadError,
   type TaskAwaitOptionsError,
   type TaskAwaitTimeoutError,
   type TaskRun,
@@ -471,7 +473,7 @@ describe("clean Task await primitive", () => {
     expect(read).toHaveBeenCalledOnce();
   });
 
-  it("preserves a typed status-query failure by identity without retrying", async () => {
+  it("forwards one clean status-query failure without remapping or retrying", async () => {
     const receipt = makeReceipt();
     const run = await startRun(receipt);
     const expected = new TestTaskRunQueryError({
@@ -497,7 +499,17 @@ describe("clean Task await primitive", () => {
       ),
     )));
 
-    expect(failure).toBe(expected);
+    expect(failure).toMatchObject({
+      _tag: "TaskReadError",
+      operation: "inspectTask",
+      runId: receipt.runId,
+      reason: "unavailable",
+      cause: expected,
+    });
+    expectTypeOf(failure).toEqualTypeOf<AwaitTaskError>();
+    if (failure._tag === "TaskReadError") {
+      expectTypeOf(failure).toEqualTypeOf<TaskReadError<"inspectTask">>();
+    }
     expect(inspect).toHaveBeenCalledOnce();
     expect(read).not.toHaveBeenCalled();
   });

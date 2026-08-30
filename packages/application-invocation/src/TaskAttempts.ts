@@ -1,11 +1,14 @@
 import {
   StandardApplicationTaskAttemptHistoryQuery,
   type StandardApplicationTaskAttemptHistory,
-  type StandardApplicationTaskAttemptHistoryQueryError,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
 import { Effect } from "effect";
 
+import {
+  projectListTaskAttemptsError,
+  type TaskReadError,
+} from "./TaskReadError.js";
 import {
   inspectTaskRunRef,
   type TaskRunRef,
@@ -29,7 +32,7 @@ export interface TaskAttemptHistory {
 }
 
 export type ListTaskAttemptsError =
-  StandardApplicationTaskAttemptHistoryQueryError;
+  TaskReadError<"listTaskAttempts">;
 
 /** Lists immutable attempt admissions for one issued read-only Task-run ref. */
 export const listTaskAttempts = Effect.fn("Application.listTaskAttempts")(
@@ -48,7 +51,11 @@ export const listTaskAttempts = Effect.fn("Application.listTaskAttempts")(
     if (history.scope !== referenceState.query) {
       throw new TypeError("Task run metadata is unavailable.");
     }
-    const result = yield* history.list(referenceState.runId);
+    const result = yield* history.list(referenceState.runId).pipe(
+      Effect.mapError(error =>
+        projectListTaskAttemptsError(referenceState.runId, error)
+      ),
+    );
     return projectTaskAttemptHistory(result);
   },
 );

@@ -13,7 +13,6 @@ import {
 import {
   inspectStandardApplicationTaskRun,
   StandardApplicationTaskRunQuery,
-  type StandardApplicationTaskRunQueryError,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
 import {
@@ -39,6 +38,10 @@ import {
   type TaskRunRef,
 } from "./TaskRunRef.js";
 import {
+  projectInspectTaskError,
+  type TaskReadError,
+} from "./TaskReadError.js";
+import {
   projectTaskRunId,
   projectTaskRunStatus,
   type TaskRunId,
@@ -60,7 +63,7 @@ export interface StartTaskOptions {
 export type StartTaskError =
   | CreateStandardApplicationTaskRunError
   | ApplicationRequestKeyError<"startTask">;
-export type InspectTaskError = StandardApplicationTaskRunQueryError;
+export type InspectTaskError = TaskReadError<"inspectTask">;
 export type ReadTaskResultError =
   | StandardApplicationTaskResultQueryError
   | ApplicationTaskResultContractError;
@@ -140,7 +143,7 @@ export const inspectTask = Effect.fn("Application.inspectTask")(function* (
   if (taskRunState !== undefined) {
     const status = yield* inspectStandardApplicationTaskRun(
       taskRunState.receipt.runId,
-    );
+    ).pipe(Effect.mapError(projectInspectTaskError));
     return projectTaskRunStatus(status);
   }
   const referenceState = inspectTaskRunRef(run);
@@ -151,7 +154,9 @@ export const inspectTask = Effect.fn("Application.inspectTask")(function* (
   if (query !== referenceState.query) {
     throw new TypeError("Task run metadata is unavailable.");
   }
-  const status = yield* inspectStandardApplicationTaskRun(referenceState.runId);
+  const status = yield* inspectStandardApplicationTaskRun(
+    referenceState.runId,
+  ).pipe(Effect.mapError(projectInspectTaskError));
   return projectTaskRunStatus(status);
 });
 

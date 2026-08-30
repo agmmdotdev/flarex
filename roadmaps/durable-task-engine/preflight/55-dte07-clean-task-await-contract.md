@@ -78,8 +78,8 @@ cancellation command.
   authoritative observation identity;
 - `TaskRunCancelledError`, retaining the exact cancelled terminal state and
   its authoritative observation identity;
-- the exact `InspectTaskError` union, passed through immediately without
-  retry, wrapping, or logging; and
+- the exact clean `InspectTaskError`, passed through immediately without a
+  second translation, retry, or logging; and
 - the exact `ReadTaskResultError` union, passed through immediately after one
   succeeded observation without retry, wrapping, or logging.
 
@@ -130,7 +130,8 @@ Focused proof must cover:
 4. the timeout stops ordinary polling without a post-timeout query and waits
    for an in-flight uninterruptible query to finish cleanup;
 5. caller interruption remains interruption;
-6. query and result failures preserve identity and are not retried;
+6. the clean inspection failure is forwarded once, result failures preserve
+   identity, and neither is retried;
 7. invalid duration inputs fail before query I/O;
 8. forged handles defect before option validation, service lookup, or query
    I/O;

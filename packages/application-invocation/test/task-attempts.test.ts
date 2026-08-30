@@ -13,14 +13,16 @@ import {
   type StandardApplicationTaskRunQueryApi,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
-import { Brand, Cause, Effect, Exit, Result } from "effect";
+import { Brand, Cause, Data, Effect, Exit, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   listTaskAttempts,
   listTaskRuns,
+  type ListTaskAttemptsError,
   type TaskAttempt,
   type TaskAttemptHistory,
+  type TaskReadError,
   type TaskRunId,
   type TaskRunRef,
 } from "../src/index.js";
@@ -40,6 +42,15 @@ const attemptId = Brand.nominal<History["attempts"][number]["attemptId"]>();
 const attemptNumber = Brand.nominal<
   History["attempts"][number]["attemptNumber"]
 >();
+
+class AttemptHistoryStoreFailure extends Data.TaggedError(
+  "TaskAttemptHistoryStoreError",
+)<{
+  readonly operation: "list_task_attempts";
+  readonly runId: History["runId"];
+  readonly reason: "run_not_found";
+  readonly cause: unknown;
+}> {}
 
 describe("clean Task attempt-history primitive", () => {
   it("lists admissions through the exact scope that issued the run ref", async () => {
@@ -79,6 +90,39 @@ describe("clean Task attempt-history primitive", () => {
     expectTypeOf(history.runVersion).toEqualTypeOf<bigint>();
     expectTypeOf(history.attempts).toEqualTypeOf<readonly TaskAttempt[]>();
     expectTypeOf<TaskAttempt["attemptId"]>().toEqualTypeOf<string>();
+  });
+
+  it("projects attempt-history owner failures into the clean read contract", async () => {
+    const scope = pointQueryScope();
+    const upstream = new AttemptHistoryStoreFailure({
+      operation: "list_task_attempts",
+      runId,
+      reason: "run_not_found",
+      cause: null,
+    });
+    const list = vi.fn<StandardApplicationTaskAttemptHistoryQueryApi["list"]>(
+      () => Effect.fail(upstream),
+    );
+    const reference = await issueReference(scope);
+
+    const failure = await Effect.runPromise(Effect.flip(
+      listTaskAttempts(reference).pipe(Effect.provideService(
+        StandardApplicationTaskAttemptHistoryQuery,
+        StandardApplicationTaskAttemptHistoryQuery.of({ scope, list }),
+      )),
+    ));
+
+    expect(failure).not.toBe(upstream);
+    expect(failure).toMatchObject({
+      _tag: "TaskReadError",
+      operation: "listTaskAttempts",
+      runId,
+      reason: "runNotFound",
+      cause: upstream,
+    });
+    expectTypeOf(failure).toEqualTypeOf<ListTaskAttemptsError>();
+    expectTypeOf(failure).toEqualTypeOf<TaskReadError<"listTaskAttempts">>();
+    expect(list).toHaveBeenCalledOnce();
   });
 
   it("rejects a forged ref before attempt-history I/O", async () => {

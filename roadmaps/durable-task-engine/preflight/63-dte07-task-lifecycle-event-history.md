@@ -95,4 +95,5 @@ entry scalars are ordinary clean values, lifecycle discriminants and nested
 retry/cancellation/failure vocabulary are camel case, and event failures and
 cancellation codes reuse the clean status contract. The durable ledger query
 remains the sole authority for selection, validation, correlation, ordering,
-bounds, redaction, and typed errors.
+bounds, redaction, and owner failures. A later clean-root checkpoint translates
+those failures once into `TaskReadError<"listTaskEvents">`.

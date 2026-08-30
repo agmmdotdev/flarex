@@ -102,4 +102,6 @@ Standard history alias with an Application-owned frozen copy. `runId` now uses
 the clean opaque `TaskRunId`; observation time and versions are ordinary
 `number`/`bigint` scalars; and each attempt admission exposes a plain string
 ID, numeric ordinal, and bigint admitted version. The durable query remains the
-sole validator and authority for all values, ordering, bounds, and errors.
+sole validator and authority for all values, ordering, bounds, and owner
+failures. A later clean-root checkpoint translates those owner failures once
+into `TaskReadError<"listTaskAttempts">`.

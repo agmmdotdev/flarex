@@ -1,12 +1,15 @@
 import {
   StandardApplicationTaskEventHistoryQuery,
   type StandardApplicationTaskEventHistory,
-  type StandardApplicationTaskEventHistoryQueryError,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
 import { Effect } from "effect";
 
 import { inspectTaskRunRef, type TaskRunRef } from "./TaskRunRef.js";
+import {
+  projectListTaskEventsError,
+  type TaskReadError,
+} from "./TaskReadError.js";
 import {
   projectTaskCancellationCode,
   projectTaskRunFailure,
@@ -84,7 +87,7 @@ export interface TaskEventHistory {
   readonly events: readonly TaskEvent[];
 }
 
-export type ListTaskEventsError = StandardApplicationTaskEventHistoryQueryError;
+export type ListTaskEventsError = TaskReadError<"listTaskEvents">;
 
 /** Lists the durable lifecycle events recorded for one issued Task-run ref. */
 export const listTaskEvents = Effect.fn("Application.listTaskEvents")(
@@ -103,7 +106,11 @@ export const listTaskEvents = Effect.fn("Application.listTaskEvents")(
     if (history.scope !== referenceState.query) {
       throw new TypeError("Task run metadata is unavailable.");
     }
-    const result = yield* history.list(referenceState.runId);
+    const result = yield* history.list(referenceState.runId).pipe(
+      Effect.mapError(error =>
+        projectListTaskEventsError(referenceState.runId, error)
+      ),
+    );
     return projectTaskEventHistory(result);
   },
 );

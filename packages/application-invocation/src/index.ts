@@ -56,6 +56,12 @@ export type {
 
 export type { TaskRunRef } from "./TaskRunRef.js";
 
+export type {
+  TaskReadError,
+  TaskReadErrorReason,
+  TaskReadOperation,
+} from "./TaskReadError.js";
+
 export {
   awaitTask,
   type AwaitTaskError,

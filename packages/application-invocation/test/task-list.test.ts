@@ -21,7 +21,9 @@ import {
   readTaskResult,
   type ListTaskRunsOptions,
   type ListTaskRunsOptionsError,
+  type ListTaskRunsError,
   type ListedTaskRun,
+  type TaskReadError,
   type TaskRunCursor,
   type TaskRunPage,
   type TaskRunRef,
@@ -348,22 +350,33 @@ describe("clean Task-run list primitive", () => {
     expect(list).toHaveBeenCalledWith({ pageSize: 9, cursor: null });
   });
 
-  it("preserves non-option query failures by identity without retry", async () => {
-    const failure: StandardApplicationTaskRunListQueryError =
+  it("projects non-option query failures into the clean read contract", async () => {
+    const upstream: StandardApplicationTaskRunListQueryError =
       new StoreUnavailableFailure({
         operation: "list_task_runs",
         reason: "unavailable",
         cause: null,
       });
     const list = vi.fn<StandardApplicationTaskRunListQueryApi["list"]>(
-      () => Effect.fail(failure),
+      () => Effect.fail(upstream),
     );
 
-    const received = await Effect.runPromise(Effect.flip(
+    const failure = await Effect.runPromise(Effect.flip(
       provideListQueryServices(listTaskRuns(), list),
     ));
 
-    expect(received).toBe(failure);
+    expect(failure).not.toBe(upstream);
+    expect(failure).toMatchObject({
+      _tag: "TaskReadError",
+      operation: "listTaskRuns",
+      runId: null,
+      reason: "unavailable",
+      cause: upstream,
+    });
+    expectTypeOf(failure).toEqualTypeOf<ListTaskRunsError>();
+    if (failure._tag === "TaskReadError") {
+      expectTypeOf(failure).toEqualTypeOf<TaskReadError<"listTaskRuns">>();
+    }
     expect(list).toHaveBeenCalledOnce();
   });
 

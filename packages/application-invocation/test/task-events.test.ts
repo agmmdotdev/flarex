@@ -13,15 +13,17 @@ import {
   type StandardApplicationTaskRunQueryApi,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
-import { Brand, Cause, Effect, Exit, Result } from "effect";
+import { Brand, Cause, Data, Effect, Exit, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   listTaskEvents,
   listTaskRuns,
+  type ListTaskEventsError,
   type TaskEvent,
   type TaskEventHistory,
   type TaskLifecycleEvent,
+  type TaskReadError,
   type TaskRunId,
   type TaskRunRef,
 } from "../src/index.js";
@@ -49,6 +51,12 @@ const generation = Brand.nominal<
     { readonly kind: "cancellation_requested" }
   >["generation"]
 >();
+
+class EventHistoryContractFailure extends Data.TaggedError(
+  "TaskEventHistoryStoreContractError",
+)<{
+  readonly reason: "event_order_invalid";
+}> {}
 
 describe("clean Task lifecycle-event primitive", () => {
   it("lists lifecycle events through the scope that issued the run ref", async () => {
@@ -88,6 +96,36 @@ describe("clean Task lifecycle-event primitive", () => {
     expectTypeOf(history.observedAtMs).toEqualTypeOf<number>();
     expectTypeOf(history.runVersion).toEqualTypeOf<bigint>();
     expectTypeOf(history.events).toEqualTypeOf<readonly TaskEvent[]>();
+  });
+
+  it("projects event contract failures into the clean read contract", async () => {
+    const scope = pointQueryScope();
+    const upstream = new EventHistoryContractFailure({
+      reason: "event_order_invalid",
+    });
+    const list = vi.fn<StandardApplicationTaskEventHistoryQueryApi["list"]>(
+      () => Effect.fail(upstream),
+    );
+    const reference = await issueReference(scope);
+
+    const failure = await Effect.runPromise(Effect.flip(
+      listTaskEvents(reference).pipe(Effect.provideService(
+        StandardApplicationTaskEventHistoryQuery,
+        StandardApplicationTaskEventHistoryQuery.of({ scope, list }),
+      )),
+    ));
+
+    expect(failure).not.toBe(upstream);
+    expect(failure).toMatchObject({
+      _tag: "TaskReadError",
+      operation: "listTaskEvents",
+      runId,
+      reason: "corruptData",
+      cause: upstream,
+    });
+    expectTypeOf(failure).toEqualTypeOf<ListTaskEventsError>();
+    expectTypeOf(failure).toEqualTypeOf<TaskReadError<"listTaskEvents">>();
+    expect(list).toHaveBeenCalledOnce();
   });
 
   it.each([
