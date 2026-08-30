@@ -53,7 +53,7 @@ A provided reason follows the existing safe cancellation-message contract:
 
 Whitespace is significant and is not trimmed or normalized. Invalid input
 fails as `CancelTaskOptionsError` with `field: "reason"` and
-`reason: "invalid_message"`. The underlying Schema issue is not exposed. The
+`reason: "invalidMessage"`. The underlying Schema issue is not exposed. The
 failure occurs before the Standard cancellation service is requested.
 
 ## Clean Result
@@ -84,8 +84,9 @@ evidence, requested effects, locators, and provider details.
 `CancelTaskError` is the union of:
 
 - `CancelTaskOptionsError`; and
-- the exact `StandardApplicationTaskCancellationError` union, preserved by
-  identity without wrapping, logging, retry, or normalization.
+- after the later preflight 69 cleanup, `TaskCancellationError`, which carries
+  the authenticated clean run ID, a stable camel-case reason, and the exact
+  Standard owner failure as an opaque cause.
 
 Already-requested and already-terminal outcomes are successful observations,
 not typed failures.
@@ -108,7 +109,8 @@ Focused proof must cover:
 2. omitted and accepted reasons construct code `requested` exactly;
 3. empty, oversized, and control-character reasons fail before command I/O;
 4. all four clean statuses and replay projection are exact and frozen;
-5. Standard failures preserve identity and are not retried;
+5. the exact Standard failure is retained by identity as
+   `TaskCancellationError.cause` and is not retried;
 6. the clean root gains only `cancelTask` plus its types;
 7. exact package-import admission rejects broader durable authority; and
 8. package tests, typechecks, boundary checks, Oxlint gates, and both standing

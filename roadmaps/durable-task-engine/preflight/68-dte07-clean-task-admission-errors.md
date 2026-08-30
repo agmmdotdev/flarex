@@ -96,6 +96,6 @@ commit.
 
 ## Stop
 
-Stop after admission failures are clean. Do not clean cancellation-command
-failures, Action errors, Query/Mutation errors, or add public/production Task
-surfaces in this checkpoint.
+Stop after admission failures are clean. Cancellation-command failures were
+cleaned later under preflight 69. Do not clean Action, Query, or Mutation
+errors or add public/production Task surfaces in this checkpoint.

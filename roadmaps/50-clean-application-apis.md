@@ -715,6 +715,15 @@ uncertain settlement. The exact private owner failure remains only as an
 opaque diagnostic cause. No Standard, durable, readiness, persistence,
 principal-store, or input-store error type remains in `StartTaskError`.
 
+Task cancellation failures complete the same clean command boundary.
+`cancelTask()` keeps invalid caller reason text as `CancelTaskOptionsError`
+with camel-case `invalidMessage`, then translates the authoritative lifecycle
+channel once into `TaskCancellationError`. The error carries the authenticated
+clean run ID, a stable reason, and the exact private owner failure only as an
+opaque cause. Already-requested and already-terminal observations remain
+successful results, and no Standard or durable lifecycle error type remains
+in `CancelTaskError`.
+
 The root operations remain deliberately separated by capability:
 
 | Surface | Operations | Authority |

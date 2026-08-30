@@ -2,13 +2,16 @@ import {
   decodeStandardApplicationTaskCancellationReason,
   requestStandardApplicationTaskCancellation,
   StandardApplicationTaskCancellation,
-  type StandardApplicationTaskCancellationError,
   type StandardApplicationTaskCancellationReceipt,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-cancellation";
 import { Data, Effect, Result } from "effect";
 
 import { inspectTaskRun, type TaskRun } from "./Task.js";
+import {
+  projectTaskCancellationError,
+  type TaskCancellationError,
+} from "./TaskCancellationError.js";
 
 export interface CancelTaskOptions {
   readonly reason?: string;
@@ -18,13 +21,13 @@ class CancelTaskOptionsFailure extends Data.TaggedError(
   "CancelTaskOptionsError",
 )<{
   readonly field: "reason";
-  readonly reason: "invalid_message";
+  readonly reason: "invalidMessage";
 }> {}
 
 export type CancelTaskOptionsError = CancelTaskOptionsFailure;
 export type CancelTaskError =
   | CancelTaskOptionsError
-  | StandardApplicationTaskCancellationError;
+  | TaskCancellationError;
 
 export type TaskCancellationStatus =
   | "cancellationRequested"
@@ -55,13 +58,16 @@ export const cancelTask = Effect.fn("Application.cancelTask")(function* <Output>
       options.reason ?? null,
     ).pipe(Result.mapError(() => new CancelTaskOptionsFailure({
       field: "reason",
-      reason: "invalid_message",
+      reason: "invalidMessage",
     }))),
   );
   const receipt = yield* requestStandardApplicationTaskCancellation(
     inspected.receipt.runId,
     reason,
-  );
+  ).pipe(Effect.mapError(error => projectTaskCancellationError(
+    run.runId,
+    error,
+  )));
   return projectCancellationReceipt(run.runId, receipt);
 });
 

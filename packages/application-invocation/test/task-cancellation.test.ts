@@ -23,8 +23,10 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   cancelTask,
   startTask,
+  type CancelTaskError,
   type CancelTaskOptionsError,
   type CancelTaskResult,
+  type TaskCancellationError,
   type TaskRun,
 } from "../src/index.js";
 
@@ -172,7 +174,7 @@ describe("clean Task cancellation primitive", () => {
     expect(failure).toMatchObject({
       _tag: "CancelTaskOptionsError",
       field: "reason",
-      reason: "invalid_message",
+      reason: "invalidMessage",
     });
     if (failure._tag === "CancelTaskOptionsError") {
       expectTypeOf(failure).toEqualTypeOf<CancelTaskOptionsError>();
@@ -180,7 +182,7 @@ describe("clean Task cancellation primitive", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("preserves a Standard command failure by identity without retry", async () => {
+  it("projects a Standard command failure once without retry", async () => {
     const run = await startRun();
     const failure: StandardApplicationTaskCancellationError =
       new CancellationUnavailableFailure({
@@ -199,7 +201,18 @@ describe("clean Task cancellation primitive", () => {
       ),
     )));
 
-    expect(received).toBe(failure);
+    expect(received).toMatchObject({
+      _tag: "TaskCancellationError",
+      operation: "cancelTask",
+      runId: run.runId,
+      reason: "unavailable",
+      cause: failure,
+    });
+    expectTypeOf(received).toEqualTypeOf<CancelTaskError>();
+    if (received._tag === "TaskCancellationError") {
+      expectTypeOf(received).toEqualTypeOf<TaskCancellationError>();
+      expect(received.cause).toBe(failure);
+    }
     expect(request).toHaveBeenCalledOnce();
   });
 

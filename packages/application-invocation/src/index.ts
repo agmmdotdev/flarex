@@ -86,6 +86,11 @@ export {
   type TaskCancellationStatus,
 } from "./TaskCancellation.js";
 
+export type {
+  TaskCancellationError,
+  TaskCancellationErrorReason,
+} from "./TaskCancellationError.js";
+
 export {
   listTaskRuns,
   type ListTaskRunsError,
