@@ -440,12 +440,16 @@ The only accepted states are:
    is `deployment_sync_query_dependencies_reverse`, non-unique with origin
    `c`, partial flag `0`, and the four indexed columns in the stated order with
    binary collation and ascending order. SQLite-generated primary-key indexes
-   are admitted only with origin `pk`, `sql = NULL`, and the exact key-column,
-   collation, and ascending-order facts implied by each normative primary key;
-   every other automatic index is incompatible. All four table definitions and
-   the explicit reverse index must also match the normative DDL token sequences.
-   The contract table has exactly one row, its generation is `2`, and its
-   Boolean is `0` or `1`.
+   are admitted only with origin `pk` and no corresponding `sqlite_schema`
+   definition row. Their complete `index_xinfo` result must match the normative
+   DDL, including SQLite's auxiliary `key = 0` table columns as well as the
+   primary-key `key = 1` columns, binary collation, and ascending order. For the
+   dependency table, `table_info.pk` follows the declared key order -
+   `query_key = 1`, `role = 2`, `generation = 3`, and `dependency_key = 4` -
+   rather than physical column order. Every other automatic index is
+   incompatible. All four table definitions and the explicit reverse index
+   must also match the normative DDL token sequences. The contract table has
+   exactly one row, its generation is `2`, and its Boolean is `0` or `1`.
 
 An exact generation-2 catalog with a missing, duplicate, or invalid Boolean in
 its contract row is stored-state corruption. A contract generation other than
@@ -683,6 +687,13 @@ Cloudflare's current documentation instead names `__cf_kv`. The affected owner
 is C1 catalog classification, not portable query-sync semantics. The accepted
 disposition is the two-name exact allowlist above plus a Workerd regression;
 there is no wildcard provider-prefix exemption.
+
+The same pinned Workerd probe over the normative DDL reports automatic
+`WITHOUT ROWID` primary-key indexes through `index_list`/`index_xinfo` but
+reports no `sqlite_schema` row for them; `index_xinfo` also includes non-key
+table columns with `key = 0`. The affected owner is again C1 catalog
+authentication. The accepted disposition is full PRAGMA-result comparison and
+absence of an automatic-index schema row, not a synthetic `sql = NULL` row.
 
 ## Validation And Commit Gates
 
