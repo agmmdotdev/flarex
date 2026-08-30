@@ -821,6 +821,7 @@ regression suites:
 - `test/deploymentSyncEvaluationClaim.test.ts` and its claim-specific test
   support;
 - `test/deploymentSyncEvaluationClaimBoundaries.test.ts`;
+- `test/deploymentSyncEvaluationClaimRaces.test.ts`;
 - `test/deploymentSyncEvaluationStateAtomicity.test.ts`;
 - `test/deploymentSyncEvaluationStateLimits.test.ts`;
 - `test/deploymentQuerySyncC2.workerd.test.ts`; and
@@ -966,9 +967,9 @@ This accepted implementation checkpoint does not authorize:
    consumption evidence; it does not claim Cloudflare cursor-buffering or
    Worker-heap behavior.
 7. Remaining C2 exit work includes the matrix's other exhaustive typed and
-   corruption branches, non-migration maximum aggregate populations, claim
-   races, and maximum genuine-Workerd spelling, binding, buffering, and heap
-   proofs.
+   corruption branches, non-migration maximum aggregate populations, the
+   completion-versus-exact-next-invalidation race, and maximum genuine-Workerd
+   spelling, binding, buffering, and heap proofs.
 8. The completion control-flow proof now covers all five start-stage no-write
    receipts, pending and unchanged exact replay, first material activation,
    unchanged-digest pending preservation, replay fingerprint and content
@@ -1041,15 +1042,29 @@ This accepted implementation checkpoint does not authorize:
     injected in-transaction mutation rolls back exactly. Dirty selected facts
     at maximum revision prove revision exhaustion, while simultaneous maximum
     generation and revision proves generation exhaustion wins first.
+17. The claim serializability proof runs two fresh claims as competing Effect
+    turns against one SQLite scope. Both return the two distinct portable
+    claimed receipts; their physical trace is one complete fresh transaction
+    followed by one complete anchored transaction, both slim scans consume the
+    expected two-row lookahead, and only the portable fairness/metric scope
+    projection changes. Claim versus exact-next invalidation then executes both
+    complete transaction orders against a generation-1 active query dirty
+    through sequence 12. Every receipt, final scope revision/fairness/counter,
+    and raw retained projection matches its pure serial history. Claim-first
+    retains provisional registration/requested-dirty sequence 12 while active
+    dirty advances to 13; invalidation-first captures 13 in both fields.
+    Dependencies and pending publication remain byte-for-byte unchanged, and
+    no nested transaction, SQL-hook re-entry, lease, or scheduling primitive is
+    introduced.
 
 Completion's remaining exit work still includes the exhaustive typed and
-prohibited-corruption matrix, non-migration maximum populations/bytes, and race
-proof. Claim races, remaining cross-operation races, and host maximum proof also
-remain. The accepted nominal claim and attempt-outcome branch/read-trace,
-write-rollback, affected-row, and response-loss matrices are complete. Claim's
-competing-claim and claim-versus-invalidation races remain under the broader C2
-exit matrix above, alongside exhaustive attempt-outcome authority,
-typed-mismatch, corruption, and exhaustion branches.
+prohibited-corruption matrix, non-migration maximum populations/bytes, and its
+exact-next-invalidation race proof. Host maximum proof also remains. The
+accepted claim branch, boundary, recovery, and serial-race matrix is complete,
+as are the nominal attempt-outcome branch/read-trace, write-rollback,
+affected-row, response-loss, and terminal-versus-completion matrices.
+Exhaustive attempt-outcome authority, typed-mismatch, corruption, and
+exhaustion branches remain under the broader C2 exit matrix above.
 
 C2 remains implementation-complete but proof-incomplete at that private
 boundary. The next correctness work is the remaining C2 proof matrix. A fresh
