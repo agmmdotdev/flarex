@@ -1,13 +1,16 @@
 # Flarex Internal Database Schema Direction
 
-Status: accepted logical target and physical-policy inventory with an explicit
-staged v1 cutline; prototype storage and part of the replacement foundation
-are implemented, while exact current status belongs to the focused roadmaps
+Status: accepted logical target and physical-policy inventory with historical
+sketches; substantial private application storage and relation foundations are
+implemented, while exact current status belongs to the focused roadmaps
 
-Authoritative correction: see
-[`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md). When an older
-example in this long-form note conflicts with that decision record or the v1
-cutline below, the accepted design controls.
+Authoritative corrections: see
+[`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md) and
+[`flarexdb-framework-storage-architecture.md`](./flarexdb-framework-storage-architecture.md).
+When an older example in this long-form note conflicts with those decisions or
+a focused roadmap, the current owner controls.
+Cross-framework execution order and status belong to
+[`../roadmaps/flarexdb-framework-integration/README.md`](../roadmaps/flarexdb-framework-integration/README.md).
 
 ## Purpose
 
@@ -44,12 +47,12 @@ unimplemented SessionDO/cache design. Use these statuses:
 | Item | Status |
 | --- | --- |
 | Current `documents`, `indexes`, Postgres invoke sessions, subscriptions, and outbox | Implemented unshipped prototype baseline; regression evidence only |
-| Typed app row JSON plus derived index/edge/unique sidecars | S06 row revision/current kernel implemented internally; derived sidecars remain accepted planned consumers |
-| Edge revision history | Long-term target; current-only stable occurrence rows are sufficient for the first slice when commit atoms cover invalidation |
+| Typed app row JSON plus derived index/edge/unique sidecars | Private row, index, uniqueness, current-edge, adjacency-version, commit-lowering/fact, and bounded reverse-relation foundations are implemented; framework adoption remains separate |
+| Edge revision history | Rejected for the current generation; stable current occurrences, endpoint adjacency versions, and typed commit facts are the accepted authority. Reopen only from measured retention or historical-query requirements |
 | Dedicated physical Payload lifecycle tables | Deferred until adapter parity or measurement; start with reserved logical collections |
-| Medusa relational tables | Accepted, but generated from DML, links/joiner metadata, migrations, and adapter capabilities; not DML alone |
-| Generic SessionDO for Payload/Medusa | Rejected as a v1 assumption |
-| Per-scope DeploymentSyncDO plus Postgres commit feed and fenced cursor mirror | Accepted v1 target; the prototype Postgres query registry is not a required dual owner |
+| Medusa relational tables | Accepted, but generated from normalized DML, the complete configured supported module/link set for a candidate, explicit migration intent, legacy evidence, and admitted capabilities; not DML alone |
+| Generic SessionDO for Payload/Medusa | Rejected as a shared framework assumption |
+| Per-scope DeploymentSyncDO plus Postgres commit feed and fenced cursor mirror | Accepted target; the prototype Postgres query registry is not a required dual owner |
 | VersionDO, DocCacheDO, QueryCacheDO | Deferred optimization |
 
 Additional invariants:
@@ -85,8 +88,8 @@ fx_app_row_rev/current.data_json
 fx_app_index_entry_rev/current
   = declared scalar/compound index acceleration and range read dependencies
 
-fx_app_edge_rev/current
-  = relationship, upload, join, reverse lookup, access, and invalidation graph
+fx_app_edge_current + endpoint adjacency versions
+  = derived relationship, upload, join, reverse lookup, OCC, and invalidation state
 
 fx_app_unique_key
   = uniqueness enforcement, including sparse/localized Payload semantics
@@ -99,9 +102,10 @@ This is not a loose document database and not pure InstantDB-style EAV. It is a
 typed relational row store with JSON value bodies and normalized sidecars.
 
 Medusa is different: Medusa commerce data uses Flarex-owned reserved relational
-system tables generated from DML, link/joiner metadata, migration history, and
-adapter capabilities. Medusa rows are not stored in the generic app/Payload row
-table.
+system tables generated from normalized DML, the complete configured supported
+module/link set for a candidate, explicit semantic migration intent, legacy
+migration evidence, and admitted adapter capabilities. Medusa rows are not
+stored in the generic app/Payload row table.
 
 ## Core Rules
 
@@ -212,8 +216,9 @@ fx_payload.*
   scheduled publish
 
 fx_medusa.*
-  Medusa reserved commerce tables generated from DML, link/joiner metadata,
-  migration history, and adapter capabilities
+  Medusa reserved commerce tables generated from normalized DML, the complete
+  configured supported module/link set for a candidate, explicit migration
+  intent, legacy evidence, and admitted adapter capabilities
 
 fx_system.*
   commits, OCC, idempotency, locks, workflow state, outbox
@@ -648,8 +653,8 @@ fx_app_row_current
 fx_app_index_entry_rev/current
   declared scalar and compound query indexes
 
-fx_app_edge_rev/current
-  derived relationship, upload, join, and reverse lookup edges
+fx_app_edge_current + endpoint adjacency versions
+  derived relationship, upload, join, reverse lookup, OCC, and invalidation state
 
 fx_app_unique_key
   declared unique constraints
@@ -974,7 +979,7 @@ declared scalar/block subfield index
   -> fx_app_index_entry_rev/current
 
 relationship/upload inside a block
-  -> fx_app_edge_rev/current
+  -> fx_app_edge_current plus endpoint adjacency versions
 
 block type/order lookup
   -> fx_app_block_index, or an equivalent declared index entry
@@ -1022,17 +1027,18 @@ logical Payload collections initially hold lifecycle state that Payload owns:
 versions, drafts, uploads, globals, document locks, scheduled publish, and
 auth/session state. Dedicated tables below are optional later mappings.
 
-For v1, represent these as reserved logical Payload collections over the app
-row store and derive their exact shape from `BaseDatabaseAdapter` plus adapter
-conformance. The physical tables below are long-term examples, not the first
-implementation inventory. In particular, drafts are version semantics,
-collection and global versions are distinct, and lock target/owner identities
-must support globals and polymorphic auth collections.
+For the first supported Payload slice, represent these as reserved logical
+Payload collections over the app row store and derive their exact shape from
+`BaseDatabaseAdapter` plus adapter conformance. The physical tables below are
+long-term examples, not the first implementation inventory. In particular,
+drafts are version semantics, collection and global versions are distinct, and
+lock target/owner identities must support globals and polymorphic auth
+collections.
 
-Do not create `fx_payload_child_entity` by default. It is a possible v2 escape
-hatch for block-level editing/querying at scale, not the v1 representation for
-normal blocks and arrays. The v1 representation is embedded row JSON plus
-declared index/edge/block metadata sidecars.
+Do not create `fx_payload_child_entity` by default. It is a later escape hatch
+for block-level editing/querying at scale, not the first supported
+representation for normal blocks and arrays. The initial representation is
+embedded row JSON plus declared index/edge/block metadata sidecars.
 
 ```sql
 fx_payload_version (
@@ -1137,12 +1143,13 @@ fx_payload_session (
 )
 ```
 
-Payload uses these through `@payloadcms/db-flarex`. This older schema proposal
-does not own developer write-policy names. Under the accepted adapter contract,
-a CMS view is read-only, a CMS-managed table is written through dashboard or
-generated `ctx.cms` operations, and an app-command-managed table remains
-read-only until dashboard actions delegate to its commands. Ordinary `ctx.db`
-writes are not authorized for a CMS-managed table.
+A future `@flarex/payload-adapter` uses admitted lifecycle stores when their
+focused gates justify them. This older schema proposal does not own developer
+write-policy names. Under the accepted adapter contract, a CMS view is
+read-only, a CMS-managed table is written through the Payload command pipeline,
+and an app-command-managed table remains read-only until dashboard actions
+delegate to its commands. Ordinary `ctx.db` writes are not authorized for a
+CMS-managed table; generated `ctx.cms` syntax remains a separate public gate.
 
 Only generate dedicated Payload system tables after the adapter slice and
 measurement justify them, and only for enabled features. For simple CMS-marked
@@ -1150,11 +1157,12 @@ logical app tables, shared app rows plus app edges may be enough.
 
 ## Medusa Reserved Tables
 
-Medusa tables are real scope-bound relational tables compiled from Medusa DML,
-module/link metadata, migration history, and declared custom adapter
-capabilities. They are Flarex-owned physical storage with Medusa-owned commerce
-semantics. They are reserved and are not accessible through public `ctx.db` or
-`.cms()`.
+Medusa tables are real scope-bound relational tables compiled from normalized
+Medusa DML, the complete configured supported module/link set for a candidate,
+explicit semantic migration intent, legacy migration evidence, and declared
+custom adapter capabilities. They are Flarex-owned physical installations with
+Medusa-owned commerce semantics. They are reserved and are not accessible
+through public `ctx.db` or CMS operations.
 
 The logical catalog distinguishes at least:
 
@@ -1174,13 +1182,13 @@ commerce publication binding
 
 The exact physical layout is selected by the compiled profile. A normal module
 table may use normalized columns, indexes, unique constraints, JSON metadata,
-and physical foreign keys where Medusa compatibility benefits from them. A
-module link with independent identity, metadata, or lifecycle uses an
-authoritative reserved link row.
+and physical foreign keys where Medusa compatibility benefits from them. Every
+non-read-only Module Link uses an authoritative reserved link row. A read-only
+link is query/join metadata and creates no authoritative link table.
 
-The native application edge tables are reusable endpoint-index and OCC
-machinery, but they are not automatically the authoritative representation for
-every Medusa link:
+Native application edge algorithms may provide reusable endpoint-index and OCC
+mechanics, but the current physical tables and application-row identity codec
+are not automatically reusable or authoritative for a Medusa link:
 
 ```text
 application relation
@@ -1200,11 +1208,13 @@ must never be two independently writable authorities for one link.
 
 Rules:
 
-- Medusa DML is one schema input; ModuleJoinerConfig/Link definitions,
-  ModuleMigrationAdapter history, backfills/triggers, and custom repository,
-  Query, workflow, and lock capabilities are also required.
+- Medusa DML is one schema input; ModuleJoinerConfig/Link definitions, explicit
+  semantic/data migration intent, legacy migration evidence, and custom
+  repository, Query, workflow, and lock capabilities are also required.
 - Medusa services and workflows access reserved tables through a Flarex-backed
-  Medusa adapter and Medusa-owned transaction manager.
+  adapter. Medusa owns transaction propagation and its transaction-manager
+  contract; Flarex owns the physical transaction handle, commit, rollback, and
+  publication settlement.
 - Raw SQL, database-specific query helpers, and custom repositories must be
   inventoried and admitted explicitly. They cannot obtain unrestricted
   Postgres access from an application Worker.
@@ -1624,7 +1634,7 @@ fx_system_lock_lease (
 )
 ```
 
-Use this for high-contention domains:
+This lease shape is only a candidate for high-contention domains such as:
 
 ```text
 inventory reservation
@@ -1634,8 +1644,10 @@ order number allocation
 Medusa workflow critical sections
 ```
 
-OCC remains the normal optimistic path. Locks are for domains where retrying
-optimistically is too expensive or unsafe.
+It is not Medusa Locking compatibility until the adapter proves acquisition,
+renewal, fencing, release, timeout, ownership, and workflow semantics against
+the pinned Medusa contract. OCC remains the normal optimistic path. Locks are
+for admitted domains where retrying optimistically is too expensive or unsafe.
 
 ## Workflow And Scheduler State
 
@@ -1839,14 +1851,16 @@ The clean mental model is:
 ```text
 source data:
   Flarex app logical row history/current rows in fx_app_row_rev/current
-  Flarex app logical relations/uploads in fx_app_edge_rev/current
+  Flarex app logical relations/uploads in fx_app_edge_current plus endpoint
+  adjacency versions
   Flarex app declared indexes/unique keys in fx_app_index_entry_*/fx_app_unique_key
   optional block metadata in fx_app_block_index or declared index entries
   Payload-marked app content in shared Flarex app storage
   Payload lifecycle/system state in reserved logical collections, with optional
   later dedicated fx_payload_* tables
-  Medusa reserved tables generated from DML, links/joiner metadata, migration
-  history, and adapter capabilities
+  Medusa reserved tables generated from normalized DML, the complete configured
+  supported module/link set for a candidate, explicit migration intent, legacy
+  evidence, and admitted adapter capabilities
 
 control data:
   schema catalog
@@ -1894,9 +1908,10 @@ Changed for Flarex:
   uses Postgres/Hyperdrive for the authoritative physical commit, so OCC is the
   logical validation layer and Postgres is the final atomic durability layer.
 - Convex does not need Medusa-style workflow locks for commerce hot paths.
-  Flarex adds `fx_system_lock_lease` for inventory, checkout, payment state,
-  order numbers, and workflow critical sections where pure OCC would retry too
-  much or be too risky.
+  Flarex proposes `fx_system_lock_lease` as a candidate for inventory,
+  checkout, payment state, order numbers, and workflow critical sections where
+  pure OCC would retry too much or be too risky; the Medusa adapter must still
+  prove the pinned locking contract before using it.
 
 Schema pieces from this lineage:
 
@@ -1956,7 +1971,7 @@ fx_control_column
 fx_control_index
 fx_control_relation
 fx_app_row_rev/current
-fx_app_edge_rev/current
+fx_app_edge_current plus endpoint adjacency versions
 fx_app_index_entry_rev/current
 fx_app_unique_key
 fx_app_block_index
@@ -2056,8 +2071,10 @@ References:
 
 Borrowed:
 
-- Medusa DML is the source for module table shapes, while links/joiner metadata,
-  migration history, and custom capabilities complete the persistence schema.
+- Medusa DML is the source for module table shapes, while the complete
+  configured supported link/joiner set for a candidate, explicit semantic
+  migration intent, legacy migration evidence, and custom capabilities complete
+  the persistence input.
 - Medusa services are the commerce behavior boundary.
 - Medusa Module Links are an internal compatibility mechanism for module
   isolation and query traversal.
@@ -2126,7 +2143,8 @@ Schema pieces from this lineage:
 ```text
 cms_enabled and cms_metadata in fx_control_*
 fx_app_row_rev/current for CMS-marked row values
-fx_app_edge_rev/current for Payload relationships/uploads/joins
+fx_app_edge_current plus endpoint adjacency versions for Payload
+relationships/uploads/joins
 fx_app_index_entry_rev/current for declared CMS indexes
 fx_app_block_index or equivalent index entries for block metadata
 reserved logical Payload lifecycle collections
@@ -2148,9 +2166,10 @@ combining all constraints above:
 - Payload and Medusa use Flarex-owned persistence infrastructure, but preserve
   their own adapter/transaction semantics. They are not automatically executed
   through the generic app SessionDO compiler.
-- Public developer APIs stay simple: `ctx.db`, `ctx.db.transact`,
-  `ctx.commerce`, and `ctx.cms` facades. No public Payload plugin API, no public
-  Medusa Link API, and no public projection API in the first design.
+- Public developer APIs stay document-first through `ctx.db`. The
+  `ctx.commerce` and `ctx.cms` names are planned facade vocabulary, not
+  implemented or authorized public APIs. No public Payload plugin API, Medusa
+  Link API, or projection API is implied.
 - Projections/read models are internal planner/runtime optimizations only. They
   can live in the same FlarexDB or a Flarex-selected derived store later, but
   they are never the source of truth.
@@ -2183,7 +2202,7 @@ without requiring PostgreSQL 19:
 Now:
   shared Flarex app storage:
     fx_app_row_rev/current
-    fx_app_edge_rev/current
+    fx_app_edge_current plus endpoint adjacency versions
     fx_app_index_entry_rev/current
     fx_app_unique_key
     optional fx_app_block_index
@@ -2285,9 +2304,11 @@ replacement for Flarex query functions
 
 This means the current schema adjustment is shared-storage discipline: Flarex
 app data goes through `fx_app_row_rev/current`,
-`fx_app_edge_rev/current`, declared app indexes, unique keys, and optional
-block metadata; Payload starts with reserved logical collections and Medusa
-keeps adapter-owned relational tables compiled from all required schema inputs.
+`fx_app_edge_current` plus endpoint adjacency versions, declared app indexes,
+unique keys, and optional block metadata. Payload starts with reserved logical
+collections. Medusa owns the logical commerce schema and semantics, while
+Flarex owns the reserved physical installation compiled from all admitted
+schema inputs.
 PostgreSQL 19 graph support can be generated later over those shapes without
 changing the source-of-truth storage model.
 
@@ -2306,7 +2327,8 @@ adapter path.
 
 The shared app schema avoids table explosion, but it creates a new pressure
 point: many logical app tables share `fx_app_row_rev/current`,
-`fx_app_edge_rev/current`, `fx_app_index_entry_rev/current`,
+`fx_app_edge_current` plus endpoint adjacency versions,
+`fx_app_index_entry_rev/current`,
 `fx_app_unique_key`, and optional block metadata sidecars.
 
 The implementation must prove:
@@ -2397,11 +2419,12 @@ has to prove Payload lifecycle compatibility.
 
 The key boundary to test is that CMS content can share app row JSON and derived
 sidecars, while Payload-only lifecycle state remains in reserved logical
-collections (or later justified `fx_payload_*` tables). Dashboard and generated
-`ctx.cms` writes to a CMS-managed table use one Payload operation pipeline;
-ordinary `ctx.db` writes cannot bypass it. Blocks and arrays are
-embedded by default; child-row storage is a future optimization, not the v1
-baseline.
+collections (or later justified `fx_payload_*` tables). A future dashboard and
+planned `ctx.cms` facade must route writes to a CMS-managed table through one
+Payload operation pipeline; ordinary `ctx.db` writes cannot bypass it. Blocks
+and arrays are
+embedded by default; child-row storage is a future optimization, not the first
+supported slice.
 
 ### Cross-Scope And Global Queries
 
@@ -2418,9 +2441,10 @@ role/permission storage, API-key storage, or field-level authorization. Payload
 auth support is represented only for Payload-backed collections. Platform auth
 and app auth still need their own design record.
 
-### First Proof Slice
+### Historical First-Proof Sketch
 
-The first implementation slice should be deliberately small:
+This sketch records the original bounded target. Current implementation status
+and next gates belong to the foundation and framework-integration roadmaps.
 
 ```text
 logical tables:
@@ -2434,8 +2458,9 @@ shared storage:
   fx_app_unique_key
 
 operation:
-  ctx.db.transact creates a post, categories, edge rows, index rows,
-  commit row, outbox row
+  an application mutation creates a post and categories
+  the trusted commit compiler derives edge/index actions
+  the finalizer atomically writes rows, sidecars, commit facts, and outbox
 
 live query:
   query posts by category

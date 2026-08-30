@@ -14,11 +14,16 @@ Use these documents with it:
 
 - [`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md) owns the
   general database, transaction, commit, and framework-authority decision;
+- [`flarexdb-framework-storage-architecture.md`](./flarexdb-framework-storage-architecture.md)
+  owns shared artifact, installation, binding, migration-host, transaction-
+  host, and commit-finalizer mechanics;
 - [`flarexdb-native-relational-system.md`](./flarexdb-native-relational-system.md)
   owns the implemented application-relation kernel and its current limits;
 - [`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md)
-  owns CMS exposure and Payload lifecycle authority; and
-- focused roadmaps and code own implementation status.
+  owns CMS exposure and Payload lifecycle authority;
+- [`../roadmaps/flarexdb-framework-integration/06-medusa-adoption.md`](../roadmaps/flarexdb-framework-integration/06-medusa-adoption.md)
+  owns Medusa adapter execution order and status; and
+- code, migrations, and tests own exact implementation status.
 
 ## Decision
 
@@ -80,21 +85,32 @@ DML model definitions
 + module and service ownership
 + ModuleJoinerConfig and Link definitions
 + index, unique, nullable, default, and soft-delete behavior
-+ migration history, backfills, triggers, and compatibility transforms
-+ custom repositories and database-specific query capabilities
-+ workflow and locking persistence requirements
-  -> immutable Flarex Medusa schema artifact
+  -> Medusa-owned normalization and complete configured candidate-set compilation
+  -> immutable value-only RelationalSchema artifact
+
+explicit semantic/data migration intent
++ only the legacy migration evidence required by a proven obligation
+  -> separate Medusa-owned domain MigrationPlan
+
+custom repository/query/workflow/locking capabilities
+  -> admission requirements applied to both outputs
 ```
 
-The preferred integration reuses or extracts Medusa's DML semantic model and
-compiles it into a Flarex-owned intermediate representation. It must not
-manually duplicate all Medusa table declarations in a second schema language.
-The compiled artifact records provenance and fails closed when a module uses an
-unsupported persistence capability.
+The Medusa adapter owns normalization of the actual DML and resolved module and
+link set. It emits the value-only `RelationalSchema` separately from
+Medusa-owned semantic migration intent compiled into a domain `MigrationPlan`.
+Flarex validates, canonically encodes, digests, installs, and physically lowers
+the schema artifact, then executes the approved plan through the fenced
+migration host. It must not manually duplicate all Medusa table declarations in
+a second schema language. Both outputs record provenance and fail closed when a
+module uses an unsupported persistence capability.
 
-Schema generation does not erase migration history. Some Medusa migrations
-express data transformations or compatibility behavior that cannot be inferred
-from a final DML shape. Runtime and migration capabilities therefore remain
+Fresh Flarex installations use a baseline compiled from one pinned configured
+supported module/link set; the first candidate may contain Currency alone. The
+historical MikroORM/Postgres migration archive is legacy evidence rather than
+an executable Flarex plan. Explicit Medusa-owned semantic or data migration
+intent preserves transformations and compatibility behavior that cannot be
+inferred from final DML. Runtime and migration capabilities therefore remain
 separate trusted roles.
 
 ## Three Relation Profiles
@@ -115,10 +131,12 @@ derived and rebuildable.
 
 ### 2. Commerce-owned link entity
 
-A Medusa module link is an explicit commerce entity with Medusa-owned identity,
-lifecycle, module boundaries, delete/restore behavior, query shape, and
-possibly additional data. Its authoritative representation is the reserved
-commerce link row, not an ID array embedded in a public application document.
+Every non-read-only Medusa Module Link is an explicit commerce entity with
+Medusa-owned identity, lifecycle, module boundaries, delete/restore behavior,
+query shape, and possibly additional data. Its authoritative representation is
+the reserved commerce link row, not an ID array embedded in a public
+application document. A read-only Link is query/join metadata and creates no
+authoritative link row.
 
 ```text
 commerce link command
@@ -128,8 +146,8 @@ commerce link command
 ```
 
 The native edge machinery is reusable for endpoint indexing, adjacency OCC,
-change facts, and bounded traversal. It does not replace an authoritative link
-row when the link has metadata or an independent lifecycle.
+change facts, and bounded traversal. It never replaces the authoritative row of
+a non-read-only Module Link.
 
 An adapter may omit a redundant edge projection when the reserved link table's
 own indexes and transaction semantics already provide the complete required
@@ -150,19 +168,24 @@ events.
 
 ## Relation Kernel Reuse And Required Extensions
 
-The current native Flarex relation kernel is a credible substrate: it has
+The current native Flarex relation kernel is credible algorithmic evidence: it has
 physical current-edge rows, incoming and outgoing access paths, adjacency
 versions, atomic commit lowering, target-liveness validation, restrict delete,
 source cleanup, bounded reads, and Postgres concurrency evidence.
 
+Its physical table, application-row identity codec, document occurrence model,
+and delete policy are not a generic Module Link store. Reuse adjacency/OCC
+algorithms only after a concrete commerce link proves exact semantics; do not
+generalize the current application storage in place.
+
 It is not yet a complete Medusa Link implementation. A commerce proof must
 define or add, where Medusa requires them:
 
-- explicit attach, dismiss, and idempotent replay semantics;
+- explicit attach, dismiss, and pinned duplicate/retry outcome semantics;
 - link-owned fields and authoritative link identity;
 - soft delete, restore, and visibility rules;
 - reverse-one or other uniqueness/cardinality constraints;
-- detach, cascade, restrict, or workflow-owned cleanup policy;
+- dismiss, `deleteCascade`, or workflow-owned cleanup policy;
 - cross-module and cross-owner endpoint authorization;
 - composite or non-Flarex application row identities;
 - polymorphic endpoint definitions;
@@ -260,26 +283,15 @@ transaction occurrence ceilings do not automatically become correct commerce
 limits. Exceeding a measured profile requires a new design receipt rather than
 silently removing bounds.
 
-## Admission Sequence
+## Admission Requirements
 
-This note does not authorize implementation. A future roadmap should use a
-bounded sequence:
-
-1. Pin the Medusa source revision and inventory DML, Link/Joiner, migration,
-   repository, Query, workflow, and lock contracts.
-2. Freeze a provenance-bearing Medusa schema intermediate representation and
-   prove deterministic compilation for one small module.
-3. Prove Currency or another relation-light module with unchanged integration
-   assertions and a real Postgres transaction manager.
-4. Prove Product read/list/query behavior and one real cross-module link.
-5. Add attach/dismiss, soft-delete/restore, uniqueness, and concurrency proofs.
-6. Prove Cart, Pricing, Inventory, Order, workflow, and lock behavior in
-   success, rollback, retry, and crash-recovery scenarios.
-7. Join accepted commerce commits to the Flarex commit/feed/outbox authority
-   without a second publisher.
-8. Prove one app/CMS extension reference without granting app or Payload code
-   commerce-write authority.
-9. Measure representative scale and only then consider production activation.
+This note does not authorize or duplicate an implementation sequence. The sole
+accepted order and current status are owned by
+[`Medusa Adoption`](../roadmaps/flarexdb-framework-integration/06-medusa-adoption.md)
+and its framework master roadmap. In particular, that order requires the exact
+source audit before final shared-schema admission, commerce-row and typed event-
+intent commit admission before Currency writes, and commerce-link commit
+admission before the first stored Module Link writes.
 
 Passing a small adapter test means private compatibility progress. It does not
 mean full Medusa parity, public availability, migration readiness, or
@@ -304,12 +316,12 @@ The following remain rejected:
 
 ## Current Verdict
 
-The native relation core should be retained and reused. It is a real
-transactional edge kernel, not a virtual-ID convention. Medusa can run on
+The native relation core should be retained as real application/document
+relation infrastructure, not a virtual-ID convention. Medusa can run on
 Flarex-owned storage, but its tables remain reserved commerce schema and its
-module links remain explicit commerce entities. The adapter should reuse the
-edge/OCC/feed machinery where the semantics match and introduce narrow
-commerce-owned profiles where they do not.
+module links remain explicit commerce entities. The adapter may reuse proven
+identity, adjacency, OCC, and feed mechanics where semantics match; it must not
+treat current application edge storage as the commerce authority.
 
 That gives Flarex one authoritative data plane without confusing one physical
 database with one universal semantic API.

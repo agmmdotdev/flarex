@@ -1,9 +1,10 @@
 # FlarexDB Native Relational System
 
-Status: accepted architecture; private system core through the direct
-read-only Standard relation query `RQ01` is complete
+Status: accepted application/document relation architecture; private
+non-reactive `SV-R Core`, including typed `R03-A` relation facts, is complete;
+`R03-B` remains the next reactive-sync gate
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-30
 
 This note defines the ownership, API layering, logical model, and correctness
 boundaries for relationships in FlarexDB. It is an addendum to
@@ -19,6 +20,12 @@ remains useful for product ergonomics. Its relationship API examples are not the
 FlarexDB System API, Standard Application contract, or private storage
 contract. Payload-specific mapping is owned separately by
 [`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md).
+Medusa Module Link and reserved relational semantics are owned by
+[`flarexdb-medusa-commerce-adapter.md`](./flarexdb-medusa-commerce-adapter.md),
+while shared framework-storage mechanics and adapter sequencing are owned by
+[`flarexdb-framework-storage-architecture.md`](./flarexdb-framework-storage-architecture.md)
+and
+[`../roadmaps/flarexdb-framework-integration/README.md`](../roadmaps/flarexdb-framework-integration/README.md).
 The executable foundation order remains in
 [`../roadmaps/flarexdb-foundation/04-payload-relational-contract.md`](../roadmaps/flarexdb-foundation/04-payload-relational-contract.md);
 that filename is retained for link stability even though its authority is now
@@ -26,16 +33,22 @@ FlarexDB-native.
 
 ## Decision
 
-Relationships are a native FlarexDB database capability.
+Application/document relationships are a native FlarexDB database capability.
 
 ```text
-FlarexDB defines relation semantics.
+FlarexDB defines native application/document relation semantics.
 Standard Application APIs represent those semantics.
 Internal tests prove those semantics.
 Developer APIs make those semantics ergonomic.
-Framework adapters map their behavior onto those semantics.
+Payload maps compatible content behavior onto those semantics.
 Postgres stores and executes the authoritative physical state.
 ```
+
+This decision does not make FlarexDB the declarative owner of Medusa Module
+Link semantics. Medusa declares its link identity, cardinality, metadata,
+lifecycle, and delete behavior; Flarex validates admitted definitions and owns
+their physical constraints, installation evidence, transactions, and commit
+participation.
 
 Payload is an important future consumer, but Payload does not define the core
 relation model. FlarexDB must not expose a renamed Payload relationship API,
@@ -95,7 +108,8 @@ Developer relation API producer       Internal test API producer
           edge repository / scope clock / Postgres
 ```
 
-Framework adapters are sibling consumers of the FlarexDB System APIs:
+Framework adapters are sibling consumers of narrowly admitted FlarexDB
+capabilities; they do not all consume the application-relation contract:
 
 ```text
 Payload configuration
@@ -103,7 +117,8 @@ Payload configuration
   -> Standard relation intent and FlarexDB System capabilities
 
 Medusa relational state
-  -> trusted Medusa adapter and transaction participation capability
+  -> Medusa-owned DML/Joiner/Link semantics
+  -> trusted shared relational substrate and transaction participation
   -> shared scope commit/feed/outbox authority where explicitly supported
 ```
 
@@ -272,7 +287,9 @@ the O10-R logical `sourceDocumentId`, `duplicateOrdinal`, and `position`.
 RQ01 composes this operation directly through the active Application query
 snapshot owner because relation readiness still deliberately accepts only an
 empty function catalog. It is not the function-runtime API described below.
-The relation-aware Worker/function vertical remains owned by `SV-R` after R03.
+The private non-reactive relation-aware Worker/function vertical is complete as
+`SV-R Core`. Reactive registration, invalidation, reconnect, and resnapshot
+remain owned by `R03-B` and `SV-R Live`.
 
 ### Function Runtime APIs
 
@@ -380,10 +397,10 @@ claim, build, contention, and schema-evolution gate.
 
 ### Pointer Relations And Association Tables
 
-The generic edge sidecar represents pointer-only adjacency. When an association
-has business data such as role, status, quantity, price, discount, joined time,
-inviter, workflow state, or notes, it is an ordinary application table with two
-or more explicit relations.
+For application data, the generic edge sidecar represents pointer-only
+adjacency. When an application association has business data such as role,
+status, quantity, price, discount, joined time, inviter, workflow state, or
+notes, it is an ordinary application table with two or more explicit relations.
 
 ```ts
 const memberships = defineTable({
@@ -634,21 +651,23 @@ previous non-relation semantics until the new revision activates.
 The existing ordered-index and unique-key build patterns should be generalized
 rather than replaced by an unrelated edge migration engine.
 
-C09 first exposes deterministic adjacency actions inside the authoritative
-commit plan. R03 later projects every edge insert, removal, retarget, or ordering
-change into typed adjacency change facts in that same commit. Those facts allow
-the sync engine to invalidate relation subscriptions and dependent live results
-without broadly invalidating every query for the source table. Until R03 and the
-complete SV-R proof, relation-specific change feeds, subscriptions, and live
-observation remain disabled and unclaimed. The facts are commit children, not a
-second edge commit stream. R03 enables dependency registration at a fenced
-scope-commit baseline: prior changes are incorporated by a fresh snapshot, and
-every relevant later change has a typed fact.
+C09 exposes deterministic adjacency actions inside the authoritative commit
+plan. Completed `R03-A` projects every edge insert, removal, retarget, or
+ordering change into typed adjacency change facts in that same commit. Those
+facts allow the sync engine to invalidate relation subscriptions and dependent
+live results without broadly invalidating every query for the source table.
+`SV-R Core` may consume the facts as non-reactive committed evidence, but
+subscriptions and live observation remain disabled and unclaimed until
+`R03-B` and `SV-R Live`. The facts are commit children, not a second edge
+commit stream. `R03-B` must register dependencies at a fenced scope-commit
+baseline so prior changes are incorporated by a fresh snapshot and every
+relevant later change has a typed fact.
 
 ## Framework Adapter Boundary
 
-Framework adapters consume the native relation system through narrow trusted
-capabilities.
+Compatible document-content adapters consume the native relation system
+through narrow trusted capabilities. Medusa instead uses the shared relational
+substrate described by the framework-storage architecture.
 
 Payload mapping, for example, is:
 
@@ -667,9 +686,10 @@ surface may expose the same table, but it cannot redefine the relation or write
 a second document copy.
 
 It also cannot make distinct write pipelines semantically interchangeable.
-FlarexDB always owns stored-document validation, relation cardinality and
-target integrity, uniqueness, edge derivation, OCC, commit facts, feed, and
-outbox invariants. Payload separately owns the access, defaults, hooks, locks,
+FlarexDB always owns application stored-document validation, native relation
+cardinality and target integrity, uniqueness, edge derivation, OCC, commit
+facts, feed, and outbox invariants. Payload separately owns the access,
+defaults, hooks, locks,
 localization, drafts, versions, and request-operation behavior it claims. An
 editable CMS-managed table therefore rejects ordinary `ctx.db` writes and is
 mutated through the generated CMS facade that shares the dashboard's Payload
@@ -685,16 +705,21 @@ silently encoded as the Dynamic Worker `SessionJournalV1` path. Payload
 versions, drafts, globals, auth, locks, jobs, preferences, locale fallback,
 hooks, and access ordering remain separate conformance work.
 
-Medusa retains its repositories, relational tables, transaction manager,
-ModuleJoiner/link metadata, migrations, and workflows. Cross-owner references
-require a trusted resolver and staleness/delete policy; Medusa rows are not
-copied into app-row storage.
+Medusa retains its repositories, logical table/schema semantics,
+transaction-manager contract and propagation, ModuleJoiner/link metadata,
+semantic migration intent, and workflows. Cross-owner references require a
+trusted resolver and staleness/delete policy; Medusa rows are not copied into
+app-row storage. Medusa declares Module Link cardinality and lifecycle; Flarex
+owns physical tables, migration plans/receipts and execution, admitted
+relational constraints, physical transactions, receipts, and commit mechanics
+through the separate framework-integration domain.
 
 ## PostgreSQL And SQL/PGQ
 
 Postgres is the authoritative physical engine. FlarexDB remains the logical
-database system: it owns schema identity, exact snapshots, OCC, commit
-compilation, reactive changes, adapter boundaries, and relation semantics.
+database system: it owns schema identity, exact snapshots, OCC, application
+commit compilation, reactive changes, adapter boundaries, and native
+application/document relation semantics.
 
 Portable indexed relational SQL is the canonical edge query path. A future
 PostgreSQL SQL/PGQ adapter may compile a proven fixed-hop shape over a small
@@ -750,12 +775,15 @@ The relation work should proceed through these bounded stages:
 11. add typed adjacency commit facts and relation subscription invalidation;
 12. prove the complete path with the internal test producer;
 13. add developer ergonomics and generated relation references;
-14. implement Payload and other framework-adapter conformance over the proven
-    native system.
+14. implement Payload document-relation conformance over the proven native
+    system; and
+15. implement Medusa relational and Module Link conformance through the
+    separate framework-integration roadmap without widening this document-
+    relation authority.
 
 The first implementation checkpoint, physical preflight, stable binding, and
 private edge storage are complete at `R01`/`R01-P`/`R02`/`S12`; C09, E01,
-O10-R, RA01, and RQ01 are also complete at their private system-core
-boundaries. R03 is the next separate relation slice. Do not widen it into the
-later function runtime, a Payload-shaped public API, or unrelated commit
-authority.
+O10-R, RA01, RQ01, `R03-A`, and `SV-R Core` are also complete at their private
+production-inert boundaries. `R03-B` is the next separate reactive-sync slice.
+Do not widen it into a Payload-shaped public API, Medusa Link storage, or
+unrelated commit authority.

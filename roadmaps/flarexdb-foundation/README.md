@@ -199,10 +199,13 @@ reviewable implementation gates for:
 - exact-snapshot OCC and transaction semantics; and
 - the bounded Flarex app-data commit compiler.
 
-It does not own Payload feature parity, Medusa integration, sync replacement,
-cache Durable Objects, public high-level APIs, or chronological implementation
-history. The low-level Payload relation contract is frozen only far enough to
-prevent a second row authority or ambiguous edge identity.
+It does not own Payload or Medusa adapter parity, or the extraction and
+admission of shared framework schema, transaction, migration, and commit-
+participation capabilities. Those gates belong to
+[`FlarexDB Framework Integration`](../flarexdb-framework-integration/README.md).
+This folder retains the existing app-data and native-relation authorities. It
+also does not own sync replacement, cache Durable Objects, public high-level
+APIs, or chronological implementation history.
 
 ## Foundation Decision
 
@@ -241,21 +244,29 @@ Use these sources in order:
 
 1. [`../../design-notes/flarex-db-accepted-design.md`](../../design-notes/flarex-db-accepted-design.md)
    owns architecture, trust, migration, and adapter boundaries.
-2. [`../../design-notes/flarex-commerce-cms-v1-schema-cutline.md`](../../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
+2. [`../../design-notes/flarexdb-framework-storage-architecture.md`](../../design-notes/flarexdb-framework-storage-architecture.md)
+   owns cross-framework artifact, installation, binding, migration,
+   transaction, relation-profile, and adapter boundaries without changing this
+   folder's application authority.
+3. [`../../design-notes/flarex-commerce-cms-v1-schema-cutline.md`](../../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
    owns the minimal first physical inventory and explicit deferrals.
-3. The focused plans in this folder own executable gates and status.
-4. [`../query-sync-engine/README.md`](../query-sync-engine/README.md) owns the
+4. The focused plans in this folder own executable gates and status.
+5. [`../flarexdb-framework-integration/README.md`](../flarexdb-framework-integration/README.md)
+   owns cross-framework reuse and adapter-admission sequencing. It consumes
+   the foundation contracts here and does not redefine their implemented app
+   schema, OCC, commit, or relation semantics.
+6. [`../query-sync-engine/README.md`](../query-sync-engine/README.md) owns the
    standalone portable Query Sync Engine product, kernel, lifecycle, package,
    and conformance contracts. Roadmap 21 owns only its Flarex Cloudflare,
    Postgres, gateway, client, and adoption composition.
-5. Living domain roadmaps own their durable architecture and direction:
+7. Living domain roadmaps own their durable architecture and direction:
    - [`../20-postgres-executor.md`](../20-postgres-executor.md)
    - [`../21-cloudflare-freshness-cache.md`](../21-cloudflare-freshness-cache.md)
    - [`../35-commit-compiler-and-session-intent.md`](../35-commit-compiler-and-session-intent.md)
-6. [`../../design-notes/flarex-internal-db-schema.md`](../../design-notes/flarex-internal-db-schema.md)
+8. [`../../design-notes/flarex-internal-db-schema.md`](../../design-notes/flarex-internal-db-schema.md)
    supplies long-form proposals, physical-policy inventory, provenance, and
    unresolved risks; its sketches are not automatically accepted.
-7. Current code/tests prove implementation status but do not override accepted
+9. Current code/tests prove implementation status but do not override accepted
    replacement design.
 
 The most important implementation and prototype-regression evidence is:
@@ -309,8 +320,8 @@ transaction API and never raw Postgres handles.
 | Consumer | Low-level capability | Boundary |
 | --- | --- | --- |
 | Flarex app data | Exact snapshot reads plus `SessionJournalV1` and sibling result evidence -> `CommitEnvelopeV1` -> C04A authenticated seal -> C04B1 authenticated commit authority -> C04B2 verified input -> C04C1-owned `PreparedPointCommitV1` -> O06/O07-B `CommitExecutor` | First lane; bounded point CRUD. O07-A is the separate recovery lookup seam. A separate C04C2 exists only if the physical consumers prove that physical/change/outbox lowering deserves its own capability. |
-| Payload | App-row/catalog primitives through a Payload-owned request transaction adapter | Later conformance-tested adapter |
-| Medusa | Scope commit participation, change atoms, and outbox inside a Medusa-owned SQL transaction | Preserves repositories, modules, links, migrations, and workflows |
+| Payload | App-row/catalog primitives through a Payload-owned request transaction adapter | Later conformance-tested adapter sequenced by [`Payload Adoption`](../flarexdb-framework-integration/07-payload-adoption.md) |
+| Medusa | Scope commit participation, typed commerce facts, and outbox through the commerce transaction host over a Flarex-owned physical transaction | Preserves Medusa transaction-manager propagation, repositories, modules, links, migrations, and workflows; sequenced by [`Medusa Adoption`](../flarexdb-framework-integration/06-medusa-adoption.md) |
 | System writers | Fenced scope commit participation for migrations, backfills, repairs, and admin work | Cannot bypass OCC/commit ordering |
 
 Shared conceptual capabilities include scope authority, generation resolution,
@@ -845,7 +856,7 @@ Dynamic Worker binding baseline before selecting it.
     orchestration, Flarex adapter, delivery path, or caller exists yet. Roadmap
     21 `SYNC01-GP` remains adapter evidence, but direct-backend `SYNC01-G`
     authorization is withdrawn and held.
-23. `SV-R Core`: without waiting for sync, prove one non-reactive internal
+23. `SV-R Core` (complete): without waiting for sync, prove one non-reactive internal
     Standard relation vertical through definition, analysis, publication,
     readiness, activation, function-runtime commit, R03-A facts, and RQ01 query
     in PGlite and genuine PostgreSQL while production-inert.
@@ -858,13 +869,14 @@ Dynamic Worker binding baseline before selecting it.
     query's invalidation, generation-checked rerun/delivery, lost-wake recovery,
     reset, and reconnect behavior.
 
-Only after `SV-R Core` is green may roadmap
-[`../09-sdk-and-cli-fork.md`](../09-sdk-and-cli-fork.md) preflight later public
-non-reactive developer relation ergonomics. Reactive relation APIs remain
-blocked until `SV-R Live`. Payload mapping remains separate adapter conformance
-work, and the trusted framework persistence/transaction SPI remains a distinct
-private proposal; neither is part of `R01` through `SV-R Core`. The native
-contract and exact gate details are in
+`SV-R Core` is green, so roadmap
+[`../09-sdk-and-cli-fork.md`](../09-sdk-and-cli-fork.md) may now preflight later
+public non-reactive developer relation ergonomics; that public preflight has
+not yet occurred. Reactive relation APIs remain blocked until `SV-R Live`.
+Payload mapping remains separate adapter conformance work, and the trusted
+framework persistence/transaction SPI remains a distinct private proposal;
+neither is part of `R01` through `SV-R Core`. The native contract and exact gate
+details are in
 [`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
 
 ### Wave 4 — Target Activation And Prototype Retirement
@@ -2104,9 +2116,9 @@ path as a fallback, comparison, dual write, or second authority.
 After the foundation reaches its relevant gates, separate plans own:
 
 - per-scope `DeploymentSyncDO` and two-phase live-query activation;
-- Payload adapter conformance beginning with scalar CRUD/request transactions;
-- Medusa integration through real repository/workflow/migration/link
-  boundaries;
+- Payload and Medusa integration through the schema, transaction, migration,
+  relation-profile, and commit-participation gates owned by
+  [`FlarexDB Framework Integration`](../flarexdb-framework-integration/README.md);
 - measured committed-data/result caches, separate from `C07A`; and
 - high-level developer APIs and cross-system workflows.
 

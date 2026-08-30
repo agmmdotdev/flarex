@@ -160,14 +160,14 @@ R03-A -> R03-B in the sync session -> SV-R Live
 `R01-P` chooses and measures snapshot support and physical access before DDL;
 `RA01` reuses the existing activation owner after `O10-R`, then `RQ01` composes
 one read-only private Standard relation query from the active selection. This
-handoff is roadmap-only and implements no
-relation API. Until `SV-R Core` proves the internal application in PGlite and
-genuine PostgreSQL, this roadmap must not freeze a developer DSL, generated
-relation reference, or non-reactive `ctx.db` helper. A cursor, subscription,
-reconnect, or client/React live-relation surface additionally requires
-`SV-R Live`. Payload mapping and the trusted framework relational SPI remain
-separate adapter concerns and do not become public SDK contracts through this
-handoff.
+handoff is roadmap-only and implements no relation API. `SV-R Core` is complete
+privately, but developer syntax, generated relation references, and non-reactive
+`ctx.db` helpers still require their own focused public API preflight. A cursor,
+subscription, reconnect, or client/React live-relation surface additionally
+requires `SV-R Live`. Payload mapping and trusted framework storage remain
+separate adapter concerns owned by
+[`flarexdb-framework-integration/07-payload-adoption.md`](./flarexdb-framework-integration/07-payload-adoption.md)
+and do not become public SDK contracts through this handoff.
 
 ### Deferred CMS Facade Handoff
 
@@ -198,8 +198,9 @@ writers and still preserve every native FlarexDB invariant.
 The normal request-scoped `ctx.cms` facade respects its current principal by
 default. Any system-level access override must be explicit and separately
 authorized rather than inherited silently from a framework Local API default.
-The Payload adapter design owns lifecycle and conformance; this roadmap owns
-only the eventual generated developer typing and package boundary.
+The Payload adapter design and adoption roadmap own lifecycle and conformance;
+this roadmap owns only the eventual generated developer typing and package
+boundary.
 
 ## Public SDK Surface
 
@@ -677,9 +678,9 @@ Named Flarex divergences:
   means generated types and compatibility-runtime validation cannot yet prove
   production safety.
 - No public native relation definition or read helper is implemented. The
-  foundation must close `R01` through `SV-R Core` before this roadmap can
-  preflight that non-reactive surface; reactive claims additionally require
-  `SV-R Live`.
+  private `R01` through `SV-R Core` prerequisite is satisfied; the focused
+  non-reactive public-API preflight remains pending. Reactive claims
+  additionally require `SV-R Live`.
 - No generated `ctx.cms` facade or CMS-aware `ctx.db` writer narrowing is
   implemented. The Payload adapter and one explicit table write-authority model
   must be proven before public typing can promise dashboard/programmatic command
@@ -741,6 +742,7 @@ transaction routing remain platform internals.
    client surfaces until `SV-R Live`.
 9. **Preflight CMS facade typing after adapter-core conformance.** Freeze the
    CMS view, CMS-managed, and app-command-managed authority descriptors; prove
-   one generated `ctx.cms` operation uses the dashboard's command pipeline;
-   then prove ordinary writer exclusion and runtime rejection for the managed
-   table without importing Payload runtime code into `flarex`.
+   one generated `ctx.cms` operation uses the same adapter-owned private command
+   pipeline as every enabled Payload surface; then prove ordinary writer
+   exclusion and runtime rejection for the managed table without importing
+   Payload runtime code into `flarex`.

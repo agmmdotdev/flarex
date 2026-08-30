@@ -1945,10 +1945,14 @@ sync.
 
 Do not infer the Payload contract from a few handwritten tables. Derive it from
 `BaseDatabaseAdapter`, sanitized internal collections, transaction behavior,
-and adapter conformance tests.
+and adapter conformance tests. Shared framework-storage architecture is owned by
+[`flarexdb-framework-storage-architecture.md`](./flarexdb-framework-storage-architecture.md),
+and implementation order is owned by
+[`../roadmaps/flarexdb-framework-integration/07-payload-adoption.md`](../roadmaps/flarexdb-framework-integration/07-payload-adoption.md).
 
-V1 starts with reserved logical Payload collections over the app row store for
-scalar CRUD and request transactions. Later slices add:
+The first admitted Payload slice starts with reserved logical Payload
+collections over the app row store for scalar CRUD and request transactions.
+Later slices add:
 
 ```text
 relationships and uploads
@@ -1974,16 +1978,22 @@ CMS view
   read-only Payload presentation; app-owned writes remain app-owned
 
 CMS managed
-  dashboard and generated ctx.cms operations share the Payload command lane;
+  every enabled Payload surface shares one private Payload command lane;
+  generated ctx.cms joins only after its separate public gate;
   ordinary ctx.db writers cannot mutate the table
 
 app-command managed
   dashboard writes are absent until they delegate to the owning app commands
 ```
 
-Payload-owned collections are CMS managed. Developer-owned tables may be
-presented read-only or deliberately assigned CMS-managed write authority, but
-adding CMS labels or widgets alone does not transfer it. Generated typing and
+Payload-owned collections are CMS managed. Their first writable proof requires
+a separately approved Application-owner gate: authenticated table policy must
+reject ordinary application writes before the exact Payload overlay can admit
+Payload commands. Developer-owned tables may be
+presented read-only. Transfer of an already app-writable table to CMS-managed
+authority remains deferred until an Application-owner gate proves atomic
+capability revocation and Payload-overlay activation without a dual-writer
+interval; labels or widgets alone never transfer it. Generated typing and
 runtime capability checks must both reject an unauthorized direct write.
 Separately privileged migrations, backfills, imports, repairs, and fixtures may
 bypass CMS lifecycle policy, but they must still participate in the native
@@ -1995,14 +2005,29 @@ owners. The detailed mapping and conformance contract lives in
 
 Medusa may use FlarexDB as its physical persistence substrate without becoming
 part of the public document schema and without giving Flarex core ownership of
-commerce behavior. Medusa schema input is not DML alone:
+commerce behavior. Medusa persistence admission is not DML alone:
 
 ```text
-DML models
+normalized DML models
++ complete configured supported module/link set
 + ModuleJoinerConfig and link schema
-+ ModuleMigrationAdapter history, including backfills/triggers
-+ custom repository/provider capability declarations
+  -> immutable value-only RelationalSchema artifact
+
+explicit Medusa-owned semantic migration and data-backfill intent
++ only the legacy ModuleMigrationAdapter evidence required by an obligation
+  -> separate Medusa-owned domain MigrationPlan
+
+custom repository/provider capability declarations
+  -> admission requirements applied to both outputs
 ```
+
+Fresh installations compile a baseline from one pinned fork revision and the
+complete configured supported set for that candidate; the first candidate may
+contain Currency alone. Historical MikroORM/ModuleMigrationAdapter migrations,
+backfills, and triggers are translated only when a proven compatibility
+obligation requires them. The detailed authority and execution order live in
+[`flarexdb-framework-storage-architecture.md`](./flarexdb-framework-storage-architecture.md)
+and the framework-integration roadmap.
 
 Medusa keeps a trusted, short Postgres transaction lane behind its existing
 repository, transaction-manager, module, and workflow boundaries. That
@@ -2168,7 +2193,7 @@ replay, and explicit state-loss/reset tests must pass before the legacy registry
 is removed; the proof does not require dual registration in a running product.
 
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are later measured optimizations.
-They are not part of the v1 correctness proof.
+They are not part of the first correctness proof.
 
 ## Executable First Slices
 
@@ -2187,9 +2212,11 @@ snapshot and commit semantics.
    commit/outbox on PGlite and real Postgres.
 5. Prove one indexed live query with two-phase activation and lost-wake
    recovery through a per-scope DeploymentSyncDO.
-6. Add a small Payload scalar adapter slice.
-7. Add one small Medusa module through its real repository, migration, link,
-   workflow, and transaction boundaries.
+Payload and Medusa are not ordered by this application-foundation list. Their
+sole current cross-framework execution order is
+[`FlarexDB Framework Integration`](../roadmaps/flarexdb-framework-integration/README.md),
+including its mandatory source, write-policy, migration, commit-family, and
+adapter gates.
 
 Do not start by replacing every current table or by implementing all cache DOs.
 

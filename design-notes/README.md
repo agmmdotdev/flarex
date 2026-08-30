@@ -15,17 +15,21 @@ For FlarexDB app-data and relationship work, use these sources in order:
 
 1. `flarex-db-accepted-design.md` owns the general Postgres authority,
    transaction, migration, sync, Payload, and Medusa boundaries.
-2. `flarexdb-native-relational-system.md` owns relation-specific API layering,
-   logical semantics, identity, edge authority, OCC, build/readiness, and
-   reactive invalidation.
-3. `flarexdb-payload-relational-adapter.md` owns only the mapping from Payload
+2. `flarexdb-framework-storage-architecture.md` owns shared cross-framework
+   artifact, installation, binding, migration, transaction, commit, relation-
+   profile, and adapter boundaries.
+3. `flarexdb-native-relational-system.md` owns application/document relation
+   API layering, logical semantics, identity, edge authority, OCC,
+   build/readiness, and reactive invalidation.
+4. `flarexdb-payload-relational-adapter.md` owns only the mapping from Payload
    relationship, upload, join, transaction, population, and lifecycle behavior
    onto the native FlarexDB relational system.
-4. `flarexdb-medusa-commerce-adapter.md` owns Medusa reserved-table,
+5. `flarexdb-medusa-commerce-adapter.md` owns Medusa reserved-table,
    schema-compilation, Module Link, transaction, CMS-interaction, scalability,
    and adapter-admission semantics over FlarexDB.
-5. The focused files under `roadmaps/flarexdb-foundation/` own executable gate
-   order and implementation status.
+6. The focused files under `roadmaps/flarexdb-foundation/` own application-
+   foundation execution and status; `roadmaps/flarexdb-framework-integration/`
+   owns shared-mechanism extraction and adapter execution/status.
 
 Older relationship examples in broad CMS, commerce, developer-API, InstantDB,
 or internal-schema notes remain research vocabulary. They do not override the
@@ -74,13 +78,20 @@ native relational authority above.
     When an older general FlarexDB design note conflicts with it, this document
     controls.
 
+- `flarexdb-framework-storage-architecture.md`
+  - Accepted cross-domain architecture for one Flarex-managed committed-data
+    authority, separate Application/Payload/Medusa semantic lanes, document and
+    reserved-relational storage profiles, schema artifact/install/binding
+    coordination, migration and transaction hosts, typed commit participation,
+    relation authority profiles, and private framework adapters.
+
 - `flarexdb-native-relational-system.md`
-  - Accepted relation-specific architecture correction. Relationships are a
-    native FlarexDB database capability represented by Standard Application
-    intent, executed through FlarexDB System APIs, proved first by internal test
-    producers, and made ergonomic later by developer APIs. Authoritative row
-    values derive current edge sidecars; Payload and other frameworks adapt to
-    this system rather than defining it.
+  - Accepted application/document relation architecture. Native relations are
+    represented by Standard Application intent, executed through FlarexDB
+    System APIs, proved first by internal test producers, and made ergonomic
+    later by developer APIs. Authoritative row values derive current edge
+    sidecars; compatible Payload content adapts to this system. Medusa Module
+    Link semantics remain Medusa-owned over the separate relational substrate.
 
 - `flarexdb-payload-relational-adapter.md`
   - Accepted Payload adapter boundary over the native FlarexDB relation system.
@@ -96,8 +107,9 @@ native relational authority above.
   - Accepted Medusa adapter boundary over Flarex-owned physical storage. Medusa
     retains module, repository, Query, Link, workflow, lock, soft-delete, and
     commerce-invariant authority. Reserved commerce link rows may reuse native
-    edge, adjacency-OCC, query, and change-fact primitives without becoming
-    public app relations or a second independently writable link authority.
+    identity, adjacency-OCC, query, and change-fact algorithms where their
+    semantics match, without treating current app-edge storage as a link table,
+    becoming public app relations, or creating a second writable authority.
 
 - `postgres-authoritative-sync.md`
   - Accepted Flarex Postgres/Cloudflare adapter topology, per-scope durable

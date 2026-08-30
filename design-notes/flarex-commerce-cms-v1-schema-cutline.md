@@ -1,22 +1,27 @@
 # Flarex Commerce/CMS v1 Schema Cutline
 
-Status: accepted v1 implementation cutline; the internal S06 row kernel, S07
-transaction-session authority tables, O04/O05 point read/OCC semantics, C03
-trusted point journal, private C04A/C04B1/C04B2 authentication and final-value
-proof gates, C04C1 logical planning, O06/O07-B point publication, C05-A's
-finishing barrier, and C05-B fresh-process reconstruction/private publisher
-composition, O08-A/B1/B2a/CD0/C/D recovery primitives, and the O08-B2b1/C06-A
-exact-attempt execution-claim foundation through migration 0032 are implemented.
-Sidecars, O08-B2b2 crash redispatch, C06-B dispatch policy, target activation, prototype
-retirement, and hosted routing remain incomplete; shipped-state migration
-remains conditional
+Status: retained first document-storage implementation cutline; substantial
+private row, index, uniqueness, current-edge, adjacency, OCC, commit, recovery,
+and managed-schema foundations are implemented, while exact status and next
+gates belong to the focused roadmaps
+
+Filename note: the existing versioned filename is retained for stable links and
+historical compatibility context. New shared framework-storage domain concepts
+use plain unversioned names.
 
 Authoritative review:
 
 - [`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md)
+- [`flarexdb-framework-storage-architecture.md`](./flarexdb-framework-storage-architecture.md)
 - [`flarexdb-native-relational-system.md`](./flarexdb-native-relational-system.md)
 - [`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md)
 - [`flarexdb-medusa-commerce-adapter.md`](./flarexdb-medusa-commerce-adapter.md)
+- [`../roadmaps/flarexdb-framework-integration/README.md`](../roadmaps/flarexdb-framework-integration/README.md)
+
+This cutline owns the retained application/document physical inventory. It
+does not own the shared framework artifact/install/binding model, Medusa
+reserved relational installation, Module Link authority, Payload lifecycle
+migrations, or cross-domain reference admission.
 
 Related architecture note:
 
@@ -152,7 +157,13 @@ idempotency
 
 These are the real architecture.
 
-Especially `fx_edge_current`: this is not optional if Flarex wants efficient app/CMS/media/commerce references. Without it, the system falls back to JSON scans for questions like:
+The current application `fx_app_edge_current` is required for admitted
+application/document relations and later compatible Payload content. It is not
+a universal Medusa Module Link store. Authoritative commerce links use reserved
+link rows; a commerce adjacency projection is optional and separately admitted.
+
+The cross-owner examples below are future framework-integration use cases, not
+behavior authorized by this document-storage cutline:
 
 ```text
 Which CMS pages use product prod_123?
@@ -686,7 +697,8 @@ on-delete behavior
 admin exposure
 ```
 
-For v1, store that metadata in `fx_schema_version.manifest_json`.
+For the first supported cut, store that metadata in
+`fx_schema_version.manifest_json`.
 
 Recommendation:
 
@@ -1446,7 +1458,7 @@ It removes impossible JSON scans.
 It has a clear retention/cleanup plan.
 ```
 
-For v1, the platform should be boring:
+The first supported platform shape should be boring:
 
 ```text
 row JSON

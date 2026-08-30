@@ -21,16 +21,23 @@ checked revocation, and hosted Worker/key adapters are deferred to their first
 real consumers and do not affect schema-gate ordering.
 Private non-routing snapshot resolution `O02` is complete.
 Relational `R01`, `R01-P`, `R02`, `S12`, private `C09`, and private
-production-inert `E01-A` are complete. Migration `0071_nebulous_crystal.sql`
-adds E01-A's per-definition fenced build head and immutable per-attempt physical
-readiness receipt. `E01-B` Application-readiness folding and E01 as a whole
-remain open.
+production-inert `E01-A` and `E01-B` are complete. Migration
+`0071_nebulous_crystal.sql` adds E01-A's per-definition fenced build head and
+immutable per-attempt physical readiness receipt. E01 is complete at its
+private, production-inert system-core boundary.
 
 This plan owns the target physical schema, codecs, repositories, stable catalog,
 activation, prototype-schema retirement, and any evidence-triggered migration
 for the first shippable Flarex app-data generation.
 It does not own OCC behavior, commit compilation, Payload parity, Medusa table
 generation, live-sync coordination, or chronological implementation history.
+
+This plan remains the physical-schema and catalog owner for the existing
+Flarex app-data generation. Future framework-neutral artifact, installation,
+binding, relational-DDL, and migration admission is owned by
+[`FlarexDB Framework Integration`](../flarexdb-framework-integration/README.md);
+that domain must consume rather than reinterpret the application contracts
+here.
 
 Follow the interleaved order in [`README.md`](./README.md). Do not complete the
 entire schema before exercising its rows through OCC and the commit compiler.
@@ -43,16 +50,20 @@ Use these sources in order:
 1. [`../../design-notes/flarex-db-accepted-design.md`](../../design-notes/flarex-db-accepted-design.md)
    owns architecture, authority, physical identity, snapshot, commit, and
    migration rules.
-2. [`../../design-notes/flarex-commerce-cms-v1-schema-cutline.md`](../../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
-   owns the minimal v1 inventory and explicit deferrals, not verbatim DDL.
-3. [`README.md`](./README.md) owns interleaved turn order and current phase
+2. [`../../design-notes/flarexdb-framework-storage-architecture.md`](../../design-notes/flarexdb-framework-storage-architecture.md)
+   owns cross-framework storage and adapter boundaries without changing this
+   plan's application authority.
+3. [`../../design-notes/flarex-commerce-cms-v1-schema-cutline.md`](../../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
+   owns the retained first physical inventory and explicit deferrals, not
+   verbatim DDL.
+4. [`README.md`](./README.md) owns interleaved turn order and current phase
    sequencing.
-4. [`../20-postgres-executor.md`](../20-postgres-executor.md) owns executor,
+5. [`../20-postgres-executor.md`](../20-postgres-executor.md) owns executor,
    hosted routing, and storage-generation status.
-5. [`../../design-notes/flarex-internal-db-schema.md`](../../design-notes/flarex-internal-db-schema.md)
+6. [`../../design-notes/flarex-internal-db-schema.md`](../../design-notes/flarex-internal-db-schema.md)
    is a long-form physical-policy inventory, proposal, provenance record, and
    risk register. Its sketches are not automatically accepted.
-6. Current schema, contracts, repositories, and tests prove implementation:
+7. Current schema, contracts, repositories, and tests prove implementation:
    - [`../../packages/persistence-postgres/src/schema.ts`](../../packages/persistence-postgres/src/schema.ts)
    - [`../../packages/persistence-postgres/drizzle`](../../packages/persistence-postgres/drizzle)
    - [`../../packages/persistence-postgres/src/sessionJournalStore.ts`](../../packages/persistence-postgres/src/sessionJournalStore.ts)
@@ -239,8 +250,9 @@ These decisions are durable and are not re-opened by each implementation turn:
 - dedicated block tables unless declared indexes prove insufficient;
 - normalized transaction dependencies until planner evidence requires them;
 - a generic row-version abstraction unless adapter integration requires it;
-- Payload-specific physical lifecycle tables;
-- Medusa relational table generation or migrations;
+- Payload-specific lifecycle storage and Medusa relational schema or migration
+  generation, whose source-driven admission is owned by
+  [`FlarexDB Framework Integration`](../flarexdb-framework-integration/README.md);
 - all reconnect-retention and replacement sync query/cursor state; roadmap 21
   owns a separate just-in-time schema gate after its duration/history budget is
   accepted;
@@ -1562,6 +1574,12 @@ sequences, and legacy physical key bytes are never reinterpreted as target
 codec bytes.
 
 ## Adapter-Facing Schema Contract
+
+This section records compatibility constraints on future adapters, not their
+implementation plan. The
+[`framework-integration domain`](../flarexdb-framework-integration/README.md)
+owns concrete schema representation, installation, migration, and adapter
+gates.
 
 - Payload may later use app row/catalog/index/edge capabilities through a
   Payload-owned request transaction adapter. Binding a collection to an

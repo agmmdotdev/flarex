@@ -1,6 +1,7 @@
 # FlarexDB Payload Relational Adapter
 
-Status: accepted adapter-boundary correction; no Payload adapter is implemented by this note
+Status: accepted adapter-boundary correction; native non-reactive relation
+prerequisites are complete, but no Payload adapter is implemented by this note
 
 Last reviewed: 2026-08-30
 
@@ -10,6 +11,12 @@ model is owned by
 [`flarexdb-native-relational-system.md`](./flarexdb-native-relational-system.md).
 This document does not redefine relation identity, edge occurrence storage,
 snapshot/OCC behavior, commit authority, or schema activation.
+
+Shared artifact, installation, binding, migration-host, transaction-host, and
+commit-finalizer mechanics are owned by
+[`flarexdb-framework-storage-architecture.md`](./flarexdb-framework-storage-architecture.md).
+Payload implementation order and status are owned by
+[`../roadmaps/flarexdb-framework-integration/07-payload-adoption.md`](../roadmaps/flarexdb-framework-integration/07-payload-adoption.md).
 
 The executable low-level prerequisites remain in
 [`../roadmaps/flarexdb-foundation/04-payload-relational-contract.md`](../roadmaps/flarexdb-foundation/04-payload-relational-contract.md).
@@ -71,8 +78,9 @@ app
   Payload configuration is generated or constrained by that schema.
 
 payload
-  Payload collection configuration is compiled into the canonical Standard
-  and FlarexDB schema representation;
+  Payload collection configuration enters authenticated Application Analysis
+  and is compiled into the canonical Standard and FlarexDB schema representation;
+  the separate Payload configuration digest is policy/provenance evidence only;
   generated Flarex data APIs may expose that same table when allowed.
 ```
 
@@ -90,7 +98,7 @@ distinguishes these authority modes:
 | --- | --- | --- | --- |
 | app table | absent | `ctx.db` | `ctx.db` |
 | CMS view | read-only presentation over an app-owned table | `ctx.db` | app-owned `ctx.db` or domain commands |
-| CMS managed | editable Payload lifecycle over the shared row | published/current `ctx.db` view where allowed | generated `ctx.cms` operations only |
+| CMS managed | editable Payload lifecycle over the shared row | published/current `ctx.db` view where allowed | one adapter-owned private Payload command pipeline through enabled surfaces, including planned `ctx.cms` when separately activated |
 | app-command managed | dashboard actions delegate to app-owned commands | app-owned reads | app-owned commands only |
 
 The names `cms.view`, `cms.manage`, and an eventual delegated-command form are
@@ -99,8 +107,8 @@ meaning is not optional:
 
 - a read-only CMS view cannot mutate the table through Payload;
 - an editable CMS-managed table has one ordinary write pipeline, the Payload
-  operation pipeline exposed to developer code through a generated `ctx.cms`
-  facade;
+  operation pipeline used by whichever Payload surfaces are enabled, including
+  a generated `ctx.cms` facade only after its separate public gate;
 - ordinary Dynamic Worker `ctx.db.insert`, `patch`, `replace`, and `delete`
   capabilities exclude CMS-managed tables in generated types and reject an
   unauthorized bypass at runtime;
@@ -110,10 +118,17 @@ meaning is not optional:
   privileged. They may bypass CMS lifecycle policy, but never FlarexDB schema,
   relation, uniqueness, commit, edge, OCC, feed, or outbox invariants.
 
-Payload-owned collections imply CMS-managed write authority. An app-owned table
-may be presented read-only or deliberately transferred to CMS-managed write
-authority. Merely adding labels, layouts, or admin widgets does not transfer
-that authority.
+Payload-owned collections imply CMS-managed write authority. The first writable
+proof independently digests the pinned Payload configuration and stable policy
+ID, then uses a new table whose authenticated Application artifact already
+rejects ordinary app writes and records that digest. Only afterward does the
+content overlay bind the configuration digest to the finalized Application
+artifact, installation, and table identities. Payload writes remain unavailable
+until that paired overlay is active. An app-owned table may be presented
+read-only. Transferring an already app-writable table to CMS-managed authority
+is deferred until the Application owner proves atomic capability revocation and
+overlay activation with no dual-writer interval. Merely adding labels, layouts,
+or admin widgets never transfers authority.
 
 For a CMS-managed table, the Payload dashboard, REST/GraphQL adapters where
 enabled, Payload Local API compatibility, and generated `ctx.cms` developer
@@ -184,9 +199,11 @@ physical edge-definition identities are selected by the FlarexDB schema
 lifecycle. A collection or field rename does not implicitly preserve or replace
 identity; it must participate in an explicit schema evolution plan.
 
-Payload may allow repeated values in a has-many relationship. The adapter must
-lower them through the native repeated-occurrence contract. It must not use
-mutable list position as identity or introduce a Payload-only edge table.
+The first adapter relation profile rejects repeated targets. A later focused
+gate may admit Payload configurations that allow repeats only after the native
+repeated-occurrence contract, stable occurrence identity, ordering, mutation,
+OCC, and conformance behavior are all proven. It must not use mutable list
+position as identity or introduce a Payload-only edge table.
 
 ## Upload Fields
 
@@ -370,30 +387,60 @@ definition while reusing the same physical edge definition if the stored edge
 set and read keys remain valid. The native compatibility classifier owns that
 decision.
 
-## Versioned Adapter Packages
+## Schema And Migration Ownership
 
-The Payload-facing implementation should separate a version-neutral FlarexDB
-adapter kernel from version-specific Payload interfaces:
+Payload content schema and Payload lifecycle migrations have different owners:
 
 ```text
-@flarex/payload-adapter-core
-  normalized operations, trusted FlarexDB capabilities, result/error mapping,
-  and shared conformance fixtures
+Flarex platform DDL
+  -> Flarex platform migration owner
 
-@flarex/payload-adapter-v3
-  current stable Payload interface bindings
+Application-owned CMS view
+  -> authenticated Application declaration and active artifact
+  -> Payload configuration validates against exact table identities
 
-@flarex/payload-adapter-v4
-  pinned Payload v4 interface bindings after an explicit source/release gate
+Payload-owned content collection
+  -> pinned Payload compiler output with explicit provenance
+  -> existing authenticated Application Analysis/publication chain
+  -> canonical Application schema candidate
+  -> existing managed-schema readiness and activation
+
+Payload lifecycle/data migration
+  -> Payload-owned semantic migration plan
+  -> privileged shared migration host
+  -> native row/relation/unique/commit invariants retained
+```
+
+Payload and Medusa do not share a migration language. Production startup fails
+closed on schema mismatch and never silently applies framework migrations.
+
+The Payload compiler has no direct schema publication or activation authority.
+If the current authenticated Application Analysis chain cannot admit generated
+schema input without changing its sole-source contract, that owner change needs
+a separate preflight before adapter implementation.
+
+## Adapter Package And Compatibility
+
+The Payload-facing implementation uses one implementation-bearing package with
+plain current semantics:
+
+```text
+@flarex/payload-adapter
+  normalized Payload operations
+  pinned compatibility bindings
+  trusted FlarexDB storage capabilities
+  result/error mapping and conformance fixtures
 ```
 
 Payload types must not enter the canonical relation protocol, Standard
 Application definition package, function runtime, executor, or Postgres
 persistence package.
 
-Both version bindings should run the same normalized behavioral suite. A
-framework version change that only alters TypeScript or adapter interface shape
-must not create a new physical relation meaning.
+Payload release compatibility belongs in package-local bindings and artifact
+provenance rather than parallel version-named packages. Every supported binding
+runs the same normalized behavioral suite. A framework release change that only
+alters TypeScript or adapter interface shape must not create a new physical
+relation meaning.
 
 ### Separate Adapter-Core And Relation Gates
 
@@ -404,7 +451,7 @@ Payload work has two distinct proofs:
    repositories, request transaction IDs, nested Local API behavior, and error
    mapping that the first release claims; it then proves a relation-free
    collection CRUD/find/count/request-transaction matrix; and
-2. only after native `SV-R`, a relation-mapping gate lowers the admitted Payload
+2. only after native `SV-R Core`, a relation-mapping gate lowers the admitted Payload
    field shapes to native relation intent and composes bounded forward
    population and reverse joins over the proven native identity read plus
    ordinary document point reads.
@@ -414,32 +461,57 @@ join filter, sort, count projection, fractional/orderable join, migration mode,
 or limit must reject during startup, analysis, or query planning before data
 access.
 
+## Application/CMS-To-Commerce References
+
+Payload may manage an application or CMS extension row that refers to a stable
+commerce identity. It may mutate only the extension row; target mutation goes
+through the commerce lane.
+
+This reference is neither a Payload reverse join nor a Medusa Module Link.
+Cross-owner existence, deletion, soft-delete, visibility, staleness, and binding
+compatibility require the separate private cross-domain reference contract in
+the framework-integration roadmap.
+
 ## Initial Truthful Adapter Cut
 
-The first Payload adapter claim should be narrow:
+The first private adapter claim is a relation-free scalar core:
 
 ```text
 collections only
-one Payload-owned or Flarex-owned table binding
-one explicit write-authority mode per binding
+one Payload-configured scalar collection compiled through authenticated Application Analysis
+Payload content overlay references exact Application artifact/installation/table/policy evidence
+one CMS-managed write-authority mode
+Payload writes remain inert until the exact content overlay is active
 editable CMS-managed bindings write only through the Payload operation pipeline
-generated ctx.cms and dashboard operations share that pipeline
 ordinary ctx.db writer capability rejects CMS-managed bindings
+private command pipeline suitable for later dashboard and ctx.cms composition
 versions disabled
 drafts disabled
 non-auth
 non-global
 top-level nonlocalized scalar fields
+relation-free adapter-core CRUD/find/count/request-transaction matrix proven
+no generated ctx.cms, dashboard route, or public compatibility claim
+```
+
+After that private scalar proof, the non-reactive relation slice may add:
+
+```text
 top-level monomorphic one/many relationships
 duplicate relationship targets rejected
 reverse maximum cardinality many
-relation-free adapter-core CRUD/find/count/request-transaction matrix proven
 bounded forward population and reverse-join composition
 reverse join only after native incoming adjacency is ready
 no join filter, sort, count projection, orderable join, or unbounded limit
 ```
 
-Later slices add:
+Dashboard, enabled Payload HTTP/Local API surfaces, and generated `ctx.cms` are
+separately activated product surfaces. When admitted, they must converge on the
+same Payload command pipeline and prove equivalent hooks, access, transaction,
+error, and write-authority behavior; their existence is not part of the private
+adapter-core claim.
+
+Later lifecycle islands add:
 
 ```text
 polymorphic relationships
@@ -450,7 +522,7 @@ join filtering/sorting/orderable behavior
 versions and drafts
 globals
 auth and sessions
-locks, jobs, preferences, and migrations
+document locks, jobs, preferences, and scheduled-publication collection migrations
 ```
 
 A partial adapter must reject unsupported configuration during startup or
@@ -541,12 +613,13 @@ Payload relational work begins only after the native system has:
 7. proved the native incoming relation read, activated one private relation
    revision through the existing owner, and composed the read-only Standard
    query required by the adapter;
-8. completed R03's fenced relation commit facts and native sync invalidation;
-9. completed the production-inert internal `SV-R` vertical.
+8. completed typed native relation commit facts; and
+9. completed the production-inert non-reactive `SV-R Core` vertical.
 
 The adapter can then compile Payload relationship, upload, and join semantics
 onto the proven FlarexDB capabilities. Payload research informs conformance;
 it does not move ahead of the native database foundation.
-The first adapter may omit a live-subscription promise, but if it makes one it
-must consume R03's proven facts, registration fence, retention, reconnect, and
+The non-reactive adapter may proceed without R03-B. A live-subscription,
+invalidation, reconnect, or resnapshot claim requires R03-B and `SV-R Live` and
+must consume their proven facts, registration fence, retention, reconnect, and
 resnapshot behavior rather than inventing an adapter-local invalidation path.

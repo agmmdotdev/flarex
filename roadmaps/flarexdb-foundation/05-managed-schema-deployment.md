@@ -448,6 +448,12 @@ spelling and production wiring remain separate decisions.
 
 ## Approved Code And Package Ownership
 
+In this roadmap, managed schema means the existing application-document
+deployment domain. `@flarex/managed-schema` is not a universal framework schema
+or relational migration engine. Admission of shared artifact, installation,
+binding, transaction, and migration capabilities belongs to
+[`FlarexDB Framework Integration`](../flarexdb-framework-integration/README.md).
+
 Managed schema evolution is a separate private domain capability, not another
 block of policy inside persistence, point commit, readiness, generated Worker
 source, or the system-test package. Its accepted package owner is
@@ -458,7 +464,7 @@ The dependency and authority boundary is:
 | Owner | Responsibility | Must not own |
 | --- | --- | --- |
 | `flarex-protocol` | Existing immutable schema-manifest types plus any canonical persisted validation frame/receipt codecs and budgets | Diff orchestration, PostgreSQL, scanning, readiness, or activation |
-| `@flarex/managed-schema` | Pure conservative compatibility classification, candidate-document policy, lifecycle transitions, planning policy, Effect service contracts, and live/test Layer interfaces | SQL, migrations, scope-clock implementation, point-commit publication, active pointers, or test-only authority |
+| `@flarex/managed-schema` | Application-document compatibility classification, candidate-document policy, lifecycle transitions, planning policy, Effect service contracts, and live/test Layers | Relational schema representation, framework DDL planning, Medusa migration semantics, SQL, scope-clock implementation, point-commit publication, or activation |
 | `@flarex/persistence-postgres` | Guarded DDL/migrations, fixed-frontier repository and scanner, transaction/lock mechanics, durable progress/receipts, and exact authenticated adapter facets | Independent compatibility semantics, a second commit owner, or activation |
 | `@flarex/standard-application-registration` | Private composition root that installs the managed-schema service with exact schema, persistence, commit, readiness, and authority dependencies | Reimplementing validation or exposing raw repository mutation as a developer API |
 | `@flarex/system-test` | Production-compatible scenario configuration and assertions through the live composed service | Candidate-table mutation, synthetic validation receipts, direct activation, or a fake commit path |
@@ -996,11 +1002,13 @@ developer-named physical table. The managed work is schema validation plus any
 index, unique, edge, block, or codec build. Payload lifecycle tables still need
 their own adapter-owned plans.
 
-Medusa remains genuinely relational. Medusa module/DML changes may require real
-Postgres DDL and data migrations, but Flarex should compile and execute those
-internal migrations from Medusa's real schema/migration inputs. It must not
-pretend an app-row schema diff can replace Medusa repository and module
-migration semantics.
+Medusa remains genuinely relational. Its DML-to-relational-artifact
+compilation, PostgreSQL DDL and data migrations, and framework activation gates
+are owned by
+[`FlarexDB Framework Integration`](../flarexdb-framework-integration/README.md)
+and must consume Medusa's real schema and migration inputs. This application-
+row planner cannot substitute for Medusa repository or module migration
+semantics.
 
 ## AI And Tooling Contract
 
@@ -1776,7 +1784,8 @@ validator, readiness receipt, activation pointer, or commit path.
   application/system backfill function; "no migration files" does not imply
   that Flarex can invent business transformations.
 - Relation compatibility depends on `R01`/`R02`; Payload lifecycle parity and
-  Medusa migration compilation remain separate source-driven plans.
+  Medusa migration compilation remain source-driven framework-integration
+  plans.
 - The current schema manifest has stable table and logical-index identities but
   no stable field catalog. The first classifier uses validator paths and
   explicit rename intent; it does not pretend a field rename already has a

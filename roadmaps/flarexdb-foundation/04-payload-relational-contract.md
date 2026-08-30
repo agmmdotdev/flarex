@@ -27,6 +27,11 @@ or the core relation semantics. The native architecture is defined by
 [`../../design-notes/flarexdb-native-relational-system.md`](../../design-notes/flarexdb-native-relational-system.md).
 Payload mapping is owned by
 [`../../design-notes/flarexdb-payload-relational-adapter.md`](../../design-notes/flarexdb-payload-relational-adapter.md).
+Concrete Payload and Medusa adapter admission, including shared schema,
+transaction, migration, and commit-participation capabilities, is owned by
+[`FlarexDB Framework Integration`](../flarexdb-framework-integration/README.md).
+This roadmap remains the native application-relation semantic, storage, OCC,
+readiness, and proof owner.
 
 ## Decision
 
@@ -765,6 +770,11 @@ that test read as registration, invalidation, delivery, or observation.
 
 ## Payload Adapter Boundary
 
+This section freezes mapping and authority constraints only. The
+[`framework-integration roadmap`](../flarexdb-framework-integration/README.md)
+owns adapter execution gates and must reuse the native relation contracts here
+without introducing a second row, edge, or commit authority.
+
 Payload compiles its relationship, upload, and join behavior onto the native
 system:
 
@@ -1477,7 +1487,9 @@ transaction, and race-free non-serving admission for destructive build work.
 The second checkpoint composes that result into relation-aware Application
 publication, schema authority, cold materialization, and a distinct persisted
 Application readiness contract. Approval of this preflight authorizes both
-checkpoints in that order, but E01-B and E01 remain open until both close.
+checkpoints in that order. At that historical preflight checkpoint, E01-B and
+E01 remained open until both closed; the current status at the top records their
+later completion.
 
 The first checkpoint also closed the fresh-migration blocker reproduced on
 2026-08-25. Migration 0072 now uses dependency-safe same-search-path foreign
@@ -2349,9 +2361,10 @@ existing genuine-PostgreSQL relation-readiness suite passes 6/6. The three
 owning package typechecks, core lint, changed-diff lint, and both standing
 reviews pass. RQ01 adds no Worker/function execution, mutation journal or OCC
 dependency, application-row population, caller cursor, route, SDK, framework
-adapter, alternate query engine, or production cutover. `R03-A` is now complete;
-`SV-R Core` is the next relational slice, while `R03-B` remains the separately
-owned live-sync slice.
+adapter, alternate query engine, or production cutover. Historical checkpoint:
+`R03-A` was complete and `SV-R Core` was the next relational slice at this
+receipt. The later `SV-R Core` completion record supersedes that status;
+`R03-B` remains the separately owned live-sync slice.
 
 ### [ ] R03 — Relation Change Facts And Sync Invalidation
 
@@ -2582,6 +2595,10 @@ Only after this live vertical is green may a developer SDK or framework adapter
 claim reactive relations, subscriptions, or reconnectable live results.
 
 ### Later Developer And Adapter Work
+
+Framework adapter implementation order is owned by
+[`FlarexDB Framework Integration`](../flarexdb-framework-integration/README.md);
+the entries below record only dependencies on this native relation foundation.
 
 ```text
 developer producer

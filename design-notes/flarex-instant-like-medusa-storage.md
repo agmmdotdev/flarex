@@ -20,18 +20,23 @@ Use these documents instead:
 
 1. [`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md) for general
    Postgres, transaction, commit, sync, Payload, and Medusa authority.
-2. [`flarexdb-native-relational-system.md`](./flarexdb-native-relational-system.md)
+2. [`flarexdb-framework-storage-architecture.md`](./flarexdb-framework-storage-architecture.md)
+   for shared artifact, installation, binding, migration, transaction,
+   relation-profile, and commit-participation boundaries.
+3. [`flarexdb-native-relational-system.md`](./flarexdb-native-relational-system.md)
    for application relation identity, physical edge storage, OCC,
    build/readiness, bounded queries, and current implementation status.
-3. [`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md)
+4. [`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md)
    for CMS exposure, Payload lifecycle, write authority, and relation mapping.
-4. [`flarexdb-medusa-commerce-adapter.md`](./flarexdb-medusa-commerce-adapter.md)
+5. [`flarexdb-medusa-commerce-adapter.md`](./flarexdb-medusa-commerce-adapter.md)
    for reserved commerce tables, DML/schema compilation, Module Link mapping,
    transactions, CMS interaction, scalability, and admission gates.
-5. [`flarex-internal-db-schema.md`](./flarex-internal-db-schema.md) for the
+6. [`flarex-internal-db-schema.md`](./flarex-internal-db-schema.md) for the
    long-form logical schema inventory.
-6. [`../roadmaps/flarexdb-foundation/README.md`](../roadmaps/flarexdb-foundation/README.md)
-   and other focused roadmaps for executable order and implemented status.
+7. [`../roadmaps/flarexdb-foundation/README.md`](../roadmaps/flarexdb-foundation/README.md)
+   for application-foundation execution and status.
+8. [`../roadmaps/flarexdb-framework-integration/README.md`](../roadmaps/flarexdb-framework-integration/README.md)
+   for shared-mechanism and framework-adapter execution order and status.
 
 When any historical statement conflicts with those owners, the current owner
 controls.
@@ -79,8 +84,9 @@ Medusa repositories interchangeable.
   custom repositories, Query capabilities, workflows, and locks also matter.
 - A Medusa module link may be an authoritative reserved link entity. It is not
   equivalent to an ID array in a public document.
-- The native Flarex edge kernel can be reused for endpoint indexing, adjacency
-  OCC, bounded traversal, and change facts when the semantics match.
+- Native Flarex edge identity, adjacency, OCC, traversal, and fact algorithms
+  may be reused when semantics match. The current application edge table and
+  row-identity codec are not automatically a Medusa Link store.
 - An app or CMS table may reference a stable commerce ID without gaining the
   authority to mutate the commerce target.
 - Flarex commits and outbox evidence must be joined atomically to the owning
@@ -119,12 +125,13 @@ materialized edges, adjacency facts, OCC, and one bounded reverse query. It is
 real relational infrastructure, but its first semantic profile deliberately
 does not include every Payload or Medusa relationship shape.
 
-No Flarex-backed Medusa persistence adapter is implemented merely because this
-research concluded it is architecturally possible. Medusa still requires a
-pinned-source inventory, schema compiler, repository and transaction-manager
-adapter, module-link semantics, migration compatibility, workflow/lock proofs,
-unchanged module tests, representative scale evidence, and separate production
-activation.
+A current Medusa source audit and a substantial Drizzle/SQLite static-module
+proof now exist, but neither is a Flarex-backed persistence adapter or a
+production migration lifecycle. A clean source pin, module-scoped persistence
+preparation, value-only schema compiler boundary, repository and transaction-
+manager adapter, Module Link constraints, migration activation, workflow/lock
+proofs, unchanged module tests, representative scale evidence, and separate
+production activation remain required.
 
 The old research used physical names and implementation sketches that may no
 longer match the current migrations. Current code and focused roadmaps are the
