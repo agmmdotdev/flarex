@@ -781,9 +781,23 @@ A Payload collection may bind to one existing stable table and expose the same
 authoritative row. One table has one schema owner, `app` or `payload`; another
 surface cannot independently redefine relations.
 
+CMS presentation and CMS write authority are distinct. A read-only CMS view
+leaves writes with the app. An editable CMS-managed binding routes dashboard,
+enabled REST/GraphQL, Payload Local API compatibility, and generated `ctx.cms`
+operations through one Payload command pipeline; ordinary Dynamic Worker
+`ctx.db` writer capabilities must exclude that table and runtime authority must
+reject a bypass. An app-command-owned aggregate remains read-only until
+dashboard actions can delegate to its owning commands. These are adapter and
+developer-surface contracts, not new relation storage semantics.
+
 Payload request transactions are adapter-owned and converge on the same trusted
 row/index/unique/edge/commit primitives. They are not silently encoded as
 untrusted Dynamic Worker `SessionJournalV1` attempts.
+
+Migration, backfill, import, repair, and fixture writers are separately
+privileged. They may explicitly bypass Payload lifecycle policy, but never the
+native schema, relation, uniqueness, scope-clock, edge, OCC, feed, or outbox
+owners.
 
 Versions, drafts, globals, auth, sessions, locks, jobs, preferences, migrations,
 hook/access ordering, locale fallback, object lifecycle, population behavior,

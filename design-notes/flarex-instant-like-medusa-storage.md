@@ -1036,24 +1036,30 @@ index updates, commit logging, and sync invalidation.
 Sharing the same Flarex app table does not mean every write path has the same
 semantics.
 
-If a table or field is CMS-managed, the schema should declare its write policy:
+The earlier `payload-only` versus `shared` vocabulary below is superseded by the
+authority model in
+[`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md):
 
 ```text
-payload-only
-  -> writes must go through Payload local API, REST API, or generated CMS facade
-  -> required for auth, uploads, versions, drafts, hooks, and access behavior
+CMS view
+  -> read-only Payload presentation
+  -> app-owned writes remain app-owned
 
-shared
-  -> direct ctx.db writes are allowed
-  -> only safe for simple content where Payload lifecycle side effects are not
-     required
+CMS managed
+  -> dashboard and generated ctx.cms share one Payload operation pipeline
+  -> ordinary ctx.db writes are not authorized
+
+app-command managed
+  -> dashboard remains read-only until actions delegate to app commands
 ```
 
-The default should be conservative: CMS-managed collections that enable auth,
-uploads, drafts, versions, or write hooks should be `payload-only`. Otherwise a
-Flarex mutation could update the same rows while bypassing Payload validation,
-hook order, access checks, version snapshots, draft status, upload cleanup, or
-session state.
+Payload-owned collections are CMS managed. A developer-owned table may be
+presented read-only or deliberately assigned CMS-managed write authority, but
+labels and admin widgets do not make raw and Payload writes equivalent. A
+Flarex mutation must not update a CMS-managed row while bypassing Payload
+validation, hook order, access checks, versions, drafts, locks, upload cleanup,
+or request state. Privileged migration/repair capabilities remain separate and
+still preserve native FlarexDB invariants.
 
 ### Payload Support Levels
 
@@ -2791,8 +2797,9 @@ needs:
    relationships, uploads, auth fields, and reverse joins.
 7. Query translation for Payload filters, sorting, pagination, relationship
    population, drafts, versions, locales, and admin search.
-8. CMS write-policy enforcement so direct `ctx.db` writes cannot bypass
-   Payload lifecycle semantics for `payload-only` collections or fields.
+8. CMS write-authority enforcement so direct `ctx.db` writes cannot bypass a
+   CMS-managed table's Payload lifecycle; dashboard and generated `ctx.cms`
+   operations share one command pipeline.
 9. Embedded ordered arrays/blocks with stable item ids, field path, position,
    locale, and block type metadata, plus optional v2 child-row storage only
    where block-level editing/querying at scale requires it.
@@ -2903,8 +2910,10 @@ The direction is worth researching further, but only under these constraints:
 - Medusa Link remains internal compatibility for original Medusa module links;
   Flarex app developers use Flarex relations, not public custom Medusa links.
 - Flarex app schema is the source of truth for CMS-marked Payload collections.
-- CMS-managed collections need explicit write policies; lifecycle-sensitive
-  collections default to Payload-only writes.
+- CMS presentation and write authority are distinct: CMS views are read-only,
+  CMS-managed collections use the Payload command pipeline exclusively, and
+  app-command-owned aggregates stay read-only until dashboard actions delegate
+  to their commands.
 - Payload complex fields compile to Flarex storage primitives: embedded row
   JSON for normal CMS content, derived app edges for relationships/uploads and
   joins, derived index/unique sidecars for declared queryable fields, optional

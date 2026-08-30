@@ -1297,8 +1297,14 @@ authenticated CMS request
   -> committed change/outbox publication
 ```
 
-Direct `ctx.db` writes remain subject to the collection's declared Payload
-write policy.
+For an editable CMS-managed table, dashboard and generated `ctx.cms` operations
+share this pipeline and ordinary Dynamic Worker `ctx.db` writer authority is
+absent. A read-only CMS view retains app-owned writes; an app-command-owned
+aggregate remains read-only until the dashboard delegates to its commands.
+Generated typing and runtime capability checks must agree. Separately
+privileged migrations and repairs may bypass CMS lifecycle policy but still use
+the trusted native commit capabilities above. The accepted details are owned by
+[`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md).
 
 ### Run A Medusa Commerce Transaction
 

@@ -2657,29 +2657,28 @@ Shopify-like limits are useful as product guidance, but Flarex should define its
 
 ## CMS write policy
 
-CMS-exposed tables should declare how writes are allowed.
-
-```ts
-.cms({
-  collection: "pages",
-  writes: "cmsOnly",
-})
-```
-
-Suggested policies:
+This long-term note previously proposed `cmsOnly`, `ctxDbValidated`, and
+`ctxDbAllowed` flags. Those names and the chained `.cms(...)` example are
+superseded. The accepted authority contract lives in
+[`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md)
+and distinguishes presentation from write ownership:
 
 ```text
-cmsOnly
-  only the CMS/Payload lifecycle can write; safest for drafts, versions, hooks, uploads, and content-heavy pages
+CMS view
+  read-only Payload presentation; app-owned writes remain app-owned
 
-ctxDbValidated
-  ctx.db writes are allowed, but Flarex runs schema validation, index/edge derivation, uniqueness, and allowed lifecycle checks
+CMS managed
+  dashboard and generated ctx.cms use one Payload operation pipeline;
+  ordinary ctx.db writes are not authorized
 
-ctxDbAllowed
-  normal app-owned table; CMS is only an admin UI on top
+app-command managed
+  dashboard stays read-only until its actions delegate to app-owned commands
 ```
 
-Content-heavy Payload-style tables should default to `cmsOnly` until the lifecycle mapping is complete.
+Payload-owned and lifecycle-sensitive content tables are CMS managed. A
+developer-owned table does not become writable through Payload merely because
+the dashboard can display it. Privileged migration and repair paths are
+separate capabilities and cannot bypass native FlarexDB invariants.
 
 Commerce-owned tables should not accept arbitrary public `ctx.db` writes. Commerce writes should go through `ctx.commerce` or trusted internal commerce adapters.
 

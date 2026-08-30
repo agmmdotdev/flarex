@@ -435,38 +435,40 @@ The return type should distinguish stored relation ids from populated records.
 
 ## CMS Markers
 
-CMS exposure is declared from Flarex schema.
+This section is ergonomic research only. The current write-authority decision
+is owned by
+[`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md);
+the chained `.cms(...)` syntax below is superseded and must not be implemented
+as a generic marker that leaves write behavior ambiguous.
 
 ```ts
 const posts = defineTable({
-  title: v.string().cms({ label: "Title" }),
-  slug: v.string().unique().cms(),
-  body: v.richText().cms(),
-  author: v.relation.one(users).cms(),
-  status: v.union(v.literal("draft"), v.literal("published")).cms(),
+  title: v.string(),
+  slug: v.string().unique(),
+  body: v.richText(),
+  author: relation.one(users),
 })
-  .cms({
-    collection: "posts",
-    access: "payload",
-  })
   .index("bySlug", ["slug"])
+
+// Illustrative only; final package and names require a public API preflight.
+cms.manage(posts, {
+  collection: "posts",
+  admin: { titleField: "title" },
+})
 ```
 
 CMS rules:
 
 - Flarex schema remains source of truth.
-- Payload config is generated.
-- Payload operation lifecycle remains Payload-owned where enabled.
-- Direct `ctx.db` writes can be allowed or denied by CMS write policy.
-- Lifecycle-sensitive CMS collections can default to Payload-only writes.
-
-Write policy examples:
-
-```ts
-.cms({ writes: "payloadOnly" })
-.cms({ writes: "ctxDbAllowed" })
-.cms({ writes: "ctxDbWithValidation" })
-```
+- Payload config is generated or constrained from that authority.
+- A CMS view is read-only and retains app-owned writes.
+- A CMS-managed table is editable through the Payload operation pipeline and
+  generated `ctx.cms`; ordinary `ctx.db` writes are excluded by type and
+  rejected by runtime authority.
+- An app-command-owned aggregate remains read-only until dashboard actions can
+  delegate to its commands.
+- Privileged migrations and repairs are a separate capability, not a normal
+  developer write policy.
 
 No raw Payload plugin or schema API should be required for normal Flarex app
 developers.
@@ -717,7 +719,9 @@ Rules:
 - Writes update declared indexes and relation edges.
 - Writes participate in OCC/read-set validation.
 - Direct writes to Medusa reserved tables are not allowed.
-- Direct writes to Payload-sensitive CMS tables depend on write policy.
+- Direct writes to CMS-managed tables are not authorized; use generated
+  `ctx.cms`. App-owned writes remain available only for an ordinary table or a
+  table presented through a read-only CMS view.
 
 ## Transactions
 
@@ -785,8 +789,11 @@ Rules:
 
 ## ctx.cms
 
-Most app code should use `ctx.db` for app-owned CMS-marked data. `ctx.cms`
-exists for operations that must run Payload CMS lifecycle semantics.
+`ctx.cms` is the generated developer facade for operations that must run
+Payload CMS lifecycle semantics. It is not an optional convenience alongside
+unrestricted `ctx.db` writes for the same CMS-managed table. Ordinary reads may
+use the allowed current/published `ctx.db` view; ordinary writes use exactly one
+owner.
 
 ```ts
 ctx.cms.collections("posts").create(input)
@@ -798,11 +805,14 @@ ctx.cms.globals("siteSettings").update(input)
 
 Rules:
 
-- `ctx.cms` runs through the Payload operation pipeline where needed.
+- Dashboard, enabled REST/GraphQL adapters, and `ctx.cms` run through one
+  Payload operation pipeline.
 - Payload owns hooks, access, validation order, versions, drafts, auth, uploads,
   and lifecycle-sensitive behavior.
 - Flarex owns data storage, schema, transactions, indexes, live sync, tenant
   scope, and write policies.
+- Request-scoped `ctx.cms` respects its principal by default; a system override
+  is explicit and separately authorized.
 
 ## Auth
 

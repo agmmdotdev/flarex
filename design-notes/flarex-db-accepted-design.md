@@ -1962,6 +1962,34 @@ measured performance justifies them. Payload request transactions use a
 Payload-owned adapter lane until every required read/write overlay is proven;
 they are not automatically compiled by the generic SessionDO journal.
 
+One shared row authority does not imply interchangeable write paths. A Payload
+dashboard or generated CMS developer operation may apply access, defaults,
+validation order, hooks, locks, localization, drafts, versions, and nested
+request-transaction behavior that an ordinary `ctx.db` mutation does not.
+Every CMS binding therefore declares one write authority:
+
+```text
+CMS view
+  read-only Payload presentation; app-owned writes remain app-owned
+
+CMS managed
+  dashboard and generated ctx.cms operations share the Payload command lane;
+  ordinary ctx.db writers cannot mutate the table
+
+app-command managed
+  dashboard writes are absent until they delegate to the owning app commands
+```
+
+Payload-owned collections are CMS managed. Developer-owned tables may be
+presented read-only or deliberately assigned CMS-managed write authority, but
+adding CMS labels or widgets alone does not transfer it. Generated typing and
+runtime capability checks must both reject an unauthorized direct write.
+Separately privileged migrations, backfills, imports, repairs, and fixtures may
+bypass CMS lifecycle policy, but they must still participate in the native
+schema, relation, uniqueness, scope-clock, commit, edge, OCC, feed, and outbox
+owners. The detailed mapping and conformance contract lives in
+[`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md).
+
 ## Medusa Boundary
 
 Medusa schema input is not DML alone:

@@ -84,6 +84,10 @@ native relational authority above.
     It maps Payload relationships, uploads, joins, request transactions,
     population, nested/localized fields, and later lifecycle behavior without
     copying Payload's physical `_rels` model or creating another row authority.
+    It also owns the CMS view, CMS-managed, and app-command-managed write
+    authority distinction: an editable CMS table uses one Payload command
+    pipeline for dashboard and generated `ctx.cms` writes rather than retaining
+    an unrestricted parallel `ctx.db` writer.
 
 - `postgres-authoritative-sync.md`
   - Accepted Flarex Postgres/Cloudflare adapter topology, per-scope durable

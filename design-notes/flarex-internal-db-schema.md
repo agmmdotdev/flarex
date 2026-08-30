@@ -1137,9 +1137,12 @@ fx_payload_session (
 )
 ```
 
-Payload uses these through `@payloadcms/db-flarex`. Public `ctx.db` can read or
-write CMS-marked app tables only according to the collection write policy.
-Lifecycle-sensitive fields can be `payload_only`.
+Payload uses these through `@payloadcms/db-flarex`. This older schema proposal
+does not own developer write-policy names. Under the accepted adapter contract,
+a CMS view is read-only, a CMS-managed table is written through dashboard or
+generated `ctx.cms` operations, and an app-command-managed table remains
+read-only until dashboard actions delegate to its commands. Ordinary `ctx.db`
+writes are not authorized for a CMS-managed table.
 
 Only generate dedicated Payload system tables after the adapter slice and
 measurement justify them, and only for enabled features. For simple CMS-marked
@@ -2112,8 +2115,9 @@ Changed for Flarex:
   Payload-only lifecycle complexity starts in reserved logical collections for
   versions, drafts, uploads, locks, sessions, globals, scheduled publish, and
   auth support.
-- Public `ctx.db` may access CMS-marked app fields according to Flarex write
-  policy, but it cannot directly bypass Payload-only lifecycle-sensitive rows.
+- Public `ctx.db` may read the allowed current/published view. It may write an
+  app-owned table presented through a read-only CMS view, but it cannot mutate
+  a CMS-managed table or bypass Payload lifecycle state.
 
 Schema pieces from this lineage:
 
@@ -2391,8 +2395,9 @@ has to prove Payload lifecycle compatibility.
 
 The key boundary to test is that CMS content can share app row JSON and derived
 sidecars, while Payload-only lifecycle state remains in reserved logical
-collections (or later justified `fx_payload_*` tables) and cannot be bypassed by
-direct `ctx.db` writes. Blocks and arrays are
+collections (or later justified `fx_payload_*` tables). Dashboard and generated
+`ctx.cms` writes to a CMS-managed table use one Payload operation pipeline;
+ordinary `ctx.db` writes cannot bypass it. Blocks and arrays are
 embedded by default; child-row storage is a future optimization, not the v1
 baseline.
 

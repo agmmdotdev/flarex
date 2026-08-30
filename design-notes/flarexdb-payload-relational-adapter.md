@@ -2,7 +2,7 @@
 
 Status: accepted adapter-boundary correction; no Payload adapter is implemented by this note
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-30
 
 This note defines how a future Payload database adapter and Payload-backed CMS
 surface consume the native FlarexDB relational system. The native database
@@ -43,6 +43,14 @@ which observable field, request, transaction, query, population, version, and
 admin behavior must be reproduced. It does not become the canonical database
 AST or private kernel contract.
 
+Sharing one authoritative FlarexDB row does not make an ordinary `ctx.db`
+mutation equivalent to a Payload operation. Payload access, defaults,
+validation order, hooks, locks, localization, drafts, versions, population,
+and nested request transactions are adapter-owned command semantics. A direct
+row mutation preserves only the invariants enforced by FlarexDB itself. The
+table's write-policy owner therefore must be explicit before an editable CMS
+surface is generated.
+
 ## One Table, One Authority, One Schema Owner
 
 A Payload collection may expose an existing Flarex application table without
@@ -72,6 +80,58 @@ An additional API surface does not create another table identity, row body,
 revision history, relation definition, or write authority. Conflicting
 cardinality, target, localization, ordering, requiredness, or delete policy
 between two surfaces must fail definition analysis.
+
+## CMS Exposure And Write Authority
+
+CMS exposure is not one ambiguous Boolean marker. The accepted product model
+distinguishes these authority modes:
+
+| Mode | Payload dashboard | Ordinary reads | Ordinary writes |
+| --- | --- | --- | --- |
+| app table | absent | `ctx.db` | `ctx.db` |
+| CMS view | read-only presentation over an app-owned table | `ctx.db` | app-owned `ctx.db` or domain commands |
+| CMS managed | editable Payload lifecycle over the shared row | published/current `ctx.db` view where allowed | generated `ctx.cms` operations only |
+| app-command managed | dashboard actions delegate to app-owned commands | app-owned reads | app-owned commands only |
+
+The names `cms.view`, `cms.manage`, and an eventual delegated-command form are
+illustrative developer ergonomics, not frozen public syntax. Their authority
+meaning is not optional:
+
+- a read-only CMS view cannot mutate the table through Payload;
+- an editable CMS-managed table has one ordinary write pipeline, the Payload
+  operation pipeline exposed to developer code through a generated `ctx.cms`
+  facade;
+- ordinary Dynamic Worker `ctx.db.insert`, `patch`, `replace`, and `delete`
+  capabilities exclude CMS-managed tables in generated types and reject an
+  unauthorized bypass at runtime;
+- an app-command-managed table, such as an order or workflow aggregate, remains
+  read-only in the CMS until dashboard actions can call its owning commands;
+- migration, backfill, repair, import, and fixture capabilities are separately
+  privileged. They may bypass CMS lifecycle policy, but never FlarexDB schema,
+  relation, uniqueness, commit, edge, OCC, feed, or outbox invariants.
+
+Payload-owned collections imply CMS-managed write authority. An app-owned table
+may be presented read-only or deliberately transferred to CMS-managed write
+authority. Merely adding labels, layouts, or admin widgets does not transfer
+that authority.
+
+For a CMS-managed table, the Payload dashboard, REST/GraphQL adapters where
+enabled, Payload Local API compatibility, and generated `ctx.cms` developer
+operations must converge on one command implementation:
+
+```text
+dashboard / REST / GraphQL / ctx.cms
+  -> authenticated Payload operation context
+  -> access/defaults/validation/hooks/lifecycle
+  -> one Payload-owned request transaction
+  -> trusted FlarexDB row/index/unique/edge/commit capabilities
+```
+
+The normal request-scoped Flarex `ctx.cms` facade respects its current
+principal and collection policy by default. A trusted system override must be
+explicitly named and separately authorized; Payload Local API compatibility
+must not silently export its access-override default as Flarex's ordinary
+developer behavior.
 
 ## Adapter Mapping
 
@@ -204,6 +264,9 @@ Payload-facing operations use a Payload-owned request transaction adapter.
 Payload's request may create or update multiple documents through hooks and
 nested Local API calls; all supported operations using the same request must
 commit or roll back according to Payload's observable transaction behavior.
+Dashboard and generated `ctx.cms` operations carry the same authenticated
+request context into that adapter. A nested CMS operation must reuse it rather
+than silently opening a second transaction.
 
 The adapter compiles supported operations into the same trusted FlarexDB
 primitives:
@@ -228,6 +291,12 @@ Worker `SessionJournalV1` execution path. They are a separate trusted adapter
 lane that converges on the same authoritative Postgres scope clock, commit
 feed, and outbox. Sharing the commit authority does not require sharing the
 user-code transaction protocol.
+
+Ordinary `ctx.db` reads may consume the table's allowed current projection, but
+they do not acquire Payload operation authority. Once drafts or versions are
+supported, the ordinary app-data view is the published/live projection unless
+an explicitly authorized CMS read requests another visibility domain. Engine
+row history is never an implicit editor-version view.
 
 ## Versions, Drafts, And Visibility
 
@@ -352,6 +421,10 @@ The first Payload adapter claim should be narrow:
 ```text
 collections only
 one Payload-owned or Flarex-owned table binding
+one explicit write-authority mode per binding
+editable CMS-managed bindings write only through the Payload operation pipeline
+generated ctx.cms and dashboard operations share that pipeline
+ordinary ctx.db writer capability rejects CMS-managed bindings
 versions disabled
 drafts disabled
 non-auth
@@ -398,6 +471,12 @@ behavior, including:
 - forward population and reverse joins;
 - selection, locale, depth, pagination, counts, and sort;
 - hook/access ordering and nested request transactions;
+- dashboard/REST/GraphQL/`ctx.cms` command equivalence for every claimed
+  operation;
+- generated-type exclusion and runtime rejection of unauthorized direct writes
+  to CMS-managed tables;
+- explicit system override, migration, repair, and import behavior without
+  bypassing native FlarexDB invariants;
 - draft/version visibility once supported;
 - target deletion, stale references, and repair behavior;
 - exact commit/change/outbox agreement with native FlarexDB state.
@@ -408,12 +487,35 @@ acceptance. Payload's own relevant relationship and database-adapter tests
 should be ported or invoked against the version binding where licensing and
 fixture boundaries permit.
 
+Current upstream reference evidence, rechecked on 2026-08-30:
+
+- [Payload Local API](https://payloadcms.com/docs/local-api/overview) records
+  that local operations expose the REST/GraphQL operation family, accept
+  lifecycle options, and require the request to be threaded through nested
+  operations for transaction participation.
+- [Payload Local API access control](https://payloadcms.com/docs/local-api/access-control)
+  records that upstream local operations override access by default unless the
+  caller explicitly supplies user context and disables the override. Flarex's
+  ordinary request-scoped `ctx.cms` decision above is intentionally safer; an
+  adapter compatibility layer may preserve upstream behavior only behind an
+  explicit trusted authority.
+- [Payload collection hooks](https://payloadcms.com/docs/hooks/collections)
+  records the server-side validation/change/read/delete lifecycle that direct
+  FlarexDB row writes cannot be assumed to execute.
+
+The adapter-core preflight must pin the exact Payload release and source again;
+these living documents are evidence for the policy boundary, not a substitute
+for version-specific conformance.
+
 ## Rejected Adapter Designs
 
 ```text
 making Payload configuration the canonical FlarexDB relation AST
 creating a duplicate Payload document for an existing Flarex row
 letting both app and Payload schema independently own one table
+allowing ordinary ctx.db writes to bypass an editable CMS-managed lifecycle
+making a read-only CMS presentation silently writable
+letting a dashboard mutate an app-command-owned aggregate as raw row data
 copying official _rels DDL as the native edge model
 storing target-side reverse arrays to implement joins
 routing Payload request transactions through untrusted SessionJournalV1

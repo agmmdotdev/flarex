@@ -169,6 +169,38 @@ reconnect, or client/React live-relation surface additionally requires
 separate adapter concerns and do not become public SDK contracts through this
 handoff.
 
+### Deferred CMS Facade Handoff
+
+The optional CMS package may later generate a `ctx.cms` facade, but the core
+`flarex` package does not acquire Payload runtime dependencies. The accepted
+authority modes are CMS view, CMS managed, and app-command managed; names such
+as `cms.view` and `cms.manage` remain illustrative until a focused public API
+preflight freezes syntax.
+
+For an editable CMS-managed table, generated code must make the write boundary
+honest:
+
+```text
+dashboard / enabled REST or GraphQL / ctx.cms
+  -> one authenticated Payload operation pipeline
+  -> one Payload-owned request transaction
+  -> trusted FlarexDB commit capabilities
+```
+
+Ordinary `ctx.db` reads may expose the allowed current/published document view.
+Ordinary `ctx.db.insert`, `patch`, `replace`, and `delete` typing must exclude a
+CMS-managed table, and runtime capability checks must reject a bypass. A
+read-only CMS view retains app-owned writes. An app-command-managed aggregate
+remains read-only until dashboard actions delegate to its owning commands.
+Separately authorized system migration/repair APIs are not ordinary developer
+writers and still preserve every native FlarexDB invariant.
+
+The normal request-scoped `ctx.cms` facade respects its current principal by
+default. Any system-level access override must be explicit and separately
+authorized rather than inherited silently from a framework Local API default.
+The Payload adapter design owns lifecycle and conformance; this roadmap owns
+only the eventual generated developer typing and package boundary.
+
 ## Public SDK Surface
 
 ### Export Map
@@ -517,6 +549,11 @@ replace a release-level license/NOTICE audit across every published package.
     path, never expose physical edge definitions or snapshot support, and
     never double as the trusted framework persistence/transaction SPI. Reactive
     relation ergonomics remain blocked until `SV-R Live`.
+19. **Generated writers reflect CMS authority.** A CMS-managed table cannot
+    remain writable through an ordinary generated `ctx.db` merely because it
+    shares native row storage. Generated types and runtime capabilities must
+    agree on CMS view, CMS-managed, or app-command-managed authority, while the
+    optional CMS facade stays outside the core `flarex` dependency graph.
 
 ## Decisions And Rationale
 
@@ -643,6 +680,10 @@ Named Flarex divergences:
   foundation must close `R01` through `SV-R Core` before this roadmap can
   preflight that non-reactive surface; reactive claims additionally require
   `SV-R Live`.
+- No generated `ctx.cms` facade or CMS-aware `ctx.db` writer narrowing is
+  implemented. The Payload adapter and one explicit table write-authority model
+  must be proven before public typing can promise dashboard/programmatic command
+  equivalence or direct-write rejection.
 
 ## Target Direction
 
@@ -698,3 +739,8 @@ transaction routing remain platform internals.
    Standard relation contract. Do not design it from Payload types or the
    trusted framework relational SPI. Defer subscriptions, reconnect, and live
    client surfaces until `SV-R Live`.
+9. **Preflight CMS facade typing after adapter-core conformance.** Freeze the
+   CMS view, CMS-managed, and app-command-managed authority descriptors; prove
+   one generated `ctx.cms` operation uses the dashboard's command pipeline;
+   then prove ordinary writer exclusion and runtime rejection for the managed
+   table without importing Payload runtime code into `flarex`.

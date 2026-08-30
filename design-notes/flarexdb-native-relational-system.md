@@ -666,6 +666,19 @@ One logical table has one row authority and one schema owner. Another API
 surface may expose the same table, but it cannot redefine the relation or write
 a second document copy.
 
+It also cannot make distinct write pipelines semantically interchangeable.
+FlarexDB always owns stored-document validation, relation cardinality and
+target integrity, uniqueness, edge derivation, OCC, commit facts, feed, and
+outbox invariants. Payload separately owns the access, defaults, hooks, locks,
+localization, drafts, versions, and request-operation behavior it claims. An
+editable CMS-managed table therefore rejects ordinary `ctx.db` writes and is
+mutated through the generated CMS facade that shares the dashboard's Payload
+operation pipeline. A read-only CMS view leaves app-owned writes with the app;
+an app-command-owned aggregate stays read-only until dashboard actions can
+delegate to its commands. The exact policy and conformance requirements are
+owned by
+[`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md).
+
 Payload request transactions are adapter-owned and compile supported behavior
 into the same trusted row/index/unique/edge/commit primitives. They are not
 silently encoded as the Dynamic Worker `SessionJournalV1` path. Payload
