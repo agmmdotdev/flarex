@@ -105,8 +105,10 @@ migration. It requires its own compatibility evidence and approval.
    package-only live-query connection/subscription lease, close, expiry, and
    stale-cutoff family; see
    `roadmaps/time/06-executor-live-query-lease-clock-preflight.md`. Live-query
-   delivery timing and `PartitionDO` commit metadata remain separate authority
-   decisions outside this gate.
+   delivery timing is separately gated by ECLK01-F in
+   `roadmaps/time/07-executor-live-query-delivery-clock-preflight.md`;
+   `PartitionDO` commit metadata remains a separate authority decision outside
+   these gates.
 4. Persistence codecs: centralize representation conversion only where row
    decoding, corruption ownership, transaction order, and database authority
    remain unchanged.

@@ -16,7 +16,7 @@ import {
   registerDeploymentPackage,
 } from "./deploymentPackages";
 import { getActiveFunction } from "./functions";
-import { defaultClock, getExecutorHealth } from "./health";
+import { getExecutorHealth } from "./health";
 import { prepareInvoke } from "./invoke";
 import {
   listUndeliveredOutboxEventsEffect,
@@ -26,16 +26,18 @@ import {
   runOutboxPromise,
 } from "./outbox";
 import {
-  ackLiveQueryDeliveries,
-  claimLiveQueryDeliveryBatch,
-  deadLetterStuckLiveQueryDeliveries,
+  ackLiveQueryDeliveriesEffect,
+  claimLiveQueryDeliveryBatchEffect,
+  deadLetterStuckLiveQueryDeliveriesEffect,
   listPendingLiveQueryDeliveryDeployments,
   listStuckLiveQueryDeliveries,
   listUndeliveredLiveQueryDeliveries,
   markLiveQueryDeliveriesDeadLettered,
   markLiveQueryDeliveriesDelivered,
   recordLiveQueryDeliveryFailure,
-  runLiveQueryDeliveryBatch,
+  makeLiveQueryDeliveryTimeEffect,
+  runLiveQueryDeliveryBatchEffect,
+  runLiveQueryDeliveryPromise,
 } from "./liveQueryDeliveries";
 import {
   findStaleLiveQuerySubscriptionsEffect,
@@ -251,7 +253,6 @@ export { fingerprintJson } from "./liveQueries";
 
 export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecutor {
   const configuredClock = config.clock;
-  const clock = configuredClock ?? defaultClock;
   const ids = config.ids ?? defaultIds;
   const persistence = config.persistence;
   const appDataEngines = createLegacyOnlyAppDataEngineRegistry(
@@ -267,6 +268,9 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
   });
   const maintenanceTimeEffect = makeSessionTimeEffect(configuredClock);
   const outboxTimeEffect = makeOutboxTimeEffect(configuredClock);
+  const liveQueryDeliveryTimeEffect = makeLiveQueryDeliveryTimeEffect(
+    configuredClock,
+  );
   const liveQueryTimeEffect = makeLiveQueryTimeEffect(configuredClock);
 
   function runInvokeWithRetriesForExecutor(
@@ -334,11 +338,23 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     markLiveQueryDeliveriesDelivered: (input) =>
       markLiveQueryDeliveriesDelivered(persistence, input),
     claimLiveQueryDeliveryBatch: (input) =>
-      claimLiveQueryDeliveryBatch(persistence, clock, input),
+      runLiveQueryDeliveryPromise(claimLiveQueryDeliveryBatchEffect(
+        persistence,
+        liveQueryDeliveryTimeEffect,
+        input,
+      )),
     ackLiveQueryDeliveries: (input) =>
-      ackLiveQueryDeliveries(persistence, clock, input),
+      runLiveQueryDeliveryPromise(ackLiveQueryDeliveriesEffect(
+        persistence,
+        liveQueryDeliveryTimeEffect,
+        input,
+      )),
     runLiveQueryDeliveryBatch: (input) =>
-      runLiveQueryDeliveryBatch(persistence, clock, input),
+      runLiveQueryDeliveryPromise(runLiveQueryDeliveryBatchEffect(
+        persistence,
+        liveQueryDeliveryTimeEffect,
+        input,
+      )),
     listPendingLiveQueryDeliveryDeployments: (input) =>
       listPendingLiveQueryDeliveryDeployments(persistence, input),
     listStuckLiveQueryDeliveries: (input) =>
@@ -346,7 +362,11 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     markLiveQueryDeliveriesDeadLettered: (input) =>
       markLiveQueryDeliveriesDeadLettered(persistence, input),
     deadLetterStuckLiveQueryDeliveries: (input) =>
-      deadLetterStuckLiveQueryDeliveries(persistence, clock, input),
+      runLiveQueryDeliveryPromise(deadLetterStuckLiveQueryDeliveriesEffect(
+        persistence,
+        liveQueryDeliveryTimeEffect,
+        input,
+      )),
     recordLiveQueryDeliveryFailure: (input) =>
       recordLiveQueryDeliveryFailure(persistence, input),
     touchLiveQueryConnection: (input) =>

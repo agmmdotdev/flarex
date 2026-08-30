@@ -1371,6 +1371,150 @@ describe("executor live query subscriptions", () => {
     });
   });
 
+  it("preserves delivery clock placement, Date identity, and override suppression", async () => {
+    const basePersistence = memoryPersistence();
+    const claimDates: Date[] = [];
+    const expiryDates: Date[] = [];
+    const deliveredDates: Date[] = [];
+    const persistence = {
+      ...basePersistence,
+      async claimLiveQueryDeliveries(
+        input: Parameters<typeof basePersistence.claimLiveQueryDeliveries>[0],
+      ) {
+        claimDates.push(input.claimedAt);
+        expiryDates.push(input.claimExpiresAt);
+        return { deliveries: [], nextCursor: null, hasMore: false as const };
+      },
+      async markLiveQueryDeliveriesDelivered(
+        input: Parameters<
+          typeof basePersistence.markLiveQueryDeliveriesDelivered
+        >[0],
+      ) {
+        deliveredDates.push(input.deliveredAt);
+        return { delivered: 0 };
+      },
+    };
+    const configuredClaimAt = new Date(100);
+    const configuredDeliveredAt = new Date(200);
+    const explicitDeliveredAt = new Date(300);
+    const configuredDates = [configuredClaimAt, configuredDeliveredAt];
+    let clockReads = 0;
+    const executor = createBaseFlarexExecutor({
+      persistence,
+      clock: {
+        now: () => {
+          const selected = configuredDates[clockReads];
+          clockReads += 1;
+          if (selected === undefined) {
+            throw new Error("delivery clock read more than expected");
+          }
+          return selected;
+        },
+      },
+    });
+
+    await executor.claimLiveQueryDeliveryBatch({
+      deploymentId: "deployment_delivery_clock_compat",
+      leaseDurationMs: 50,
+    });
+    await executor.ackLiveQueryDeliveries({
+      deploymentId: "deployment_delivery_clock_compat",
+      deliveryIds: [],
+    });
+    await executor.ackLiveQueryDeliveries({
+      deploymentId: "deployment_delivery_clock_compat",
+      deliveryIds: [],
+      deliveredAt: explicitDeliveredAt,
+    });
+
+    expect(clockReads).toBe(2);
+    expect(claimDates[0]).toBe(configuredClaimAt);
+    expect(expiryDates).toEqual([new Date(150)]);
+    expect(expiryDates[0]).not.toBe(configuredClaimAt);
+    expect(deliveredDates[0]).toBe(configuredDeliveredAt);
+    expect(deliveredDates[1]).toBe(explicitDeliveredAt);
+  });
+
+  it("preserves delivery validation and persistence-method failure precedence", async () => {
+    const basePersistence = memoryPersistence();
+    const claimMethodFailure = new Error("claim method getter failed");
+    const acknowledgementMethodFailure = new Error(
+      "acknowledgement method getter failed",
+    );
+    let clockReads = 0;
+    let claimMethodReads = 0;
+    const claimExecutor = createBaseFlarexExecutor({
+      persistence: {
+        ...basePersistence,
+        get claimLiveQueryDeliveries(): never {
+          claimMethodReads += 1;
+          throw claimMethodFailure;
+        },
+      },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return new Date(100);
+        },
+      },
+    });
+
+    await expect(claimExecutor.claimLiveQueryDeliveryBatch({
+      deploymentId: "deployment_delivery_method_order",
+      limit: 0,
+    })).rejects.toBeInstanceOf(LiveQueryDeliveryPolicyError);
+    expect(clockReads).toBe(0);
+    expect(claimMethodReads).toBe(0);
+
+    await expect(claimExecutor.claimLiveQueryDeliveryBatch({
+      deploymentId: "deployment_delivery_method_order",
+    })).rejects.toBe(claimMethodFailure);
+    expect(clockReads).toBe(1);
+    expect(claimMethodReads).toBe(1);
+
+    const clockFailure = new Error("delivery claim clock failed");
+    let clockFailureMethodReads = 0;
+    const clockFailureExecutor = createBaseFlarexExecutor({
+      persistence: {
+        ...basePersistence,
+        get claimLiveQueryDeliveries() {
+          clockFailureMethodReads += 1;
+          return basePersistence.claimLiveQueryDeliveries;
+        },
+      },
+      clock: { now: () => { throw clockFailure; } },
+    });
+    await expect(clockFailureExecutor.claimLiveQueryDeliveryBatch({
+      deploymentId: "deployment_delivery_clock_failure",
+    })).rejects.toBe(clockFailure);
+    expect(clockFailureMethodReads).toBe(0);
+
+    let acknowledgementClockReads = 0;
+    let acknowledgementMethodReads = 0;
+    const acknowledgementExecutor = createBaseFlarexExecutor({
+      persistence: {
+        ...basePersistence,
+        get markLiveQueryDeliveriesDelivered(): never {
+          acknowledgementMethodReads += 1;
+          throw acknowledgementMethodFailure;
+        },
+      },
+      clock: {
+        now: () => {
+          acknowledgementClockReads += 1;
+          throw new Error("acknowledgement clock must not win");
+        },
+      },
+    });
+
+    await expect(acknowledgementExecutor.ackLiveQueryDeliveries({
+      deploymentId: "deployment_delivery_method_order",
+      deliveryIds: [],
+    })).rejects.toBe(acknowledgementMethodFailure);
+    expect(acknowledgementMethodReads).toBe(1);
+    expect(acknowledgementClockReads).toBe(0);
+  });
+
   it("lists deployments with pending live query delivery rows", async () => {
     const persistence = memoryPersistence();
     const executor = createLiveQueryExecutor({ persistence });
