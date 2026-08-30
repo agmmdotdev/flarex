@@ -704,6 +704,17 @@ options and a locally mismatched Task result contract remain separate clean
 errors because they are not owner read failures. `awaitTask()` forwards its
 already-clean inspection and result-read errors without a second translation.
 
+Task admission failures now follow a clean root-owned contract too.
+`startTask()` keeps caller-invalid request keys as the existing
+`ApplicationRequestKeyError<"startTask">`, then translates the Standard Task
+System owner channel once into `TaskAdmissionError`. Its camel-case reasons
+distinguish invalid payload or identity, missing Task or active Application,
+request-key conflicts, invalid composition, incompatible runtime, unavailable
+or corrupt owners, stale scope authority, transient or terminal failures, and
+uncertain settlement. The exact private owner failure remains only as an
+opaque diagnostic cause. No Standard, durable, readiness, persistence,
+principal-store, or input-store error type remains in `StartTaskError`.
+
 The root operations remain deliberately separated by capability:
 
 | Surface | Operations | Authority |

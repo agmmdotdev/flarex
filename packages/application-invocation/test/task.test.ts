@@ -41,6 +41,7 @@ import {
   type InspectTaskError,
   type ReadTaskResultError,
   type StartTaskError,
+  type TaskAdmissionError,
   type TaskReadError,
   type TaskRun,
   type TaskRunStatus,
@@ -51,6 +52,14 @@ class TestTaskRunQueryFailure extends Data.TaggedError(
 )<{
   readonly operation: "inspect_current_attempt";
   readonly runId: ReturnType<typeof makeReceipt>["runId"];
+  readonly reason: "timeout";
+  readonly cause: unknown;
+}> {}
+
+class TestTaskAdmissionFailure extends Data.TaggedError(
+  "TaskSystemRunCreationTransientStoreError",
+)<{
+  readonly operation: "create_run";
   readonly reason: "timeout";
   readonly cause: unknown;
 }> {}
@@ -190,6 +199,47 @@ describe("clean Task invocation primitive", () => {
       reason: "invalidRequestKey",
     });
     expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it("projects an admission owner failure once without retrying", async () => {
+    const upstream = new TestTaskAdmissionFailure({
+      operation: "create_run",
+      reason: "timeout",
+      cause: "database timeout",
+    });
+    const createRun = vi.fn<StandardApplicationTaskSystemApi["createRun"]>(
+      () => Effect.fail(upstream),
+    );
+    const identity = Object.freeze({
+      kind: "user" as const,
+      user: Object.freeze({
+        tokenIdentifier: "clean-task-admission-failure",
+        subject: "user-admission-failure",
+        issuer: "https://system-test.flarex.invalid",
+      }),
+    });
+
+    const failure = await Effect.runPromise(Effect.flip(startTask(
+      prepare.reference,
+      { recipeId: "recipe-admission-failure", servings: 1 },
+      { requestKey: "task-admission-failure", identity },
+    ).pipe(Effect.provideService(
+      StandardApplicationTaskSystem,
+      StandardApplicationTaskSystem.of({ createRun }),
+    ))));
+
+    expect(failure).toMatchObject({
+      _tag: "TaskAdmissionError",
+      operation: "startTask",
+      reason: "transient",
+      cause: upstream,
+    });
+    expectTypeOf(failure).toEqualTypeOf<StartTaskError>();
+    if (failure._tag === "TaskAdmissionError") {
+      expectTypeOf(failure).toEqualTypeOf<TaskAdmissionError>();
+      expect(failure.cause).toBe(upstream);
+    }
+    expect(createRun).toHaveBeenCalledOnce();
   });
 
   it("reads a genuine run through the authoritative Task query service", async () => {

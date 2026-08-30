@@ -68,6 +68,6 @@ gates, and both standing reviews must pass before commit.
 
 ## Stop
 
-Stop after result-read failures are clean. Do not clean Task admission or
-cancellation-command errors in this checkpoint. Those command families have
-different authority and uncertainty semantics and require separate slices.
+Stop after result-read failures are clean. Task admission errors were cleaned
+later under preflight 68; cancellation-command errors remain a separate slice.
+Those command families have different authority and uncertainty semantics.

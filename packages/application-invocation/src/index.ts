@@ -28,6 +28,11 @@ export type {
 
 export type { ApplicationRequestKeyError } from "./RequestKey.js";
 
+export type {
+  TaskAdmissionError,
+  TaskAdmissionErrorReason,
+} from "./TaskAdmissionError.js";
+
 export {
   inspectTask,
   readTaskResult,

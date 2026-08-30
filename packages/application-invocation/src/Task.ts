@@ -5,7 +5,6 @@ import {
 } from "@flarex/application-definition/internal/task-definition";
 import {
   createStandardApplicationTaskRun,
-  type CreateStandardApplicationTaskRunError,
   type StandardApplicationTaskRunCreationReceipt,
   StandardApplicationTaskSystem,
 } from
@@ -23,6 +22,10 @@ import {
 import { Effect } from "effect";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 
+import {
+  projectTaskAdmissionError,
+  type TaskAdmissionError,
+} from "./TaskAdmissionError.js";
 import {
   type ApplicationTaskResultContractError,
   taskResultContractError,
@@ -61,7 +64,7 @@ export interface StartTaskOptions {
 }
 
 export type StartTaskError =
-  | CreateStandardApplicationTaskRunError
+  | TaskAdmissionError
   | ApplicationRequestKeyError<"startTask">;
 export type InspectTaskError = TaskReadError<"inspectTask">;
 export type ReadTaskResultError =
@@ -122,7 +125,7 @@ export const startTask = Effect.fn("Application.startTask")(function* <
     requestKey,
     payload,
     executionIdentity: options.identity,
-  });
+  }).pipe(Effect.mapError(projectTaskAdmissionError));
   return new TaskRunHandle<Output>(
     projectTaskRunId(receipt.runId),
     standard,
