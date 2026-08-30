@@ -56,13 +56,18 @@ continues to defect before service lookup or result I/O.
 
 ## Error Contract
 
-`ReadTaskResultError` is the union of:
+At this checkpoint, `ReadTaskResultError` was the union of:
 
 - the exact existing `StandardApplicationTaskResultQueryError` union, passed
   through without wrapping, retrying, or logging; and
 - `ApplicationTaskResultContractError`, the existing
   `ApplicationResultContractError` family with `operation: "task"`, the
   protocol validator issue, and the authoritative canonical result value.
+
+A later clean-root checkpoint under preflight 67 replaced the direct Standard
+error member with `TaskReadError<"readTaskResult">`. The result-query owner
+failure remains the exact opaque cause, while the local output-contract member
+and all result-read authority stay unchanged.
 
 The mismatch retains the canonical value because a stale local contract must
 not hide completed durable work or suggest that the Task should be executed
@@ -103,8 +108,9 @@ Focused proof must cover:
 3. a mismatch returns the Task-specific contract error with the original body;
 4. a null output validator returns the canonical body as `unknown`;
 5. a forged handle defects before result service I/O;
-6. existing result-query errors remain the exact unmodified failure union and
-   lower-layer identity/no-retry proofs remain green;
+6. existing result-query errors cross one clean facade translation while
+   retaining exact cause identity, and lower-layer identity/no-retry proofs
+   remain green;
 7. Task-reference inspection exposes immutable private validator metadata but
    does not change the public handle shape;
 8. package boundary checks admit only the exact existing result-query subpath;

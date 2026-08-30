@@ -9,6 +9,8 @@ import type {
   StandardApplicationTaskRunQueryError,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
+import type { StandardApplicationTaskResultQueryError } from
+  "@flarex/standard-application-invocation/internal/standard-application-task-result-query";
 import { Brand, Data } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -17,8 +19,10 @@ import {
   projectListTaskAttemptsError,
   projectListTaskEventsError,
   projectListTaskRunsError,
+  projectReadTaskResultError,
   type TaskReadErrorReason,
 } from "../src/TaskReadError.js";
+import { projectTaskRunId } from "../src/TaskStatus.js";
 
 type InternalRunId = Parameters<
   StandardApplicationTaskRunQueryApi["inspect"]
@@ -26,6 +30,12 @@ type InternalRunId = Parameters<
 const runId = Brand.nominal<InternalRunId>()(
   "run_00000000-0000-4000-8000-0000000000f1",
 );
+const cleanRunId = projectTaskRunId(runId);
+const commitment = Object.freeze({
+  codec: "flarex.task-result.v1" as const,
+  byteLength: 2,
+  sha256: new Uint8Array(32),
+});
 
 class InspectionUnavailableFailure extends Data.TaggedError(
   "TaskSystemRunAttemptUnavailableError",
@@ -67,6 +77,50 @@ class InspectionTerminalFailure extends Data.TaggedError(
   readonly runId: InternalRunId;
   readonly reason: "wrong_placement";
   readonly cause: unknown | null;
+}> {}
+
+class ResultUnavailableFailure extends Data.TaggedError(
+  "TaskRunResultUnavailableError",
+)<{
+  readonly runId: InternalRunId;
+  readonly reason:
+    | "run_incomplete"
+    | "run_not_succeeded"
+    | "result_absent";
+}> {}
+
+class ResultStoreInputFailure extends Data.TaggedError(
+  "TaskResultStoreInputError",
+)<{
+  readonly operation: "read";
+  readonly reason: "invalidCommitment";
+}> {}
+
+class ResultStoreNotFoundFailure extends Data.TaggedError(
+  "TaskResultStoreNotFoundError",
+)<{
+  readonly commitment: typeof commitment;
+}> {}
+
+class ResultStoreResourceFailure extends Data.TaggedError(
+  "TaskResultStoreResourceError",
+)<{
+  readonly operation: "get";
+  readonly commitment: typeof commitment;
+}> {}
+
+class ResultStoreCorruptionFailure extends Data.TaggedError(
+  "TaskResultStoreCorruptionError",
+)<{
+  readonly commitment: typeof commitment;
+  readonly reason: "digestMismatch";
+}> {}
+
+class ResultStoreSettlementUncertainFailure extends Data.TaggedError(
+  "TaskResultStoreSettlementUncertainError",
+)<{
+  readonly commitment: typeof commitment;
+  readonly stage: "reconcileRead";
 }> {}
 
 class RunListStoreFailure extends Data.TaggedError(
@@ -145,6 +199,15 @@ const historyReasonCases = [
   TaskReadErrorReason,
 ])[];
 
+const resultUnavailableCases = [
+  ["run_incomplete", "runIncomplete"],
+  ["run_not_succeeded", "runNotSucceeded"],
+  ["result_absent", "resultAbsent"],
+] as const satisfies readonly (readonly [
+  ResultUnavailableFailure["reason"],
+  TaskReadErrorReason,
+])[];
+
 describe("clean Task read-error projection", () => {
   it.each([
     [new InspectionUnavailableFailure({
@@ -183,6 +246,66 @@ describe("clean Task read-error projection", () => {
       _tag: "TaskReadError",
       operation: "inspectTask",
       runId,
+      reason,
+      cause: source,
+    });
+    expect(projected.cause).toBe(source);
+
+    const resultProjected = projectReadTaskResultError(cleanRunId, source);
+    expect(resultProjected).toMatchObject({
+      _tag: "TaskReadError",
+      operation: "readTaskResult",
+      runId: cleanRunId,
+      reason,
+      cause: source,
+    });
+    expect(resultProjected.cause).toBe(source);
+  });
+
+  it.each(resultUnavailableCases)(
+    "maps result availability reason %s",
+    (sourceReason, reason) => {
+      const source: StandardApplicationTaskResultQueryError =
+        new ResultUnavailableFailure({ runId, reason: sourceReason });
+      const projected = projectReadTaskResultError(cleanRunId, source);
+      expect(projected).toMatchObject({
+        _tag: "TaskReadError",
+        operation: "readTaskResult",
+        runId: cleanRunId,
+        reason,
+        cause: source,
+      });
+      expect(projected.cause).toBe(source);
+    },
+  );
+
+  it.each([
+    [new ResultStoreInputFailure({
+      operation: "read",
+      reason: "invalidCommitment",
+    }), "corruptData"],
+    [new ResultStoreNotFoundFailure({ commitment }), "resultNotFound"],
+    [new ResultStoreResourceFailure({
+      operation: "get",
+      commitment,
+    }), "unavailable"],
+    [new ResultStoreCorruptionFailure({
+      commitment,
+      reason: "digestMismatch",
+    }), "corruptData"],
+    [new ResultStoreSettlementUncertainFailure({
+      commitment,
+      stage: "reconcileRead",
+    }), "settlementUncertain"],
+  ] as const satisfies readonly (readonly [
+    StandardApplicationTaskResultQueryError,
+    TaskReadErrorReason,
+  ])[])("maps result-store $0._tag", (source, reason) => {
+    const projected = projectReadTaskResultError(cleanRunId, source);
+    expect(projected).toMatchObject({
+      _tag: "TaskReadError",
+      operation: "readTaskResult",
+      runId: cleanRunId,
       reason,
       cause: source,
     });

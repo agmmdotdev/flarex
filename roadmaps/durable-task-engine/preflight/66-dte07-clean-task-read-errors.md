@@ -73,3 +73,10 @@ gates, and both standing reviews must pass before commit.
 Stop after Task read failures are clean. Do not clean Task admission, result,
 or cancellation-command errors in this checkpoint, and do not fold Query,
 Mutation, or Action errors into this Task-specific contract.
+
+## Later Result-Read Extension
+
+Preflight 67 later adds `readTaskResult` to `TaskReadOperation` and translates
+its private result-query failures into the same clean family. The separate
+checkpoint preserves this record's original point/list/history scope while
+keeping result availability and object-store semantics explicit.

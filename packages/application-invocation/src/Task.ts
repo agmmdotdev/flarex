@@ -18,7 +18,6 @@ import {
 import {
   readStandardApplicationTaskResult,
   StandardApplicationTaskResultQuery,
-  type StandardApplicationTaskResultQueryError,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-result-query";
 import { Effect } from "effect";
@@ -39,6 +38,7 @@ import {
 } from "./TaskRunRef.js";
 import {
   projectInspectTaskError,
+  projectReadTaskResultError,
   type TaskReadError,
 } from "./TaskReadError.js";
 import {
@@ -65,7 +65,7 @@ export type StartTaskError =
   | ApplicationRequestKeyError<"startTask">;
 export type InspectTaskError = TaskReadError<"inspectTask">;
 export type ReadTaskResultError =
-  | StandardApplicationTaskResultQueryError
+  | TaskReadError<"readTaskResult">
   | ApplicationTaskResultContractError;
 
 export interface InspectedTaskRun<Output> {
@@ -172,7 +172,9 @@ export const readTaskResult = Effect.fn("Application.readTaskResult")(
     const inspected = inspectTaskRun(run);
     const result = yield* readStandardApplicationTaskResult(
       inspected.receipt.runId,
-    );
+    ).pipe(Effect.mapError(error =>
+      projectReadTaskResultError(run.runId, error)
+    ));
     const validated = yield* validateResultContract(
       inspected,
       result,

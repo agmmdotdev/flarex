@@ -507,14 +507,16 @@ describe("clean Task await primitive", () => {
       cause: expected,
     });
     expectTypeOf(failure).toEqualTypeOf<AwaitTaskError>();
-    if (failure._tag === "TaskReadError") {
+    if (
+      failure._tag === "TaskReadError" && failure.operation === "inspectTask"
+    ) {
       expectTypeOf(failure).toEqualTypeOf<TaskReadError<"inspectTask">>();
     }
     expect(inspect).toHaveBeenCalledOnce();
     expect(read).not.toHaveBeenCalled();
   });
 
-  it("preserves a typed result-query failure by identity without retrying", async () => {
+  it("forwards one clean result-query failure without remapping or retrying", async () => {
     const receipt = makeReceipt();
     const run = await startRun(receipt);
     const inspect = vi.fn<StandardApplicationTaskRunQueryApi["inspect"]>(
@@ -541,7 +543,20 @@ describe("clean Task await primitive", () => {
       ),
     )));
 
-    expect(failure).toBe(expected);
+    expect(failure).toMatchObject({
+      _tag: "TaskReadError",
+      operation: "readTaskResult",
+      runId: receipt.runId,
+      reason: "runIncomplete",
+      cause: expected,
+    });
+    if (
+      failure._tag === "TaskReadError" &&
+      failure.operation === "readTaskResult"
+    ) {
+      expectTypeOf(failure).toEqualTypeOf<TaskReadError<"readTaskResult">>();
+      expect(failure.cause).toBe(expected);
+    }
     expect(inspect).toHaveBeenCalledOnce();
     expect(read).toHaveBeenCalledOnce();
   });

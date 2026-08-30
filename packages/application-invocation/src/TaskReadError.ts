@@ -6,6 +6,8 @@ import type {
   "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
 import type { StandardApplicationTaskRunQueryError } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
+import type { StandardApplicationTaskResultQueryError } from
+  "@flarex/standard-application-invocation/internal/standard-application-task-result-query";
 import { Data } from "effect";
 
 import {
@@ -15,17 +17,23 @@ import {
 
 export type TaskReadOperation =
   | "inspectTask"
+  | "readTaskResult"
   | "listTaskRuns"
   | "listTaskAttempts"
   | "listTaskEvents";
 
 export type TaskReadErrorReason =
   | "runNotFound"
+  | "runIncomplete"
+  | "runNotSucceeded"
   | "unavailable"
+  | "resultAbsent"
+  | "resultNotFound"
   | "corruptData"
   | "staleScopeAuthority"
   | "transient"
   | "terminal"
+  | "settlementUncertain"
   | "unsupported";
 
 class TaskReadFailure<Operation extends TaskReadOperation> extends
@@ -51,26 +59,56 @@ export function projectInspectTaskError(
   error: StandardApplicationTaskRunQueryError,
 ): TaskReadError<"inspectTask"> {
   const runId = projectTaskRunId(error.runId);
+  return taskReadError(
+    "inspectTask",
+    runId,
+    projectRunAttemptStoreErrorReason(error),
+    error,
+  );
+}
+
+export function projectReadTaskResultError(
+  runId: TaskRunId,
+  error: StandardApplicationTaskResultQueryError,
+): TaskReadError<"readTaskResult"> {
   switch (error._tag) {
     case "TaskSystemRunAttemptUnavailableError":
-      return taskReadError("inspectTask", runId, "unavailable", error);
     case "TaskSystemRunAttemptCorruptionError":
-      return taskReadError("inspectTask", runId, "corruptData", error);
     case "TaskSystemRunAttemptStaleScopeAuthorityError":
+    case "TaskSystemRunAttemptTransientStoreError":
+    case "TaskSystemRunAttemptTerminalStoreError":
       return taskReadError(
-        "inspectTask",
+        "readTaskResult",
         runId,
-        "staleScopeAuthority",
+        projectRunAttemptStoreErrorReason(error),
         error,
       );
-    case "TaskSystemRunAttemptTransientStoreError":
-      return taskReadError("inspectTask", runId, "transient", error);
-    case "TaskSystemRunAttemptTerminalStoreError":
-      return taskReadError("inspectTask", runId, "terminal", error);
+    case "TaskRunResultUnavailableError":
+      return taskReadError(
+        "readTaskResult",
+        runId,
+        projectResultUnavailableReason(error.reason),
+        error,
+      );
+    case "TaskResultStoreInputError":
+      return taskReadError("readTaskResult", runId, "corruptData", error);
+    case "TaskResultStoreNotFoundError":
+      return taskReadError("readTaskResult", runId, "resultNotFound", error);
+    case "TaskResultStoreResourceError":
+      return taskReadError("readTaskResult", runId, "unavailable", error);
+    case "TaskResultStoreCorruptionError":
+      return taskReadError("readTaskResult", runId, "corruptData", error);
+    case "TaskResultStoreSettlementUncertainError":
+      return taskReadError(
+        "readTaskResult",
+        runId,
+        "settlementUncertain",
+        error,
+      );
     default: {
       const unhandledError: never = error;
       throw new TypeError(
-        `Unhandled Task inspection error: ${String(unhandledError)}`,
+        `Unhandled Task result-read error: ${String(unhandledError)}`,
       );
     }
   }
@@ -163,6 +201,39 @@ function taskReadError<Operation extends TaskReadOperation>(
   cause: unknown,
 ): TaskReadError<Operation> {
   return new TaskReadFailure({ operation, runId, reason, cause });
+}
+
+function projectRunAttemptStoreErrorReason(
+  error: StandardApplicationTaskRunQueryError,
+): TaskReadErrorReason {
+  switch (error._tag) {
+    case "TaskSystemRunAttemptUnavailableError":
+      return "unavailable";
+    case "TaskSystemRunAttemptCorruptionError":
+      return "corruptData";
+    case "TaskSystemRunAttemptStaleScopeAuthorityError":
+      return "staleScopeAuthority";
+    case "TaskSystemRunAttemptTransientStoreError":
+      return "transient";
+    case "TaskSystemRunAttemptTerminalStoreError":
+      return "terminal";
+  }
+}
+
+function projectResultUnavailableReason(
+  reason: Extract<
+    StandardApplicationTaskResultQueryError,
+    { readonly _tag: "TaskRunResultUnavailableError" }
+  >["reason"],
+): TaskReadErrorReason {
+  switch (reason) {
+    case "run_incomplete":
+      return "runIncomplete";
+    case "run_not_succeeded":
+      return "runNotSucceeded";
+    case "result_absent":
+      return "resultAbsent";
+  }
 }
 
 function projectStoreReason(

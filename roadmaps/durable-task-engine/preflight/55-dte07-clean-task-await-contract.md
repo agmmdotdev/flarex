@@ -80,14 +80,16 @@ cancellation command.
   its authoritative observation identity;
 - the exact clean `InspectTaskError`, passed through immediately without a
   second translation, retry, or logging; and
-- the exact `ReadTaskResultError` union, passed through immediately after one
-  succeeded observation without retry, wrapping, or logging.
+- the exact clean `ReadTaskResultError` union, passed through immediately after
+  one succeeded observation without a second translation, retry, or logging.
 
-A succeeded run whose result commitment is absent continues to fail through
-the existing result-query `TaskRunResultUnavailableError` with
-`reason: "result_absent"`. A local output-contract mismatch remains the
-existing `ApplicationTaskResultContractError`. Neither condition is converted
-into a lifecycle terminal error or retried.
+A succeeded run whose result commitment is absent now fails through the clean
+`TaskReadError` with `operation: "readTaskResult"` and
+`reason: "resultAbsent"`; its opaque cause remains the existing result-query
+`TaskRunResultUnavailableError` with `reason: "result_absent"`. A local
+output-contract mismatch remains the existing
+`ApplicationTaskResultContractError`. Neither condition is converted into a
+lifecycle terminal error or retried.
 
 ## Terminal Evidence
 

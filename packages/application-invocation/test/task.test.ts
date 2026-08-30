@@ -39,6 +39,7 @@ import {
   type ApplicationRequestKeyError,
   type ApplicationTaskResultContractError,
   type InspectTaskError,
+  type ReadTaskResultError,
   type StartTaskError,
   type TaskReadError,
   type TaskRun,
@@ -320,7 +321,7 @@ describe("clean Task invocation primitive", () => {
     }>>();
   });
 
-  it("preserves an unavailable result failure without retrying", async () => {
+  it("projects an unavailable result failure without retrying", async () => {
     const receipt = makeReceipt();
     const run = await startRun(StandardApplicationTaskSystem.of({
       createRun: () => Effect.succeed(receipt),
@@ -353,7 +354,21 @@ describe("clean Task invocation primitive", () => {
     ));
 
     expect(upstreamFailure._tag).toBe("TaskRunResultUnavailableError");
-    expect(failure).toBe(upstreamFailure);
+    expect(failure).toMatchObject({
+      _tag: "TaskReadError",
+      operation: "readTaskResult",
+      runId: receipt.runId,
+      reason: "runIncomplete",
+      cause: upstreamFailure,
+    });
+    expectTypeOf(failure).toEqualTypeOf<ReadTaskResultError>();
+    if (
+      failure._tag === "TaskReadError" &&
+      failure.operation === "readTaskResult"
+    ) {
+      expectTypeOf(failure).toEqualTypeOf<TaskReadError<"readTaskResult">>();
+      expect(failure.cause).toBe(upstreamFailure);
+    }
     expect(read).toHaveBeenCalledOnce();
     expect(read).toHaveBeenCalledWith(run.runId);
     expect(inspectRunAttempt).toHaveBeenCalledOnce();
