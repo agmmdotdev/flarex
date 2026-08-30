@@ -26,6 +26,8 @@ export type {
   ApplicationTaskResultContractError,
 } from "./ResultContract.js";
 
+export type { ApplicationRequestKeyError } from "./RequestKey.js";
+
 export {
   inspectTask,
   readTaskResult,

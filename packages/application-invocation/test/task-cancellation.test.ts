@@ -234,9 +234,7 @@ async function startRun(): Promise<TaskRun<null>> {
   const system = StandardApplicationTaskSystem.of({
     createRun: () => Effect.succeed(receipt),
   });
-  const requestKey = Brand.nominal<
-    Parameters<StandardApplicationTaskSystemApi["createRun"]>[1]["requestKey"]
-  >()("task-cancellation-request");
+  const requestKey = "task-cancellation-request";
   return Effect.runPromise(startTask(
     work.reference,
     { workId: "work-1" },

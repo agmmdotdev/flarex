@@ -783,6 +783,35 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only Task request-key decoding at the Standard entry", () => {
+    const taskSystemPath =
+      "packages/standard-application-invocation/src/StandardApplicationTaskSystem.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: taskSystemPath,
+      text: `
+        import {
+          decodeTaskRunCreationRequestKeyV1,
+          type InvalidTaskRunCreationRequestError,
+          type TaskRunCreationRequestKeyV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: taskSystemPath,
+      text: `
+        import {
+          decodeTaskRunCreationRequestKeyV1,
+          makeTaskRunCreationInitialAggregateV1,
+          type InvalidTaskRunCreationRequestError,
+          type TaskRunCreationRequestKeyV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }]).errors).toEqual([
+      `${taskSystemPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+    ]);
+  });
+
   it("admits only the scope-bound Task execution principal issue and launch owners", () => {
     const storePath =
       "packages/flarex-backend/src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts";

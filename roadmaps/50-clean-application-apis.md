@@ -7,9 +7,11 @@
 checkpoints are implemented, validated, and reviewed on 2026-08-29. The user
 approved the first three `CAPI-F` durable Task primitive checkpoints on
 2026-08-29. They add clean `task()` and `startTask()` entry operations and
-migrate every system-test Task producer while leaving the private Task
-delivery compatibility inventory and every lifecycle expansion separately
-gated.
+migrate every system-test Task producer. Separately approved DTE07 checkpoints
+now provide private clean Task inspection, result reads, waiting, cancellation,
+run discovery, attempt history, and lifecycle-event history. Scheduling,
+live invalidation, public SDK, hosted routing, and production activation remain
+separately gated.
 
 The user approved the `CAPI-A` implementation slice on 2026-08-28. That slice
 adds `@flarex/application-definition`, its clean opaque authoring handles, pure
@@ -630,6 +632,50 @@ Exit criteria for this checkpoint:
 Stop after each gate for focused validation and review. Later public SDK and
 public test API work remains owned by roadmaps 09 and 15 and requires separate
 approval.
+
+### Clean Root Surface Audit
+
+**Status:** Implemented privately on 2026-08-30 for request-key normalization;
+the API classification below is the accepted current root shape.
+
+Application authors and invocation callers use only ordinary semantic values:
+
+- definitions accept modules, validators, typed handler references, and Task
+  policy; source bytes belong only to `sourceModule()` and never become query,
+  mutation, Action, or Task arguments;
+- `runQuery(reference, args, options?)` accepts typed arguments and an optional
+  execution identity;
+- `runMutation(reference, args, { requestKey })`,
+  `runAction(reference, args, { requestKey })`, and
+  `startTask(reference, payload, { requestKey, identity })` accept a plain
+  request-key string; each operation validates that string once and lowers it
+  into its own internal mutation/Action or durable-Task key contract;
+- the Standard Task entry may import only the durable Task request-key decoder
+  and its two exact types for this lowering; this pure admission does not grant
+  scheduling, execution, persistence, delivery, or host authority;
+- callers do not import a versioned request-key Schema, construct a branded
+  request key, or provide a request-envelope version; and
+- typed validation failures occur before the owning live service performs I/O.
+
+The root operations remain deliberately separated by capability:
+
+| Surface | Operations | Authority |
+| --- | --- | --- |
+| Definition primitives | `query()`, `mutation()`, `action()`, `task()` | Pure typed definitions only |
+| Invocation primitives | `runQuery()`, `runMutation()`, `runAction()`, `startTask()` | One exact operation over its existing owner |
+| Task lifecycle | `inspectTask()`, `readTaskResult()`, `awaitTask()`, `cancelTask()` | An admitted `TaskRun<Output>`; commands are not granted by discovery |
+| Task observability | `listTaskRuns()`, `listTaskAttempts()`, `listTaskEvents()` | Scope-bound read authority through opaque `TaskRunRef` values |
+
+`TaskRun<Output>` and `TaskRunRef` are not duplicate handles. The first proves
+that this process admitted the typed run and can therefore read its result,
+wait, or request cancellation. The second is issued only by scoped discovery
+and deliberately grants status and history reads without result or command
+authority. Collapsing them would turn observation into control.
+
+The package root does not export Standard systems, persistence stores, wire
+requests, raw bytes, a generic `invoke()` discriminator, or a catch-all
+Application service. Versioned contracts remain below the facade only where
+exact protocol, persistence, or durable replay compatibility requires them.
 
 ## Validation Plan For Implementation
 

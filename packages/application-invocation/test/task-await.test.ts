@@ -655,9 +655,7 @@ describe("clean Task await primitive", () => {
 async function startRun(
   receipt: StandardApplicationTaskRunCreationReceipt,
 ): Promise<TaskRun<Readonly<{ readonly finished: boolean }>>> {
-  const requestKey = Brand.nominal<
-    Parameters<StandardApplicationTaskSystemApi["createRun"]>[1]["requestKey"]
-  >()("task-await-request");
+  const requestKey = "task-await-request";
   return Effect.runPromise(startTask(
     finish.reference,
     { jobId: "job-await-1" },

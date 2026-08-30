@@ -22,9 +22,6 @@ import {
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
 import { Effect } from "effect";
-import {
-  TransactionRequestKeyV1Schema,
-} from "flarex-protocol/transaction-session";
 import { flarexValueToJsonV1 } from "flarex-protocol/value";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
@@ -33,8 +30,11 @@ import {
   runMutation,
   runQuery,
   type ActionResult,
+  type ApplicationRequestKeyError,
   type ApplicationResultContractError,
   type MutationOutcome,
+  type RunActionError,
+  type RunMutationError,
 } from "../src/index.js";
 
 const module = defineModule({
@@ -162,7 +162,7 @@ describe("clean Application invocation primitives", () => {
       invokeAuthenticatedAtTaskLaunch: () =>
         Effect.die("task mutation must not run"),
     });
-    const requestKey = TransactionRequestKeyV1Schema.make("save-message");
+    const requestKey = "save-message";
 
     const result = await Effect.runPromise(Effect.scoped(
       runMutation(saveMessage, { text: "hello" }, { requestKey }).pipe(
@@ -208,7 +208,7 @@ describe("clean Application invocation primitives", () => {
 
     const error = await Effect.runPromise(Effect.scoped(
       runMutation(saveMessage, { text: "hello" }, {
-        requestKey: TransactionRequestKeyV1Schema.make("save-mismatch"),
+        requestKey: "save-mismatch",
       }).pipe(
         Effect.provideService(ApplicationMutationSystem, system),
         Effect.flip,
@@ -249,10 +249,10 @@ describe("clean Application invocation primitives", () => {
       .mockReturnValueOnce(Effect.succeed(completed))
       .mockReturnValueOnce(Effect.succeed(nonCompleted));
     const system = ApplicationActionSystem.of({ invoke });
-    const firstKey = TransactionRequestKeyV1Schema.make("deliver-first");
-    const secondKey = TransactionRequestKeyV1Schema.make("deliver-second");
+    const firstKey = "deliver-first";
+    const secondKey = "deliver-second";
 
-    const run = (requestKey: typeof firstKey) => Effect.runPromise(
+    const run = (requestKey: string) => Effect.runPromise(
       Effect.scoped(
         runAction(deliverMessage, { text: "hello" }, { requestKey }).pipe(
           Effect.provideService(ApplicationActionSystem, system),
@@ -280,7 +280,7 @@ describe("clean Application invocation primitives", () => {
 
     const error = await Effect.runPromise(Effect.scoped(
       runAction(deliverMessage, { text: "hello" }, {
-        requestKey: TransactionRequestKeyV1Schema.make("deliver-mismatch"),
+        requestKey: "deliver-mismatch",
       }).pipe(
         Effect.provideService(ApplicationActionSystem, system),
         Effect.flip,
@@ -300,14 +300,59 @@ describe("clean Application invocation primitives", () => {
       }
     }
   });
+
+  it("rejects an invalid plain request key before mutation or Action I/O", async () => {
+    const mutationInvoke = vi.fn<ApplicationMutationSystemApi["invoke"]>(
+      () => Effect.die("mutation must not run"),
+    );
+    const mutationSystem = ApplicationMutationSystem.of({
+      selectionMutation: Object.freeze({
+        runMutation: () => Effect.die("selection mutation must not run"),
+      }),
+      invoke: mutationInvoke,
+      invokeAuthenticated: () => Effect.die("authenticated mutation must not run"),
+      invokeAuthenticatedAtTaskLaunch: () =>
+        Effect.die("task mutation must not run"),
+    });
+    const actionInvoke = vi.fn<ApplicationActionSystemApi["invoke"]>(
+      () => Effect.die("Action must not run"),
+    );
+    const actionSystem = ApplicationActionSystem.of({ invoke: actionInvoke });
+
+    const mutationFailure = await Effect.runPromise(Effect.scoped(
+      runMutation(saveMessage, { text: "hello" }, { requestKey: "   " }).pipe(
+        Effect.provideService(ApplicationMutationSystem, mutationSystem),
+        Effect.flip,
+      ),
+    ));
+    const actionFailure = await Effect.runPromise(Effect.scoped(
+      runAction(deliverMessage, { text: "hello" }, { requestKey: "" }).pipe(
+        Effect.provideService(ApplicationActionSystem, actionSystem),
+        Effect.flip,
+      ),
+    ));
+
+    expectRequestKeyError(mutationFailure, "runMutation");
+    expectRequestKeyError(actionFailure, "runAction");
+    expect(mutationInvoke).not.toHaveBeenCalled();
+    expect(actionInvoke).not.toHaveBeenCalled();
+  });
 });
 
 function compileTimeContractChecks(): void {
+  expectTypeOf<Extract<
+    RunMutationError,
+    { readonly _tag: "ApplicationRequestKeyError" }
+  >>().toEqualTypeOf<ApplicationRequestKeyError<"runMutation">>();
+  expectTypeOf<Extract<
+    RunActionError,
+    { readonly _tag: "ApplicationRequestKeyError" }
+  >>().toEqualTypeOf<ApplicationRequestKeyError<"runAction">>();
   // @ts-expect-error Query arguments are inferred from the reference.
   runQuery(getMessage, { id: 1 });
   // @ts-expect-error A query reference cannot be used as a mutation.
   runMutation(getMessage, { id: "message-1" }, {
-    requestKey: TransactionRequestKeyV1Schema.make("wrong-kind"),
+    requestKey: "wrong-kind",
   });
   // @ts-expect-error Function references cannot be structurally fabricated.
   const forged: typeof getMessage = {
@@ -315,6 +360,18 @@ function compileTimeContractChecks(): void {
     contract: getMessage.contract,
   };
   void forged;
+}
+
+function expectRequestKeyError(
+  error: unknown,
+  operation: ApplicationRequestKeyError["operation"],
+): void {
+  expect(error).toMatchObject({
+    _tag: "ApplicationRequestKeyError",
+    operation,
+    field: "requestKey",
+    reason: "invalidRequestKey",
+  });
 }
 
 void compileTimeContractChecks;

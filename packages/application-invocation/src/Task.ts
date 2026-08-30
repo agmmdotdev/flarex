@@ -7,7 +7,6 @@ import {
   createStandardApplicationTaskRun,
   type CreateStandardApplicationTaskRunError,
   type StandardApplicationTaskRunCreationReceipt,
-  type StandardApplicationTaskRunRequestV1,
   StandardApplicationTaskSystem,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-system";
@@ -25,12 +24,17 @@ import {
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-result-query";
 import { Effect } from "effect";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 
 import {
   type ApplicationTaskResultContractError,
   taskResultContractError,
   validateResultContract,
 } from "./ResultContract.js";
+import {
+  type ApplicationRequestKeyError,
+  normalizeTaskRequestKey,
+} from "./RequestKey.js";
 import {
   inspectTaskRunRef,
   type TaskRunRef,
@@ -44,12 +48,13 @@ export interface TaskRun<Output> {
 }
 
 export interface StartTaskOptions {
-  readonly requestKey: StandardApplicationTaskRunRequestV1<never>["requestKey"];
-  readonly identity:
-    StandardApplicationTaskRunRequestV1<never>["executionIdentity"];
+  readonly requestKey: string;
+  readonly identity: Extract<ExecutionIdentity, { readonly kind: "user" }>;
 }
 
-export type StartTaskError = CreateStandardApplicationTaskRunError;
+export type StartTaskError =
+  | CreateStandardApplicationTaskRunError
+  | ApplicationRequestKeyError<"startTask">;
 export type InspectTaskError = StandardApplicationTaskRunQueryError;
 export type ReadTaskResultError =
   | StandardApplicationTaskResultQueryError
@@ -102,9 +107,12 @@ export const startTask = Effect.fn("Application.startTask")(function* <
 > {
   const inspected = inspectTaskReference(reference);
   const standard = inspected.standard;
+  const requestKey = yield* Effect.fromResult(
+    normalizeTaskRequestKey(options.requestKey),
+  );
   const receipt = yield* createStandardApplicationTaskRun(standard, {
     version: 1,
-    requestKey: options.requestKey,
+    requestKey,
     payload,
     executionIdentity: options.identity,
   });

@@ -1,11 +1,16 @@
 import type {
   StandardApplicationTaskReferenceV1,
 } from "@flarex/standard-application-definition/internal/task-authoring-v1";
+import {
+  decodeTaskRunCreationRequestKeyV1,
+  type InvalidTaskRunCreationRequestError,
+  type TaskRunCreationRequestKeyV1,
+} from "@flarex/durable-task/internal/run-creation-v1";
 import type {
   TaskInputStore,
   TaskInputStoreError,
 } from "flarex-backend/internal/task-input-store";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Result } from "effect";
 
 import {
   ApplicationTaskSystem,
@@ -23,6 +28,15 @@ export interface StandardApplicationTaskRunRequestV1<Payload> {
   readonly requestKey: ApplicationTaskRunRequest["requestKey"];
   readonly payload: Payload;
   readonly executionIdentity: ApplicationTaskRunRequest["executionIdentity"];
+}
+
+export function decodeStandardApplicationTaskRunRequestKey(
+  value: unknown,
+): Result.Result<
+  TaskRunCreationRequestKeyV1,
+  InvalidTaskRunCreationRequestError
+> {
+  return decodeTaskRunCreationRequestKeyV1(value);
 }
 
 export type CreateStandardApplicationTaskRunError =

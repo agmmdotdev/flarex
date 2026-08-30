@@ -17,7 +17,6 @@ import {
 import { Effect, Scope } from "effect";
 import type {
   TransactionFunctionPathV1,
-  TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
 
 import {
@@ -25,6 +24,10 @@ import {
   type ApplicationActionResultContractError,
   validateResultContract,
 } from "./ResultContract.js";
+import {
+  type ApplicationRequestKeyError,
+  normalizeApplicationRequestKey,
+} from "./RequestKey.js";
 
 type ActionReference = FunctionReference<
   string,
@@ -32,7 +35,7 @@ type ActionReference = FunctionReference<
 >;
 
 export interface ActionOptions {
-  readonly requestKey: TransactionRequestKeyV1;
+  readonly requestKey: string;
 }
 
 export type ActionResult<Value> =
@@ -42,7 +45,8 @@ export type ActionResult<Value> =
 
 export type RunActionError =
   | InvokeApplicationActionError
-  | ApplicationActionResultContractError;
+  | ApplicationActionResultContractError
+  | ApplicationRequestKeyError<"runAction">;
 
 export const runAction = Effect.fn("Application.runAction")(function* <
   const Reference extends ActionReference,
@@ -56,13 +60,16 @@ export const runAction = Effect.fn("Application.runAction")(function* <
   ApplicationActionSystem | Scope.Scope
 > {
   const inspected = inspectFunctionReference(reference);
+  const requestKey = yield* Effect.fromResult(
+    normalizeApplicationRequestKey("runAction", options.requestKey),
+  );
   // SAFETY: the legacy system re-decodes the path at runtime; this assertion
   // grants no authority and only crosses its overly narrow input type.
   const functionPath = inspected.path as TransactionFunctionPathV1;
   const result = yield* invokeApplicationAction(
     functionPath,
     args,
-    options.requestKey,
+    requestKey,
   );
   if (result.status === "notCompleted") return result;
   yield* validateResultContract(

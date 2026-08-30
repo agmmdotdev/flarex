@@ -23,6 +23,8 @@ const standardApplicationTaskMutationAuthorityPath =
   "packages/standard-application-invocation/src/ApplicationTaskMutationAuthority.ts";
 const standardApplicationTaskSystemPath =
   "packages/standard-application-invocation/src/ApplicationTaskSystem.ts";
+const standardApplicationTaskFacadeSystemPath =
+  "packages/standard-application-invocation/src/StandardApplicationTaskSystem.ts";
 const standardApplicationTaskRunQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskRunQuery.ts";
 const standardApplicationTaskRunListQueryPath =
@@ -613,6 +615,17 @@ const admittedBackendTaskResultBodyQueryImports = new Map([
   ["TaskRunResultQueryError", "type"],
 ]);
 const admittedLaterDurableTaskImports = [
+  makeExactImportAdmission(
+    standardApplicationTaskFacadeSystemPath,
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: ["decodeTaskRunCreationRequestKeyV1"],
+      types: [
+        "InvalidTaskRunCreationRequestError",
+        "TaskRunCreationRequestKeyV1",
+      ],
+    },
+  ),
   makeExactImportAdmission(
     flarexBackendTaskInputStorePath,
     "@flarex/durable-task/internal/run-creation-v1",

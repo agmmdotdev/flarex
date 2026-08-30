@@ -16,7 +16,6 @@ import {
 import { Effect, Scope } from "effect";
 import type {
   TransactionFunctionPathV1,
-  TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
 import { jsonToFlarexValueV1 } from "flarex-protocol/value";
 
@@ -25,6 +24,10 @@ import {
   mutationResultContractError,
   validateResultContract,
 } from "./ResultContract.js";
+import {
+  type ApplicationRequestKeyError,
+  normalizeApplicationRequestKey,
+} from "./RequestKey.js";
 
 type MutationReference = FunctionReference<
   string,
@@ -32,7 +35,7 @@ type MutationReference = FunctionReference<
 >;
 
 export interface MutationOptions {
-  readonly requestKey: TransactionRequestKeyV1;
+  readonly requestKey: string;
 }
 
 export type MutationOutcome<Value> = Omit<
@@ -42,7 +45,8 @@ export type MutationOutcome<Value> = Omit<
 
 export type RunMutationError =
   | InvokeApplicationMutationError
-  | ApplicationMutationResultContractError;
+  | ApplicationMutationResultContractError
+  | ApplicationRequestKeyError<"runMutation">;
 
 export const runMutation = Effect.fn("Application.runMutation")(function* <
   const Reference extends MutationReference,
@@ -56,13 +60,16 @@ export const runMutation = Effect.fn("Application.runMutation")(function* <
   ApplicationMutationSystem | Scope.Scope
 > {
   const inspected = inspectFunctionReference(reference);
+  const requestKey = yield* Effect.fromResult(
+    normalizeApplicationRequestKey("runMutation", options.requestKey),
+  );
   // SAFETY: the legacy system re-decodes the path at runtime; this assertion
   // grants no authority and only crosses its overly narrow input type.
   const functionPath = inspected.path as TransactionFunctionPathV1;
   const outcome = yield* invokeApplicationMutation(
     functionPath,
     args,
-    options.requestKey,
+    requestKey,
   );
   const value = jsonToFlarexValueV1(outcome.value);
   const validated = yield* validateResultContract(

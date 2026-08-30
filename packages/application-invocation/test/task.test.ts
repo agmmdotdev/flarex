@@ -36,7 +36,9 @@ import {
   inspectTask,
   readTaskResult,
   startTask,
+  type ApplicationRequestKeyError,
   type ApplicationTaskResultContractError,
+  type StartTaskError,
   type TaskRun,
   type TaskRunStatus,
 } from "../src/index.js";
@@ -90,14 +92,16 @@ const prepareWithoutOutputContract = Result.getOrThrow(task({
 
 describe("clean Task invocation primitive", () => {
   it("admits a typed payload through the existing Task System", async () => {
+    expectTypeOf<Extract<
+      StartTaskError,
+      { readonly _tag: "ApplicationRequestKeyError" }
+    >>().toEqualTypeOf<ApplicationRequestKeyError<"startTask">>();
     const receipt = makeReceipt();
     const createRun = vi.fn<StandardApplicationTaskSystemApi["createRun"]>(
       () => Effect.succeed(receipt),
     );
     const system = StandardApplicationTaskSystem.of({ createRun });
-    const requestKey = Brand.nominal<
-      Parameters<StandardApplicationTaskSystemApi["createRun"]>[1]["requestKey"]
-    >()("task-request-1");
+    const requestKey = "task-request-1";
     const identity = Object.freeze({
       kind: "user" as const,
       user: Object.freeze({
@@ -142,6 +146,38 @@ describe("clean Task invocation primitive", () => {
     expect(() => inspectTaskRun(forged)).toThrow(
       "Task run metadata is unavailable.",
     );
+  });
+
+  it("rejects an invalid plain request key before Task admission", async () => {
+    const createRun = vi.fn<StandardApplicationTaskSystemApi["createRun"]>(
+      () => Effect.die("Task admission must not run"),
+    );
+    const identity = Object.freeze({
+      kind: "user" as const,
+      user: Object.freeze({
+        tokenIdentifier: "clean-task-invalid-key",
+        subject: "user-invalid-key",
+        issuer: "https://system-test.flarex.invalid",
+      }),
+    });
+
+    const durableTaskOversizedRequestKey = "x".repeat(256);
+    const failure = await Effect.runPromise(Effect.flip(startTask(
+      prepare.reference,
+      { recipeId: "recipe-invalid-key", servings: 1 },
+      { requestKey: durableTaskOversizedRequestKey, identity },
+    ).pipe(Effect.provideService(
+      StandardApplicationTaskSystem,
+      StandardApplicationTaskSystem.of({ createRun }),
+    ))));
+
+    expect(failure).toMatchObject({
+      _tag: "ApplicationRequestKeyError",
+      operation: "startTask",
+      field: "requestKey",
+      reason: "invalidRequestKey",
+    });
+    expect(createRun).not.toHaveBeenCalled();
   });
 
   it("reads a genuine run through the authoritative Task query service", async () => {
@@ -343,9 +379,7 @@ describe("clean Task invocation primitive", () => {
 async function startRun(
   system: StandardApplicationTaskSystemApi,
 ): Promise<TaskRun<Readonly<{ readonly prepared: boolean }>>> {
-  const requestKey = Brand.nominal<
-    Parameters<StandardApplicationTaskSystemApi["createRun"]>[1]["requestKey"]
-  >()("task-inspection-request");
+  const requestKey = "task-inspection-request";
   return Effect.runPromise(startTask(
     prepare.reference,
     { recipeId: "recipe-inspection", servings: 2 },
@@ -367,9 +401,7 @@ async function startRun(
 async function startUntypedRun(
   system: StandardApplicationTaskSystemApi,
 ): Promise<TaskRun<unknown>> {
-  const requestKey = Brand.nominal<
-    Parameters<StandardApplicationTaskSystemApi["createRun"]>[1]["requestKey"]
-  >()("task-untyped-result-request");
+  const requestKey = "task-untyped-result-request";
   return Effect.runPromise(startTask(
     prepareWithoutOutputContract.reference,
     { recipeId: "recipe-untyped", servings: 1 },
