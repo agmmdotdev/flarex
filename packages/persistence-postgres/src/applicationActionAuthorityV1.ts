@@ -7,7 +7,6 @@ import {
   isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
-import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect, Result } from "effect";
@@ -37,6 +36,7 @@ import {
 } from "./applicationActivation";
 import type { AppRowTransaction } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import {
   runLocatedEffectQuery,
   runLocatedEffectTransaction,
@@ -2147,11 +2147,7 @@ function requireBodyReference(
 }
 
 function databaseDate(value: unknown): Date | undefined {
-  const date = copyFiniteDate(value);
-  if (date !== undefined) return date;
-  if (typeof value !== "string") return undefined;
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed : undefined;
+  return databaseTimestampFromUnknown(value) ?? undefined;
 }
 
 function nullableDatabaseDate(value: unknown): Date | null | undefined {

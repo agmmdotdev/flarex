@@ -19,6 +19,7 @@ import {
   InvokeSessionTableOccConflictError,
   indexBoundsForExpressions,
   sql,
+  upsertLiveQuerySubscription,
 } from "../src";
 import { deployments } from "../src/schema";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
@@ -2570,6 +2571,51 @@ describe("createPGlitePersistence runtime", () => {
       { connectionId: "connection_a", queryId: 2, partitionKey: "team_a" },
       { connectionId: "connection_b", queryId: 1, partitionKey: "team_b" },
     ]);
+  });
+
+  it("uses transaction time for an implicit live query subscription update timestamp", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const key = {
+      deploymentId: "deployment_live_query_database_time",
+      connectionId: "connection_database_time",
+      queryId: 1,
+    } as const;
+
+    await persistence.upsertLiveQuerySubscription({
+      ...key,
+      functionPath: "messages:list",
+      argsJson: {},
+      beginTs: 10,
+      readSetJson: {},
+      resultJson: [],
+      resultHash: "hash_before_database_time",
+      updatedAt: new Date("2000-01-01T00:00:00.000Z"),
+    });
+
+    await persistence.drizzle.transaction(async (tx) => {
+      const timestampResult = await tx.execute<{ transaction_now_ms: string }>(sql`
+        select floor(extract(epoch from current_timestamp) * 1000)::text
+          as transaction_now_ms
+      `);
+      const transactionNowMs = Number(
+        timestampResult.rows[0]?.transaction_now_ms,
+      );
+      expect(Number.isSafeInteger(transactionNowMs)).toBe(true);
+
+      await new Promise<void>(resolve => setTimeout(resolve, 25));
+
+      const updated = await upsertLiveQuerySubscription(tx, {
+        ...key,
+        functionPath: "messages:list",
+        argsJson: {},
+        beginTs: 11,
+        readSetJson: {},
+        resultJson: [{ text: "updated" }],
+        resultHash: "hash_after_database_time",
+      });
+
+      expect(updated.updatedAt.getTime()).toBe(transactionNowMs);
+    });
   });
 
   it("preserves JSON null in live query jsonb columns", async () => {

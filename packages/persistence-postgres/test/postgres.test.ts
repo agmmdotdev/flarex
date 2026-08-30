@@ -4,6 +4,8 @@ import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import {
   type FlarexPersistence,
   indexBoundsForExpressions,
+  sql,
+  upsertLiveQuerySubscription,
 } from "../src";
 import {
   postgresUrl,
@@ -13,6 +15,54 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("createPostgresPersistence", () => {
+  it("uses transaction time for an implicit live query subscription update timestamp", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const key = {
+        deploymentId: "deployment_real_pg_live_query_database_time",
+        connectionId: "connection_database_time",
+        queryId: 1,
+      } as const;
+
+      await persistence.upsertLiveQuerySubscription({
+        ...key,
+        functionPath: "messages:list",
+        argsJson: {},
+        beginTs: 10,
+        readSetJson: {},
+        resultJson: [],
+        resultHash: "hash_before_database_time",
+        updatedAt: new Date("2000-01-01T00:00:00.000Z"),
+      });
+
+      await persistence.drizzle.transaction(async (tx) => {
+        const timestampResult = await tx.execute<{
+          transaction_now_ms: string;
+        }>(sql`
+          select floor(extract(epoch from current_timestamp) * 1000)::text
+            as transaction_now_ms
+        `);
+        const transactionNowMs = Number(
+          timestampResult.rows[0]?.transaction_now_ms,
+        );
+        expect(Number.isSafeInteger(transactionNowMs)).toBe(true);
+
+        await new Promise<void>(resolve => setTimeout(resolve, 25));
+
+        const updated = await upsertLiveQuerySubscription(tx, {
+          ...key,
+          functionPath: "messages:list",
+          argsJson: {},
+          beginTs: 11,
+          readSetJson: {},
+          resultJson: [{ text: "updated" }],
+          resultHash: "hash_after_database_time",
+        });
+
+        expect(updated.updatedAt.getTime()).toBe(transactionNowMs);
+      });
+    });
+  });
+
   it("enforces the scope catalog constraints on real Postgres", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       for (const deploymentId of [

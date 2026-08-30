@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { LiveQueryDeliveryFailedChange } from "flarex";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 
@@ -106,7 +106,7 @@ export async function upsertLiveQuerySubscription(
         readSetJson: input.readSetJson,
         resultJson: jsonbNotNullValue(input.resultJson),
         resultHash: input.resultHash,
-        updatedAt: input.updatedAt ?? new Date(),
+        updatedAt: input.updatedAt ?? sql`current_timestamp`,
       },
     })
     .returning();

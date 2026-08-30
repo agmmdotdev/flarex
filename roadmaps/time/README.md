@@ -111,7 +111,10 @@ migration. It requires its own compatibility evidence and approval.
    these gates.
 4. Persistence codecs: centralize representation conversion only where row
    decoding, corruption ownership, transaction order, and database authority
-   remain unchanged.
+   remain unchanged. PTIME01 moves the live-query subscription's omitted
+   conflict-update timestamp to PostgreSQL authority and consolidates one exact
+   application-action driver timestamp decoder; see
+   `roadmaps/time/08-persistence-timestamp-boundary-preflight.md`.
 5. Stored-state hardening: separately decide whether permissive stored
    timestamps become canonical and prove upgrade behavior for existing state.
 6. Enforcement: after migrated roots are stable, add a scoped Oxlint rule that
