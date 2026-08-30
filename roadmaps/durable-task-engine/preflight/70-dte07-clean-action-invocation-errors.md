@@ -124,3 +124,5 @@ commit.
 Stop after foreground Action owner failures are clean. Do not add Action
 delivery, nested Action calls, retries, waiting, cancellation, public or
 production Action surfaces, or clean Query/Mutation errors in this checkpoint.
+Read-only Query invocation failures were cleaned later under preflight 71;
+Mutation remains a separate gate.

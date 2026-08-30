@@ -18,6 +18,7 @@ import {
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import {
+  ApplicationQueryCompositionError,
   ApplicationQuerySystem,
   type ApplicationQuerySystemApi,
 } from
@@ -35,8 +36,10 @@ import {
   type ApplicationRequestKeyError,
   type ApplicationResultContractError,
   type MutationOutcome,
+  type QueryInvocationError,
   type RunActionError,
   type RunMutationError,
+  type RunQueryError,
 } from "../src/index.js";
 
 const module = defineModule({
@@ -301,6 +304,41 @@ describe("clean Application invocation primitives", () => {
     expect(invoke).toHaveBeenCalledOnce();
   });
 
+  it("projects a Query owner failure once without retry", async () => {
+    const source = new ApplicationQueryCompositionError({
+      reason: "sourceReadFailed",
+    });
+    const invoke = vi.fn<ApplicationQuerySystemApi["invoke"]>(
+      () => Effect.fail(source),
+    );
+    const system = ApplicationQuerySystem.of({
+      selectionQuery: Object.freeze({
+        runQuery: () => Effect.die("selection query must not run"),
+      }),
+      invoke,
+    });
+
+    const received = await Effect.runPromise(Effect.scoped(
+      runQuery(getMessage, { id: "message-1" }).pipe(
+        Effect.provideService(ApplicationQuerySystem, system),
+        Effect.flip,
+      ),
+    ));
+
+    expect(received).toMatchObject({
+      _tag: "QueryInvocationError",
+      operation: "runQuery",
+      reason: "unavailable",
+      cause: source,
+    });
+    expectTypeOf(received).toEqualTypeOf<RunQueryError>();
+    if (received._tag === "QueryInvocationError") {
+      expectTypeOf(received).toEqualTypeOf<QueryInvocationError>();
+      expect(received.cause).toBe(source);
+    }
+    expect(invoke).toHaveBeenCalledOnce();
+  });
+
   it("rejects a completed Action result that disagrees with the local reference", async () => {
     const completed = Object.freeze({
       status: "completed" as const,
@@ -374,6 +412,10 @@ describe("clean Application invocation primitives", () => {
 });
 
 function compileTimeContractChecks(): void {
+  expectTypeOf<Extract<
+    RunQueryError,
+    { readonly _tag: "QueryInvocationError" }
+  >>().toEqualTypeOf<QueryInvocationError>();
   expectTypeOf<Extract<
     RunMutationError,
     { readonly _tag: "ApplicationRequestKeyError" }

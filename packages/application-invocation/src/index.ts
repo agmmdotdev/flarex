@@ -24,6 +24,11 @@ export {
 } from "./Query.js";
 
 export type {
+  QueryInvocationError,
+  QueryInvocationErrorReason,
+} from "./QueryInvocationError.js";
+
+export type {
   ApplicationActionResultContractError,
   ApplicationMutationResultContractError,
   ApplicationQueryResultContractError,

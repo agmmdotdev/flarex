@@ -737,6 +737,18 @@ private owner failure remains only as an opaque cause. A `notCompleted` Action
 observation remains a successful `ActionResult`; it is not converted into an
 error.
 
+Read-only Query failures now use the same clean-root boundary without changing
+Query ownership or Scope semantics. `runQuery()` translates the authoritative
+Query System channel once into `QueryInvocationError`, while a successful value
+that disagrees with the local typed reference remains the separate
+`ApplicationQueryResultContractError`. Its stable reasons distinguish caller
+input and identity, missing Queries and active Applications, configuration and
+runtime incompatibility, index/history/budget constraints, application and
+execution failures, unavailable or corrupt owners, stale authority, transient
+or terminal failures, and uncertain transaction settlement. The exact private
+owner failure remains only as an opaque cause. This does not add Query sync,
+subscriptions, retries, another read path, or public/production authority.
+
 The root operations remain deliberately separated by capability:
 
 | Surface | Operations | Authority |
@@ -840,5 +852,12 @@ The clean Task read-error checkpoint is complete under
 [`durable-task-engine/preflight/66-dte07-clean-task-read-errors.md`](./durable-task-engine/preflight/66-dte07-clean-task-read-errors.md).
 The clean Task result-read extension is complete under
 [`durable-task-engine/preflight/67-dte07-clean-task-result-read-errors.md`](./durable-task-engine/preflight/67-dte07-clean-task-result-read-errors.md).
+The clean Task admission and cancellation failure checkpoints are complete
+under preflights 68 and 69. Foreground Action and read-only Query invocation
+failures are clean under
+[`durable-task-engine/preflight/70-dte07-clean-action-invocation-errors.md`](./durable-task-engine/preflight/70-dte07-clean-action-invocation-errors.md)
+and
+[`durable-task-engine/preflight/71-dte07-clean-query-invocation-errors.md`](./durable-task-engine/preflight/71-dte07-clean-query-invocation-errors.md).
+Clean Mutation owner failures remain a separate next gate.
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.

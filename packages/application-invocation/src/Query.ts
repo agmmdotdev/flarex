@@ -9,12 +9,15 @@ import { inspectFunctionReference } from
 import {
   ApplicationQuerySystem,
   invokeApplicationQuery,
-  type InvokeApplicationQueryError,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
 import { Effect, Scope } from "effect";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 
+import {
+  projectQueryInvocationError,
+  type QueryInvocationError,
+} from "./QueryInvocationError.js";
 import {
   type ApplicationQueryResultContractError,
   queryResultContractError,
@@ -31,7 +34,7 @@ export interface QueryOptions {
 }
 
 export type RunQueryError =
-  | InvokeApplicationQueryError
+  | QueryInvocationError
   | ApplicationQueryResultContractError;
 
 export const runQuery = Effect.fn("Application.runQuery")(function* <
@@ -50,7 +53,7 @@ export const runQuery = Effect.fn("Application.runQuery")(function* <
     inspected.path,
     args,
     options.identity,
-  );
+  ).pipe(Effect.mapError(projectQueryInvocationError));
   const validated = yield* validateResultContract(
     inspected,
     value,
