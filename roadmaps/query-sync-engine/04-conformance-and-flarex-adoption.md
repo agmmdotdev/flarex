@@ -145,11 +145,13 @@ not a complete uncertainty contract.
    independent normalized interpretation, exact counters, capability,
    uncertainty, and history proofs are complete without an adapter or package
    export.
-11. Next, decide whether to approve `QSYNC01-D4`, moving the three publication
-   lifecycle operations and completing the all-nine planner proof.
-12. Only after D1-D4 complete and a fresh adapter checkpoint is approved may
-   C1-C3 implement semantic verticals over the one existing per-scope SQLite
-   cursor owner, without duplicate tables, cursors, reducers, or writes.
+11. **Complete (`QSYNC01-D4`).** Publication claim, attempt-outcome recording,
+   and completion now use bounded pure planners, completing all nine operations
+   and the private transition-plan import boundary without adapter code.
+12. Next, hold a fresh `QSYNC-FX01-C1` discussion and preflight. Only a
+   separately approved checkpoint may authorize C1-C3 semantic verticals over
+   the one existing per-scope SQLite cursor owner, without duplicate tables,
+   cursors, reducers, or writes.
 13. Independently run the Cloudflare Durable Streams feasibility spike and
    accept or reject it at explicit maturity, security, retention, payload, and
    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;

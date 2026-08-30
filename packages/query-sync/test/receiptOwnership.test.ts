@@ -2,31 +2,47 @@ import { describe, expect, it } from "vitest";
 
 import {
   beginQueryEvaluation,
+  capturePublicationAttemptInstant,
+  capturePublicationAttemptOrdinal,
   captureQueryGeneration,
   captureSyncSequence,
+  claimPublication,
+  completeQueryEvaluation,
   claimEvaluationWork,
   createEmptyQuerySyncState,
 } from "@flarex/query-sync/internal/kernel";
 import type {
   BeginQueryEvaluationDecision,
   ClaimEvaluationWorkDecision,
+  ClaimPublicationDecision,
+  CompletePublicationDecision,
   CompleteQueryEvaluationDecision,
   QueryCompletionPublicationDisposition,
   QueryPublicationIdentity,
   RecordEvaluationAttemptOutcomeDecision,
+  RecordPublicationAttemptOutcomeDecision,
 } from "@flarex/query-sync/internal/kernel";
+import {
+  deriveGenerationRefreshEvidence,
+} from "@flarex/query-sync/testing/reference-model";
 
 import {
   initializedNamespaceReceipt,
   projectBeginReceipt,
   projectClaimEvaluationWorkReceipt,
+  projectClaimPublicationReceipt,
+  projectCompletePublicationReceipt,
   projectCompleteReceipt,
   projectRecordEvaluationAttemptOutcomeReceipt,
+  projectRecordPublicationAttemptOutcomeReceipt,
 } from "../src/state/Receipts.js";
 import {
   cursor,
+  evaluation,
   firstEvaluationRequest,
+  getEvaluationAttempt,
   getSuccess,
+  publicationArtifact,
 } from "./fixtures.js";
 
 describe("query-sync receipt ownership", () => {
@@ -395,5 +411,147 @@ describe("query-sync receipt ownership", () => {
     expect(Object.isFrozen(replayed.publicationDisposition)).toBe(true);
     expect(Object.keys(replayed.publicationDisposition)).toEqual(["_tag"]);
     expect(extraGetterReads).toBe(0);
+  });
+
+  it("owns every publication receipt and preserves attempt capability identity", () => {
+    const initial = getSuccess(createEmptyQuerySyncState(cursor()));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(),
+    ));
+    const evaluationAttempt = getEvaluationAttempt(begun);
+    const evaluated = evaluation({
+      descriptor: evaluationAttempt.descriptor,
+      generation: evaluationAttempt.generation,
+      snapshot:
+        evaluationAttempt.registrationCursor.appliedThroughSequence,
+    });
+    const refresh = getSuccess(deriveGenerationRefreshEvidence(
+      evaluated,
+      evaluationAttempt.registrationCursor,
+      [],
+      evaluated.authorityWitness,
+    ));
+    const completedEvaluation = getSuccess(completeQueryEvaluation(
+      begun.state,
+      evaluationAttempt,
+      evaluated,
+      refresh,
+      publicationArtifact("receipt-ownership"),
+    ));
+    const claimed = getSuccess(claimPublication(
+      completedEvaluation.state,
+      getSuccess(capturePublicationAttemptInstant(10)),
+    ));
+    if (claimed._tag !== "claimed") {
+      throw new Error("Expected a publication attempt.");
+    }
+    const identity = claimed.attempt.publication.identity;
+    const claimDecisions: readonly ClaimPublicationDecision[] = [
+      claimed,
+      Object.freeze({
+        _tag: "replayed",
+        state: claimed.state,
+        attempt: claimed.attempt,
+      }),
+      Object.freeze({
+        _tag: "blocked",
+        state: claimed.state,
+        identity,
+        attemptOrdinal: claimed.attempt.attemptOrdinal,
+        reason: "ageLimitReached",
+        resetRequired: true,
+      }),
+      Object.freeze({ _tag: "none", state: claimed.state }),
+    ];
+    const claimReceipts = claimDecisions.map(projectClaimPublicationReceipt);
+    expect(claimReceipts.map(Object.keys)).toEqual([
+      ["_tag", "attempt"],
+      ["_tag", "attempt"],
+      ["_tag", "identity", "attemptOrdinal", "reason", "resetRequired"],
+      ["_tag"],
+    ]);
+    for (const receipt of claimReceipts) {
+      expect(Object.isFrozen(receipt)).toBe(true);
+    }
+    const claimedReceipt = claimReceipts[0];
+    const replayedReceipt = claimReceipts[1];
+    if (
+      claimedReceipt?._tag !== "claimed"
+      || replayedReceipt?._tag !== "replayed"
+    ) {
+      throw new Error("Expected attempted publication receipts.");
+    }
+    expect(claimedReceipt.attempt).toBe(claimed.attempt);
+    expect(replayedReceipt.attempt).toBe(claimed.attempt);
+
+    const outcomeDecisions:
+      readonly RecordPublicationAttemptOutcomeDecision[] = [
+        Object.freeze({
+          _tag: "recorded",
+          state: claimed.state,
+          identity,
+          attemptOrdinal: claimed.attempt.attemptOrdinal,
+          nextAttemptOrdinal: getSuccess(capturePublicationAttemptOrdinal(2)),
+          nextDisposition: "ready",
+        }),
+        Object.freeze({
+          _tag: "blocked",
+          state: claimed.state,
+          identity,
+          attemptOrdinal: claimed.attempt.attemptOrdinal,
+          reason: "terminalPublisherRefusal",
+          resetRequired: true,
+        }),
+        Object.freeze({
+          _tag: "superseded",
+          state: claimed.state,
+          identity,
+          attemptOrdinal: claimed.attempt.attemptOrdinal,
+        }),
+        Object.freeze({
+          _tag: "recoveryEvidenceExpired",
+          state: claimed.state,
+          identity,
+          attemptOrdinal: claimed.attempt.attemptOrdinal,
+        }),
+      ];
+    const outcomeReceipts = outcomeDecisions.map(
+      projectRecordPublicationAttemptOutcomeReceipt,
+    );
+    expect(outcomeReceipts.map(Object.keys)).toEqual([
+      [
+        "_tag",
+        "identity",
+        "attemptOrdinal",
+        "nextAttemptOrdinal",
+        "nextDisposition",
+      ],
+      ["_tag", "identity", "attemptOrdinal", "reason", "resetRequired"],
+      ["_tag", "identity", "attemptOrdinal"],
+      ["_tag", "identity", "attemptOrdinal"],
+    ]);
+    for (const receipt of outcomeReceipts) {
+      expect(Object.isFrozen(receipt)).toBe(true);
+      expect(Object.isFrozen(receipt.identity)).toBe(true);
+    }
+
+    const completionDecisions: readonly CompletePublicationDecision[] = [
+      Object.freeze({ _tag: "completed", state: claimed.state, identity }),
+      Object.freeze({ _tag: "replayed", state: claimed.state, identity }),
+      Object.freeze({ _tag: "superseded", state: claimed.state, identity }),
+    ];
+    const completionReceipts = completionDecisions.map(
+      projectCompletePublicationReceipt,
+    );
+    expect(completionReceipts.map(Object.keys)).toEqual([
+      ["_tag", "identity"],
+      ["_tag", "identity"],
+      ["_tag", "identity"],
+    ]);
+    for (const receipt of completionReceipts) {
+      expect(Object.isFrozen(receipt)).toBe(true);
+      expect(Object.isFrozen(receipt.identity)).toBe(true);
+    }
   });
 });

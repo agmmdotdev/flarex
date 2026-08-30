@@ -4,6 +4,7 @@ import { compareCanonicalBase64Url } from "../../kernel/CanonicalValue.js";
 import type {
   CanonicalDependencyKey,
   CanonicalQueryKey,
+  PublicationAttemptInstant,
   QueryGeneration,
 } from "../../kernel/CanonicalValue.js";
 import { QuerySyncInvariantDefect } from "../../kernel/Errors.js";
@@ -22,6 +23,7 @@ import type {
   QuerySyncState,
 } from "../../kernel/Model.js";
 import {
+  compareQueryPublicationIdentity,
   freezeQueryPublicationIdentity,
   makePendingQueryPublication,
   queryPublicationIdentityEquals,
@@ -134,6 +136,51 @@ import type {
   BeginQueryEvaluationReceipt,
   CompleteQueryEvaluationReceipt,
 } from "../../transition-plan/Receipts.js";
+import {
+  resumeClaimPublicationInFlightOwner,
+  resumeClaimPublicationPending,
+  startClaimPublication,
+} from "../../transition-plan/ClaimPublication.js";
+import type {
+  ClaimPublicationPlan,
+  ResumeClaimPublicationInFlightOwnerError,
+  ResumeClaimPublicationPendingError,
+  StartClaimPublicationError,
+} from "../../transition-plan/ClaimPublication.js";
+import {
+  authenticateRecordPublicationAttemptOutcomeAttempt,
+  planRecordPublicationAttemptOutcome,
+} from "../../transition-plan/RecordPublicationAttemptOutcome.js";
+import type {
+  PlanRecordPublicationAttemptOutcomeError,
+  RecordPublicationAttemptOutcomePlan,
+} from "../../transition-plan/RecordPublicationAttemptOutcome.js";
+import {
+  authenticateCompletePublicationEvidence,
+  planCompletePublication,
+} from "../../transition-plan/CompletePublication.js";
+import type {
+  CompletePublicationPlan,
+  PlanCompletePublicationError,
+} from "../../transition-plan/CompletePublication.js";
+import {
+  freezePendingPublicationSelectionFacts,
+  freezePublicationLifecycleFacts,
+  freezePublicationOwnerQueryFacts,
+} from "../../transition-plan/PublicationFacts.js";
+import type {
+  PendingPublicationSelectionFacts,
+  PublicationLifecycleFacts,
+  PublicationOwnerQueryFacts,
+} from "../../transition-plan/PublicationFacts.js";
+import type {
+  AcceptedQueryPublicationEvidence,
+  ClaimPublicationReceipt,
+  CompletePublicationReceipt,
+  PublicationAttempt,
+  PublicationAttemptOutcome,
+  RecordPublicationAttemptOutcomeReceipt,
+} from "../../transition-plan/PublicationWork.js";
 
 type NormalizedCompletionScalarFacts = QueryCompletionScalarFacts;
 
@@ -199,12 +246,29 @@ export type NormalizedClaimEvaluationWorkError =
   | ResumeClaimEvaluationWorkSelectedQueryError
   | BuildQuerySyncStateError;
 
+export type NormalizedClaimPublicationError =
+  | StartClaimPublicationError
+  | ResumeClaimPublicationInFlightOwnerError
+  | ResumeClaimPublicationPendingError
+  | BuildQuerySyncStateError;
+
+export type NormalizedRecordPublicationAttemptOutcomeError =
+  | PlanRecordPublicationAttemptOutcomeError
+  | BuildQuerySyncStateError;
+
+export type NormalizedCompletePublicationError =
+  | PlanCompletePublicationError
+  | BuildQuerySyncStateError;
+
 type NormalizedOperation =
   | "beginQueryEvaluation"
   | "applyAdmittedInvalidations"
   | "claimEvaluationWork"
   | "completeQueryEvaluation"
-  | "recordEvaluationAttemptOutcome";
+  | "recordEvaluationAttemptOutcome"
+  | "claimPublication"
+  | "recordPublicationAttemptOutcome"
+  | "completePublication";
 
 function transitionDefect(
   operation: NormalizedOperation,
@@ -623,6 +687,181 @@ function lifecycleFactsEqual(
       left.precedingAttemptOutcome,
       right.precedingAttemptOutcome,
     );
+}
+
+function publicationOwnerFactsEqual(
+  left: PublicationOwnerQueryFacts | null,
+  right: PublicationOwnerQueryFacts | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  if (
+    left.descriptor.queryKey !== right.descriptor.queryKey
+    || left.descriptor.queryIdentity !== right.descriptor.queryIdentity
+  ) {
+    return false;
+  }
+  if (left.active === null || right.active === null) {
+    if (left.active !== right.active) return false;
+  } else if (
+    left.active.generation !== right.active.generation
+    || left.active.freshThroughSequence !== right.active.freshThroughSequence
+    || left.active.resultDigest !== right.active.resultDigest
+  ) {
+    return false;
+  }
+  const leftCompletion = left.currentCompletion;
+  const rightCompletion = right.currentCompletion;
+  if (leftCompletion === null || rightCompletion === null) {
+    return leftCompletion === rightCompletion;
+  }
+  if (
+    !queryPublicationIdentityEquals(
+      leftCompletion.identity,
+      rightCompletion.identity,
+    )
+    || leftCompletion.refreshedThroughSequence
+      !== rightCompletion.refreshedThroughSequence
+    || leftCompletion.resultDigest !== rightCompletion.resultDigest
+    || leftCompletion.publicationDisposition._tag
+      !== rightCompletion.publicationDisposition._tag
+  ) {
+    return false;
+  }
+  return leftCompletion.publicationDisposition._tag === "unchanged"
+    || (
+      rightCompletion.publicationDisposition._tag === "pending"
+      && queryPublicationIdentityEquals(
+        leftCompletion.publicationDisposition.identity,
+        rightCompletion.publicationDisposition.identity,
+      )
+    );
+}
+
+function inFlightPublicationFactsEqual(
+  left: PublicationLifecycleFacts["inFlight"],
+  right: PublicationLifecycleFacts["inFlight"],
+): boolean {
+  if (left === null || right === null) return left === right;
+  if (
+    !pendingPublicationEqual(left.publication, right.publication)
+    || left.attemptOrdinal !== right.attemptOrdinal
+    || left.firstAttemptAt !== right.firstAttemptAt
+    || left.lastAttemptAt !== right.lastAttemptAt
+    || left.disposition._tag !== right.disposition._tag
+  ) {
+    return false;
+  }
+  return left.disposition._tag !== "blocked"
+    || (
+      right.disposition._tag === "blocked"
+      && left.disposition.reason === right.disposition.reason
+      && left.disposition.resetRequired === right.disposition.resetRequired
+    );
+}
+
+function precedingPublicationOutcomeFactsEqual(
+  left: PublicationLifecycleFacts["precedingAttemptOutcome"],
+  right: PublicationLifecycleFacts["precedingAttemptOutcome"],
+): boolean {
+  if (left === null || right === null) return left === right;
+  if (
+    !queryPublicationIdentityEquals(left.identity, right.identity)
+    || left.resultDigest !== right.resultDigest
+    || left.attemptOrdinal !== right.attemptOrdinal
+    || left.outcome !== right.outcome
+    || left.receipt._tag !== right.receipt._tag
+  ) {
+    return false;
+  }
+  return left.receipt._tag === "recorded"
+    ? right.receipt._tag === "recorded"
+      && left.receipt.nextAttemptOrdinal === right.receipt.nextAttemptOrdinal
+      && left.receipt.nextDisposition === right.receipt.nextDisposition
+    : right.receipt._tag === "blocked"
+      && left.receipt.reason === right.receipt.reason
+      && left.receipt.resetRequired === right.receipt.resetRequired;
+}
+
+function publicationLifecycleFactsEqual(
+  left: PublicationLifecycleFacts,
+  right: PublicationLifecycleFacts,
+): boolean {
+  return inFlightPublicationFactsEqual(left.inFlight, right.inFlight)
+    && deliveredPublicationEqual(
+      left.latestDelivered,
+      right.latestDelivered,
+    )
+    && precedingPublicationOutcomeFactsEqual(
+      left.precedingAttemptOutcome,
+      right.precedingAttemptOutcome,
+    );
+}
+
+function normalizedPublicationLifecycleFacts(
+  normalized: NormalizedQuerySyncState,
+): PublicationLifecycleFacts {
+  return freezePublicationLifecycleFacts({
+    inFlight: normalized.publicationWork.inFlight,
+    latestDelivered: normalized.publicationWork.latestDelivered,
+    precedingAttemptOutcome:
+      normalized.publicationWork.precedingAttemptOutcome,
+  });
+}
+
+function normalizedPublicationOwnerFacts(
+  normalized: NormalizedQuerySyncState,
+  queryKey: CanonicalQueryKey,
+): PublicationOwnerQueryFacts | null {
+  const query = findNormalizedQuery(normalized, queryKey);
+  if (query === undefined) return null;
+  return freezePublicationOwnerQueryFacts({
+    descriptor: query.descriptor,
+    active: query.active === null
+      ? null
+      : {
+        generation: query.active.generation,
+        freshThroughSequence: query.active.freshThroughSequence,
+        resultDigest: query.active.resultDigest,
+      },
+    currentCompletion: query.currentCompletion === null
+      ? null
+      : {
+        identity: query.currentCompletion.identity,
+        refreshedThroughSequence:
+          query.currentCompletion.refreshedThroughSequence,
+        resultDigest: query.currentCompletion.resultDigest,
+        publicationDisposition:
+          query.currentCompletion.publicationDisposition,
+      },
+  });
+}
+
+function normalizedLowestPendingPublicationFacts(
+  normalized: NormalizedQuerySyncState,
+): PendingPublicationSelectionFacts | null {
+  let selected: PendingQueryPublication | undefined;
+  for (const publication of normalized.publicationWork.pending) {
+    if (
+      selected === undefined
+      || compareQueryPublicationIdentity(
+        publication.identity,
+        selected.identity,
+      ) < 0
+    ) {
+      selected = publication;
+    }
+  }
+  if (selected === undefined) return null;
+  const owner = normalizedPublicationOwnerFacts(
+    normalized,
+    selected.identity.queryKey,
+  );
+  return owner === null
+    ? null
+    : freezePendingPublicationSelectionFacts({
+      publication: selected,
+      owner,
+    });
 }
 
 function beginFacts(
@@ -1622,6 +1861,274 @@ export function executeNormalizedRecordEvaluationAttemptOutcome(
       normalized,
       plan,
     );
+    return Object.freeze({
+      receipt: plan.receipt,
+      state,
+      disposition: plan._tag,
+      plan,
+    });
+  });
+}
+
+function interpretClaimPublicationPlan(
+  normalized: NormalizedQuerySyncState,
+  plan: ClaimPublicationPlan,
+): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
+  if (plan._tag === "noWrite") {
+    return rebuildNormalized(
+      normalized,
+      normalized.scope,
+      normalized.queries,
+      "claimPublication",
+    );
+  }
+  const lifecycle = normalizedPublicationLifecycleFacts(normalized);
+  const owner = normalizedPublicationOwnerFacts(
+    normalized,
+    plan.expected.owner.descriptor.queryKey,
+  );
+  if (
+    !scopeFactsEqual(normalized.scope, plan.expected.scope)
+    || !publicationLifecycleFactsEqual(
+      lifecycle,
+      plan.expected.lifecycle,
+    )
+    || !publicationOwnerFactsEqual(owner, plan.expected.owner)
+  ) {
+    throw transitionDefect("claimPublication");
+  }
+
+  const change = plan.change;
+  let publicationWork: QuerySyncPublicationWorkState;
+  if (change._tag === "blockInFlightPublicationByAge") {
+    if (plan.expected.selectedPending !== null) {
+      throw transitionDefect("claimPublication");
+    }
+    publicationWork = {
+      ...normalized.publicationWork,
+      inFlight: change.inFlight,
+    };
+  } else {
+    const selection = normalizedLowestPendingPublicationFacts(normalized);
+    if (
+      selection === null
+      || !pendingPublicationEqual(
+        selection.publication,
+        plan.expected.selectedPending,
+      )
+      || !publicationOwnerFactsEqual(selection.owner, plan.expected.owner)
+      || !pendingPublicationEqual(
+        selection.publication,
+        change.publication,
+      )
+    ) {
+      throw transitionDefect("claimPublication");
+    }
+    publicationWork = {
+      ...normalized.publicationWork,
+      pending: normalized.publicationWork.pending.filter((publication) => (
+        !queryPublicationIdentityEquals(
+          publication.identity,
+          change.publication.identity,
+        )
+      )),
+      inFlight: change.inFlight,
+    };
+  }
+  return rebuildNormalized(
+    normalized,
+    plan.nextScope,
+    normalized.queries,
+    "claimPublication",
+    normalized.activeDependencies,
+    normalized.completionDependencies,
+    publicationWork,
+  );
+}
+
+export function executeNormalizedClaimPublication(
+  normalized: NormalizedQuerySyncState,
+  capturedNow: PublicationAttemptInstant,
+): Result.Result<
+  NormalizedTransition<ClaimPublicationReceipt, ClaimPublicationPlan>,
+  NormalizedClaimPublicationError
+> {
+  return Result.gen(function* () {
+    const start = yield* startClaimPublication({
+      scope: normalized.scope,
+      lifecycle: normalizedPublicationLifecycleFacts(normalized),
+      capturedNow,
+    });
+    const plan = start.stage === "inFlightOwner"
+      ? yield* resumeClaimPublicationInFlightOwner(
+        start.resume,
+        normalizedPublicationOwnerFacts(
+          normalized,
+          start.intent.identity.queryKey,
+        ),
+      )
+      : yield* resumeClaimPublicationPending(
+        start.resume,
+        normalizedLowestPendingPublicationFacts(normalized),
+      );
+    const state = yield* interpretClaimPublicationPlan(normalized, plan);
+    return Object.freeze({
+      receipt: plan.receipt,
+      state,
+      disposition: plan._tag,
+      plan,
+    });
+  });
+}
+
+function interpretRecordPublicationAttemptOutcomePlan(
+  normalized: NormalizedQuerySyncState,
+  plan: RecordPublicationAttemptOutcomePlan,
+): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
+  if (plan._tag === "noWrite") {
+    return rebuildNormalized(
+      normalized,
+      normalized.scope,
+      normalized.queries,
+      "recordPublicationAttemptOutcome",
+    );
+  }
+  const owner = plan.expected.owner === null
+    ? null
+    : normalizedPublicationOwnerFacts(
+      normalized,
+      plan.expected.owner.descriptor.queryKey,
+    );
+  if (
+    !scopeFactsEqual(normalized.scope, plan.expected.scope)
+    || !publicationLifecycleFactsEqual(
+      normalizedPublicationLifecycleFacts(normalized),
+      plan.expected.lifecycle,
+    )
+    || !publicationOwnerFactsEqual(owner, plan.expected.owner)
+  ) {
+    throw transitionDefect("recordPublicationAttemptOutcome");
+  }
+  const publicationWork: QuerySyncPublicationWorkState = {
+    ...normalized.publicationWork,
+    inFlight: plan.change.inFlight,
+    precedingAttemptOutcome: plan.change.precedingAttemptOutcome,
+  };
+  return rebuildNormalized(
+    normalized,
+    plan.nextScope,
+    normalized.queries,
+    "recordPublicationAttemptOutcome",
+    normalized.activeDependencies,
+    normalized.completionDependencies,
+    publicationWork,
+  );
+}
+
+export function executeNormalizedRecordPublicationAttemptOutcome(
+  normalized: NormalizedQuerySyncState,
+  attempt: PublicationAttempt,
+  outcome: PublicationAttemptOutcome,
+  capturedNow: PublicationAttemptInstant,
+): Result.Result<
+  NormalizedTransition<
+    RecordPublicationAttemptOutcomeReceipt,
+    RecordPublicationAttemptOutcomePlan
+  >,
+  NormalizedRecordPublicationAttemptOutcomeError
+> {
+  return Result.gen(function* () {
+    const authenticated = yield*
+      authenticateRecordPublicationAttemptOutcomeAttempt(attempt);
+    const plan = yield* planRecordPublicationAttemptOutcome({
+      scope: normalized.scope,
+      lifecycle: normalizedPublicationLifecycleFacts(normalized),
+      owner: normalizedPublicationOwnerFacts(
+        normalized,
+        authenticated.queryKey,
+      ),
+      attempt: authenticated.attempt,
+      outcome,
+      capturedNow,
+    });
+    const state = yield* interpretRecordPublicationAttemptOutcomePlan(
+      normalized,
+      plan,
+    );
+    return Object.freeze({
+      receipt: plan.receipt,
+      state,
+      disposition: plan._tag,
+      plan,
+    });
+  });
+}
+
+function interpretCompletePublicationPlan(
+  normalized: NormalizedQuerySyncState,
+  plan: CompletePublicationPlan,
+): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
+  if (plan._tag === "noWrite") {
+    return rebuildNormalized(
+      normalized,
+      normalized.scope,
+      normalized.queries,
+      "completePublication",
+    );
+  }
+  const owner = plan.expected.owner === null
+    ? null
+    : normalizedPublicationOwnerFacts(
+      normalized,
+      plan.expected.owner.descriptor.queryKey,
+    );
+  if (
+    !scopeFactsEqual(normalized.scope, plan.expected.scope)
+    || !publicationLifecycleFactsEqual(
+      normalizedPublicationLifecycleFacts(normalized),
+      plan.expected.lifecycle,
+    )
+    || !publicationOwnerFactsEqual(owner, plan.expected.owner)
+  ) {
+    throw transitionDefect("completePublication");
+  }
+  const publicationWork: QuerySyncPublicationWorkState = {
+    ...normalized.publicationWork,
+    inFlight: null,
+    latestDelivered: plan.change.latestDelivered,
+  };
+  return rebuildNormalized(
+    normalized,
+    plan.nextScope,
+    normalized.queries,
+    "completePublication",
+    normalized.activeDependencies,
+    normalized.completionDependencies,
+    publicationWork,
+  );
+}
+
+export function executeNormalizedCompletePublication(
+  normalized: NormalizedQuerySyncState,
+  evidence: AcceptedQueryPublicationEvidence,
+): Result.Result<
+  NormalizedTransition<CompletePublicationReceipt, CompletePublicationPlan>,
+  NormalizedCompletePublicationError
+> {
+  return Result.gen(function* () {
+    const authenticated = yield* authenticateCompletePublicationEvidence(
+      evidence,
+    );
+    const plan = yield* planCompletePublication({
+      scope: normalized.scope,
+      lifecycle: normalizedPublicationLifecycleFacts(normalized),
+      owner: normalizedPublicationOwnerFacts(
+        normalized,
+        authenticated.queryKey,
+      ),
+      evidence: authenticated.evidence,
+    });
+    const state = yield* interpretCompletePublicationPlan(normalized, plan);
     return Object.freeze({
       receipt: plan.receipt,
       state,

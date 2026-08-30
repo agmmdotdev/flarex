@@ -77,6 +77,11 @@ export interface QuerySyncAccountingInput {
   readonly publicationWork: QuerySyncPublicationWorkState;
 }
 
+export type PublicationLifecycleAccountingFacts = Pick<
+  QuerySyncPublicationWorkState,
+  "inFlight" | "latestDelivered" | "precedingAttemptOutcome"
+>;
+
 export function emptyMetricContribution(): QuerySyncMetricContribution {
   return Object.freeze({
     queryCount: 0,
@@ -317,7 +322,7 @@ function precedingOutcomeBytes(
 }
 
 export function publicationLifecycleMetricContribution(
-  publicationWork: QuerySyncPublicationWorkState,
+  publicationWork: PublicationLifecycleAccountingFacts,
 ): QuerySyncMetricContribution {
   let lifecycleBytes = 0;
   if (publicationWork.inFlight !== null) {

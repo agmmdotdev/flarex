@@ -1,7 +1,4 @@
 import type {
-  PublicationAttemptOrdinal,
-} from "../kernel/CanonicalValue.js";
-import type {
   ClaimEvaluationWorkDecision,
   RecordEvaluationAttemptOutcomeDecision,
 } from "../kernel/EvaluationWork.js";
@@ -9,7 +6,6 @@ import type {
   ApplyInvalidationsDecision,
   BeginQueryEvaluationDecision,
   CompleteQueryEvaluationDecision,
-  PublicationBlockReason,
 } from "../kernel/Model.js";
 import {
   alreadyAdvancedBeginReceipt,
@@ -59,78 +55,30 @@ export type {
   CompleteQueryEvaluationReceipt,
   InitializeNamespaceReceipt,
 } from "../transition-plan/Receipts.js";
-import {
-  freezeQueryPublicationIdentity,
-} from "../kernel/Publication.js";
-import type {
-  QueryPublicationIdentity,
-} from "../kernel/Publication.js";
 import type {
   ClaimPublicationDecision,
   CompletePublicationDecision,
-  PublicationAttempt,
   RecordPublicationAttemptOutcomeDecision,
 } from "../kernel/PublicationWork.js";
-
-export type ClaimPublicationReceipt =
-  | Readonly<{
-    readonly _tag: "claimed";
-    readonly attempt: PublicationAttempt;
-  }>
-  | Readonly<{
-    readonly _tag: "replayed";
-    readonly attempt: PublicationAttempt;
-  }>
-  | Readonly<{
-    readonly _tag: "blocked";
-    readonly identity: QueryPublicationIdentity;
-    readonly attemptOrdinal: PublicationAttemptOrdinal;
-    readonly reason: PublicationBlockReason;
-    readonly resetRequired: true;
-  }>
-  | Readonly<{
-    readonly _tag: "none";
-  }>;
-
-export type RecordPublicationAttemptOutcomeReceipt =
-  | Readonly<{
-    readonly _tag: "recorded";
-    readonly identity: QueryPublicationIdentity;
-    readonly attemptOrdinal: PublicationAttemptOrdinal;
-    readonly nextAttemptOrdinal: PublicationAttemptOrdinal;
-    readonly nextDisposition: "ready" | "uncertain";
-  }>
-  | Readonly<{
-    readonly _tag: "blocked";
-    readonly identity: QueryPublicationIdentity;
-    readonly attemptOrdinal: PublicationAttemptOrdinal;
-    readonly reason: PublicationBlockReason;
-    readonly resetRequired: true;
-  }>
-  | Readonly<{
-    readonly _tag: "superseded";
-    readonly identity: QueryPublicationIdentity;
-    readonly attemptOrdinal: PublicationAttemptOrdinal;
-  }>
-  | Readonly<{
-    readonly _tag: "recoveryEvidenceExpired";
-    readonly identity: QueryPublicationIdentity;
-    readonly attemptOrdinal: PublicationAttemptOrdinal;
-  }>;
-
-export type CompletePublicationReceipt =
-  | Readonly<{
-    readonly _tag: "completed";
-    readonly identity: QueryPublicationIdentity;
-  }>
-  | Readonly<{
-    readonly _tag: "replayed";
-    readonly identity: QueryPublicationIdentity;
-  }>
-  | Readonly<{
-    readonly _tag: "superseded";
-    readonly identity: QueryPublicationIdentity;
-  }>;
+import {
+  attemptedPublicationReceipt,
+  blockedClaimPublicationReceipt,
+  blockedPublicationAttemptOutcomeReceipt,
+  historicalPublicationAttemptOutcomeReceipt,
+  nonePublicationReceipt,
+  publicationCompletionReceipt,
+  recordedPublicationAttemptOutcomeReceipt,
+} from "../transition-plan/PublicationWork.js";
+export type {
+  ClaimPublicationReceipt,
+  CompletePublicationReceipt,
+  RecordPublicationAttemptOutcomeReceipt,
+} from "../transition-plan/PublicationWork.js";
+import type {
+  ClaimPublicationReceipt,
+  CompletePublicationReceipt,
+  RecordPublicationAttemptOutcomeReceipt,
+} from "../transition-plan/PublicationWork.js";
 
 export function projectBeginReceipt(
   decision: BeginQueryEvaluationDecision,
@@ -270,22 +218,17 @@ export function projectClaimPublicationReceipt(
   switch (decision._tag) {
     case "claimed":
     case "replayed":
-      return Object.freeze({
-        _tag: decision._tag,
-        // Publication attempts are nominal state-issued capabilities. Keep the
-        // exact frozen value instead of manufacturing a structural copy.
-        attempt: decision.attempt,
-      });
+      // Publication attempts are nominal state-issued capabilities. Keep the
+      // exact frozen value instead of manufacturing a structural copy.
+      return attemptedPublicationReceipt(decision._tag, decision.attempt);
     case "blocked":
-      return Object.freeze({
-        _tag: "blocked",
-        identity: freezeQueryPublicationIdentity(decision.identity),
-        attemptOrdinal: decision.attemptOrdinal,
-        reason: decision.reason,
-        resetRequired: true,
-      });
+      return blockedClaimPublicationReceipt(
+        decision.identity,
+        decision.attemptOrdinal,
+        decision.reason,
+      );
     case "none":
-      return Object.freeze({ _tag: "none" });
+      return nonePublicationReceipt();
   }
 }
 
@@ -294,36 +237,30 @@ export function projectRecordPublicationAttemptOutcomeReceipt(
 ): RecordPublicationAttemptOutcomeReceipt {
   switch (decision._tag) {
     case "recorded":
-      return Object.freeze({
-        _tag: "recorded",
-        identity: freezeQueryPublicationIdentity(decision.identity),
+      return recordedPublicationAttemptOutcomeReceipt({
+        identity: decision.identity,
         attemptOrdinal: decision.attemptOrdinal,
         nextAttemptOrdinal: decision.nextAttemptOrdinal,
         nextDisposition: decision.nextDisposition,
       });
     case "blocked":
-      return Object.freeze({
-        _tag: "blocked",
-        identity: freezeQueryPublicationIdentity(decision.identity),
-        attemptOrdinal: decision.attemptOrdinal,
-        reason: decision.reason,
-        resetRequired: true,
-      });
+      return blockedPublicationAttemptOutcomeReceipt(
+        decision.identity,
+        decision.attemptOrdinal,
+        decision.reason,
+      );
     case "superseded":
     case "recoveryEvidenceExpired":
-      return Object.freeze({
-        _tag: decision._tag,
-        identity: freezeQueryPublicationIdentity(decision.identity),
-        attemptOrdinal: decision.attemptOrdinal,
-      });
+      return historicalPublicationAttemptOutcomeReceipt(
+        decision._tag,
+        decision.identity,
+        decision.attemptOrdinal,
+      );
   }
 }
 
 export function projectCompletePublicationReceipt(
   decision: CompletePublicationDecision,
 ): CompletePublicationReceipt {
-  return Object.freeze({
-    _tag: decision._tag,
-    identity: freezeQueryPublicationIdentity(decision.identity),
-  });
+  return publicationCompletionReceipt(decision._tag, decision.identity);
 }

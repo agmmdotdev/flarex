@@ -33,17 +33,15 @@ import {
   applyAdmittedInvalidationsTransition,
   applyBeginQueryEvaluationTransition,
   applyClaimEvaluationWorkTransition,
+  applyClaimPublicationTransition,
   applyCompleteQueryEvaluationTransition,
+  applyCompletePublicationTransition,
   applyRecordEvaluationAttemptOutcomeTransition,
+  applyRecordPublicationAttemptOutcomeTransition,
 } from "../../kernel/TransitionPlanAggregate.js";
 import type {
   QueryPublicationArtifact,
 } from "../../kernel/Publication.js";
-import {
-  claimPublication,
-  completePublication,
-  recordPublicationAttemptOutcome,
-} from "../../kernel/PublicationWork.js";
 import type {
   AcceptedQueryPublicationEvidence,
   ClaimPublicationError,
@@ -61,11 +59,6 @@ import type {
   QuerySyncStateIntegrationError,
   QuerySyncStateOperation,
 } from "../../state/Errors.js";
-import {
-  projectClaimPublicationReceipt,
-  projectCompletePublicationReceipt,
-  projectRecordPublicationAttemptOutcomeReceipt,
-} from "../../state/Receipts.js";
 import {
   applyInitializeNamespaceTransition,
 } from "../../state/Initialization.js";
@@ -366,14 +359,6 @@ function initializeReducer(
     });
 }
 
-function legacyAggregateDisposition(
-  previous: QuerySyncState,
-  next: QuerySyncState,
-): TransitionDisposition {
-  return previous === next ? "noWrite" : "write";
-}
-
-
 function makeReferencePort(
   cellRef: SynchronizedRef.SynchronizedRef<ReferenceStateCell>,
   binding: ReferenceStateBinding,
@@ -607,11 +592,14 @@ function makeReferencePort(
             binding,
             current,
           );
-          const decision = yield* claimPublication(state, capturedNow);
+          const transition = yield* applyClaimPublicationTransition(
+            state,
+            capturedNow,
+          );
           return Object.freeze({
-            receipt: projectClaimPublicationReceipt(decision),
-            nextState: decision.state,
-            disposition: legacyAggregateDisposition(state, decision.state),
+            receipt: transition.plan.receipt,
+            nextState: transition.decision.state,
+            disposition: transition.disposition,
           });
         });
       }),
@@ -648,16 +636,16 @@ function makeReferencePort(
             binding,
             current,
           );
-          const decision = yield* recordPublicationAttemptOutcome(
+          const transition = yield* applyRecordPublicationAttemptOutcomeTransition(
             state,
             attempt,
             outcome,
             capturedNow,
           );
           return Object.freeze({
-            receipt: projectRecordPublicationAttemptOutcomeReceipt(decision),
-            nextState: decision.state,
-            disposition: legacyAggregateDisposition(state, decision.state),
+            receipt: transition.plan.receipt,
+            nextState: transition.decision.state,
+            disposition: transition.disposition,
           });
         });
       }),
@@ -687,11 +675,14 @@ function makeReferencePort(
           binding,
           current,
         );
-        const decision = yield* completePublication(state, evidence);
+        const transition = yield* applyCompletePublicationTransition(
+          state,
+          evidence,
+        );
         return Object.freeze({
-          receipt: projectCompletePublicationReceipt(decision),
-          nextState: decision.state,
-          disposition: legacyAggregateDisposition(state, decision.state),
+          receipt: transition.plan.receipt,
+          nextState: transition.decision.state,
+          disposition: transition.disposition,
         });
       }),
     );

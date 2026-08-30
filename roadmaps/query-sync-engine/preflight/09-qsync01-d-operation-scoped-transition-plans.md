@@ -4,15 +4,17 @@
 
 **Preflight status:** `QSYNC01-D0` accepted on 2026-08-29; `QSYNC01-D1`
 implemented and verified on 2026-08-29; `QSYNC01-D2` implemented and verified
-on 2026-08-30; `QSYNC01-D3` implemented and verified on 2026-08-30.
+on 2026-08-30; `QSYNC01-D3` and `QSYNC01-D4` implemented and verified on
+2026-08-30.
 
 This record completes the `QSYNC01-D0` architecture freeze and now records the
-separately approved `QSYNC01-D1`, `QSYNC01-D2`, and `QSYNC01-D3`
+separately approved `QSYNC01-D1`, `QSYNC01-D2`, `QSYNC01-D3`, and `QSYNC01-D4`
 implementations. D1 adds the private source planner foundation plus
 initialization, begin, and staged admitted-batch application. D2 moves
 evaluation completion alone, including its replay and material fact stages.
-D3 moves evaluation selection and attempt-outcome recording. `QSYNC01-D4`
-remains separately gated.
+D3 moves evaluation selection and attempt-outcome recording. D4 moves the
+publication lifecycle, completes the all-nine proof, and opens only the private
+`@flarex/query-sync/internal/transition-plan` import boundary.
 
 `QSYNC-FX01-C1`, `QSYNC-FX01-C2`, and `QSYNC-FX01-C3` remain blocked. No
 Cloudflare SQLite schema, local storage generation, migration, Durable Object
@@ -650,15 +652,33 @@ green. No package-manifest export or adapter code was added.
 
 ### `QSYNC01-D4` - publication lifecycle and all-operation exit
 
-Move `claimPublication`, `recordPublicationAttemptOutcome`, and
-`completePublication`. Prove state-owner clock inputs, pending-to-in-flight
-atomicity, age/ordinal blocking, outcome replay, completion, all publication
-counter transitions, and the complete nine-operation generated/concurrency
-matrix.
+**Status:** complete on 2026-08-30.
 
-Only after the all-nine proof passes may D4 add the final
-`./internal/transition-plan` package export. Completion of D4 still does not
-authorize SQLite. It permits a fresh `QSYNC-FX01-C1` discussion checkpoint.
+`claimPublication`, `recordPublicationAttemptOutcome`, and
+`completePublication` now use the private planner seam. Claiming reads
+in-flight ownership before the lowest pending selection, preserves state-owner
+clock capture, and plans pending-to-in-flight or inclusive age blocking as one
+atomic change. Attempt-outcome recording authenticates before field reads and
+preserves exact replay, terminal/ordinal/age priority, uncertainty, and the
+superseded-versus-expired recovery window. Completion authenticates accepted
+evidence, clears in-flight work, records latest-delivered evidence, and replays
+without deleting unrelated pending work.
+
+The aggregate APIs are thin planner-backed compatibility/oracle facades, the
+reference adapter follows explicit disposition, publication receipts and
+nominal capabilities have one transition-plan owner, and the normalized test
+interpreter applies the three logical changes independently. Exact publication
+accounting covers pending/in-flight content, lifecycle tombstones, and the
+settlement envelope. Before/after-swap faults, retained faults across no-write
+and failure branches, existing concurrency cases, and fixed-clock generated
+histories now cover all nine state operations.
+
+The complete 377-test package suite, typecheck, focused planner and conformance
+proofs, boundary audits, and final-diff review form the D4 exit evidence. With
+that proof green, the exact private `./internal/transition-plan` package export
+is now present. There is no package-root export, dependency, database, host,
+backend, or production caller. Completion of D4 does not authorize SQLite; it
+permits only a fresh `QSYNC-FX01-C1` discussion checkpoint.
 
 Each code gate requires its own explicit approval and significant-diff review.
 A completed earlier D slice does not authorize a later one.
@@ -682,9 +702,8 @@ They remain mandatory at their later adapter gates.
 
 ## Explicitly Not Authorized
 
-This accepted preflight does not authorize:
+This completed preflight does not authorize:
 
-- D4 implementation without a separate approval;
 - a public API, package-root export, new workspace package, or new dependency;
 - SQLite DDL, indexes, migration, storage generation, dual tables, aggregate
   blob, compatibility write, shadow reducer, or backend adapter;
@@ -699,11 +718,10 @@ This accepted preflight does not authorize:
 
 ## Next Checkpoint
 
-The next proposed action is an explicit approval or rejection of
-`QSYNC01-D4`, moving the three publication-lifecycle operations onto the
-private planner seam and completing the all-nine proof. Until D1-D4 all
-complete, there is no FX01 SQLite slice and the package export remains
-withheld.
+The next proposed action is a fresh approval or rejection checkpoint for
+`QSYNC-FX01-C1`. D1-D4 and the all-nine portable planner proof are complete,
+but there is still no authorized FX01 SQLite slice, DDL, storage generation, or
+adapter implementation.
 
 `QSYNC-CF01` remains a separate delivery feasibility/selection gate and does
 not change this ordering.

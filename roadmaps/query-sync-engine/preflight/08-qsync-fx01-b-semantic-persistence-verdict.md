@@ -542,8 +542,7 @@ This completed docs checkpoint does not authorize:
 
 ## Next Checkpoint
 
-Discuss and explicitly approve or reject `QSYNC01-D1`, the shared planner
-foundation plus initialization, begin, and staged admitted-batch application.
-Until D1-D4 complete all nine planners and a fresh FX01 checkpoint is approved,
-FX01 has no implementation slice: `QSYNC-FX01-C1` remains blocked and no
-schema work should begin.
+Discuss and explicitly approve or reject a fresh `QSYNC-FX01-C1` checkpoint.
+D1-D4 now complete all nine planners, but FX01 still has no implementation
+slice until that adapter checkpoint is approved: `QSYNC-FX01-C1` remains
+blocked and no schema work should begin.

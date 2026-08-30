@@ -558,5 +558,5 @@ The B and C gates are now complete over reference capabilities. `QSYNC-FX01-A`
 and the docs-only B access verdict are complete. The accepted docs-only
 [`QSYNC01-D0` preflight](./09-qsync01-d-operation-scoped-transition-plans.md)
 now owns the missing operation-scoped planner design. The next proposed code
-checkpoint is D1; all Cloudflare SQLite implementation remains blocked until
-D1-D4 complete and a fresh adapter checkpoint is approved.
+sequence D1-D4 is complete; all Cloudflare SQLite implementation remains
+blocked until a fresh adapter checkpoint is approved.

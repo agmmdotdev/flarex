@@ -5,7 +5,10 @@ export type QuerySyncTransitionOperation =
   | "applyAdmittedInvalidations"
   | "completeQueryEvaluation"
   | "claimEvaluationWork"
-  | "recordEvaluationAttemptOutcome";
+  | "recordEvaluationAttemptOutcome"
+  | "claimPublication"
+  | "recordPublicationAttemptOutcome"
+  | "completePublication";
 
 export class QuerySyncTransitionFactError extends Data.TaggedError(
   "QuerySyncTransitionFactError",
@@ -26,7 +29,10 @@ export class QuerySyncTransitionFactError extends Data.TaggedError(
     | "completionPublicationLifecycleFactsInvalid"
     | "evaluationScanFactsInvalid"
     | "evaluationSelectedQueryFactsInvalid"
-    | "evaluationAttemptOutcomeQueryFactsInvalid";
+    | "evaluationAttemptOutcomeQueryFactsInvalid"
+    | "publicationLifecycleFactsInvalid"
+    | "publicationOwnerFactsInvalid"
+    | "publicationSelectionFactsInvalid";
 }> {}
 
 export class QuerySyncTransitionResumeDefect extends Data.TaggedError(
@@ -35,14 +41,17 @@ export class QuerySyncTransitionResumeDefect extends Data.TaggedError(
   readonly operation:
     | "applyAdmittedInvalidations"
     | "completeQueryEvaluation"
-    | "claimEvaluationWork";
+    | "claimEvaluationWork"
+    | "claimPublication";
   readonly stage:
     | "affectedTargets"
     | "affectedActiveFacts"
     | "completionReplayFacts"
     | "completionMaterialFacts"
     | "evaluationScanFacts"
-    | "evaluationSelectedQueryFacts";
+    | "evaluationSelectedQueryFacts"
+    | "publicationInFlightOwnerFacts"
+    | "lowestPendingPublicationFacts";
 }> {}
 
 export type QuerySyncInitializationPolicyReason =

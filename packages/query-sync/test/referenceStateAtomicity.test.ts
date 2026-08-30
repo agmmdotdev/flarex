@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type {
   NamespaceCursor,
   QueryEvaluationAttempt,
+  QueryOperationTarget,
   QuerySyncState,
 } from "@flarex/query-sync/internal/kernel";
 import {
@@ -11,6 +12,7 @@ import {
   QuerySyncStoredStateCorruptError,
 } from "@flarex/query-sync/internal/state";
 import {
+  makeAcceptedQueryPublicationEvidenceForTesting,
   makeReferenceQuerySyncStateHarness,
   ReferenceStateSnapshotBindingError,
 } from "@flarex/query-sync/testing/conformance";
@@ -26,6 +28,7 @@ import {
   batch,
   canonicalText,
   cursor,
+  descriptor,
   evaluation,
   firstEvaluationRequest,
   getSuccess,
@@ -54,6 +57,48 @@ function requireState(state: QuerySyncState | null): QuerySyncState {
   return state;
 }
 
+async function installPendingReferencePublication(
+  transitionState: ReferenceQuerySyncTransitionState,
+  queryTarget: QueryOperationTarget,
+  dependency: string,
+  label: string,
+  resultSeed = 80,
+) {
+  const begun = await runEffect(
+    transitionState.beginQueryEvaluation(firstEvaluationRequest(queryTarget)),
+  );
+  if (begun._tag !== "created") {
+    throw new Error("Expected an evaluation attempt to be created.");
+  }
+  const queryEvaluation = evaluation({
+    descriptor: begun.attempt.descriptor,
+    generation: begun.attempt.generation,
+    snapshot: begun.attempt.registrationCursor.appliedThroughSequence,
+    dependencies: [dependency],
+    resultSeed,
+  });
+  const refresh = getSuccess(deriveGenerationRefreshEvidence(
+    queryEvaluation,
+    begun.attempt.registrationCursor,
+    [],
+    queryEvaluation.authorityWitness,
+  ));
+  const completed = await runEffect(transitionState.completeQueryEvaluation(
+    begun.attempt,
+    queryEvaluation,
+    refresh,
+    publicationArtifact(label),
+  ));
+  if (completed._tag !== "completed") {
+    throw new Error("Expected an active reference query.");
+  }
+  return Object.freeze({
+    attempt: begun.attempt,
+    evaluation: queryEvaluation,
+    refresh,
+  });
+}
+
 async function prepareActiveReferenceQuery(
   physicalNamespaceId: string,
   dependency: string,
@@ -68,33 +113,12 @@ async function prepareActiveReferenceQuery(
   await runEffect(
     transitionState.initializeOrInspectNamespace(bootstrapCursor),
   );
-  const begun = await runEffect(
-    transitionState.beginQueryEvaluation(firstEvaluationRequest(queryTarget)),
+  await installPendingReferencePublication(
+    transitionState,
+    queryTarget,
+    dependency,
+    "reference-active-query",
   );
-  if (begun._tag !== "created") {
-    throw new Error("Expected an evaluation attempt to be created.");
-  }
-  const queryEvaluation = evaluation({
-    descriptor: begun.attempt.descriptor,
-    generation: begun.attempt.generation,
-    snapshot: begun.attempt.registrationCursor.appliedThroughSequence,
-    dependencies: [dependency],
-  });
-  const refresh = getSuccess(deriveGenerationRefreshEvidence(
-    queryEvaluation,
-    begun.attempt.registrationCursor,
-    [],
-    queryEvaluation.authorityWitness,
-  ));
-  const completed = await runEffect(transitionState.completeQueryEvaluation(
-    begun.attempt,
-    queryEvaluation,
-    refresh,
-    publicationArtifact("reference-active-query"),
-  ));
-  if (completed._tag !== "completed") {
-    throw new Error("Expected an active reference query.");
-  }
   return { transitionState, queryTarget };
 }
 
@@ -1263,6 +1287,386 @@ describe("reference transition-state atomicity", () => {
       ))).toMatchObject({
         _tag: timing === "beforeSwap" ? "completed" : "replayed",
         publicationDisposition: { _tag: "pending" },
+      });
+    }
+  });
+
+  it("keeps a fresh publication claim atomic across both swap fault timings", async () => {
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const prepared = await prepareActiveReferenceQuery(
+        `physical-publication-claim-${timing}`,
+        canonicalText(`publication-claim-${timing}`),
+      );
+      const beforeClaim = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      expect(beforeClaim.publicationWork.pending).toHaveLength(1);
+      expect(beforeClaim.publicationWork.inFlight).toBeNull();
+      await runEffect(prepared.transitionState.injectNextFault({
+        operation: "claimPublication",
+        timing,
+      }));
+
+      const failure = await runEffectFailure(
+        prepared.transitionState.claimPublication(),
+      );
+      expect(failure).toMatchObject({
+        operation: "claimPublication",
+        commitCertainty:
+          timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
+      const afterFailure = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      if (timing === "beforeSwap") {
+        expect(afterFailure).toBe(beforeClaim);
+        expect(afterFailure.publicationWork.pending).toHaveLength(1);
+        expect(afterFailure.publicationWork.inFlight).toBeNull();
+      } else {
+        expect(failure).toBeInstanceOf(
+          QuerySyncStateCommitOutcomeUnknownError,
+        );
+        expect(afterFailure).not.toBe(beforeClaim);
+        expect(afterFailure.publicationWork.pending).toHaveLength(0);
+        expect(afterFailure.publicationWork.inFlight).toMatchObject({
+          attemptOrdinal: 1,
+          disposition: { _tag: "ready" },
+        });
+      }
+
+      const recovered = await runEffect(
+        prepared.transitionState.claimPublication(),
+      );
+      expect(recovered).toMatchObject({
+        _tag: timing === "beforeSwap" ? "claimed" : "replayed",
+        attempt: { attemptOrdinal: 1 },
+      });
+      if (recovered._tag === "blocked" || recovered._tag === "none") {
+        throw new Error("Expected a recovered publication attempt.");
+      }
+      const committed = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      expect(committed.publicationWork.pending).toHaveLength(0);
+      expect(committed.publicationWork.inFlight).toMatchObject({
+        publication: recovered.attempt.publication,
+        attemptOrdinal: 1,
+      });
+      if (timing === "afterSwap") expect(committed).toBe(afterFailure);
+    }
+  });
+
+  it("keeps a publication outcome write atomic across both swap fault timings", async () => {
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const prepared = await prepareActiveReferenceQuery(
+        `physical-publication-outcome-${timing}`,
+        canonicalText(`publication-outcome-${timing}`),
+      );
+      const claimed = await runEffect(
+        prepared.transitionState.claimPublication(),
+      );
+      if (claimed._tag !== "claimed") {
+        throw new Error("Expected a fresh publication attempt.");
+      }
+      const beforeOutcome = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      await runEffect(prepared.transitionState.injectNextFault({
+        operation: "recordPublicationAttemptOutcome",
+        timing,
+      }));
+
+      const failure = await runEffectFailure(
+        prepared.transitionState.recordPublicationAttemptOutcome(
+          claimed.attempt,
+          "knownNotAppended",
+        ),
+      );
+      expect(failure).toMatchObject({
+        operation: "recordPublicationAttemptOutcome",
+        commitCertainty:
+          timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
+      const afterFailure = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      if (timing === "beforeSwap") {
+        expect(afterFailure).toBe(beforeOutcome);
+        expect(afterFailure.publicationWork.inFlight).toMatchObject({
+          attemptOrdinal: 1,
+        });
+        expect(afterFailure.publicationWork.precedingAttemptOutcome).toBeNull();
+      } else {
+        expect(failure).toBeInstanceOf(
+          QuerySyncStateCommitOutcomeUnknownError,
+        );
+        expect(afterFailure).not.toBe(beforeOutcome);
+        expect(afterFailure.publicationWork.inFlight).toMatchObject({
+          attemptOrdinal: 2,
+          disposition: { _tag: "ready" },
+        });
+        expect(afterFailure.publicationWork.precedingAttemptOutcome)
+          .toMatchObject({
+            attemptOrdinal: 1,
+            outcome: "knownNotAppended",
+          });
+      }
+
+      expect(await runEffect(
+        prepared.transitionState.recordPublicationAttemptOutcome(
+          claimed.attempt,
+          "knownNotAppended",
+        ),
+      )).toMatchObject({
+        _tag: "recorded",
+        attemptOrdinal: 1,
+        nextAttemptOrdinal: 2,
+        nextDisposition: "ready",
+      });
+      const committed = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      expect(committed.publicationWork.inFlight).toMatchObject({
+        attemptOrdinal: 2,
+        disposition: { _tag: "ready" },
+      });
+      if (timing === "afterSwap") expect(committed).toBe(afterFailure);
+    }
+  });
+
+  it("keeps a publication completion write atomic across both swap fault timings", async () => {
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const prepared = await prepareActiveReferenceQuery(
+        `physical-publication-completion-${timing}`,
+        canonicalText(`publication-completion-${timing}`),
+      );
+      const claimed = await runEffect(
+        prepared.transitionState.claimPublication(),
+      );
+      if (claimed._tag !== "claimed") {
+        throw new Error("Expected a fresh publication attempt.");
+      }
+      const evidence = makeAcceptedQueryPublicationEvidenceForTesting({
+        identity: claimed.attempt.publication.identity,
+        resultDigest: claimed.attempt.publication.resultDigest,
+      });
+      const beforeCompletion = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      await runEffect(prepared.transitionState.injectNextFault({
+        operation: "completePublication",
+        timing,
+      }));
+
+      const failure = await runEffectFailure(
+        prepared.transitionState.completePublication(evidence),
+      );
+      expect(failure).toMatchObject({
+        operation: "completePublication",
+        commitCertainty:
+          timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
+      const afterFailure = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      if (timing === "beforeSwap") {
+        expect(afterFailure).toBe(beforeCompletion);
+        expect(afterFailure.publicationWork.inFlight).not.toBeNull();
+        expect(afterFailure.publicationWork.latestDelivered).toBeNull();
+      } else {
+        expect(failure).toBeInstanceOf(
+          QuerySyncStateCommitOutcomeUnknownError,
+        );
+        expect(afterFailure).not.toBe(beforeCompletion);
+        expect(afterFailure.publicationWork.inFlight).toBeNull();
+        expect(afterFailure.publicationWork.latestDelivered).toMatchObject({
+          identity: evidence.identity,
+          resultDigest: evidence.resultDigest,
+        });
+      }
+
+      expect(await runEffect(
+        prepared.transitionState.completePublication(evidence),
+      )).toMatchObject({
+        _tag: timing === "beforeSwap" ? "completed" : "replayed",
+        identity: evidence.identity,
+      });
+      const committed = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      expect(committed.publicationWork.inFlight).toBeNull();
+      expect(committed.publicationWork.latestDelivered).toMatchObject({
+        identity: evidence.identity,
+      });
+      if (timing === "afterSwap") expect(committed).toBe(afterFailure);
+    }
+  });
+
+  it("retains publication claim faults across an empty no-write", async () => {
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const bootstrapCursor = cursor();
+      const harness = await runEffect(makeReferenceQuerySyncStateHarness());
+      const transitionState = harness.bind(bindingFor(
+        `physical-publication-claim-retention-${timing}`,
+        bootstrapCursor,
+      ));
+      await runEffect(
+        transitionState.initializeOrInspectNamespace(bootstrapCursor),
+      );
+      await runEffect(transitionState.injectNextFault({
+        operation: "claimPublication",
+        timing,
+      }));
+
+      expect(await runEffect(transitionState.claimPublication()))
+        .toEqual({ _tag: "none" });
+      await installPendingReferencePublication(
+        transitionState,
+        target(),
+        canonicalText(`publication-claim-retention-${timing}`),
+        `publication-claim-retention-${timing}`,
+      );
+      expect(await runEffectFailure(transitionState.claimPublication()))
+        .toMatchObject({
+          operation: "claimPublication",
+          commitCertainty:
+            timing === "beforeSwap" ? "notCommitted" : "unknown",
+        });
+    }
+  });
+
+  it("retains publication outcome faults across replay and failure", async () => {
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const prepared = await prepareActiveReferenceQuery(
+        `physical-publication-outcome-retention-${timing}`,
+        canonicalText(`publication-outcome-retention-${timing}`),
+      );
+      const firstClaim = await runEffect(
+        prepared.transitionState.claimPublication(),
+      );
+      if (firstClaim._tag !== "claimed") {
+        throw new Error("Expected the first publication attempt.");
+      }
+      await runEffect(prepared.transitionState.recordPublicationAttemptOutcome(
+        firstClaim.attempt,
+        "knownNotAppended",
+      ));
+      const secondClaim = await runEffect(
+        prepared.transitionState.claimPublication(),
+      );
+      if (secondClaim._tag !== "replayed") {
+        throw new Error("Expected the second publication attempt.");
+      }
+      const before = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      await runEffect(prepared.transitionState.injectNextFault({
+        operation: "recordPublicationAttemptOutcome",
+        timing,
+      }));
+
+      expect(await runEffect(
+        prepared.transitionState.recordPublicationAttemptOutcome(
+          firstClaim.attempt,
+          "knownNotAppended",
+        ),
+      )).toMatchObject({
+        _tag: "recorded",
+        attemptOrdinal: 1,
+        nextAttemptOrdinal: 2,
+      });
+      expect(await runEffectFailure(
+        prepared.transitionState.recordPublicationAttemptOutcome(
+          firstClaim.attempt,
+          "outcomeUnknown",
+        ),
+      )).toMatchObject({
+        _tag: "InvalidPublicationAttemptOutcomeReplayError",
+        reason: "outcomeMismatch",
+      });
+      expect(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      )).toBe(before);
+
+      expect(await runEffectFailure(
+        prepared.transitionState.recordPublicationAttemptOutcome(
+          secondClaim.attempt,
+          "knownNotAppended",
+        ),
+      )).toMatchObject({
+        operation: "recordPublicationAttemptOutcome",
+        commitCertainty:
+          timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
+    }
+  });
+
+  it("retains publication completion faults across failure and supersession", async () => {
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const prepared = await prepareActiveReferenceQuery(
+        `physical-publication-completion-retention-${timing}`,
+        canonicalText(`publication-completion-retention-${timing}`),
+      );
+      const claimed = await runEffect(
+        prepared.transitionState.claimPublication(),
+      );
+      if (claimed._tag !== "claimed") {
+        throw new Error("Expected a fresh publication attempt.");
+      }
+      const correctEvidence = makeAcceptedQueryPublicationEvidenceForTesting({
+        identity: claimed.attempt.publication.identity,
+        resultDigest: claimed.attempt.publication.resultDigest,
+      });
+      const mismatchedDigestEvidence =
+        makeAcceptedQueryPublicationEvidenceForTesting({
+          identity: claimed.attempt.publication.identity,
+          resultDigest: evaluation({
+            generation: 1n,
+            snapshot: 0n,
+            resultSeed: 999,
+          }).resultDigest,
+        });
+      const unrelatedQueryKey = descriptor({
+        keySeed: 9_999,
+        identity: `completion-retention-unrelated-${timing}`,
+      }).queryKey;
+      const supersededEvidence = makeAcceptedQueryPublicationEvidenceForTesting({
+        identity: {
+          ...claimed.attempt.publication.identity,
+          queryKey: unrelatedQueryKey,
+        },
+        resultDigest: claimed.attempt.publication.resultDigest,
+      });
+      const before = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      await runEffect(prepared.transitionState.injectNextFault({
+        operation: "completePublication",
+        timing,
+      }));
+
+      expect(await runEffectFailure(
+        prepared.transitionState.completePublication(mismatchedDigestEvidence),
+      )).toMatchObject({
+        _tag: "InvalidAcceptedPublicationEvidenceError",
+        reason: "resultDigestMismatch",
+      });
+      expect(await runEffect(
+        prepared.transitionState.completePublication(supersededEvidence),
+      )).toMatchObject({
+        _tag: "superseded",
+        identity: supersededEvidence.identity,
+      });
+      expect(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      )).toBe(before);
+
+      expect(await runEffectFailure(
+        prepared.transitionState.completePublication(correctEvidence),
+      )).toMatchObject({
+        operation: "completePublication",
+        commitCertainty:
+          timing === "beforeSwap" ? "notCommitted" : "unknown",
       });
     }
   });

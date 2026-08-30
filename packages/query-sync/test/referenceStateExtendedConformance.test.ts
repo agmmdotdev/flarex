@@ -4,12 +4,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyAdmittedInvalidations,
+  beginQueryEvaluation,
   capturePublicationAttemptInstant,
   captureQueryPublicationArtifact,
   claimEvaluationWork,
   claimPublication,
   completeQueryEvaluation,
   completePublication,
+  createEmptyQuerySyncState,
   MAX_INVALIDATION_DEPENDENCY_LOOKUPS,
   QueryKeyCollisionError,
   QuerySyncWorkLimitError,
@@ -54,6 +56,8 @@ import {
   target,
 } from "./fixtures.js";
 import { runEffect, runEffectFailure } from "./effectBoundary.js";
+
+const SEEDED_HISTORY_CLOCK_MILLISECONDS = 50_000;
 
 function bindingFor(
   physicalNamespaceId: string,
@@ -222,6 +226,7 @@ function makeSeededCommands(seed: number): readonly StateConformanceCommand[] {
   const firstPublication = publicationArtifact(
     `seeded-publication-${seed}-first`,
   );
+  let expectedState = getSuccess(createEmptyQuerySyncState(bootstrapCursor));
   const commands: StateConformanceCommand[] = [{
     _tag: "initializeOrInspectNamespace",
     bootstrapCursor,
@@ -237,6 +242,10 @@ function makeSeededCommands(seed: number): readonly StateConformanceCommand[] {
       _tag: "applyAdmittedBatchAndAdvance",
       batch: admitted,
     });
+    expectedState = getSuccess(applyAdmittedInvalidations(
+      expectedState,
+      admitted,
+    )).state;
     if (nextRandom() % 2 === 0) {
       commands.push({
         _tag: "applyAdmittedBatchAndAdvance",
@@ -249,6 +258,10 @@ function makeSeededCommands(seed: number): readonly StateConformanceCommand[] {
     _tag: "beginQueryEvaluation",
     request: firstRegistrationRequest(queryTarget),
   });
+  expectedState = getSuccess(beginQueryEvaluation(
+    expectedState,
+    firstRegistrationRequest(queryTarget),
+  )).state;
   if (nextRandom() % 2 === 0) {
     commands.push({
       _tag: "beginQueryEvaluation",
@@ -266,27 +279,80 @@ function makeSeededCommands(seed: number): readonly StateConformanceCommand[] {
     resultSeed: nextRandom(),
     witnessSeed: nextRandom(),
   });
-  const firstAttempt = makeQueryEvaluationAttemptForTesting({
-    namespaceId: firstRegistrationCursor.namespaceId,
-    syncModelId: firstRegistrationCursor.syncModelId,
-    sourceEpoch: firstRegistrationCursor.sourceEpoch,
-    descriptor: queryDescriptor,
-    generation: firstEvaluation.generation,
-    expectedActiveGeneration: null,
-    registrationCursor: firstRegistrationCursor,
-    requestedDirtyThroughSequence: null,
+  const evaluationClaim = getSuccess(claimEvaluationWork(expectedState, {
+    maximumQueryInspections: 1,
+    continuation: null,
+  }));
+  if (evaluationClaim._tag !== "claimed") {
+    throw new Error("Expected deterministic evaluation work.");
+  }
+  const firstAttempt = evaluationClaim.attempt;
+  expectedState = evaluationClaim.state;
+  commands.push({
+    _tag: "claimEvaluationWork",
+    request: {
+      maximumQueryInspections: 1,
+      continuation: null,
+    },
   });
+  commands.push({
+    _tag: "recordEvaluationAttemptOutcome",
+    attempt: firstAttempt,
+    outcome: "transientExhausted",
+  });
+  expectedState = getSuccess(recordEvaluationAttemptOutcome(
+    expectedState,
+    firstAttempt,
+    "transientExhausted",
+  )).state;
+  const firstRefresh = getSuccess(deriveGenerationRefreshEvidence(
+    firstEvaluation,
+    firstRegistrationCursor,
+    [],
+    firstEvaluation.authorityWitness,
+  ));
   commands.push({
     _tag: "completeQueryEvaluation",
     attempt: firstAttempt,
     evaluation: firstEvaluation,
-    refresh: getSuccess(deriveGenerationRefreshEvidence(
-      firstEvaluation,
-      firstRegistrationCursor,
-      [],
-      firstEvaluation.authorityWitness,
-    )),
+    refresh: firstRefresh,
     publication: firstPublication,
+  });
+  expectedState = getSuccess(completeQueryEvaluation(
+    expectedState,
+    firstAttempt,
+    firstEvaluation,
+    firstRefresh,
+    firstPublication,
+  )).state;
+
+  const publicationNow = getSuccess(capturePublicationAttemptInstant(
+    SEEDED_HISTORY_CLOCK_MILLISECONDS,
+  ));
+  const publicationClaim = getSuccess(claimPublication(
+    expectedState,
+    publicationNow,
+  ));
+  if (publicationClaim._tag !== "claimed") {
+    throw new Error("Expected deterministic publication work.");
+  }
+  commands.push({ _tag: "claimPublication" });
+  expectedState = publicationClaim.state;
+  commands.push({
+    _tag: "recordPublicationAttemptOutcome",
+    attempt: publicationClaim.attempt,
+    outcome: "knownNotAppended",
+  });
+  expectedState = getSuccess(recordPublicationAttemptOutcome(
+    expectedState,
+    publicationClaim.attempt,
+    "knownNotAppended",
+    publicationNow,
+  )).state;
+  const acceptance = acceptanceFor(publicationClaim.attempt);
+  commands.push({
+    _tag: "completePublication",
+    evidence: acceptance,
   });
 
   const tailCount = 1 + (nextRandom() % 3);
@@ -1563,20 +1629,32 @@ describe("reference transition-state extended conformance", () => {
     for (const seed of seeds) {
       const commands = makeSeededCommands(seed);
       expect(makeSeededCommands(seed)).toEqual(commands);
+      expect(Array.from(new Set(commands.map((command) => command._tag))).sort())
+        .toEqual([
+          "applyAdmittedBatchAndAdvance",
+          "beginQueryEvaluation",
+          "claimEvaluationWork",
+          "claimPublication",
+          "completePublication",
+          "completeQueryEvaluation",
+          "initializeOrInspectNamespace",
+          "recordEvaluationAttemptOutcome",
+          "recordPublicationAttemptOutcome",
+        ]);
 
-      const bootstrapCursor = cursor();
-      const harness = await runEffect(makeReferenceQuerySyncStateHarness());
-      const transitionState = harness.bind(bindingFor(
-        `physical-namespace-seeded-${seed}`,
-        bootstrapCursor,
-      ));
-      const steps = await runEffect(runStateConformanceCommands(
-        transitionState,
-        {
+      const steps = await runEffect(Effect.gen(function* () {
+        yield* TestClock.setTime(SEEDED_HISTORY_CLOCK_MILLISECONDS);
+        const bootstrapCursor = cursor();
+        const harness = yield* makeReferenceQuerySyncStateHarness();
+        const transitionState = harness.bind(bindingFor(
+          `physical-namespace-seeded-${seed}`,
+          bootstrapCursor,
+        ));
+        return yield* runStateConformanceCommands(transitionState, {
           initialExpectedState: null,
           commands,
-        },
-      ));
+        });
+      }).pipe(Effect.provide(TestClock.layer())));
 
       expect(steps).toHaveLength(commands.length);
       for (const step of steps) {

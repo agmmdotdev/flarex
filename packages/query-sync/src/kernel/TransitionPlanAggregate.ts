@@ -4,6 +4,7 @@ import { compareCanonicalBase64Url } from "./CanonicalValue.js";
 import type {
   CanonicalDependencyKey,
   CanonicalQueryKey,
+  PublicationAttemptInstant,
 } from "./CanonicalValue.js";
 import {
   QuerySyncInvariantDefect,
@@ -44,6 +45,15 @@ import type {
   PendingQueryPublication,
   QueryPublicationArtifact,
 } from "./Publication.js";
+import {
+  compareQueryPublicationIdentity,
+  queryPublicationIdentityEquals,
+} from "./Publication.js";
+import type {
+  ClaimPublicationDecision,
+  CompletePublicationDecision,
+  RecordPublicationAttemptOutcomeDecision,
+} from "./PublicationWork.js";
 import type {
   ClaimEvaluationWorkReceipt,
   EvaluationAttemptOutcome,
@@ -141,6 +151,51 @@ import type {
   BeginQueryEvaluationReceipt,
   CompleteQueryEvaluationReceipt,
 } from "../transition-plan/Receipts.js";
+import {
+  resumeClaimPublicationInFlightOwner,
+  resumeClaimPublicationPending,
+  startClaimPublication,
+} from "../transition-plan/ClaimPublication.js";
+import type {
+  ClaimPublicationPlan,
+  ResumeClaimPublicationInFlightOwnerError,
+  ResumeClaimPublicationPendingError,
+  StartClaimPublicationError,
+} from "../transition-plan/ClaimPublication.js";
+import {
+  authenticateRecordPublicationAttemptOutcomeAttempt,
+  planRecordPublicationAttemptOutcome,
+} from "../transition-plan/RecordPublicationAttemptOutcome.js";
+import type {
+  PlanRecordPublicationAttemptOutcomeError,
+  RecordPublicationAttemptOutcomePlan,
+} from "../transition-plan/RecordPublicationAttemptOutcome.js";
+import {
+  authenticateCompletePublicationEvidence,
+  planCompletePublication,
+} from "../transition-plan/CompletePublication.js";
+import type {
+  CompletePublicationPlan,
+  PlanCompletePublicationError,
+} from "../transition-plan/CompletePublication.js";
+import {
+  freezePendingPublicationSelectionFacts,
+  freezePublicationLifecycleFacts,
+  freezePublicationOwnerQueryFacts,
+} from "../transition-plan/PublicationFacts.js";
+import type {
+  PendingPublicationSelectionFacts,
+  PublicationLifecycleFacts,
+  PublicationOwnerQueryFacts,
+} from "../transition-plan/PublicationFacts.js";
+import type {
+  AcceptedQueryPublicationEvidence,
+  ClaimPublicationReceipt,
+  CompletePublicationReceipt,
+  PublicationAttempt,
+  PublicationAttemptOutcome,
+  RecordPublicationAttemptOutcomeReceipt,
+} from "../transition-plan/PublicationWork.js";
 
 export interface AggregateTransition<Decision, Plan> {
   readonly decision: Decision;
@@ -183,6 +238,26 @@ export type RecordEvaluationAttemptOutcomeAggregateError = Exclude<
   QuerySyncTransitionFactError
 > | BuildQuerySyncStateError;
 
+type ClaimPublicationPlannerError =
+  | StartClaimPublicationError
+  | ResumeClaimPublicationInFlightOwnerError
+  | ResumeClaimPublicationPendingError;
+
+export type ClaimPublicationAggregateError = Exclude<
+  ClaimPublicationPlannerError,
+  QuerySyncTransitionFactError
+> | BuildQuerySyncStateError;
+
+export type RecordPublicationAttemptOutcomeAggregateError = Exclude<
+  PlanRecordPublicationAttemptOutcomeError,
+  QuerySyncTransitionFactError
+> | BuildQuerySyncStateError;
+
+export type CompletePublicationAggregateError = Exclude<
+  PlanCompletePublicationError,
+  QuerySyncTransitionFactError
+> | BuildQuerySyncStateError;
+
 function transitionInvariant(
   operation: QuerySyncTransitionOperation,
   invariant: QuerySyncInvariantDefect["invariant"],
@@ -217,6 +292,30 @@ function mapCompletePlannerError(
 function mapEvaluationAttemptOutcomePlannerError(
   error: PlanRecordEvaluationAttemptOutcomeError,
 ): RecordEvaluationAttemptOutcomeAggregateError {
+  return error._tag === "QuerySyncTransitionFactError"
+    ? throwTransitionFactDefect(error)
+    : error;
+}
+
+function mapClaimPublicationPlannerError(
+  error: ClaimPublicationPlannerError,
+): ClaimPublicationAggregateError {
+  return error._tag === "QuerySyncTransitionFactError"
+    ? throwTransitionFactDefect(error)
+    : error;
+}
+
+function mapPublicationAttemptOutcomePlannerError(
+  error: PlanRecordPublicationAttemptOutcomeError,
+): RecordPublicationAttemptOutcomeAggregateError {
+  return error._tag === "QuerySyncTransitionFactError"
+    ? throwTransitionFactDefect(error)
+    : error;
+}
+
+function mapCompletePublicationPlannerError(
+  error: PlanCompletePublicationError,
+): CompletePublicationAggregateError {
   return error._tag === "QuerySyncTransitionFactError"
     ? throwTransitionFactDefect(error)
     : error;
@@ -1196,5 +1295,352 @@ export function applyRecordEvaluationAttemptOutcomeTransition(
       state,
       plan,
     )),
+  );
+}
+
+function projectPublicationLifecycleFacts(
+  state: QuerySyncState,
+): PublicationLifecycleFacts {
+  return freezePublicationLifecycleFacts({
+    inFlight: state.publicationWork.inFlight,
+    latestDelivered: state.publicationWork.latestDelivered,
+    precedingAttemptOutcome: state.publicationWork.precedingAttemptOutcome,
+  });
+}
+
+function projectPublicationOwnerQueryFacts(
+  query: QueryState | undefined,
+): PublicationOwnerQueryFacts | null {
+  if (query === undefined) return null;
+  return freezePublicationOwnerQueryFacts({
+    descriptor: query.descriptor,
+    active: query.active === null
+      ? null
+      : {
+        generation: query.active.generation,
+        freshThroughSequence: query.active.freshThroughSequence,
+        resultDigest: query.active.resultDigest,
+      },
+    currentCompletion: query.currentCompletion === null
+      ? null
+      : {
+        identity: query.currentCompletion.identity,
+        refreshedThroughSequence:
+          query.currentCompletion.refreshedThroughSequence,
+        resultDigest: query.currentCompletion.resultDigest,
+        publicationDisposition:
+          query.currentCompletion.publicationDisposition,
+      },
+  });
+}
+
+function readLowestPendingPublicationFacts(
+  state: QuerySyncState,
+): PendingPublicationSelectionFacts | null {
+  let selected: PendingQueryPublication | undefined;
+  for (const publication of state.publicationWork.pending) {
+    if (
+      selected === undefined
+      || compareQueryPublicationIdentity(
+        publication.identity,
+        selected.identity,
+      ) < 0
+    ) {
+      selected = publication;
+    }
+  }
+  if (selected === undefined) return null;
+  const owner = projectPublicationOwnerQueryFacts(findQueryState(
+    state,
+    selected.identity.queryKey,
+  ));
+  return owner === null
+    ? null
+    : freezePendingPublicationSelectionFacts({
+      publication: selected,
+      owner,
+    });
+}
+
+function claimPublicationDecision(
+  receipt: ClaimPublicationReceipt,
+  state: QuerySyncState,
+): ClaimPublicationDecision {
+  switch (receipt._tag) {
+    case "claimed":
+    case "replayed":
+      return Object.freeze({
+        _tag: receipt._tag,
+        state,
+        attempt: receipt.attempt,
+      });
+    case "blocked":
+      return Object.freeze({
+        _tag: "blocked",
+        state,
+        identity: receipt.identity,
+        attemptOrdinal: receipt.attemptOrdinal,
+        reason: receipt.reason,
+        resetRequired: true,
+      });
+    case "none":
+      return Object.freeze({ _tag: "none", state });
+  }
+}
+
+function publicationAttemptOutcomeDecision(
+  receipt: RecordPublicationAttemptOutcomeReceipt,
+  state: QuerySyncState,
+): RecordPublicationAttemptOutcomeDecision {
+  switch (receipt._tag) {
+    case "recorded":
+      return Object.freeze({
+        _tag: "recorded",
+        state,
+        identity: receipt.identity,
+        attemptOrdinal: receipt.attemptOrdinal,
+        nextAttemptOrdinal: receipt.nextAttemptOrdinal,
+        nextDisposition: receipt.nextDisposition,
+      });
+    case "blocked":
+      return Object.freeze({
+        _tag: "blocked",
+        state,
+        identity: receipt.identity,
+        attemptOrdinal: receipt.attemptOrdinal,
+        reason: receipt.reason,
+        resetRequired: true,
+      });
+    case "superseded":
+    case "recoveryEvidenceExpired":
+      return Object.freeze({
+        _tag: receipt._tag,
+        state,
+        identity: receipt.identity,
+        attemptOrdinal: receipt.attemptOrdinal,
+      });
+  }
+}
+
+function completePublicationDecision(
+  receipt: CompletePublicationReceipt,
+  state: QuerySyncState,
+): CompletePublicationDecision {
+  return Object.freeze({
+    _tag: receipt._tag,
+    state,
+    identity: receipt.identity,
+  });
+}
+
+function applyClaimPublicationPlan(
+  state: QuerySyncState,
+  plan: ClaimPublicationPlan,
+): Result.Result<
+  AggregateTransition<ClaimPublicationDecision, ClaimPublicationPlan>,
+  BuildQuerySyncStateError
+> {
+  if (plan._tag === "noWrite") {
+    return Result.succeed(Object.freeze({
+      decision: claimPublicationDecision(plan.receipt, state),
+      disposition: "noWrite",
+      plan,
+    }));
+  }
+  const change = plan.change;
+  const publicationWork = change._tag === "blockInFlightPublicationByAge"
+    ? {
+      ...state.publicationWork,
+      inFlight: change.inFlight,
+    }
+    : {
+      ...state.publicationWork,
+      // Preserve the exact logical identity selected by the staged planner.
+      // Capturing it outside the callback also keeps the discriminated change
+      // narrowed through the array operation.
+      pending: state.publicationWork.pending.filter((publication) => (
+        !queryPublicationIdentityEquals(
+          publication.identity,
+          change.publication.identity,
+        )
+      )),
+      inFlight: change.inFlight,
+    };
+  return rebuildQuerySyncState(state, {
+    cursor: plan.nextScope.cursor,
+    evaluationWork: plan.nextScope.evaluationWork,
+    publicationWork,
+  }).pipe(Result.map((nextState) => {
+    verifyPlanMetrics("claimPublication", nextState, plan.nextScope);
+    return Object.freeze({
+      decision: claimPublicationDecision(plan.receipt, nextState),
+      disposition: "write",
+      plan,
+    });
+  }));
+}
+
+export function applyClaimPublicationTransition(
+  state: QuerySyncState,
+  capturedNow: PublicationAttemptInstant,
+): Result.Result<
+  AggregateTransition<ClaimPublicationDecision, ClaimPublicationPlan>,
+  ClaimPublicationAggregateError
+> {
+  const lifecycle = projectPublicationLifecycleFacts(state);
+  return startClaimPublication({
+    scope: projectQuerySyncScopeFacts(state),
+    lifecycle,
+    capturedNow,
+  }).pipe(
+    Result.mapError(mapClaimPublicationPlannerError),
+    Result.flatMap((step) => {
+      if (step.stage === "inFlightOwner") {
+        return resumeClaimPublicationInFlightOwner(
+          step.resume,
+          projectPublicationOwnerQueryFacts(findQueryState(
+            state,
+            step.intent.identity.queryKey,
+          )),
+        ).pipe(
+          Result.mapError(mapClaimPublicationPlannerError),
+          Result.flatMap((plan) => applyClaimPublicationPlan(state, plan)),
+        );
+      }
+      return resumeClaimPublicationPending(
+        step.resume,
+        readLowestPendingPublicationFacts(state),
+      ).pipe(
+        Result.mapError(mapClaimPublicationPlannerError),
+        Result.flatMap((plan) => applyClaimPublicationPlan(state, plan)),
+      );
+    }),
+  );
+}
+
+function applyRecordPublicationAttemptOutcomePlan(
+  state: QuerySyncState,
+  plan: RecordPublicationAttemptOutcomePlan,
+): Result.Result<
+  AggregateTransition<
+    RecordPublicationAttemptOutcomeDecision,
+    RecordPublicationAttemptOutcomePlan
+  >,
+  BuildQuerySyncStateError
+> {
+  if (plan._tag === "noWrite") {
+    return Result.succeed(Object.freeze({
+      decision: publicationAttemptOutcomeDecision(plan.receipt, state),
+      disposition: "noWrite",
+      plan,
+    }));
+  }
+  return rebuildQuerySyncState(state, {
+    cursor: plan.nextScope.cursor,
+    evaluationWork: plan.nextScope.evaluationWork,
+    publicationWork: {
+      ...state.publicationWork,
+      inFlight: plan.change.inFlight,
+      precedingAttemptOutcome: plan.change.precedingAttemptOutcome,
+    },
+  }).pipe(Result.map((nextState) => {
+    verifyPlanMetrics(
+      "recordPublicationAttemptOutcome",
+      nextState,
+      plan.nextScope,
+    );
+    return Object.freeze({
+      decision: publicationAttemptOutcomeDecision(plan.receipt, nextState),
+      disposition: "write",
+      plan,
+    });
+  }));
+}
+
+export function applyRecordPublicationAttemptOutcomeTransition(
+  state: QuerySyncState,
+  attempt: PublicationAttempt,
+  outcome: PublicationAttemptOutcome,
+  capturedNow: PublicationAttemptInstant,
+): Result.Result<
+  AggregateTransition<
+    RecordPublicationAttemptOutcomeDecision,
+    RecordPublicationAttemptOutcomePlan
+  >,
+  RecordPublicationAttemptOutcomeAggregateError
+> {
+  const lifecycle = projectPublicationLifecycleFacts(state);
+  return authenticateRecordPublicationAttemptOutcomeAttempt(attempt).pipe(
+    Result.flatMap((authenticated) => planRecordPublicationAttemptOutcome({
+      scope: projectQuerySyncScopeFacts(state),
+      lifecycle,
+      owner: projectPublicationOwnerQueryFacts(findQueryState(
+        state,
+        authenticated.queryKey,
+      )),
+      attempt: authenticated.attempt,
+      outcome,
+      capturedNow,
+    })),
+    Result.mapError(mapPublicationAttemptOutcomePlannerError),
+    Result.flatMap((plan) => applyRecordPublicationAttemptOutcomePlan(
+      state,
+      plan,
+    )),
+  );
+}
+
+function applyCompletePublicationPlan(
+  state: QuerySyncState,
+  plan: CompletePublicationPlan,
+): Result.Result<
+  AggregateTransition<CompletePublicationDecision, CompletePublicationPlan>,
+  BuildQuerySyncStateError
+> {
+  if (plan._tag === "noWrite") {
+    return Result.succeed(Object.freeze({
+      decision: completePublicationDecision(plan.receipt, state),
+      disposition: "noWrite",
+      plan,
+    }));
+  }
+  return rebuildQuerySyncState(state, {
+    cursor: plan.nextScope.cursor,
+    evaluationWork: plan.nextScope.evaluationWork,
+    publicationWork: {
+      ...state.publicationWork,
+      inFlight: null,
+      latestDelivered: plan.change.latestDelivered,
+    },
+  }).pipe(Result.map((nextState) => {
+    verifyPlanMetrics("completePublication", nextState, plan.nextScope);
+    return Object.freeze({
+      decision: completePublicationDecision(plan.receipt, nextState),
+      disposition: "write",
+      plan,
+    });
+  }));
+}
+
+export function applyCompletePublicationTransition(
+  state: QuerySyncState,
+  evidence: AcceptedQueryPublicationEvidence,
+): Result.Result<
+  AggregateTransition<CompletePublicationDecision, CompletePublicationPlan>,
+  CompletePublicationAggregateError
+> {
+  const lifecycle = projectPublicationLifecycleFacts(state);
+  return authenticateCompletePublicationEvidence(evidence).pipe(
+    Result.flatMap((authenticated) => planCompletePublication({
+      scope: projectQuerySyncScopeFacts(state),
+      lifecycle,
+      owner: projectPublicationOwnerQueryFacts(findQueryState(
+        state,
+        authenticated.queryKey,
+      )),
+      evidence: authenticated.evidence,
+    })),
+    Result.mapError(mapCompletePublicationPlannerError),
+    Result.flatMap((plan) => applyCompletePublicationPlan(state, plan)),
   );
 }

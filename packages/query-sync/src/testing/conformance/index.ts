@@ -59,7 +59,7 @@ export {
 
 export {
   makeAcceptedQueryPublicationEvidenceForTesting,
-} from "../../kernel/PublicationWork.js";
+} from "../../transition-plan/PublicationWork.js";
 
 export {
   makeQueryEvaluationAttempt as makeQueryEvaluationAttemptForTesting,
