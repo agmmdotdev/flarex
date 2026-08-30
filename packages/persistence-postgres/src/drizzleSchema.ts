@@ -113,3 +113,8 @@ export {
   fxSystemApplicationActivations,
   fxSystemApplicationActiveHeads,
 } from "./applicationActivationSchema";
+
+export {
+  fxControlFrameworkSchemaArtifactDependencies,
+  fxControlFrameworkSchemaArtifacts,
+} from "./frameworkSchema/artifact/schema";

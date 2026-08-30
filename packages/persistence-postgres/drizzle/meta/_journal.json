@@ -554,6 +554,13 @@
       "when": 1788028314037,
       "tag": "0078_workable_the_captain",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1788110579376,
+      "tag": "0079_bright_puppet_master",
+      "breakpoints": true
     }
   ]
 }

@@ -65,6 +65,8 @@ describe("createPGlitePersistence", () => {
       "fx_control_application_schema_authority_v1",
       "fx_control_bound_application_schema",
       "fx_control_edge_definition",
+      "fx_control_framework_schema_artifact",
+      "fx_control_framework_schema_artifact_dependency",
       "fx_control_index",
       "fx_control_index_definition",
       "fx_control_relation",
@@ -314,6 +316,153 @@ describe("createPGlitePersistence", () => {
       "fx_app_relation_semantic_readiness_pk",
     ]);
   });
+
+  it("adds framework artifact storage atomically after 0078", async () => {
+    const testRoot = await mkdtemp(resolve(
+      tmpdir(),
+      "flarex-framework-artifact-upgrade-",
+    ));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournal = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const copiedJournal = resolve(migrationsFolder, "meta/_journal.json");
+    const copiedMigration = resolve(
+      migrationsFolder,
+      "0079_bright_puppet_master.sql",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const journalText = await readFile(currentJournal, "utf8");
+      const migrationText = await readFile(copiedMigration, "utf8");
+      await writeFile(
+        copiedJournal,
+        migrationJournalBefore(journalText, 79),
+        "utf8",
+      );
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      await previous.query(`
+        insert into deployments
+          (deployment_id, project_id, active_package_id,
+           active_schema_version, created_at)
+        values
+          ('deployment_framework_artifact_upgrade',
+           'project_framework_artifact_upgrade', null, 7,
+           '2030-01-02T03:04:05.000Z')
+      `);
+      await previous.query(`
+        insert into fx_control_schema_version
+          (deployment_id, schema_version_id, version,
+           manifest_codec_version, manifest_json, manifest_bytes,
+           manifest_sha256, created_at)
+        values
+          ('deployment_framework_artifact_upgrade',
+           'schema_framework_artifact_upgrade', 1, 1, '{}'::jsonb,
+           decode('7b7d', 'hex'), decode(repeat('a5', 32), 'hex'),
+           '2030-01-02T03:04:06.000Z')
+      `);
+      const stateBefore = await frameworkArtifactUpgradeState(previous);
+
+      await writeFile(
+        copiedJournal,
+        migrationJournalBefore(journalText, 80),
+        "utf8",
+      );
+      await writeFile(
+        copiedMigration,
+        `${migrationText}\n--> statement-breakpoint\nselect * from fx_framework_artifact_deliberate_missing_table;\n`,
+        "utf8",
+      );
+      const failing = await createPGlitePersistence({ db, migrationsFolder });
+      await expect(failing.migrate()).rejects.toThrow(
+        /fx_framework_artifact_deliberate_missing_table/,
+      );
+      const rolledBack = await failing.query<{
+        tables: string;
+        sequence: string;
+        receipts: string;
+      }>(`
+        select
+          (select count(*)::text from information_schema.tables
+            where table_schema = current_schema()
+              and table_name in (
+                'fx_control_framework_schema_artifact',
+                'fx_control_framework_schema_artifact_dependency'
+              )) as tables,
+          (select count(*)::text from pg_class as sequence
+            join pg_namespace as namespace
+              on namespace.oid = sequence.relnamespace
+            where namespace.nspname = current_schema()
+              and sequence.relkind = 'S'
+              and sequence.relname = 'fx_framework_artifact_storage_id_seq')
+            as sequence,
+          (select count(*)::text from drizzle.__drizzle_migrations) as receipts
+      `);
+      expect(rolledBack.rows).toEqual([{
+        tables: "0",
+        sequence: "0",
+        receipts: "79",
+      }]);
+      expect(await frameworkArtifactUpgradeState(failing)).toEqual(
+        stateBefore,
+      );
+
+      await writeFile(copiedMigration, migrationText, "utf8");
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await expect(current.migrate()).resolves.toBeUndefined();
+      await expect(current.migrate()).resolves.toBeUndefined();
+      const installed = await current.query<{
+        tables: string;
+        sequence: string;
+        receipts: string;
+        artifacts: string;
+        dependencies: string;
+      }>(`
+        select
+          (select count(*)::text from information_schema.tables
+            where table_schema = current_schema()
+              and table_name in (
+                'fx_control_framework_schema_artifact',
+                'fx_control_framework_schema_artifact_dependency'
+              )) as tables,
+          (select count(*)::text from pg_class as sequence
+            join pg_namespace as namespace
+              on namespace.oid = sequence.relnamespace
+            where namespace.nspname = current_schema()
+              and sequence.relkind = 'S'
+              and sequence.relname = 'fx_framework_artifact_storage_id_seq')
+            as sequence,
+          (select count(*)::text from drizzle.__drizzle_migrations) as receipts,
+          (select count(*)::text
+            from fx_control_framework_schema_artifact) as artifacts,
+          (select count(*)::text
+            from fx_control_framework_schema_artifact_dependency)
+            as dependencies
+      `);
+      expect(installed.rows).toEqual([{
+        tables: "2",
+        sequence: "1",
+        receipts: "80",
+        artifacts: "0",
+        dependencies: "0",
+      }]);
+      expect(await frameworkArtifactUpgradeState(current)).toEqual(
+        stateBefore,
+      );
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 60_000);
 
   it("adds active relation authority only to empty private journal evidence", async () => {
     const testRoot = await mkdtemp(resolve(
@@ -3456,4 +3605,43 @@ async function currentMigrationReceiptCount(): Promise<string> {
     throw new Error("Current Drizzle journal is missing its entries array.");
   }
   return String(parsed.entries.length);
+}
+
+async function frameworkArtifactUpgradeState(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+) {
+  const deployment = await persistence.query<{
+    deployment_id: string;
+    project_id: string;
+    active_package_id: string | null;
+    active_schema_version: string;
+    created_at: string;
+  }>(`
+    select deployment_id, project_id, active_package_id,
+      active_schema_version::text, created_at::text
+    from deployments
+    where deployment_id = 'deployment_framework_artifact_upgrade'
+  `);
+  const applicationArtifact = await persistence.query<{
+    deployment_id: string;
+    schema_version_id: string;
+    version: string;
+    manifest_codec_version: string;
+    manifest_json: string;
+    manifest_bytes: string;
+    manifest_sha256: string;
+    created_at: string;
+  }>(`
+    select deployment_id, schema_version_id, version::text,
+      manifest_codec_version::text, manifest_json::text,
+      encode(manifest_bytes, 'hex') as manifest_bytes,
+      encode(manifest_sha256, 'hex') as manifest_sha256,
+      created_at::text
+    from fx_control_schema_version
+    where deployment_id = 'deployment_framework_artifact_upgrade'
+  `);
+  return {
+    deployment: deployment.rows,
+    applicationArtifact: applicationArtifact.rows,
+  };
 }

@@ -2,9 +2,9 @@
 
 ## Status And Scope
 
-Status: accepted target architecture; identity preflight and private artifact
-value checkpoint complete, artifact repository/DDL preflight accepted for its
-bounded private implementation, later lifecycle persistence codecs still gated
+Status: accepted target architecture; private artifact value and additive DDL
+sub-checkpoints implemented, artifact repository and genuine PostgreSQL
+acceptance incomplete, later lifecycle persistence codecs still gated
 
 The additive authority architecture and exact artifact-envelope contract are
 frozen by
@@ -19,7 +19,8 @@ It freezes a private control registry and dependency sidecar, authenticated
 control-bound admission with bounded settlement recovery, full point-read
 corruption checks, bounded identity listing, and the PGlite/PostgreSQL evidence
 split. Its implementation authority is limited to the exact private files and
-evidence named by that record.
+evidence named by that record. Only the additive DDL and its PGlite evidence are
+implemented so far; no repository or session capability is activated.
 
 This plan owns the neutral identity and lifecycle mechanics needed to compile,
 install, validate, and bind Payload lifecycle, Medusa, and admitted system

@@ -1073,11 +1073,13 @@ No genuine-PostgreSQL evidence is claimed by this documentation checkpoint.
 1. **Private artifact value contract — complete:** artifact models, canonical
    capture, digest/replay policy, capture errors, brands, and focused tests are
    implemented privately with no storage or caller.
-2. **Artifact repository/DDL preflight — accepted:**
+2. **Artifact repository/DDL preflight — accepted; DDL sub-checkpoint
+   implemented:**
    [`02-artifact-repository-and-ddl.md`](./02-artifact-repository-and-ddl.md)
    freezes the additive artifact tables, exact keys, dependency admission,
-   corruption rules, and migration compatibility. Its exact bounded private
-   implementation is authorized.
+   corruption rules, and migration compatibility. The additive tables and
+   PGlite DDL evidence are implemented; repository behavior and genuine
+   PostgreSQL acceptance remain incomplete.
 3. **Private artifact repository — implementation gate:** admit and read
    owner-qualified immutable artifacts without an Application writer or
    runtime caller, and retain the genuine-PostgreSQL evidence gate.

@@ -2,10 +2,10 @@
 
 ## Status And Scope
 
-Status: active accepted roadmap domain. The first private artifact-value
-checkpoint is implemented, and its repository and DDL preflight is accepted on
-2026-08-30. The bounded private repository/DDL implementation is authorized;
-installation, binding, adapter, and production work remains pending and
+Status: active accepted roadmap domain. The private artifact-value and additive
+DDL sub-checkpoints are implemented. The artifact repository remains an
+incomplete private checkpoint, and its genuine-PostgreSQL lane is not yet run.
+Installation, binding, adapter, and production work remains pending and
 production-inert
 
 This domain owns the extraction and admission of shared FlarexDB mechanisms
@@ -84,7 +84,7 @@ Preflight records:
 | File | Status | Decision |
 | --- | --- | --- |
 | [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; first checkpoint implemented | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred repository, installation, and binding contracts |
-| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; bounded private implementation authorized | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
+| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; DDL sub-checkpoint implemented, repository incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 
 ## Current Architecture
 
@@ -174,7 +174,7 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Artifact value contract implemented privately; repository/DDL contract accepted for bounded private implementation, later lifecycle codecs still gated |
+| Framework-neutral artifact/install/binding model | Artifact value and additive DDL implemented privately; repository behavior and genuine-PostgreSQL acceptance remain incomplete; later lifecycle codecs stay gated |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |
@@ -214,16 +214,23 @@ and its first private artifact-value checkpoint is implemented.
 
 The repository and DDL contract is accepted in
 [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
-Its bounded private implementation may add only:
+Its additive tables and PGlite DDL evidence are implemented privately. The
+repository/session behavior and genuine-PostgreSQL acceptance remain incomplete.
+The implemented sub-boundary contains only:
 
 - an additive private control registry plus dependency sidecar;
 - database-only compact storage identities while retaining the full natural
-  artifact identity as the domain key;
+  artifact identity as the domain key; and
+- private Drizzle migration declarations and PGlite DDL evidence.
+
+The remaining bounded private implementation may add only:
+
 - runtime-authenticated pre-transaction preparation and a control-bound
   transaction-owning admission repository;
 - exact replay, digest-collision, dependency, corruption, point-read, and
   bounded identity-list behavior; and
-- static platform migration, PGlite, and genuine-PostgreSQL evidence.
+- genuine-PostgreSQL migration, repository, settlement, and concurrency
+  evidence.
 
 This authority stops at the files and evidence named by that record.
 Installation, readiness, availability, Application-reference, Payload-overlay,
