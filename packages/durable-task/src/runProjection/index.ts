@@ -4,6 +4,7 @@ export * from "./AttemptHistorySchema.js";
 export * from "./EventHistoryModel.js";
 export * from "./EventHistoryQuery.js";
 export * from "./EventHistorySchema.js";
+export * from "./Invalidation.js";
 export * from "./ListModel.js";
 export * from "./ListQuery.js";
 export * from "./ListSchema.js";

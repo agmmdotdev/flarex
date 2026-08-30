@@ -2,8 +2,8 @@
 
 ## Status And Decision Boundary
 
-**Status:** Architecture roadmap with DTE07-B1/B2/B3/B4 and
-DTE07-C1/C2/C3/C4/C5/C6/C7/C8/C9/C10/C11/C12/C13/C14/C15 implemented privately
+**Status:** Architecture roadmap with DTE07-B1/B2/B3/B4,
+DTE07-C1/C2/C3/C4/C5/C6/C7/C8/C9/C10/C11/C12/C13/C14/C15, and DTE07-D1 implemented privately
 through 2026-08-30.
 DTE07-B1 implements one
 production-inert run projection and pure projector under
@@ -50,6 +50,9 @@ DTE07-C15 closes list-reference scope composition by making the central read
 Layer the only live list-service factory and binding list, point, attempt, and
 event reads to one authenticated store, as fixed by
 [`preflight/64-dte07-task-read-scope-binding.md`](./preflight/64-dte07-task-read-scope-binding.md).
+DTE07-D1 selects the persisted `notify_current_state` intent as the existing-
+run advancement source fact and implements only the bounded pure refetch policy fixed by
+[`preflight/65-dte07-task-read-invalidation-policy.md`](./preflight/65-dte07-task-read-invalidation-policy.md).
 It does not authorize other commands, provider delivery, cancellation waiting,
 a public list contract, public routes, deployment, subscriptions,
 telemetry ingestion, retention/GC, or UI publication.
@@ -373,6 +376,13 @@ bundle's point-query capability without a separately supplied service.
 - prove duplicate/loss/reorder/reconnect behavior; and
 - add no transition authority to live transport.
 
+DTE07-D1 selects the transactionally persisted `notify_current_state` effect
+as the existing-run advancement source and implements only an in-process run-
+version or refresh-required signal plus pure point/list refetch policy. Initial
+run creation has no matching effect, so a run-admission source remains
+unselected. DTE07-D1 does not add a ledger reader, publisher, resumable cursor,
+subscription, host transport, polling fallback, route, or production caller.
+
 ### DTE07-E: UI View Models And Component Reuse
 
 - implement Flarex presentation models;
@@ -433,8 +443,7 @@ through DTE06-F2. The real-Cloudflare F3/F4 proof remains separately gated.
 DTE07-B1 is complete. Its first single-run projection delegates scope
 authorization to the existing captured located-scope inspection store, has no
 cursor/page bound, and owns exact immutable/redacted output. It proceeds
-privately before DTE06-F3/F4 because it adds no route or hosted resource. Live
-invalidation remains unselected and unapproved.
+privately before DTE06-F3/F4 because it adds no route or hosted resource.
 
 DTE07-C1 is complete for the private scope-bound point-query adapter and clean
 `inspectTask(run)` operation. DTE07-C2 is complete for the separately
@@ -455,5 +464,9 @@ attempt-admission history under preflight 62, with PGlite accepted and the real
 PostgreSQL receipt still pending. DTE07-B4/C14 are implemented for bounded
 lifecycle-event history under preflight 63, with PGlite accepted and the real
 PostgreSQL receipt still pending. DTE07-C15 is complete for central Task read
-scope binding under preflight 64. Before enriched attempt state, other command,
-live, public, or hosted work, approve that owner separately.
+scope binding under preflight 64. DTE07-D1 is complete for the pure Task read
+invalidation policy under preflight 65; publication, resume, subscription, and
+transport owners remain unselected and unapproved, as does the initial run-
+admission source needed for complete list freshness. Before enriched attempt
+state, other command, later live, public, or hosted work, approve that owner
+separately.
