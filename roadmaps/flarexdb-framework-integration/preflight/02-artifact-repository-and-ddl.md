@@ -3,10 +3,11 @@
 ## Status And Authorization
 
 Status: accepted on 2026-08-30; additive DDL, runtime-authenticated admission
-preparation, stored reconstruction, and opaque repository identity/control-
-database composition sub-checkpoints implemented; repository operations,
-executable control-session behavior and starter authenticity, and genuine
-PostgreSQL acceptance remain incomplete
+preparation, stored reconstruction, opaque repository identity/control-
+database composition, runtime-authenticated starter composition, deterministic
+control-session lifecycle, and the artifact-private PostgreSQL control-session
+adapter implemented; repository operations and genuine PostgreSQL acceptance
+remain incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -134,13 +135,25 @@ before allocating the repository. Invalid policy produces the private
 foreign cause. This construction error is not a member of the per-artifact
 operation error union.
 
-For the locked phase, the repository issues an opaque
-`FrameworkSchemaArtifactControlTransaction` inside its own exact
-`READ COMMITTED` callback. A second `WeakMap` binds that token to both the
-repository instance and underlying `FlarexMetadataTransaction`; the
-locked primitive rejects a raw, target, independently wrapped, or
-cross-repository transaction before SQL. The raw transaction never escapes the
-repository closure.
+Only after timeout validation succeeds, the factory snapshots `controlDb` and
+`controlSessionStarter` once and authenticates the exact starter/database pair
+through module-owned runtime state. A forged, cloned, proxied, or cross-
+database starter produces the same configuration error with
+`reason: "invalidControlSessionComposition"`, message
+`Framework schema artifact control session composition is invalid`, and no
+foreign cause. Invalid timeout policy retains precedence and reads neither
+dependency property.
+
+For the locked phase, the authenticated control-session facade issues and
+revokes an opaque `FrameworkSchemaArtifactControlSessionTransaction` around
+the starter's raw `FlarexMetadataTransaction` callback. Repository code must
+authenticate that active session capability and its exact issuing starter
+before immediately issuing its narrower opaque
+`FrameworkSchemaArtifactControlTransaction`. A second
+`WeakMap` binds the repository token to both the repository instance and the
+underlying raw transaction; the locked primitive rejects a raw, target,
+independently wrapped, cross-repository, forged, or expired transaction before
+SQL. The raw transaction never leaves the repository-owned closure.
 
 Changing to separate control and target platform migration trees would be a
 larger persistence-owner change and is outside this checkpoint.
@@ -431,8 +444,15 @@ covers quarantine of that session, acquisition of a distinct session,
 transaction work, settlement, and any recovery reconstruction. The connection
 owner applies the remaining budget to acquisition, bounded autocommit reads,
 host cancellation, `lock_timeout`, and `statement_timeout`; expiration drains
-or cancels the active operation, discards its session, and never returns that
-session to the pool.
+or cancels the active operation, requests destruction of its session, and never
+returns that session to the pool. After destruction is requested, cleanup may
+outlive the operation or recovery deadline only within the adapter's separate
+bounded drain window. The private adapter defaults that window to 5,000 ms and
+accepts only trusted construction values from 1 through 60,000 ms. It snapshots
+and freezes adapter options once during construction, so later caller mutation
+or changing getters cannot weaken the bound. Failure to destroy or settle
+within that window is explicit quarantine failure, stops recovery, and never
+makes the connection reusable.
 
 Admission first performs a full point read outside a write transaction through
 an admission-owned projection of the shared reconstruction mechanics. An
@@ -444,11 +464,13 @@ does not need a write lock. It never calls the public read facade and therefore
 never leaks an `operation: "read"` error.
 
 For each attempt the starter acquires one exclusive control connection, begins
-the transaction, makes isolation configuration its first statement, installs
-the remaining local lock/statement budgets, and only then issues an opaque
+the transaction, makes isolation configuration its first statement, and
+installs the remaining local lock/statement budgets. The facade wraps the
+driver callback's raw transaction in one active session capability; repository
+code authenticates that capability and immediately replaces it with an opaque
 `FrameworkSchemaArtifactControlTransaction`. The package-private locked
-primitive authenticates both opaque values before any artifact-table query and
-executes this order:
+primitive authenticates the repository token before any artifact-table query
+and executes this order:
 
 1. lock `deployments(deployment_id)` for update;
 2. fail with `deploymentMissing` if that row does not exist;
@@ -800,14 +822,24 @@ digest collision, or an exact replay.
 - Pure input, stored-row, identity, cursor, and dependency comparisons use
   `Result`.
 - SQL and Web Crypto remain `Effect` boundaries with typed failures.
-- Every started SQL Promise is drained. Outside a transaction, interruption
-  waits for the active statement to settle before the connection is reused.
+- Every started SQL Promise settles before healthy connection reuse or commit.
+  The adapter tracks native and supported foreign Promise-like query results;
+  a settled rejection is retained through the drain and prevents commit even
+  when callback code detached or caught that query. A rejection already
+  observed before another operation exhausts the drain deadline remains in the
+  final operational `Cause`; destruction-induced rejections remain quarantine
+  settlement evidence rather than quarantine failure by themselves.
+  After quarantine requests client destruction, the adapter waits only through
+  its separate bounded drain window; timeout is cleanup failure and the client
+  remains permanently non-reusable.
 - The transaction callback is interruptible. Once started, its Promise is
-  always drained; commit/rollback settlement, connection quarantine/release,
-  and the single recovery are uninterruptible finalization.
+  settled before healthy commit/rollback/release. Connection quarantine and
+  the single recovery remain uninterruptible finalization, subject to the
+  bounded post-destroy drain rule above.
 - The Promise transaction adapter preserves the callback's full `Exit` and
-  bridges only foreign lifecycle failures. No broad `tryPromise` remaps typed
-  callback failure, interruption, or defect into an ordinary resource error.
+  enclosing Effect context and bridges only foreign lifecycle failures. No
+  broad `tryPromise` remaps typed callback failure, interruption, or defect
+  into an ordinary resource error.
 - The opaque repository owns the transaction. Its authenticated locked
   primitive receives only the repository-issued control-transaction token;
   neither a raw top-level database nor a caller transaction can satisfy it.
@@ -879,6 +911,72 @@ generated long names for the dependency table must not be accepted silently.
   service, Layer, or runtime caller appears; and
 - existing artifact-value and Application-authority tests remain unchanged.
 
+### Deterministic Control-Session Evidence
+
+Package-local model tests prove:
+
+- one opaque starter authenticates only its exact control database; forged,
+  cloned, proxied, and cross-database compositions fail closed;
+- one absolute Effect-clock deadline supplies only positive whole-millisecond
+  budgets and treats sub-millisecond residue as expired;
+- initial and recovery decisions retain exact phase order, callback `Cause`,
+  cleanup defects, quarantine-before-recovery, the distinct-session
+  requirement, and a one-recovery ceiling;
+- post-settlement `resolveExisting` work runs outside the transaction and
+  remains mandatory finalization before a pending interrupt is re-emitted;
+- both `decisionUncertain` stages retain the initial settlement cause and the
+  later resolution cause without demoting recovery defects or interruption to
+  inert data; and
+- repository-issued control-transaction tokens authenticate their exact
+  repository, issuing starter, and raw transaction only inside an
+  authenticated active session callback, then both capability levels are
+  revoked.
+
+These deterministic receipts prove the lifecycle policy and authority
+boundary. They do not prove PostgreSQL pool checkout, native timeout,
+quarantine/discard, backend-session distinction, locking, or concurrency.
+
+### Deterministic PostgreSQL Adapter Evidence
+
+Package-local fake-pool/client tests prove only the private adapter's
+orchestration:
+
+- callback execution retains the enclosing Effect context, including an
+  injected Effect clock;
+- callback-started native and foreign Promise-like SQL operations drain before
+  `COMMIT`; a retained rejection prevents commit, exact `COMMIT` command tags
+  are required, and healthy release occurs only after settlement;
+- exact `ROLLBACK` command tags are required before rollback is considered
+  confirmed; mismatch retains the primary callback or resource `Cause`, adds
+  rollback-cleanup evidence where applicable, and quarantines the client;
+- transaction preparation retains `BEGIN`, `READ COMMITTED`, and parameterized
+  positive transaction-local lock/statement budget order on one acquired
+  client;
+- Effect-clock acquisition expiry requests destruction of a client delivered
+  after abandonment, while active-work expiry requests destruction and drains
+  the already-started work before returning;
+- deadline-exhausted initial and recovery callbacks proceed to destruction and
+  bounded cleanup even when their tracked SQL cannot settle;
+- session-construction failure and failed ordinary release both request client
+  destruction, while a failed destroy plus non-settling work stops at the
+  bounded quarantine-drain limit with explicit cleanup failure, using the
+  construction-snapshotted timeout despite changing option getters;
+- post-commit uncertainty quarantines the initial client, rejects the same
+  physical client when reacquired, and permits only one distinct recovery
+  session; and
+- read interruption and initial/recovery deadline cancellation retain nested
+  finalizer defects through cleanup, while an ordinary transaction-callback
+  interruption rolls back and releases before the complete `Cause` is
+  re-emitted.
+
+These receipts use deterministic `pg` pool/client doubles. They do not prove
+native pool discard, backend-session identity, timeout enforcement,
+transaction outcome, locking, or concurrency. A URL-gated server probe exists
+for one backend, `READ COMMITTED`, positive local budgets, and exact read
+`statement_timeout` restoration, but it is skipped because
+`FLAREX_POSTGRES_DATABASE_URL` is unavailable. This checkpoint therefore
+claims no genuine-PostgreSQL acceptance receipt.
+
 ### PGlite Migration Evidence
 
 PGlite must prove:
@@ -927,10 +1025,6 @@ PGlite must prove:
 - list validation, byte-order pagination, maximum-page boundary, cursor gaps,
   owner/lineage isolation, and identity-only projection;
 - SQL rejection mapping and interruption settlement;
-- a deterministic transaction-lifecycle model proves callback domain-failure
-  Cause preservation, rollback-cleanup Cause combination, post-`created`
-  settlement recovery, pending-interrupt re-emission, the single recovery
-  ceiling, and both `decisionUncertain` stages with both causes retained; and
 - no hashing or owner-codec work occurs while the admission lock is held.
 
 PGlite does not prove row-lock blocking, concurrent claim convergence,
@@ -1016,7 +1110,10 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next step is the complete private control-session lifecycle and repository
-operations above. The implemented DDL, preparation capability, stored
-reconstruction, and repository identity do not open any installation,
-framework-adapter, runtime, public, or production gate.
+The next step is the transaction-owning repository operations above, followed
+by genuine PostgreSQL migration, settlement, locking, and concurrency
+acceptance. The implemented DDL, preparation capability, stored
+reconstruction, repository identity, authenticated starter, deterministic
+control-session lifecycle, and artifact-private PostgreSQL control-session
+adapter do not open any installation, framework-adapter, runtime, public, or
+production gate.

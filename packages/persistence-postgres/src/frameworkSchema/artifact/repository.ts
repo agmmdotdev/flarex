@@ -1,11 +1,16 @@
 import { copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { Result } from "effect";
+import { Data, Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../../deployments";
+import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import { copyCapturedFrameworkSchemaArtifactEvidence } from "./canonical";
-import type { FrameworkSchemaArtifactControlSessionStarter } from
-  "./controlSession";
+import {
+  hasFrameworkSchemaArtifactControlSessionComposition,
+  withFrameworkSchemaArtifactRawControlSessionTransactionEffect,
+  type FrameworkSchemaArtifactControlSessionStarter,
+  type FrameworkSchemaArtifactControlSessionTransaction,
+} from "./controlSession";
 import {
   FrameworkSchemaArtifactError,
   FrameworkSchemaArtifactRepositoryConfigurationError,
@@ -22,6 +27,9 @@ const preparedFrameworkSchemaArtifactAdmissionBrand: unique symbol = Symbol(
 );
 const frameworkSchemaArtifactRepositoryBrand: unique symbol = Symbol(
   "FlarexDB/FrameworkSchemaArtifactRepository",
+);
+const frameworkSchemaArtifactControlTransactionBrand: unique symbol = Symbol(
+  "FlarexDB/FrameworkSchemaArtifactControlTransaction",
 );
 const MAXIMUM_FRAMEWORK_SCHEMA_ARTIFACT_TIMEOUT_MILLISECONDS = 60_000;
 
@@ -59,6 +67,20 @@ export interface FrameworkSchemaArtifactRepository {
   readonly [frameworkSchemaArtifactRepositoryBrand]: true;
 }
 
+export interface FrameworkSchemaArtifactControlTransaction {
+  readonly [frameworkSchemaArtifactControlTransactionBrand]: true;
+}
+
+export class FrameworkSchemaArtifactRepositoryInvariantDefect extends
+  Data.TaggedError("FrameworkSchemaArtifactRepositoryInvariantDefect")<{
+    readonly reason:
+      | "invalidRepository"
+      | "invalidControlTransaction"
+      | "crossRepositoryControlTransaction"
+      | "closedControlTransaction";
+  }>
+{}
+
 interface PreparedFrameworkSchemaArtifactAdmissionState
   extends FrameworkSchemaArtifactAdmissionEvidence {}
 
@@ -69,6 +91,12 @@ interface FrameworkSchemaArtifactRepositoryState {
   readonly timeoutPolicy: FrameworkSchemaArtifactRepositoryTimeoutPolicy;
 }
 
+interface FrameworkSchemaArtifactControlTransactionState {
+  readonly repository: FrameworkSchemaArtifactRepository;
+  readonly rawTransaction: FlarexMetadataTransaction;
+  active: boolean;
+}
+
 const preparedFrameworkSchemaArtifactAdmissionStates = new WeakMap<
   PreparedFrameworkSchemaArtifactAdmission,
   PreparedFrameworkSchemaArtifactAdmissionState
@@ -76,6 +104,10 @@ const preparedFrameworkSchemaArtifactAdmissionStates = new WeakMap<
 const frameworkSchemaArtifactRepositoryStates = new WeakMap<
   object,
   FrameworkSchemaArtifactRepositoryState
+>();
+const frameworkSchemaArtifactControlTransactionStates = new WeakMap<
+  object,
+  FrameworkSchemaArtifactControlTransactionState
 >();
 
 /** Construct one opaque repository identity after validating its fixed policy. */
@@ -98,10 +130,22 @@ export function makeFrameworkSchemaArtifactRepository(
     );
   }
 
+  const controlDb = input.controlDb;
+  const controlSessionStarter = input.controlSessionStarter;
+  if (!hasFrameworkSchemaArtifactControlSessionComposition(
+    controlSessionStarter,
+    controlDb,
+  )) {
+    return Result.fail(
+      FrameworkSchemaArtifactRepositoryConfigurationError
+        .invalidControlSessionComposition(),
+    );
+  }
+
   const frozenTimeoutPolicy = Object.freeze(timeoutPolicy);
   const state = Object.freeze({
-    controlDb: input.controlDb,
-    controlSessionStarter: input.controlSessionStarter,
+    controlDb,
+    controlSessionStarter,
     timeoutPolicy: frozenTimeoutPolicy,
   } satisfies FrameworkSchemaArtifactRepositoryState);
   const repository = Object.freeze({
@@ -109,6 +153,103 @@ export function makeFrameworkSchemaArtifactRepository(
   } satisfies FrameworkSchemaArtifactRepository);
   frameworkSchemaArtifactRepositoryStates.set(repository, state);
   return Result.succeed(repository);
+}
+
+/**
+ * Issue and revoke the only transaction capability accepted by locked
+ * repository primitives. The raw transaction stays inside this closure.
+ */
+export function withFrameworkSchemaArtifactControlTransactionEffect<
+  Value,
+  Failure,
+>(
+  repository: FrameworkSchemaArtifactRepository,
+  sessionTransaction: FrameworkSchemaArtifactControlSessionTransaction,
+  work: (
+    transaction: FrameworkSchemaArtifactControlTransaction,
+  ) => Effect.Effect<Value, Failure, never>,
+): Effect.Effect<Value, Failure, never> {
+  return Effect.suspend(() => {
+    const repositoryState = frameworkSchemaArtifactRepositoryStates.get(
+      repository,
+    );
+    if (repositoryState === undefined) {
+      return Effect.die(
+        new FrameworkSchemaArtifactRepositoryInvariantDefect({
+          reason: "invalidRepository",
+        }),
+      );
+    }
+
+    return withFrameworkSchemaArtifactRawControlSessionTransactionEffect(
+      sessionTransaction,
+      repositoryState.controlSessionStarter,
+      rawTransaction => Effect.suspend(() => {
+        const state: FrameworkSchemaArtifactControlTransactionState = {
+          repository,
+          rawTransaction,
+          active: true,
+        };
+        const transaction = Object.freeze({
+          [frameworkSchemaArtifactControlTransactionBrand]: true,
+        } satisfies FrameworkSchemaArtifactControlTransaction);
+        frameworkSchemaArtifactControlTransactionStates.set(transaction, state);
+
+        return Effect.suspend(() => work(transaction)).pipe(
+          Effect.ensuring(Effect.sync(() => {
+            state.active = false;
+          })),
+        );
+      }),
+    );
+  });
+}
+
+/** Authenticate a scoped token before a locked primitive can construct SQL. */
+export function withFrameworkSchemaArtifactRawControlTransactionEffect<
+  Value,
+  Failure,
+>(
+  repository: FrameworkSchemaArtifactRepository,
+  transaction: FrameworkSchemaArtifactControlTransaction,
+  work: (
+    rawTransaction: FlarexMetadataTransaction,
+  ) => Effect.Effect<Value, Failure, never>,
+): Effect.Effect<Value, Failure, never> {
+  return Effect.suspend(() => {
+    if (!frameworkSchemaArtifactRepositoryStates.has(repository)) {
+      return Effect.die(
+        new FrameworkSchemaArtifactRepositoryInvariantDefect({
+          reason: "invalidRepository",
+        }),
+      );
+    }
+    const state = frameworkSchemaArtifactControlTransactionStates.get(
+      transaction,
+    );
+    if (state === undefined) {
+      return Effect.die(
+        new FrameworkSchemaArtifactRepositoryInvariantDefect({
+          reason: "invalidControlTransaction",
+        }),
+      );
+    }
+    if (state.repository !== repository) {
+      return Effect.die(
+        new FrameworkSchemaArtifactRepositoryInvariantDefect({
+          reason: "crossRepositoryControlTransaction",
+        }),
+      );
+    }
+    if (!state.active) {
+      return Effect.die(
+        new FrameworkSchemaArtifactRepositoryInvariantDefect({
+          reason: "closedControlTransaction",
+        }),
+      );
+    }
+    return work(state.rawTransaction);
+  });
 }
 
 /** Exact same-factory control-database composition check. */

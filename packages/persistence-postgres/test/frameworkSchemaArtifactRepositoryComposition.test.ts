@@ -1,4 +1,4 @@
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import {
   describe,
   expect,
@@ -14,8 +14,11 @@ import type { FrameworkSchemaArtifactControlSessionStarter as RootStarter } from
   "../src";
 import * as persistenceRoot from "../src";
 import type { FlarexMetadataDatabase } from "../src/deployments";
-import type { FrameworkSchemaArtifactControlSessionStarter } from
-  "../src/frameworkSchema/artifact/controlSession";
+import {
+  makeFrameworkSchemaArtifactControlSessionStarter,
+  type FrameworkSchemaArtifactControlSessionDriver,
+  type FrameworkSchemaArtifactControlSessionStarter,
+} from "../src/frameworkSchema/artifact/controlSession";
 import { FrameworkSchemaArtifactRepositoryConfigurationError } from
   "../src/frameworkSchema/artifact/errors";
 import {
@@ -31,6 +34,14 @@ const DEFAULT_TIMEOUT_POLICY = Object.freeze({
   recoveryTimeoutMilliseconds: 3_000,
   lockTimeoutMilliseconds: 500,
 } satisfies FrameworkSchemaArtifactRepositoryTimeoutPolicy);
+
+const INERT_CONTROL_SESSION_DRIVER = Object.freeze({
+  runReadEffect: () => Effect.die("inert control-session driver"),
+  runInitialTransactionEffect: () =>
+    Effect.die("inert control-session driver"),
+  runRecoveryTransactionEffect: () =>
+    Effect.die("inert control-session driver"),
+} satisfies FrameworkSchemaArtifactControlSessionDriver);
 
 describe("private framework schema artifact repository composition", () => {
   it("returns a typed, fresh, frozen, and opaque repository identity", () => {
@@ -117,7 +128,7 @@ describe("private framework schema artifact repository composition", () => {
     const controlDb = databaseIdentity();
     const result = makeFrameworkSchemaArtifactRepository({
       controlDb,
-      controlSessionStarter: controlSessionStarterIdentity(),
+      controlSessionStarter: controlSessionStarterIdentity(controlDb),
       ...policy,
     });
 
@@ -151,6 +162,7 @@ describe("private framework schema artifact repository composition", () => {
       for (const value of invalidValues) {
         const result = makeFrameworkSchemaArtifactRepository({
           controlDb: databaseIdentity(),
+          // The invalid policy must win before starter authentication.
           controlSessionStarter: controlSessionStarterIdentity(),
           ...DEFAULT_TIMEOUT_POLICY,
           [field]: value,
@@ -171,6 +183,7 @@ describe("private framework schema artifact repository composition", () => {
     ]) {
       expectInvalidTimeoutPolicy(makeFrameworkSchemaArtifactRepository({
         controlDb: databaseIdentity(),
+        // The invalid policy must win before starter authentication.
         controlSessionStarter: controlSessionStarterIdentity(),
         ...policy,
       }));
@@ -199,9 +212,10 @@ describe("private framework schema artifact repository composition", () => {
     expect(databasePropertyReads).toBe(0);
     expect(starterPropertyReads).toBe(0);
 
+    const authenticStarter = controlSessionStarterIdentity(controlDb);
     const valid = makeFrameworkSchemaArtifactRepository({
       controlDb,
-      controlSessionStarter,
+      controlSessionStarter: authenticStarter,
       ...DEFAULT_TIMEOUT_POLICY,
     });
     expect(Result.isSuccess(valid)).toBe(true);
@@ -216,9 +230,10 @@ describe("private framework schema artifact repository composition", () => {
       recovery: 0,
       lock: 0,
     };
+    const controlDb = databaseIdentity();
     const result = makeFrameworkSchemaArtifactRepository({
-      controlDb: databaseIdentity(),
-      controlSessionStarter: controlSessionStarterIdentity(),
+      controlDb,
+      controlSessionStarter: controlSessionStarterIdentity(controlDb),
       get readTimeoutMilliseconds() {
         reads.read += 1;
         return DEFAULT_TIMEOUT_POLICY.readTimeoutMilliseconds;
@@ -244,6 +259,54 @@ describe("private framework schema artifact repository composition", () => {
       recovery: 1,
       lock: 1,
     });
+  });
+
+  it("rejects forged, proxied, and cross-database session starters", () => {
+    const controlDb = databaseIdentity();
+    const otherDb = databaseIdentity();
+    const authentic = controlSessionStarterIdentity(controlDb);
+    const brandKey = Reflect.ownKeys(authentic)[0];
+    if (typeof brandKey !== "symbol") {
+      throw new Error("Expected starter symbol brand.");
+    }
+
+    let proxyPropertyReads = 0;
+    const proxy = new Proxy(authentic, {
+      get(target, property, receiver) {
+        proxyPropertyReads += 1;
+        return Reflect.get(target, property, receiver);
+      },
+      getOwnPropertyDescriptor(target, property) {
+        proxyPropertyReads += 1;
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+      ownKeys(target) {
+        proxyPropertyReads += 1;
+        return Reflect.ownKeys(target);
+      },
+    });
+    const invalidStarters: readonly unknown[] = [
+      { ...authentic },
+      Object.freeze({ [brandKey]: true }),
+      structuredClone(authentic),
+      proxy,
+      controlSessionStarterIdentity(otherDb),
+      null,
+      undefined,
+    ];
+
+    for (const starter of invalidStarters) {
+      expectInvalidControlSessionComposition(Reflect.apply(
+        makeFrameworkSchemaArtifactRepository,
+        undefined,
+        [{
+          controlDb,
+          controlSessionStarter: starter,
+          ...DEFAULT_TIMEOUT_POLICY,
+        }],
+      ));
+    }
+    expect(proxyPropertyReads).toBe(0);
   });
 
   it("accepts only authentic repository and exact control-database pairs", () => {
@@ -319,9 +382,29 @@ function makeRepository(
 ): FrameworkSchemaArtifactRepository {
   return Result.getOrThrow(makeFrameworkSchemaArtifactRepository({
     controlDb,
-    controlSessionStarter: controlSessionStarterIdentity(),
+    controlSessionStarter: controlSessionStarterIdentity(controlDb),
     ...DEFAULT_TIMEOUT_POLICY,
   }));
+}
+
+function expectInvalidControlSessionComposition(
+  result: Result.Result<
+    unknown,
+    FrameworkSchemaArtifactRepositoryConfigurationError
+  >,
+): void {
+  expect(Result.isFailure(result)).toBe(true);
+  if (Result.isFailure(result)) {
+    expect(result.failure).toMatchObject({
+      _tag: "FrameworkSchemaArtifactRepositoryConfigurationError",
+      reason: "invalidControlSessionComposition",
+      message:
+        "Framework schema artifact control session composition is invalid",
+    });
+    expect(Object.hasOwn(result.failure, "cause")).toBe(false);
+    expect(Object.hasOwn(result.failure, "operation")).toBe(false);
+    expect(Object.hasOwn(result.failure, "retryable")).toBe(false);
+  }
 }
 
 function expectInvalidTimeoutPolicy(
@@ -352,12 +435,15 @@ function databaseIdentity(): FlarexMetadataDatabase {
   return Object.freeze({}) as unknown as FlarexMetadataDatabase;
 }
 
-function controlSessionStarterIdentity():
+function controlSessionStarterIdentity(
+  controlDb: FlarexMetadataDatabase = databaseIdentity(),
+):
   FrameworkSchemaArtifactControlSessionStarter
 {
-  // SAFETY: executable starter authority is explicitly deferred; this test
-  // slice needs only an inert identity retained by repository composition.
-  return Object.freeze({}) as FrameworkSchemaArtifactControlSessionStarter;
+  return makeFrameworkSchemaArtifactControlSessionStarter({
+    controlDb,
+    driver: INERT_CONTROL_SESSION_DRIVER,
+  });
 }
 
 function observedIdentity<Identity extends object>(

@@ -4,11 +4,12 @@
 
 Status: active accepted roadmap domain. The private artifact-value, additive
 DDL, runtime-authenticated admission-preparation, stored-reconstruction, and
-repository-construction sub-checkpoints are implemented. Repository operations
-and the control-session lifecycle remain incomplete, and the
-genuine-PostgreSQL lane is not yet run.
-Installation, binding, adapter, and production work remains pending and
-production-inert
+repository-construction sub-checkpoints, runtime-authenticated control-session
+starter, deterministic control-session lifecycle, and an artifact-private
+PostgreSQL control-session adapter are implemented. Repository operations
+remain incomplete, and the genuine-PostgreSQL lane is not yet run.
+Installation, binding, Payload/Medusa adapters, runtime wiring, and production
+work remain pending and production-inert.
 
 This domain owns the extraction and admission of shared FlarexDB mechanisms
 needed by Payload and Medusa, plus the ordered adapter conformance work that
@@ -86,7 +87,7 @@ Preflight records:
 | File | Status | Decision |
 | --- | --- | --- |
 | [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; first checkpoint implemented | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred repository, installation, and binding contracts |
-| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; DDL, preparation, reconstruction, and repository construction implemented; operations incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
+| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; DDL, preparation, reconstruction, repository construction, starter authenticity, deterministic control-session lifecycle, private PostgreSQL adapter, and fake-pool evidence implemented; operations incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 
 ## Current Architecture
 
@@ -176,7 +177,7 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Artifact value, additive DDL, admission preparation, stored reconstruction, and repository construction implemented privately; repository operations, control-session lifecycle, and genuine-PostgreSQL acceptance remain incomplete; later lifecycle codecs stay gated |
+| Framework-neutral artifact/install/binding model | Artifact value, additive DDL, admission preparation, stored reconstruction, repository construction, starter authenticity, deterministic control-session lifecycle, private PostgreSQL adapter, and fake-pool evidence implemented privately; repository operations and genuine-PostgreSQL acceptance remain incomplete; later lifecycle codecs stay gated |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |
@@ -218,8 +219,10 @@ The repository and DDL contract is accepted in
 [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
 Its additive tables, PGlite DDL evidence, runtime-authenticated admission
 preparation, operation-neutral stored reconstruction, and control-bound
-repository construction are implemented privately. Repository operations,
-control-session lifecycle behavior, and genuine-PostgreSQL acceptance remain
+repository construction are implemented privately, together with the
+authenticated session starter, deterministic control-session lifecycle,
+private PostgreSQL control-session adapter, and deterministic fake-pool
+evidence. Repository operations and genuine-PostgreSQL acceptance remain
 incomplete. The implemented sub-boundary contains only:
 
 - an additive private control registry plus dependency sidecar;
@@ -229,14 +232,30 @@ incomplete. The implemented sub-boundary contains only:
 - capture-issued artifact authenticity plus detached evidence behind an opaque
   prepared-admission capability;
 - fail-closed stored parent, canonical-frame, and dependency reconstruction
-  through the same capture owner; and
+  through the same capture owner;
 - a frozen opaque repository identity bound to its exact control database,
-  nominal session-starter dependency, and validated fixed timeout policy.
+  runtime-authenticated session starter, and validated fixed timeout policy;
+- an absolute Effect-clock deadline model, deterministic settlement and one-
+  recovery lifecycle, and mandatory post-settlement resolution;
+- driver-callback session capabilities plus repository-issued scoped control-
+  transaction tokens that authenticate the exact issuing starter and
+  repository only during their exact callback lifetimes;
+- an artifact-private PostgreSQL control-session adapter with Effect-clock
+  acquisition/work deadlines, Promise-like SQL settlement/rejection tracking,
+  deadline-bounded callback draining, exact commit/rollback-command validation,
+  explicit transaction initialization, healthy release versus discard or
+  quarantine, stable physical session identity, excluded-session recovery
+  acquisition, and a bounded post-destroy drain; and
+- deterministic fake-pool evidence for ordering and draining, late-acquisition
+  discard, expired-work cleanup, construction/release/quarantine failures,
+  native and foreign-promise SQL rejection, mixed rejection/timeout evidence,
+  invalid commit/rollback command tags, cross-starter rejection, enclosing-
+  clock preservation, distinct recovery, and complete interruption/deadline/
+  finalizer `Cause` preservation.
 
 The remaining bounded private implementation may add only:
 
-- the complete control-session lifecycle and transaction-owning repository
-  operations;
+- the transaction-owning repository operations;
 - exact replay, digest-collision, dependency, corruption, point-read, and
   bounded identity-list behavior; and
 - genuine-PostgreSQL migration, repository, settlement, and concurrency

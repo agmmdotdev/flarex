@@ -92,15 +92,21 @@ export class FrameworkSchemaArtifactInvariantDefect extends Data.TaggedError(
 
 export class FrameworkSchemaArtifactRepositoryConfigurationError extends
   Data.TaggedError("FrameworkSchemaArtifactRepositoryConfigurationError")<{
-    readonly reason: "invalidTimeoutPolicy";
+    readonly reason:
+      | "invalidTimeoutPolicy"
+      | "invalidControlSessionComposition";
     readonly message:
-      "Framework schema artifact repository timeout policy is invalid";
+      | "Framework schema artifact repository timeout policy is invalid"
+      | "Framework schema artifact control session composition is invalid";
   }>
 {
   private constructor(fields: Readonly<{
-    reason: "invalidTimeoutPolicy";
+    reason:
+      | "invalidTimeoutPolicy"
+      | "invalidControlSessionComposition";
     message:
-      "Framework schema artifact repository timeout policy is invalid";
+      | "Framework schema artifact repository timeout policy is invalid"
+      | "Framework schema artifact control session composition is invalid";
   }>) {
     super(fields);
   }
@@ -111,6 +117,16 @@ export class FrameworkSchemaArtifactRepositoryConfigurationError extends
     return new FrameworkSchemaArtifactRepositoryConfigurationError({
       reason: "invalidTimeoutPolicy",
       message: "Framework schema artifact repository timeout policy is invalid",
+    });
+  }
+
+  static invalidControlSessionComposition():
+    FrameworkSchemaArtifactRepositoryConfigurationError
+  {
+    return new FrameworkSchemaArtifactRepositoryConfigurationError({
+      reason: "invalidControlSessionComposition",
+      message:
+        "Framework schema artifact control session composition is invalid",
     });
   }
 }
