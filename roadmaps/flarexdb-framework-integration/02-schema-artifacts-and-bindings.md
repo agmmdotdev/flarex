@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-Status: accepted target architecture; identity preflight complete, artifact
-value-contract implementation pending, later persistence codecs still gated
+Status: accepted target architecture; identity preflight and private artifact
+value checkpoint complete, artifact repository/DDL preflight accepted for its
+bounded private implementation, later lifecycle persistence codecs still gated
 
 The additive authority architecture and exact artifact-envelope contract are
 frozen by
@@ -11,6 +12,14 @@ frozen by
 That record also owns the required invariants and sequencing for later
 Application-bridge, installation, activation, typed-failure, Effect, and
 evidence preflights.
+
+The next additive persistence boundary is accepted in
+[`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
+It freezes a private control registry and dependency sidecar, authenticated
+control-bound admission with bounded settlement recovery, full point-read
+corruption checks, bounded identity listing, and the PGlite/PostgreSQL evidence
+split. Its implementation authority is limited to the exact private files and
+evidence named by that record.
 
 This plan owns the neutral identity and lifecycle mechanics needed to compile,
 install, validate, and bind Payload lifecycle, Medusa, and admitted system
@@ -204,12 +213,17 @@ the sole Application selector, separates immutable readiness from mutable
 availability, freezes named `DataBindingSet` slots and typed failures, and
 requires target-local CAS activation.
 
-The first implementation is additive, private, and limited to the exact
-artifact value/canonicalization contract. Installation, readiness,
-availability, Application-reference, Payload-overlay, and `DataBindingSet`
-codecs remain later preflights. The first slice must not add storage, dual-bind,
-fallback, route production traffic, change the Application active head, or
-admit relational DDL.
+The first implementation is complete, additive, private, and limited to the
+exact artifact value/canonicalization contract. It added no storage or caller.
+The accepted second preflight keeps the repository in the control authority,
+uses compact database-only row identities without changing the natural
+artifact coordinate, and keeps artifact dependencies distinct from
+installation or binding selection.
+
+Installation, readiness, availability, Application-reference,
+Payload-overlay, and `DataBindingSet` codecs remain later preflights. No current
+checkpoint may dual-bind, fall back, route production traffic, change the
+Application active head, or admit framework relational DDL.
 
 ## Exit Criteria
 

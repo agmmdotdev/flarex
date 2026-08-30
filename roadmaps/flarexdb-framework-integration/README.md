@@ -3,8 +3,10 @@
 ## Status And Scope
 
 Status: active accepted roadmap domain. The first private artifact-value
-checkpoint is implemented on 2026-08-30; repository, installation, binding,
-adapter, and production work remains pending and production-inert
+checkpoint is implemented, and its repository and DDL preflight is accepted on
+2026-08-30. The bounded private repository/DDL implementation is authorized;
+installation, binding, adapter, and production work remains pending and
+production-inert
 
 This domain owns the extraction and admission of shared FlarexDB mechanisms
 needed by Payload and Medusa, plus the ordered adapter conformance work that
@@ -77,11 +79,12 @@ not transfer mutation authority.
 | [`07-payload-adoption.md`](./07-payload-adoption.md) | Payload content/lifecycle adapter and CMS write-authority sequence |
 | [`08-conformance-and-activation.md`](./08-conformance-and-activation.md) | Evidence matrix and private, integrated, and production gates |
 
-Accepted preflight records:
+Preflight records:
 
-| File | Decision |
-| --- | --- |
-| [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted lifecycle/authority architecture, implemented private owner-qualified artifact value checkpoint, and deferred repository, installation, and binding contracts |
+| File | Status | Decision |
+| --- | --- | --- |
+| [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; first checkpoint implemented | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred repository, installation, and binding contracts |
+| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; bounded private implementation authorized | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 
 ## Current Architecture
 
@@ -171,7 +174,7 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Architecture preflight accepted; artifact value contract pending, later persistence codecs still gated |
+| Framework-neutral artifact/install/binding model | Artifact value contract implemented privately; repository/DDL contract accepted for bounded private implementation, later lifecycle codecs still gated |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |
@@ -203,22 +206,26 @@ same contract. The framework adapters may later use the plain package names
 `@flarex/payload-adapter` and `@flarex/medusa-adapter`. Do not introduce a
 universal `@flarex/database` package.
 
-## Next Correctness Gate
+## Current Correctness Gate
 
-The artifact, installation, and binding identity preflight is complete in
-[`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md).
+The artifact, installation, and binding identity preflight is accepted in
+[`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md),
+and its first private artifact-value checkpoint is implemented.
 
-The next eligible checkpoint is its private artifact value contract only:
+The repository and DDL contract is accepted in
+[`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
+Its bounded private implementation may add only:
 
-- owner, lineage, codec, provenance, capability, dependency, payload, and
-  canonical artifact models with distinct private brands;
-- deterministic canonical capture, SHA-256 identity, and pure replay policy;
-- the artifact capture failure boundary; and
-- focused mutation-isolation, digest, owner, dependency, limit, type-brand, and
-  package-boundary tests.
+- an additive private control registry plus dependency sidecar;
+- database-only compact storage identities while retaining the full natural
+  artifact identity as the domain key;
+- runtime-authenticated pre-transaction preparation and a control-bound
+  transaction-owning admission repository;
+- exact replay, digest-collision, dependency, corruption, point-read, and
+  bounded identity-list behavior; and
+- static platform migration, PGlite, and genuine-PostgreSQL evidence.
 
-That checkpoint adds no persistence, DDL, migration runner, service/Layer,
-framework import, route, public export, or production caller. Repository and
-DDL design remain a later separately accepted preflight. Installation,
-readiness, availability, Application-reference, Payload-overlay, and
-`DataBindingSet` codecs are also not part of this checkpoint.
+This authority stops at the files and evidence named by that record.
+Installation, readiness, availability, Application-reference, Payload-overlay,
+and `DataBindingSet` codecs remain later separate preflights. No framework
+adapter, runtime caller, public API, or production activation is included.

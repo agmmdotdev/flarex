@@ -1,0 +1,1018 @@
+# Framework Schema Artifact Repository And DDL Preflight
+
+## Status And Authorization
+
+Status: accepted on 2026-08-30; implementation is authorized only for the exact
+bounded private checkpoint in this record
+
+The private owner-qualified artifact value checkpoint is implemented and
+production-inert. This preflight freezes the next additive boundary only:
+
+- control-authority storage for immutable framework schema artifacts;
+- physical dependency evidence and dependency-existence admission;
+- exact replay, digest-collision, point-read, and bounded-list semantics;
+- stored-row decoding and corruption classification;
+- transaction and lock ownership;
+- static Flarex platform migration compatibility; and
+- separate PGlite and genuine-PostgreSQL acceptance evidence.
+
+Acceptance authorizes only the private files and evidence listed under
+Implementation Checkpoint. It does **not** authorize:
+
+- a package-root export or runtime caller;
+- an Application artifact writer or any change to the Application schema,
+  readiness, activation, or commit authorities;
+- installation, readiness, availability, binding, or `DataBindingSet`
+  persistence;
+- relational schema interpretation or framework migration execution;
+- a Payload or Medusa adapter, owner codec, module compiler, or request path;
+- a public relational, CMS, commerce, or raw SQL API; or
+- production activation.
+
+## Accepted Decision
+
+Add two private, unversioned control tables through the ordinary static Flarex
+platform migration ledger:
+
+```text
+fx_control_framework_schema_artifact
+  one immutable canonical artifact
+
+fx_control_framework_schema_artifact_dependency
+  the exact ordered dependency identities carried by that artifact
+```
+
+The artifact table retains the exact canonical UTF-8 bytes and their SHA-256.
+It does not store a second JSONB interpretation. The dependency table gives
+PostgreSQL exact same-deployment/same-owner foreign keys and lets admission
+prove that every dependency already exists. Canonical bytes remain the semantic
+source of truth; dependency rows are corroborating relational evidence and
+must match the canonical dependency array exactly.
+
+The private repository accepts only a runtime-authenticated artifact prepared
+before SQL, locks the owning deployment row, admits one complete artifact and
+all of its dependency rows atomically, and exposes no update or delete
+operation. Exact canonical replay is idempotent. Equal full identity with
+different canonical bytes in an independently valid stored artifact is a
+digest collision; invalid stored evidence is corruption. A different digest
+under the same lineage is a distinct immutable artifact, not an overwrite or
+an implicit new active version.
+
+Point reads perform full bounded reconstruction and integrity checking.
+Listing is bounded, identity-only, and scoped to one exact deployment, owner,
+and lineage. Neither operation chooses a latest artifact, proves readiness, or
+selects runtime state.
+
+## Existing Authority Audit
+
+The current Application schema-version artifact repository is useful evidence,
+but it is not the new owner:
+
+- [`schemaVersionArtifacts.ts`](../../../packages/persistence-postgres/src/schemaVersionArtifacts.ts)
+  prepares canonical evidence before SQL, authenticates a prepared value with
+  a module-owned `WeakMap`, locks the deployment row, and accepts only exact
+  replay;
+- [`schema.ts`](../../../packages/persistence-postgres/src/schema.ts) defines
+  `fx_control_schema_version` with deployment ownership, immutable identity,
+  nonempty canonical evidence and database time, while its repository
+  size-gates canonical reads; and
+- focused PGlite and PostgreSQL tests distinguish constraint, corruption,
+  rollback, and concurrency evidence.
+
+Those mechanics are precedent, not permission to reuse the Application table.
+The Application artifact has a different identity, manifest codec, version
+stream, reader surface, readiness graph, and activation owner. This preflight
+does not alter or dual-write it.
+
+The implemented framework value contract already establishes:
+
+- the exact identity `(deploymentId, owner, lineageId, artifactSha256)`;
+- admitted owners `payload | medusa | system`;
+- the common frame format `flarex.framework-schema-artifact` and version `1`;
+- a 1,048,576-byte inclusive canonical-frame ceiling;
+- at most 256 sorted unique same-deployment/same-owner dependencies;
+- rejection of a dependency from the containing lineage; and
+- exact replay versus digest-collision policy.
+
+Capture intentionally makes no dependency-existence claim. This repository is
+the first owner allowed to make that claim.
+
+## Storage Authority And Placement
+
+The registry belongs to the control authority for the deployment named by the
+artifact. It is desired-state evidence, not target-local installation evidence
+and not scope-local active state.
+
+The current persistence bundle installs the same static Flarex migration tree
+in control and located target schemas. Therefore table presence alone is not
+authority. The first repository may be constructed only by the private
+control-side composition root over the control metadata database. A located
+target, framework adapter, or user transaction receives no constructor or raw
+table capability.
+
+That containment is runtime-bound, not a structural naming convention. A
+package-private factory returns a frozen opaque
+`FrameworkSchemaArtifactRepository`, and a module `WeakMap` binds that exact
+instance to its control database and private control-session starter. The
+starter must own exclusive connection acquisition, transaction phases,
+bounded autocommit reads, deadline enforcement, and quarantine/discard;
+passing a raw query database or `db.transaction` does not satisfy this
+capability. A package-private
+`hasFrameworkSchemaArtifactRepositoryComposition(repository, controlDb)` check
+lets the trusted composition root prove that the repository is bound to the
+expected control database before it is retained. Point reads, lists, and writes
+accept the repository instance, never a plain `FlarexMetadataDatabase`.
+
+The factory validates its four timeout-policy values with pure `Result`
+before allocating the repository. Invalid policy produces the private
+`FrameworkSchemaArtifactRepositoryConfigurationError` with
+`reason: "invalidTimeoutPolicy"`, message
+`Framework schema artifact repository timeout policy is invalid`, and no
+foreign cause. This construction error is not a member of the per-artifact
+operation error union.
+
+For the locked phase, the repository issues an opaque
+`FrameworkSchemaArtifactControlTransaction` inside its own exact
+`READ COMMITTED` callback. A second `WeakMap` binds that token to both the
+repository instance and underlying `FlarexMetadataTransaction`; the
+locked primitive rejects a raw, target, independently wrapped, or
+cross-repository transaction before SQL. The raw transaction never escapes the
+repository closure.
+
+Changing to separate control and target platform migration trees would be a
+larger persistence-owner change and is outside this checkpoint.
+
+The future code remains private under the existing owner:
+
+```text
+packages/persistence-postgres/src/frameworkSchema/artifact/
+  canonical.ts
+  controlSession.ts
+  errors.ts
+  model.ts
+  policy.ts
+  postgresControlSession.ts
+  repository.ts
+  schema.ts
+  storedCodec.ts
+```
+
+The table declarations are re-exported only from `src/drizzleSchema.ts` so
+Drizzle Kit can generate the platform migration. They are not added to
+`src/index.ts`, the package export map, or the historical root `flarexSchema`
+surface. The repository imports its private table declarations directly.
+
+The control-session adapter remains artifact-private for this checkpoint. It
+does not retrofit the existing located-target transaction contract or claim a
+generic framework transaction abstraction. A later installation or migration
+owner may propose extraction only after proving the same authority, lifecycle,
+deadline, quarantine, error, and evidence contract.
+
+## Physical Artifact Table
+
+### Table name
+
+`fx_control_framework_schema_artifact`
+
+### Columns
+
+| Column | PostgreSQL type | Contract |
+| --- | --- | --- |
+| `artifact_storage_id` | `bigint GENERATED ALWAYS AS IDENTITY` | Positive signed database-only surrogate row identity represented as JavaScript `bigint`, backed by `fx_framework_artifact_storage_id_seq`; never leaves the repository as domain identity |
+| `deployment_id` | `text` | Existing deployment identity; 1 through 1,024 UTF-8 bytes and physically nonblank under the exact ECMAScript `trim` character set |
+| `owner` | `text COLLATE "C"` | Exactly `payload`, `medusa`, or `system` under deterministic bytewise equality |
+| `lineage_id` | `text COLLATE "C"` | Preserved owner-local lineage; 1 through 1,024 UTF-8 bytes, physically nonblank under the exact ECMAScript `trim` character set, and compared under deterministic bytewise equality |
+| `artifact_sha256` | `bytea` | Exactly 32 bytes decoded from the lowercase hexadecimal domain digest |
+| `frame_format` | `text COLLATE "C"` | Exactly `flarex.framework-schema-artifact` under deterministic bytewise equality |
+| `frame_version` | `integer` | Exactly `1` |
+| `canonical_byte_length` | `integer` | Exact canonical length, `1..1,048,576` |
+| `canonical_bytes` | `bytea` | Exact canonical UTF-8 frame bytes; 1 through 1,048,576 bytes |
+| `admitted_at` | `timestamptz` | Database-owned finite audit time, default `now()`; excluded from artifact identity |
+
+Every column is `NOT NULL`. `artifact_storage_id` is generated always, starts
+at `1`, increments by `1`, does not cycle, and its exact sequence is owned by
+that column. The other columns have no default except `admitted_at`. Storage-ID
+gaps after a rolled-back insert are valid: the surrogate is neither a count,
+commit order, cursor, nor domain-visible artifact version.
+
+The payload codec format and version remain inside `canonical_bytes`. They are
+not duplicated into SQL columns. In particular, the current value contract
+admits every positive JavaScript safe integer as a payload codec version; an
+ordinary PostgreSQL `integer` column would silently narrow that contract.
+
+Canonical bytes, not JSONB, are retained because JSONB does not preserve exact
+canonical number spelling or byte identity. The point reader reconstructs the
+branded canonical JSON string from these bytes.
+
+### Keys And Constraints
+
+`artifact_storage_id` is the primary key. The exact domain-identity uniqueness
+rule remains:
+
+```text
+(deployment_id, owner, lineage_id, artifact_sha256)
+```
+
+One supporting unique key binds a compact row ID back to its complete locality
+for dependency foreign keys:
+
+```text
+(artifact_storage_id, deployment_id, owner, lineage_id)
+```
+
+The accepted explicit constraint names are:
+
+| Name | Rule |
+| --- | --- |
+| `fx_framework_artifact_storage_pk` | Primary key over `artifact_storage_id` |
+| `fx_framework_artifact_identity_unique` | Unique full owner-qualified domain identity |
+| `fx_framework_artifact_storage_identity_unique` | Unique storage ID plus deployment, owner, and lineage for sidecar foreign keys |
+| `fx_framework_artifact_deployment_fk` | `deployment_id` references `deployments(deployment_id)` with `ON DELETE RESTRICT` |
+| `fx_framework_artifact_owner_check` | Owner is exactly one of the three admitted framework owners |
+| `fx_framework_artifact_identity_check` | Storage ID is positive; deployment and lineage are each 1 through 1,024 UTF-8 bytes and nonblank under the exact ECMAScript trim set; digest is exactly 32 bytes |
+| `fx_framework_artifact_frame_check` | Fixed common format/version, inclusive canonical-byte bounds, and exact stored length |
+| `fx_framework_artifact_time_check` | `admitted_at` is finite |
+
+No uniqueness rule exists on lineage alone. Multiple immutable artifact
+digests under one lineage are valid history. There is no mutable head, sequence,
+or active marker in this table.
+
+The natural unique-key order also supports the only initial listing query: one
+exact deployment, owner, and lineage ordered by `artifact_sha256` bytes. No
+extra index is needed for that page.
+
+The identity check does not delegate nonblank semantics to PostgreSQL's locale
+or generic whitespace classes. Its `btrim` character argument is built from
+exactly these Unicode code points:
+
+```text
+U+0009 U+000A U+000B U+000C U+000D U+0020 U+00A0 U+1680
+U+2000..U+200A U+2028 U+2029 U+202F U+205F U+3000 U+FEFF
+```
+
+That set is the current ECMAScript `trim` set used by the implemented value
+contract. The generated check constructs it with explicit `chr(...)` members
+and requires `btrim(value, exact_set) <> ''` for both deployment and lineage.
+It must not use locale-sensitive `\s`, PostgreSQL's default one-argument
+`btrim`, or a visually copied Unicode literal. Repository validation still
+runs first, but privileged whitespace-only SQL is also rejected physically.
+
+The surrogate is physical compression, not another coordinate or authority.
+It prevents dependency primary and uniqueness indexes from repeating multiple
+maximum-size text identities. The remaining natural unique key is intentionally
+retained and must be tested at the exact 1,024-byte deployment and lineage
+ceilings on genuine PostgreSQL; PGlite does not prove PostgreSQL B-tree tuple
+limits.
+
+The accepted production database prerequisite for this schema is
+`block_size >= 8192`. The maximum natural and supporting keys are designed for
+the ordinary 8 KiB-or-larger PostgreSQL B-tree tuple limit, not a custom 4 KiB
+build. This additive migration does not install a host prerequisite hook; a
+later production-readiness gate must reject a smaller build. This private
+checkpoint remains incomplete unless its genuine-PostgreSQL lane observes the
+prerequisite and proves the keys with incompressible, well-formed maximum-byte
+identities rather than highly compressible repeated text.
+
+The implementation uses Drizzle `bigint(..., { mode: "bigint" })` for every
+storage-ID column and a private schema-local custom text type for the explicit
+`COLLATE "C"` declarations. Stored codecs accept only JavaScript `bigint`
+values from `1n` through `9223372036854775807n`; number coercion is forbidden.
+The generated SQL and Drizzle snapshot must retain the collation rather than
+depending on the database's default ICU collation.
+
+## Physical Dependency Table
+
+### Table name
+
+`fx_control_framework_schema_artifact_dependency`
+
+### Columns
+
+| Column | PostgreSQL type | Contract |
+| --- | --- | --- |
+| `artifact_storage_id` | `bigint` | Containing artifact's positive storage identity, represented as JavaScript `bigint` |
+| `dependency_storage_id` | `bigint` | Referenced artifact's positive storage identity, represented as JavaScript `bigint` |
+| `deployment_id` | `text` | Shared by containing and dependency artifact |
+| `owner` | `text COLLATE "C"` | Shared by containing and dependency artifact under deterministic bytewise equality |
+| `artifact_lineage_id` | `text COLLATE "C"` | Containing artifact lineage, corroborated by its storage-ID foreign key |
+| `dependency_ordinal` | `integer` | Canonical zero-based position, `0..255` |
+| `dependency_lineage_id` | `text COLLATE "C"` | Referenced lineage, corroborated by its storage-ID foreign key and different from `artifact_lineage_id` |
+
+Every dependency column is `NOT NULL` and has no default.
+
+There are deliberately no separate dependency deployment or owner columns.
+Both foreign keys reuse the row's one `deployment_id` and `owner`, making a
+cross-deployment or cross-owner edge physically unrepresentable.
+
+### Keys And Constraints
+
+The exact primary key is:
+
+```text
+(artifact_storage_id, dependency_ordinal)
+```
+
+The exact additional uniqueness rule is:
+
+```text
+(artifact_storage_id, dependency_storage_id)
+```
+
+The accepted explicit constraint and index names are:
+
+| Name | Rule |
+| --- | --- |
+| `fx_framework_artifact_dependency_pk` | One row per canonical dependency position |
+| `fx_framework_artifact_dependency_target_unique` | A referenced storage identity occurs at most once per containing artifact |
+| `fx_framework_artifact_dependency_parent_fk` | `(artifact_storage_id, deployment_id, owner, artifact_lineage_id)` references the artifact supporting key with immediate, nondeferrable `ON DELETE RESTRICT` |
+| `fx_framework_artifact_dependency_target_fk` | `(dependency_storage_id, deployment_id, owner, dependency_lineage_id)` references the same artifact supporting key with immediate, nondeferrable `ON DELETE RESTRICT` |
+| `fx_framework_artifact_dependency_identity_check` | Ordinal bounds, distinct storage IDs, and distinct containing/dependency lineages |
+| `fx_framework_artifact_dependency_reverse_idx` | Reverse lookup on `(dependency_storage_id, artifact_storage_id)` for FK checks and later dependency inspection |
+
+The shared deployment and owner columns participate in both foreign keys, so a
+cross-deployment or cross-owner edge remains physically unrepresentable. The
+lineage members are likewise bound to each referenced storage row. A dependency
+digest is obtained by joining the referenced immutable artifact row; it is not
+duplicated into the sidecar.
+
+The database cannot express “child rows equal the dependency array encoded in
+canonical bytes” as an ordinary check constraint. The repository verifies that
+equality on insert, exact replay, and full point read.
+
+No update, delete, edge-replacement, or dependency-append API exists. The
+tables do not add a trigger that blocks privileged SQL; immutability is the
+exclusive repository write policy plus relational constraints and fail-closed
+read verification. Raw maintenance that bypasses the repository is outside the
+ordinary semantic write authority and may deliberately create corruption that
+readers must detect.
+
+## Runtime Authenticity And Preparation
+
+TypeScript brands and a frozen structural object are not runtime authority.
+Before persistence exists, the artifact capture owner must retain private
+issuance state for every successfully captured artifact. The future
+implementation adds a module-owned `WeakMap` keyed by the returned
+`FrameworkSchemaArtifact`; its state contains an owned canonical-byte snapshot.
+The map is not exported outside the private artifact folder.
+
+The repository exposes a private preparation operation:
+
+```ts
+prepareFrameworkSchemaArtifactAdmission(
+  artifact: FrameworkSchemaArtifact,
+): Result.Result<
+  PreparedFrameworkSchemaArtifactAdmission,
+  FrameworkSchemaArtifactError
+>;
+```
+
+Preparation:
+
+1. proves the artifact came from the current capture owner;
+2. snapshots its identity, ordered dependencies, canonical byte length and
+   bytes, format, and version into repository-owned state;
+3. returns a frozen opaque token authenticated through a second private
+   `WeakMap`; and
+4. performs no SQL and no owner-payload interpretation.
+
+A cast-forged, cloned, or independently reconstructed token fails with
+`operation: "admit"` and `reason: "invalidInput"` before query construction.
+Cold callers recapture their source artifact; they do not deserialize or mint a
+prepared token.
+
+The stored decoder reconstructs values through the same canonical capture
+owner, so a successfully read artifact is also an owned authentic value. None
+of these runtime markers proves installation, readiness, binding, or mutation
+authority.
+
+## Admission Operation
+
+The only admission entry point is the transaction-owning private repository:
+
+```ts
+interface FrameworkSchemaArtifactAdmissionResult {
+  readonly status: "created" | "existing";
+  readonly artifact: FrameworkSchemaArtifact;
+}
+
+admitFrameworkSchemaArtifactEffect(
+  repository: FrameworkSchemaArtifactRepository,
+  prepared: PreparedFrameworkSchemaArtifactAdmission,
+): Effect.Effect<
+  FrameworkSchemaArtifactAdmissionResult,
+  FrameworkSchemaArtifactError,
+  never
+>;
+```
+
+`FrameworkSchemaArtifactRepository` and the prepared token are opaque private
+values authenticated before query construction. The repository owns a private
+control-session starter plus begin, explicit `READ COMMITTED` isolation,
+commit, rollback, quarantine/release, and settlement. It never accepts a caller
+transaction or top-level database. `REPEATABLE READ` and `SERIALIZABLE` are not
+accepted substitutions for this checkpoint: a contender that waits on the
+deployment row must take later statement snapshots that can observe the winner
+before it performs the natural-identity read.
+
+Repository construction captures positive safe-integer
+`readTimeoutMilliseconds`, `attemptTimeoutMilliseconds`,
+`recoveryTimeoutMilliseconds`, and `lockTimeoutMilliseconds` policy values.
+Each is at most `60_000`, and the lock timeout cannot exceed either enclosing
+transaction deadline. These are trusted composition-time values, not per-call
+or framework-controlled input. Public point reads and lists use the read
+deadline. The initial admission deadline starts before its optimistic
+reconstruction and covers that read, session acquisition, transaction work,
+settlement, release, and any initial `resolveExisting` reconstruction. The
+recovery deadline starts as soon as initial settlement becomes uncertain and
+covers quarantine of that session, acquisition of a distinct session,
+transaction work, settlement, and any recovery reconstruction. The connection
+owner applies the remaining budget to acquisition, bounded autocommit reads,
+host cancellation, `lock_timeout`, and `statement_timeout`; expiration drains
+or cancels the active operation, discards its session, and never returns that
+session to the pool.
+
+Admission first performs a full point read outside a write transaction through
+an admission-owned projection of the shared reconstruction mechanics. An
+absent identity proceeds to the locked phase. A valid exact artifact returns
+`existing`; a valid artifact with the same full identity and different
+canonical bytes is `digestCollision`; invalid stored evidence is
+`storedStateCorrupt`. Because supported rows are immutable, this fast path
+does not need a write lock. It never calls the public read facade and therefore
+never leaks an `operation: "read"` error.
+
+For each attempt the starter acquires one exclusive control connection, begins
+the transaction, makes isolation configuration its first statement, installs
+the remaining local lock/statement budgets, and only then issues an opaque
+`FrameworkSchemaArtifactControlTransaction`. The package-private locked
+primitive authenticates both opaque values before any artifact-table query and
+executes this order:
+
+1. lock `deployments(deployment_id)` for update;
+2. fail with `deploymentMissing` if that row does not exist;
+3. read the artifact row by the full identity;
+4. if it now exists, compare its fixed columns, exact byte length and byte
+   equality, finite audit time, and complete ordered dependency rows without
+   transferring, decoding, or hashing the stored canonical frame;
+5. return internal `existing` only when that bounded evidence exactly matches
+   the prepared artifact; otherwise return an internal `resolveExisting`
+   marker after performing no write;
+6. if the artifact is absent, resolve every dependency in one bounded
+   ordinal-bearing `VALUES` join by full natural identity, retain its
+   database-only storage ID, and fail on the first missing canonical ordinal
+   with `dependencyMissing` unless the exact set already exists;
+7. insert the artifact row without `ON CONFLICT DO NOTHING` and retain its
+   returned storage ID;
+8. insert all dependency rows in one bounded statement with those storage IDs
+   and canonical ordinals;
+   and
+9. return internal `created` with the already owned artifact.
+
+The internal decision is not a repository result type and never leaves the
+artifact package. After a `resolveExisting` marker, the read-only locked phase
+ends and the repository invokes the admission-owned full reconstruction outside
+the deployment lock. Only that validated reconstruction may allocate a new
+admission `digestCollision`; malformed, noncanonical, or contradictory stored
+evidence becomes an admission `storedStateCorrupt`. A row that disappears after
+the locked phase was observed is likewise admission corruption; the repository
+does not convert that contradiction into a fresh insert. This prevents
+privileged corruption from being mislabeled as a cryptographic collision and
+prevents the public `read` or `classifyReplay` operation labels from escaping
+the admission boundary.
+
+Artifact admission performs no canonical encoding, hashing, JSON parsing,
+owner-codec validation, compiler work, user code, DDL, installation, or
+activation while the deployment lock is held.
+
+The transaction bridge records its lifecycle phase and the full callback
+`Exit`; it does not flatten every callback rejection into a resource error:
+
+- a typed callback failure such as `deploymentMissing`, `dependencyMissing`,
+  stored corruption, or SQL resource failure is re-emitted with its original
+  Effect `Cause` after confirmed rollback;
+- callback interruption or defect likewise remains authoritative after
+  confirmed rollback;
+- rollback or cleanup failure combines the original callback `Cause` with a
+  cleanup defect and quarantines the connection; and
+- an acquisition, begin, isolation, or transaction infrastructure failure
+  before a successful `created` callback is an admission `resourceFailure`
+  only when no commit could have started. Cleanup evidence is preserved rather
+  than discarded.
+
+After callback success, the starter drains commit/rollback settlement before
+returning. A rejection or unsafe release after a `created` decision is an
+uncertain commit settlement. The connection is quarantined and discarded
+before recovery; it is never returned to the pool. Only after confirmed
+quarantine does the repository perform exactly one recovery attempt with the
+same authenticated input, exact `READ COMMITTED` semantics, and a distinct
+usable control session. The deployment lock then forces any surviving earlier
+backend work to settle before recovery can observe exact replay or insert.
+
+A confirmed recovery returns its own `created` or `existing` result. A
+recovery `resolveExisting` marker is classified by the same admission-owned
+out-of-lock reconstruction. Failure to quarantine the first session yields
+`decisionUncertain` at stage `settle`; failure, timeout, or uncertain settlement
+after recovery begins yields `decisionUncertain` at stage `recover`. Both the
+initial settlement cause and the later resolution cause are retained. The
+repository never guesses, exceeds the recovery deadline, or starts a second
+recovery. A settlement rejection after an initial internal `existing` or
+`resolveExisting` decision made no write; after quarantine it is resolved by
+the out-of-lock reader and ordinary admission failure mapping rather than
+reported as mutation uncertainty. Callers must not blindly retry
+`decisionUncertain`; a later operator/recovery preflight must own authoritative
+resolution.
+
+After an uncertain first settlement, the returned status is the recovery
+decision, not a claim about which physical attempt first inserted the row. For
+example, a committed first insert followed by exact recovery returns
+`existing`; the durable artifact is the contract, not historical winner
+attribution.
+
+Preparation and the optimistic read remain interruptible. Once a transaction
+starts, its callback is interruptible but rollback/commit drainage,
+quarantine/release, and any required recovery run in an uninterruptible
+finalization region. An interrupt before callback success is re-emitted with
+its original interruptor set after confirmed rollback. An interrupt arriving
+after `created` is held until durable recovery converges, then re-emitted. If
+the recovery ends in `decisionUncertain`, that typed failure is combined with
+the pending interruption Cause so neither operational fact is erased.
+
+The deployment row is a deliberately coarse control-plane serialization
+point. It already precedes Application schema-version artifact work and gives
+one unambiguous lock order. Same-deployment admissions serialize, while
+different deployments retain independent row locks. It is the first and only
+control-plane write-lock family entered by this repository-owned transaction.
+A future composite transaction may not call the facade recursively or reuse
+its locked primitive without a separate lock-order preflight.
+
+Artifact and dependency rows need no additional `FOR UPDATE` lock in this
+checkpoint. They have no supported mutation or deletion, the deployment lock
+serializes their sole writer, and both dependency foreign keys are immediate
+and nondeferrable. A future delete, repair, or finer-grained admission owner
+would require a new lock and concurrency preflight.
+
+### Replay And Conflict Semantics
+
+| Stored state | Admission result |
+| --- | --- |
+| No row and every dependency exists | Insert parent and dependency rows; `created` |
+| Equal full identity, canonical bytes, and dependency rows | No write; `existing` |
+| Equal full identity and different canonical bytes in a fully valid stored artifact | `digestCollision` |
+| Malformed or contradictory stored frame, fixed columns, digest, audit time, or dependency rows | `storedStateCorrupt` |
+| Different digest under the same deployment/owner/lineage | Distinct artifact; eligible for `created` |
+| Any missing dependency identity | `dependencyMissing`; insert nothing |
+| Missing deployment | `deploymentMissing`; insert nothing |
+
+There is no “latest wins,” lineage overwrite, fallback, merge, or partial edge
+repair.
+
+### Dependency Acyclicity
+
+For supported writes, every new edge points to an artifact that existed before
+the containing artifact row was inserted. Existing artifacts and dependency
+rows cannot be changed later. Together with same-lineage rejection, that makes
+the admitted graph acyclic by construction. Back-to-back admissions still use
+separate repository-owned transactions, so a dependency must be durably
+admitted before the dependent admission can observe it.
+
+Immediate foreign keys alone do not prove this against privileged raw SQL that
+inserts parent rows first and edges later. The acyclicity claim therefore
+depends on the private repository remaining the sole ordinary write owner. A
+future bulk-admission API would need its own topological-order and concurrency
+preflight.
+
+Dependency admission proves exact identity existence, not owner-payload
+semantics, installation, readiness, or recursive closure validity. A consumer
+must point-read and decode every dependency it intends to interpret.
+
+## Point Read Contract
+
+The first point reader is:
+
+```ts
+getFrameworkSchemaArtifactEffect(
+  repository: FrameworkSchemaArtifactRepository,
+  identity: FrameworkSchemaArtifactIdentity,
+): Effect.Effect<
+  FrameworkSchemaArtifact | null,
+  FrameworkSchemaArtifactError,
+  never
+>;
+```
+
+It authenticates the exact repository and validates the complete identity
+before query construction. An absent row is `null`; absence is not corruption
+and this repository does not convert it to an installation-level
+`artifactMissing` error.
+
+The repository's read deadline starts before connection acquisition and spans
+both queries plus reconstruction and hashing. Detached rows are retained and a
+healthy session is released before CPU/crypto reconstruction. Timeout drains
+or cancels active database work, discards an active session when necessary,
+and returns a read `resourceFailure` at the active persistence stage.
+
+For a present row, the reader:
+
+1. computes canonical byte length in SQL and substitutes `NULL` for oversized
+   bytes before transferring a corrupt payload to the worker;
+2. detaches driver rows and byte arrays before asynchronous work;
+3. validates the storage ID, natural key, fixed format/version, stored and
+   observed byte lengths, digest length, and finite audit time;
+4. fatally decodes UTF-8 and parses JSON;
+5. validates the exact ten-field persisted frame and projects the eight-field
+   capture input without trusting computed identity fields;
+6. reruns common capture to establish the exact canonical text, SHA-256,
+   brands, deep ownership, and runtime authenticity;
+7. compares reconstructed identity and canonical bytes with every stored
+   column;
+8. reads at most 256 dependency rows in one joined query, orders them by
+   ordinal, and compares the complete dense natural-identity sequence with the
+   reconstructed canonical dependencies; and
+9. returns the reconstructed immutable artifact only after all checks pass.
+
+Malformed UTF-8, invalid JSON, extra or missing frame fields, noncanonical JSON,
+identity drift, digest drift, invalid time, oversized evidence, missing or
+extra dependency rows, ordinal gaps, and dependency-order drift are
+`storedStateCorrupt` under `operation: "read"`.
+
+A stored frame that common capture rejects is corruption, not caller
+`invalidInput`. A platform hashing failure is a read `resourceFailure` with its
+cause preserved. Canonical encoder or digest-output invariants remain defects.
+
+The two tables expose no supported mutation, so the parent and dependency
+queries need no long-lived transaction for ordinary reads. This does not claim
+a coherent view against concurrent privileged corruption or ad hoc SQL repair.
+If such maintenance becomes supported, it needs an explicit snapshot and
+repair protocol.
+
+## Bounded Identity Listing
+
+The list operation is deliberately narrower than point read:
+
+```ts
+interface ListFrameworkSchemaArtifactIdentitiesInput
+  extends FrameworkSchemaArtifactCoordinate {
+  readonly afterArtifactSha256: FrameworkSchemaArtifactSha256 | null;
+  readonly limit: number;
+}
+
+interface FrameworkSchemaArtifactIdentityPage {
+  readonly items: readonly FrameworkSchemaArtifactIdentity[];
+  readonly nextAfterArtifactSha256:
+    | FrameworkSchemaArtifactSha256
+    | null;
+}
+
+listFrameworkSchemaArtifactIdentitiesEffect(
+  repository: FrameworkSchemaArtifactRepository,
+  input: ListFrameworkSchemaArtifactIdentitiesInput,
+): Effect.Effect<
+  FrameworkSchemaArtifactIdentityPage,
+  FrameworkSchemaArtifactError,
+  never
+>;
+```
+
+Rules:
+
+- the exact repository is authenticated before input validation or query
+  construction;
+- the repository read deadline spans acquisition, the bounded query, row
+  decoding, and page construction; timeout is a list `resourceFailure`;
+- `limit` is required and must be a safe integer from `1` through `100`;
+- `afterArtifactSha256` is an explicit nullable exclusive keyset cursor;
+- the query fixes deployment, owner, and lineage, orders
+  `artifact_sha256 ASC`, and reads at most `limit + 1` rows;
+- PostgreSQL `bytea` ordering matches the lowercase hexadecimal digest order
+  for this fixed-length identity;
+- when an extra row exists, `nextAfterArtifactSha256` is the digest of the last
+  returned item; otherwise it is `null`;
+- returned arrays, identity objects, and the page are fresh and frozen;
+- invalid stored identity columns are `storedStateCorrupt`; and
+- the list never transfers canonical bytes or dependency rows.
+
+The page is discovery evidence only. It does not prove that each listed row's
+canonical payload is valid. A caller must use the point reader before
+interpreting an artifact. There is no unbounded list, cross-owner list,
+cross-lineage list, creation-time order, or `latest` helper in this checkpoint.
+Because deployment, owner, and lineage are fixed filters, this query makes no
+claim that locale-sensitive PostgreSQL text order matches the artifact value
+comparator; only fixed-length digest bytes are ordered in SQL.
+
+## Typed Failure Contract
+
+This preflight completes the first repository portion of
+`FrameworkSchemaArtifactError`.
+
+Operations become:
+
+```text
+capture | classifyReplay | admit | read | list
+```
+
+This checkpoint adds `deploymentMissing`, `dependencyMissing`,
+`storedStateCorrupt`, and `decisionUncertain` to the existing artifact
+vocabulary. Exact operation/reason ownership is:
+
+| Operation | Reasons admitted by this checkpoint |
+| --- | --- |
+| `capture` | `invalidInput`, `ownerNotAdmitted`, `resourceFailure` |
+| `classifyReplay` | `digestCollision` |
+| `admit` | `invalidInput`, `deploymentMissing`, `dependencyMissing`, `digestCollision`, `storedStateCorrupt`, `resourceFailure`, `decisionUncertain` |
+| `read` | `invalidInput`, `storedStateCorrupt`, `resourceFailure` |
+| `list` | `invalidInput`, `storedStateCorrupt`, `resourceFailure` |
+
+`unsupportedCodec` remains reserved for a later owner-payload consumer. The
+common repository understands only the fixed common frame; it does not reject
+or interpret a syntactically valid Payload, Medusa, or system payload codec.
+
+The implemented capture and replay messages remain unchanged. New repository
+factories use these exact stable messages:
+
+| Operation and reason | Message |
+| --- | --- |
+| `admit / invalidInput` | `Framework schema artifact admission input is invalid` |
+| `admit / deploymentMissing` | `Framework schema artifact deployment is missing` |
+| `admit / dependencyMissing` | `Framework schema artifact dependency is missing` |
+| `admit / digestCollision` | `Framework schema artifact digest collision` |
+| `admit / storedStateCorrupt` | `Stored framework schema artifact state is corrupt` |
+| `admit / resourceFailure` | `Framework schema artifact admission persistence failed` |
+| `admit / decisionUncertain` | `Framework schema artifact admission decision is uncertain` |
+| `read / invalidInput` | `Framework schema artifact identity is invalid` |
+| `read / storedStateCorrupt` | `Stored framework schema artifact state is corrupt` |
+| `read / resourceFailure` | `Framework schema artifact read failed` |
+| `list / invalidInput` | `Framework schema artifact list input is invalid` |
+| `list / storedStateCorrupt` | `Stored framework schema artifact state is corrupt` |
+| `list / resourceFailure` | `Framework schema artifact list failed` |
+
+Every error keeps the implemented `operation`, `reason`, `message`, and
+`retryable: false` fields. Repository errors add only these optional diagnostic
+facets, with every non-applicable facet absent rather than present as
+`undefined`:
+
+- `deploymentMissing` carries the exact `deploymentId` spelling;
+- admission `digestCollision` carries a detached frozen `identity`;
+- `dependencyMissing` carries the containing `identity`, the missing frozen
+  `dependencyIdentity`, and its `dependencyOrdinal`;
+- admission/read `storedStateCorrupt` carries the requested `identity` and a
+  `storedStage` of `artifactRow`, `canonicalFrame`, or `dependencyRows`;
+- list `storedStateCorrupt` carries the requested frozen `coordinate` and
+  `storedStage: "artifactRow"`;
+- admission/read `resourceFailure` carries the requested `identity`, a
+  persistence `stage`, and the original `cause`; list `resourceFailure` carries
+  the requested `coordinate`, stage, and cause; and
+- `decisionUncertain` carries the requested `identity`, a stage of `settle` or
+  `recover`, the original `initialSettlementCause`, and the later
+  `resolutionCause`. Both cause facets preserve their foreign object identity;
+  the ordinary optional `cause` facet is absent for this reason.
+
+The complete persistence-stage vocabulary is `transaction`,
+`lockDeployment`, `readArtifact`, `readDependencies`, `insertArtifact`,
+`insertDependencies`, `reconstructArtifact`, `listArtifacts`, `settle`, and
+`recover`. Identity and coordinate facets are fresh detached frozen values;
+foreign causes retain their original identity. The existing capture hash
+failure remains the only capture error with a cause, and the implemented
+`classifyReplay` collision shape remains unchanged.
+
+Shared stored reconstruction returns package-private neutral issues rather
+than an operation-tagged public error. The read facade projects those issues to
+`operation: "read"`; admission projects them to `operation: "admit"`, retaining
+the identity, stored stage, persistence stage, and foreign cause. Admission
+also allocates its own collision error after replay classification. It never
+leaks a read or `classifyReplay` error object.
+
+All failures remain non-retryable at the artifact-operation level. The
+repository itself performs only the one whole-admission settlement recovery
+defined above; it never retries one statement, reuses a failed transaction, or
+performs an unbounded recovery loop. `decisionUncertain` is an explicit stop
+condition, not permission for a caller retry.
+
+Only a foreign SQL, transaction, or hashing boundary attaches a cause. Query
+construction, impossible decoder states, runtime intrinsic failures not owned
+by the mapped resource boundary, and invariant violations remain defects.
+Stored corruption is never relabeled as caller input, a missing dependency, a
+digest collision, or an exact replay.
+
+## Effect And Transaction Boundary
+
+- Pure input, stored-row, identity, cursor, and dependency comparisons use
+  `Result`.
+- SQL and Web Crypto remain `Effect` boundaries with typed failures.
+- Every started SQL Promise is drained. Outside a transaction, interruption
+  waits for the active statement to settle before the connection is reused.
+- The transaction callback is interruptible. Once started, its Promise is
+  always drained; commit/rollback settlement, connection quarantine/release,
+  and the single recovery are uninterruptible finalization.
+- The Promise transaction adapter preserves the callback's full `Exit` and
+  bridges only foreign lifecycle failures. No broad `tryPromise` remaps typed
+  callback failure, interruption, or defect into an ordinary resource error.
+- The opaque repository owns the transaction. Its authenticated locked
+  primitive receives only the repository-issued control-transaction token;
+  neither a raw top-level database nor a caller transaction can satisfy it.
+- Exactly one whole-admission recovery is allowed after an uncertain `created`
+  settlement, and it runs on a distinct usable session within the captured
+  recovery deadline; there is no statement retry or recursive facade call.
+- There is no service, Layer, Context tag, singleton transaction, or product
+  runtime composition in this checkpoint. Explicit values are the clearer
+  private boundary.
+- The Promise-driver compatibility bridge lives only in the private
+  control-session adapter and preserves one `Effect.runPromiseExit` result;
+  there is no `Effect.runPromise` inside the domain repository.
+
+The deployment row lock is this operation's only fence. Artifact admission is
+not scope-local serving or mutation work, so it does not lock the scope clock,
+resolve storage generation, allocate commit order, or publish feed/outbox
+facts. Installation and binding operations will have separate target and scope
+fences in their later preflights.
+
+## Static Platform Migration Contract
+
+These two control tables are Flarex platform storage. Their creation uses the
+existing checked-in Drizzle migration runner, not the future framework
+migration coordinator described in
+[`../03-relational-schema-and-migrations.md`](../03-relational-schema-and-migrations.md).
+The coordinator will install framework-owned relational structures; it does
+not install its own control ledger or artifact registry.
+
+At the time of this preflight, the Drizzle ledger ends at
+`0078_workable_the_captain`. The implementation must recheck the current head
+and use the next free ledger slot; this record does not reserve the literal
+number `0079` against concurrent work.
+
+The implementation sequence is:
+
+1. add the two tables in the private `schema.ts` module;
+2. re-export them only from `src/drizzleSchema.ts`;
+3. run the package `db:check` before generation;
+4. generate one migration through the package `db:generate` script;
+5. inspect the generated SQL, journal entry, and snapshot together;
+6. create the artifact table and its named identity sequence before the
+   dependency table, then add only the constraints and reverse index in this
+   record; and
+7. rerun `db:check` after generation.
+
+The migration is additive and starts both tables empty. It performs no
+backfill, table rewrite, DML against existing rows, Application-table lock,
+trigger installation, active-head update, or framework schema DDL. Existing
+deployment, Application artifact, readiness, and activation rows remain
+unchanged.
+
+Constraint names are explicit and below PostgreSQL's 63-byte identifier limit;
+generated long names for the dependency table must not be accepted silently.
+
+## Evidence Matrix
+
+### Pure And Package-Boundary Evidence
+
+- prepared admission rejects a cast-forged artifact or token before SQL;
+- canonical bytes retained by preparation are detached from caller state;
+- repository construction rejects invalid timeout policy before issuing a
+  repository, and operations expose no per-call timeout override;
+- repository operations reject a cast-forged repository, a raw database, a
+  located target database, and an independently composed or cross-repository
+  control-transaction token before SQL;
+- the composition check succeeds only for the exact repository/control-database
+  pair retained by the trusted control composition root;
+- no new root export, export-map entry, Payload import, Medusa import, route,
+  service, Layer, or runtime caller appears; and
+- existing artifact-value and Application-authority tests remain unchanged.
+
+### PGlite Migration Evidence
+
+PGlite must prove:
+
+- fresh migration and a second idempotent migration;
+- both table names in the exact table inventory;
+- catalog evidence that `artifact_storage_id` is generated always from the
+  exact named sequence, and rejection of a caller-supplied storage ID;
+- catalog evidence for the explicit `C` collation on every owner, lineage, and
+  frame-format column;
+- upgrade from the immediately previous migration head with representative
+  deployment and Application artifact state unchanged;
+- both new tables start empty;
+- injected migration failure rolls back both tables, the named identity
+  sequence, and the migration receipt;
+- primary, unique, and check constraints, all three foreign keys with their
+  immediate nondeferrable behavior and `ON DELETE RESTRICT` actions, and the
+  reverse index;
+- physical rejection of each exact ECMAScript trim character alone and in a
+  mixed whitespace string for both deployment and lineage, while a non-trim
+  character such as `U+200B` remains admissible; and
+- cold close/reopen retains the same rows and constraints.
+
+### PGlite Repository Evidence
+
+PGlite must prove:
+
+- created then exact-existing replay;
+- a different digest under one lineage is retained as a distinct artifact;
+- equal full identity with different authentic canonical bytes is a typed
+  digest collision;
+- malformed or contradictory bytes under an equal full identity are stored
+  corruption, never a digest collision;
+- admission-owned reconstruction returns only `operation: "admit"` failures,
+  while the public reader returns only `operation: "read"` failures;
+- missing deployment and every missing-dependency position roll back cleanly;
+- same-deployment/same-owner dependency admission and physical rejection of
+  cross-owner, cross-deployment, duplicate-target, or same-lineage rows;
+- raw ordinal reordering is admitted only as deliberate corruption and is
+  rejected by exact replay and full point read;
+- parent and dependency insertion roll back atomically after an injected
+  failure;
+- full read, absent read, bounded size gate, invalid UTF-8, invalid JSON,
+  noncanonical frame, identity/digest/frame drift, invalid audit time, and every
+  dependency mismatch;
+- list validation, byte-order pagination, maximum-page boundary, cursor gaps,
+  owner/lineage isolation, and identity-only projection;
+- SQL rejection mapping and interruption settlement;
+- a deterministic transaction-lifecycle model proves callback domain-failure
+  Cause preservation, rollback-cleanup Cause combination, post-`created`
+  settlement recovery, pending-interrupt re-emission, the single recovery
+  ceiling, and both `decisionUncertain` stages with both causes retained; and
+- no hashing or owner-codec work occurs while the admission lock is held.
+
+PGlite does not prove row-lock blocking, concurrent claim convergence,
+connection quarantine, distinct-session recovery, deadline enforcement,
+deadlock behavior, or genuine PostgreSQL migration semantics.
+
+### Genuine PostgreSQL Evidence
+
+Before the private repository checkpoint is complete, genuine PostgreSQL must
+prove:
+
+- the additive migration applies atomically in a temporary schema, rolls back
+  on injected failure, records one receipt, and replays idempotently;
+- native constraint, collation, identity-sequence, and index definitions match
+  this preflight;
+- a caller-supplied `artifact_storage_id` is rejected by native
+  `GENERATED ALWAYS` behavior;
+- `SHOW block_size` is at least 8 KiB, and incompressible exact maximum-size
+  deployment and lineage identities fit the natural and supporting B-tree keys
+  while compact dependency indexes remain valid;
+- concurrent exact admission converges to one `created` result and the rest
+  `existing` with one parent and one exact edge set;
+- concurrent equal-identity/different-canonical claims produce one winner and
+  typed digest collisions, never two semantic rows;
+- a dependency-admission race follows deployment-lock order: the dependent
+  either observes the already committed dependency or fails cleanly before any
+  parent row;
+- `pg_blocking_pids` proves same-deployment contenders wait on the deployment
+  row, different deployments do not block each other, and `READ COMMITTED`
+  observes the winner after lock acquisition;
+- deployment, owner, and lineage identities remain logically isolated under
+  contention;
+- rollback releases the deployment lock and leaves no partial parent or edge;
+- interruption during callback work rolls back before the interrupt Cause is
+  re-emitted, while interruption during `COMMIT` drains settlement and required
+  recovery first;
+- driver-level pre-commit and post-commit settlement fault injection proves
+  the uncertain connection is discarded, recovery uses a distinct backend
+  session, and convergence reaches `created` or `existing` without duplicate
+  rows;
+- acquisition, lock, statement, and recovery-deadline faults are bounded; a
+  timed-out recovery discards its session and yields one non-retryable
+  `decisionUncertain` with both original causes and no second attempt;
+- the optimistic admission reconstruction and the post-`resolveExisting`
+  reconstruction both obey the initial attempt deadline, cancel or drain their
+  active queries, and discard a timed-out session before returning; and
+- the deployment-first lock order introduces no deadlock in the supported
+  operation sequence.
+
+`FLAREX_POSTGRES_DATABASE_URL` is not configured in the current environment,
+so this documentation checkpoint claims no genuine-PostgreSQL receipt.
+
+## Accepted Implementation Checkpoint
+
+The bounded implementation checkpoint may change only:
+
+- private artifact capture authenticity state;
+- private opaque repository/control-transaction composition plus
+  model/error/codec/admission/read/list files;
+- private control-session lifecycle adapters and fault seams for PostgreSQL and
+  test-only PGlite evidence, without changing the existing located-transaction
+  contracts;
+- the two private Drizzle table declarations;
+- the next generated additive migration, journal, and snapshot;
+- focused PGlite and genuine-PostgreSQL artifact repository, settlement, and
+  authority-boundary tests;
+- the PGlite migration inventory and one additive-upgrade test; and
+- roadmap receipts for that exact checkpoint.
+
+It must stop with no package-root export, framework adapter, Application
+writer, installation, readiness, binding, migration coordinator, runtime
+caller, or production activation.
+
+If genuine PostgreSQL is unavailable, the code may remain an explicitly
+incomplete private checkpoint after PGlite evidence, but it cannot be marked
+complete and no downstream installation or adapter gate may rely on its lock
+or concurrency claims.
+
+## Exit Decision
+
+This record accepts a repository boundary that keeps canonical artifact
+meaning in the common value owner, physical identity and dependency existence
+in PostgreSQL, and framework interpretation in its lane adapter. It introduces
+no second Application authority and no generic relational developer API.
+
+The next step is the exact bounded private implementation above. Its acceptance
+does not open any installation, framework-adapter, runtime, public, or
+production gate.

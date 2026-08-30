@@ -1073,11 +1073,14 @@ No genuine-PostgreSQL evidence is claimed by this documentation checkpoint.
 1. **Private artifact value contract — complete:** artifact models, canonical
    capture, digest/replay policy, capture errors, brands, and focused tests are
    implemented privately with no storage or caller.
-2. **Artifact repository/DDL preflight:** freeze the additive artifact table,
-   exact keys, dependency admission, corruption rules, and migration
-   compatibility.
-3. **Private artifact repository:** admit and read owner-qualified immutable
-   artifacts without an Application writer or runtime caller.
+2. **Artifact repository/DDL preflight — accepted:**
+   [`02-artifact-repository-and-ddl.md`](./02-artifact-repository-and-ddl.md)
+   freezes the additive artifact tables, exact keys, dependency admission,
+   corruption rules, and migration compatibility. Its exact bounded private
+   implementation is authorized.
+3. **Private artifact repository — implementation gate:** admit and read
+   owner-qualified immutable artifacts without an Application writer or
+   runtime caller, and retain the genuine-PostgreSQL evidence gate.
 4. **Installation/readiness/availability frame and repository preflights:**
    proceed only after the relational-schema and migration-coordinator
    preflights constrain plan and structure evidence.
@@ -1095,6 +1098,9 @@ does not become authorized merely because this preflight is accepted.
 The architecture preflight and private artifact-value checkpoint are complete.
 They resolve the owner collision, preserve the one existing Application
 authority, and distinguish desired artifacts from physical proof, current
-availability, and subordinate framework selection. Work stops at this private
-value boundary. The next activity is checkpoint 2's artifact repository/DDL
-preflight; no repository or migration implementation is authorized yet.
+availability, and subordinate framework selection. Checkpoint 2's repository
+and DDL contract is accepted in
+[`02-artifact-repository-and-ddl.md`](./02-artifact-repository-and-ddl.md).
+Work may proceed only through its bounded private implementation checkpoint;
+all later lifecycle, adapter, runtime, public, and production gates remain
+closed.
