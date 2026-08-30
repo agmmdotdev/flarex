@@ -818,6 +818,8 @@ regression suites:
   completion-specific test support;
 - `test/deploymentSyncEvaluationAttemptOutcome.test.ts` and its
   outcome-specific test support;
+- `test/deploymentSyncEvaluationClaim.test.ts` and its claim-specific test
+  support;
 - `test/deploymentSyncEvaluationStateAtomicity.test.ts`;
 - `test/deploymentSyncEvaluationStateLimits.test.ts`;
 - `test/deploymentQuerySyncC2.workerd.test.ts`; and
@@ -964,8 +966,8 @@ This accepted implementation checkpoint does not authorize:
    Worker-heap behavior.
 7. Remaining C2 exit work includes the matrix's other exhaustive typed and
    corruption branches, non-migration maximum aggregate populations, claim
-   proofs, remaining races, and maximum genuine-Workerd spelling, binding,
-   buffering, and heap proofs.
+   maximum/corruption/exhaustion proofs, remaining races, and maximum genuine-
+   Workerd spelling, binding, buffering, and heap proofs.
 8. The completion control-flow proof now covers all five start-stage no-write
    receipts, pending and unchanged exact replay, first material activation,
    unchanged-digest pending preservation, replay fingerprint and content
@@ -1013,13 +1015,29 @@ This accepted implementation checkpoint does not authorize:
     unrelated completed pending query makes every C2-populatable counter
     nonzero during the terminal update; C3-owned in-flight and settlement
     counters remain zero by the accepted package boundary.
+15. The staged claim proof now pins authentication after contract/scope reads
+    but before any unissued-continuation field access, empty `none` without a
+    scan, bounded `continued` prefix revalidation through a complete cyclic
+    wrap, populated stable `none`, revision- and anchor-stale restart without a
+    scan, runnable-over-blocked priority, and lowest stable blocked evidence.
+    Ready fairness-only and dirty-successor writes match the portable aggregate
+    oracle, raw SQLite scope cursor/revision/fairness plus all eight counters,
+    and the exact retained query/dependency/pending projections. The one ready
+    scope write and both dirty writes inject foreign defects before and after
+    every position; all three affected-row refusals prove complete rollback and
+    successful retry. Caller-side loss after a committed ready claim proves a
+    fresh request selects new work from the durable fairness anchor rather than
+    replaying the hidden nominal attempt.
 
 Completion's remaining exit work still includes the exhaustive typed and
 prohibited-corruption matrix, non-migration maximum populations/bytes, and race
 proof. Claim, remaining cross-operation races, and host maximum proof also
-remain. The accepted nominal attempt-outcome branch/read-trace matrix is
-complete; exhaustive authority, typed-mismatch, corruption, and exhaustion
-branches remain under the broader C2 exit matrix above.
+remain. The accepted nominal claim and attempt-outcome branch/read-trace,
+write-rollback, affected-row, and response-loss matrices are complete. Claim's
+4,096/4,097 physical scan sentinel, crossed/corrupt point and prefix facts,
+generation/revision exhaustion, competing claims, and claim-versus-invalidation
+race remain under the broader C2 exit matrix above, alongside exhaustive
+attempt-outcome authority, typed-mismatch, corruption, and exhaustion branches.
 
 C2 remains implementation-complete but proof-incomplete at that private
 boundary. The next correctness work is the remaining C2 proof matrix. A fresh

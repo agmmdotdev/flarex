@@ -1,5 +1,3 @@
-import type { DatabaseSync } from "node:sqlite";
-
 import type {
   EvaluationAttemptOutcome,
   QueryDescriptor,
@@ -31,6 +29,7 @@ import {
   prepareEvaluationState,
   type PreparedEvaluationState,
   queryDescriptor,
+  readEvaluationScope,
   snapshotEvaluationState,
   success,
 } from "./deploymentSyncEvaluationStateTestSupport";
@@ -109,7 +108,7 @@ describe("deployment query-sync evaluation attempt outcomes", () => {
   it("blocks once, preserves fairness and the C2 counter vector, and replays both outcomes", async () => {
     const fixture = await prepareReadyOutcomeFixture(82);
     try {
-      const beforeScope = readOutcomeScope(fixture.prepared.database);
+      const beforeScope = readEvaluationScope(fixture.prepared.database);
       expect(beforeScope.metrics).toMatchObject({
         queryCount: 2,
         dependencyMemberships: 1,
@@ -145,7 +144,7 @@ describe("deployment query-sync evaluation attempt outcomes", () => {
         expect(Object.isFrozen(blocked.blockedWork)).toBe(true);
       }
       expect(fixture.probe.stop()).toEqual(ATTEMPT_OUTCOME_WRITE_STAGES);
-      expect(readOutcomeScope(fixture.prepared.database)).toEqual({
+      expect(readEvaluationScope(fixture.prepared.database)).toEqual({
         ...beforeScope,
         evaluationWorkRevision:
           (BigInt(beforeScope.evaluationWorkRevision) + 1n).toString(),
@@ -594,54 +593,6 @@ function expectedWriteTrace(writeOrdinal: number) {
     0,
     ATTEMPT_OUTCOME_COMMON_READ_STAGES.length + writeOrdinal,
   );
-}
-
-interface OutcomeScopeSnapshot {
-  readonly evaluationWorkRevision: string;
-  readonly fairnessAnchor: string | null;
-  readonly metrics: Readonly<{
-    readonly queryCount: number;
-    readonly retainedIdentityBytes: number;
-    readonly dependencyMemberships: number;
-    readonly pendingPublicationCount: number;
-    readonly inFlightPublicationCount: number;
-    readonly retainedPublicationContentBytes: number;
-    readonly settlementEnvelopeBytes: number;
-    readonly countedCanonicalBytes: number;
-  }>;
-}
-
-function readOutcomeScope(database: DatabaseSync): OutcomeScopeSnapshot {
-  const row = database.prepare(`SELECT
-    evaluation_work_revision AS evaluationWorkRevision,
-    fairness_anchor AS fairnessAnchor,
-    query_count AS queryCount,
-    retained_identity_bytes AS retainedIdentityBytes,
-    dependency_memberships AS dependencyMemberships,
-    pending_publication_count AS pendingPublicationCount,
-    in_flight_publication_count AS inFlightPublicationCount,
-    retained_publication_content_bytes AS retainedPublicationContentBytes,
-    settlement_envelope_bytes AS settlementEnvelopeBytes,
-    counted_canonical_bytes AS countedCanonicalBytes
-    FROM deployment_sync_scope_state`).get();
-  if (row === undefined) throw new Error("Expected one scope accounting row.");
-  return Object.freeze({
-    evaluationWorkRevision: String(row.evaluationWorkRevision),
-    fairnessAnchor: row.fairnessAnchor === null
-      ? null
-      : String(row.fairnessAnchor),
-    metrics: Object.freeze({
-      queryCount: Number(row.queryCount),
-      retainedIdentityBytes: Number(row.retainedIdentityBytes),
-      dependencyMemberships: Number(row.dependencyMemberships),
-      pendingPublicationCount: Number(row.pendingPublicationCount),
-      inFlightPublicationCount: Number(row.inFlightPublicationCount),
-      retainedPublicationContentBytes:
-        Number(row.retainedPublicationContentBytes),
-      settlementEnvelopeBytes: Number(row.settlementEnvelopeBytes),
-      countedCanonicalBytes: Number(row.countedCanonicalBytes),
-    }),
-  });
 }
 
 function expectAdapterInvariantDefect<A, E>(exit: Exit.Exit<A, E>): void {

@@ -12,6 +12,7 @@ import {
   type QueryEvaluationAttempt,
   type QueryEvaluationEvidence,
   type GenerationRefreshEvidence,
+  type QuerySyncStateMetrics,
   type QueryGeneration,
   type QueryPublicationArtifact,
   type SyncSequence,
@@ -329,6 +330,50 @@ export function snapshotEvaluationState(database: DatabaseSync) {
     pending: database.prepare(
       "SELECT * FROM deployment_sync_pending_publications ORDER BY query_key",
     ).all(),
+  });
+}
+
+export interface EvaluationScopeSnapshot {
+  readonly appliedThroughSequence: string;
+  readonly evaluationWorkRevision: string;
+  readonly fairnessAnchor: string | null;
+  readonly metrics: QuerySyncStateMetrics;
+}
+
+export function readEvaluationScope(
+  database: DatabaseSync,
+): EvaluationScopeSnapshot {
+  const row = database.prepare(`SELECT
+    applied_through_sequence AS appliedThroughSequence,
+    evaluation_work_revision AS evaluationWorkRevision,
+    fairness_anchor AS fairnessAnchor,
+    query_count AS queryCount,
+    retained_identity_bytes AS retainedIdentityBytes,
+    dependency_memberships AS dependencyMemberships,
+    pending_publication_count AS pendingPublicationCount,
+    in_flight_publication_count AS inFlightPublicationCount,
+    retained_publication_content_bytes AS retainedPublicationContentBytes,
+    settlement_envelope_bytes AS settlementEnvelopeBytes,
+    counted_canonical_bytes AS countedCanonicalBytes
+    FROM deployment_sync_scope_state`).get();
+  if (row === undefined) throw new Error("Expected one scope accounting row.");
+  return Object.freeze({
+    appliedThroughSequence: String(row.appliedThroughSequence),
+    evaluationWorkRevision: String(row.evaluationWorkRevision),
+    fairnessAnchor: row.fairnessAnchor === null
+      ? null
+      : String(row.fairnessAnchor),
+    metrics: Object.freeze({
+      queryCount: Number(row.queryCount),
+      retainedIdentityBytes: Number(row.retainedIdentityBytes),
+      dependencyMemberships: Number(row.dependencyMemberships),
+      pendingPublicationCount: Number(row.pendingPublicationCount),
+      inFlightPublicationCount: Number(row.inFlightPublicationCount),
+      retainedPublicationContentBytes:
+        Number(row.retainedPublicationContentBytes),
+      settlementEnvelopeBytes: Number(row.settlementEnvelopeBytes),
+      countedCanonicalBytes: Number(row.countedCanonicalBytes),
+    }),
   });
 }
 
