@@ -89,3 +89,8 @@ those facts, uses camel-case lifecycle vocabulary and its own opaque
 `TaskRunId`, and omits the internal result codec. This later cleanup does not
 change the query, store, cursor, ordering, redaction, or authority decisions in
 this checkpoint.
+
+The same audit later declared the page-level `observedAtMs` as an ordinary
+`number`. Its value remains the unchanged database-authoritative observation
+time from the Standard page; only the private branded type name was removed
+from the clean facade.

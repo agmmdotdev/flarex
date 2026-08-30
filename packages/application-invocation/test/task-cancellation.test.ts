@@ -95,6 +95,8 @@ describe("clean Task cancellation primitive", () => {
     });
     expect(Object.isFrozen(result)).toBe(true);
     expectTypeOf(result).toEqualTypeOf<CancelTaskResult>();
+    expectTypeOf(result.observedAtMs).toEqualTypeOf<number>();
+    expectTypeOf(result.runVersion).toEqualTypeOf<bigint>();
   });
 
   it("accepts an exact safe reason and projects an idempotent terminal replay", async () => {

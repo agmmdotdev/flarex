@@ -123,3 +123,12 @@ validation, review, and commit.
 Do not add provider delivery, cancellation waiting, bulk cancellation, retry,
 timeout, routes, subscriptions, public SDK compatibility, deployment, or
 production activation in this checkpoint.
+
+## Later Clean-Root Scalar Cleanup
+
+The 2026-08-30 clean-root surface audit later made the result's
+`observedAtMs` and `runVersion` declarations ordinary `number` and `bigint`
+scalars. The values still come unchanged from the authoritative Standard
+receipt. This removes private branded type names from the facade without
+changing command order, receipt projection, failure identity, or lifecycle
+authority.

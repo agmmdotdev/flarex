@@ -635,9 +635,9 @@ approval.
 
 ### Clean Root Surface Audit
 
-**Status:** Implemented privately on 2026-08-30 for request-key normalization
-and the clean Task-run status projection; the API classification below is the
-accepted current root shape.
+**Status:** Implemented privately on 2026-08-30 for request-key normalization,
+the clean Task-run status projection, and clean Task page/cancellation scalar
+types; the API classification below is the accepted current root shape.
 
 Application authors and invocation callers use only ordinary semantic values:
 
@@ -672,6 +672,13 @@ Task lifecycle observation also has one clean root-owned contract:
 - every returned status and nested record is newly owned and frozen. The
   Standard and durable status models, query authority, storage, and lifecycle
   semantics remain unchanged below the facade.
+
+The remaining Task page and cancellation receipt projections also use ordinary
+caller-facing scalars: `TaskRunPage.observedAtMs` and
+`CancelTaskResult.observedAtMs` are `number`, while
+`CancelTaskResult.runVersion` is `bigint`. Their authoritative values still
+come unchanged from the Standard services; only the private branded type names
+have been removed from the clean root declarations.
 
 The root operations remain deliberately separated by capability:
 

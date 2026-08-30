@@ -97,6 +97,7 @@ describe("clean Task-run list primitive", () => {
     expect(Object.isFrozen(page.nextCursor)).toBe(true);
     expect(Object.keys(page.nextCursor ?? {})).toEqual([]);
     expectTypeOf(page).toEqualTypeOf<TaskRunPage>();
+    expectTypeOf(page.observedAtMs).toEqualTypeOf<number>();
     expectTypeOf(page.runs).toEqualTypeOf<readonly ListedTaskRun[]>();
   });
 

@@ -34,10 +34,8 @@ export type TaskCancellationStatus =
 
 export interface CancelTaskResult {
   readonly runId: TaskRun<unknown>["runId"];
-  readonly observedAtMs:
-    StandardApplicationTaskCancellationReceipt["observedAtMs"];
-  readonly runVersion:
-    StandardApplicationTaskCancellationReceipt["runVersion"];
+  readonly observedAtMs: number;
+  readonly runVersion: bigint;
   readonly status: TaskCancellationStatus;
   readonly replayed: boolean;
 }

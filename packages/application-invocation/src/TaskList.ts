@@ -39,7 +39,7 @@ export interface ListedTaskRun {
 }
 
 export interface TaskRunPage {
-  readonly observedAtMs: StandardApplicationTaskRunListPage["observedAtMs"];
+  readonly observedAtMs: number;
   readonly runs: readonly ListedTaskRun[];
   readonly nextCursor: TaskRunCursor | null;
 }
