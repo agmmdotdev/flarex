@@ -20,11 +20,16 @@ vectors plus the completed docs-only
 [`QSYNC-FX01-B` semantic-persistence verdict](./preflight/08-qsync-fx01-b-semantic-persistence-verdict.md).
 A is private and production-inert. B stopped before schema: all nine logical
 access plans are bounded, and the completed D stage now supplies their reusable
-operation-scoped transition-plan seam. The accepted docs-only
+operation-scoped transition-plan seam. The fresh
+[`QSYNC-FX01-C1` checkpoint](./preflight/10-qsync-fx01-c1-sqlite-vertical.md)
+is accepted and authorizes only the private generation-2 migration plus
+initialize, begin, and admitted-batch SQLite vertical after its small
+empty-scope core prerequisite. C2 and C3 remain separately blocked. The
+accepted docs-only
 [`QSYNC01-D0` preflight](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
 now freezes that seam, its staged-read protocol, exact accounting authority,
 proof matrix, and D1-D4 implementation order. D0 itself added no code; D1-D4
-are now complete. No SQLite schema is implemented or authorized.
+are now complete. No SQLite schema is implemented yet.
 
 The separately approved `QSYNC01-D1`, `QSYNC01-D2`, `QSYNC01-D3`, and
 `QSYNC01-D4`
@@ -191,7 +196,7 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete in `a9b309d0`; C4 complete in `87a7566f`; private and production-inert |
 | `QSYNC01-D` | Operation-scoped transition-plan seam with bounded fact inputs, explicit logical changes, exact counters, and equivalence to the aggregate reducers | Complete through D4; all nine operations are private and production-inert |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
-| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | A complete, private, and production-inert; B complete with a stop-before-schema verdict; the D prerequisite is complete, but C1-C3 remain unapproved until a fresh adapter checkpoint; independent of delivery selection |
+| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | A complete; B complete docs-only; D complete; C1 accepted for its private three-operation vertical but not implemented; C2-C3 remain separately blocked; independent of delivery selection |
 | `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Blocked on `QSYNC-FX01` |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
@@ -248,14 +253,18 @@ paths.
   record for the private planner boundary, facts, staged apply, completion,
   evaluation-work and publication lifecycle, shared accounting, the private
   import boundary, aggregate/reference integration, and all-nine proof matrix.
+- [`preflight/10-qsync-fx01-c1-sqlite-vertical.md`](./preflight/10-qsync-fx01-c1-sqlite-vertical.md)
+  is the accepted C1 implementation boundary for authenticated binding, exact
+  cursor-only migration, generation-2 normalized SQLite state, and only the
+  initialize, begin, and admitted-batch operations.
 
 ## Next Correctness Gate
 
-The next correctness decision is a fresh `QSYNC-FX01-C1` discussion and
-preflight checkpoint. D1-D4 and the all-nine planner proof are complete, but
-that prerequisite does not itself authorize the SQLite vertical. C1-C3 remain
-unapproved; no DDL or storage generation is authorized. Neither A, B, C4, D0,
-nor completed D1-D4 authorizes a real
+The next correctness work is the accepted `QSYNC-FX01-C1` sequence: first the
+private empty-scope-facts constructor, then the complete three-operation
+generation-2 SQLite vertical. C1 is authorized but not implemented; C2 and C3
+remain unapproved. Neither A, B, C4, D, nor the C1 checkpoint authorizes a real
 `ResultPublisher`, delivery-adapter selection, Postgres source composition,
-public/client APIs, production routing, migration, cutover, or `R03-B`.
+public/client APIs, production routing, Legacy/product migration, cutover, or
+`R03-B`.
 `QSYNC-CF01` remains the independent delivery feasibility and selection gate.

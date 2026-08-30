@@ -4,24 +4,25 @@
 
 **Checkpoint status:** complete on 2026-08-29, docs only.
 
-**Verdict:** stop before schema. Cloudflare SQLite is a feasible durable host for
-the accepted query-sync state contract, and all nine operations have bounded
-logical access plans. The current portable core does not expose those plans,
-however. Its reusable reducers consume and rebuild the complete
-`QuerySyncState`. A normalized SQLite implementation would therefore have to
-load the maximum aggregate or reproduce material reducer, invariant, and
-counter logic in host SQL. Both are rejected.
+**Historical B verdict:** stop before schema. Cloudflare SQLite is a feasible
+durable host for the accepted query-sync state contract, and all nine
+operations have bounded logical access plans. At this checkpoint the portable
+core did not expose those plans: its reusable reducers consumed and rebuilt the
+complete `QuerySyncState`. A normalized SQLite implementation would therefore
+have had to load the maximum aggregate or reproduce material reducer,
+invariant, and counter logic in host SQL. Both remain rejected.
 
-This checkpoint authorizes no DDL, local storage-contract generation,
+This B checkpoint itself authorized no DDL, local storage-contract generation,
 migration, Durable Object behavior, state-adapter code, or C1-C3 semantic
-vertical. `QSYNC-FX01-C1`, `QSYNC-FX01-C2`, and `QSYNC-FX01-C3` remain blocked.
+vertical. The later C1 checkpoint now authorizes C1 only; C2 and C3 remain
+blocked.
 
 The separate portable-core
 [`QSYNC01-D0` preflight](./09-qsync01-d-operation-scoped-transition-plans.md)
 was subsequently accepted docs-only. It freezes the operation-scoped
-transition-plan seam and D1-D4 sequence but implements nothing. This B record
-remains the access-plan evidence; D owns the portable correction. Every D code
-slice still requires explicit approval.
+transition-plan seam and D1-D4 sequence. D1-D4 are now complete. This B record
+remains the historical access-plan evidence; D owns the completed portable
+correction and the later C1 record owns adapter authority.
 
 ## Decision Summary
 
@@ -30,10 +31,10 @@ slice still requires explicit approval.
 | Can one named per-scope Durable Object own this coordination state? | Yes, subject to authenticated route/binding proof and externally authorized first initialization. |
 | Can Cloudflare SQLite provide the required synchronous atomic boundary? | Yes in principle; every semantic operation fits one synchronous transaction with normalized rows. |
 | Can every operation use a bounded logical read and write set? | Yes; the nine plans are frozen below. |
-| Can the current portable reducer API consume those bounded facts? | No; every material mutation rebuilds the complete aggregate. |
+| Could the portable reducer API at the time of B consume those bounded facts? | No; every material mutation then rebuilt the complete aggregate. D1-D4 subsequently supplied the private planner seam. |
 | May the backend duplicate the reducers or capacity arithmetic in SQL? | No; that would create a second semantic authority. |
 | May B accept candidate DDL, indexes, a storage generation, or migration? | No. Only logical row families and access/index purposes are retained as requirements. |
-| Is Cloudflare the blocker? | No. The blocker is the missing portable operation-plan seam. |
+| Was Cloudflare the B-time blocker? | No. The blocker was the then-missing portable operation-plan seam, now completed by D1-D4. |
 
 `QSYNC-FX01-A` remains complete in `5f2a9e69`, private, and production-inert.
 It supplies the Flarex model encodings and pure mapping boundary that later
@@ -524,7 +525,7 @@ cursor. See the linked D record for the authoritative contract and gates.
 
 ## Explicitly Not Authorized
 
-This completed docs checkpoint does not authorize:
+At the time it completed, this docs checkpoint did not authorize:
 
 - `QSYNC01-D1` through `QSYNC01-D4` implementation;
 - SQLite DDL, index names, a new local storage-contract generation, migration,
@@ -540,9 +541,9 @@ This completed docs checkpoint does not authorize:
 - public/runtime portability, `R03-B`, `SV-R Live`, or production readiness
   claims.
 
-## Next Checkpoint
+## Subsequent Checkpoint
 
-Discuss and explicitly approve or reject a fresh `QSYNC-FX01-C1` checkpoint.
-D1-D4 now complete all nine planners, but FX01 still has no implementation
-slice until that adapter checkpoint is approved: `QSYNC-FX01-C1` remains
-blocked and no schema work should begin.
+The fresh `QSYNC-FX01-C1` checkpoint was subsequently accepted in
+[`10-qsync-fx01-c1-sqlite-vertical.md`](./10-qsync-fx01-c1-sqlite-vertical.md).
+It authorizes C1 only after its small core prerequisite; C2/C3 and every
+production host/delivery boundary remain blocked.

@@ -123,9 +123,9 @@ not a complete uncertainty contract.
    frames, one Flarex model projector, and coupled result/publication mapping
    are private and production-inert. A adds no SQLite schema or host behavior.
 6. **Complete (`QSYNC-FX01-B`, docs only).** Every operation has a bounded
-   logical read/transition/write plan and Cloudflare SQLite is feasible, but B
-   stopped before DDL because current reducers consume and rebuild the complete
-   aggregate. C1-C3 remain blocked.
+   logical read/transition/write plan and Cloudflare SQLite is feasible. B
+   historically stopped before DDL because the then-current reducers consumed
+   and rebuilt the complete aggregate; D1-D4 subsequently closed that seam.
 7. **Complete (`QSYNC01-D0`, docs only).** The accepted
    [operation-scoped transition-plan preflight](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
    freezes bounded facts, closed staged reads, operation-specific logical
@@ -148,10 +148,12 @@ not a complete uncertainty contract.
 11. **Complete (`QSYNC01-D4`).** Publication claim, attempt-outcome recording,
    and completion now use bounded pure planners, completing all nine operations
    and the private transition-plan import boundary without adapter code.
-12. Next, hold a fresh `QSYNC-FX01-C1` discussion and preflight. Only a
-   separately approved checkpoint may authorize C1-C3 semantic verticals over
-   the one existing per-scope SQLite cursor owner, without duplicate tables,
-   cursors, reducers, or writes.
+12. **Accepted (`QSYNC-FX01-C1`, implementation pending).** The fresh
+   [C1 checkpoint](./preflight/10-qsync-fx01-c1-sqlite-vertical.md) authorizes
+   only authenticated binding, exact cursor-only migration, initialize, begin,
+   and admitted-batch application over the existing per-scope SQLite owner.
+   C2 and C3 remain separately blocked; no duplicate tables, cursors, reducers,
+   or writes are authorized.
 13. Independently run the Cloudflare Durable Streams feasibility spike and
    accept or reject it at explicit maturity, security, retention, payload, and
    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;
