@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-Status: active accepted roadmap domain; architecture and sequencing are
-accepted, while implementation remains pending and production-inert
+Status: active accepted roadmap domain. The first private artifact-value
+checkpoint is implemented on 2026-08-30; repository, installation, binding,
+adapter, and production work remains pending and production-inert
 
 This domain owns the extraction and admission of shared FlarexDB mechanisms
 needed by Payload and Medusa, plus the ordered adapter conformance work that
@@ -80,7 +81,7 @@ Accepted preflight records:
 
 | File | Decision |
 | --- | --- |
-| [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted lifecycle/authority architecture, exact owner-qualified artifact envelope, deferred installation/binding codecs, and the first private artifact checkpoint |
+| [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted lifecycle/authority architecture, implemented private owner-qualified artifact value checkpoint, and deferred repository, installation, and binding contracts |
 
 ## Current Architecture
 

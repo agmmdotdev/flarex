@@ -2,16 +2,16 @@
 
 ## Status And Authorization
 
-**Preflight status:** accepted on 2026-08-30. The current Application lifecycle,
-scope authority, catalog identity, persistence placement, and Effect ownership
-have been audited. This record freezes the additive architecture and the exact
-artifact-envelope contract. Installation, readiness, availability,
+**Preflight status:** accepted on 2026-08-30; private artifact-value checkpoint
+implemented on 2026-08-30. The current Application lifecycle, scope authority,
+catalog identity, persistence placement, and Effect ownership have been
+audited. This record freezes the additive architecture and the exact artifact-
+envelope contract. Artifact persistence, installation, readiness, availability,
 Application-bridge, and binding persistence codecs remain later preflights.
 
-The accepted next implementation checkpoint is limited to the owner-qualified
-artifact value model, canonical capture, digest policy, capture failures, and
-contract tests inside the private persistence owner. This record does **not**
-authorize:
+The completed checkpoint is limited to the owner-qualified artifact value
+model, canonical capture, digest policy, capture failures, and contract tests
+inside the private persistence owner. This record does **not** authorize:
 
 - a database migration or relational DDL;
 - an artifact, installation, readiness, or binding repository;
@@ -276,6 +276,11 @@ captureFrameworkSchemaArtifact(
   never
 >;
 
+compareFrameworkSchemaArtifactIdentities(
+  left: FrameworkSchemaArtifactIdentity,
+  right: FrameworkSchemaArtifactIdentity,
+): number;
+
 classifyFrameworkSchemaArtifactReplay(
   existing: FrameworkSchemaArtifact,
   incoming: FrameworkSchemaArtifact,
@@ -288,10 +293,12 @@ classifyFrameworkSchemaArtifactReplay(
 `normalizeFrameworkSchemaArtifact` owns unknown-input decoding, bounds,
 detachment, sorting, and frame assembly. `captureFrameworkSchemaArtifact`
 canonically encodes that frame, applies the byte ceiling, hashes it, brands the
-result, and returns an owned immutable value. Replay classification returns
-`exact` only when identity and canonical text both match; distinct identities
-remain distinct, while equal identity with different canonical text is
-`digestCollision`.
+result, and returns an owned immutable value. The identity comparator is an
+explicit package-private pure operation so later same-owner repositories and
+focused tests share one complete tuple order; it is not a constructor, package
+export, or caller authority. Replay classification returns `exact` only when
+identity and canonical text both match; distinct identities remain distinct,
+while equal identity with different canonical text is `digestCollision`.
 
 Admission time, database time, an installation, readiness, and a binding are
 excluded. The digest is lowercase hexadecimal SHA-256 of the UTF-8 canonical
@@ -995,6 +1002,30 @@ No database claim is made by those tests. They do not claim dependency
 existence, artifact admission, an installation, readiness, an Application
 projection, or an active binding.
 
+### Checkpoint 1 implementation receipt
+
+Checkpoint 1 is complete privately and production-inert on 2026-08-30:
+
+- `model.ts`, `errors.ts`, `policy.ts`, and `canonical.ts` implement only the
+  artifact value, normalization, complete identity comparator, replay policy,
+  canonical-byte ceiling, and Web Crypto SHA-256 boundary;
+- the private module has no package-root or export-map entry and no Payload,
+  Medusa, database, migration, repository, routing, or runtime caller;
+- one focused test file passes 19 tests covering the golden frame and digest,
+  exact inclusive budgets, descriptor and proxy hostility, detachment and
+  freezing, UTF-8 and UTF-16 ordering, replay collision, Web Crypto failures,
+  and invariant defects;
+- `@flarex/persistence-postgres` typecheck, `lint:core`, `lint:diff`, and the
+  unchanged `applicationSchemaAuthority.test.ts` lane pass; and
+- both standing TypeScript/Effect and code-quality reviews report no findings.
+
+No PostgreSQL lane is required or claimed because this checkpoint contains no
+storage. The broader `schemaVersionArtifacts.test.ts` lane currently has two
+standalone defect-classification failures in its unchanged owner, and the
+workspace Effect-boundary audit reports four unchanged executor Promise
+bridges. Neither owner is imported or modified by this checkpoint, so those
+baseline failures are recorded but not repaired here.
+
 ### Later installation and binding contract evidence
 
 Before their value contracts can be implemented, their frame preflights must
@@ -1039,9 +1070,9 @@ No genuine-PostgreSQL evidence is claimed by this documentation checkpoint.
 
 ## Ordered Implementation Checkpoints
 
-1. **Private artifact value contract:** implement only the artifact models,
-   canonical capture, digest/replay policy, capture errors, brands, and focused
-   tests described above.
+1. **Private artifact value contract — complete:** artifact models, canonical
+   capture, digest/replay policy, capture errors, brands, and focused tests are
+   implemented privately with no storage or caller.
 2. **Artifact repository/DDL preflight:** freeze the additive artifact table,
    exact keys, dependency admission, corruption rules, and migration
    compatibility.
@@ -1061,9 +1092,9 @@ does not become authorized merely because this preflight is accepted.
 
 ## Exit Decision
 
-The architecture preflight is complete. It resolves the owner collision,
-preserves the one existing Application authority, and distinguishes desired
-artifacts from physical proof, current availability, and subordinate framework
-selection. The artifact envelope is the only exact code-ready contract. The
-only next implementation eligible for approval is checkpoint 1: its private
-value contract with no persistence or routing.
+The architecture preflight and private artifact-value checkpoint are complete.
+They resolve the owner collision, preserve the one existing Application
+authority, and distinguish desired artifacts from physical proof, current
+availability, and subordinate framework selection. Work stops at this private
+value boundary. The next activity is checkpoint 2's artifact repository/DDL
+preflight; no repository or migration implementation is authorized yet.
