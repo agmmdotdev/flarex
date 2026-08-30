@@ -89,6 +89,107 @@ export interface EvaluationStorageHooks extends EvaluationSqlHooks {
   ) => number | undefined;
 }
 
+export interface EvaluationSqlFault {
+  readonly phase: "before" | "after";
+  readonly writeOrdinal: number;
+  readonly cause: Error;
+}
+
+export type AffectedRowRefusalMode = "skip" | "zeroRowsWritten";
+
+export interface EvaluationSqlProbe<Stage extends string> {
+  readonly hooks: EvaluationStorageHooks;
+  readonly start: (fault?: EvaluationSqlFault) => void;
+  readonly startAffectedRowRefusal: (
+    writeOrdinal: number,
+    mode: AffectedRowRefusalMode,
+  ) => void;
+  readonly stop: () => readonly Stage[];
+  readonly snapshot: () => readonly Stage[];
+}
+
+export function makeEvaluationSqlProbe<Stage extends string>(
+  classify: (invocation: EvaluationSqlInvocation) => Stage,
+): EvaluationSqlProbe<Stage> {
+  let enabled = false;
+  let fault: EvaluationSqlFault | undefined;
+  let affectedRowFault: Readonly<{
+    readonly writeOrdinal: number;
+    readonly mode: AffectedRowRefusalMode;
+  }> | undefined;
+  let writeOrdinal = 0;
+  let stages: Stage[] = [];
+
+  const hooks: EvaluationStorageHooks = Object.freeze({
+    beforeExecute: (invocation: EvaluationSqlInvocation) => {
+      if (!enabled) return;
+      stages.push(classify(invocation));
+      if (!invocation.isWrite) return;
+      writeOrdinal += 1;
+      if (
+        fault?.phase === "before"
+        && fault.writeOrdinal === writeOrdinal
+      ) {
+        throw fault.cause;
+      }
+    },
+    shouldSkipExecute: (invocation: EvaluationSqlInvocation) => (
+      enabled
+      && invocation.isWrite
+      && affectedRowFault?.mode === "skip"
+      && affectedRowFault.writeOrdinal === writeOrdinal
+    ),
+    overrideRowsWritten: (completion: EvaluationSqlCompletion) => (
+      enabled
+      && completion.isWrite
+      && affectedRowFault?.mode === "zeroRowsWritten"
+      && affectedRowFault.writeOrdinal === writeOrdinal
+        ? 0
+        : undefined
+    ),
+    afterExecute: (completion: EvaluationSqlCompletion) => {
+      if (
+        enabled
+        && completion.isWrite
+        && fault?.phase === "after"
+        && fault.writeOrdinal === writeOrdinal
+      ) {
+        throw fault.cause;
+      }
+    },
+  });
+
+  const resetTrace = () => {
+    stages = [];
+    writeOrdinal = 0;
+    enabled = true;
+  };
+
+  return Object.freeze({
+    hooks,
+    start: (nextFault?: EvaluationSqlFault) => {
+      fault = nextFault;
+      affectedRowFault = undefined;
+      resetTrace();
+    },
+    startAffectedRowRefusal: (
+      ordinal: number,
+      mode: AffectedRowRefusalMode,
+    ) => {
+      fault = undefined;
+      affectedRowFault = Object.freeze({ writeOrdinal: ordinal, mode });
+      resetTrace();
+    },
+    stop: () => {
+      enabled = false;
+      fault = undefined;
+      affectedRowFault = undefined;
+      return Object.freeze([...stages]);
+    },
+    snapshot: () => Object.freeze([...stages]),
+  });
+}
+
 export async function prepareEvaluationState(
   hooks: EvaluationStorageHooks = {},
 ): Promise<PreparedEvaluationState> {

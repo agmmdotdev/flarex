@@ -816,6 +816,8 @@ regression suites:
 - `test/deploymentSyncEvaluationState.test.ts`;
 - `test/deploymentSyncEvaluationStateCompletionBranches.test.ts` and its
   completion-specific test support;
+- `test/deploymentSyncEvaluationAttemptOutcome.test.ts` and its
+  outcome-specific test support;
 - `test/deploymentSyncEvaluationStateAtomicity.test.ts`;
 - `test/deploymentSyncEvaluationStateLimits.test.ts`;
 - `test/deploymentQuerySyncC2.workerd.test.ts`; and
@@ -961,8 +963,8 @@ This accepted implementation checkpoint does not authorize:
    consumption evidence; it does not claim Cloudflare cursor-buffering or
    Worker-heap behavior.
 7. Remaining C2 exit work includes the matrix's other exhaustive typed and
-   corruption branches, non-migration maximum aggregate populations, claim and
-   outcome proofs, races, and maximum genuine-Workerd spelling, binding,
+   corruption branches, non-migration maximum aggregate populations, claim
+   proofs, remaining races, and maximum genuine-Workerd spelling, binding,
    buffering, and heap proofs.
 8. The completion control-flow proof now covers all five start-stage no-write
    receipts, pending and unchanged exact replay, first material activation,
@@ -997,10 +999,27 @@ This accepted implementation checkpoint does not authorize:
     alone is not a generation-3 corruption defect; the remaining orphan,
     missing-row, and pending/completion-mismatch matrix must cover only states
     the portable contract actually prohibits.
+14. The one-shot attempt-outcome proof now authenticates an unissued getter
+    trap before field access or SQL and pins the exact three-read trace for the
+    accepted transient/replay/history/future branch matrix. It proves transient
+    eligibility, the first atomic terminal block, exact replay for both
+    outcomes, current/preceding supersession, expired recovery, and a genuinely
+    issued future-generation mismatch. The terminal write preserves fairness
+    and seven counters, increments revision once, and adds only the planner's
+    two counted canonical bytes. Both query and scope CAS affected-row
+    refusals, foreign defects before and after both writes, caller-side
+    committed-response loss, and both serial orders against completion prove
+    full rollback, exact recovery, and no fabricated commit uncertainty. An
+    unrelated completed pending query makes every C2-populatable counter
+    nonzero during the terminal update; C3-owned in-flight and settlement
+    counters remain zero by the accepted package boundary.
 
 Completion's remaining exit work still includes the exhaustive typed and
 prohibited-corruption matrix, non-migration maximum populations/bytes, and race
-proof. Claim/outcome and host read-trace/maximum proof also remains.
+proof. Claim, remaining cross-operation races, and host maximum proof also
+remain. The accepted nominal attempt-outcome branch/read-trace matrix is
+complete; exhaustive authority, typed-mismatch, corruption, and exhaustion
+branches remain under the broader C2 exit matrix above.
 
 C2 remains implementation-complete but proof-incomplete at that private
 boundary. The next correctness work is the remaining C2 proof matrix. A fresh
