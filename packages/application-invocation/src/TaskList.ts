@@ -1,16 +1,12 @@
 import {
-  listStandardApplicationTaskRuns,
   STANDARD_APPLICATION_TASK_RUN_LIST_MAX_PAGE_SIZE,
   StandardApplicationTaskRunListQuery,
   type StandardApplicationTaskRunListOptions,
   type StandardApplicationTaskRunListPage,
   type StandardApplicationTaskRunListQueryError,
 } from
-  "@flarex/standard-application-invocation/internal/standard-application-task-run-list-query";
-import {
-  StandardApplicationTaskRunQuery,
-  type StandardApplicationTaskRunQueryApi,
-} from
+  "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
+import type { StandardApplicationTaskRunQueryApi } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
 import { Data, Effect, Result } from "effect";
 
@@ -83,11 +79,11 @@ export const listTaskRuns = Effect.fn("Application.listTaskRuns")(function* (
 ): Effect.fn.Return<
   TaskRunPage,
   ListTaskRunsError,
-  StandardApplicationTaskRunListQuery | StandardApplicationTaskRunQuery
+  StandardApplicationTaskRunListQuery
 > {
   const normalized = yield* Effect.fromResult(normalizeOptions(options));
-  const taskRunQuery = yield* StandardApplicationTaskRunQuery;
-  const page = yield* listStandardApplicationTaskRuns(normalized).pipe(
+  const listQuery = yield* StandardApplicationTaskRunListQuery;
+  const page = yield* listQuery.list(normalized).pipe(
     Effect.catchTag("TaskRunListOptionsError", error =>
       Effect.fail(new ListTaskRunsOptionsFailure({
         field: error.field,
@@ -95,7 +91,7 @@ export const listTaskRuns = Effect.fn("Application.listTaskRuns")(function* (
       }))
     ),
   );
-  return projectPage(page, taskRunQuery);
+  return projectPage(page, listQuery.scope);
 });
 
 function normalizeOptions(

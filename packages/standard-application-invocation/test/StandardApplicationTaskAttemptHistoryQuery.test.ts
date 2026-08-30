@@ -17,6 +17,7 @@ import {
   makeStandardApplicationTaskReadQueryLayer,
   StandardApplicationTaskAttemptHistoryQuery,
   StandardApplicationTaskEventHistoryQuery,
+  StandardApplicationTaskRunListQuery,
   type StandardApplicationTaskAttemptHistoryQueryApi,
 } from "../src/StandardApplicationTaskReadQuery.js";
 import {
@@ -29,20 +30,27 @@ const runId = Brand.nominal<TaskRunIdV1>()(
 );
 
 describe("StandardApplicationTaskAttemptHistoryQuery", () => {
-  it("issues point and history services from one authentic read store", async () => {
+  it("issues list, point, and history services from one authentic store", async () => {
     const store = authenticStoreWithoutIo();
 
     const result = await Effect.runPromise(Effect.gen(function* () {
       const history = yield* StandardApplicationTaskAttemptHistoryQuery;
       const point = yield* StandardApplicationTaskRunQuery;
       const events = yield* StandardApplicationTaskEventHistoryQuery;
-      return { historyScope: history.scope, eventScope: events.scope, point };
+      const list = yield* StandardApplicationTaskRunListQuery;
+      return {
+        historyScope: history.scope,
+        eventScope: events.scope,
+        listScope: list.scope,
+        point,
+      };
     }).pipe(Effect.provide(
       makeStandardApplicationTaskReadQueryLayer(store),
     )));
 
     expect(result.historyScope).toBe(result.point);
     expect(result.eventScope).toBe(result.point);
+    expect(result.listScope).toBe(result.point);
   });
 
   it("rejects a structurally mixed read store before service construction", () => {

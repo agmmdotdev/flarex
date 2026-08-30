@@ -27,6 +27,10 @@ const standardApplicationTaskRunQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskRunQuery.ts";
 const standardApplicationTaskRunListQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskRunListQuery.ts";
+const standardApplicationTaskReadQueryPath =
+  "packages/standard-application-invocation/src/StandardApplicationTaskReadQuery.ts";
+const persistencePostgresApplicationTaskReadStorePath =
+  "packages/persistence-postgres/src/applicationTaskAttemptHistoryStore.ts";
 const standardApplicationTaskResultQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskResultQuery.ts";
 const standardApplicationTaskCancellationPath =
@@ -535,13 +539,47 @@ const admittedStandardApplicationTaskRunQueryImports = new Map([
 ]);
 const admittedStandardApplicationTaskRunListQueryImports = new Map([
   ["MAX_TASK_RUN_LIST_PAGE_SIZE", "value"],
-  ["makeTaskRunListQueryLayer", "value"],
-  ["TaskRunListQuery", "value"],
-  ["ApplicationTaskRunListStoreShape", "type"],
   ["TaskRunListPage", "type"],
   ["TaskRunListQueryApi", "type"],
   ["TaskRunListQueryError", "type"],
   ["TaskRunListQueryOptions", "type"],
+]);
+const admittedStandardApplicationTaskReadQueryImports = new Map([
+  ["makeTaskAttemptHistoryQueryLayer", "value"],
+  ["makeTaskEventHistoryQueryLayer", "value"],
+  ["makeTaskRunListQueryLayer", "value"],
+  ["makeTaskRunQueryLayer", "value"],
+  ["TaskAttemptHistoryQuery", "value"],
+  ["TaskEventHistoryQuery", "value"],
+  ["TaskRunListQuery", "value"],
+  ["TaskRunQuery", "value"],
+  ["TaskAttemptHistory", "type"],
+  ["TaskAttemptHistoryQueryApi", "type"],
+  ["TaskAttemptHistoryQueryError", "type"],
+  ["TaskEventHistory", "type"],
+  ["TaskEventHistoryQueryApi", "type"],
+  ["TaskEventHistoryQueryError", "type"],
+]);
+const admittedPersistenceApplicationTaskReadProjectionImports = new Map([
+  ["decodeTaskAttemptHistoryRunVersion", "value"],
+  ["decodeTaskAttemptHistoryStoreItem", "value"],
+  ["MAX_TASK_EVENT_HISTORY_ENTRIES", "value"],
+  ["MAX_TASK_ATTEMPT_HISTORY_ENTRIES", "value"],
+  ["TaskEventHistoryStoreFailure", "value"],
+  ["TaskAttemptHistoryStoreFailure", "value"],
+  ["ApplicationTaskEventHistoryStoreShape", "type"],
+  ["ApplicationTaskAttemptHistoryStoreShape", "type"],
+  ["TaskEventHistoryStoreItem", "type"],
+  ["TaskEventHistoryStoreSnapshot", "type"],
+  ["TaskAttemptHistoryStoreItem", "type"],
+  ["TaskAttemptHistoryStoreSnapshot", "type"],
+  ["ApplicationTaskRunListStoreShape", "type"],
+]);
+const admittedPersistenceApplicationTaskReadAttemptImports = new Map([
+  ["decodeTaskDatabaseTimeMsV1", "value"],
+  ["ApplicationTaskSystemRunAttemptStoreShape", "type"],
+  ["TaskDatabaseTimeMsV1", "type"],
+  ["TaskRunIdV1", "type"],
 ]);
 const admittedPersistenceApplicationTaskRunListProjectionImports = new Map([
   ["TaskRunListStoreFailure", "value"],
@@ -2646,6 +2684,29 @@ function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
       node,
       admittedStandardApplicationTaskRunListQueryImports,
     );
+  }
+  if (
+    relativePath === standardApplicationTaskReadQueryPath
+    && specifier === "@flarex/durable-task/internal/run-projection"
+  ) {
+    return hasExactNamedImportModes(
+      node,
+      admittedStandardApplicationTaskReadQueryImports,
+    );
+  }
+  if (relativePath === persistencePostgresApplicationTaskReadStorePath) {
+    if (specifier === "@flarex/durable-task/internal/run-projection") {
+      return hasExactNamedImportModes(
+        node,
+        admittedPersistenceApplicationTaskReadProjectionImports,
+      );
+    }
+    if (specifier === "@flarex/durable-task/internal/run-attempt-v1") {
+      return hasExactNamedImportModes(
+        node,
+        admittedPersistenceApplicationTaskReadAttemptImports,
+      );
+    }
   }
   if (relativePath === persistencePostgresApplicationTaskRunListStorePath) {
     if (specifier === "@flarex/durable-task/internal/run-projection") {

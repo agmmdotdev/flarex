@@ -7,7 +7,7 @@ import {
   StandardApplicationTaskRunListQuery,
   type StandardApplicationTaskRunListQueryApi,
 } from
-  "@flarex/standard-application-invocation/internal/standard-application-task-run-list-query";
+  "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
 import {
   StandardApplicationTaskRunQuery,
   type StandardApplicationTaskRunQueryApi,
@@ -93,16 +93,18 @@ async function issueReference(
   scope: StandardApplicationTaskRunQueryApi,
 ): Promise<TaskRunRef> {
   const page = await Effect.runPromise(listTaskRuns().pipe(
-    Effect.provideService(StandardApplicationTaskRunListQuery, runListQuery()),
-    Effect.provideService(StandardApplicationTaskRunQuery, scope),
+    Effect.provideService(StandardApplicationTaskRunListQuery, runListQuery(scope)),
   ));
   const listed = page.runs[0];
   if (listed === undefined) throw new Error("expected one listed Task run");
   return listed.ref;
 }
 
-function runListQuery(): StandardApplicationTaskRunListQueryApi {
+function runListQuery(
+  scope: StandardApplicationTaskRunQueryApi,
+): StandardApplicationTaskRunListQueryApi {
   return StandardApplicationTaskRunListQuery.of({
+    scope,
     list: () => Effect.succeed(Object.freeze({
       observedAtMs: databaseTime(1_000),
       items: Object.freeze([readyRun()]),

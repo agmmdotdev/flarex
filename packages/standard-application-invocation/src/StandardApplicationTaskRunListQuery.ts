@@ -1,14 +1,14 @@
 import {
   MAX_TASK_RUN_LIST_PAGE_SIZE,
-  makeTaskRunListQueryLayer,
-  TaskRunListQuery,
-  type ApplicationTaskRunListStoreShape,
   type TaskRunListPage,
   type TaskRunListQueryApi,
   type TaskRunListQueryError,
   type TaskRunListQueryOptions,
 } from "@flarex/durable-task/internal/run-projection";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
+
+import type { StandardApplicationTaskRunQueryApi } from
+  "./StandardApplicationTaskRunQuery.js";
 
 export type StandardApplicationTaskRunListPage = TaskRunListPage;
 export type StandardApplicationTaskRunListOptions = TaskRunListQueryOptions;
@@ -17,6 +17,8 @@ export const STANDARD_APPLICATION_TASK_RUN_LIST_MAX_PAGE_SIZE =
   MAX_TASK_RUN_LIST_PAGE_SIZE;
 
 export interface StandardApplicationTaskRunListQueryApi {
+  /** Exact point-query capability that owns every listed run reference. */
+  readonly scope: StandardApplicationTaskRunQueryApi;
   readonly list: TaskRunListQueryApi["list"];
 }
 
@@ -39,19 +41,3 @@ export const listStandardApplicationTaskRuns = Effect.fn(
   const query = yield* StandardApplicationTaskRunListQuery;
   return yield* query.list(options);
 });
-
-export function makeStandardApplicationTaskRunListQueryLayer(
-  store: ApplicationTaskRunListStoreShape,
-): Layer.Layer<StandardApplicationTaskRunListQuery> {
-  const live = Layer.effect(
-    StandardApplicationTaskRunListQuery,
-    Effect.gen(function* () {
-      const query = yield* TaskRunListQuery;
-      const list: StandardApplicationTaskRunListQueryApi["list"] = Effect.fn(
-        "StandardApplicationTaskRunListQuery.listLive",
-      )(options => query.list(options));
-      return StandardApplicationTaskRunListQuery.of({ list });
-    }),
-  );
-  return live.pipe(Layer.provide(makeTaskRunListQueryLayer(store)));
-}

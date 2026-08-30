@@ -1,11 +1,10 @@
 import {
-  makeStandardApplicationTaskRunListQueryLayer,
   StandardApplicationTaskRunListQuery,
   type StandardApplicationTaskRunListPage,
   type StandardApplicationTaskRunListQueryApi,
   type StandardApplicationTaskRunListQueryError,
 } from
-  "@flarex/standard-application-invocation/internal/standard-application-task-run-list-query";
+  "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
 import {
   StandardApplicationTaskRunQuery,
   type StandardApplicationTaskRunQueryApi,
@@ -30,12 +29,6 @@ import {
 
 type InternalCursor = NonNullable<
   StandardApplicationTaskRunListPage["nextCursor"]
->;
-type CapturedListStore = Parameters<
-  typeof makeStandardApplicationTaskRunListQueryLayer
->[0];
-type CapturedStorePage = Effect.Success<
-  ReturnType<CapturedListStore["listRuns"]>
 >;
 const databaseTime = Brand.nominal<InternalCursor["createdAtMs"]>();
 const runId = Brand.nominal<InternalCursor["runId"]>();
@@ -115,35 +108,6 @@ describe("clean Task-run list primitive", () => {
     });
   });
 
-  it("composes the clean facade through the Standard and durable query owners", async () => {
-    const listRuns = vi.fn<CapturedListStore["listRuns"]>(
-      () => Effect.succeed(Object.freeze({
-        observedAtMs: databaseTime(2_000),
-        runs: Object.freeze([storeReadyRun()]),
-        hasMore: false,
-      })),
-    );
-
-    const page = await Effect.runPromise(listTaskRuns({ pageSize: 3 }).pipe(
-      Effect.provide(makeStandardApplicationTaskRunListQueryLayer({
-        listRuns,
-      })),
-      Effect.provideService(
-        StandardApplicationTaskRunQuery,
-        forbiddenTaskRunQuery(),
-      ),
-    ));
-
-    expect(listRuns).toHaveBeenCalledWith({ pageSize: 3, cursor: null });
-    expect(page.runs).toHaveLength(1);
-    expect(page.runs[0]?.status).toMatchObject({
-      runId: internalCursor.runId,
-      observedAtMs: databaseTime(2_000),
-      state: { kind: "ready" },
-    });
-    expect(Object.isFrozen(page.runs[0]?.status)).toBe(true);
-  });
-
   it("issues read-only run identity accepted by inspectTask", async () => {
     const listedStatus = readyRun();
     const refreshedStatus = Object.freeze({
@@ -173,7 +137,7 @@ describe("clean Task-run list primitive", () => {
     }).pipe(
       Effect.provideService(
         StandardApplicationTaskRunListQuery,
-        StandardApplicationTaskRunListQuery.of({ list }),
+        StandardApplicationTaskRunListQuery.of({ scope: taskRunQuery, list }),
       ),
       Effect.provideService(
         StandardApplicationTaskRunQuery,
@@ -203,11 +167,9 @@ describe("clean Task-run list primitive", () => {
     if (Exit.isFailure(exit)) {
       const defect = Cause.findDefect(exit.cause);
       expect(Result.isSuccess(defect)).toBe(true);
-      if (Result.isSuccess(defect)) {
-        expect(defect.success).toEqual(
-          new TypeError("Task run metadata is unavailable."),
-        );
-      }
+      expect(Result.getOrThrow(defect)).toEqual(
+        new TypeError("Task run metadata is unavailable."),
+      );
     }
     expect(inspect).not.toHaveBeenCalled();
   });
@@ -253,11 +215,9 @@ describe("clean Task-run list primitive", () => {
     if (Exit.isFailure(exit)) {
       const defect = Cause.findDefect(exit.cause);
       expect(Result.isSuccess(defect)).toBe(true);
-      if (Result.isSuccess(defect)) {
-        expect(defect.success).toEqual(
-          new TypeError("Task run metadata is unavailable."),
-        );
-      }
+      expect(Result.getOrThrow(defect)).toEqual(
+        new TypeError("Task run metadata is unavailable."),
+      );
     }
     expect(scopeAInspect).not.toHaveBeenCalled();
     expect(scopeBInspect).not.toHaveBeenCalled();
@@ -426,17 +386,14 @@ function provideListQueryServices<Success, Failure>(
   operation: Effect.Effect<
     Success,
     Failure,
-    StandardApplicationTaskRunListQuery | StandardApplicationTaskRunQuery
+    StandardApplicationTaskRunListQuery
   >,
   list: StandardApplicationTaskRunListQueryApi["list"],
   taskRunQuery: StandardApplicationTaskRunQueryApi = forbiddenTaskRunQuery(),
 ): Effect.Effect<Success, Failure> {
   return operation.pipe(Effect.provideService(
     StandardApplicationTaskRunListQuery,
-    StandardApplicationTaskRunListQuery.of({ list }),
-  ), Effect.provideService(
-    StandardApplicationTaskRunQuery,
-    taskRunQuery,
+    StandardApplicationTaskRunListQuery.of({ scope: taskRunQuery, list }),
   ));
 }
 
@@ -468,20 +425,6 @@ function readyRun(): StandardApplicationTaskRunListPage["items"][number] {
     runId: internalCursor.runId,
     createdAtMs: internalCursor.createdAtMs,
     observedAtMs: databaseTime(2_000),
-    runVersion: runVersion(1n),
-    state: Object.freeze({
-      kind: "ready",
-      eligibleAtMs: internalCursor.createdAtMs,
-      retry: null,
-      cancellation: Object.freeze({ kind: "not_requested" }),
-    }),
-  });
-}
-
-function storeReadyRun(): CapturedStorePage["runs"][number] {
-  return Object.freeze({
-    runId: internalCursor.runId,
-    createdAtMs: internalCursor.createdAtMs,
     runVersion: runVersion(1n),
     state: Object.freeze({
       kind: "ready",

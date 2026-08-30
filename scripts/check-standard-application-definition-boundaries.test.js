@@ -433,8 +433,7 @@ describe("Application invocation boundary checker", () => {
           import { inspectFunctionReference } from "@flarex/application-definition/internal/function-reference";
           import { invokeApplicationQuery } from "@flarex/standard-application-invocation/internal/application-query-system";
           import { inspectStandardApplicationTaskRun } from "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
-          import { listStandardApplicationTaskRuns } from "@flarex/standard-application-invocation/internal/standard-application-task-run-list-query";
-          import { listStandardApplicationTaskAttempts, listStandardApplicationTaskEvents } from "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
+          import { listStandardApplicationTaskAttempts, listStandardApplicationTaskEvents, listStandardApplicationTaskRuns } from "@flarex/standard-application-invocation/internal/standard-application-task-read-query";
           import { readStandardApplicationTaskResult } from "@flarex/standard-application-invocation/internal/standard-application-task-result-query";
           import { requestStandardApplicationTaskCancellation } from "@flarex/standard-application-invocation/internal/standard-application-task-cancellation";
           import { Effect } from "effect";

@@ -3,7 +3,7 @@
 ## Status And Decision Boundary
 
 **Status:** Architecture roadmap with DTE07-B1/B2/B3/B4 and
-DTE07-C1/C2/C3/C4/C5/C6/C7/C8/C9/C10/C11/C12/C13/C14 implemented privately
+DTE07-C1/C2/C3/C4/C5/C6/C7/C8/C9/C10/C11/C12/C13/C14/C15 implemented privately
 through 2026-08-30.
 DTE07-B1 implements one
 production-inert run projection and pure projector under
@@ -46,6 +46,10 @@ fixed by
 [`preflight/63-dte07-task-lifecycle-event-history.md`](./preflight/63-dte07-task-lifecycle-event-history.md).
 Its PGlite proof is complete; the checked-in real PostgreSQL lane remains
 unexecuted until `FLAREX_POSTGRES_DATABASE_URL` is available.
+DTE07-C15 closes list-reference scope composition by making the central read
+Layer the only live list-service factory and binding list, point, attempt, and
+event reads to one authenticated store, as fixed by
+[`preflight/64-dte07-task-read-scope-binding.md`](./preflight/64-dte07-task-read-scope-binding.md).
 It does not authorize other commands, provider delivery, cancellation waiting,
 a public list contract, public routes, deployment, subscriptions,
 telemetry ingestion, retention/GC, or UI publication.
@@ -357,6 +361,11 @@ lifecycle ledger projection, and clean `listTaskEvents(ref)` facade fixed by
 preflight 63. PGlite proves the connected store; real PostgreSQL acceptance
 remains pending its configured test lane.
 
+DTE07-C15 implements only the Task read scope-binding correction fixed by
+preflight 64. The central authenticated read Layer now owns the live list,
+point, attempt, and event service bundle, and listed references capture that
+bundle's point-query capability without a separately supplied service.
+
 ### DTE07-D: Live Invalidation And Reconnect
 
 - choose an admitted feed/outbox/change source;
@@ -445,5 +454,6 @@ reference under preflight 61. DTE07-B3/C11/C12/C13 are implemented for bounded
 attempt-admission history under preflight 62, with PGlite accepted and the real
 PostgreSQL receipt still pending. DTE07-B4/C14 are implemented for bounded
 lifecycle-event history under preflight 63, with PGlite accepted and the real
-PostgreSQL receipt still pending. Before enriched attempt state, other command,
+PostgreSQL receipt still pending. DTE07-C15 is complete for central Task read
+scope binding under preflight 64. Before enriched attempt state, other command,
 live, public, or hosted work, approve that owner separately.

@@ -379,9 +379,6 @@ describe("Trigger compatibility boundary checker", () => {
       text: `
         import {
           MAX_TASK_RUN_LIST_PAGE_SIZE,
-          makeTaskRunListQueryLayer,
-          TaskRunListQuery,
-          type ApplicationTaskRunListStoreShape,
           type TaskRunListPage,
           type TaskRunListQueryApi,
           type TaskRunListQueryError,
@@ -395,10 +392,7 @@ describe("Trigger compatibility boundary checker", () => {
       text: `
         import {
           MAX_TASK_RUN_LIST_PAGE_SIZE,
-          makeTaskRunListQueryLayer,
           projectTaskRun,
-          TaskRunListQuery,
-          type ApplicationTaskRunListStoreShape,
           type TaskRunListPage,
           type TaskRunListQueryApi,
           type TaskRunListQueryError,
@@ -454,6 +448,78 @@ describe("Trigger compatibility boundary checker", () => {
     }]).errors).toEqual([
       `${storePath}:2 production source must not activate @flarex/durable-task before host admission.`,
     ]);
+  });
+
+  it("admits only the central Standard Application Task read composition", () => {
+    const readPath =
+      "packages/standard-application-invocation/src/StandardApplicationTaskReadQuery.ts";
+    const manifest = [{
+      relativePath: "packages/standard-application-invocation/package.json",
+      manifest: { dependencies: { "@flarex/durable-task": "workspace:*" } },
+    }];
+    const admitted = `
+      import {
+        makeTaskAttemptHistoryQueryLayer,
+        makeTaskEventHistoryQueryLayer,
+        makeTaskRunListQueryLayer,
+        makeTaskRunQueryLayer,
+        TaskAttemptHistoryQuery,
+        TaskEventHistoryQuery,
+        TaskRunListQuery,
+        TaskRunQuery,
+        type TaskAttemptHistory,
+        type TaskAttemptHistoryQueryApi,
+        type TaskAttemptHistoryQueryError,
+        type TaskEventHistory,
+        type TaskEventHistoryQueryApi,
+        type TaskEventHistoryQueryError,
+      } from "@flarex/durable-task/internal/run-projection";
+    `;
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: readPath,
+      text: admitted,
+    }]).errors).toEqual([]);
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: readPath,
+      text: admitted.replace("TaskRunQuery,", "projectTaskRun,\nTaskRunQuery,"),
+    }]).errors).toEqual([
+      `${readPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+    ]);
+  });
+
+  it("admits only the opaque Application Task read-store contracts", () => {
+    const readStorePath =
+      "packages/persistence-postgres/src/applicationTaskAttemptHistoryStore.ts";
+    const manifest = [{
+      relativePath: "packages/persistence-postgres/package.json",
+      manifest: { dependencies: { "@flarex/durable-task": "workspace:*" } },
+    }];
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: readStorePath,
+      text: `
+        import {
+          decodeTaskAttemptHistoryRunVersion,
+          decodeTaskAttemptHistoryStoreItem,
+          MAX_TASK_EVENT_HISTORY_ENTRIES,
+          MAX_TASK_ATTEMPT_HISTORY_ENTRIES,
+          TaskEventHistoryStoreFailure,
+          TaskAttemptHistoryStoreFailure,
+          type ApplicationTaskEventHistoryStoreShape,
+          type ApplicationTaskAttemptHistoryStoreShape,
+          type TaskEventHistoryStoreItem,
+          type TaskEventHistoryStoreSnapshot,
+          type TaskAttemptHistoryStoreItem,
+          type TaskAttemptHistoryStoreSnapshot,
+          type ApplicationTaskRunListStoreShape,
+        } from "@flarex/durable-task/internal/run-projection";
+        import {
+          decodeTaskDatabaseTimeMsV1,
+          type ApplicationTaskSystemRunAttemptStoreShape,
+          type TaskDatabaseTimeMsV1,
+          type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([]);
   });
 
   it("admits only the private Task result-body query chain", () => {
