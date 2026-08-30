@@ -4,7 +4,10 @@ Status: design note / long-term architecture superset
 
 Authoritative correction: see
 [`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md), then
-[`flarex-commerce-cms-v1-schema-cutline.md`](./flarex-commerce-cms-v1-schema-cutline.md)
+[`flarex-commerce-cms-v1-schema-cutline.md`](./flarex-commerce-cms-v1-schema-cutline.md),
+[`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md),
+and
+[`flarexdb-medusa-commerce-adapter.md`](./flarexdb-medusa-commerce-adapter.md)
 before building this design. This file intentionally describes broader
 architecture vocabulary; it is not the v1 physical schema inventory. Any older
 session, snapshot, scope-key, idempotency, Payload-table, Medusa, or sync detail
@@ -293,7 +296,11 @@ fx_relation_def
   source of truth for relation metadata, not row values
 ```
 
-Do not copy Medusa product/order/variant rows into `fx_row_current` just to relate to them. Instead, register public commerce entities as logical Flarex tables and store only small relationship edges that point at them.
+Do not copy Medusa product/order/variant rows into `fx_row_current` just to
+relate to them. Register allowed commerce entities as typed logical relation
+targets and derive app/CMS reference edges that point at them. Medusa's own
+module links remain authoritative reserved commerce link entities; this picker
+projection does not replace or expose them.
 
 ### Table group overview
 

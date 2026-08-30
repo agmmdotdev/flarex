@@ -90,9 +90,10 @@ Use these sources in order:
    - [`packages/executor/test/postgresRetry.test.ts`](../packages/executor/test/postgresRetry.test.ts)
 
 [`../design-notes/flarex-instant-like-medusa-storage.md`](../design-notes/flarex-instant-like-medusa-storage.md)
-is long-form research and provenance. Its historical mixed-transaction and
+is a condensed research archive. Its historical mixed-transaction and
 cache-first proposals are not accepted when they conflict with the sources
-above.
+above. Current Medusa persistence and link boundaries live in
+[`../design-notes/flarexdb-medusa-commerce-adapter.md`](../design-notes/flarexdb-medusa-commerce-adapter.md).
 
 ## Current Architecture
 

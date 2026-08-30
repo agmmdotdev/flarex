@@ -1150,79 +1150,81 @@ logical app tables, shared app rows plus app edges may be enough.
 
 ## Medusa Reserved Tables
 
-Medusa tables are real relational tables generated from Medusa DML, link/joiner
-metadata, migration history, and declared custom adapter capabilities. They are
-reserved. App developers do not access them through public `ctx.db`.
+Medusa tables are real scope-bound relational tables compiled from Medusa DML,
+module/link metadata, migration history, and declared custom adapter
+capabilities. They are Flarex-owned physical storage with Medusa-owned commerce
+semantics. They are reserved and are not accessible through public `ctx.db` or
+`.cms()`.
 
-Example shape:
+The logical catalog distinguishes at least:
 
-```sql
-fx_medusa_product (
-  id text not null,
-  scope_id text not null,
-  title text not null,
-  handle text,
-  status text not null,
-  metadata jsonb,
-  fx_version bigint not null,
-  deleted_at timestamptz,
-  created_at timestamptz not null,
-  updated_at timestamptz not null,
-  primary key (scope_id, id)
-)
+```text
+commerce table definition
+  scope + Medusa generation + module owner + DML provenance
+  column/index/unique/soft-delete/migration capabilities
 
-create unique index fx_medusa_product_handle_uq
-  on fx_medusa_product (scope_id, handle)
-  where deleted_at is null;
+commerce link definition
+  left and right module/table identity
+  authoritative link identity and optional link-owned fields
+  cardinality, visibility, attach/dismiss, delete/restore, and query policy
 
-fx_medusa_product_variant (
-  id text not null,
-  scope_id text not null,
-  product_id text not null,
-  title text not null,
-  sku text,
-  metadata jsonb,
-  fx_version bigint not null,
-  deleted_at timestamptz,
-  created_at timestamptz not null,
-  updated_at timestamptz not null,
-  primary key (scope_id, id),
-  foreign key (scope_id, product_id)
-    references fx_medusa_product (scope_id, id)
-)
-
-fx_medusa_link_product_sales_channel (
-  scope_id text not null,
-  product_id text not null,
-  sales_channel_id text not null,
-  fx_version bigint not null,
-  deleted_at timestamptz,
-  primary key (scope_id, product_id, sales_channel_id),
-  foreign key (scope_id, product_id)
-    references fx_medusa_product (scope_id, id)
-)
+commerce publication binding
+  accepted row/link changes -> scope commit/change/outbox finalization
 ```
+
+The exact physical layout is selected by the compiled profile. A normal module
+table may use normalized columns, indexes, unique constraints, JSON metadata,
+and physical foreign keys where Medusa compatibility benefits from them. A
+module link with independent identity, metadata, or lifecycle uses an
+authoritative reserved link row.
+
+The native application edge tables are reusable endpoint-index and OCC
+machinery, but they are not automatically the authoritative representation for
+every Medusa link:
+
+```text
+application relation
+  authoritative app row value
+  -> derived edge occurrences
+
+Medusa module link
+  authoritative commerce link row
+  -> optional derived edge occurrences and adjacency versions
+```
+
+If a derived edge projection is used, it is changed atomically with the link
+row and can be rebuilt from that row. If the reserved link table's own indexes
+already provide the complete bounded query and conflict semantics, the adapter
+may use them directly rather than maintain a redundant edge projection. There
+must never be two independently writable authorities for one link.
 
 Rules:
 
-- Medusa DML is one schema input for `fx_medusa_*`; ModuleJoinerConfig/link
-  definitions, ModuleMigrationAdapter history, backfills/triggers, and custom
-  repository/provider capabilities are also required.
-- Medusa services/workflows access these tables through the Flarex-backed
-  Medusa adapter.
-- Medusa modules or services that use raw SQL, database-specific query helpers,
-  or custom repositories must be classified during adapter work. They cannot
-  bypass FlarexDB by receiving raw Postgres access in the Worker path.
-- App-to-commerce references should normally live in app tables or
-  app edge sidecars, not as public Medusa Module Links.
-- Internal Medusa Module Links remain allowed where original Medusa expects
-  them.
-- Shared physical Medusa tables require one homogeneous platform Medusa schema
-  and module set. Staggered versions or custom modules use per-scope
-  schemas/databases until another safe strategy is proven.
+- Medusa DML is one schema input; ModuleJoinerConfig/Link definitions,
+  ModuleMigrationAdapter history, backfills/triggers, and custom repository,
+  Query, workflow, and lock capabilities are also required.
+- Medusa services and workflows access reserved tables through a Flarex-backed
+  Medusa adapter and Medusa-owned transaction manager.
+- Raw SQL, database-specific query helpers, and custom repositories must be
+  inventoried and admitted explicitly. They cannot obtain unrestricted
+  Postgres access from an application Worker.
+- Internal Medusa Module Links remain supported compatibility concepts. They do
+  not become a public Flarex relation API.
+- App-to-commerce references normally live in application or CMS-extension
+  rows and confer no permission to mutate the commerce target.
+- Payload may manage a separate content/extension row related to a commerce ID;
+  it does not become a second writer for the reserved commerce row.
+- Shared physical commerce tables require one homogeneous admitted Medusa
+  generation and module set. Staggered versions or custom modules require an
+  isolation strategy proven before activation.
 - Medusa reads are current relational reads inside a Medusa-owned transaction.
   They are not generic SessionDO exact-snapshot reads unless a separate MVCC
   representation and complete query overlay are implemented.
+- Every accepted commerce transaction uses a Flarex-owned finalizer to join its
+  changes to the scope commit/feed/outbox authority before one commit.
+
+The detailed semantic and admission contract lives in
+[`flarexdb-medusa-commerce-adapter.md`](./flarexdb-medusa-commerce-adapter.md).
 
 ## Commit, OCC, And Transaction Tables
 

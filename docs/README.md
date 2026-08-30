@@ -16,12 +16,18 @@ Use the current sources of truth instead:
    for accepted architecture, trust boundaries, and replacement rules.
 2. [`../design-notes/flarex-commerce-cms-v1-schema-cutline.md`](../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
    for the minimal v1 inventory and explicit deferrals.
-3. [`../roadmaps/flarexdb-foundation/README.md`](../roadmaps/flarexdb-foundation/README.md)
+3. [`../design-notes/flarexdb-native-relational-system.md`](../design-notes/flarexdb-native-relational-system.md)
+   for the private native application-relation authority and current limits.
+4. [`../design-notes/flarexdb-payload-relational-adapter.md`](../design-notes/flarexdb-payload-relational-adapter.md)
+   and
+   [`../design-notes/flarexdb-medusa-commerce-adapter.md`](../design-notes/flarexdb-medusa-commerce-adapter.md)
+   for the distinct CMS and commerce adapter boundaries.
+5. [`../roadmaps/flarexdb-foundation/README.md`](../roadmaps/flarexdb-foundation/README.md)
    for active implementation order and correctness gates.
-4. [`../roadmaps/20-postgres-executor.md`](../roadmaps/20-postgres-executor.md)
+6. [`../roadmaps/20-postgres-executor.md`](../roadmaps/20-postgres-executor.md)
    and [`../roadmaps/21-cloudflare-freshness-cache.md`](../roadmaps/21-cloudflare-freshness-cache.md)
    for executor and sync direction.
-5. [`../roadmaps/README.md`](../roadmaps/README.md) for the maintained domain
+7. [`../roadmaps/README.md`](../roadmaps/README.md) for the maintained domain
    index.
 
 When reading `01` through `13`, classify each claim as historical provenance,

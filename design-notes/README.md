@@ -21,7 +21,10 @@ For FlarexDB app-data and relationship work, use these sources in order:
 3. `flarexdb-payload-relational-adapter.md` owns only the mapping from Payload
    relationship, upload, join, transaction, population, and lifecycle behavior
    onto the native FlarexDB relational system.
-4. The focused files under `roadmaps/flarexdb-foundation/` own executable gate
+4. `flarexdb-medusa-commerce-adapter.md` owns Medusa reserved-table,
+   schema-compilation, Module Link, transaction, CMS-interaction, scalability,
+   and adapter-admission semantics over FlarexDB.
+5. The focused files under `roadmaps/flarexdb-foundation/` own executable gate
    order and implementation status.
 
 Older relationship examples in broad CMS, commerce, developer-API, InstantDB,
@@ -89,6 +92,13 @@ native relational authority above.
     pipeline for dashboard and generated `ctx.cms` writes rather than retaining
     an unrestricted parallel `ctx.db` writer.
 
+- `flarexdb-medusa-commerce-adapter.md`
+  - Accepted Medusa adapter boundary over Flarex-owned physical storage. Medusa
+    retains module, repository, Query, Link, workflow, lock, soft-delete, and
+    commerce-invariant authority. Reserved commerce link rows may reuse native
+    edge, adjacency-OCC, query, and change-fact primitives without becoming
+    public app relations or a second independently writable link authority.
+
 - `postgres-authoritative-sync.md`
   - Accepted Flarex Postgres/Cloudflare adapter topology, per-scope durable
     coordination and deferred cache layers over the separately owned portable
@@ -98,18 +108,16 @@ native relational authority above.
     persistence. Future FlarexDB design notes supersede it for app/Payload
     storage with typed JSON rows plus relational sidecars.
 - `flarex-instant-like-medusa-storage.md`
-  - Research note on evolving FlarexDB toward a Convex-like transactional
-    runtime with InstantDB-inspired derived edges/indexes, while sharing one
-    Flarex-owned data plane with Medusa commerce and Payload-style CMS logic.
-    Its mixed app/commerce transaction proposal is historical and is corrected
-    by `flarex-db-accepted-design.md`. Its relation vocabulary is further
-    constrained by `flarexdb-native-relational-system.md`.
+  - Condensed archive of the broad InstantDB, Payload, and Medusa storage
+    research. It preserves durable findings and rejected alternatives only;
+    Git retains the former long-form chronology. It is not a current decision
+    owner.
 - `flarex-internal-db-schema.md`
   - Proposed internal FlarexDB schema direction for platform catalog data,
-    typed app/Payload JSON rows, relational sidecars, Medusa reserved system
-    tables, commit/OCC metadata, outbox, sync cursors, locks, workflow state,
-    and optional internal read models. Use its accepted-corrections section,
-    `flarex-db-accepted-design.md`, and the native relational note for
+    typed app/Payload JSON rows, relational sidecars, Medusa reserved commerce
+    tables/link entities, commit/OCC metadata, outbox, sync cursors, locks,
+    workflow state, and optional internal read models. Use its
+    accepted-corrections section and the focused authority notes for
     implementation decisions.
 - `flarex-developer-backend-api.md`
   - Proposed backend-only developer API for schemas, validators, relations,

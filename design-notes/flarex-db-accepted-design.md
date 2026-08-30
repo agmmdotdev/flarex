@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-30
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -23,7 +23,8 @@ Accept:
 ```text
 Postgres is the only authoritative committed data store.
 App/CMS rows use typed JSON plus derived indexes, edges, and unique keys.
-Medusa commerce uses Medusa-owned relational tables and transaction semantics.
+Medusa commerce uses Flarex-owned reserved relational storage behind
+Medusa-owned table/link semantics and transaction behavior.
 Every authoritative write advances one scope-local commit stream and writes
 recovery metadata atomically.
 Cloudflare owns sandboxed execution, WebSockets/current delivery adaptation,
@@ -1992,7 +1993,9 @@ owners. The detailed mapping and conformance contract lives in
 
 ## Medusa Boundary
 
-Medusa schema input is not DML alone:
+Medusa may use FlarexDB as its physical persistence substrate without becoming
+part of the public document schema and without giving Flarex core ownership of
+commerce behavior. Medusa schema input is not DML alone:
 
 ```text
 DML models
@@ -2008,11 +2011,50 @@ commits. Flarex-native workflow tables must not be claimed as a lossless Medusa
 workflow store; Medusa workflow persistence is compiled from its own model or
 handled by an adapter-specific schema.
 
+Medusa storage is scope-bound reserved commerce schema inside the Flarex data
+plane. It is neither a separately authoritative Medusa database nor a set of
+public `ctx.db` tables. Flarex owns storage admission, scope/generation binding,
+the final transaction boundary, commit/feed/outbox integration, and operator
+capabilities. Medusa owns repository behavior, Module Link meaning, Query,
+soft deletion, workflows, locks, and commerce invariants.
+
+The native Flarex relation kernel is a shared internal primitive, not a reason
+to flatten every commerce relation into an application row's ID array. Three
+profiles remain distinct:
+
+```text
+application/Payload relation
+  authoritative document field -> derived current edges and adjacency versions
+
+Medusa module link
+  authoritative reserved link entity -> optional derived endpoint edges
+
+app/CMS to commerce reference
+  app-owned stable reference -> no commerce mutation authority
+```
+
+When a Medusa link has its own fields, lifecycle, soft-delete behavior, or
+identity, the reserved link row is authoritative. Flarex may reuse its edge,
+adjacency-OCC, query, and change-fact machinery as a derived endpoint index,
+but it must not create a second independently writable link authority. Useful
+relational columns, indexes, unique constraints, and physical foreign keys may
+remain part of the reserved schema where Medusa compatibility requires them.
+
+Reserved commerce tables are hidden from ordinary `ctx.db` and `.cms()`.
+Payload may manage a separate content or extension table that references a
+stable commerce ID; it cannot directly manage the product, cart, order, price,
+or inventory row. A combined dashboard may compose CMS and commerce views while
+routing every command to its owning semantic lane.
+
 There is no automatic global transaction across `ctx.db` and `ctx.commerce`.
 If extension state must be atomic with a commerce invariant, expose the whole
 operation through a Medusa-owned facade/workflow and let that lane own the
 transaction. Display/custom app state normally references stable commerce IDs
 and follows commerce changes through the transactional outbox.
+
+The detailed schema, link, CMS-interaction, scalability, and admission contract
+lives in
+[`flarexdb-medusa-commerce-adapter.md`](./flarexdb-medusa-commerce-adapter.md).
 
 ## Query Sync Engine And Flarex Adapter Topology
 

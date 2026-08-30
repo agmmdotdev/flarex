@@ -1048,7 +1048,7 @@ contract.
 
 A trusted Medusa adapter may need:
 
-- generated reserved relational tables;
+- generated, scope-bound reserved relational tables;
 - repositories and query behavior;
 - a Medusa transaction manager;
 - module and link compatibility;
@@ -1079,6 +1079,30 @@ unchanged module integration suites.
 The publication port must not let callers author arbitrary commit facts,
 outbox rows, scope clocks, or application-row changes. Its authority is derived
 from a genuine Medusa-owned transaction and accepted adapter policy.
+
+The adapter has two deliberately different relation mappings:
+
+```text
+Medusa module link
+  -> authoritative reserved commerce link row
+  -> optional derived Flarex edge/adjacency projection
+
+application or CMS reference to commerce
+  -> app-owned stable reference
+  -> no Medusa repository or commerce-write authority
+```
+
+The private native edge kernel may supply endpoint indexes, adjacency OCC,
+bounded reverse reads, and change facts. It must not erase a module link's
+Medusa-owned identity, fields, attach/dismiss behavior, soft-delete lifecycle,
+or query semantics. Conversely, original Medusa Link definitions do not become
+a new public developer relation language.
+
+Reserved commerce tables are unavailable through ordinary `ctx.db` and
+`.cms()`. A combined dashboard can compose Payload-managed extension content
+with Medusa-managed commerce state, but each command is routed through its
+owning adapter. The full mapping and admission contract lives in
+[`flarexdb-medusa-commerce-adapter.md`](./flarexdb-medusa-commerce-adapter.md).
 
 ### No Universal Cross-Domain Transaction
 

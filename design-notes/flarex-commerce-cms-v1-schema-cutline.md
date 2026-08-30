@@ -14,6 +14,9 @@ remains conditional
 Authoritative review:
 
 - [`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md)
+- [`flarexdb-native-relational-system.md`](./flarexdb-native-relational-system.md)
+- [`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md)
+- [`flarexdb-medusa-commerce-adapter.md`](./flarexdb-medusa-commerce-adapter.md)
 
 Related architecture note:
 
@@ -102,7 +105,8 @@ Indexes:
   derived sidecars
 
 Relations:
-  derived edge sidecars
+  app/CMS row relations -> derived edge sidecars
+  Medusa module links -> authoritative reserved link rows, optional edge index
 
 Blocks/sections:
   embedded in row JSON, with optional derived metadata/index sidecars
@@ -226,7 +230,9 @@ fx_row_rev
 
 `fx_row_rev` stores internal historical revisions for OCC/sync/history windows.
 
-Do not store Medusa product/order/variant rows in `fx_row_current` unless Flarex later fully owns those physical commerce tables.
+Do not store Medusa product/order/variant rows in generic `fx_row_current`.
+They belong in scope-bound reserved relational commerce schema owned physically
+by Flarex and semantically by the Medusa adapter.
 
 ### Query/index sidecars
 
@@ -1406,7 +1412,7 @@ commerce writes/deletes should go through ctx.commerce / trusted commerce adapte
 17. Only then consider normalized catalog tables, `fx_edge_rev`, dedicated
     Payload physical tables, or cache DOs.
 
-## Documentation patch recommendation
+## Documentation Boundaries
 
 The existing `flarex-commerce-cms-sections-blocks.md` should remain the superset architecture note.
 
@@ -1423,6 +1429,8 @@ Medusa is deliberately not part of this generic app-storage migration. Prove
 one small Medusa module separately through its real DML, link/joiner,
 migration, repository, workflow, and trusted Postgres transaction boundaries.
 There is no general atomic `ctx.db + ctx.commerce` transaction.
+The focused admission contract is
+[`flarexdb-medusa-commerce-adapter.md`](./flarexdb-medusa-commerce-adapter.md).
 
 ## Final rule
 
