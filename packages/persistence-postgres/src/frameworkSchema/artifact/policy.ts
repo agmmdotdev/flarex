@@ -312,18 +312,25 @@ function decodeArtifactOwner(
 function decodeCommonIdentityString(
   input: unknown,
 ): Result.Result<string, FrameworkSchemaArtifactError> {
+  return isFrameworkSchemaArtifactCommonIdentityString(input)
+    ? Result.succeed(input)
+    : Result.fail(FrameworkSchemaArtifactError.invalidInput());
+}
+
+/** Classifies the exact common identity text admitted by artifact capture. */
+export function isFrameworkSchemaArtifactCommonIdentityString(
+  input: unknown,
+): input is string {
   if (
     !isNonBlankString(input) ||
     input.includes("\0") ||
     !isWellFormedUnicode(input)
   ) {
-    return Result.fail(FrameworkSchemaArtifactError.invalidInput());
+    return false;
   }
   const byteLength = UTF8.encode(input).byteLength;
   return byteLength >= 1 &&
-      byteLength <= MAX_FRAMEWORK_SCHEMA_ARTIFACT_COMMON_IDENTITY_UTF8_BYTES
-    ? Result.succeed(input)
-    : Result.fail(FrameworkSchemaArtifactError.invalidInput());
+    byteLength <= MAX_FRAMEWORK_SCHEMA_ARTIFACT_COMMON_IDENTITY_UTF8_BYTES;
 }
 
 function decodeArtifactSha256(

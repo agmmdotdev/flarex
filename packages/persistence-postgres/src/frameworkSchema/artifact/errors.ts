@@ -85,6 +85,7 @@ export class FrameworkSchemaArtifactInvariantDefect extends Data.TaggedError(
     | "canonicalByteLengthMismatch"
     | "invalidDigestOutput"
     | "invalidPlatformIntrinsic"
-    | "ownedSnapshotInvalid";
+    | "ownedSnapshotInvalid"
+    | "unexpectedCaptureFailure";
   readonly observedByteLength?: number;
 }> {}
