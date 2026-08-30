@@ -15,8 +15,8 @@ import {
   readTaskResult,
   type ReadTaskResultError,
   type TaskRun,
-  type TaskRunStatus,
 } from "./Task.js";
+import type { TaskRunStatus } from "./TaskStatus.js";
 
 const DEFAULT_TASK_POLL_INTERVAL = Duration.millis(250);
 const MAX_TASK_AWAIT_TIMER_MILLISECONDS = 2 ** 31 - 1;
@@ -125,9 +125,9 @@ export const awaitTask = Effect.fn("Application.awaitTask")(function* <Output>(
             state: status.state,
           });
         case "ready":
-        case "attempt_granted":
+        case "attemptGranted":
         case "executing":
-        case "retry_waiting":
+        case "retryWaiting":
           yield* Effect.sleep(policy.pollInterval);
           break;
         default: {

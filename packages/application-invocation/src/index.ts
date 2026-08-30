@@ -37,8 +37,22 @@ export {
   type StartTaskError,
   type StartTaskOptions,
   type TaskRun,
-  type TaskRunStatus,
 } from "./Task.js";
+
+export type {
+  TaskCancellationCode,
+  TaskCancellationResolution,
+  TaskRunAttempt,
+  TaskRunCancellationRequested,
+  TaskRunCancellationResolved,
+  TaskRunFailure,
+  TaskRunId,
+  TaskRunNotCancelled,
+  TaskRunResultMetadata,
+  TaskRunRetry,
+  TaskRunState,
+  TaskRunStatus,
+} from "./TaskStatus.js";
 
 export type { TaskRunRef } from "./TaskRunRef.js";
 

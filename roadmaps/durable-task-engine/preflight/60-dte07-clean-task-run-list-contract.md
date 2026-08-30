@@ -36,7 +36,7 @@ cursor contract.
 `TaskRunPage` contains:
 
 - authoritative `observedAtMs`;
-- `runs`, the exact existing frozen/redacted `TaskRunStatus` projections; and
+- `runs`, the existing frozen/redacted `TaskRunStatus` projections; and
 - `nextCursor`, which is null or a newly issued opaque cursor.
 
 The facade renames the private page's generic `items` field to `runs` and
@@ -78,3 +78,14 @@ Stop after this production-inert clean facade, tests, boundary receipt,
 roadmap updates, validation, review, and commit. Do not add serialization,
 filters, routes, deployment, live invalidation, bulk commands, attempts, or
 events.
+
+## Later Clean-Root Projection
+
+The 2026-08-30 clean-root surface audit replaced the facade's direct status
+alias with one Application-owned, unversioned projection shared by
+`listTaskRuns()` and `inspectTask()`. The list service still supplies the exact
+same authoritative durable facts and scope. The facade now copies and freezes
+those facts, uses camel-case lifecycle vocabulary and its own opaque
+`TaskRunId`, and omits the internal result codec. This later cleanup does not
+change the query, store, cursor, ordering, redaction, or authority decisions in
+this checkpoint.

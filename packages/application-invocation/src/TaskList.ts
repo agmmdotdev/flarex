@@ -10,7 +10,10 @@ import type { StandardApplicationTaskRunQueryApi } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
 import { Data, Effect, Result } from "effect";
 
-import type { TaskRunStatus } from "./Task.js";
+import {
+  projectTaskRunStatus,
+  type TaskRunStatus,
+} from "./TaskStatus.js";
 import {
   issueTaskRunRef,
   type TaskRunRef,
@@ -134,7 +137,7 @@ function projectPage(
 ): TaskRunPage {
   const runs = Object.freeze(page.items.map(status => Object.freeze({
     ref: issueTaskRunRef(status.runId, query),
-    status,
+    status: projectTaskRunStatus(status),
   })));
   return Object.freeze({
     observedAtMs: page.observedAtMs,

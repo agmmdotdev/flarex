@@ -60,7 +60,9 @@ class CancellationUnavailableFailure extends Data.TaggedError(
   "TaskSystemRunAttemptUnavailableError",
 )<{
   readonly operation: "request_cancellation";
-  readonly runId: CancelTaskResult["runId"];
+  readonly runId: Parameters<
+    StandardApplicationTaskCancellationApi["request"]
+  >[0];
   readonly reason: "unavailable";
 }> {}
 
@@ -119,9 +121,10 @@ describe("clean Task cancellation primitive", () => {
 
   it("projects already-requested and already-terminal observations", async () => {
     const run = await startRun();
+    const internalRunId = makeCreationReceipt().runId;
     const receipts = [
-      currentReceipt(run.runId, "already_requested"),
-      currentReceipt(run.runId, "already_terminal"),
+      currentReceipt(internalRunId, "already_requested"),
+      currentReceipt(internalRunId, "already_terminal"),
     ] as const;
     let call = 0;
     const request = vi.fn<StandardApplicationTaskCancellationApi["request"]>(
@@ -180,7 +183,7 @@ describe("clean Task cancellation primitive", () => {
     const failure: StandardApplicationTaskCancellationError =
       new CancellationUnavailableFailure({
         operation: "request_cancellation",
-        runId: run.runId,
+        runId: makeCreationReceipt().runId,
         reason: "unavailable",
       });
     const request = vi.fn<StandardApplicationTaskCancellationApi["request"]>(
@@ -199,8 +202,9 @@ describe("clean Task cancellation primitive", () => {
   });
 
   it("defects on a forged handle before options or command I/O", async () => {
-    const forged = Object.freeze({ runId: makeCreationReceipt().runId }) as
-      TaskRun<unknown>;
+    const forged = Object.freeze({
+      runId: makeCreationReceipt().runId,
+    }) as unknown as TaskRun<unknown>;
     const request = vi.fn<StandardApplicationTaskCancellationApi["request"]>(
       () => Effect.die("must not request cancellation"),
     );
@@ -362,7 +366,7 @@ function terminalCancelledReceipt(
 }
 
 function currentReceipt(
-  runId: CancelTaskResult["runId"],
+  runId: StandardApplicationTaskRunCreationReceipt["runId"],
   reason: "already_requested" | "already_terminal",
 ): StandardApplicationTaskCancellationReceipt {
   const requested = cancellationRequestedReceipt("accepted");

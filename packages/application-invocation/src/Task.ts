@@ -14,7 +14,6 @@ import {
   inspectStandardApplicationTaskRun,
   StandardApplicationTaskRunQuery,
   type StandardApplicationTaskRunQueryError,
-  type StandardApplicationTaskRunStatus,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
 import {
@@ -39,12 +38,18 @@ import {
   inspectTaskRunRef,
   type TaskRunRef,
 } from "./TaskRunRef.js";
+import {
+  projectTaskRunId,
+  projectTaskRunStatus,
+  type TaskRunId,
+  type TaskRunStatus,
+} from "./TaskStatus.js";
 
 declare const TaskRunType: unique symbol;
 
 export interface TaskRun<Output> {
   readonly [TaskRunType]: Output;
-  readonly runId: StandardApplicationTaskRunCreationReceipt["runId"];
+  readonly runId: TaskRunId;
 }
 
 export interface StartTaskOptions {
@@ -59,7 +64,6 @@ export type InspectTaskError = StandardApplicationTaskRunQueryError;
 export type ReadTaskResultError =
   | StandardApplicationTaskResultQueryError
   | ApplicationTaskResultContractError;
-export type TaskRunStatus = StandardApplicationTaskRunStatus;
 
 export interface InspectedTaskRun<Output> {
   readonly standardReference:
@@ -117,7 +121,7 @@ export const startTask = Effect.fn("Application.startTask")(function* <
     executionIdentity: options.identity,
   });
   return new TaskRunHandle<Output>(
-    receipt.runId,
+    projectTaskRunId(receipt.runId),
     standard,
     inspected.returnsValidator,
     receipt,
@@ -134,9 +138,10 @@ export const inspectTask = Effect.fn("Application.inspectTask")(function* (
 > {
   const taskRunState = taskRunStates.get(run);
   if (taskRunState !== undefined) {
-    return yield* inspectStandardApplicationTaskRun(
+    const status = yield* inspectStandardApplicationTaskRun(
       taskRunState.receipt.runId,
     );
+    return projectTaskRunStatus(status);
   }
   const referenceState = inspectTaskRunRef(run);
   if (referenceState === undefined) {
@@ -146,7 +151,8 @@ export const inspectTask = Effect.fn("Application.inspectTask")(function* (
   if (query !== referenceState.query) {
     throw new TypeError("Task run metadata is unavailable.");
   }
-  return yield* inspectStandardApplicationTaskRun(referenceState.runId);
+  const status = yield* inspectStandardApplicationTaskRun(referenceState.runId);
+  return projectTaskRunStatus(status);
 });
 
 /** Reads one available canonical result and binds it to the run's output type. */
@@ -159,7 +165,9 @@ export const readTaskResult = Effect.fn("Application.readTaskResult")(
     StandardApplicationTaskResultQuery
   > {
     const inspected = inspectTaskRun(run);
-    const result = yield* readStandardApplicationTaskResult(run.runId);
+    const result = yield* readStandardApplicationTaskResult(
+      inspected.receipt.runId,
+    );
     const validated = yield* validateResultContract(
       inspected,
       result,

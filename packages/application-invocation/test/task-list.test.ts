@@ -72,7 +72,22 @@ describe("clean Task-run list primitive", () => {
     expect(list).toHaveBeenCalledWith({ pageSize: 50, cursor: null });
     expect(page.observedAtMs).toBe(databaseTime(2_000));
     expect(page.runs).not.toBe(items);
-    expect(page.runs[0]?.status).toBe(items[0]);
+    expect(page.runs[0]?.status).not.toBe(items[0]);
+    expect(page.runs[0]?.status).toEqual({
+      runId: internalCursor.runId,
+      createdAtMs: internalCursor.createdAtMs,
+      observedAtMs: databaseTime(2_000),
+      runVersion: 1n,
+      state: {
+        kind: "ready",
+        eligibleAtMs: internalCursor.createdAtMs,
+        retry: null,
+        cancellation: { kind: "notRequested" },
+      },
+    });
+    expect(Object.isFrozen(page.runs[0]?.status)).toBe(true);
+    expect(Object.isFrozen(page.runs[0]?.status.state)).toBe(true);
+    expect(Object.isFrozen(page.runs[0]?.status.state.cancellation)).toBe(true);
     expect(Object.isFrozen(page.runs[0])).toBe(true);
     expect(Object.isFrozen(page.runs[0]?.ref)).toBe(true);
     expect(Object.keys(page.runs[0]?.ref ?? {})).toEqual([]);
@@ -145,7 +160,12 @@ describe("clean Task-run list primitive", () => {
       ),
     ));
 
-    expect(status).toBe(refreshedStatus);
+    expect(status).not.toBe(refreshedStatus);
+    expect(status).toMatchObject({
+      runId: internalCursor.runId,
+      observedAtMs: databaseTime(3_000),
+      state: { kind: "ready", cancellation: { kind: "notRequested" } },
+    });
     expect(inspect).toHaveBeenCalledOnce();
     expect(inspect).toHaveBeenCalledWith(internalCursor.runId);
   });

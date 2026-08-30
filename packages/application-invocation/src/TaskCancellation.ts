@@ -51,7 +51,7 @@ export const cancelTask = Effect.fn("Application.cancelTask")(function* <Output>
   CancelTaskError,
   StandardApplicationTaskCancellation
 > {
-  inspectTaskRun(run);
+  const inspected = inspectTaskRun(run);
   const reason = yield* Effect.fromResult(
     decodeStandardApplicationTaskCancellationReason(
       options.reason ?? null,
@@ -61,7 +61,7 @@ export const cancelTask = Effect.fn("Application.cancelTask")(function* <Output>
     }))),
   );
   const receipt = yield* requestStandardApplicationTaskCancellation(
-    run.runId,
+    inspected.receipt.runId,
     reason,
   );
   return projectCancellationReceipt(run.runId, receipt);

@@ -635,8 +635,9 @@ approval.
 
 ### Clean Root Surface Audit
 
-**Status:** Implemented privately on 2026-08-30 for request-key normalization;
-the API classification below is the accepted current root shape.
+**Status:** Implemented privately on 2026-08-30 for request-key normalization
+and the clean Task-run status projection; the API classification below is the
+accepted current root shape.
 
 Application authors and invocation callers use only ordinary semantic values:
 
@@ -656,6 +657,21 @@ Application authors and invocation callers use only ordinary semantic values:
 - callers do not import a versioned request-key Schema, construct a branded
   request key, or provide a request-envelope version; and
 - typed validation failures occur before the owning live service performs I/O.
+
+Task lifecycle observation also has one clean root-owned contract:
+
+- `TaskRunId` is an opaque unversioned Application identity; the authenticated
+  Standard creation receipt and durable run-ID contract remain private;
+- `TaskRunStatus` uses plain camel-case lifecycle, retry, failure, and
+  cancellation vocabulary instead of exporting the durable projection by
+  alias;
+- `inspectTask()` and `listTaskRuns()` both copy through the same projection,
+  while `awaitTask()` consumes that clean status without a second translation;
+- the root status retains only caller-relevant result metadata (`byteLength`
+  and `sha256Hex`) and does not expose the internal result codec; and
+- every returned status and nested record is newly owned and frozen. The
+  Standard and durable status models, query authority, storage, and lifecycle
+  semantics remain unchanged below the facade.
 
 The root operations remain deliberately separated by capability:
 
@@ -749,5 +765,9 @@ pending the configured database lane. Listed references now authorize only
 status inspection and bounded admission-history reads within their exact
 captured scope; result reads, waiting, and cancellation remain restricted to
 admitted typed Task handles.
+The later clean-root surface audit now projects both point and list results
+through one unversioned `TaskRunStatus` contract. This changes only the facade
+shape and runtime ownership; the accepted DTE07 query, scope, and lifecycle
+authorities remain intact.
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.

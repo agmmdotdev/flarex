@@ -141,7 +141,7 @@ describe("clean Task invocation primitive", () => {
   it("rejects a forged run at the private metadata bridge", () => {
     const forged = Object.freeze({
       runId: makeReceipt().runId,
-    }) as TaskRun<unknown>;
+    }) as unknown as TaskRun<unknown>;
 
     expect(() => inspectTaskRun(forged)).toThrow(
       "Task run metadata is unavailable.",
@@ -198,7 +198,22 @@ describe("clean Task invocation primitive", () => {
       ),
     ));
 
-    expect(status).toBe(expected);
+    expect(status).not.toBe(expected);
+    expect(status).toEqual({
+      runId: receipt.runId,
+      createdAtMs: receipt.createdAtMs,
+      observedAtMs: receipt.createdAtMs,
+      runVersion: 1n,
+      state: {
+        kind: "ready",
+        eligibleAtMs: receipt.createdAtMs,
+        retry: null,
+        cancellation: { kind: "notRequested" },
+      },
+    });
+    expect(Object.isFrozen(status)).toBe(true);
+    expect(Object.isFrozen(status.state)).toBe(true);
+    expect(Object.isFrozen(status.state.cancellation)).toBe(true);
     expect(inspect).toHaveBeenCalledOnce();
     expect(inspect).toHaveBeenCalledWith(receipt.runId);
     expectTypeOf(status).toEqualTypeOf<TaskRunStatus>();
@@ -206,7 +221,9 @@ describe("clean Task invocation primitive", () => {
 
   it("defects on a forged handle before query I/O", async () => {
     const receipt = makeReceipt();
-    const forged = Object.freeze({ runId: receipt.runId }) as TaskRun<unknown>;
+    const forged = Object.freeze({
+      runId: receipt.runId,
+    }) as unknown as TaskRun<unknown>;
     const forbiddenInspect = vi.fn<
       StandardApplicationTaskRunQueryApi["inspect"]
     >(
@@ -271,7 +288,7 @@ describe("clean Task invocation primitive", () => {
       StandardApplicationTaskResultQueryLive["resultStore"]["read"]
     >(() => Effect.die("must not read an unavailable result"));
     const upstreamFailure = await Effect.runPromise(Effect.flip(
-      readStandardApplicationTaskResult(run.runId).pipe(Effect.provide(
+      readStandardApplicationTaskResult(receipt.runId).pipe(Effect.provide(
         makeStandardApplicationTaskResultQueryLayer({
           runAttemptStore: { inspectRunAttempt },
           resultStore: { read: forbiddenResultRead },
@@ -352,7 +369,7 @@ describe("clean Task invocation primitive", () => {
   });
 
   it("defects on a forged handle before result I/O", async () => {
-    const forged = Object.freeze({ runId: makeReceipt().runId }) as
+    const forged = Object.freeze({ runId: makeReceipt().runId }) as unknown as
       TaskRun<unknown>;
     const read = vi.fn<StandardApplicationTaskResultQueryApi["read"]>(
       () => Effect.die("must not read"),

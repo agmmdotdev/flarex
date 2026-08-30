@@ -44,9 +44,12 @@ prototype does not create a second issuance path. Consequently
 service. It is not a wire, durable, HTTP, SDK, serializable, or cross-process
 contract.
 
-The listed status remains the exact existing frozen/redacted projection by
-identity. Only the containing listed-item object and its opaque reference are
-new allocations.
+At this checkpoint the listed status remained the exact existing
+frozen/redacted projection by identity. The later 2026-08-30 clean-root surface
+audit supersedes only that allocation detail: both listed and point-query
+statuses are now copied through one Application-owned unversioned projection.
+The opaque reference, captured scope, redaction, and read-only authority remain
+unchanged.
 
 ## Failures And Effect Boundary
 
@@ -63,8 +66,10 @@ pure package-owned capability mechanics around the existing Effect operation.
 
 ## Proof Gate
 
-Focused tests must prove that list items preserve status identity, references
-are frozen and fieldless, a genuine listed reference refreshes the exact run
+Focused tests for this checkpoint proved status identity before the later
+clean-root projection superseded that allocation detail. Current tests prove
+the clean copied status shape instead. They continue to prove references are
+frozen and fieldless, a genuine listed reference refreshes the exact run
 through `inspectTask()`, a forgery defects before query I/O, a genuine reference
 cannot cross into another query scope even when the run ID is identical, and
 the runtime constructor cannot issue an alternate reference. TypeScript rejects

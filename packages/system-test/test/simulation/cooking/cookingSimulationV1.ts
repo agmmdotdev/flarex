@@ -1136,7 +1136,7 @@ const runCookingWorkloadV1 = Effect.fn(
   );
   if (
     taskDelivery.status !== "succeeded" ||
-    taskDelivery.runId !== taskFirst.runId ||
+    !sameTaskRunId(taskDelivery.runId, taskFirst.runId) ||
     taskDelivery.worker.generation !== "application_v1" ||
     taskDelivery.worker.loads !== 1 ||
     taskDelivery.worker.starts !== 1 ||
@@ -1822,7 +1822,7 @@ const runCookingWorkloadV1 = Effect.fn(
   );
   if (
     taskMutationDelivery.status !== "succeeded" ||
-    taskMutationDelivery.runId !== taskMutationFirst.runId ||
+    !sameTaskRunId(taskMutationDelivery.runId, taskMutationFirst.runId) ||
     taskMutationDelivery.worker.generation !== "application_v1" ||
     taskMutationDelivery.worker.loads !== 1 ||
     taskMutationDelivery.worker.starts !== 1 ||
@@ -1891,8 +1891,10 @@ const runCookingWorkloadV1 = Effect.fn(
   );
   if (
     taskMutationCompletionReplayDelivery.status !== "succeeded" ||
-    taskMutationCompletionReplayDelivery.runId !==
-      taskMutationCompletionReplayFirst.runId ||
+    !sameTaskRunId(
+      taskMutationCompletionReplayDelivery.runId,
+      taskMutationCompletionReplayFirst.runId,
+    ) ||
     taskMutationCompletionReplayDelivery.worker.generation !==
       "application_v1" ||
     taskMutationCompletionReplayDelivery.worker.loads !== 1 ||
@@ -1962,8 +1964,10 @@ const runCookingWorkloadV1 = Effect.fn(
   );
   if (
     taskMutationResultReconciliationDelivery.status !== "succeeded" ||
-    taskMutationResultReconciliationDelivery.runId !==
-      taskMutationResultReconciliationFirst.runId ||
+    !sameTaskRunId(
+      taskMutationResultReconciliationDelivery.runId,
+      taskMutationResultReconciliationFirst.runId,
+    ) ||
     taskMutationResultReconciliationDelivery.worker.generation !==
       "application_v1" ||
     taskMutationResultReconciliationDelivery.worker.loads !== 1 ||
@@ -2030,7 +2034,10 @@ const runCookingWorkloadV1 = Effect.fn(
   );
   if (
     taskMutationRecoveryDelivery.status !== "recovered" ||
-    taskMutationRecoveryDelivery.runId !== taskMutationRecoveryFirst.runId ||
+    !sameTaskRunId(
+      taskMutationRecoveryDelivery.runId,
+      taskMutationRecoveryFirst.runId,
+    ) ||
     taskMutationRecoveryDelivery.recovery.abandonedAttemptNumber !== 1 ||
     taskMutationRecoveryDelivery.recovery.replacementAttemptNumber !== 2 ||
     taskMutationRecoveryDelivery.recovery.leaseExpiryOutcome !==
@@ -2134,8 +2141,10 @@ const runCookingWorkloadV1 = Effect.fn(
   if (
     taskMutationResultUncertainDelivery.status !==
       "result_publication_uncertain" ||
-    taskMutationResultUncertainDelivery.runId !==
-      taskMutationResultUncertainFirst.runId ||
+    !sameTaskRunId(
+      taskMutationResultUncertainDelivery.runId,
+      taskMutationResultUncertainFirst.runId,
+    ) ||
     taskMutationResultUncertainDelivery.settlement.stage !== "reconcileRead" ||
     taskMutationResultUncertainDelivery.settlement.terminalResultFabricated !==
       false ||
@@ -2990,6 +2999,10 @@ function sameJsonValue(actual: unknown, expected: unknown): boolean {
       ([key, value]) => Object.hasOwn(actual, key) &&
         sameJsonValue(actual[key], value),
     );
+}
+
+function sameTaskRunId(left: string, right: string): boolean {
+  return left === right;
 }
 
 export const cookingSimulationV1 = defineSimulation({

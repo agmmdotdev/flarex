@@ -13,6 +13,7 @@ import {
 import {
   StandardApplicationTaskRunQuery,
   type StandardApplicationTaskRunQueryApi,
+  type StandardApplicationTaskRunStatus,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
 import {
@@ -43,7 +44,6 @@ import {
   type TaskRun,
   type TaskRunCancelledError,
   type TaskRunFailedError,
-  type TaskRunStatus,
 } from "../src/index.js";
 
 const tasksModule = defineModule({
@@ -241,7 +241,14 @@ describe("clean Task await primitive", () => {
     });
     if (failure._tag === "TaskRunFailedError") {
       expectTypeOf(failure).toEqualTypeOf<TaskRunFailedError>();
-      expect(failure.state).toBe(status.state);
+      expect(failure.state).toEqual({
+        kind: "failed",
+        completedAtMs: receipt.createdAtMs,
+        attemptNumber: null,
+        executionDurationMs: null,
+        failure: { kind: "taskFailure", code: "uncaughtException" },
+        cancellation: { kind: "notRequested" },
+      });
     }
     expect(inspect).toHaveBeenCalledOnce();
     expect(read).not.toHaveBeenCalled();
@@ -277,7 +284,19 @@ describe("clean Task await primitive", () => {
     });
     if (failure._tag === "TaskRunCancelledError") {
       expectTypeOf(failure).toEqualTypeOf<TaskRunCancelledError>();
-      expect(failure.state).toBe(status.state);
+      expect(failure.state).toEqual({
+        kind: "cancelled",
+        completedAtMs: receipt.createdAtMs,
+        attemptNumber: null,
+        executionDurationMs: null,
+        cancellation: {
+          kind: "resolved",
+          code: "requested",
+          requestedAtMs: receipt.createdAtMs,
+          resolvedAtMs: receipt.createdAtMs,
+          resolution: "withoutActiveAttempt",
+        },
+      });
     }
     expect(inspect).toHaveBeenCalledOnce();
     expect(read).not.toHaveBeenCalled();
@@ -319,7 +338,10 @@ describe("clean Task await primitive", () => {
       expectTypeOf(failure).toEqualTypeOf<TaskAwaitTimeoutError>();
       expect(failure.runId).toBe(run.runId);
       expect(Duration.toMillis(failure.timeout)).toBe(30);
-      expect(failure.lastStatus).toBe(status);
+      expect(failure.lastStatus).toMatchObject({
+        runId: run.runId,
+        state: { kind: "ready", cancellation: { kind: "notRequested" } },
+      });
     }
     expect(inspect).toHaveBeenCalledOnce();
     expect(read).not.toHaveBeenCalled();
@@ -366,7 +388,10 @@ describe("clean Task await primitive", () => {
 
     expect(failure._tag).toBe("TaskAwaitTimeoutError");
     if (failure._tag === "TaskAwaitTimeoutError") {
-      expect(failure.lastStatus).toEqual(readyStatus(receipt));
+      expect(failure.lastStatus).toMatchObject({
+        runId: run.runId,
+        state: { kind: "ready", cancellation: { kind: "notRequested" } },
+      });
     }
     expect(inspect).toHaveBeenCalledOnce();
     expect(read).not.toHaveBeenCalled();
@@ -451,7 +476,7 @@ describe("clean Task await primitive", () => {
     const run = await startRun(receipt);
     const expected = new TestTaskRunQueryError({
       operation: "inspect_current_attempt",
-      runId: run.runId,
+      runId: receipt.runId,
       reason: "unavailable",
     });
     const inspect = vi.fn<StandardApplicationTaskRunQueryApi["inspect"]>(
@@ -484,7 +509,7 @@ describe("clean Task await primitive", () => {
       () => Effect.succeed(succeededStatus(receipt)),
     );
     const expected = new TestTaskResultQueryError({
-      runId: run.runId,
+      runId: receipt.runId,
       reason: "run_incomplete",
     });
     const read = vi.fn<StandardApplicationTaskResultQueryApi["read"]>(
@@ -611,7 +636,7 @@ describe("clean Task await primitive", () => {
   });
 
   it("defects on a forged handle before reading wait options or services", async () => {
-    const forged = Object.freeze({ runId: makeReceipt().runId }) as
+    const forged = Object.freeze({ runId: makeReceipt().runId }) as unknown as
       TaskRun<unknown>;
     const timeoutRead = vi.fn<() => Duration.Input>(() => {
       throw new Error("must not read timeout");
@@ -680,7 +705,7 @@ async function startRun(
 
 function readyStatus(
   receipt: StandardApplicationTaskRunCreationReceipt,
-): TaskRunStatus {
+): StandardApplicationTaskRunStatus {
   return makeStatus(receipt, Object.freeze({
     kind: "ready" as const,
     eligibleAtMs: receipt.createdAtMs,
@@ -691,9 +716,9 @@ function readyStatus(
 
 function succeededStatus(
   receipt: StandardApplicationTaskRunCreationReceipt,
-): TaskRunStatus {
+): StandardApplicationTaskRunStatus {
   const attemptNumber = Brand.nominal<Extract<
-    TaskRunStatus["state"],
+    StandardApplicationTaskRunStatus["state"],
     { readonly kind: "succeeded" }
   >["attemptNumber"]>();
   return makeStatus(receipt, Object.freeze({
@@ -712,7 +737,7 @@ function succeededStatus(
 
 function failedStatus(
   receipt: StandardApplicationTaskRunCreationReceipt,
-): TaskRunStatus {
+): StandardApplicationTaskRunStatus {
   return makeStatus(receipt, Object.freeze({
     kind: "failed" as const,
     completedAtMs: receipt.createdAtMs,
@@ -728,7 +753,7 @@ function failedStatus(
 
 function cancelledStatus(
   receipt: StandardApplicationTaskRunCreationReceipt,
-): TaskRunStatus {
+): StandardApplicationTaskRunStatus {
   return makeStatus(receipt, Object.freeze({
     kind: "cancelled" as const,
     completedAtMs: receipt.createdAtMs,
@@ -746,13 +771,15 @@ function cancelledStatus(
 
 function makeStatus(
   receipt: StandardApplicationTaskRunCreationReceipt,
-  state: TaskRunStatus["state"],
-): TaskRunStatus {
+  state: StandardApplicationTaskRunStatus["state"],
+): StandardApplicationTaskRunStatus {
   return Object.freeze({
     runId: receipt.runId,
     createdAtMs: receipt.createdAtMs,
     observedAtMs: receipt.createdAtMs,
-    runVersion: Brand.nominal<TaskRunStatus["runVersion"]>()(1n),
+    runVersion: Brand.nominal<
+      StandardApplicationTaskRunStatus["runVersion"]
+    >()(1n),
     state,
   });
 }
