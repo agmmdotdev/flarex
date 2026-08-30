@@ -304,7 +304,7 @@ function projectTaskRunState(state: StandardTaskRunState): TaskRunState {
         completedAtMs: state.completedAtMs,
         attemptNumber: state.attemptNumber,
         executionDurationMs: state.executionDurationMs,
-        failure: projectFailure(state.failure),
+        failure: projectTaskRunFailure(state.failure),
         cancellation: projectCompletionCancellation(state.cancellation),
       });
     case "cancelled":
@@ -343,7 +343,7 @@ function projectRetry(
     nextComputeProfile: retry.nextComputeProfile,
     cause: Object.freeze({
       kind: projectRetryCauseKind(retry.cause.kind),
-      failure: projectFailure(retry.cause.failure),
+      failure: projectTaskRunFailure(retry.cause.failure),
     }),
   });
 }
@@ -370,7 +370,10 @@ function projectRetryCauseKind(
   }
 }
 
-function projectFailure(failure: StandardTaskRunFailure): TaskRunFailure {
+/** Projects one redacted Standard failure into clean lifecycle vocabulary. */
+export function projectTaskRunFailure(
+  failure: StandardTaskRunFailure,
+): TaskRunFailure {
   switch (failure.kind) {
     case "task_failure":
       return Object.freeze({
@@ -410,7 +413,7 @@ function projectActiveCancellation(
     case "requested":
       return Object.freeze({
         kind: "requested",
-        code: projectCancellationCode(cancellation.code),
+        code: projectTaskCancellationCode(cancellation.code),
         requestedAtMs: cancellation.requestedAtMs,
       });
   }
@@ -426,7 +429,7 @@ function projectCompletionCancellation(
     case "resolved":
       return Object.freeze({
         kind: "resolved",
-        code: projectCancellationCode(cancellation.code),
+        code: projectTaskCancellationCode(cancellation.code),
         requestedAtMs: cancellation.requestedAtMs,
         resolvedAtMs: cancellation.resolvedAtMs,
         resolution: "supersededByCompletion",
@@ -501,14 +504,15 @@ function projectResolvedCancellation<
 ): TaskRunCancellationResolved<Resolution> {
   return Object.freeze({
     kind: "resolved",
-    code: projectCancellationCode(cancellation.code),
+    code: projectTaskCancellationCode(cancellation.code),
     requestedAtMs: cancellation.requestedAtMs,
     resolvedAtMs: cancellation.resolvedAtMs,
     resolution,
   });
 }
 
-function projectCancellationCode(
+/** Projects one Standard cancellation code into clean lifecycle vocabulary. */
+export function projectTaskCancellationCode(
   code: "requested" | "execution_cancelled" | "policy_cancelled",
 ): TaskCancellationCode {
   switch (code) {

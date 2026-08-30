@@ -637,7 +637,9 @@ approval.
 
 **Status:** Implemented privately on 2026-08-30 for request-key normalization,
 the clean Task-run status projection, and clean Task page/cancellation scalar
-types; the API classification below is the accepted current root shape.
+types. Clean Task attempt and lifecycle-event history projections are also
+implemented privately; the API classification below is the accepted current
+root shape.
 
 Application authors and invocation callers use only ordinary semantic values:
 
@@ -679,6 +681,18 @@ caller-facing scalars: `TaskRunPage.observedAtMs` and
 `CancelTaskResult.runVersion` is `bigint`. Their authoritative values still
 come unchanged from the Standard services; only the private branded type names
 have been removed from the clean root declarations.
+
+Task observability histories follow the same boundary:
+
+- `TaskAttemptHistory` owns a clean `TaskRunId`, ordinary time/version scalars,
+  and copied attempt admissions with plain string IDs and numeric ordinals;
+- `TaskEventHistory` owns the same clean envelope and copies every event into
+  camel-case lifecycle vocabulary;
+- event cancellation codes and failures reuse the exact clean status
+  projections instead of defining a second vocabulary; and
+- both operations preserve their existing scope-captured Standard services,
+  ordering, bounds, errors, and read-only authority. No history result is
+  returned by identity with its Standard source.
 
 The root operations remain deliberately separated by capability:
 
@@ -776,5 +790,8 @@ The later clean-root surface audit now projects both point and list results
 through one unversioned `TaskRunStatus` contract. This changes only the facade
 shape and runtime ownership; the accepted DTE07 query, scope, and lifecycle
 authorities remain intact.
+The same audit now projects attempt and lifecycle-event histories into
+root-owned unversioned shapes while preserving the existing history services
+and their scope checks.
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.

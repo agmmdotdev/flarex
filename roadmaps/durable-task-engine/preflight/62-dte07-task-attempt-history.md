@@ -94,3 +94,12 @@ lifecycle events or an explicitly state-enriched current-attempt view, but it
 must not infer historical state from the current aggregate. Do not add event
 storage, results, failure messages, execution fences, commands, serialization,
 routes, live invalidation, UI, public SDK, or production activation here.
+
+## Later Clean-Root Projection
+
+The 2026-08-30 clean-root surface audit later replaced the facade's direct
+Standard history alias with an Application-owned frozen copy. `runId` now uses
+the clean opaque `TaskRunId`; observation time and versions are ordinary
+`number`/`bigint` scalars; and each attempt admission exposes a plain string
+ID, numeric ordinal, and bigint admitted version. The durable query remains the
+sole validator and authority for all values, ordering, bounds, and errors.

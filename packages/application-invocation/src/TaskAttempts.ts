@@ -10,10 +10,24 @@ import {
   inspectTaskRunRef,
   type TaskRunRef,
 } from "./TaskRunRef.js";
+import {
+  projectTaskRunId,
+  type TaskRunId,
+} from "./TaskStatus.js";
 
-export type TaskAttempt =
-  StandardApplicationTaskAttemptHistory["attempts"][number];
-export type TaskAttemptHistory = StandardApplicationTaskAttemptHistory;
+export interface TaskAttempt {
+  readonly attemptId: string;
+  readonly attemptNumber: number;
+  readonly admittedRunVersion: bigint;
+}
+
+export interface TaskAttemptHistory {
+  readonly runId: TaskRunId;
+  readonly observedAtMs: number;
+  readonly runVersion: bigint;
+  readonly attempts: readonly TaskAttempt[];
+}
+
 export type ListTaskAttemptsError =
   StandardApplicationTaskAttemptHistoryQueryError;
 
@@ -34,6 +48,23 @@ export const listTaskAttempts = Effect.fn("Application.listTaskAttempts")(
     if (history.scope !== referenceState.query) {
       throw new TypeError("Task run metadata is unavailable.");
     }
-    return yield* history.list(referenceState.runId);
+    const result = yield* history.list(referenceState.runId);
+    return projectTaskAttemptHistory(result);
   },
 );
+
+function projectTaskAttemptHistory(
+  history: StandardApplicationTaskAttemptHistory,
+): TaskAttemptHistory {
+  const attempts = Object.freeze(history.attempts.map(attempt => Object.freeze({
+    attemptId: attempt.attemptId,
+    attemptNumber: attempt.attemptNumber,
+    admittedRunVersion: attempt.admittedRunVersion,
+  })));
+  return Object.freeze({
+    runId: projectTaskRunId(history.runId),
+    observedAtMs: history.observedAtMs,
+    runVersion: history.runVersion,
+    attempts,
+  });
+}

@@ -97,4 +97,5 @@ export {
   type ListTaskEventsError,
   type TaskEvent,
   type TaskEventHistory,
+  type TaskLifecycleEvent,
 } from "./TaskEvents.js";

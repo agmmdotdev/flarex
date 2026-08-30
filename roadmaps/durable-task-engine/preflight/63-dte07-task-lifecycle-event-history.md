@@ -86,3 +86,13 @@ review, and commit. Enriched historical attempt state is not reconstructible
 from current retained evidence and must not be guessed. Live invalidation,
 serializable transport cursors, logs, traces, output streams, routes, public
 SDKs, UI, and production activation remain later separately approved gates.
+
+## Later Clean-Root Projection
+
+The 2026-08-30 clean-root surface audit later replaced the facade's direct
+Standard history alias with an Application-owned frozen copy. The history and
+entry scalars are ordinary clean values, lifecycle discriminants and nested
+retry/cancellation/failure vocabulary are camel case, and event failures and
+cancellation codes reuse the clean status contract. The durable ledger query
+remains the sole authority for selection, validation, correlation, ordering,
+bounds, redaction, and typed errors.

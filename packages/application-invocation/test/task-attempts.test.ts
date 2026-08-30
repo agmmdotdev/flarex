@@ -19,7 +19,9 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   listTaskAttempts,
   listTaskRuns,
+  type TaskAttempt,
   type TaskAttemptHistory,
+  type TaskRunId,
   type TaskRunRef,
 } from "../src/index.js";
 
@@ -34,6 +36,10 @@ const runId = Brand.nominal<RunStatus["runId"]>()(
   "run_00000000-0000-4000-8000-0000000000c1",
 );
 const runVersion = Brand.nominal<RunStatus["runVersion"]>();
+const attemptId = Brand.nominal<History["attempts"][number]["attemptId"]>();
+const attemptNumber = Brand.nominal<
+  History["attempts"][number]["attemptNumber"]
+>();
 
 describe("clean Task attempt-history primitive", () => {
   it("lists admissions through the exact scope that issued the run ref", async () => {
@@ -50,10 +56,29 @@ describe("clean Task attempt-history primitive", () => {
       ),
     ));
 
-    expect(history).toBe(attemptHistoryValue);
+    expect(history).not.toBe(attemptHistoryValue);
+    expect(history).toEqual({
+      runId,
+      observedAtMs: 2_000,
+      runVersion: 2n,
+      attempts: [{
+        attemptId: "attempt_00000000-0000-4000-8000-0000000000c1",
+        attemptNumber: 1,
+        admittedRunVersion: 1n,
+      }],
+    });
+    expect(Object.isFrozen(history)).toBe(true);
+    expect(Object.isFrozen(history.attempts)).toBe(true);
+    expect(Object.isFrozen(history.attempts[0])).toBe(true);
+    expect(history.attempts).not.toBe(attemptHistoryValue.attempts);
     expect(list).toHaveBeenCalledOnce();
     expect(list).toHaveBeenCalledWith(runId);
     expectTypeOf(history).toEqualTypeOf<TaskAttemptHistory>();
+    expectTypeOf(history.runId).toEqualTypeOf<TaskRunId>();
+    expectTypeOf(history.observedAtMs).toEqualTypeOf<number>();
+    expectTypeOf(history.runVersion).toEqualTypeOf<bigint>();
+    expectTypeOf(history.attempts).toEqualTypeOf<readonly TaskAttempt[]>();
+    expectTypeOf<TaskAttempt["attemptId"]>().toEqualTypeOf<string>();
   });
 
   it("rejects a forged ref before attempt-history I/O", async () => {
@@ -94,7 +119,13 @@ const attemptHistoryValue = Object.freeze({
   runId,
   observedAtMs: databaseTime(2_000),
   runVersion: runVersion(2n),
-  attempts: Object.freeze([]),
+  attempts: Object.freeze([Object.freeze({
+    attemptId: attemptId(
+      "attempt_00000000-0000-4000-8000-0000000000c1",
+    ),
+    attemptNumber: attemptNumber(1),
+    admittedRunVersion: runVersion(1n),
+  })]),
 });
 
 function attemptHistory(): History {
