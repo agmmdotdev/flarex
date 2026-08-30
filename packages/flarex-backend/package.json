@@ -52,7 +52,6 @@
     "./internal/point-mutation-transaction-grant-issuer-v1": "./src/transactionGrantIssuer.ts",
     "./internal/system-test/application-revision-readiness-coordinator-v1": "./src/deployment/PrivateApplicationRevisionReadinessCoordinatorV1.ts",
     "./internal/system-test/application-revision-activation-coordinator-v1": "./src/deployment/PrivateApplicationRevisionActivationCoordinatorV1.ts",
-    "./internal/deployment-sync-cursor-core-v1": "./src/deploymentSync/index.ts",
     "./worker": "./src/worker.ts",
     "./types": "./src/types.ts",
     "./test/backendHarness": "./test/backendHarness.ts",

@@ -18,6 +18,7 @@ import type {
 import {
   captureAdmittedInvalidationBatch,
   captureCanonicalDependencyKey,
+  captureNamespaceCursor,
   captureQueryDescriptor,
   captureQueryEvaluationEvidence,
   captureQueryPublicationArtifact,
@@ -32,6 +33,7 @@ import {
 } from "@flarex/query-sync/internal/kernel";
 import type {
   CanonicalDependencyKey,
+  NamespaceCursor,
   QueryDescriptor,
   QueryPublicationArtifact,
   QueryResultDigest,
@@ -55,6 +57,7 @@ import {
   SCOPE_SYNC_PROTOCOL_VERSION_V1,
   captureScopeSyncDependencyKeyV1,
   compareScopeSyncDependencyKeysV1,
+  type ScopeSyncActiveHeadObservationV1,
   type ScopeSyncDependencyKeyV1,
   type ScopeSyncQueryGenerationSequenceV1,
 } from "flarex-protocol/internal/scope-sync-v1";
@@ -140,6 +143,17 @@ export const FLAREX_APPLICATION_QUERY_SYNC_MODEL_ID_V1: SyncModelId =
   Result.getOrThrow(captureSyncModelId(
     SCOPE_SYNC_APPLICATION_QUERY_MODEL_ID_V1,
   ));
+
+export function captureScopeSyncNamespaceCursorV1Result(
+  observation: ScopeSyncActiveHeadObservationV1,
+): Result.Result<NamespaceCursor, QuerySyncCanonicalValueError> {
+  return captureNamespaceCursor({
+    namespaceId: observation.scopeUuid,
+    syncModelId: FLAREX_APPLICATION_QUERY_SYNC_MODEL_ID_V1,
+    sourceEpoch: observation.epochUuid,
+    appliedThroughSequence: observation.observedAtCommitSeq,
+  });
+}
 
 const digestScopeSyncQueryModelSha256 = Effect.fn(
   "FlarexBackend.ScopeSyncQueryModelSha256.digest",

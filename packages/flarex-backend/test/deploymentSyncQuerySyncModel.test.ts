@@ -28,6 +28,7 @@ import {
   ApplicationActiveHeadSha256HexV1Schema,
 } from "flarex-protocol/commit-protocol";
 import {
+  SCOPE_SYNC_ACTIVE_HEAD_OBSERVATION_FORMAT_V1,
   SCOPE_SYNC_CANONICAL_QUERY_FORMAT_V1,
   SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
   SCOPE_SYNC_PROTOCOL_VERSION_V1,
@@ -35,6 +36,7 @@ import {
   ScopeSyncQueryGenerationSequenceV1Schema,
   ScopeSyncQueryIdentityAccessPolicySha256HexV1Schema,
   ScopeSyncQuerySourcePackageSha256HexV1Schema,
+  captureScopeSyncActiveHeadObservationV1,
   captureScopeSyncCanonicalQueryIdentityV1,
   captureScopeSyncDependencyKeyV1,
   type ScopeSyncCanonicalQueryIdentityV1,
@@ -76,6 +78,7 @@ import {
   captureScopeSyncQueryDescriptorV1Result,
   captureScopeSyncQueryEvaluationProjectionV1Result,
   captureScopeSyncQueryResultProjectionV1Result,
+  captureScopeSyncNamespaceCursorV1Result,
   captureScopeSyncQuerySnapshotV1,
   captureScopeSyncNamespaceIdV1,
   captureScopeSyncSourceEpochV1,
@@ -129,6 +132,39 @@ describe("deployment sync portable query model", () => {
     expect(Result.getOrThrow(captureScopeSyncQuerySnapshotV1(zero)))
       .toBe(0n);
   });
+
+  it.each([
+    ["zero", 0n],
+    ["maximum signed-int64", 9_223_372_036_854_775_807n],
+  ] as const)(
+    "projects one %s active-head observation into an owned namespace cursor",
+    (_case, commitSeq) => {
+      const observation = captureScopeSyncActiveHeadObservationV1({
+        format: SCOPE_SYNC_ACTIVE_HEAD_OBSERVATION_FORMAT_V1,
+        version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+        scopeUuid,
+        epochUuid,
+        storageGeneration: FlarexDbV1StorageGenerationSchema.make(
+          "flarexdb_v1",
+        ),
+        storageGenerationFence: StorageGenerationFenceSchema.make(9n),
+        observedAtCommitSeq: CommitSeqSchema.make(commitSeq),
+        activationSequence,
+        activeHeadSha256Hex,
+      });
+      const cursor = Result.getOrThrow(
+        captureScopeSyncNamespaceCursorV1Result(observation),
+      );
+
+      expect(cursor).toEqual({
+        namespaceId: scopeUuid,
+        syncModelId: FLAREX_APPLICATION_QUERY_SYNC_MODEL_ID_V1,
+        sourceEpoch: epochUuid,
+        appliedThroughSequence: commitSeq,
+      });
+      expect(Object.isFrozen(cursor)).toBe(true);
+    },
+  );
 
   it("maps one canonical query receipt to its exact portable descriptor", async () => {
     const query = await queryEvidence();
