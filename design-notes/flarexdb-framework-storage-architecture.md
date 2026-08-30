@@ -13,6 +13,8 @@ API owned by any one lane.
 
 Execution order and implementation status belong to
 [`../roadmaps/flarexdb-framework-integration/README.md`](../roadmaps/flarexdb-framework-integration/README.md).
+The accepted artifact/install/binding identity decisions are recorded in
+[`../roadmaps/flarexdb-framework-integration/preflight/01-artifact-installation-and-binding-identity.md`](../roadmaps/flarexdb-framework-integration/preflight/01-artifact-installation-and-binding-identity.md).
 The existing
 [`../roadmaps/flarexdb-foundation/README.md`](../roadmaps/flarexdb-foundation/README.md)
 continues to own the document-first application foundation. Code, migrations,
@@ -96,13 +98,15 @@ owner. In particular:
 
 The first writable Payload collection requires a separate Application-owner
 preflight. First produce an independently digestible Payload configuration and
-provenance artifact over stable logical table identities; it must not include an
-Application artifact or installation digest. The authenticated Application
-artifact then carries a stable Payload policy ID plus that configuration digest,
-and every application write admission consults this evidence at runtime. Only
-after the Application artifact is final may the content overlay reference both
-digests and the exact installation/table identities. The new table becomes
-application-write-inert when that artifact activates; Payload writes remain
+provenance artifact over stable logical table identities; it must not include
+the later exact Application head/schema/readiness/placement reference or any
+digest derived from it. The authenticated Application artifact then carries a
+stable Payload policy ID plus that configuration digest, and every application
+write admission consults this evidence at runtime. Only after the Application
+artifact is final may the content overlay reference both digests and the exact
+Application schema/readiness/placement plus table identities. The new table
+becomes application-write-inert when that artifact activates; Payload writes
+remain
 inert until the paired overlay is active. Transferring an already app-writable
 table to CMS management is deferred until one owner proves atomic capability
 revocation and overlay activation with no dual-writer interval.
@@ -166,25 +170,29 @@ A scope- and generation-pinned selection of one ready installation. Runtime
 admission resolves the active binding and refuses traffic when the required
 artifact, installation, scope, or generation does not match.
 
-The catalog identity must include the semantic owner so application, Payload,
-Medusa, and system artifacts cannot collide or accidentally share an active
-head.
+The new framework artifact catalog must include semantic owner so Payload,
+Medusa, and system artifacts cannot collide. The existing Application catalog
+and active head remain separate until a separately approved owner migration;
+the read-only Application bridge prevents the new framework head from becoming
+a second Application selector.
 
 ## Coordinated Data Bindings
 
 One deployment may depend on several independently compiled artifacts. The
-future coordination contract is a `DataBindingSet` with an exact reference to
-the existing active Application revision and installation, an optional Payload
-content configuration/provenance overlay, an optional Payload lifecycle binding
-when it owns physical structures, an optional commerce binding, and explicit
-cross-domain references. In the first additive contract, the Application member
-is a read-only reference and precondition, not another selector or independently
-writable active head.
+future coordination contract is a `DataBindingSet` with an exact coherent
+reference to the existing active Application head, schema, readiness, and
+physical placement; an optional Payload content configuration/provenance
+overlay; an optional Payload lifecycle binding when it owns physical
+structures; an optional commerce binding; and explicit cross-domain
+references. In the first additive contract, the Application member is a
+read-only reference and precondition, not another selector, generic
+installation, or independently writable active head.
 
-The Payload content overlay references exact Application artifact,
-installation, and table identities plus authenticated write-policy evidence. It
-does not own or install another copy of content definitions. Its lifecycle
-binding is separate and exists only for admitted physical lifecycle structures.
+The Payload content overlay references exact Application head/schema/readiness/
+placement commitments and table identities plus authenticated write-policy
+evidence. It does not own or install another copy of content definitions. Its
+lifecycle binding is separate and exists only for admitted physical lifecycle
+structures.
 
 The activation owner verifies:
 
@@ -195,10 +203,13 @@ The activation owner verifies:
 - compatible cross-domain endpoint identities; and
 - readiness of every required component.
 
-It then activates the framework overlay set atomically only if the referenced
-Application revision is still current. It does not write the Application head.
-A future operation that switches the Application head and framework bindings
-together requires a separate migration of activation ownership and proof.
+It then activates the framework overlay set atomically only if the exact
+Application head/reference remains current, including
+`{ activationSequence, headSha256 }`. A revision ID alone is insufficient
+because the same revision can be selected by a later activation. Framework
+activation does not write the Application head. A future operation that
+switches the Application head and framework bindings together requires a
+separate migration of activation ownership and proof.
 Activation never runs migrations and never interprets Payload configuration or
 Medusa DML.
 
@@ -460,7 +471,7 @@ Begin with private domain modules whose owners are clear:
 ```text
 @flarex/persistence-postgres
   scopeExecution/
-  schemaArtifacts/
+  frameworkSchema/
   relationalSchema/
   migrationCoordination/
   commitPublication/

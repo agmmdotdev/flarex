@@ -176,8 +176,9 @@ enabled lane has:
 - an atomic framework overlay binding conditioned on the exact current
   Application head;
 - for Payload content, a configuration/provenance overlay referencing the exact
-  canonical Application artifact, installation, table identities, and
-  write-policy evidence without an independent content installation;
+  canonical Application head/schema/readiness/placement commitments, table
+  identities, and write-policy evidence without an independent content
+  installation;
 - one semantic write owner;
 - complete transaction and commit participation;
 - framework conformance for claimed behavior;

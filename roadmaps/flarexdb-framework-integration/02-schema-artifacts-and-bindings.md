@@ -2,13 +2,23 @@
 
 ## Status And Scope
 
-Status: accepted target contract; mandatory implementation preflight pending
+Status: accepted target architecture; identity preflight complete, artifact
+value-contract implementation pending, later persistence codecs still gated
+
+The additive authority architecture and exact artifact-envelope contract are
+frozen by
+[`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md).
+That record also owns the required invariants and sequencing for later
+Application-bridge, installation, activation, typed-failure, Effect, and
+evidence preflights.
 
 This plan owns the neutral identity and lifecycle mechanics needed to compile,
-install, validate, and bind Application, Payload, Medusa, and system schema
-artifacts without confusing their ownership. Payload content is not an
-independently installed schema family: its binding references the canonical
-Application artifact and exact stable table identities.
+install, validate, and bind Payload lifecycle, Medusa, and admitted system
+schema artifacts without confusing their ownership. Application remains
+outside that generic lifecycle and participates only through an exact
+read-only projection from its existing authority. Payload content is not an
+independently installed schema family: its binding references that canonical
+Application projection and exact stable table identities.
 
 It does not own any lane's source schema language or compatibility rules.
 
@@ -27,8 +37,10 @@ application active head. They are evidence for the lifecycle shape, not a
 framework-neutral contract. The existing `@flarex/managed-schema` remains the
 application owner.
 
-The current artifact/catalog model must be audited for an explicit semantic
-owner dimension before multiple framework artifact families can coexist.
+The accepted preflight proves that the current artifact/catalog model has no
+explicit semantic-owner dimension and cannot host multiple framework artifact
+families safely. The additive private contract supplies that distinction
+without changing the Application owner.
 
 ## Canonical Coordinates
 
@@ -53,8 +65,13 @@ A physical-database-local record containing:
 - semantic owner and artifact digest;
 - installed structure identity;
 - migration-plan identity;
-- completed validation commitments; and
-- current readiness state.
+- installed capability commitments; and
+- an immutable installation receipt.
+
+Immutable readiness receipts prove validation separately. Immutable
+availability history plus one CAS head records whether an installation may
+still serve as `ready`, `withdrawn`, `superseded`, or `quarantined`. A valid
+quarantine transition is distinct from corrupt stored evidence.
 
 DDL and physical indexes belong to an installation because they may be shared
 by many scopes.
@@ -70,32 +87,40 @@ A scope-local selection containing:
 - scope and generation;
 - semantic owner;
 - exact artifact and installation identities;
+- exact readiness and availability commitments;
 - required capability profile; and
 - activation/replacement state.
 
 Runtime admission resolves and revalidates this binding before serving the
 lane.
 
-This installation-bearing shape applies to Application, commerce, system, and
-any Payload lifecycle schema that owns physical structures. A content-only
-Payload integration instead uses a `PayloadContentOverlay` containing:
+This installation-bearing shape initially applies to commerce, admitted system
+schemas, and any Payload lifecycle schema that owns physical structures. The
+existing Application lifecycle is represented by one read-only coherent
+head/schema/readiness/placement projection until a separately approved
+Application-owner migration. A content-only Payload integration instead uses a
+`PayloadContentOverlay` containing:
 
 - its canonical configuration/provenance digest;
-- the exact referenced Application artifact and installation identities;
+- the exact referenced Application head, schema, readiness, and physical
+  placement commitments;
 - the exact stable Application table identities;
-- the expected authenticated table write-policy evidence; and
-- an optional separate Payload lifecycle binding only when physical lifecycle
-  structures exist.
+- the expected authenticated table write-policy evidence.
+
+When Payload owns physical lifecycle structures, their installation-bearing
+binding is the sibling `payloadLifecycle` slot in `DataBindingSet`; it is not
+nested inside the content overlay.
 
 The configuration/provenance digest is computed independently over pinned
 Payload configuration, provenance, stable logical table identities that do not
-depend on an artifact digest, and a stable Payload policy ID. It must not contain
-the later Application artifact or installation digest. It is compatibility and
-write-policy evidence, not a second content schema authority. The Application
-artifact records that policy ID and configuration digest; only then is the
-overlay constructed to reference both the finalized Application artifact and
-the independent configuration artifact. Activation validates the pair, so
-canonical identity has no digest cycle.
+depend on an artifact digest, and a stable Payload policy ID. It must not
+contain the later Application reference or any digest derived from it. It is
+compatibility and write-policy evidence, not a second content schema
+authority. A future separately approved Application-owner write-policy gate
+must make the Application artifact record that policy ID and configuration
+digest. Only then may the overlay be constructed to reference both the
+finalized Application evidence and the independent configuration artifact.
+Activation validates the pair, so canonical identity has no digest cycle.
 
 ## Data Binding Set
 
@@ -107,7 +132,7 @@ exact current Application-head reference
 Payload content overlay, when enabled
 Payload lifecycle binding, when physical lifecycle structures are enabled
 commerce binding, when enabled
-cross-domain reference bindings
+cross-domain reference bindings, deferred and initially empty
 ```
 
 A Payload content overlay cannot activate a second copy of content-table
@@ -148,9 +173,9 @@ ordinary domain API.
 - The Application-head reference is an exact compare-and-set precondition, not
   a second Application activation authority.
 - Cross-domain references name exact compatible endpoint bindings.
-- A Payload content overlay resolves to the active canonical Application
-  artifact, installation, and exact table identities; it cannot select an
-  independent content schema head.
+- A Payload content overlay resolves to the active canonical Application head,
+  schema, readiness, placement, and exact table identities; it cannot select
+  an independent content schema head.
 - A newly declared Payload-managed table remains fail-closed for Payload writes
   until the exact content overlay is active. Its authenticated Application
   write-policy evidence already rejects ordinary application writes.
@@ -163,33 +188,33 @@ ordinary domain API.
   authenticated write policy keeps both ordinary application and Payload writes
   fail-closed is not an active Payload lane.
 - Activation does not modify physical schema.
-- Runtime admission refuses a binding whose installation has been withdrawn,
-  superseded incompatibly, or found corrupt.
+- Runtime admission refuses a binding whose exact availability head has
+  changed or whose installation has been withdrawn, superseded, or found
+  quarantined. Corrupt stored evidence fails separately. A compatible
+  replacement still requires a new binding activation.
 - Replacement and retirement preserve the current application's existing
   lifecycle invariants until a separate owner change is approved.
 
-## Preflight Requirements
+## Preflight Decision
 
-Before implementation, inspect the exact current artifact, readiness,
-activation, and catalog code and freeze:
+The mandatory identity preflight is accepted in
+[`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md).
+It proves the missing semantic-owner dimension, keeps the Application head as
+the sole Application selector, separates immutable readiness from mutable
+availability, freezes named `DataBindingSet` slots and typed failures, and
+requires target-local CAS activation.
 
-- owner and identifier types;
-- collision behavior;
-- canonical encoding and digest contract;
-- artifact/install/binding storage shape;
-- readiness commitments and invalidation;
-- atomic compare-and-set activation;
-- retirement and recovery behavior;
-- Effect service and Layer ownership; and
-- compatibility with current application callers.
-
-The first implementation is additive and private. It must not dual-bind,
-fallback, route production traffic, change the application active head, or
+The first implementation is additive, private, and limited to the exact
+artifact value/canonicalization contract. Installation, readiness,
+availability, Application-reference, Payload-overlay, and `DataBindingSet`
+codecs remain later preflights. The first slice must not add storage, dual-bind,
+fallback, route production traffic, change the Application active head, or
 admit relational DDL.
 
 ## Exit Criteria
 
-- Application, Payload, Medusa, and system artifacts cannot collide.
+- The Application projection and Payload, Medusa, or admitted system framework
+  artifacts cannot be confused or structurally substituted.
 - Desired state, physical installation, and active selection are independently
   represented and tested.
 - One framework overlay set activates atomically or not at all, conditioned on

@@ -76,6 +76,12 @@ not transfer mutation authority.
 | [`07-payload-adoption.md`](./07-payload-adoption.md) | Payload content/lifecycle adapter and CMS write-authority sequence |
 | [`08-conformance-and-activation.md`](./08-conformance-and-activation.md) | Evidence matrix and private, integrated, and production gates |
 
+Accepted preflight records:
+
+| File | Decision |
+| --- | --- |
+| [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted lifecycle/authority architecture, exact owner-qualified artifact envelope, deferred installation/binding codecs, and the first private artifact checkpoint |
+
 ## Current Architecture
 
 The existing repository contains reusable lower-level evidence but not yet a
@@ -164,7 +170,7 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Pending preflight |
+| Framework-neutral artifact/install/binding model | Architecture preflight accepted; artifact value contract pending, later persistence codecs still gated |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |
@@ -184,7 +190,7 @@ Likely private persistence domains are:
 
 ```text
 scopeExecution/
-schemaArtifacts/
+frameworkSchema/
 relationalSchema/
 migrationCoordination/
 commitPublication/
@@ -198,18 +204,20 @@ universal `@flarex/database` package.
 
 ## Next Correctness Gate
 
-The next gate is a docs-and-contract preflight for artifact, installation, and
-binding identity. It must:
+The artifact, installation, and binding identity preflight is complete in
+[`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md).
 
-- inventory the exact current application artifact/readiness/activation
-  owners;
-- prove the missing owner dimension and collision risk;
-- define immutable plain value contracts and typed failures;
-- preserve the existing application path without dual reads, dual writes, or
-  fallback;
-- identify the smallest persistence additions, if any;
-- define PGlite and genuine-Postgres acceptance evidence; and
-- stop before relational DDL execution, Medusa imports, adapter runtime, public
-  APIs, or production routing.
+The next eligible checkpoint is its private artifact value contract only:
 
-Completion of this roadmap document is not approval to implement that gate.
+- owner, lineage, codec, provenance, capability, dependency, payload, and
+  canonical artifact models with distinct private brands;
+- deterministic canonical capture, SHA-256 identity, and pure replay policy;
+- the artifact capture failure boundary; and
+- focused mutation-isolation, digest, owner, dependency, limit, type-brand, and
+  package-boundary tests.
+
+That checkpoint adds no persistence, DDL, migration runner, service/Layer,
+framework import, route, public export, or production caller. Repository and
+DDL design remain a later separately accepted preflight. Installation,
+readiness, availability, Application-reference, Payload-overlay, and
+`DataBindingSet` codecs are also not part of this checkpoint.

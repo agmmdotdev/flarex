@@ -121,8 +121,9 @@ writable Payload vertical because the current framework-binding work does not
 authorize a change to application commit admission:
 
 - define an independently digestible Payload configuration/provenance artifact
-  over stable logical table identities and a stable Payload policy ID, excluding
-  any Application artifact or installation digest;
+  over stable logical table identities and a stable Payload policy ID,
+  excluding the later exact Application head/schema/readiness/placement
+  reference and every digest derived from it;
 - record that policy ID and configuration digest as authenticated per-table
   write-policy evidence in the canonical Application artifact;
 - make every application write admission consult that evidence at runtime;
@@ -130,8 +131,9 @@ authorize a change to application commit admission:
 - activate its Application artifact in a state that rejects ordinary `ctx.db`
   writes while Payload writes remain unavailable;
 - construct and activate the content overlay only after the Application artifact
-  is final, referencing both digests plus the exact installation/table
-  identities, and only while that head and policy evidence still match; and
+  is final, referencing both digests plus the exact Application
+  schema/readiness/placement and table identities, and only while that head and
+  policy evidence still match; and
 - defer transfer of an existing app-writable table until a later gate proves
   atomic capability revocation and overlay activation with no dual-writer
   interval.
@@ -144,10 +146,11 @@ authorize a change to application commit admission:
   chain to produce one canonical Application schema candidate with exact stable
   table identities.
 - Make the Payload content overlay reference that exact active Application
-  artifact, installation, and table identity, its authenticated write-policy
-  evidence, and the pinned Payload configuration/provenance digest; do not
-  install a second content schema. Add a separate lifecycle binding only when
-  physical Payload lifecycle structures exist.
+  head/schema/readiness/placement reference and table identity, its
+  authenticated write-policy evidence, and the pinned Payload
+  configuration/provenance digest; do not install a second content schema. Add
+  a separate lifecycle binding only when physical Payload lifecycle structures
+  exist.
 - Select the CMS-managed write-authority mode for that fixture.
 - Reject conflicting ownership and unsupported fields/options before startup.
 - In a separate follow-up fixture, expose an already Application-owned table as
