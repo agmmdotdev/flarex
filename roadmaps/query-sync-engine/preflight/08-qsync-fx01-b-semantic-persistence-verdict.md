@@ -14,15 +14,18 @@ invariant, and counter logic in host SQL. Both remain rejected.
 
 This B checkpoint itself authorized no DDL, local storage-contract generation,
 migration, Durable Object behavior, state-adapter code, or C1-C3 semantic
-vertical. The later C1 checkpoint now authorizes C1 only; C2 and C3 remain
-blocked.
+vertical. The later C1 checkpoint authorized and completed C1 in `b94abbb0`.
+The later accepted C2 checkpoint now records the implemented private
+evaluation-side vertical and its still-open exit proof. C3 remains blocked.
 
 The separate portable-core
 [`QSYNC01-D0` preflight](./09-qsync01-d-operation-scoped-transition-plans.md)
 was subsequently accepted docs-only. It freezes the operation-scoped
 transition-plan seam and D1-D4 sequence. D1-D4 are now complete. This B record
 remains the historical access-plan evidence; D owns the completed portable
-correction and the later C1 record owns adapter authority.
+correction, the later C1 record owns completed generation-2 adapter authority,
+and the later C2 record owns generation-3 evaluation-side implementation
+authority while its required proof matrix remains open.
 
 ## Decision Summary
 
@@ -450,14 +453,15 @@ Cloudflare's synchronous transaction may not naturally produce an unknown
 result after throwing. The adapter must not fabricate uncertainty to exercise a
 type. Response-loss fault wrappers can prove replay at the semantic boundary.
 
-## Required Conformance Before C1-C3
+## Historical Conformance Prerequisite And Adapter Proof
 
-`QSYNC01-D` must first prove that operation-scoped planners produce the same
+`QSYNC01-D` subsequently proved that operation-scoped planners produce the same
 receipts and complete oracle state as the existing aggregate reducers for all
 current histories, including collision, replay, ordering, limit, uncertainty,
-and atomicity vectors.
+and atomicity vectors. That prerequisite is complete.
 
-After that gate, a future real SQLite adapter must add proof for:
+Across the separately accepted C1-C3 verticals, the real SQLite adapter proof
+matrix includes:
 
 - every staged physical write failure rolling back the complete transaction;
 - fresh authorized creation and exact cursor-only upgrade;
@@ -473,16 +477,17 @@ After that gate, a future real SQLite adapter must add proof for:
 - removal or fencing of the old direct cursor path so it cannot bypass semantic
   invalidation.
 
-The current Workerd suite proves only cursor-store isolation, exact decimal
+At B time, the Workerd suite proved only cursor-store isolation, exact decimal
 round trips, replay, compare-and-swap, selected corruption, rollback, and
-callback-defect preservation. It is not nine-operation conformance. Persisted
-Miniflare dispose/recreate can prove reopen; targeted eviction needs an explicit
-harness/dependency decision before C3.
+callback-defect preservation. C1 later added real Workerd proof for its
+generation-2 three-operation vertical. Neither evidence set is nine-operation
+conformance. Persisted Miniflare dispose/recreate can prove reopen; targeted
+eviction still needs an explicit harness/dependency decision before C3.
 
 ## Platform Evidence
 
-Platform facts were rechecked on 2026-08-29 against Cloudflare's official
-[SQLite storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/),
+The B-time platform facts were rechecked on 2026-08-29 against Cloudflare's
+official [SQLite storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/),
 [Durable Object limits](https://developers.cloudflare.com/durable-objects/platform/limits/),
 [Durable Object ID contract](https://developers.cloudflare.com/durable-objects/api/id/),
 [Durable Object lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/),
@@ -543,7 +548,9 @@ At the time it completed, this docs checkpoint did not authorize:
 
 ## Subsequent Checkpoint
 
-The fresh `QSYNC-FX01-C1` checkpoint was subsequently accepted in
+The `QSYNC-FX01-C1` checkpoint was subsequently accepted and completed in
 [`10-qsync-fx01-c1-sqlite-vertical.md`](./10-qsync-fx01-c1-sqlite-vertical.md).
-It authorizes C1 only after its small core prerequisite; C2/C3 and every
-production host/delivery boundary remain blocked.
+The [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+was subsequently accepted and implemented as a private, unrouted generation-3
+evaluation-side vertical. Its exit proof, C3, and every production host/
+delivery boundary remain blocked.

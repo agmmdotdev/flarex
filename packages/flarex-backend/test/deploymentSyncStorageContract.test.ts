@@ -234,7 +234,7 @@ describe("deployment query-sync SQLite storage contract", () => {
     ))).toBe(true);
   });
 
-  it("creates exact generation 2 once for a truly fresh database", () => {
+  it("creates exact generation 3 once for a truly fresh database", () => {
     const harness = makeSqliteHarness();
     try {
       const binding = makeBinding();
@@ -251,7 +251,7 @@ describe("deployment query-sync SQLite storage contract", () => {
       ));
 
       expect(first).toEqual({
-        localContractGeneration: 2,
+        localContractGeneration: 3,
         durableInitializedHistory: false,
       });
       expect(second).toEqual(first);
@@ -260,6 +260,7 @@ describe("deployment query-sync SQLite storage contract", () => {
       ).get()?.value).toBe(changesAfterFirst);
       expect(applicationSchemaNames(harness.database)).toEqual([
         "deployment_sync_contract_state",
+        "deployment_sync_pending_publications",
         "deployment_sync_queries",
         "deployment_sync_query_dependencies",
         "deployment_sync_query_dependencies_reverse",
@@ -493,7 +494,7 @@ describe("deployment query-sync SQLite storage contract", () => {
     }
   });
 
-  it("rejects an extra generation-2 index without repairing the catalog", () => {
+  it("rejects an extra generation-3 index without repairing the catalog", () => {
     const harness = makeSqliteHarness();
     try {
       const binding = makeBinding();
@@ -527,7 +528,7 @@ describe("deployment query-sync SQLite storage contract", () => {
     }
   });
 
-  it("rejects a generation-2 reverse index with the wrong column order without repair", () => {
+  it("rejects a generation-3 reverse index with the wrong column order without repair", () => {
     const harness = makeSqliteHarness();
     try {
       const binding = makeBinding();

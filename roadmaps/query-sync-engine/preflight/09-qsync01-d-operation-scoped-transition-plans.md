@@ -20,7 +20,10 @@ This D preflight itself authorizes no Cloudflare SQLite schema, local storage
 generation, migration, Durable Object state adapter, Postgres source,
 evaluator, publisher, route, or production caller. The later fresh
 [`QSYNC-FX01-C1` checkpoint](./10-qsync-fx01-c1-sqlite-vertical.md) now
-authorizes C1 only; C2 and C3 remain blocked.
+records the completed C1 implementation. The later accepted
+[`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+records the completed private evaluation-side adapter. Neither checkpoint
+retroactively makes D adapter authority. C3 remains blocked.
 
 The accepted correction is one private, runtime-neutral family of pure
 operation-scoped transition planners inside the existing
@@ -41,7 +44,7 @@ the required input to a future durable store transaction.
 | Does the planner run Effect or own transactions? | No. It is synchronous pure policy returning Effect v4 `Result`. The host owns serialization, transactions, clocks, and Effect lifting. |
 | Who owns counters and limits? | One portable accounting/invariant owner shared by the planners and aggregate builder. Adapters never reproduce semantic arithmetic. |
 | Is the old aggregate reducer retained as a second authority? | No. Aggregate APIs become planner-backed compatibility/oracle wrappers and displaced semantic branches are removed. |
-| When may FX01 SQLite work resume? | Only after D1-D4 complete all nine planners and a fresh FX01 checkpoint explicitly approves the adapter slice. |
+| What was the historical FX01 resume gate? | D1-D4 had to complete all nine planners and a fresh FX01 checkpoint had to approve one adapter slice. That condition later opened completed C1 and accepted C2 implementation checkpoints; C2 proof and the later C3 checkpoint remain separate gates. |
 
 ## Why This Gate Exists
 
@@ -680,7 +683,7 @@ that proof green, the exact private `./internal/transition-plan` package export
 is now present. There is no package-root export, dependency, database, host,
 backend, or production caller. Completion of D4 did not itself authorize
 SQLite; it permitted the fresh `QSYNC-FX01-C1` discussion checkpoint that was
-subsequently accepted.
+subsequently accepted and completed in `b94abbb0`.
 
 Each code gate requires its own explicit approval and significant-diff review.
 A completed earlier D slice does not authorize a later one.
@@ -720,10 +723,14 @@ This completed preflight does not authorize:
 
 ## Subsequent Checkpoint
 
-The fresh `QSYNC-FX01-C1` checkpoint is now accepted in
+The `QSYNC-FX01-C1` checkpoint is complete in
 [`10-qsync-fx01-c1-sqlite-vertical.md`](./10-qsync-fx01-c1-sqlite-vertical.md).
-It authorizes only the private empty-scope prerequisite followed by the
-complete three-operation SQLite vertical. C2 and C3 remain separate gates.
+It records only the private empty-scope prerequisite followed by the complete
+three-operation SQLite vertical. The
+[`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+was subsequently accepted and implemented as the private six-operation SQLite
+evaluation vertical. Its required exit proof remains open, and C3 remains
+unauthorized.
 
 `QSYNC-CF01` remains a separate delivery feasibility/selection gate and does
 not change this ordering.

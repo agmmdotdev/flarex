@@ -32,8 +32,8 @@ import {
   type DeploymentQuerySyncBinding,
 } from "../src/deploymentSync/Binding";
 import {
-  makeDeploymentQuerySyncStateC1,
-  type DeploymentQuerySyncStateC1Input,
+  makeDeploymentQuerySyncEvaluationState,
+  type DeploymentQuerySyncEvaluationStateInput,
 } from "../src/deploymentSync/Store";
 import type {
   DeploymentQuerySyncSqlStorage,
@@ -56,7 +56,7 @@ describe("deployment query-sync C1 state", () => {
   it("validates the named binding before storage readiness", async () => {
     let transactions = 0;
     let statements = 0;
-    const exit = await Effect.runPromiseExit(makeDeploymentQuerySyncStateC1({
+    const exit = await Effect.runPromiseExit(makeDeploymentQuerySyncEvaluationState({
       binding: { objectId: Object.freeze({}), observation: observation() },
       storage: {
         sql: {
@@ -87,7 +87,7 @@ describe("deployment query-sync C1 state", () => {
     const harness = makeSqliteHarness();
     try {
       const input = stateInput(harness, true);
-      const state = await Effect.runPromise(makeDeploymentQuerySyncStateC1(input));
+      const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState(input));
       const binding = success(captureDeploymentQuerySyncBinding(input.binding));
 
       const initialized = await Effect.runPromise(
@@ -146,7 +146,7 @@ describe("deployment query-sync C1 state", () => {
     const harness = makeSqliteHarness();
     try {
       const input = stateInput(harness, true);
-      const state = await Effect.runPromise(makeDeploymentQuerySyncStateC1(input));
+      const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState(input));
       const binding = success(captureDeploymentQuerySyncBinding(input.binding));
       const untrustedCursor = success(captureNamespaceCursor({
         ...binding.bootstrapCursor,
@@ -185,7 +185,7 @@ describe("deployment query-sync C1 state", () => {
     const harness = makeSqliteHarness();
     try {
       const input = stateInput(harness, true);
-      const state = await Effect.runPromise(makeDeploymentQuerySyncStateC1(input));
+      const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState(input));
       const binding = success(captureDeploymentQuerySyncBinding(input.binding));
       harness.database.exec(`CREATE TRIGGER deployment_sync_test_reject_scope
         BEFORE INSERT ON deployment_sync_scope_state
@@ -231,7 +231,7 @@ describe("deployment query-sync C1 state", () => {
           return harness.storage.transactionSync(closure);
         },
       };
-      const state = await Effect.runPromise(makeDeploymentQuerySyncStateC1({
+      const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState({
         ...input,
         storage,
       }));
@@ -258,7 +258,7 @@ describe("deployment query-sync C1 state", () => {
     const harness = makeSqliteHarness();
     try {
       const input = stateInput(harness, true);
-      const state = await Effect.runPromise(makeDeploymentQuerySyncStateC1(input));
+      const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState(input));
       const binding = success(captureDeploymentQuerySyncBinding(input.binding));
       await Effect.runPromise(
         state.initializeOrInspectNamespace(binding.bootstrapCursor),
@@ -302,7 +302,7 @@ describe("deployment query-sync C1 state", () => {
     const harness = makeSqliteHarness();
     try {
       const input = stateInput(harness, true);
-      const state = await Effect.runPromise(makeDeploymentQuerySyncStateC1(input));
+      const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState(input));
       const binding = success(captureDeploymentQuerySyncBinding(input.binding));
       await Effect.runPromise(
         state.initializeOrInspectNamespace(binding.bootstrapCursor),
@@ -356,7 +356,7 @@ describe("deployment query-sync C1 state", () => {
     const harness = makeSqliteHarness();
     try {
       const input = stateInput(harness, true);
-      const state = await Effect.runPromise(makeDeploymentQuerySyncStateC1(input));
+      const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState(input));
       const binding = success(captureDeploymentQuerySyncBinding(input.binding));
       await Effect.runPromise(
         state.initializeOrInspectNamespace(binding.bootstrapCursor),
@@ -459,7 +459,7 @@ function admittedBatch(
 function stateInput(
   harness: SqliteHarness,
   authorizedFresh: boolean,
-): DeploymentQuerySyncStateC1Input {
+): DeploymentQuerySyncEvaluationStateInput {
   const binding = Object.freeze({
     objectId: Object.freeze({ name: `deployment-sync:${scopeUuid}` }),
     observation: observation(),

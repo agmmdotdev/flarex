@@ -40,11 +40,15 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import {
-  encodeDeploymentQuerySyncDependencyRow,
-  encodeDeploymentQuerySyncQueryRow,
   encodeDeploymentQuerySyncScopeRow,
-  type DeploymentQuerySyncActiveDependency,
 } from "../src/deploymentSync/RowCodec";
+import {
+  encodeDeploymentQuerySyncDependencyRow,
+} from "../src/deploymentSync/DependencyRowCodec";
+import {
+  encodeDeploymentQuerySyncCompleteQueryRow,
+  encodeDeploymentQuerySyncPendingPublicationRow,
+} from "../src/deploymentSync/EvaluationRowCodec";
 import {
   FLAREX_APPLICATION_QUERY_SYNC_MODEL_ID_V1,
 } from "../src/deploymentSync/QuerySyncModel";
@@ -102,12 +106,13 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     expect(await invoke(runtime, "snapshot", { actorScopeUuid })).toEqual({
       contract: [{
         singleton: 1,
-        local_contract_generation: 2,
+        local_contract_generation: 3,
         durable_initialized_history: 0,
       }],
       scope: [],
       queries: [],
       dependencies: [],
+      pending: [],
     });
 
     const initialized = await invoke(runtime, "initializeTwice", input);
@@ -121,12 +126,13 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     expect(await invoke(runtime, "snapshot", { actorScopeUuid })).toEqual({
       contract: [{
         singleton: 1,
-        local_contract_generation: 2,
+        local_contract_generation: 3,
         durable_initialized_history: 1,
       }],
       scope: [encodeScopeRow(emptyState(actorScopeUuid, epochA, 0n))],
       queries: [],
       dependencies: [],
+      pending: [],
     });
   });
 
@@ -152,6 +158,7 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     expect(providerKvObjectNames(catalogResponse)).toEqual(["_cf_KV"]);
     expect(applicationObjectNames(catalogResponse)).toEqual([
       "deployment_sync_contract_state",
+      "deployment_sync_pending_publications",
       "deployment_sync_queries",
       "deployment_sync_query_dependencies",
       "deployment_sync_query_dependencies_reverse",
@@ -209,7 +216,7 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     const stored = await invoke(runtime, "snapshot", { actorScopeUuid });
     expect(stored).toMatchObject({
       contract: [{
-        local_contract_generation: 2,
+        local_contract_generation: 3,
         durable_initialized_history: 1,
       }],
       scope: [{
@@ -224,6 +231,7 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
       actorScopeUuid,
     }))).toEqual([
       "deployment_sync_contract_state",
+      "deployment_sync_pending_publications",
       "deployment_sync_queries",
       "deployment_sync_query_dependencies",
       "deployment_sync_query_dependencies_reverse",
@@ -260,12 +268,13 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     expect(await invoke(runtime, "snapshot", { actorScopeUuid })).toEqual({
       contract: [{
         singleton: 1,
-        local_contract_generation: 2,
+        local_contract_generation: 3,
         durable_initialized_history: 1,
       }],
       scope: [encodeScopeRow(portable.state)],
       queries: [encodeQueryState(portable.state, descriptor.queryKey)],
       dependencies: [],
+      pending: [],
     });
   });
 
@@ -303,18 +312,19 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     expect(await invoke(runtime, "snapshot", { actorScopeUuid })).toEqual({
       contract: [{
         singleton: 1,
-        local_contract_generation: 2,
+        local_contract_generation: 3,
         durable_initialized_history: 1,
       }],
       scope: [encodeScopeRow(portable.state)],
       queries: portable.state.queries.map(query =>
-        encodeDeploymentQuerySyncQueryRow(query)
+        encodeDeploymentQuerySyncCompleteQueryRow(query)
       ),
       dependencies: encodeFixture(portable.state).dependencies,
+      pending: encodeFixture(portable.state).pending,
     });
   });
 
-  it("persists generation 2 across Workerd disposal and reconstruction", async () => {
+  it("persists generation 3 across Workerd disposal and reconstruction", async () => {
     const persistPath = await mkdtemp(join(tmpdir(), "flarex-qsync-c1-"));
     const actorScopeUuid = testScope(8);
     const input = observation(actorScopeUuid, epochA, 0n);
@@ -473,7 +483,7 @@ function encodeQueryState(state: QuerySyncState, queryKey: string) {
     candidate.descriptor.queryKey === queryKey
   );
   if (query === undefined) throw new Error("Portable query fixture missing.");
-  return encodeDeploymentQuerySyncQueryRow(query);
+  return encodeDeploymentQuerySyncCompleteQueryRow(query);
 }
 
 function encodeFixture(state: QuerySyncState) {
@@ -483,21 +493,34 @@ function encodeFixture(state: QuerySyncState) {
   for (const query of state.queries) {
     if (query.active === null) continue;
     for (const dependencyKey of query.active.dependencyKeys) {
-      const dependency: DeploymentQuerySyncActiveDependency = Object.freeze({
+      dependencies.push(encodeDeploymentQuerySyncDependencyRow({
         role: "active",
         queryKey: query.descriptor.queryKey,
         generation: query.active.generation,
         dependencyKey,
-      });
-      dependencies.push(encodeDeploymentQuerySyncDependencyRow(dependency));
+      }));
+    }
+    if (query.currentCompletion !== null) {
+      for (const dependencyKey of
+        query.currentCompletion.evaluationDependencyKeys) {
+        dependencies.push(encodeDeploymentQuerySyncDependencyRow({
+          role: "completion",
+          queryKey: query.descriptor.queryKey,
+          generation: query.currentCompletion.identity.generation,
+          dependencyKey,
+        }));
+      }
     }
   }
   return Object.freeze({
     scope: encodeScopeRow(state),
     queries: Object.freeze(state.queries.map(query =>
-      encodeDeploymentQuerySyncQueryRow(query)
+      encodeDeploymentQuerySyncCompleteQueryRow(query)
     )),
     dependencies: Object.freeze(dependencies),
+    pending: Object.freeze(state.publicationWork.pending.map(
+      encodeDeploymentQuerySyncPendingPublicationRow,
+    )),
   });
 }
 

@@ -20,16 +20,20 @@ vectors plus the completed docs-only
 [`QSYNC-FX01-B` semantic-persistence verdict](./preflight/08-qsync-fx01-b-semantic-persistence-verdict.md).
 A is private and production-inert. B stopped before schema: all nine logical
 access plans are bounded, and the completed D stage now supplies their reusable
-operation-scoped transition-plan seam. The fresh
+operation-scoped transition-plan seam. The
 [`QSYNC-FX01-C1` checkpoint](./preflight/10-qsync-fx01-c1-sqlite-vertical.md)
-is accepted and authorizes only the private generation-2 migration plus
-initialize, begin, and admitted-batch SQLite vertical after its small
-empty-scope core prerequisite. C2 and C3 remain separately blocked. The
-accepted docs-only
+and its private generation-2 initialize, begin, and admitted-batch SQLite
+vertical are complete in `b94abbb0`; its empty-scope prerequisite completed in
+`12e2f375`. The accepted
+[`QSYNC-FX01-C2` checkpoint](./preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+and its generation-3 completion, evaluation-claim, and attempt-outcome
+vertical completed on 2026-08-30 in the implementation checkpoint containing
+that record. C2 remains private, unrouted, and production-inert; C3 remains a
+separate blocked preflight. The accepted docs-only
 [`QSYNC01-D0` preflight](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
 now freezes that seam, its staged-read protocol, exact accounting authority,
 proof matrix, and D1-D4 implementation order. D0 itself added no code; D1-D4
-are now complete. No SQLite schema is implemented yet.
+are now complete.
 
 The separately approved `QSYNC01-D1`, `QSYNC01-D2`, `QSYNC01-D3`, and
 `QSYNC01-D4`
@@ -43,8 +47,9 @@ attempt-outcome planning. D4 adds staged publication claiming, authenticated
 publication outcome and completion planners, and the all-nine proof.
 Aggregate/reference integration and independent normalized proof cover every
 operation. The final private `./internal/transition-plan` subpath is now
-available; there is still no package-root export, SQLite, backend, or
-production caller.
+available. The D stage itself added no package-root export, SQLite, backend, or
+production caller; the later C1 adapter is the separately owned backend/SQLite
+implementation.
 
 [`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
 independent-engine preflight, remains docs-only authority. The user separately
@@ -118,11 +123,13 @@ exposed only through the deliberate private `./internal/orchestration` subpath.
 The package has no package-root export, production caller, real or production
 publisher, or real host, persistence, network, or delivery adapter.
 
-Current production-inert work under `flarex-backend/deploymentSync`,
-`DeploymentSyncDO`, and `flarex-protocol/internal/scope-sync-v1` proves useful
-cursor, dependency, canonical-query, and generation ideas, but it is coupled
-to Flarex scope identities, Postgres commit records, and Cloudflare SQLite.
-It is migration evidence, not the portable engine authority.
+Current production-inert work under `flarex-backend/deploymentSync` and
+`flarex-protocol/internal/scope-sync-v1` now includes the completed A mappings
+and C2 generation-3 six-operation SQLite evaluation adapter. `DeploymentSyncDO`
+remains an empty placement shell and no production host constructs the adapter.
+This work is deliberately coupled to Flarex scope identities and Cloudflare
+SQLite; it is a real private adapter plus migration evidence, not portable
+semantic authority or a complete nine-operation store.
 
 `SYNC01-GP` previously authorized adding substantially more query state to the
 backend-local Durable Object store. That authorization is superseded and held.
@@ -196,7 +203,7 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete in `a9b309d0`; C4 complete in `87a7566f`; private and production-inert |
 | `QSYNC01-D` | Operation-scoped transition-plan seam with bounded fact inputs, explicit logical changes, exact counters, and equivalence to the aggregate reducers | Complete through D4; all nine operations are private and production-inert |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
-| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | A complete; B complete docs-only; D complete; C1 accepted for its private three-operation vertical but not implemented; C2-C3 remain separately blocked; independent of delivery selection |
+| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | A complete; B complete docs-only; D complete; C1 complete in `b94abbb0`; C2 six-operation implementation present but its exit proof remains open; C3 blocked; independent of delivery selection |
 | `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Blocked on `QSYNC-FX01` |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
@@ -243,8 +250,8 @@ paths.
   recovery/idempotency rules, bounds, and reference proof matrix.
 - [`preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md`](./preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md)
   is the accepted Flarex mapping and Cloudflare SQLite adapter preflight. It
-  records the completed A mapping/codecs/vector subgate and keeps C1-C3
-  separately gated.
+  records the completed A mapping/codecs/vector subgate, completed C1, the
+  implemented but proof-incomplete C2 SQLite vertical, and blocked C3 gate.
 - [`preflight/08-qsync-fx01-b-semantic-persistence-verdict.md`](./preflight/08-qsync-fx01-b-semantic-persistence-verdict.md)
   is the completed docs-only B access-plan and seam verdict. It stops before
   schema and records the missing core seam that D now owns.
@@ -254,16 +261,21 @@ paths.
   evaluation-work and publication lifecycle, shared accounting, the private
   import boundary, aggregate/reference integration, and all-nine proof matrix.
 - [`preflight/10-qsync-fx01-c1-sqlite-vertical.md`](./preflight/10-qsync-fx01-c1-sqlite-vertical.md)
-  is the accepted C1 implementation boundary for authenticated binding, exact
+  is the completed C1 implementation record for authenticated binding, exact
   cursor-only migration, generation-2 normalized SQLite state, and only the
   initialize, begin, and admitted-batch operations.
+- [`preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md`](./preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+  is the accepted C2 implementation and open exit-proof record for generation-3
+  completion evidence, pending-publication intent, evaluation claiming, and
+  evaluation-attempt outcomes.
 
 ## Next Correctness Gate
 
-The next correctness work is the accepted `QSYNC-FX01-C1` sequence: first the
-private empty-scope-facts constructor, then the complete three-operation
-generation-2 SQLite vertical. C1 is authorized but not implemented; C2 and C3
-remain unapproved. Neither A, B, C4, D, nor the C1 checkpoint authorizes a real
+The next correctness work is the remaining `QSYNC-FX01-C2` proof matrix. Its
+six-operation implementation is package-private, unrouted, and
+production-inert, but C2 has not exited. Only afterward may a separate C3
+preflight freeze the publication claim/outcome/completion lifecycle and the
+complete nine-operation adapter. Neither A, B, C4, D, C1, nor C2 authorizes a real
 `ResultPublisher`, delivery-adapter selection, Postgres source composition,
 public/client APIs, production routing, Legacy/product migration, cutover, or
 `R03-B`.

@@ -10,10 +10,10 @@ The current production-inert code is evidence to classify as:
 
 | Current owner | Disposition |
 | --- | --- |
-| `flarex-backend/src/deploymentSync/Policy.ts` | Separate Flarex fact/dependency projection from genuinely portable transition ideas. Re-prove portable semantics in the new package; do not copy Postgres/Flarex types into it. |
-| `flarex-backend/src/deploymentSync/Model.ts` | Map portable failures and states to the new package or retain only Flarex/host-specific adapter errors. Remove duplicate policy types at cutover. |
-| `flarex-backend/src/deploymentSync/Store.ts` | Retain as Cloudflare SQLite adapter migration evidence. Replace its low-level package-local authority with the later semantic state contract; do not create parallel tables/writes. |
-| `flarex-backend/src/deploymentSyncDO.ts` | Remains the first production-inert per-scope host placement. It constructs one namespace engine instance and host adapters per object; it is not the semantic engine owner. |
+| deleted `flarex-backend/src/deploymentSync/Policy.ts` | C1 removed the displaced backend-local query-generation policy. Portable decisions now come through the private transition-plan boundary; do not recreate this file or a host reducer. |
+| `flarex-backend/src/deploymentSync/Model.ts` and `QuerySyncModel.ts` | Retain only backend-owned invalidation projection errors and Flarex model mapping. Do not mirror portable state unions or policy. |
+| `flarex-backend/src/deploymentSync/Store.ts` | Now composes the private generation-3 six-operation SQLite evaluation adapter implemented under C2. Finish C2 proof, then evolve this same authority in place only through a separately accepted C3 generation; do not create parallel tables or writes. |
+| `flarex-backend/src/deploymentSyncDO.ts` | Remains an empty production-inert per-scope placement shell with no callable surface or adapter construction. Later FX02 host composition may construct one namespace engine instance per object; the class is not semantic authority. |
 | `flarex-protocol/internal/scope-sync-v1` | Remains the concrete Flarex versioned codec/adapter contract until a separately approved migration. Its Flarex identities must not become generic engine types. |
 | `@flarex/persistence-postgres` commit feed | Remains authoritative and later implements the trusted replayable Flarex `ChangeSource`. |
 | `ConnectionDO` and current connection protocol | Remain Flarex gateway/session adapter evidence. Mutation/action messages never enter the generic query-sync package. |
@@ -148,30 +148,39 @@ not a complete uncertainty contract.
 11. **Complete (`QSYNC01-D4`).** Publication claim, attempt-outcome recording,
    and completion now use bounded pure planners, completing all nine operations
    and the private transition-plan import boundary without adapter code.
-12. **Accepted (`QSYNC-FX01-C1`, implementation pending).** The fresh
-   [C1 checkpoint](./preflight/10-qsync-fx01-c1-sqlite-vertical.md) authorizes
-   only authenticated binding, exact cursor-only migration, initialize, begin,
-   and admitted-batch application over the existing per-scope SQLite owner.
-   C2 and C3 remain separately blocked; no duplicate tables, cursors, reducers,
-   or writes are authorized.
-13. Independently run the Cloudflare Durable Streams feasibility spike and
+12. **Complete (`QSYNC-FX01-C1`).** The
+   [C1 checkpoint](./preflight/10-qsync-fx01-c1-sqlite-vertical.md), its portable
+   empty-scope prerequisite, and the private generation-2 initialize, begin,
+   and admitted-batch SQLite vertical completed in `12e2f375` and `b94abbb0`.
+   The adapter remains package-private, unrouted, and production-inert.
+13. **Implementation present; exit proof open (`QSYNC-FX01-C2`).** The accepted
+   [C2 checkpoint](./preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+   implemented its generation-3 six-operation evaluation vertical with focused
+   migration, rollback, portable-oracle, and genuine Workerd proof on
+   2026-08-30.
+14. **Open C2 exit gate.** Complete the retained maximum-population,
+   migration-fault, branch, race/read-trace, and real Workerd proof matrix.
+15. **Separate later gate (`QSYNC-FX01-C3`).** Preflight, explicitly accept,
+   implement, and prove the publication lifecycle plus complete nine-operation
+   adapter. FX01 is not complete before this gate exits.
+16. Independently run the Cloudflare Durable Streams feasibility spike and
    accept or reject it at explicit maturity, security, retention, payload, and
    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;
    it blocks only that delivery composition.
-14. Adapt the authoritative Postgres commit feed as the replayable change source
+17. Adapt the authoritative Postgres commit feed as the replayable change source
    and prove contiguous duplicate/reverse/gap/reset behavior.
-15. Compose query execution, provisional completion, rerun coalescing,
+18. Compose query execution, provisional completion, rerun coalescing,
    unchanged suppression, and processing of the already-semantic durable
    publication outbox.
-16. Compose whichever delivery adapter passed its own gate with the authenticated
+19. Compose whichever delivery adapter passed its own gate with the authenticated
    gateway, then the
    Flarex client wrapper.
-17. Prove target-only reset/reconnect/recovery and switch internal callers.
-18. Remove the displaced unshipped engine code/state/export when no supported
+20. Prove target-only reset/reconnect/recovery and switch internal callers.
+21. Remove the displaced unshipped engine code/state/export when no supported
    consumer remains.
-19. Run `R03-B` through the accepted framework and Flarex adapters; relation
+22. Run `R03-B` through the accepted framework and Flarex adapters; relation
    code may consume dependency keys but cannot own sync state.
-20. Prove a second real durable host before making a broad production
+23. Prove a second real durable host before making a broad production
    portability claim.
 
 ## Relation Gate

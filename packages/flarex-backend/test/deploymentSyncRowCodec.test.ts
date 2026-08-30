@@ -8,15 +8,20 @@ import {
   decodeDeploymentQuerySyncAffectedActiveRowResult,
   decodeDeploymentQuerySyncAffectedTargetRowResult,
   decodeDeploymentQuerySyncContractRowResult,
-  decodeDeploymentQuerySyncDependencyRowResult,
+  decodeDeploymentQuerySyncGeneration2ContractRowResult,
+  decodeDeploymentQuerySyncGeneration3ScopeRowResult,
   decodeDeploymentQuerySyncQueryRowResult,
   decodeDeploymentQuerySyncScopeRowResult,
   decodeDeploymentSyncGeneration1ScopeRowResult,
   encodeDeploymentQuerySyncAffectedActiveRow,
-  encodeDeploymentQuerySyncDependencyRow,
   encodeDeploymentQuerySyncQueryRow,
   encodeDeploymentQuerySyncScopeRow,
 } from "../src/deploymentSync/RowCodec";
+import {
+  decodeDeploymentQuerySyncDependencyRowResult,
+  decodeDeploymentQuerySyncGeneration2DependencyRowResult,
+  encodeDeploymentQuerySyncDependencyRow,
+} from "../src/deploymentSync/DependencyRowCodec";
 
 const scopeUuid = "00000000-0000-4000-8000-000000000001";
 const epochUuid = "00000000-0000-4000-8000-000000000002";
@@ -78,7 +83,7 @@ function queryRow() {
 }
 
 describe("deployment query-sync SQLite row codecs", () => {
-  it("decodes strict generation-1 and generation-2 contract rows", () => {
+  it("decodes generation-1 and generation-2 predecessors plus generation 3", () => {
     const legacy = success(decodeDeploymentSyncGeneration1ScopeRowResult({
       singleton: 1,
       local_schema_revision: 1,
@@ -88,9 +93,16 @@ describe("deployment query-sync SQLite row codecs", () => {
       storage_generation_fence: "9",
       applied_through_commit_seq: "3",
     }));
+    const predecessor = success(
+      decodeDeploymentQuerySyncGeneration2ContractRowResult({
+        singleton: 1,
+        local_contract_generation: 2,
+        durable_initialized_history: 1,
+      }),
+    );
     const contract = success(decodeDeploymentQuerySyncContractRowResult({
       singleton: 1,
-      local_contract_generation: 2,
+      local_contract_generation: 3,
       durable_initialized_history: 1,
     }));
 
@@ -102,8 +114,12 @@ describe("deployment query-sync SQLite row codecs", () => {
       storageGenerationFence: 9n,
       appliedThroughCommitSeq: 3n,
     });
-    expect(contract).toEqual({
+    expect(predecessor).toEqual({
       localContractGeneration: 2,
+      durableInitializedHistory: true,
+    });
+    expect(contract).toEqual({
+      localContractGeneration: 3,
       durableInitializedHistory: true,
     });
     expect(Object.isFrozen(legacy)).toBe(true);
@@ -123,7 +139,7 @@ describe("deployment query-sync SQLite row codecs", () => {
     });
     expect(failure(decodeDeploymentQuerySyncContractRowResult({
       singleton: 1,
-      local_contract_generation: 3,
+      local_contract_generation: 2,
       durable_initialized_history: 1,
     }))).toMatchObject({
       reason: "unsupportedContractGeneration",
@@ -159,6 +175,29 @@ describe("deployment query-sync SQLite row codecs", () => {
     expect(Object.isFrozen(state.facts.evaluationWork)).toBe(true);
     expect(Object.isFrozen(state.facts.metrics)).toBe(true);
     expect(encodeDeploymentQuerySyncScopeRow(state)).toEqual(scopeRow());
+  });
+
+  it("refines generation-3 scope lifecycle counters to zero", () => {
+    expect(success(decodeDeploymentQuerySyncGeneration3ScopeRowResult(
+      scopeRow(),
+    )).facts.metrics).toMatchObject({
+      inFlightPublicationCount: 0,
+      settlementEnvelopeBytes: 0,
+    });
+    expect(failure(decodeDeploymentQuerySyncGeneration3ScopeRowResult({
+      ...scopeRow(),
+      in_flight_publication_count: 1,
+    }))).toMatchObject({
+      reason: "generation3ScopeInvalid",
+      field: "in_flight_publication_count",
+    });
+    expect(failure(decodeDeploymentQuerySyncGeneration3ScopeRowResult({
+      ...scopeRow(),
+      settlement_envelope_bytes: 1,
+    }))).toMatchObject({
+      reason: "generation3ScopeInvalid",
+      field: "settlement_envelope_bytes",
+    });
   });
 
   it("rejects excess columns, noncanonical integers, and metric overflow", () => {
@@ -302,7 +341,18 @@ describe("deployment query-sync SQLite row codecs", () => {
       dependency_key: dependencyKey,
     });
 
-    expect(failure(decodeDeploymentQuerySyncDependencyRowResult({
+    expect(success(decodeDeploymentQuerySyncDependencyRowResult({
+      role: "completion",
+      query_key: queryKey,
+      generation: "1",
+      dependency_key: dependencyKey,
+    }))).toEqual({
+      role: "completion",
+      queryKey,
+      generation: 1n,
+      dependencyKey,
+    });
+    expect(failure(decodeDeploymentQuerySyncGeneration2DependencyRowResult({
       role: "completion",
       query_key: queryKey,
       generation: "1",

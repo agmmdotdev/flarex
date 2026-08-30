@@ -33,8 +33,8 @@ import {
   makeDeploymentQuerySyncFreshInitializationCapabilityForTest,
 } from "../src/deploymentSync/Binding";
 import {
-  makeDeploymentQuerySyncStateC1,
-  type DeploymentQuerySyncStateC1,
+  makeDeploymentQuerySyncEvaluationState,
+  type DeploymentQuerySyncEvaluationState,
 } from "../src/deploymentSync/Store";
 import { deploymentSyncObjectName } from "../src/routing";
 
@@ -96,19 +96,41 @@ interface EncodedQueryFixtureRow {
   readonly provisional_registration_sequence: string | null;
   readonly provisional_requested_dirty_through_sequence: string | null;
   readonly provisional_disposition: string | null;
+  readonly completion_generation: string | null;
+  readonly completion_expected_active_generation: string | null;
+  readonly completion_registration_sequence: string | null;
+  readonly completion_requested_dirty_through_sequence: string | null;
+  readonly completion_evaluation_snapshot_sequence: string | null;
+  readonly completion_evaluation_authority_witness: string | null;
+  readonly completion_refreshed_through_sequence: string | null;
+  readonly completion_relevant_through_sequence: string | null;
+  readonly completion_refresh_authority_witness: string | null;
+  readonly completion_result_digest: string | null;
+  readonly completion_publication_disposition: string | null;
+  readonly preceding_completion_generation: string | null;
 }
 
 interface EncodedDependencyFixtureRow {
-  readonly role: "active";
+  readonly role: "active" | "completion";
   readonly query_key: string;
   readonly generation: string;
   readonly dependency_key: string;
+}
+
+interface EncodedPendingPublicationFixtureRow {
+  readonly query_key: string;
+  readonly generation: string;
+  readonly query_identity: string;
+  readonly completed_through_sequence: string;
+  readonly result_digest: string;
+  readonly content: string;
 }
 
 interface NormalizedFixture {
   readonly scope: EncodedScopeFixtureRow;
   readonly queries: readonly EncodedQueryFixtureRow[];
   readonly dependencies: readonly EncodedDependencyFixtureRow[];
+  readonly pending: readonly EncodedPendingPublicationFixtureRow[];
 }
 
 interface LegacyFixtureRow {
@@ -227,7 +249,7 @@ export default {
 function makeStateAndRun<A, E>(
   ctx: DurableObjectState,
   input: TestRequest,
-  run: (state: DeploymentQuerySyncStateC1) => Effect.Effect<A, E>,
+  run: (state: DeploymentQuerySyncEvaluationState) => Effect.Effect<A, E>,
 ): Effect.Effect<A, E | unknown> {
   const observation = activeHeadObservation(input);
   const bindingInput = Object.freeze({ objectId: ctx.id, observation });
@@ -236,7 +258,7 @@ function makeStateAndRun<A, E>(
       Result.getOrThrow(captureDeploymentQuerySyncBinding(bindingInput)),
     )
     : undefined;
-  return makeDeploymentQuerySyncStateC1({
+  return makeDeploymentQuerySyncEvaluationState({
     binding: bindingInput,
     storage: ctx.storage,
     ...(freshInitializationCapability === undefined
@@ -403,7 +425,7 @@ function seedNormalizedFixture(
     for (const query of fixture.queries) {
       storage.sql.exec(
         `INSERT INTO main.deployment_sync_queries VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )`,
         query.query_key,
         query.query_identity,
@@ -418,6 +440,18 @@ function seedNormalizedFixture(
         query.provisional_registration_sequence,
         query.provisional_requested_dirty_through_sequence,
         query.provisional_disposition,
+        query.completion_generation,
+        query.completion_expected_active_generation,
+        query.completion_registration_sequence,
+        query.completion_requested_dirty_through_sequence,
+        query.completion_evaluation_snapshot_sequence,
+        query.completion_evaluation_authority_witness,
+        query.completion_refreshed_through_sequence,
+        query.completion_relevant_through_sequence,
+        query.completion_refresh_authority_witness,
+        query.completion_result_digest,
+        query.completion_publication_disposition,
+        query.preceding_completion_generation,
       );
     }
     for (const dependency of fixture.dependencies) {
@@ -427,6 +461,18 @@ function seedNormalizedFixture(
         dependency.query_key,
         dependency.generation,
         dependency.dependency_key,
+      );
+    }
+    for (const pending of fixture.pending) {
+      storage.sql.exec(
+        `INSERT INTO main.deployment_sync_pending_publications
+          VALUES (?, ?, ?, ?, ?, ?)`,
+        pending.query_key,
+        pending.generation,
+        pending.query_identity,
+        pending.completed_through_sequence,
+        pending.result_digest,
+        pending.content,
       );
     }
   });
@@ -446,6 +492,10 @@ function snapshot(sql: SqlStorage) {
     dependencies: sql.exec(
       `SELECT * FROM main.deployment_sync_query_dependencies
        ORDER BY query_key, role, generation, dependency_key`,
+    ).toArray(),
+    pending: sql.exec(
+      `SELECT * FROM main.deployment_sync_pending_publications
+       ORDER BY query_key`,
     ).toArray(),
   });
 }

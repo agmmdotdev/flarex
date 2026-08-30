@@ -50,18 +50,24 @@ import {
   type DeploymentQuerySyncBindingInput,
 } from "../src/deploymentSync/Binding";
 import {
-  encodeDeploymentQuerySyncDependencyRow,
-  encodeDeploymentQuerySyncQueryRow,
   encodeDeploymentQuerySyncScopeRow,
   type DeploymentQuerySyncStoredScopeState,
-  type EncodedDeploymentQuerySyncDependencyRow,
-  type EncodedDeploymentQuerySyncQueryRow,
   type EncodedDeploymentQuerySyncScopeRow,
 } from "../src/deploymentSync/RowCodec";
 import {
-  makeDeploymentQuerySyncStateC1,
-  type DeploymentQuerySyncStateC1,
-  type DeploymentQuerySyncStateC1Input,
+  encodeDeploymentQuerySyncCompleteQueryRow,
+  encodeDeploymentQuerySyncPendingPublicationRow,
+  type EncodedDeploymentQuerySyncCompleteQueryRow,
+  type EncodedDeploymentQuerySyncPendingPublicationRow,
+} from "../src/deploymentSync/EvaluationRowCodec";
+import {
+  encodeDeploymentQuerySyncDependencyRow,
+  type EncodedDeploymentQuerySyncDependencyRow,
+} from "../src/deploymentSync/DependencyRowCodec";
+import {
+  makeDeploymentQuerySyncEvaluationState,
+  type DeploymentQuerySyncEvaluationState,
+  type DeploymentQuerySyncEvaluationStateInput,
 } from "../src/deploymentSync/Store";
 import type {
   DeploymentQuerySyncSqlStorage,
@@ -563,7 +569,7 @@ async function prepareState(
   harness: SqliteHarness,
   authorizedFresh: boolean,
 ): Promise<Readonly<{
-  readonly state: DeploymentQuerySyncStateC1;
+  readonly state: DeploymentQuerySyncEvaluationState;
   readonly binding: DeploymentQuerySyncBinding;
 }>> {
   const inputBinding = bindingInput();
@@ -575,20 +581,20 @@ async function prepareState(
     binding: inputBinding,
     storage: harness.storage,
   });
-  const input: DeploymentQuerySyncStateC1Input = capability === undefined
+  const input: DeploymentQuerySyncEvaluationStateInput = capability === undefined
     ? base
     : Object.freeze({
       ...base,
       freshInitializationCapability: capability,
     });
-  const state = await Effect.runPromise(makeDeploymentQuerySyncStateC1(input));
+  const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState(input));
   return Object.freeze({ state, binding });
 }
 
 async function prepareInitializedState(
   harness: SqliteHarness,
 ): Promise<Readonly<{
-  readonly state: DeploymentQuerySyncStateC1;
+  readonly state: DeploymentQuerySyncEvaluationState;
   readonly binding: DeploymentQuerySyncBinding;
 }>> {
   const prepared = await prepareState(harness, true);
@@ -711,6 +717,7 @@ function seedC1ReadableState(
 ): void {
   database.exec("BEGIN IMMEDIATE");
   try {
+    database.exec("DELETE FROM deployment_sync_pending_publications");
     database.exec("DELETE FROM deployment_sync_query_dependencies");
     database.exec("DELETE FROM deployment_sync_queries");
     database.exec("DELETE FROM deployment_sync_scope_state");
@@ -738,25 +745,45 @@ function seedC1ReadableState(
       insertEncodedRow(
         database,
         "deployment_sync_queries",
-        encodeDeploymentQuerySyncQueryRow(Object.freeze({
-          descriptor: query.descriptor,
-          active: query.active,
-          provisional: query.provisional,
-        })),
+        encodeDeploymentQuerySyncCompleteQueryRow(query),
       );
-      if (query.active === null) continue;
-      for (const dependency of query.active.dependencyKeys) {
-        insertEncodedRow(
-          database,
-          "deployment_sync_query_dependencies",
-          encodeDeploymentQuerySyncDependencyRow(Object.freeze({
-            role: "active",
-            queryKey: query.descriptor.queryKey,
-            generation: query.active.generation,
-            dependencyKey: dependency,
-          })),
-        );
+      const active = query.active;
+      if (active !== null) {
+        for (const dependency of active.dependencyKeys) {
+          insertEncodedRow(
+            database,
+            "deployment_sync_query_dependencies",
+            encodeDeploymentQuerySyncDependencyRow(Object.freeze({
+              role: "active",
+              queryKey: query.descriptor.queryKey,
+              generation: active.generation,
+              dependencyKey: dependency,
+            })),
+          );
+        }
       }
+      const completion = query.currentCompletion;
+      if (completion !== null) {
+        for (const dependency of completion.evaluationDependencyKeys) {
+          insertEncodedRow(
+            database,
+            "deployment_sync_query_dependencies",
+            encodeDeploymentQuerySyncDependencyRow(Object.freeze({
+              role: "completion",
+              queryKey: query.descriptor.queryKey,
+              generation: completion.identity.generation,
+              dependencyKey: dependency,
+            })),
+          );
+        }
+      }
+    }
+    for (const publication of state.publicationWork.pending) {
+      insertEncodedRow(
+        database,
+        "deployment_sync_pending_publications",
+        encodeDeploymentQuerySyncPendingPublicationRow(publication),
+      );
     }
     database.exec("COMMIT");
   } catch (cause) {
@@ -768,12 +795,14 @@ function seedC1ReadableState(
 type SeedTable =
   | "deployment_sync_scope_state"
   | "deployment_sync_queries"
-  | "deployment_sync_query_dependencies";
+  | "deployment_sync_query_dependencies"
+  | "deployment_sync_pending_publications";
 
 type DeploymentQuerySyncSeedRow =
   | EncodedDeploymentQuerySyncScopeRow
-  | EncodedDeploymentQuerySyncQueryRow
-  | EncodedDeploymentQuerySyncDependencyRow;
+  | EncodedDeploymentQuerySyncCompleteQueryRow
+  | EncodedDeploymentQuerySyncDependencyRow
+  | EncodedDeploymentQuerySyncPendingPublicationRow;
 
 function insertEncodedRow(
   database: DatabaseSync,

@@ -42,17 +42,23 @@ import {
   type DeploymentQuerySyncBinding,
 } from "../src/deploymentSync/Binding";
 import {
-  encodeDeploymentQuerySyncDependencyRow,
-  encodeDeploymentQuerySyncQueryRow,
   encodeDeploymentQuerySyncScopeRow,
-  type EncodedDeploymentQuerySyncDependencyRow,
-  type EncodedDeploymentQuerySyncQueryRow,
   type EncodedDeploymentQuerySyncScopeRow,
 } from "../src/deploymentSync/RowCodec";
 import {
-  makeDeploymentQuerySyncStateC1,
-  type DeploymentQuerySyncStateC1,
-  type DeploymentQuerySyncStateC1Input,
+  encodeDeploymentQuerySyncCompleteQueryRow,
+  encodeDeploymentQuerySyncPendingPublicationRow,
+  type EncodedDeploymentQuerySyncCompleteQueryRow,
+  type EncodedDeploymentQuerySyncPendingPublicationRow,
+} from "../src/deploymentSync/EvaluationRowCodec";
+import {
+  encodeDeploymentQuerySyncDependencyRow,
+  type EncodedDeploymentQuerySyncDependencyRow,
+} from "../src/deploymentSync/DependencyRowCodec";
+import {
+  makeDeploymentQuerySyncEvaluationState,
+  type DeploymentQuerySyncEvaluationState,
+  type DeploymentQuerySyncEvaluationStateInput,
 } from "../src/deploymentSync/Store";
 import type {
   DeploymentQuerySyncStorage,
@@ -104,7 +110,7 @@ interface SqliteHarness {
 
 interface InitializedFixture {
   readonly harness: SqliteHarness;
-  readonly state: DeploymentQuerySyncStateC1;
+  readonly state: DeploymentQuerySyncEvaluationState;
   readonly binding: DeploymentQuerySyncBinding;
 }
 
@@ -349,11 +355,12 @@ describe("deployment query-sync C1 adapter limits and corruption", () => {
         queryKey: string,
         dependencyKey: CanonicalDependencyKey,
       ) => {
-        database.exec("PRAGMA ignore_check_constraints = ON");
-        try {
-          database.prepare(`UPDATE deployment_sync_query_dependencies
-            SET role = 'completion'
-            WHERE query_key = ? AND dependency_key = ?`).run(
+          database.exec("PRAGMA ignore_check_constraints = ON");
+          try {
+            database.prepare(`UPDATE deployment_sync_query_dependencies
+            SET role = 'rogue'
+            WHERE role = 'active'
+              AND query_key = ? AND dependency_key = ?`).run(
               queryKey,
               dependencyKey,
             );
@@ -373,7 +380,8 @@ describe("deployment query-sync C1 adapter limits and corruption", () => {
         const orphanKey = makeCanonicalQueryKey(9_999);
         database.prepare(`UPDATE deployment_sync_query_dependencies
           SET query_key = ?
-          WHERE query_key = ? AND dependency_key = ?`).run(
+          WHERE role = 'active'
+            AND query_key = ? AND dependency_key = ?`).run(
             orphanKey,
             queryKey,
             dependencyKey,
@@ -390,7 +398,8 @@ describe("deployment query-sync C1 adapter limits and corruption", () => {
       ) => {
         database.prepare(`UPDATE deployment_sync_query_dependencies
           SET generation = '2'
-          WHERE query_key = ? AND dependency_key = ?`).run(
+          WHERE role = 'active'
+            AND query_key = ? AND dependency_key = ?`).run(
             queryKey,
             dependencyKey,
           );
@@ -537,7 +546,7 @@ async function makeInitializedFixture(): Promise<InitializedFixture> {
   const harness = makeSqliteHarness();
   const input = stateInput(harness);
   const binding = success(captureDeploymentQuerySyncBinding(input.binding));
-  const state = await Effect.runPromise(makeDeploymentQuerySyncStateC1(input));
+  const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState(input));
   await Effect.runPromise(
     state.initializeOrInspectNamespace(binding.bootstrapCursor),
   );
@@ -562,7 +571,7 @@ function observation() {
 
 function stateInput(
   harness: SqliteHarness,
-): DeploymentQuerySyncStateC1Input {
+): DeploymentQuerySyncEvaluationStateInput {
   const binding = Object.freeze({
     objectId: Object.freeze({ name: `deployment-sync:${scopeUuid}` }),
     observation: observation(),
@@ -707,6 +716,7 @@ function seedReferenceState(
   });
   database.exec("BEGIN IMMEDIATE");
   try {
+    database.exec("DELETE FROM deployment_sync_pending_publications");
     database.exec("DELETE FROM deployment_sync_query_dependencies");
     database.exec("DELETE FROM deployment_sync_queries");
     database.exec("DELETE FROM deployment_sync_scope_state");
@@ -744,8 +754,20 @@ function seedReferenceState(
       provisional_expected_active_generation,
       provisional_registration_sequence,
       provisional_requested_dirty_through_sequence,
-      provisional_disposition
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      provisional_disposition,
+      completion_generation,
+      completion_expected_active_generation,
+      completion_registration_sequence,
+      completion_requested_dirty_through_sequence,
+      completion_evaluation_snapshot_sequence,
+      completion_evaluation_authority_witness,
+      completion_refreshed_through_sequence,
+      completion_relevant_through_sequence,
+      completion_refresh_authority_witness,
+      completion_result_digest,
+      completion_publication_disposition,
+      preceding_completion_generation
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     const insertDependency = database.prepare(
       `INSERT INTO deployment_sync_query_dependencies (
         role,
@@ -754,23 +776,48 @@ function seedReferenceState(
         dependency_key
       ) VALUES (?, ?, ?, ?)`,
     );
+    const insertPending = database.prepare(
+      `INSERT INTO deployment_sync_pending_publications (
+        query_key,
+        generation,
+        query_identity,
+        completed_through_sequence,
+        result_digest,
+        content
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+    );
     for (const query of state.queries.toReversed()) {
-      const queryRow = encodeDeploymentQuerySyncQueryRow({
-        descriptor: query.descriptor,
-        active: query.active,
-        provisional: query.provisional,
-      });
+      const queryRow = encodeDeploymentQuerySyncCompleteQueryRow(query);
       insertQuery.run(...queryRowValues(queryRow));
-      if (query.active === null) continue;
-      for (const dependencyKey of query.active.dependencyKeys) {
-        const dependencyRow = encodeDeploymentQuerySyncDependencyRow({
-          role: "active",
-          queryKey: query.descriptor.queryKey,
-          generation: query.active.generation,
-          dependencyKey,
-        });
-        insertDependency.run(...dependencyRowValues(dependencyRow));
+      const active = query.active;
+      if (active !== null) {
+        for (const dependencyKey of active.dependencyKeys) {
+          const dependencyRow = encodeDeploymentQuerySyncDependencyRow({
+            role: "active",
+            queryKey: query.descriptor.queryKey,
+            generation: active.generation,
+            dependencyKey,
+          });
+          insertDependency.run(...dependencyRowValues(dependencyRow));
+        }
       }
+      const completion = query.currentCompletion;
+      if (completion !== null) {
+        for (const dependencyKey of completion.evaluationDependencyKeys) {
+          const dependencyRow = encodeDeploymentQuerySyncDependencyRow({
+            role: "completion",
+            queryKey: query.descriptor.queryKey,
+            generation: completion.identity.generation,
+            dependencyKey,
+          });
+          insertDependency.run(...dependencyRowValues(dependencyRow));
+        }
+      }
+    }
+    for (const publication of state.publicationWork.pending) {
+      insertPending.run(...pendingPublicationRowValues(
+        encodeDeploymentQuerySyncPendingPublicationRow(publication),
+      ));
     }
     database.exec("COMMIT");
   } catch (cause) {
@@ -817,7 +864,7 @@ function scopeRowValues(
 }
 
 function queryRowValues(
-  row: EncodedDeploymentQuerySyncQueryRow,
+  row: EncodedDeploymentQuerySyncCompleteQueryRow,
 ): SQLInputValue[] {
   return [
     row.query_key,
@@ -833,6 +880,18 @@ function queryRowValues(
     row.provisional_registration_sequence,
     row.provisional_requested_dirty_through_sequence,
     row.provisional_disposition,
+    row.completion_generation,
+    row.completion_expected_active_generation,
+    row.completion_registration_sequence,
+    row.completion_requested_dirty_through_sequence,
+    row.completion_evaluation_snapshot_sequence,
+    row.completion_evaluation_authority_witness,
+    row.completion_refreshed_through_sequence,
+    row.completion_relevant_through_sequence,
+    row.completion_refresh_authority_witness,
+    row.completion_result_digest,
+    row.completion_publication_disposition,
+    row.preceding_completion_generation,
   ];
 }
 
@@ -840,6 +899,19 @@ function dependencyRowValues(
   row: EncodedDeploymentQuerySyncDependencyRow,
 ): SQLInputValue[] {
   return [row.role, row.query_key, row.generation, row.dependency_key];
+}
+
+function pendingPublicationRowValues(
+  row: EncodedDeploymentQuerySyncPendingPublicationRow,
+): SQLInputValue[] {
+  return [
+    row.query_key,
+    row.generation,
+    row.query_identity,
+    row.completed_through_sequence,
+    row.result_digest,
+    row.content,
+  ];
 }
 
 function normalizeSql(query: string): string {

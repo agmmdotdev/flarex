@@ -2,9 +2,10 @@
 
 ## Status
 
-**Checkpoint status:** accepted on 2026-08-30 after a fresh architecture
-discussion. Implementation is authorized only in the order and boundary frozen
-here.
+**Checkpoint status:** completed on 2026-08-30. The docs checkpoint was accepted
+after a fresh architecture discussion, the portable empty-scope prerequisite
+completed in `12e2f375`, and the complete private C1 implementation and proof
+committed in `b94abbb0`.
 
 `QSYNC-FX01-C1` is one complete private Cloudflare SQLite vertical containing:
 
@@ -58,10 +59,10 @@ The accepted commit chain is:
 - `b0c65b8d` - D3 evaluation work;
 - `81505e47` - D4 publication lifecycle and all-nine proof.
 
-One small portable-core prerequisite remains before SQLite DDL may be written.
-The exact empty scope revision, fairness state, and eight metrics currently
-exist only in the private initialization implementation. Export one pure
-constructor:
+The final small portable-core prerequisite completed in `12e2f375`. Before that
+commit, the exact empty scope revision, fairness state, and eight metrics
+existed only in the private initialization implementation. The completed slice
+exported one pure constructor:
 
 ```ts
 makeEmptyQuerySyncScopeFacts(
@@ -69,12 +70,12 @@ makeEmptyQuerySyncScopeFacts(
 ): QuerySyncScopeFacts
 ```
 
-The constructor remains private to
+The constructor is private to
 `@flarex/query-sync/internal/transition-plan`, and
-`planInitializeOrInspectNamespace` must reuse it. It grants no initialization
-authority and has no Effect, host, SQL, or Flarex dependency. Focused tests must
-prove exact parity, runtime ownership, and freezing with the existing fresh
-initialization plan.
+`planInitializeOrInspectNamespace` reuses it. It grants no initialization
+authority and has no Effect, host, SQL, or Flarex dependency. Focused tests in
+`12e2f375` prove exact parity, runtime ownership, and freezing with the existing
+fresh initialization plan.
 
 Do not use `createEmptyQuerySyncState` in production migration code. The full
 aggregate remains a test oracle, not a production transaction input. Do not
@@ -730,16 +731,19 @@ C1 does not authorize:
 - `R03-B`, `SV-R Live`, production readiness, Legacy/product migration, or
   cutover claims.
 
-## Implementation Order And Exit
+## Implementation Order And Exit Record
 
-1. Record and commit this docs-only checkpoint.
-2. Implement, prove, review, and commit the private empty-scope constructor.
-3. Implement the complete C1 vertical as one significant checkpoint. Internal
-   work may be staged, but no schema-only or migration-only commit is accepted
-   as C1 completion.
-4. Stop after the C1 proof and commit. Discuss and separately approve or reject
-   `QSYNC-FX01-C2`.
+1. The docs-only checkpoint was recorded and accepted.
+2. The private empty-scope constructor was implemented, proved, reviewed, and
+   committed in `12e2f375`.
+3. The complete C1 vertical was implemented as one significant checkpoint,
+   passed its focused and real Workerd proof plus final-diff review, and was
+   committed in `b94abbb0`.
+4. Work stopped at the C1 boundary. The separate
+   [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+   was then discussed, accepted, and implemented without widening C1; its
+   complete exit-proof matrix remains open.
 
-C1 exits only when the generation-2 migration and all three operations pass the
-focused and real Workerd proof, the unsafe direct advance is unavailable, and
-the adapter remains package-private and unrouted.
+C1's exit is achieved: the generation-2 migration and all three operations pass
+the focused and real Workerd proof, the unsafe direct advance is unavailable,
+and the adapter remains package-private and unrouted.

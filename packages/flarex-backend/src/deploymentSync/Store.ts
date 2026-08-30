@@ -6,12 +6,10 @@ import {
 } from "@flarex/query-sync/internal/kernel";
 import {
   QuerySyncStoredStateCorruptError,
-  QuerySyncStoredStateIncompatibleError,
   type QuerySyncTransitionState,
 } from "@flarex/query-sync/internal/state";
 import {
   QuerySyncInitializationPolicyError,
-  QuerySyncTransitionFactError,
   planBeginQueryEvaluation,
   planInitializeOrInspectNamespace,
   resumeApplyAdmittedBatchActiveFacts,
@@ -30,7 +28,7 @@ import {
   type ResumeApplyAffectedActiveFactsError,
   type ResumeApplyAffectedTargetsError,
 } from "@flarex/query-sync/internal/transition-plan";
-import { Data, Effect, Result } from "effect";
+import { Effect, Result } from "effect";
 
 import {
   captureDeploymentQuerySyncBinding,
@@ -45,27 +43,54 @@ import {
 import {
   decodeDeploymentQuerySyncAffectedActiveRowResult,
   decodeDeploymentQuerySyncAffectedTargetRowResult,
-  decodeDeploymentQuerySyncDependencyRowResult,
   decodeDeploymentQuerySyncQueryRowResult,
-  decodeDeploymentQuerySyncScopeRowResult,
   encodeDeploymentQuerySyncAffectedActiveRow,
   encodeDeploymentQuerySyncQueryRow,
-  encodeDeploymentQuerySyncScopeRow,
-  type DeploymentQuerySyncContractState,
   type DeploymentQuerySyncStoredScopeState,
   type EncodedDeploymentQuerySyncAffectedActiveRow,
   type EncodedDeploymentQuerySyncQueryRow,
-  type EncodedDeploymentQuerySyncScopeRow,
 } from "./RowCodec";
+import {
+  decodeDeploymentQuerySyncDependencyRowResult,
+} from "./DependencyRowCodec";
+import { makeDeploymentQuerySyncEvaluationOperations } from "./EvaluationState";
+import {
+  MAX_DEPLOYMENT_QUERY_SYNC_SQL_DATA_KEYS,
+  assertDeploymentQuerySyncPlannedScopeAuthority,
+  bindDeploymentQuerySyncStorage,
+  deploymentQuerySyncSqlChunks,
+  deploymentQuerySyncSqlPlaceholders,
+  deploymentQuerySyncStoredStateCorrupt,
+  deploymentQuerySyncStoredStateIncompatible,
+  deploymentQuerySyncStoredStateIssue,
+  expectSingleDeploymentQuerySyncWrite,
+  insertDeploymentQuerySyncScope,
+  mapDeploymentQuerySyncTransitionFactError,
+  markDeploymentQuerySyncInitialized,
+  nextStoredDeploymentQuerySyncScope,
+  readDeploymentQuerySyncScope,
+  replaceDeploymentQuerySyncScope,
+  requireDeploymentQuerySyncScope,
+  runDeploymentQuerySyncTransaction,
+  storedDeploymentQuerySyncScopeFromFacts,
+  type BoundDeploymentQuerySyncStorage,
+} from "./StateStorage";
 import {
   ensureDeploymentQuerySyncStorageReady,
   readDeploymentQuerySyncContractState,
-  type DeploymentQuerySyncC1Operation,
   type DeploymentQuerySyncSqlStorage,
   type DeploymentQuerySyncStorage,
 } from "./StorageContract";
 
-const MAX_SQL_DATA_KEYS = 96;
+const issue = deploymentQuerySyncStoredStateIssue;
+const corrupt = deploymentQuerySyncStoredStateCorrupt;
+const chunks = deploymentQuerySyncSqlChunks;
+const placeholders = deploymentQuerySyncSqlPlaceholders;
+const assertPlannedScopeAuthority =
+  assertDeploymentQuerySyncPlannedScopeAuthority;
+const nextStoredScope = nextStoredDeploymentQuerySyncScope;
+const replaceScope = replaceDeploymentQuerySyncScope;
+const expectSingleWrite = expectSingleDeploymentQuerySyncWrite;
 
 type InitializeStateError = Effect.Error<ReturnType<
   QuerySyncTransitionState["initializeOrInspectNamespace"]
@@ -77,53 +102,26 @@ type ApplyStateError = Effect.Error<ReturnType<
   QuerySyncTransitionState["applyAdmittedBatchAndAdvance"]
 >>;
 
-export type DeploymentQuerySyncStateC1 = Pick<
+export type DeploymentQuerySyncEvaluationState = Pick<
   QuerySyncTransitionState,
   | "initializeOrInspectNamespace"
   | "beginQueryEvaluation"
   | "applyAdmittedBatchAndAdvance"
+  | "completeQueryEvaluation"
+  | "claimEvaluationWork"
+  | "recordEvaluationAttemptOutcome"
 >;
 
-export interface DeploymentQuerySyncStateC1Input {
+export interface DeploymentQuerySyncEvaluationStateInput {
   readonly binding: DeploymentQuerySyncBindingInput;
   readonly storage: DeploymentQuerySyncStorage;
   readonly freshInitializationCapability?:
     DeploymentQuerySyncFreshInitializationCapability;
 }
 
-interface BoundDeploymentQuerySyncStorage {
-  readonly sql: DeploymentQuerySyncSqlStorage;
-  readonly transactionSync: <A>(closure: () => A) => A;
-}
-
-class DeploymentQuerySyncStoredStateIssue extends Data.TaggedError(
-  "DeploymentQuerySyncStoredStateIssue",
-)<{
-  readonly reason:
-    | "authorityMismatch"
-    | "capabilityRequired"
-    | "rowInvalid"
-    | "rowMissing"
-    | "rowDuplicate"
-    | "scopeCounterMismatch"
-    | "transitionFactsRejected";
-  readonly evidence: unknown;
-}> {}
-
-class DeploymentQuerySyncAdapterInvariantDefect extends Error {
-  constructor(readonly operation: DeploymentQuerySyncC1Operation) {
-    super(`Deployment query-sync ${operation} write invariant failed.`);
-  }
-}
-
-interface EncodedSingletonRow {
-  readonly [key: string]: SqlStorageValue;
-  readonly singleton: number;
-}
-
-export const makeDeploymentQuerySyncStateC1 = Effect.fn(
-  "DeploymentQuerySyncStateC1.make",
-)(function* (input: DeploymentQuerySyncStateC1Input) {
+export const makeDeploymentQuerySyncEvaluationState = Effect.fn(
+  "DeploymentQuerySyncEvaluationState.make",
+)(function* (input: DeploymentQuerySyncEvaluationStateInput) {
   const binding = yield* Effect.fromResult(
     captureDeploymentQuerySyncBinding(input.binding),
   );
@@ -135,23 +133,14 @@ export const makeDeploymentQuerySyncStateC1 = Effect.fn(
   return makeBoundState(storage, freshInitializationCapability, binding);
 });
 
-function bindDeploymentQuerySyncStorage(
-  storage: DeploymentQuerySyncStorage,
-): BoundDeploymentQuerySyncStorage {
-  const sql = storage.sql;
-  const transactionSync: DeploymentQuerySyncStorage["transactionSync"] =
-    storage.transactionSync.bind(storage);
-  return Object.freeze({ sql, transactionSync });
-}
-
 function makeBoundState(
   storage: BoundDeploymentQuerySyncStorage,
   freshInitializationCapability:
     DeploymentQuerySyncFreshInitializationCapability | undefined,
   binding: DeploymentQuerySyncBinding,
-): DeploymentQuerySyncStateC1 {
+): DeploymentQuerySyncEvaluationState {
   const initializeOrInspectNamespace = Effect.fn(
-    "DeploymentQuerySyncStateC1.initializeOrInspectNamespace",
+    "DeploymentQuerySyncEvaluationState.initializeOrInspectNamespace",
   )((cursor: NamespaceCursor) => initializeNamespace(
     storage,
     freshInitializationCapability,
@@ -159,14 +148,14 @@ function makeBoundState(
     cursor,
   ));
   const beginQueryEvaluation = Effect.fn(
-    "DeploymentQuerySyncStateC1.beginQueryEvaluation",
-  )((request: BeginQueryEvaluationRequest) => runTransaction(
+    "DeploymentQuerySyncEvaluationState.beginQueryEvaluation",
+  )((request: BeginQueryEvaluationRequest) => runDeploymentQuerySyncTransaction(
     storage,
     sql => beginResult(sql, binding, request),
   ));
   const applyAdmittedBatchAndAdvance = Effect.fn(
-    "DeploymentQuerySyncStateC1.applyAdmittedBatchAndAdvance",
-  )((batch: AdmittedInvalidationBatch) => runTransaction(
+    "DeploymentQuerySyncEvaluationState.applyAdmittedBatchAndAdvance",
+  )((batch: AdmittedInvalidationBatch) => runDeploymentQuerySyncTransaction(
     storage,
     sql => applyResult(sql, binding, batch),
   ));
@@ -174,37 +163,7 @@ function makeBoundState(
     initializeOrInspectNamespace,
     beginQueryEvaluation,
     applyAdmittedBatchAndAdvance,
-  });
-}
-
-function runTransaction<A, E>(
-  storage: BoundDeploymentQuerySyncStorage,
-  program: (sql: DeploymentQuerySyncSqlStorage) => Result.Result<A, E>,
-  onRollback?: () => void,
-): Effect.Effect<A, E> {
-  class TransactionRollback extends Error {
-    constructor(readonly failure: E) {
-      super("Deployment query-sync transaction rolled back.");
-    }
-  }
-  return Effect.suspend(() => {
-    try {
-      const value = storage.transactionSync(() => Result.match(
-        program(storage.sql),
-        {
-          onFailure: failure => {
-            throw new TransactionRollback(failure);
-          },
-          onSuccess: success => success,
-        },
-      ));
-      return Effect.succeed(value);
-    } catch (cause) {
-      onRollback?.();
-      return cause instanceof TransactionRollback
-        ? Effect.fail(cause.failure)
-        : Effect.die(cause);
-    }
+    ...makeDeploymentQuerySyncEvaluationOperations(storage, binding),
   });
 }
 
@@ -220,7 +179,7 @@ function initializeNamespace(
     binding,
   );
   const reservation = attempt._tag === "reserved" ? attempt.reservation : null;
-  return runTransaction(
+  return runDeploymentQuerySyncTransaction(
     storage,
     sql => initializeResult(sql, binding, bootstrapCursor, attempt),
     reservation === null
@@ -246,9 +205,9 @@ function initializeResult(
 ): Result.Result<InitializeNamespaceReceipt, InitializeStateError> {
   return Result.gen(function* () {
     if (!bootstrapCursorMatchesBinding(bootstrapCursor, binding)) {
-      return yield* Result.fail(bootstrapIncompatible(
+      return yield* Result.fail(deploymentQuerySyncStoredStateIncompatible(
         "initializeOrInspectNamespace",
-        issue("authorityMismatch", Object.freeze({
+        deploymentQuerySyncStoredStateIssue("authorityMismatch", Object.freeze({
           expected: binding.bootstrapCursor,
           observed: bootstrapCursor,
         })),
@@ -258,7 +217,7 @@ function initializeResult(
       sql,
       "initializeOrInspectNamespace",
     );
-    const scope = yield* readScope(
+    const scope = yield* readDeploymentQuerySyncScope(
       sql,
       binding,
       contract,
@@ -266,9 +225,9 @@ function initializeResult(
       false,
     );
     if (scope === null && attempt._tag !== "reserved") {
-      return yield* Result.fail(bootstrapIncompatible(
+      return yield* Result.fail(deploymentQuerySyncStoredStateIncompatible(
         "initializeOrInspectNamespace",
-        issue("capabilityRequired", attempt._tag),
+        deploymentQuerySyncStoredStateIssue("capabilityRequired", attempt._tag),
       ));
     }
     const plan = yield* planInitializeOrInspectNamespace({
@@ -283,13 +242,16 @@ function initializeResult(
         : Object.freeze({ _tag: "present", scope: scope.facts }),
     }).pipe(Result.mapError(mapInitializationPolicyError));
     if (plan._tag === "noWrite") return plan.receipt;
-    assertPlannedScopeAuthority(
+    assertDeploymentQuerySyncPlannedScopeAuthority(
       binding,
       plan.nextScope,
       "initializeOrInspectNamespace",
     );
-    insertScope(sql, storedFromFacts(binding, plan.nextScope));
-    markInitialized(sql);
+    insertDeploymentQuerySyncScope(
+      sql,
+      storedDeploymentQuerySyncScopeFromFacts(binding, plan.nextScope),
+    );
+    markDeploymentQuerySyncInitialized(sql);
     return plan.receipt;
   });
 }
@@ -315,7 +277,7 @@ function beginResult(
       sql,
       "beginQueryEvaluation",
     );
-    const scope = yield* requireScope(
+    const scope = yield* requireDeploymentQuerySyncScope(
       sql,
       binding,
       contract,
@@ -348,7 +310,7 @@ function applyResult(
       sql,
       "applyAdmittedBatchAndAdvance",
     );
-    const scope = yield* requireScope(
+    const scope = yield* requireDeploymentQuerySyncScope(
       sql,
       binding,
       contract,
@@ -390,61 +352,19 @@ function applyResult(
   });
 }
 
-function issue(
-  reason: DeploymentQuerySyncStoredStateIssue["reason"],
-  evidence: unknown,
-): DeploymentQuerySyncStoredStateIssue {
-  return new DeploymentQuerySyncStoredStateIssue({ reason, evidence });
-}
-
-function corrupt<Operation extends DeploymentQuerySyncC1Operation>(
-  operation: Operation,
-  reason: QuerySyncStoredStateCorruptError<Operation>["reason"],
-  cause: unknown,
-): QuerySyncStoredStateCorruptError<Operation> {
-  return new QuerySyncStoredStateCorruptError({
-    operation,
-    commitCertainty: "notCommitted",
-    reason,
-    cause,
-  });
-}
-
-function bootstrapIncompatible<
-  Operation extends DeploymentQuerySyncC1Operation,
->(
-  operation: Operation,
-  cause: unknown,
-): QuerySyncStoredStateIncompatibleError<Operation> {
-  return new QuerySyncStoredStateIncompatibleError({
-    operation,
-    commitCertainty: "notCommitted",
-    reason: "bootstrapBindingMismatch",
-    cause,
-  });
-}
-
 function mapInitializationPolicyError(
   error: QuerySyncInitializationPolicyError,
 ): InitializeStateError {
   if (error.reason === "bootstrapBindingMismatch") {
-    return bootstrapIncompatible(error.operation, error);
+    return deploymentQuerySyncStoredStateIncompatible(
+      error.operation,
+      error,
+    );
   }
-  return corrupt(error.operation, error.reason, error);
-}
-
-function transitionFactCorruption<
-  Operation extends
-    | "beginQueryEvaluation"
-    | "applyAdmittedBatchAndAdvance",
->(
-  operation: Operation,
-  error: QuerySyncTransitionFactError,
-): QuerySyncStoredStateCorruptError<Operation> {
-  return corrupt(
-    operation,
-    "storedAggregateInvalid",
-    issue("transitionFactsRejected", error),
+  return deploymentQuerySyncStoredStateCorrupt(
+    error.operation,
+    error.reason,
+    error,
   );
 }
 
@@ -452,7 +372,10 @@ function mapBeginPlannerError(
   error: PlanBeginQueryEvaluationError,
 ): BeginStateError {
   return error._tag === "QuerySyncTransitionFactError"
-    ? transitionFactCorruption("beginQueryEvaluation", error)
+    ? mapDeploymentQuerySyncTransitionFactError(
+      "beginQueryEvaluation",
+      error,
+    )
     : error;
 }
 
@@ -464,171 +387,11 @@ function mapApplyPlannerError(
   error: ApplyResumePlannerError,
 ): ApplyStateError {
   return error._tag === "QuerySyncTransitionFactError"
-    ? transitionFactCorruption("applyAdmittedBatchAndAdvance", error)
-    : error;
-}
-
-function readScope<Operation extends DeploymentQuerySyncC1Operation>(
-  sql: DeploymentQuerySyncSqlStorage,
-  binding: DeploymentQuerySyncBinding,
-  contract: DeploymentQuerySyncContractState,
-  operation: Operation,
-  enforcePortableBinding: boolean,
-): Result.Result<
-  DeploymentQuerySyncStoredScopeState | null,
-  | QuerySyncStoredStateCorruptError<Operation>
-  | QuerySyncStoredStateIncompatibleError<Operation>
-> {
-  const rows = sql.exec<EncodedDeploymentQuerySyncScopeRow & {
-    readonly [key: string]: SqlStorageValue;
-  }>(`SELECT
-    singleton,
-    scope_uuid,
-    epoch_uuid,
-    storage_generation,
-    storage_generation_fence,
-    sync_model_id,
-    applied_through_sequence,
-    evaluation_work_revision,
-    fairness_anchor,
-    query_count,
-    retained_identity_bytes,
-    dependency_memberships,
-    pending_publication_count,
-    in_flight_publication_count,
-    retained_publication_content_bytes,
-    settlement_envelope_bytes,
-    counted_canonical_bytes
-  FROM main.deployment_sync_scope_state
-  ORDER BY singleton
-  LIMIT 2`).toArray();
-  if (rows.length === 0) {
-    return contract.durableInitializedHistory
-      ? Result.fail(corrupt(
-        operation,
-        "aggregateMissing",
-        issue("rowMissing", "scopeAfterInitializedHistory"),
-      ))
-      : Result.succeed(null);
-  }
-  if (rows.length !== 1) {
-    return Result.fail(corrupt(
-      operation,
-      "storedAggregateInvalid",
-      issue("rowDuplicate", rows.length),
-    ));
-  }
-  if (!contract.durableInitializedHistory) {
-    return Result.fail(corrupt(
-      operation,
-      "storedAggregateInvalid",
-      issue("authorityMismatch", "scopeBeforeInitializedHistory"),
-    ));
-  }
-  return decodeDeploymentQuerySyncScopeRowResult(rows[0]).pipe(
-    Result.mapError(cause => corrupt(
-      operation,
-      "storedAggregateInvalid",
-      issue("rowInvalid", cause),
-    )),
-    Result.flatMap(scope => authenticateStoredScope(
-      scope,
-      binding,
-      operation,
-      enforcePortableBinding,
-    )),
-  );
-}
-
-function authenticateStoredScope<
-  Operation extends DeploymentQuerySyncC1Operation,
->(
-  scope: DeploymentQuerySyncStoredScopeState,
-  binding: DeploymentQuerySyncBinding,
-  operation: Operation,
-  enforcePortableBinding: boolean,
-): Result.Result<
-  DeploymentQuerySyncStoredScopeState,
-  | QuerySyncStoredStateCorruptError<Operation>
-  | QuerySyncStoredStateIncompatibleError<Operation>
-> {
-  if (scope.scopeUuid !== binding.scopeUuid) {
-    return Result.fail(corrupt(
-      operation,
-      "namespaceBindingMismatch",
-      issue("authorityMismatch", Object.freeze({
-        field: "scopeUuid",
-        expected: binding.scopeUuid,
-        observed: scope.scopeUuid,
-      })),
-    ));
-  }
-  if (
-    scope.storageGeneration !== binding.storageGeneration
-    || scope.storageGenerationFence !== binding.storageGenerationFence
-  ) {
-    return Result.fail(bootstrapIncompatible(
-      operation,
-      issue("authorityMismatch", Object.freeze({
-        expected: Object.freeze({
-          storageGeneration: binding.storageGeneration,
-          storageGenerationFence: binding.storageGenerationFence.toString(),
-        }),
-        observed: Object.freeze({
-          storageGeneration: scope.storageGeneration,
-          storageGenerationFence: scope.storageGenerationFence.toString(),
-        }),
-      })),
-    ));
-  }
-  if (
-    enforcePortableBinding
-    && (
-      scope.syncModelId !== binding.syncModelId
-      || scope.epochUuid !== binding.epochUuid
+    ? mapDeploymentQuerySyncTransitionFactError(
+      "applyAdmittedBatchAndAdvance",
+      error,
     )
-  ) {
-    return Result.fail(bootstrapIncompatible(
-      operation,
-      issue("authorityMismatch", Object.freeze({
-        expected: Object.freeze({
-          syncModelId: binding.syncModelId,
-          epochUuid: binding.epochUuid,
-        }),
-        observed: Object.freeze({
-          syncModelId: scope.syncModelId,
-          epochUuid: scope.epochUuid,
-        }),
-      })),
-    ));
-  }
-  return Result.succeed(scope);
-}
-
-function requireScope<Operation extends DeploymentQuerySyncC1Operation>(
-  sql: DeploymentQuerySyncSqlStorage,
-  binding: DeploymentQuerySyncBinding,
-  contract: DeploymentQuerySyncContractState,
-  operation: Operation,
-  enforcePortableBinding: boolean,
-): Result.Result<
-  DeploymentQuerySyncStoredScopeState,
-  | QuerySyncStoredStateCorruptError<Operation>
-  | QuerySyncStoredStateIncompatibleError<Operation>
-> {
-  return readScope(
-    sql,
-    binding,
-    contract,
-    operation,
-    enforcePortableBinding,
-  ).pipe(Result.flatMap(scope => scope === null
-    ? Result.fail(corrupt(
-      operation,
-      "aggregateMissing",
-      issue("rowMissing", "scope"),
-    ))
-    : Result.succeed(scope)));
+    : error;
 }
 
 function readBeginQuery(
@@ -719,7 +482,10 @@ function readAffectedTargets(
   return Result.gen(function* () {
     yield* rejectInvalidDependencyRole(sql);
     const byQueryKey = new Map<string, AffectedActiveQueryTarget>();
-    for (const chunk of chunks(intent.dependencyKeys, MAX_SQL_DATA_KEYS)) {
+    for (const chunk of chunks(
+      intent.dependencyKeys,
+      MAX_DEPLOYMENT_QUERY_SYNC_SQL_DATA_KEYS,
+    )) {
       const rows = sql.exec<EncodedAffectedTargetRow>(`SELECT
         query_key,
         generation AS active_generation
@@ -807,16 +573,7 @@ function rejectInvalidDependencyRole(
     dependency_key
   FROM main.deployment_sync_query_dependencies
     INDEXED BY deployment_sync_query_dependencies_reverse
-  WHERE role < 'active'
-  UNION ALL
-  SELECT
-    role,
-    query_key,
-    generation,
-    dependency_key
-  FROM main.deployment_sync_query_dependencies
-    INDEXED BY deployment_sync_query_dependencies_reverse
-  WHERE role > 'active'
+  WHERE role NOT IN ('active', 'completion')
   LIMIT 1`).toArray();
   if (rows.length === 0) return Result.succeed(undefined);
   return decodeDeploymentQuerySyncDependencyRowResult(rows[0]).pipe(
@@ -848,7 +605,10 @@ function readAffectedActiveFacts(
 > {
   return Result.gen(function* () {
     const byQueryKey = new Map<string, AffectedActiveQueryFacts>();
-    for (const chunk of chunks(targets, MAX_SQL_DATA_KEYS)) {
+    for (const chunk of chunks(
+      targets,
+      MAX_DEPLOYMENT_QUERY_SYNC_SQL_DATA_KEYS,
+    )) {
       const rows = sql.exec<EncodedDeploymentQuerySyncAffectedActiveRow & {
         readonly [key: string]: SqlStorageValue;
       }>(`SELECT
@@ -887,92 +647,6 @@ function readAffectedActiveFacts(
       return facts === undefined ? [] : [facts];
     }));
   });
-}
-
-function chunks<A>(
-  values: readonly A[],
-  maximum: number,
-): readonly (readonly A[])[] {
-  const result: A[][] = [];
-  for (let offset = 0; offset < values.length; offset += maximum) {
-    result.push(values.slice(offset, offset + maximum));
-  }
-  return result;
-}
-
-function placeholders(count: number): string {
-  if (count <= 0 || count > MAX_SQL_DATA_KEYS) {
-    throw new Error("Invalid deployment query-sync SQL chunk size.");
-  }
-  return Array.from({ length: count }, () => "?").join(", ");
-}
-
-function storedFromFacts(
-  binding: DeploymentQuerySyncBinding,
-  facts: QuerySyncScopeFacts,
-): DeploymentQuerySyncStoredScopeState {
-  return Object.freeze({
-    scopeUuid: binding.scopeUuid,
-    epochUuid: binding.epochUuid,
-    storageGeneration: binding.storageGeneration,
-    storageGenerationFence: binding.storageGenerationFence,
-    syncModelId: facts.cursor.syncModelId,
-    facts,
-  });
-}
-
-function nextStoredScope(
-  current: DeploymentQuerySyncStoredScopeState,
-  facts: QuerySyncScopeFacts,
-): DeploymentQuerySyncStoredScopeState {
-  return Object.freeze({
-    scopeUuid: current.scopeUuid,
-    epochUuid: current.epochUuid,
-    storageGeneration: current.storageGeneration,
-    storageGenerationFence: current.storageGenerationFence,
-    syncModelId: facts.cursor.syncModelId,
-    facts,
-  });
-}
-
-function insertScope(
-  sql: DeploymentQuerySyncSqlStorage,
-  state: DeploymentQuerySyncStoredScopeState,
-): void {
-  const row = encodeDeploymentQuerySyncScopeRow(state);
-  const cursor = sql.exec<EncodedSingletonRow>(`INSERT INTO
-    main.deployment_sync_scope_state (
-      singleton,
-      scope_uuid,
-      epoch_uuid,
-      storage_generation,
-      storage_generation_fence,
-      sync_model_id,
-      applied_through_sequence,
-      evaluation_work_revision,
-      fairness_anchor,
-      query_count,
-      retained_identity_bytes,
-      dependency_memberships,
-      pending_publication_count,
-      in_flight_publication_count,
-      retained_publication_content_bytes,
-      settlement_envelope_bytes,
-      counted_canonical_bytes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    RETURNING singleton`, ...scopeValues(row));
-  expectSingleWrite("initializeOrInspectNamespace", cursor);
-}
-
-function markInitialized(sql: DeploymentQuerySyncSqlStorage): void {
-  const cursor = sql.exec<EncodedSingletonRow>(`UPDATE
-    main.deployment_sync_contract_state
-    SET durable_initialized_history = 1
-    WHERE singleton = 1
-      AND local_contract_generation = 2
-      AND durable_initialized_history = 0
-    RETURNING singleton`);
-  expectSingleWrite("initializeOrInspectNamespace", cursor);
 }
 
 function writeBeginPlan(
@@ -1092,20 +766,6 @@ function writeApplyPlan(
   );
 }
 
-function assertPlannedScopeAuthority(
-  binding: DeploymentQuerySyncBinding,
-  scope: QuerySyncScopeFacts,
-  operation: DeploymentQuerySyncC1Operation,
-): void {
-  if (
-    scope.cursor.namespaceId !== binding.namespaceId
-    || scope.cursor.syncModelId !== binding.syncModelId
-    || scope.cursor.sourceEpoch !== binding.sourceEpoch
-  ) {
-    throw new DeploymentQuerySyncAdapterInvariantDefect(operation);
-  }
-}
-
 function replaceAffectedActive(
   sql: DeploymentQuerySyncSqlStorage,
   expectedFacts: AffectedActiveQueryFacts,
@@ -1128,94 +788,6 @@ function replaceAffectedActive(
   next.active_dirty_through_sequence,
   ...affectedActiveValues(expected));
   expectSingleWrite("applyAdmittedBatchAndAdvance", cursor);
-}
-
-function replaceScope(
-  sql: DeploymentQuerySyncSqlStorage,
-  operation:
-    | "beginQueryEvaluation"
-    | "applyAdmittedBatchAndAdvance",
-  expectedState: DeploymentQuerySyncStoredScopeState,
-  nextState: DeploymentQuerySyncStoredScopeState,
-): void {
-  const expected = encodeDeploymentQuerySyncScopeRow(expectedState);
-  const next = encodeDeploymentQuerySyncScopeRow(nextState);
-  const cursor = sql.exec<EncodedSingletonRow>(`UPDATE
-    main.deployment_sync_scope_state SET
-      scope_uuid = ?,
-      epoch_uuid = ?,
-      storage_generation = ?,
-      storage_generation_fence = ?,
-      sync_model_id = ?,
-      applied_through_sequence = ?,
-      evaluation_work_revision = ?,
-      fairness_anchor = ?,
-      query_count = ?,
-      retained_identity_bytes = ?,
-      dependency_memberships = ?,
-      pending_publication_count = ?,
-      in_flight_publication_count = ?,
-      retained_publication_content_bytes = ?,
-      settlement_envelope_bytes = ?,
-      counted_canonical_bytes = ?
-    WHERE singleton IS ?
-      AND scope_uuid IS ?
-      AND epoch_uuid IS ?
-      AND storage_generation IS ?
-      AND storage_generation_fence IS ?
-      AND sync_model_id IS ?
-      AND applied_through_sequence IS ?
-      AND evaluation_work_revision IS ?
-      AND fairness_anchor IS ?
-      AND query_count IS ?
-      AND retained_identity_bytes IS ?
-      AND dependency_memberships IS ?
-      AND pending_publication_count IS ?
-      AND in_flight_publication_count IS ?
-      AND retained_publication_content_bytes IS ?
-      AND settlement_envelope_bytes IS ?
-      AND counted_canonical_bytes IS ?
-    RETURNING singleton`,
-  ...scopeValues(next).slice(1),
-  ...scopeValues(expected));
-  expectSingleWrite(operation, cursor);
-}
-
-function expectSingleWrite(
-  operation: DeploymentQuerySyncC1Operation,
-  cursor: Readonly<{
-    readonly rowsWritten: number;
-    readonly toArray: () => readonly unknown[];
-  }>,
-): void {
-  const rows = cursor.toArray();
-  if (cursor.rowsWritten !== 1 || rows.length !== 1) {
-    throw new DeploymentQuerySyncAdapterInvariantDefect(operation);
-  }
-}
-
-function scopeValues(
-  row: EncodedDeploymentQuerySyncScopeRow,
-): SqlStorageValue[] {
-  return [
-    row.singleton,
-    row.scope_uuid,
-    row.epoch_uuid,
-    row.storage_generation,
-    row.storage_generation_fence,
-    row.sync_model_id,
-    row.applied_through_sequence,
-    row.evaluation_work_revision,
-    row.fairness_anchor,
-    row.query_count,
-    row.retained_identity_bytes,
-    row.dependency_memberships,
-    row.pending_publication_count,
-    row.in_flight_publication_count,
-    row.retained_publication_content_bytes,
-    row.settlement_envelope_bytes,
-    row.counted_canonical_bytes,
-  ];
 }
 
 function queryValues(

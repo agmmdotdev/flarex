@@ -10,19 +10,22 @@ Completed `SYNC01-A` through `SYNC01-F` remain current implementation evidence.
 `SYNC01-GP` is retained adapter-design evidence but its authorization to
 implement `SYNC01-G` directly as backend-owned semantics is superseded and
 held. Portable semantic state and reference orchestration are complete through
-`QSYNC01-C4`; their first real Flarex mappings and proposed SQLite adoption are
+`QSYNC01-C4`; their first real Flarex mappings and SQLite adoption are
 owned by the accepted
 [`QSYNC-FX01` preflight](./query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md).
 `QSYNC-FX01-A` is complete, private, and production-inert. The docs-only
 [`QSYNC-FX01-B` verdict](./query-sync-engine/preflight/08-qsync-fx01-b-semantic-persistence-verdict.md)
-is complete and stops before schema because the portable core lacks the
-complete nine-operation bounded plan seam. The accepted
+is complete and records its historical stop-before-schema verdict. The accepted
 [`QSYNC01-D0` record](./query-sync-engine/preflight/09-qsync01-d-operation-scoped-transition-plans.md)
-freezes that seam and its D1-D4 implementation order. The separately approved
-`QSYNC01-D1` portable-core slice is complete; D2-D4 and the package export
-remain gated.
+freezes that seam and its D1-D4 implementation order; D1-D4 and the private
+transition-plan export are complete. `QSYNC-FX01-C1` and its generation-2
+three-operation SQLite vertical are complete in `b94abbb0`. The accepted
+[`QSYNC-FX01-C2` checkpoint](./query-sync-engine/preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+and its generation-3 six-operation evaluation vertical were implemented on
+2026-08-30. C2 remains private, unrouted, production-inert, and open on its
+required exit-proof matrix; C3 remains a separate blocked preflight.
 Roadmap 21 remains the accepted concrete Flarex/Cloudflare adapter authority.
-SQLite implementation, ordered Postgres catch-up, registration,
+Completion/recovery SQLite state, ordered Postgres catch-up, registration,
 reset/reconnect, rerun, Durable Streams delivery, and production caller
 integration remain incomplete. Cache Durable Objects remain deferred
 optimizations.
@@ -118,15 +121,13 @@ per-scope actor work remains valid evidence. The existing production-inert
 `DeploymentSyncDO` remains the first Flarex host placement. It must later
 construct/adapt the portable engine; it does not become a second engine.
 
-`SYNC01-G` has not started. Its direct package-local backend form is withdrawn
-and held. Work may resume only after:
-
-1. the portable transition kernel/reference model is accepted -- complete;
-2. semantic state and reference orchestration contracts are derived from that
-   model -- complete through `QSYNC01-C4`; and
-3. `QSYNC01-D1` through D4 complete the sole portable operation-plan seam; and
-4. a fresh roadmap-21/Query Sync adapter checkpoint is accepted and its
-   bounded implementation subgate is separately approved.
+`SYNC01-G` has not started. Its direct package-local backend form is permanently
+withdrawn as implementation authority and does not resume. Its useful evidence
+flows only through the successor `QSYNC-FX01` adapter gates. The portable
+transition/reference, semantic-state/orchestration, and D1-D4 planner
+prerequisites are complete; C1 completed and C2 implemented their separately
+accepted adapter slices. C2's full proof remains open. C3 still requires C2
+exit plus its own explicit checkpoint and implementation approval.
 
 The Flarex model/source/SQLite adapter may proceed independently of delivery
 selection. Durable Streams must pass its own feasibility gate before any
@@ -478,18 +479,25 @@ The backend implements:
   and reconnect candidates.
 
 These capabilities preserve useful regression cases and reusable delivery
-mechanics, not the final scope-local sync protocol. A separate production-inert
-`DeploymentSyncDO` and fenced SQLite scope cursor now exist, but no persisted
-query/generation/dependency state, catch-up loop, `VersionDO`, `DocCacheDO`, or
-`QueryCacheDO` implementation exists.
+mechanics, not the final scope-local sync protocol. The production-inert
+`DeploymentSyncDO` remains an empty placement shell. The backend now contains
+one private generation-3 normalized SQLite authority intended for its
+object-local database. Its six-operation evaluation vertical covers binding,
+namespace initialization/inspection, evaluation begin, atomic admitted-batch
+invalidation plus cursor advance, completion evidence and dependency roles,
+pending-publication intent, evaluation claiming, and attempt outcomes. No
+production host constructs the adapter; publication claiming, publication
+attempt outcomes, and publication completion remain absent. No catch-up loop,
+`VersionDO`, `DocCacheDO`, or `QueryCacheDO` implementation exists.
 
-The current private backend-local policy/protocol work owns strict cursor and wake contracts,
-scope-local dependency keys, logical-read projection, and validated-commit
-invalidation projection. It also owns the complete canonical query identity,
-strict provisional and active generation contracts, canonical bounded
-dependency-set normalization, and pure activation classification. It does not
-store an inverted index, run a query, publish a result, or advance a cursor
-while collecting routing or activation evidence.
+The current private protocol/model/adapter work owns strict cursor and wake
+contracts, scope-local dependency keys, logical-read projection, validated-
+commit invalidation projection, canonical Flarex query identity, and the
+generation-3 SQLite representation. Portable query/generation decisions come
+from `@flarex/query-sync`; the deleted backend-local policy must not be
+recreated. The adapter has a normalized reverse dependency index and advances
+the cursor only through portable admitted-batch semantics. It does not run a
+query, claim publication work, deliver a result, or expose a production route.
 
 ## Known Gaps And Limitations
 
@@ -600,41 +608,44 @@ ordered gates are now:
 2. Query Sync Engine `QSYNC01-B` through `QSYNC01-C4` completed the trusted
    change-model boundary, semantic atomic state contract, and Effect-native
    reference orchestration.
-3. The accepted `QSYNC-FX01` preflight has completed A's mapping-only slice and
-   B's docs-only access-plan verdict. B stopped before SQLite schema because an
-   operation-scoped portable core seam is missing.
-4. `QSYNC01-D0` is accepted and `QSYNC01-D1` is complete with the shared
-   planner foundation, exact accounting, initialization, begin, and staged
-   admitted-batch application. Next decide whether to approve D2, evaluation
-   completion alone. C1-C3 remain blocked until
-   D1-D4 complete and a fresh adapter checkpoint is approved; do not add
-   duplicate state, compatibility writes, a second reducer, or schema-first
-   storage.
-5. Independently run `QSYNC-CF01` against pinned upstream Durable Streams
+3. The accepted `QSYNC-FX01` preflight completed A's mapping slice and B's
+   historical docs-only access-plan verdict. `QSYNC01-D1` through D4 then
+   completed the operation-scoped portable planner seam for all nine methods.
+4. `QSYNC-FX01-C1` completed the private generation-2 binding, initialization,
+   begin, and admitted-batch SQLite vertical in `b94abbb0`.
+5. `QSYNC-FX01-C2` implemented the private generation-3 six-operation
+   evaluation vertical on 2026-08-30 without duplicate state, compatibility
+   writes, a second reducer, or production routing.
+6. Complete C2's retained exit-proof matrix across maximum populations,
+   migration faults, races/read traces, and real Workerd boundaries.
+7. Separately preflight, accept, implement, and prove C3's publication lifecycle
+   and complete nine-operation adapter. FX01 remains incomplete until C3 exits.
+8. Independently run `QSYNC-CF01` against pinned upstream Durable Streams
    packages on real Cloudflare; accept or reject on conformance,
    auth/isolation, retention/rotation, payload, uncertainty recovery,
    lifecycle, and numeric cost gates. Rejection changes the delivery adapter,
    not the portable engine or Flarex state/source mapping.
-6. Implement duplicate/reverse/gap processing and ordered Postgres catch-up
+9. Implement duplicate/reverse/gap processing and ordered Postgres catch-up
    through the trusted Flarex `ChangeSource`; never advance across a missing
    commit.
-7. Add provisional registration, refresh against already processed commits,
+10. Add provisional registration, refresh against already processed commits,
    generation-fenced single-flight reruns, and unchanged-result suppression.
-8. Add the durable query-result publication outbox and the accepted delivery
-   adapter without making transport the trigger-recovery owner.
-9. Add a durable external lagging-scope sweep whose Postgres checkpoint mirror
+11. Process the already-semantic durable query-result publication outbox
+    through the accepted delivery adapter without adding a second outbox or
+    making transport the trigger-recovery owner.
+12. Add a durable external lagging-scope sweep whose Postgres checkpoint mirror
    may lag but can never lead the namespace cursor.
-10. Immediately before replacement sync admits reconnectable sessions, freeze
-    query leases, stream age/message/byte budgets, rotation, renewal, expiry,
-    auth change, and reset/resnapshot; add only the separately justified
-    retention storage.
-11. Prove real-Postgres mutation-to-client correctness for activation races,
+13. Immediately before replacement sync admits reconnectable sessions, freeze
+     query leases, stream age/message/byte budgets, rotation, renewal, expiry,
+     auth change, and reset/resnapshot; add only the separately justified
+     retention storage.
+14. Prove real-Postgres mutation-to-client correctness for activation races,
      lost wakes, gaps, concurrent reruns, actor eviction, epoch rollover,
      publication uncertainty, stream rotation, reconnect, and broad dependency
      fallbacks.
-12. Remove prototype SchedulerDO/Postgres registry and displaced unshipped sync
+15. Remove prototype SchedulerDO/Postgres registry and displaced unshipped sync
      code only after target-only recovery parity and all supported callers move.
-13. Run `R03-B` through the accepted portable engine plus Flarex adapters; no
+16. Run `R03-B` through the accepted portable engine plus Flarex adapters; no
      Legacy timestamp registry or compatibility `SchedulerDO` is an interim
      owner.
 
@@ -1173,13 +1184,16 @@ constraints below remain candidate requirements for a later Flarex/Cloudflare
 state-adapter preflight.
 
 `SYNC01-G` has not started and remains on hold. Portable semantic state,
-orchestration, and reference conformance are complete through `QSYNC01-C4`.
-The accepted `QSYNC-FX01` adapter preflight is the successor: A is complete and
-B stopped before schema pending a separate portable core-seam gate. It does not
-displace this roadmap's concrete Flarex/Cloudflare ownership. Completed
-`SYNC01-A` through `SYNC01-F` remain valid evidence. This correction authorizes
-no schema, migration, route, caller, dual registry, fallback, compatibility
-write, or production behavior.
+orchestration, planner seams, and reference conformance are complete through
+`QSYNC01-C4` and `QSYNC01-D4`. The accepted `QSYNC-FX01` adapter preflight is
+the successor: A and B are complete, C1 completed the private generation-2
+three-operation adapter, and C2 implemented the private generation-3
+six-operation evaluation adapter while retaining its open proof gate. This does
+not displace this roadmap's
+concrete Flarex/Cloudflare ownership. Completed `SYNC01-A` through `SYNC01-F`
+remain valid evidence. This
+retained superseded checkpoint authorizes no new schema, migration, route,
+caller, dual registry, fallback, compatibility write, or production behavior.
 
 The storage split preserves two different facts. The active generation is the
 last installed result and dependency set against which already admitted
@@ -1297,13 +1311,11 @@ derived from the portable reference model:
    stale generation, later cursor, or changed authority leaves the old active
    slot and provisional state unchanged and returns a typed conflict requiring
    refresh, rerun, or resnapshot at the owning caller.
-4. Preserve the existing cursor-only `advance` operation only while no query
-   rows exist. Once any query state exists, that operation fails with a typed
-   query-state-present conflict. It must not advance the cursor without routing
-   invalidations. A later fresh adapter preflight must map the portable
-   `applyAdmittedBatchAndAdvance` semantic operation into one synchronous
-   transaction that updates affected dirty-through frontiers and advances the
-   cursor.
+4. This superseded design originally proposed preserving cursor-only `advance`
+   while no query rows existed. C1 deliberately rejected that compatibility
+   path: generation 2 exposes only portable `applyAdmittedBatchAndAdvance`,
+   which routes invalidations and advances the cursor in one synchronous
+   transaction. No direct cursor-only runtime operation remains.
 
 An activation with an unchanged result hash still replaces dependency and
 freshness evidence; result equality cannot skip the transaction. The retained
@@ -1327,9 +1339,8 @@ round trips, fresh and replayed provisional registration, active/provisional
 coexistence, stale-generation and later-cursor rollback, atomic dependency
 replacement, exact reverse lookup for all three dependency variants, empty-set
 and bounded-maximum handling, child corruption detection, constructor re-entry,
-orphan detection, transaction rollback, and cursor-only advance refusal after
-query registration. Existing cursor behavior must remain green when no query
-state exists.
+orphan detection, transaction rollback, and complete direct-cursor-advance
+refusal. C1 now proves that refusal regardless of whether query state exists.
 
 Nothing in this retained section adds a query runner, feed interval reader,
 wake handler, catch-up loop, dirty-marking operation, alarm, external sweep,
@@ -1349,9 +1360,11 @@ parent/child validation remains required above.
 ### [ ] QSYNC-FX01 -- Flarex Mapping And Complete SQLite State Adapter
 
 Status: accepted split preflight. A is complete, private, and
-production-inert. B is complete docs-only with a stop-before-schema verdict.
-C1-C3 and all SQLite implementation remain blocked and unauthorized. D0 is an
-accepted portable-core design and D1 is complete; D2-D4 are not implemented.
+production-inert. B is complete docs-only with a historical stop-before-schema
+verdict. D1-D4 and the private planner seam are complete. C1 and its private
+generation-2 three-operation SQLite adapter are complete in `b94abbb0`. C2's
+private generation-3 six-operation evaluation vertical was implemented on
+2026-08-30, but its exit-proof matrix remains open; C3 remains a separate gate.
 
 The accepted umbrella record is
 [`query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md`](./query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md).
@@ -1365,12 +1378,14 @@ Object behavior, Postgres source read, evaluator, publisher, route, or caller.
 
 The completed docs-only B verdict is
 [`query-sync-engine/preflight/08-qsync-fx01-b-semantic-persistence-verdict.md`](./query-sync-engine/preflight/08-qsync-fx01-b-semantic-persistence-verdict.md).
-It proves bounded logical plans for all nine operations but rejects schema work
-until the accepted portable operation-plan design is implemented for all nine
-operations. Only after D1-D4 complete and a fresh adapter checkpoint is
-approved may C1-C3 evolve the existing cursor database in place into the
-complete adapter and publication outbox. They must use one table set and
-cursor authority, pass reference conformance plus genuine Workerd
-restart/rollback/corruption proof, and remove or fence the old direct
-cursor/query-generation path. Nothing here reauthorizes the withdrawn
-direct-backend `SYNC01-G` design or unblocks `R03-B`.
+It proves bounded logical plans for all nine operations and records why B
+historically rejected schema work before the portable operation-plan design
+existed. D1-D4 closed that core seam and C1 evolved the existing cursor database
+in place without a second authority. The completed
+[`QSYNC-FX01-C2` checkpoint](./query-sync-engine/preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+records the six-operation generation-3 evaluation boundary. C2 and the later
+C3 complete adapter must continue using one table set and cursor
+authority, pass reference/oracle plus genuine Workerd restart/rollback/
+corruption proof, and retain no direct cursor/query-generation compatibility
+path. Nothing here reauthorizes the withdrawn direct-backend `SYNC01-G` design
+or unblocks `R03-B`.

@@ -8,7 +8,6 @@ import {
   MAX_RETAINED_QUERY_IDENTITY_BYTES,
   PUBLICATION_SETTLEMENT_LIFECYCLE_BYTES,
   blockedQueryEvaluationDisposition,
-  captureCanonicalDependencyKey,
   captureCanonicalQueryKey,
   captureNamespaceCursor,
   captureQueryAuthorityWitness,
@@ -22,8 +21,6 @@ import {
   captureSyncNamespaceId,
   captureSyncSequence,
   readyQueryEvaluationDisposition,
-  type CanonicalDependencyKey,
-  type QueryGeneration,
   type QuerySyncCanonicalValueError,
   type SyncModelId,
 } from "@flarex/query-sync/internal/kernel";
@@ -50,20 +47,25 @@ import {
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 
-const LOCAL_CONTRACT_GENERATION = 2 as const;
+const GENERATION_2_LOCAL_CONTRACT = 2 as const;
+const LOCAL_CONTRACT_GENERATION = 3 as const;
 const LEGACY_LOCAL_SCHEMA_REVISION = 1 as const;
 const MAX_IN_FLIGHT_PUBLICATION_COUNT = 1;
 
-type DeploymentQuerySyncRowKind =
+export type DeploymentQuerySyncRowKind =
   | "generation1Scope"
   | "contract"
   | "scope"
   | "query"
   | "affectedTarget"
   | "affectedActive"
-  | "dependency";
+  | "dependency"
+  | "evaluationQuery"
+  | "evaluationAttemptOutcome"
+  | "evaluationWorkScan"
+  | "pendingPublication";
 
-type DeploymentQuerySyncRowField =
+export type DeploymentQuerySyncRowField =
   | "singleton"
   | "local_schema_revision"
   | "local_contract_generation"
@@ -98,11 +100,26 @@ type DeploymentQuerySyncRowField =
   | "provisional_registration_sequence"
   | "provisional_requested_dirty_through_sequence"
   | "provisional_disposition"
+  | "completion_generation"
+  | "completion_expected_active_generation"
+  | "completion_registration_sequence"
+  | "completion_requested_dirty_through_sequence"
+  | "completion_evaluation_snapshot_sequence"
+  | "completion_evaluation_authority_witness"
+  | "completion_refreshed_through_sequence"
+  | "completion_relevant_through_sequence"
+  | "completion_refresh_authority_witness"
+  | "completion_result_digest"
+  | "completion_publication_disposition"
+  | "preceding_completion_generation"
+  | "completed_through_sequence"
+  | "result_digest"
+  | "content"
   | "role"
   | "generation"
   | "dependency_key";
 
-type DeploymentQuerySyncRowCodecCause =
+export type DeploymentQuerySyncRowCodecCause =
   | Schema.SchemaError
   | QuerySyncCanonicalValueError
   | null;
@@ -117,6 +134,11 @@ export class DeploymentQuerySyncRowCodecError extends Data.TaggedError(
     | "limitExceeded"
     | "activeGroupInvalid"
     | "provisionalGroupInvalid"
+    | "completionGroupInvalid"
+    | "completionFactsInvalid"
+    | "generation3ScopeInvalid"
+    | "pendingPublicationFactsInvalid"
+    | "scanFactsInvalid"
     | "queryFactsInvalid"
     | "unsupportedContractGeneration"
     | "unsupportedLegacyRevision";
@@ -138,6 +160,11 @@ export interface DeploymentQuerySyncContractState {
   readonly durableInitializedHistory: boolean;
 }
 
+export interface DeploymentQuerySyncGeneration2ContractState {
+  readonly localContractGeneration: typeof GENERATION_2_LOCAL_CONTRACT;
+  readonly durableInitializedHistory: boolean;
+}
+
 export interface DeploymentQuerySyncStoredScopeState {
   readonly scopeUuid: ScopeUuidV1;
   readonly epochUuid: ScopeEpochUuidV1;
@@ -145,13 +172,6 @@ export interface DeploymentQuerySyncStoredScopeState {
   readonly storageGenerationFence: StorageGenerationFence;
   readonly syncModelId: SyncModelId;
   readonly facts: QuerySyncScopeFacts;
-}
-
-export interface DeploymentQuerySyncActiveDependency {
-  readonly role: "active";
-  readonly queryKey: AffectedActiveQueryTarget["queryKey"];
-  readonly generation: QueryGeneration;
-  readonly dependencyKey: CanonicalDependencyKey;
 }
 
 export interface EncodedDeploymentQuerySyncScopeRow {
@@ -174,7 +194,7 @@ export interface EncodedDeploymentQuerySyncScopeRow {
   readonly counted_canonical_bytes: number;
 }
 
-export interface EncodedDeploymentQuerySyncQueryRow {
+export interface DeploymentQuerySyncBaseQueryRowValues {
   readonly query_key: string;
   readonly query_identity: string;
   readonly active_generation: string | null;
@@ -187,6 +207,11 @@ export interface EncodedDeploymentQuerySyncQueryRow {
   readonly provisional_expected_active_generation: string | null;
   readonly provisional_registration_sequence: string | null;
   readonly provisional_requested_dirty_through_sequence: string | null;
+  readonly provisional_disposition: string | null;
+}
+
+export interface EncodedDeploymentQuerySyncQueryRow
+  extends DeploymentQuerySyncBaseQueryRowValues {
   readonly provisional_disposition: "ready" | "blocked" | null;
 }
 
@@ -198,13 +223,6 @@ export interface EncodedDeploymentQuerySyncAffectedActiveRow {
   readonly active_dirty_through_sequence: string | null;
   readonly active_result_digest: string;
   readonly active_authority_witness: string;
-}
-
-export interface EncodedDeploymentQuerySyncDependencyRow {
-  readonly role: "active";
-  readonly query_key: string;
-  readonly generation: string;
-  readonly dependency_key: string;
 }
 
 const RawGeneration1ScopeRowSchema = Schema.Struct({
@@ -243,7 +261,7 @@ const RawScopeRowSchema = Schema.Struct({
   counted_canonical_bytes: Schema.Number,
 });
 
-const RawQueryRowSchema = Schema.Struct({
+export const deploymentQuerySyncBaseQueryRowSchemaFields = {
   query_key: Schema.String,
   query_identity: Schema.String,
   active_generation: Schema.NullOr(Schema.String),
@@ -257,7 +275,11 @@ const RawQueryRowSchema = Schema.Struct({
   provisional_registration_sequence: Schema.NullOr(Schema.String),
   provisional_requested_dirty_through_sequence: Schema.NullOr(Schema.String),
   provisional_disposition: Schema.NullOr(Schema.String),
-});
+} as const;
+
+const RawQueryRowSchema = Schema.Struct(
+  deploymentQuerySyncBaseQueryRowSchemaFields,
+);
 
 const RawAffectedTargetRowSchema = Schema.Struct({
   query_key: Schema.String,
@@ -272,13 +294,6 @@ const RawAffectedActiveRowSchema = Schema.Struct({
   active_dirty_through_sequence: Schema.NullOr(Schema.String),
   active_result_digest: Schema.String,
   active_authority_witness: Schema.String,
-});
-
-const RawDependencyRowSchema = Schema.Struct({
-  role: Schema.String,
-  query_key: Schema.String,
-  generation: Schema.String,
-  dependency_key: Schema.String,
 });
 
 const strictRowOptions = { onExcessProperty: "error" } as const;
@@ -306,11 +321,6 @@ const decodeRawAffectedActiveRow = Schema.decodeUnknownResult(
   RawAffectedActiveRowSchema,
   strictRowOptions,
 );
-const decodeRawDependencyRow = Schema.decodeUnknownResult(
-  RawDependencyRowSchema,
-  strictRowOptions,
-);
-
 const decodeScopeUuid = Schema.decodeUnknownResult(
   Schema.toType(ScopeUuidV1Schema),
 );
@@ -325,7 +335,7 @@ const decodeStorageGenerationFence = Schema.decodeUnknownResult(
 );
 const decodeCommitSeq = Schema.decodeUnknownResult(CommitSeqSchema);
 
-function rowCodecError(
+export function deploymentQuerySyncRowCodecError(
   rowKind: DeploymentQuerySyncRowKind,
   reason: DeploymentQuerySyncRowCodecError["reason"],
   field: DeploymentQuerySyncRowField | null,
@@ -339,11 +349,11 @@ function rowCodecError(
   });
 }
 
-function decodeShape<Value>(
+export function decodeDeploymentQuerySyncRowShapeResult<Value>(
   rowKind: DeploymentQuerySyncRowKind,
   result: Result.Result<Value, Schema.SchemaError>,
 ): Result.Result<Value, DeploymentQuerySyncRowCodecError> {
-  return result.pipe(Result.mapError((cause) => rowCodecError(
+  return result.pipe(Result.mapError((cause) => deploymentQuerySyncRowCodecError(
     rowKind,
     "shapeInvalid",
     null,
@@ -351,12 +361,12 @@ function decodeShape<Value>(
   )));
 }
 
-function decodeSchemaValue<Value>(
+export function decodeDeploymentQuerySyncSchemaValueResult<Value>(
   rowKind: DeploymentQuerySyncRowKind,
   field: DeploymentQuerySyncRowField,
   result: Result.Result<Value, Schema.SchemaError>,
 ): Result.Result<Value, DeploymentQuerySyncRowCodecError> {
-  return result.pipe(Result.mapError((cause) => rowCodecError(
+  return result.pipe(Result.mapError((cause) => deploymentQuerySyncRowCodecError(
     rowKind,
     "valueInvalid",
     field,
@@ -364,12 +374,12 @@ function decodeSchemaValue<Value>(
   )));
 }
 
-function captureCanonicalValue<Value>(
+export function captureDeploymentQuerySyncCanonicalValueResult<Value>(
   rowKind: DeploymentQuerySyncRowKind,
   field: DeploymentQuerySyncRowField,
   result: Result.Result<Value, QuerySyncCanonicalValueError>,
 ): Result.Result<Value, DeploymentQuerySyncRowCodecError> {
-  return result.pipe(Result.mapError((cause) => rowCodecError(
+  return result.pipe(Result.mapError((cause) => deploymentQuerySyncRowCodecError(
     rowKind,
     "valueInvalid",
     field,
@@ -380,10 +390,11 @@ function captureCanonicalValue<Value>(
 function captureStoredQueryDescriptor(
   queryKey: string,
   queryIdentity: string,
+  rowKind: "query" | "evaluationQuery" | "evaluationAttemptOutcome" = "query",
 ) {
   return captureQueryDescriptor({ queryKey, queryIdentity }).pipe(
-    Result.mapError((cause) => rowCodecError(
-      "query",
+    Result.mapError((cause) => deploymentQuerySyncRowCodecError(
+      rowKind,
       "valueInvalid",
       cause.field === "queryIdentity" ? "query_identity" : "query_key",
       cause,
@@ -396,16 +407,20 @@ function decodeCanonicalCommitSeq(
   field: DeploymentQuerySyncRowField,
   value: string,
 ): Result.Result<CommitSeq, DeploymentQuerySyncRowCodecError> {
-  return decodeSchemaValue(rowKind, field, decodeCommitSeq(value));
+  return decodeDeploymentQuerySyncSchemaValueResult(
+    rowKind,
+    field,
+    decodeCommitSeq(value),
+  );
 }
 
-function decodeSyncSequence(
+export function decodeDeploymentQuerySyncSequenceResult(
   rowKind: DeploymentQuerySyncRowKind,
   field: DeploymentQuerySyncRowField,
   value: string,
 ) {
   return decodeCanonicalCommitSeq(rowKind, field, value).pipe(
-    Result.flatMap((decoded) => captureCanonicalValue(
+    Result.flatMap((decoded) => captureDeploymentQuerySyncCanonicalValueResult(
       rowKind,
       field,
       captureSyncSequence(decoded),
@@ -413,13 +428,13 @@ function decodeSyncSequence(
   );
 }
 
-function decodeQueryGeneration(
+export function decodeDeploymentQuerySyncGenerationResult(
   rowKind: DeploymentQuerySyncRowKind,
   field: DeploymentQuerySyncRowField,
   value: string,
 ) {
   return decodeCanonicalCommitSeq(rowKind, field, value).pipe(
-    Result.flatMap((decoded) => captureCanonicalValue(
+    Result.flatMap((decoded) => captureDeploymentQuerySyncCanonicalValueResult(
       rowKind,
       field,
       captureQueryGeneration(decoded),
@@ -427,13 +442,13 @@ function decodeQueryGeneration(
   );
 }
 
-function decodeQuerySnapshot(
+export function decodeDeploymentQuerySyncSnapshotResult(
   rowKind: DeploymentQuerySyncRowKind,
   field: DeploymentQuerySyncRowField,
   value: string,
 ) {
   return decodeCanonicalCommitSeq(rowKind, field, value).pipe(
-    Result.flatMap((decoded) => captureCanonicalValue(
+    Result.flatMap((decoded) => captureDeploymentQuerySyncCanonicalValueResult(
       rowKind,
       field,
       captureQuerySnapshot(decoded),
@@ -448,31 +463,31 @@ function decodeWorkRevision(
     "scope",
     "evaluation_work_revision",
     value,
-  ).pipe(Result.flatMap((decoded) => captureCanonicalValue(
+  ).pipe(Result.flatMap((decoded) => captureDeploymentQuerySyncCanonicalValueResult(
     "scope",
     "evaluation_work_revision",
     captureQuerySyncWorkRevision(decoded),
   )));
 }
 
-function decodeNullableSyncSequence(
+export function decodeDeploymentQuerySyncNullableSequenceResult(
   rowKind: DeploymentQuerySyncRowKind,
   field: DeploymentQuerySyncRowField,
   value: string | null,
 ) {
   return value === null
     ? Result.succeed(null)
-    : decodeSyncSequence(rowKind, field, value);
+    : decodeDeploymentQuerySyncSequenceResult(rowKind, field, value);
 }
 
-function decodeNullableQueryGeneration(
+export function decodeDeploymentQuerySyncNullableGenerationResult(
   rowKind: DeploymentQuerySyncRowKind,
   field: DeploymentQuerySyncRowField,
   value: string | null,
 ) {
   return value === null
     ? Result.succeed(null)
-    : decodeQueryGeneration(rowKind, field, value);
+    : decodeDeploymentQuerySyncGenerationResult(rowKind, field, value);
 }
 
 function decodeBoundedCounter(
@@ -482,7 +497,7 @@ function decodeBoundedCounter(
 ): Result.Result<number, DeploymentQuerySyncRowCodecError> {
   return isNonNegativeSafeInteger(value) && value <= maximum
     ? Result.succeed(value)
-    : Result.fail(rowCodecError(
+    : Result.fail(deploymentQuerySyncRowCodecError(
       "scope",
       "limitExceeded",
       field,
@@ -553,7 +568,8 @@ function activeGroupIsAbsent(row: {
 }
 
 function decodeRequiredActiveFacts(
-  rowKind: "query" | "affectedActive",
+  rowKind: "query" | "affectedActive" | "evaluationQuery"
+    | "evaluationAttemptOutcome",
   row: {
     readonly active_generation: string;
     readonly active_evaluation_snapshot_sequence: string;
@@ -566,32 +582,32 @@ function decodeRequiredActiveFacts(
 ): Result.Result<ActiveQueryScalarFacts, DeploymentQuerySyncRowCodecError> {
   return Result.gen(function* () {
     const active = Object.freeze({
-      generation: yield* decodeQueryGeneration(
+      generation: yield* decodeDeploymentQuerySyncGenerationResult(
         rowKind,
         "active_generation",
         row.active_generation,
       ),
-      evaluationSnapshotSequence: yield* decodeQuerySnapshot(
+      evaluationSnapshotSequence: yield* decodeDeploymentQuerySyncSnapshotResult(
         rowKind,
         "active_evaluation_snapshot_sequence",
         row.active_evaluation_snapshot_sequence,
       ),
-      freshThroughSequence: yield* decodeSyncSequence(
+      freshThroughSequence: yield* decodeDeploymentQuerySyncSequenceResult(
         rowKind,
         "active_fresh_through_sequence",
         row.active_fresh_through_sequence,
       ),
-      dirtyThroughSequence: yield* decodeNullableSyncSequence(
+      dirtyThroughSequence: yield* decodeDeploymentQuerySyncNullableSequenceResult(
         rowKind,
         "active_dirty_through_sequence",
         row.active_dirty_through_sequence,
       ),
-      resultDigest: yield* captureCanonicalValue(
+      resultDigest: yield* captureDeploymentQuerySyncCanonicalValueResult(
         rowKind,
         "active_result_digest",
         captureQueryResultDigest(row.active_result_digest),
       ),
-      authorityWitness: yield* captureCanonicalValue(
+      authorityWitness: yield* captureDeploymentQuerySyncCanonicalValueResult(
         rowKind,
         "active_authority_witness",
         captureQueryAuthorityWitness(row.active_authority_witness),
@@ -599,7 +615,7 @@ function decodeRequiredActiveFacts(
     } satisfies ActiveQueryScalarFacts);
     return activeFactsValid(scope, active)
       ? active
-      : yield* Result.fail(rowCodecError(
+      : yield* Result.fail(deploymentQuerySyncRowCodecError(
         rowKind,
         "activeGroupInvalid",
         null,
@@ -614,40 +630,40 @@ export function decodeDeploymentSyncGeneration1ScopeRowResult(
   DeploymentQuerySyncRowCodecError
 > {
   return Result.gen(function* () {
-    const row = yield* decodeShape(
+    const row = yield* decodeDeploymentQuerySyncRowShapeResult(
       "generation1Scope",
       decodeRawGeneration1ScopeRow(input),
     );
     if (row.singleton !== 1) {
-      return yield* Result.fail(rowCodecError(
+      return yield* Result.fail(deploymentQuerySyncRowCodecError(
         "generation1Scope",
         "valueInvalid",
         "singleton",
       ));
     }
     if (row.local_schema_revision !== LEGACY_LOCAL_SCHEMA_REVISION) {
-      return yield* Result.fail(rowCodecError(
+      return yield* Result.fail(deploymentQuerySyncRowCodecError(
         "generation1Scope",
         "unsupportedLegacyRevision",
         "local_schema_revision",
       ));
     }
-    const scopeUuid = yield* decodeSchemaValue(
+    const scopeUuid = yield* decodeDeploymentQuerySyncSchemaValueResult(
       "generation1Scope",
       "scope_uuid",
       decodeScopeUuid(row.scope_uuid),
     );
-    const epochUuid = yield* decodeSchemaValue(
+    const epochUuid = yield* decodeDeploymentQuerySyncSchemaValueResult(
       "generation1Scope",
       "epoch_uuid",
       decodeEpochUuid(row.epoch_uuid),
     );
-    const storageGeneration = yield* decodeSchemaValue(
+    const storageGeneration = yield* decodeDeploymentQuerySyncSchemaValueResult(
       "generation1Scope",
       "storage_generation",
       decodeStorageGeneration(row.storage_generation),
     );
-    const storageGenerationFence = yield* decodeSchemaValue(
+    const storageGenerationFence = yield* decodeDeploymentQuerySyncSchemaValueResult(
       "generation1Scope",
       "storage_generation_fence",
       decodeStorageGenerationFence(row.storage_generation_fence),
@@ -674,20 +690,42 @@ export function decodeDeploymentQuerySyncContractRowResult(
   DeploymentQuerySyncContractState,
   DeploymentQuerySyncRowCodecError
 > {
+  return decodeContractRowResult(input, LOCAL_CONTRACT_GENERATION);
+}
+
+export function decodeDeploymentQuerySyncGeneration2ContractRowResult(
+  input: unknown,
+): Result.Result<
+  DeploymentQuerySyncGeneration2ContractState,
+  DeploymentQuerySyncRowCodecError
+> {
+  return decodeContractRowResult(input, GENERATION_2_LOCAL_CONTRACT);
+}
+
+function decodeContractRowResult<Generation extends 2 | 3>(
+  input: unknown,
+  expectedGeneration: Generation,
+): Result.Result<
+  Readonly<{
+    readonly localContractGeneration: Generation;
+    readonly durableInitializedHistory: boolean;
+  }>,
+  DeploymentQuerySyncRowCodecError
+> {
   return Result.gen(function* () {
-    const row = yield* decodeShape(
+    const row = yield* decodeDeploymentQuerySyncRowShapeResult(
       "contract",
       decodeRawContractRow(input),
     );
     if (row.singleton !== 1) {
-      return yield* Result.fail(rowCodecError(
+      return yield* Result.fail(deploymentQuerySyncRowCodecError(
         "contract",
         "valueInvalid",
         "singleton",
       ));
     }
-    if (row.local_contract_generation !== LOCAL_CONTRACT_GENERATION) {
-      return yield* Result.fail(rowCodecError(
+    if (row.local_contract_generation !== expectedGeneration) {
+      return yield* Result.fail(deploymentQuerySyncRowCodecError(
         "contract",
         "unsupportedContractGeneration",
         "local_contract_generation",
@@ -697,14 +735,14 @@ export function decodeDeploymentQuerySyncContractRowResult(
       row.durable_initialized_history !== 0
       && row.durable_initialized_history !== 1
     ) {
-      return yield* Result.fail(rowCodecError(
+      return yield* Result.fail(deploymentQuerySyncRowCodecError(
         "contract",
         "valueInvalid",
         "durable_initialized_history",
       ));
     }
     return Object.freeze({
-      localContractGeneration: LOCAL_CONTRACT_GENERATION,
+      localContractGeneration: expectedGeneration,
       durableInitializedHistory: row.durable_initialized_history === 1,
     });
   });
@@ -717,55 +755,58 @@ export function decodeDeploymentQuerySyncScopeRowResult(
   DeploymentQuerySyncRowCodecError
 > {
   return Result.gen(function* () {
-    const row = yield* decodeShape("scope", decodeRawScopeRow(input));
+    const row = yield* decodeDeploymentQuerySyncRowShapeResult(
+      "scope",
+      decodeRawScopeRow(input),
+    );
     if (row.singleton !== 1) {
-      return yield* Result.fail(rowCodecError(
+      return yield* Result.fail(deploymentQuerySyncRowCodecError(
         "scope",
         "valueInvalid",
         "singleton",
       ));
     }
-    const scopeUuid = yield* decodeSchemaValue(
+    const scopeUuid = yield* decodeDeploymentQuerySyncSchemaValueResult(
       "scope",
       "scope_uuid",
       decodeScopeUuid(row.scope_uuid),
     );
-    const epochUuid = yield* decodeSchemaValue(
+    const epochUuid = yield* decodeDeploymentQuerySyncSchemaValueResult(
       "scope",
       "epoch_uuid",
       decodeEpochUuid(row.epoch_uuid),
     );
-    const storageGeneration = yield* decodeSchemaValue(
+    const storageGeneration = yield* decodeDeploymentQuerySyncSchemaValueResult(
       "scope",
       "storage_generation",
       decodeStorageGeneration(row.storage_generation),
     );
-    const storageGenerationFence = yield* decodeSchemaValue(
+    const storageGenerationFence = yield* decodeDeploymentQuerySyncSchemaValueResult(
       "scope",
       "storage_generation_fence",
       decodeStorageGenerationFence(row.storage_generation_fence),
     );
-    const namespaceId = yield* captureCanonicalValue(
+    const namespaceId = yield* captureDeploymentQuerySyncCanonicalValueResult(
       "scope",
       "scope_uuid",
       captureSyncNamespaceId(scopeUuid),
     );
-    const sourceEpoch = yield* captureCanonicalValue(
+    const sourceEpoch = yield* captureDeploymentQuerySyncCanonicalValueResult(
       "scope",
       "epoch_uuid",
       captureSyncEpoch(epochUuid),
     );
-    const syncModelId = yield* captureCanonicalValue(
+    const syncModelId = yield* captureDeploymentQuerySyncCanonicalValueResult(
       "scope",
       "sync_model_id",
       captureSyncModelId(row.sync_model_id),
     );
-    const appliedThroughSequence = yield* decodeSyncSequence(
+    const appliedThroughSequence = yield* decodeDeploymentQuerySyncSequenceResult(
       "scope",
       "applied_through_sequence",
       row.applied_through_sequence,
     );
-    const cursor = yield* captureCanonicalValue(
+    const cursor = yield* captureDeploymentQuerySyncCanonicalValueResult(
       "scope",
       "applied_through_sequence",
       captureNamespaceCursor({
@@ -778,7 +819,7 @@ export function decodeDeploymentQuerySyncScopeRowResult(
     const revision = yield* decodeWorkRevision(row.evaluation_work_revision);
     const fairnessAnchor = row.fairness_anchor === null
       ? null
-      : yield* captureCanonicalValue(
+      : yield* captureDeploymentQuerySyncCanonicalValueResult(
         "scope",
         "fairness_anchor",
         captureCanonicalQueryKey(row.fairness_anchor),
@@ -841,22 +882,66 @@ export function decodeDeploymentQuerySyncScopeRowResult(
   });
 }
 
+export function decodeDeploymentQuerySyncGeneration3ScopeRowResult(
+  input: unknown,
+): Result.Result<
+  DeploymentQuerySyncStoredScopeState,
+  DeploymentQuerySyncRowCodecError
+> {
+  return decodeDeploymentQuerySyncScopeRowResult(input).pipe(
+    Result.flatMap((state) => {
+      if (state.facts.metrics.inFlightPublicationCount !== 0) {
+        return Result.fail(deploymentQuerySyncRowCodecError(
+          "scope",
+          "generation3ScopeInvalid",
+          "in_flight_publication_count",
+        ));
+      }
+      return state.facts.metrics.settlementEnvelopeBytes === 0
+        ? Result.succeed(state)
+        : Result.fail(deploymentQuerySyncRowCodecError(
+          "scope",
+          "generation3ScopeInvalid",
+          "settlement_envelope_bytes",
+        ));
+    }),
+  );
+}
+
 export function decodeDeploymentQuerySyncQueryRowResult(
   input: unknown,
   scope: QuerySyncScopeFacts,
 ): Result.Result<BeginQueryFacts, DeploymentQuerySyncRowCodecError> {
   return Result.gen(function* () {
-    const row = yield* decodeShape("query", decodeRawQueryRow(input));
+    const row = yield* decodeDeploymentQuerySyncRowShapeResult(
+      "query",
+      decodeRawQueryRow(input),
+    );
+    return yield* decodeDeploymentQuerySyncBaseQueryRowValuesResult(
+      row,
+      scope,
+      "query",
+    );
+  });
+}
+
+export function decodeDeploymentQuerySyncBaseQueryRowValuesResult(
+  row: DeploymentQuerySyncBaseQueryRowValues,
+  scope: QuerySyncScopeFacts,
+  rowKind: "query" | "evaluationQuery" | "evaluationAttemptOutcome",
+): Result.Result<BeginQueryFacts, DeploymentQuerySyncRowCodecError> {
+  return Result.gen(function* () {
     const descriptor = yield* captureStoredQueryDescriptor(
       row.query_key,
       row.query_identity,
+      rowKind,
     );
 
     let active: ActiveQueryScalarFacts | null;
     if (row.active_generation === null) {
       if (!activeGroupIsAbsent(row)) {
-        return yield* Result.fail(rowCodecError(
-          "query",
+        return yield* Result.fail(deploymentQuerySyncRowCodecError(
+          rowKind,
           "activeGroupInvalid",
           null,
         ));
@@ -869,13 +954,13 @@ export function decodeDeploymentQuerySyncQueryRowResult(
         || row.active_result_digest === null
         || row.active_authority_witness === null
       ) {
-        return yield* Result.fail(rowCodecError(
-          "query",
+        return yield* Result.fail(deploymentQuerySyncRowCodecError(
+          rowKind,
           "activeGroupInvalid",
           null,
         ));
       }
-      active = yield* decodeRequiredActiveFacts("query", {
+      active = yield* decodeRequiredActiveFacts(rowKind, {
         active_generation: row.active_generation,
         active_evaluation_snapshot_sequence:
           row.active_evaluation_snapshot_sequence,
@@ -896,8 +981,8 @@ export function decodeDeploymentQuerySyncQueryRowResult(
         || row.provisional_disposition !== null
       )
     ) {
-      return yield* Result.fail(rowCodecError(
-        "query",
+      return yield* Result.fail(deploymentQuerySyncRowCodecError(
+        rowKind,
         "provisionalGroupInvalid",
         null,
       ));
@@ -912,19 +997,19 @@ export function decodeDeploymentQuerySyncQueryRowResult(
           && row.provisional_disposition !== "blocked"
         )
       ) {
-        return yield* Result.fail(rowCodecError(
-          "query",
+        return yield* Result.fail(deploymentQuerySyncRowCodecError(
+          rowKind,
           "provisionalGroupInvalid",
           null,
         ));
       }
-      const registrationSequence = yield* decodeSyncSequence(
-        "query",
+      const registrationSequence = yield* decodeDeploymentQuerySyncSequenceResult(
+        rowKind,
         "provisional_registration_sequence",
         row.provisional_registration_sequence,
       );
-      const registrationCursor = yield* captureCanonicalValue(
-        "query",
+      const registrationCursor = yield* captureDeploymentQuerySyncCanonicalValueResult(
+        rowKind,
         "provisional_registration_sequence",
         captureNamespaceCursor({
           namespaceId: scope.cursor.namespaceId,
@@ -934,19 +1019,19 @@ export function decodeDeploymentQuerySyncQueryRowResult(
         }),
       );
       provisional = Object.freeze({
-        generation: yield* decodeQueryGeneration(
-          "query",
+        generation: yield* decodeDeploymentQuerySyncGenerationResult(
+          rowKind,
           "provisional_generation",
           row.provisional_generation,
         ),
-        expectedActiveGeneration: yield* decodeNullableQueryGeneration(
-          "query",
+        expectedActiveGeneration: yield* decodeDeploymentQuerySyncNullableGenerationResult(
+          rowKind,
           "provisional_expected_active_generation",
           row.provisional_expected_active_generation,
         ),
         registrationCursor,
-        requestedDirtyThroughSequence: yield* decodeNullableSyncSequence(
-          "query",
+        requestedDirtyThroughSequence: yield* decodeDeploymentQuerySyncNullableSequenceResult(
+          rowKind,
           "provisional_requested_dirty_through_sequence",
           row.provisional_requested_dirty_through_sequence,
         ),
@@ -955,16 +1040,16 @@ export function decodeDeploymentQuerySyncQueryRowResult(
           : blockedQueryEvaluationDisposition(),
       });
       if (!provisionalFactsValid(scope, active, provisional)) {
-        return yield* Result.fail(rowCodecError(
-          "query",
+        return yield* Result.fail(deploymentQuerySyncRowCodecError(
+          rowKind,
           "provisionalGroupInvalid",
           null,
         ));
       }
     }
     if (active === null && provisional === null) {
-      return yield* Result.fail(rowCodecError(
-        "query",
+      return yield* Result.fail(deploymentQuerySyncRowCodecError(
+        rowKind,
         "queryFactsInvalid",
         null,
       ));
@@ -980,17 +1065,17 @@ export function decodeDeploymentQuerySyncAffectedTargetRowResult(
   DeploymentQuerySyncRowCodecError
 > {
   return Result.gen(function* () {
-    const row = yield* decodeShape(
+    const row = yield* decodeDeploymentQuerySyncRowShapeResult(
       "affectedTarget",
       decodeRawAffectedTargetRow(input),
     );
     return Object.freeze({
-      queryKey: yield* captureCanonicalValue(
+      queryKey: yield* captureDeploymentQuerySyncCanonicalValueResult(
         "affectedTarget",
         "query_key",
         captureCanonicalQueryKey(row.query_key),
       ),
-      activeGeneration: yield* decodeQueryGeneration(
+      activeGeneration: yield* decodeDeploymentQuerySyncGenerationResult(
         "affectedTarget",
         "active_generation",
         row.active_generation,
@@ -1007,7 +1092,7 @@ export function decodeDeploymentQuerySyncAffectedActiveRowResult(
   DeploymentQuerySyncRowCodecError
 > {
   return Result.gen(function* () {
-    const row = yield* decodeShape(
+    const row = yield* decodeDeploymentQuerySyncRowShapeResult(
       "affectedActive",
       decodeRawAffectedActiveRow(input),
     );
@@ -1017,51 +1102,12 @@ export function decodeDeploymentQuerySyncAffectedActiveRowResult(
       scope,
     );
     return Object.freeze({
-      queryKey: yield* captureCanonicalValue(
+      queryKey: yield* captureDeploymentQuerySyncCanonicalValueResult(
         "affectedActive",
         "query_key",
         captureCanonicalQueryKey(row.query_key),
       ),
       ...active,
-    });
-  });
-}
-
-export function decodeDeploymentQuerySyncDependencyRowResult(
-  input: unknown,
-): Result.Result<
-  DeploymentQuerySyncActiveDependency,
-  DeploymentQuerySyncRowCodecError
-> {
-  return Result.gen(function* () {
-    const row = yield* decodeShape(
-      "dependency",
-      decodeRawDependencyRow(input),
-    );
-    if (row.role !== "active") {
-      return yield* Result.fail(rowCodecError(
-        "dependency",
-        "valueInvalid",
-        "role",
-      ));
-    }
-    return Object.freeze({
-      role: "active" as const,
-      queryKey: yield* captureCanonicalValue(
-        "dependency",
-        "query_key",
-        captureCanonicalQueryKey(row.query_key),
-      ),
-      generation: yield* decodeQueryGeneration(
-        "dependency",
-        "generation",
-        row.generation,
-      ),
-      dependencyKey: yield* captureCanonicalValue(
-        "dependency",
-        "dependency_key",
-        captureCanonicalDependencyKey(row.dependency_key),
-      ),
     });
   });
 }
@@ -1135,16 +1181,5 @@ export function encodeDeploymentQuerySyncAffectedActiveRow(
       facts.dirtyThroughSequence?.toString() ?? null,
     active_result_digest: facts.resultDigest,
     active_authority_witness: facts.authorityWitness,
-  });
-}
-
-export function encodeDeploymentQuerySyncDependencyRow(
-  dependency: DeploymentQuerySyncActiveDependency,
-): EncodedDeploymentQuerySyncDependencyRow {
-  return Object.freeze({
-    role: "active",
-    query_key: dependency.queryKey,
-    generation: dependency.generation.toString(),
-    dependency_key: dependency.dependencyKey,
   });
 }

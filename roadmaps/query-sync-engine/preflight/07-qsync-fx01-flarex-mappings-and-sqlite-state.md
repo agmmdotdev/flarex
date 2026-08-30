@@ -8,18 +8,22 @@ private, and production-inert. The docs-only
 is also complete with a stop-before-schema verdict: Cloudflare SQLite is
 feasible and all nine logical access plans are bounded. The subsequent D stage
 has now completed the operation-scoped transition-plan seam needed to implement
-them without an aggregate load or second reducer. The fresh
-[`QSYNC-FX01-C1` checkpoint](./10-qsync-fx01-c1-sqlite-vertical.md) is now
-accepted and authorizes only its private three-operation SQLite vertical after
-the stated empty-scope core prerequisite. No C2/C3 work, Durable Object
-behavior, source/evaluator composition, caller, or production route is
-authorized.
+them without an aggregate load or second reducer. The
+[`QSYNC-FX01-C1` checkpoint](./10-qsync-fx01-c1-sqlite-vertical.md), its
+empty-scope prerequisite, and its private generation-2 three-operation SQLite
+vertical are complete in `12e2f375` and `b94abbb0`. The accepted
+[`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+and its generation-3 three-operation evaluation extension were implemented on
+2026-08-30. C2 remains package-private, unrouted, production-inert, and open on
+its required exit-proof matrix. C3,
+Durable Object behavior, source/evaluator composition, callers, and production
+routing remain separately unauthorized.
 
 The subsequent docs-only
 [`QSYNC01-D0` preflight](./09-qsync01-d-operation-scoped-transition-plans.md)
 accepted the missing portable seam and its D1-D4 implementation order. D0 added
-no code; D1-D4 are now complete. C1 is accepted but not implemented; C2 and C3
-remain blocked until their own later checkpoints.
+no code; D1-D4 are now complete. C1 is complete; C2 is implemented but its
+proof gate remains open. C3 remains blocked until its own later checkpoint.
 
 `QSYNC01-A` through `QSYNC01-C4` are complete, private, reference-backed, and
 production-inert; C4 completed in `87a7566f`. They prove the portable
@@ -31,15 +35,16 @@ implements those contracts.
 This preflight is the first Flarex adoption gate. It is deliberately split so
 that deterministic Flarex model encodings and semantic-persistence feasibility
 are decided before any durable schema is created. The completed first
-implementation slice is `QSYNC-FX01-A`. B accepted no implementation slice;
-the later C1 checkpoint now accepts the first SQLite vertical, and the D1-D4
+implementation slice was `QSYNC-FX01-A`. B accepted no implementation slice;
+the later C1 checkpoint completed the first SQLite vertical, and the D1-D4
 prerequisite is complete.
 
 The user accepted the package direction, `QSYNC-FX01-A` boundary, and docs-only
-B investigation recorded here. B freezes the feasibility/access verdict but
-does not accept DDL, storage generations, migration, or C1-C3 implementation.
-Terms such as "would own" and "would require" below continue to describe those
-unapproved later gates, not current implementation authority.
+B investigation recorded here. Historically, B accepted no DDL, storage
+generation, migration, or C1-C3 implementation. C1 and C2 later gained and
+completed their own authority; C3 remains unapproved. B-era terms such as
+"would own" and "would require" describe the then-unapproved target unless a
+later checkpoint explicitly supersedes them.
 
 ## Decision Summary
 
@@ -83,9 +88,9 @@ That outcome is divided into reviewable subgates:
 | --- | --- | --- |
 | `QSYNC-FX01-A` | Versioned canonical Flarex frames, one model adapter with a pure projector, result/publication mapping, and exhaustive deterministic vectors | Complete; private and production-inert |
 | `QSYNC-FX01-B` | Docs-only semantic-persistence feasibility: authenticated binding, every operation's exact read/transition/write plan, current core-seam verdict, and only then proposed DDL/migration | Complete; stop before schema; no code authorized |
-| `QSYNC-FX01-C1` | First private semantic vertical: authenticated binding plus initialize, begin, and admitted-batch application with only the rows those operations require | Accepted in the fresh C1 checkpoint; implementation pending its small empty-scope core prerequisite |
-| `QSYNC-FX01-C2` | Evaluation completion and recovery vertical: complete, claim, and attempt-outcome operations with their dependency/fingerprint/publication-intent rows | Blocked on C1 and the completed core seam |
-| `QSYNC-FX01-C3` | Publication claim/outcome/completion, the complete nine-operation adapter, reference conformance, and genuine Workerd restart/rollback/corruption proof | Blocked on C2 and the completed core seam |
+| `QSYNC-FX01-C1` | First private semantic vertical: authenticated binding plus initialize, begin, and admitted-batch application with only the rows those operations require | Complete in `b94abbb0` after prerequisite `12e2f375`; private and production-inert |
+| `QSYNC-FX01-C2` | Evaluation completion and recovery vertical: complete, claim, and attempt-outcome operations with their dependency/fingerprint/publication-intent rows | Six-operation implementation present; complete exit-proof matrix open; private, unrouted, and production-inert |
+| `QSYNC-FX01-C3` | Publication claim/outcome/completion, the complete nine-operation adapter, reference conformance, and genuine Workerd restart/rollback/corruption proof | Blocked on C2 exit plus a separately accepted C3 checkpoint |
 
 No subgate is a usable production path. FX01 exits only when A, B, and C1-C3
 are complete and the adapter remains unrouted. C1/C2 stay package-private and
@@ -120,14 +125,15 @@ registry, or fallback store is forbidden.
 
 ## Current Evidence And Exact Gaps
 
-The current code provides useful evidence but not an FX01 implementation:
+The current code now provides the completed A mappings and C1 vertical plus the
+implemented C2 SQLite vertical. C2 proof, C3, and completion of FX01 remain:
 
 | Current artifact | Evidence | Gap |
 | --- | --- | --- |
-| `flarex-protocol/internal/scope-sync-v1` | strict scope, epoch, cursor, query-identity, dependency, generation, active-head, and result-digest values | no canonical-byte query key, dependency frame, authority-witness frame, or query-result publication mapping |
-| `deploymentSync/Policy.ts` | current point/table/incoming-relation projection and older query-generation reasoning | uses Flarex-local transition policy; it is not the portable engine and must not gain new callers as a second authority |
-| `deploymentSync/Store.ts` | synchronous SQLite transactions, strict cursor decoding, exact decimal bigint storage, rollback, corruption, and CAS evidence | only one cursor row and initialize/read/advance; none of the nine post-C semantic operations or publication state |
-| `DeploymentSyncDO` | deterministic per-scope SQLite-backed placement | constructor only; no engine instance, adapter composition, host callback, wake, alarm, or production caller |
+| `flarex-protocol/internal/scope-sync-v1` and `scope-sync-query-model-v1` | strict scope/cursor values plus completed canonical query, dependency, authority, result, and publication mappings | concrete Flarex contracts only; they do not own portable transitions or host state |
+| deleted `deploymentSync/Policy.ts` | historical Flarex projection/query-generation evidence was retired in C1 | must remain deleted rather than returning as a second policy owner |
+| `deploymentSync/Store.ts` | completed generation-3 authenticated binding and normalized six-operation evaluation adapter, including completion evidence, two dependency roles, pending-publication intent, claiming, attempt outcomes, rollback, corruption, and CAS proof | no publication claim/outcome/completion lifecycle, complete nine-operation state port, host composition, or production caller |
+| `DeploymentSyncDO` | deterministic per-scope SQLite-backed placement | empty shell only; no engine instance, adapter composition, host callback, wake, alarm, or production caller |
 | `commitFeed.ts` | repeatable-read dense scope-lifetime commits with row and relation facts | a page can span epochs and omits coherent active-head/generation/fence evidence |
 | `scopeSyncActiveHeadObservationV1.ts` | trusted scoped active-head and storage-fence observation | separate from retention and commit-page capture; two separate calls are not a coherent source receipt |
 | Flarex Value Codec V1 | canonical result bytes plus SHA-256 evidence | generic value limits can exceed query-sync's one-megabyte inline publication ceiling |
@@ -143,9 +149,9 @@ The current feed read and active-head read also cannot be called
 "coherent." FX02 must use one persistence-owned scoped read transaction, or an
 equally strong fenced protocol, that captures generation, generation fence,
 current epoch, latest sequence, current-epoch retention edge, active head, and
-the selected current-epoch commits. If approved, FX01-A would freeze the value
-mapping needed by that later read; it does not implement or modify the Postgres
-operation.
+the selected current-epoch commits. The completed FX01-A checkpoint froze the
+value mapping needed by that later read; it did not implement or modify the
+Postgres operation.
 
 The current feed also exposes no exact raw transport-byte receipt. FX02 must
 define and bound the actual persistence-owned source representation before it
@@ -159,7 +165,7 @@ a constant, or a JavaScript heap-size estimate are not admissible substitutes.
 
 ### Model identity
 
-FX01-A would define one host-owned constant sync model ID:
+The completed FX01-A checkpoint defines one host-owned constant sync model ID:
 
 ```text
 flarexdb.application-query.v1
@@ -193,9 +199,9 @@ forbidden.
 
 ### Versioned canonical frames
 
-`flarex-protocol` would add a dedicated internal query-model V1 module rather
-than put Flarex types into `@flarex/query-sync`. It would own these three exact,
-domain-separated canonical JSON frames, all at numeric version `1`:
+FX01-A added a dedicated internal query-model V1 module to `flarex-protocol`
+rather than put Flarex types into `@flarex/query-sync`. It owns these three
+exact, domain-separated canonical JSON frames, all at numeric version `1`:
 
 1. **query-key frame:** format
    `flarex.scope-sync-canonical-query-key`, version `1`, and exactly one
@@ -417,9 +423,11 @@ This is sufficient as a medium slice: it closes the compatibility vocabulary
 that every later state/source/evaluator adapter consumes, while remaining
 deterministic and production-inert.
 
-## QSYNC-FX01-B Verdict And Later SQLite Target
+## QSYNC-FX01-B Verdict And Staged SQLite Target
 
-The following constraints remain a proposed target, not accepted DDL. The
+The following constraints remain the broad staged target. C1's exact
+generation-2 DDL and C2's generation-3 evaluation extension are implemented
+authority; C2's exit proof remains open and C3 DDL remains unaccepted. The
 completed docs-only B checkpoint enumerates every operation's bounded read set,
 portable transition/decision seam, exact write set, receipt, rollback point,
 and required logical access path in
@@ -430,8 +438,9 @@ the complete aggregate. B proved that every operation was logically bounded
 but could not reuse those reducers without loading the maximum aggregate or
 reproducing material portable logic in SQL. It therefore stopped before schema
 and proposed the separate `QSYNC01-D` preflight. D1-D4 have since completed the
-planner seam, and the fresh C1 checkpoint now authorizes only C1. No
-schema-only implementation slice is allowed, and C2/C3 remain separate gates.
+planner seam, and C1/C2 have implemented the first two private SQLite
+verticals. No schema-only implementation slice is allowed. C3 remains a
+separate blocked gate.
 
 ### Construction and lifecycle
 
@@ -518,13 +527,13 @@ has an exact parent and generation; orphan, duplicate, wrong-role,
 wrong-generation, missing, excess, malformed, noncanonical, or counter-
 inconsistent rows are corruption.
 
-The first accepted C vertical would upgrade the existing
+The first accepted C vertical, C1, upgraded the existing
 `deployment_sync_scope_state` atomically in place only from its exact
 cursor-only generation, preserving scope, epoch, fence, and sequence. An
 unknown or malformed prior generation fails incompatible or corrupt; it is
 never deleted, reset, copied into a second table set, or silently initialized.
-No new Durable Object class or binding is required. B itself writes no DDL and
-does not increment a local storage generation.
+No new Durable Object class or binding was required. B itself wrote no DDL and
+did not increment a local storage generation.
 
 ### No aggregate-load shortcut
 
@@ -561,11 +570,9 @@ No transaction performs query execution, source read, authority observation,
 publisher append, client fanout, or another state operation. External work
 always happens after a receipt commits and before the next semantic operation.
 
-The old cursor-only `advance` path must not survive as a bypass once query rows
-exist. At FX01 completion, unused backend-local query-generation policy and
-direct cursor transition exports are either removed or retained only behind a
-demonstrated consumer-specific compatibility gate. There is no dual write or
-fallback.
+The old cursor-only `advance` path and unused backend-local query-generation
+policy were removed in C1. They must not return as a compatibility bypass,
+including when no query row exists. There is no dual write or fallback.
 
 ### Effect and integration errors
 
@@ -635,12 +642,12 @@ not prove the later Postgres source or real Cloudflare delivery adapter.
 
 | Artifact | FX01 disposition |
 | --- | --- |
-| `@flarex/query-sync` | requires a separately approved operation-scoped transition-plan seam; remains Flarex-, SQL-, driver-, and Cloudflare-free with no new package-root export |
-| `scope-sync-v1.ts` | reuse existing strict domain types; place new canonical query-model frames in a focused versioned protocol module |
-| `deploymentSync/Policy.ts` | reuse exact projection evidence once; do not grow its duplicate query-generation semantics; retire displaced unused policy at target cutover |
+| `@flarex/query-sync` | provides the completed private operation-scoped transition-plan seam; remains Flarex-, SQL-, driver-, and Cloudflare-free with no package-root export |
+| `scope-sync-v1.ts` and `scope-sync-query-model-v1.ts` | retain the completed strict domain types and canonical query-model frames from A; do not move portable semantics into them |
+| deleted `deploymentSync/Policy.ts` | C1 removed the displaced backend-local policy; do not recreate a second reducer or compatibility policy |
 | `deploymentSync/Model.ts` | retain only Flarex adapter/domain errors still owned by backend; do not mirror portable state unions |
-| `deploymentSync/Store.ts` | evolve the same SQLite authority in place into the semantic adapter; no second cursor or query table set |
-| `DeploymentSyncDO` | a later FX02 host call supplies authenticated binding evidence to the adapter factory; no behavior or callable surface in FX01-A |
+| `deploymentSync/Store.ts` | C2 now composes the generation-3 six-operation evaluation adapter; evolve this same SQLite authority in place only through a separately accepted C3 generation, with no second cursor or query table set |
+| `DeploymentSyncDO` | remains an empty production-inert shell; a later FX02 host call supplies authenticated binding evidence to the adapter factory, and no callable surface is authorized in FX01 |
 | Postgres commit feed and scope observation | unchanged in FX01; exact correlated source read is FX02 |
 | Legacy subscription/delivery registry | no new caller, dual write, comparison, fallback, or migration in FX01 |
 | ConnectionDO/client protocol | unchanged; later gateway/client adoption is FX03 |
@@ -675,7 +682,8 @@ requires revalidation and an explicit limit decision.
 
 ## Explicitly Not Authorized
 
-This preflight and the completed FX01-A/B checkpoints do not authorize:
+This umbrella, completed FX01-A/B/C1 checkpoints, and accepted C2
+implementation checkpoint do not authorize:
 
 - a Postgres `ReplayableChangeSource`, correlated source read implementation,
   catch-up loop, wake, checkpoint mirror, or retention change;
@@ -718,14 +726,16 @@ real Workerd evidence; reference and mock receipts must be labeled accurately.
 
 ## Discussion Checkpoint And Next Action
 
-`QSYNC-FX01-A` and the docs-only `QSYNC-FX01-B` checkpoint are complete. A
+`QSYNC-FX01-A`, the docs-only `QSYNC-FX01-B` checkpoint, and C1 are complete. A
 establishes the stable Flarex compatibility vocabulary. B establishes that
 Cloudflare SQLite is feasible and all nine logical access plans are bounded,
 then stopped because the core exposed only complete-aggregate reducers. D1-D4
 have since completed the planner seam and its reducer-equivalence, replay,
-limit, and atomicity proof.
+limit, and atomicity proof. C1 then implemented and proved the private
+generation-2 initialize, begin, and admitted-batch vertical.
 
-The fresh `QSYNC-FX01-C1` checkpoint is now accepted in
-[`10-qsync-fx01-c1-sqlite-vertical.md`](./10-qsync-fx01-c1-sqlite-vertical.md).
-Implement its private empty-scope prerequisite first, then the complete C1
-vertical. Do not begin C2 or C3 merely because C1 is accepted.
+The next correctness work is C2's remaining proof matrix. Do not begin C3
+merely because the six-operation implementation is present. After C2 exits,
+its publication lifecycle, storage generation, complete nine-operation proof,
+and continued private boundary still require a separate explicit C3
+acceptance.
