@@ -12,6 +12,7 @@ import {
   completionInput,
   prepareEvaluationState,
   queryDescriptor,
+  snapshotEvaluationState,
   success,
 } from "./deploymentSyncEvaluationStateTestSupport";
 
@@ -146,7 +147,9 @@ describe("deployment query-sync evaluation state", () => {
       if (claimed._tag !== "claimed") {
         throw new Error(`Expected claimed receipt, received ${claimed._tag}.`);
       }
-      const before = snapshot(prepared.database);
+      const before = snapshotEvaluationState(prepared.database);
+      // SAFETY: the structural clone intentionally lacks the state-issued
+      // object identity so this negative test can prove runtime rejection.
       const forgedAttempt = { ...attempt } as typeof attempt;
       const attemptExit = await Effect.runPromiseExit(
         prepared.state.recordEvaluationAttemptOutcome(
@@ -159,6 +162,8 @@ describe("deployment query-sync evaluation state", () => {
         reason: "notStateIssued",
       });
 
+      // SAFETY: the structural clone intentionally lacks the state-issued
+      // object identity so this negative test can prove runtime rejection.
       const forgedContinuation = {
         ...claimed.continuation,
       } as typeof claimed.continuation;
@@ -172,7 +177,7 @@ describe("deployment query-sync evaluation state", () => {
         _tag: "InvalidEvaluationWorkContinuationError",
         reason: "notStateIssued",
       });
-      expect(snapshot(prepared.database)).toEqual(before);
+      expect(snapshotEvaluationState(prepared.database)).toEqual(before);
     } finally {
       prepared.database.close();
     }
@@ -196,24 +201,6 @@ function readCount(
 ): number {
   const row = database.prepare(`SELECT count(*) AS value FROM ${table}`).get();
   return Number(row?.value);
-}
-
-function snapshot(database: import("node:sqlite").DatabaseSync) {
-  return Object.freeze({
-    scope: database.prepare(
-      "SELECT * FROM deployment_sync_scope_state",
-    ).all(),
-    queries: database.prepare(
-      "SELECT * FROM deployment_sync_queries ORDER BY query_key",
-    ).all(),
-    dependencies: database.prepare(
-      `SELECT * FROM deployment_sync_query_dependencies
-       ORDER BY query_key, role, generation, dependency_key`,
-    ).all(),
-    pending: database.prepare(
-      "SELECT * FROM deployment_sync_pending_publications ORDER BY query_key",
-    ).all(),
-  });
 }
 
 function expectTypedFailure<A, E>(

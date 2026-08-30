@@ -12,7 +12,9 @@ import {
   type QueryEvaluationAttempt,
   type QueryEvaluationEvidence,
   type GenerationRefreshEvidence,
+  type QueryGeneration,
   type QueryPublicationArtifact,
+  type SyncSequence,
 } from "@flarex/query-sync/internal/kernel";
 import {
   deriveGenerationRefreshEvidence,
@@ -63,9 +65,26 @@ export interface PreparedEvaluationState {
   readonly binding: DeploymentQuerySyncBinding;
 }
 
-export async function prepareEvaluationState(): Promise<PreparedEvaluationState> {
+export interface EvaluationSqlInvocation {
+  readonly query: string;
+  readonly bindings: readonly SQLInputValue[];
+  readonly isWrite: boolean;
+}
+
+export interface EvaluationSqlCompletion extends EvaluationSqlInvocation {
+  readonly rowsWritten: number;
+}
+
+export interface EvaluationSqlHooks {
+  readonly beforeExecute?: (invocation: EvaluationSqlInvocation) => void;
+  readonly afterExecute?: (completion: EvaluationSqlCompletion) => void;
+}
+
+export async function prepareEvaluationState(
+  hooks: EvaluationSqlHooks = {},
+): Promise<PreparedEvaluationState> {
   const database = new DatabaseSync(":memory:");
-  const storage = makeSqliteStorage(database);
+  const storage = makeSqliteStorage(database, hooks);
   const bindingInput = Object.freeze({
     objectId: Object.freeze({ name: `deployment-sync:${scopeUuid}` }),
     observation: captureScopeSyncActiveHeadObservationV1({
@@ -106,6 +125,10 @@ export function queryDescriptor(seed: number): QueryDescriptor {
 export function beginRequest(
   binding: DeploymentQuerySyncBinding,
   descriptor: QueryDescriptor,
+  options: Readonly<{
+    readonly expectedActiveGeneration?: QueryGeneration;
+    readonly requestedDirtyThroughSequence?: SyncSequence;
+  }> = {},
 ): BeginQueryEvaluationRequest {
   return Object.freeze({
     target: success(captureQueryOperationTarget({
@@ -114,18 +137,20 @@ export function beginRequest(
       sourceEpoch: binding.sourceEpoch,
       descriptor,
     })),
-    expectedActiveGeneration: null,
-    requestedDirtyThroughSequence: null,
+    expectedActiveGeneration: options.expectedActiveGeneration ?? null,
+    requestedDirtyThroughSequence:
+      options.requestedDirtyThroughSequence ?? null,
   });
 }
 
 export async function beginEvaluation(
   prepared: PreparedEvaluationState,
   descriptor: QueryDescriptor,
+  options: Parameters<typeof beginRequest>[2] = {},
 ): Promise<QueryEvaluationAttempt> {
   const receipt = await Effect.runPromise(
     prepared.state.beginQueryEvaluation(
-      beginRequest(prepared.binding, descriptor),
+      beginRequest(prepared.binding, descriptor, options),
     ),
   );
   if (receipt._tag !== "created") {
@@ -179,18 +204,50 @@ export function canonicalKey(seed: number) {
   ));
 }
 
-function makeSqliteStorage(database: DatabaseSync): DeploymentQuerySyncStorage {
+export function snapshotEvaluationState(database: DatabaseSync) {
+  return Object.freeze({
+    scope: database.prepare(
+      "SELECT * FROM deployment_sync_scope_state",
+    ).all(),
+    queries: database.prepare(
+      "SELECT * FROM deployment_sync_queries ORDER BY query_key",
+    ).all(),
+    dependencies: database.prepare(
+      `SELECT * FROM deployment_sync_query_dependencies
+       ORDER BY query_key, role, generation, dependency_key`,
+    ).all(),
+    pending: database.prepare(
+      "SELECT * FROM deployment_sync_pending_publications ORDER BY query_key",
+    ).all(),
+  });
+}
+
+function makeSqliteStorage(
+  database: DatabaseSync,
+  hooks: EvaluationSqlHooks,
+): DeploymentQuerySyncStorage {
   const exec: DeploymentQuerySyncSqlStorage["exec"] = <
     Row extends Record<string, SqlStorageValue>,
   >(
     query: string,
     ...bindings: SQLInputValue[]
   ): SqlStorageCursor<Row> => {
+    const isWrite = /^(?:insert|update|delete)\b/i.test(query.trimStart());
+    const invocation: EvaluationSqlInvocation = Object.freeze({
+      query,
+      bindings: Object.freeze([...bindings]),
+      isWrite,
+    });
+    hooks.beforeExecute?.(invocation);
     // SAFETY: production codecs validate every row after this test-only
     // adapter restores the caller-selected generic from SQLite's row edge.
     const rows = database.prepare(query).all(...bindings) as Row[];
-    const isWrite = /^(?:insert|update|delete)\b/i.test(query.trimStart());
-    return cursorFor(rows, isWrite ? rows.length : 0);
+    const rowsWritten = isWrite ? rows.length : 0;
+    hooks.afterExecute?.(Object.freeze({
+      ...invocation,
+      rowsWritten,
+    }));
+    return cursorFor(rows, rowsWritten);
   };
   return Object.freeze({
     sql: Object.freeze({ exec }),

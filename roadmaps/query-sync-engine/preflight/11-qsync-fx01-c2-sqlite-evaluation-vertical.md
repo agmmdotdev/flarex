@@ -814,6 +814,8 @@ regression suites:
 - `test/deploymentSyncStorageContractGeneration3.test.ts`;
 - `test/deploymentSyncEvaluationRowCodec.test.ts`;
 - `test/deploymentSyncEvaluationState.test.ts`;
+- `test/deploymentSyncEvaluationStateCompletionBranches.test.ts` and its
+  completion-specific test support;
 - `test/deploymentSyncEvaluationStateAtomicity.test.ts`;
 - `test/deploymentSyncEvaluationStateLimits.test.ts`;
 - `test/deploymentQuerySyncC2.workerd.test.ts`; and
@@ -959,9 +961,22 @@ This accepted implementation checkpoint does not authorize:
    consumption evidence; it does not claim Cloudflare cursor-buffering or
    Worker-heap behavior.
 7. Remaining C2 exit work includes the matrix's other exhaustive operation
-   branches, non-migration maximum aggregate populations, race/read-trace
-   cases, and maximum genuine-Workerd spelling, binding, buffering, and heap
-   proofs.
+   branches, non-migration maximum aggregate populations, races, and maximum
+   genuine-Workerd spelling, binding, buffering, and heap proofs.
+8. The completion control-flow proof now covers all five start-stage no-write
+   receipts, pending and unchanged exact replay, first material activation,
+   unchanged-digest pending preservation, replay fingerprint and content
+   failures, and representative typed failures at start, replay, and material
+   read stages. Every case pins its exact SQL read trace and unchanged durable
+   snapshot when no write is authorized.
+9. A changed-digest two-dependency replacement now records its exact ten-write
+   sequence and injects the same foreign defect immediately before and after
+   every write. Every position proves full query, dependency, pending, and
+   scope rollback followed by a successful retry. Completion's remaining exit
+   work still includes the exhaustive typed/corruption/affected-row matrix,
+   response-loss replay, preceding-window and all-counter assertions, maximum
+   populations/bytes, and race proof; claim/outcome and host read-trace work
+   also remains.
 
 C2 remains implementation-complete but proof-incomplete at that private
 boundary. The next correctness work is the remaining C2 proof matrix. A fresh
