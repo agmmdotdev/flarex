@@ -8,6 +8,7 @@ import {
 } from "@flarex/application-definition";
 import {
   ApplicationActionSystem,
+  ApplicationActionSystemConfigurationError,
   type ApplicationActionSystemApi,
 } from
   "@flarex/standard-application-invocation/internal/application-action-system";
@@ -30,6 +31,7 @@ import {
   runMutation,
   runQuery,
   type ActionResult,
+  type ActionInvocationError,
   type ApplicationRequestKeyError,
   type ApplicationResultContractError,
   type MutationOutcome,
@@ -267,6 +269,38 @@ describe("clean Application invocation primitives", () => {
     expectTypeOf(first).toEqualTypeOf<ActionResult<boolean>>();
   });
 
+  it("projects an Action owner failure once without retry", async () => {
+    const source = new ApplicationActionSystemConfigurationError({
+      reason: "invalidHostPolicy",
+    });
+    const invoke = vi.fn<ApplicationActionSystemApi["invoke"]>(
+      () => Effect.fail(source),
+    );
+    const system = ApplicationActionSystem.of({ invoke });
+
+    const received = await Effect.runPromise(Effect.scoped(
+      runAction(deliverMessage, { text: "hello" }, {
+        requestKey: "deliver-owner-failure",
+      }).pipe(
+        Effect.provideService(ApplicationActionSystem, system),
+        Effect.flip,
+      ),
+    ));
+
+    expect(received).toMatchObject({
+      _tag: "ActionInvocationError",
+      operation: "runAction",
+      reason: "invalidConfiguration",
+      cause: source,
+    });
+    expectTypeOf(received).toEqualTypeOf<RunActionError>();
+    if (received._tag === "ActionInvocationError") {
+      expectTypeOf(received).toEqualTypeOf<ActionInvocationError>();
+      expect(received.cause).toBe(source);
+    }
+    expect(invoke).toHaveBeenCalledOnce();
+  });
+
   it("rejects a completed Action result that disagrees with the local reference", async () => {
     const completed = Object.freeze({
       status: "completed" as const,
@@ -348,6 +382,10 @@ function compileTimeContractChecks(): void {
     RunActionError,
     { readonly _tag: "ApplicationRequestKeyError" }
   >>().toEqualTypeOf<ApplicationRequestKeyError<"runAction">>();
+  expectTypeOf<Extract<
+    RunActionError,
+    { readonly _tag: "ActionInvocationError" }
+  >>().toEqualTypeOf<ActionInvocationError>();
   // @ts-expect-error Query arguments are inferred from the reference.
   runQuery(getMessage, { id: 1 });
   // @ts-expect-error A query reference cannot be used as a mutation.

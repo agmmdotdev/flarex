@@ -10,7 +10,6 @@ import {
   ApplicationActionSystem,
   invokeApplicationAction,
   type CompletedApplicationAction,
-  type InvokeApplicationActionError,
   type NonCompletedApplicationAction,
 } from
   "@flarex/standard-application-invocation/internal/application-action-system";
@@ -19,6 +18,10 @@ import type {
   TransactionFunctionPathV1,
 } from "flarex-protocol/transaction-session";
 
+import {
+  projectActionInvocationError,
+  type ActionInvocationError,
+} from "./ActionInvocationError.js";
 import {
   actionResultContractError,
   type ApplicationActionResultContractError,
@@ -44,7 +47,7 @@ export type ActionResult<Value> =
   | NonCompletedApplicationAction;
 
 export type RunActionError =
-  | InvokeApplicationActionError
+  | ActionInvocationError
   | ApplicationActionResultContractError
   | ApplicationRequestKeyError<"runAction">;
 
@@ -70,7 +73,7 @@ export const runAction = Effect.fn("Application.runAction")(function* <
     functionPath,
     args,
     requestKey,
-  );
+  ).pipe(Effect.mapError(projectActionInvocationError));
   if (result.status === "notCompleted") return result;
   yield* validateResultContract(
     inspected,

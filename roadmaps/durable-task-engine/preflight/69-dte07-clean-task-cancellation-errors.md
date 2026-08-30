@@ -100,4 +100,5 @@ commit.
 
 Stop after cancellation-command failures are clean. Do not add provider
 delivery, cancellation waiting, bulk cancellation, public/production Task
-surfaces, or clean Action/Query/Mutation errors in this checkpoint.
+surfaces, or clean Query/Mutation errors in this checkpoint. Foreground Action
+invocation failures were cleaned later under preflight 70.

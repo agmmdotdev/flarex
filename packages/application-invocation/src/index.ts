@@ -5,6 +5,11 @@ export {
   type RunActionError,
 } from "./Action.js";
 
+export type {
+  ActionInvocationError,
+  ActionInvocationErrorReason,
+} from "./ActionInvocationError.js";
+
 export {
   runMutation,
   type MutationOptions,

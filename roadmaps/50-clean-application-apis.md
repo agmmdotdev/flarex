@@ -724,6 +724,19 @@ opaque cause. Already-requested and already-terminal observations remain
 successful results, and no Standard or durable lifecycle error type remains
 in `CancelTaskError`.
 
+Foreground Action failures now follow the same root-owned rule without
+changing Action outcome semantics. `runAction()` keeps invalid caller request
+keys as `ApplicationRequestKeyError<"runAction">` and completed-value contract
+mismatches as `ApplicationActionResultContractError`, then translates only the
+authoritative Action System channel once into `ActionInvocationError`. Its
+stable reasons distinguish invalid input, missing Actions, unavailable active
+Applications, idempotency conflicts, configuration/runtime incompatibility,
+application and user-code failures, unavailable or corrupt owners, stale scope
+authority, transient or terminal failures, and uncertain settlement. The exact
+private owner failure remains only as an opaque cause. A `notCompleted` Action
+observation remains a successful `ActionResult`; it is not converted into an
+error.
+
 The root operations remain deliberately separated by capability:
 
 | Surface | Operations | Authority |
