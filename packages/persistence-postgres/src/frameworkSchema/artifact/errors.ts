@@ -2,7 +2,8 @@ import { Data } from "effect";
 
 export type FrameworkSchemaArtifactOperation =
   | "capture"
-  | "classifyReplay";
+  | "classifyReplay"
+  | "admit";
 
 export type FrameworkSchemaArtifactReason =
   | "invalidInput"
@@ -43,6 +44,15 @@ export class FrameworkSchemaArtifactError extends Data.TaggedError(
       operation: "capture",
       reason: "ownerNotAdmitted",
       message: "Framework schema artifact owner is not admitted",
+      retryable: false,
+    });
+  }
+
+  static admissionInputInvalid(): FrameworkSchemaArtifactError {
+    return new FrameworkSchemaArtifactError({
+      operation: "admit",
+      reason: "invalidInput",
+      message: "Framework schema artifact admission input is invalid",
       retryable: false,
     });
   }

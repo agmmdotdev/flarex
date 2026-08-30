@@ -1,4 +1,4 @@
-import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import { copyBytes, copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { Brand, Effect, Encoding, Result } from "effect";
 import {
   encodeCanonicalJson,
@@ -30,6 +30,26 @@ const ARRAY_BUFFER_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
 const brandArtifactSha256 = Brand.nominal<FrameworkSchemaArtifactSha256>();
 const brandCanonicalJson =
   Brand.nominal<FrameworkSchemaArtifactCanonicalJson>();
+
+interface CapturedFrameworkSchemaArtifactState {
+  readonly artifactSha256Bytes: Uint8Array;
+  readonly canonicalBytes: Uint8Array;
+}
+
+export interface CapturedFrameworkSchemaArtifactEvidence {
+  readonly artifactSha256Bytes: Uint8Array;
+  readonly canonicalBytes: Uint8Array;
+}
+
+interface FrameworkSchemaArtifactDigest {
+  readonly artifactSha256: FrameworkSchemaArtifactSha256;
+  readonly artifactSha256Bytes: Uint8Array;
+}
+
+const capturedFrameworkSchemaArtifactStates = new WeakMap<
+  FrameworkSchemaArtifact,
+  CapturedFrameworkSchemaArtifactState
+>();
 
 export const captureFrameworkSchemaArtifact = Effect.fn(
   "FrameworkSchemaArtifact.capture",
@@ -64,14 +84,17 @@ export const captureFrameworkSchemaArtifact = Effect.fn(
       observedByteLength: canonicalBytes.byteLength,
     }));
   }
-  const artifactSha256 = yield* hashFrameworkSchemaArtifact(canonicalBytes);
+  const {
+    artifactSha256,
+    artifactSha256Bytes,
+  } = yield* hashFrameworkSchemaArtifact(canonicalBytes);
   const identity = Object.freeze({
     deploymentId: frame.deploymentId,
     owner: frame.owner,
     lineageId: frame.lineageId,
     artifactSha256,
   });
-  return Object.freeze({
+  const artifact = Object.freeze({
     identity,
     codec: frame.payloadCodec,
     provenance: frame.provenance,
@@ -80,13 +103,31 @@ export const captureFrameworkSchemaArtifact = Effect.fn(
     payload: frame.payload,
     canonicalJson: brandCanonicalJson(canonicalText),
   });
+  capturedFrameworkSchemaArtifactStates.set(artifact, {
+    artifactSha256Bytes: copyBytes(artifactSha256Bytes),
+    canonicalBytes: copyBytes(canonicalBytes),
+  });
+  return artifact;
 });
+
+/** Package-private owned evidence for the exact artifact issued by capture. */
+export function copyCapturedFrameworkSchemaArtifactEvidence(
+  artifact: FrameworkSchemaArtifact,
+): CapturedFrameworkSchemaArtifactEvidence | undefined {
+  const captured = capturedFrameworkSchemaArtifactStates.get(artifact);
+  return captured === undefined
+    ? undefined
+    : Object.freeze({
+        artifactSha256Bytes: copyBytes(captured.artifactSha256Bytes),
+        canonicalBytes: copyBytes(captured.canonicalBytes),
+      });
+}
 
 const hashFrameworkSchemaArtifact = Effect.fn(
   "FrameworkSchemaArtifact.sha256",
 )(function* (
   canonicalBytes: Uint8Array,
-): Effect.fn.Return<FrameworkSchemaArtifactSha256, FrameworkSchemaArtifactError> {
+): Effect.fn.Return<FrameworkSchemaArtifactDigest, FrameworkSchemaArtifactError> {
   const ownedInput = copyBytesToArrayBuffer(canonicalBytes);
   const foreignOutput = yield* Effect.tryPromise({
     try: () => globalThis.crypto.subtle.digest("SHA-256", ownedInput),
@@ -101,7 +142,10 @@ const hashFrameworkSchemaArtifact = Effect.fn(
   );
   const ownedOutput = new Uint8Array(SHA256_BYTE_LENGTH);
   Uint8Array.prototype.set.call(ownedOutput, new Uint8Array(validatedOutput));
-  return brandArtifactSha256(Encoding.encodeHex(ownedOutput));
+  return Object.freeze({
+    artifactSha256: brandArtifactSha256(Encoding.encodeHex(ownedOutput)),
+    artifactSha256Bytes: ownedOutput,
+  });
 });
 
 function frameworkSchemaArtifactFrameJson(
