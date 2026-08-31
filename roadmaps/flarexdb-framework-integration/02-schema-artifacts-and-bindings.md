@@ -12,8 +12,10 @@ PGlite evidence; focused ordinary-role PostgreSQL migration/catalog, control-
 session, point-read, exact-admission convergence, and deployment-lock evidence
 implemented, together with collision contention, both dependency-lock orders,
 cross-deployment non-blocking, owner/lineage coordinate isolation, and post-
-write rollback; wider genuine PostgreSQL acceptance and later lifecycle
-persistence codecs still gated
+write rollback, plus driver-edge pre-/post-`COMMIT` settlement recovery after
+discarding the uncertain native backend and using a distinct recovery backend;
+wider genuine PostgreSQL acceptance and later lifecycle persistence codecs
+still gated
 
 The additive authority architecture and exact artifact-envelope contract are
 frozen by
@@ -41,7 +43,12 @@ composition is activated. The focused native lane currently proves only the
 migration/catalog, control-session, point-read, exact-admission convergence,
 deployment-row blocking, collision, ordered dependency-race, and independent-
 deployment boundary, plus owner/lineage coordinate isolation and rollback after
-the parent insert when dependency-edge insertion fails.
+the parent insert when dependency-edge insertion fails. It also proves that
+driver-edge faults before native `COMMIT` and after its acknowledgement discard
+the uncertain backend, recover once on a distinct backend, converge to
+`created` or `existing` respectively, retain one parent and one edge, and replay
+as `existing`; it does not claim a real network failure or callback/`COMMIT`-
+in-flight interruption.
 
 This plan owns the neutral identity and lifecycle mechanics needed to compile,
 install, validate, and bind Payload lifecycle, Medusa, and admitted system

@@ -1,4 +1,8 @@
+import { setTimeout as delay } from "node:timers/promises";
+
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { Effect, Result } from "effect";
+import type { PoolClient } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { admitFrameworkSchemaArtifactEffect } from
@@ -40,6 +44,22 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const CONCURRENT_ADMISSIONS = 8;
 const DEFAULT_DEPLOYMENT_ID = "deployment-framework-admission-pg";
+const COMMIT_SETTLEMENT_RECOVERY_SCENARIOS = [
+  {
+    label: "before PostgreSQL receives COMMIT",
+    faultEdge: "before",
+    expectedStatus: "created",
+  },
+  {
+    label: "after PostgreSQL acknowledges COMMIT",
+    faultEdge: "after",
+    expectedStatus: "existing",
+  },
+] as const satisfies readonly Readonly<{
+  label: string;
+  faultEdge: "before" | "after";
+  expectedStatus: "created" | "existing";
+}>[];
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -677,6 +697,12 @@ describePostgres(
       });
     }, 180_000);
 
+    for (const scenario of COMMIT_SETTLEMENT_RECOVERY_SCENARIOS) {
+      it(`recovers on a distinct backend ${scenario.label}`, async () => {
+        await expectPostgresCommitSettlementRecovery(scenario);
+      }, 180_000);
+    }
+
     it("does not serialize an independent deployment behind a held lock", async () => {
       await withTemporaryPostgresPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
@@ -760,6 +786,7 @@ describePostgres(
 
 function makePostgresArtifactRepository(
   persistence: PostgresFlarexPersistence,
+  options: PostgresArtifactRepositoryTestOptions = {},
 ): FrameworkSchemaArtifactRepository {
   const controlDb = persistence.drizzle;
   return Result.getOrThrow(makeFrameworkSchemaArtifactRepository({
@@ -767,7 +794,8 @@ function makePostgresArtifactRepository(
     controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({
       controlDb,
       driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(
-        persistence.pool,
+        options.controlPool ?? persistence.pool,
+        options.controlSessionOptions,
       ),
     }),
     readTimeoutMilliseconds: 10_000,
@@ -775,6 +803,218 @@ function makePostgresArtifactRepository(
     recoveryTimeoutMilliseconds: 30_000,
     lockTimeoutMilliseconds: 10_000,
   }));
+}
+
+type PostgresArtifactControlPool = Parameters<
+  typeof makePostgresFrameworkSchemaArtifactControlSessionDriver
+>[0];
+
+type PostgresArtifactControlPoolConnect = Parameters<
+  PostgresArtifactControlPool["connect"]
+>[0];
+
+type PostgresArtifactControlSessionOptions = NonNullable<Parameters<
+  typeof makePostgresFrameworkSchemaArtifactControlSessionDriver
+>[1]>;
+
+interface PostgresArtifactRepositoryTestOptions {
+  readonly controlPool?: PostgresArtifactControlPool;
+  readonly controlSessionOptions?: PostgresArtifactControlSessionOptions;
+}
+
+type CommitSettlementRecoveryScenario =
+  typeof COMMIT_SETTLEMENT_RECOVERY_SCENARIOS[number];
+
+async function expectPostgresCommitSettlementRecovery(
+  scenario: CommitSettlementRecoveryScenario,
+): Promise<void> {
+  await withTemporaryPostgresPersistence(async persistence => {
+    await expectPostgres18OrdinaryRole(persistence);
+    await insertDeployment(persistence);
+    const stableRepository = makePostgresArtifactRepository(persistence);
+    const dependency = await captureArtifact({
+      lineageId: `catalog-settlement-${scenario.faultEdge}-dependency`,
+    });
+    expect((await admitArtifact(stableRepository, dependency)).status)
+      .toBe("created");
+    const parent = await captureArtifact({
+      lineageId: `catalog-settlement-${scenario.faultEdge}-parent`,
+      dependencies: [dependency.identity],
+    });
+    const observedPool = observePostgresControlPool(persistence);
+    const transactionClients: PoolClient[] = [];
+    const transactionBackendPids: number[] = [];
+    let faulted = false;
+    try {
+      const faultedRepository = makePostgresArtifactRepository(
+        persistence,
+        {
+          controlPool: observedPool.controlPool,
+          controlSessionOptions: {
+            lifecycleFault: ({ phase, edge, client }) => {
+              if (phase === "begin" && edge === "before") {
+                transactionClients.push(client);
+                transactionBackendPids.push(
+                  observedPool.backendPidFor(client),
+                );
+              }
+              if (
+                !faulted &&
+                phase === "commit" &&
+                edge === scenario.faultEdge
+              ) {
+                faulted = true;
+                throw new Error(
+                  `Injected ${scenario.faultEdge}-COMMIT settlement fault.`,
+                );
+              }
+            },
+          },
+        },
+      );
+
+      expect(await admitArtifact(faultedRepository, parent)).toEqual({
+        status: scenario.expectedStatus,
+        artifact: parent,
+      });
+      expect(faulted).toBe(true);
+      expect(transactionClients).toHaveLength(2);
+      expect(new Set(transactionClients).size).toBe(2);
+      expect(transactionBackendPids).toHaveLength(2);
+      expect(new Set(transactionBackendPids).size).toBe(2);
+      const initialBackendPid = transactionBackendPids[0];
+      if (initialBackendPid === undefined) {
+        throw new Error("Expected an initial PostgreSQL backend PID.");
+      }
+      await waitForDiscardedPostgresBackend(
+        persistence,
+        observedPool,
+        initialBackendPid,
+      );
+      expect(observedPool.removedBackendPids()).toEqual([
+        initialBackendPid,
+      ]);
+      expect(await countArtifactRows(persistence, dependency)).toBe(1);
+      expect(await countArtifactRows(persistence, parent)).toBe(1);
+      expect(await countDependencyRows(persistence, parent)).toBe(1);
+      expect(await countAllDependencyRows(persistence)).toBe(1);
+
+      expect(await admitArtifact(stableRepository, parent)).toEqual({
+        status: "existing",
+        artifact: parent,
+      });
+      expect(await countArtifactRows(persistence, parent)).toBe(1);
+      expect(await countDependencyRows(persistence, parent)).toBe(1);
+      expect(await countAllDependencyRows(persistence)).toBe(1);
+    } finally {
+      observedPool.close();
+    }
+  });
+}
+
+interface ObservedPostgresControlPool {
+  readonly controlPool: PostgresArtifactControlPool;
+  readonly backendPidFor: (client: PoolClient) => number;
+  readonly removedBackendPids: () => readonly number[];
+  readonly close: () => void;
+}
+
+function observePostgresControlPool(
+  persistence: PostgresFlarexPersistence,
+): ObservedPostgresControlPool {
+  const backendPids = new WeakMap<PoolClient, number>();
+  const removedBackendPids: number[] = [];
+  const observeRemoval = (client: PoolClient) => {
+    const backendPid = backendPids.get(client);
+    if (backendPid !== undefined) removedBackendPids.push(backendPid);
+  };
+  persistence.pool.on("remove", observeRemoval);
+  const controlPool: PostgresArtifactControlPool = Object.freeze({
+    connect(callback: PostgresArtifactControlPoolConnect) {
+      persistence.pool.connect((error, client, release) => {
+        if (error !== undefined || client === undefined) {
+          callback(
+            error ?? new Error("PostgreSQL control pool returned no client."),
+            undefined,
+            release,
+          );
+          return;
+        }
+        void client.query<{ backendPid: number }>(`
+          select pg_backend_pid()::int as "backendPid"
+        `).then(
+          result => {
+            const row = result.rows[0];
+            if (
+              !isNonArrayRecord(row) ||
+              typeof row.backendPid !== "number" ||
+              !Number.isSafeInteger(row.backendPid) ||
+              row.backendPid <= 0
+            ) {
+              client.release(true);
+              callback(
+                new Error("PostgreSQL control pool returned no backend PID."),
+                undefined,
+                release,
+              );
+              return;
+            }
+            backendPids.set(client, row.backendPid);
+            callback(undefined, client, release);
+          },
+          cause => {
+            client.release(true);
+            callback(
+              cause instanceof Error
+                ? cause
+                : new Error("PostgreSQL backend PID probe failed.", {
+                  cause,
+                }),
+              undefined,
+              release,
+            );
+          },
+        );
+      });
+    },
+  });
+  return Object.freeze({
+    controlPool,
+    backendPidFor: (client: PoolClient) => {
+      const backendPid = backendPids.get(client);
+      if (backendPid === undefined) {
+        throw new Error("PostgreSQL control client has no observed backend PID.");
+      }
+      return backendPid;
+    },
+    removedBackendPids: () => Object.freeze([...removedBackendPids]),
+    close: () => persistence.pool.off("remove", observeRemoval),
+  });
+}
+
+async function waitForDiscardedPostgresBackend(
+  persistence: PostgresFlarexPersistence,
+  observedPool: ObservedPostgresControlPool,
+  backendPid: number,
+): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const activity = await persistence.query<{ active: boolean }>(`
+      select exists (
+        select 1 from pg_stat_activity where pid = $1
+      ) as active
+    `, [backendPid]);
+    if (
+      activity.rows[0]?.active === false &&
+      observedPool.removedBackendPids().includes(backendPid)
+    ) {
+      return;
+    }
+    await delay(25);
+  }
+  throw new Error(
+    `Timed out waiting for PostgreSQL backend ${backendPid} to be discarded.`,
+  );
 }
 
 async function captureArtifact(

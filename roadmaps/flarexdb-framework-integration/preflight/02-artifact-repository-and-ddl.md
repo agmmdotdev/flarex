@@ -12,8 +12,10 @@ focused ordinary-role PostgreSQL 18 migration/catalog, control-session, point-
 read, exact-admission convergence, and deployment-row blocking evidence
 implemented, together with collision contention, both dependency-lock orders,
 cross-deployment non-blocking, owner/lineage coordinate isolation under
-contention, and native post-write rollback; wider genuine PostgreSQL
-acceptance remains incomplete
+contention, native post-write rollback, and driver-edge pre-/post-`COMMIT`
+settlement recovery after discarding the uncertain backend and using a
+distinct recovery backend; wider genuine PostgreSQL acceptance remains
+incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -1126,10 +1128,20 @@ permits a clean retry. The catalog assertion reads nullability from
 `pg_constraint` `contype = 'n'` entries from the separately asserted named-
 constraint inventory.
 
-Interruption and settlement recovery, bounded deadline faults, deadlock
-absence, and native identity-list/index behavior remain unproved. This focused
-evidence does not complete the private repository checkpoint or open a
-downstream gate.
+Driver-edge fault injection immediately before native `COMMIT` now proves that
+the uncommitted backend is removed and absent from `pg_stat_activity`, one
+distinct recovery backend creates the dependency-bearing parent, and the final
+result is `created`. Injection immediately after PostgreSQL acknowledges
+`COMMIT` proves the same quarantine and distinct-backend recovery observes the
+durable parent and returns `existing`. Both paths retain exactly one parent and
+one dependency edge and replay as `existing`. This is deterministic driver-edge
+settlement evidence, not evidence for a TCP partition, server crash, lost
+acknowledgement in transit, or callback/`COMMIT`-in-flight interruption.
+
+Callback and `COMMIT`-in-flight interruption, bounded deadline faults,
+supported-sequence deadlock absence, and native identity-list/index behavior
+remain unproved. This focused evidence does not complete the private repository
+checkpoint or open a downstream gate.
 
 ## Accepted Implementation Checkpoint
 
@@ -1164,10 +1176,10 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next implementation step is the remaining genuine PostgreSQL settlement/
-recovery, deadline, deadlock, and identity-list/index acceptance. The
-implemented DDL, preparation capability, stored loader/reconstruction, point
-read, locked admission, bounded identity list, repository identity,
-authenticated starter, deterministic control-session lifecycle, and artifact-
-private PostgreSQL control-session adapter do not open any installation,
-framework-adapter, runtime, public, or production gate.
+The next implementation step is the remaining genuine PostgreSQL callback/
+`COMMIT`-in-flight interruption, deadline, supported-sequence deadlock, and
+identity-list/index acceptance. The implemented DDL, preparation capability,
+stored loader/reconstruction, point read, locked admission, bounded identity
+list, repository identity, authenticated starter, deterministic control-session
+lifecycle, and artifact-private PostgreSQL control-session adapter do not open
+any installation, framework-adapter, runtime, public, or production gate.
