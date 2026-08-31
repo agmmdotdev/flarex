@@ -1,14 +1,25 @@
 import type {
   EvaluationAttemptOutcome,
+  QueryDescriptor,
   QueryEvaluationAttempt,
 } from "@flarex/query-sync/internal/kernel";
+import {
+  makeQueryEvaluationAttemptForTesting,
+} from "@flarex/query-sync/testing/conformance";
 import { Effect } from "effect";
 
 import {
+  completeEvaluation,
+  makeCompletionEvidence,
+} from "./deploymentSyncCompletionTestSupport";
+import {
+  beginEvaluation,
   type EvaluationSqlInvocation,
   type EvaluationSqlProbe,
   makeEvaluationSqlProbe,
+  prepareEvaluationState,
   type PreparedEvaluationState,
+  queryDescriptor,
 } from "./deploymentSyncEvaluationStateTestSupport";
 
 export type AttemptOutcomeSqlStage =
@@ -20,6 +31,17 @@ export type AttemptOutcomeSqlStage =
 
 export type AttemptOutcomeSqlProbe =
   EvaluationSqlProbe<AttemptOutcomeSqlStage>;
+
+type QueryEvaluationAttemptInput = Parameters<
+  typeof makeQueryEvaluationAttemptForTesting
+>[0];
+
+export interface AttemptOutcomeFixture {
+  readonly prepared: PreparedEvaluationState;
+  readonly probe: AttemptOutcomeSqlProbe;
+  readonly descriptor: QueryDescriptor;
+  readonly attempt: QueryEvaluationAttempt;
+}
 
 export const ATTEMPT_OUTCOME_COMMON_READ_STAGES = Object.freeze([
   "contract-read",
@@ -35,6 +57,61 @@ export const ATTEMPT_OUTCOME_WRITE_STAGES = Object.freeze([
 
 export function makeAttemptOutcomeSqlProbe(): AttemptOutcomeSqlProbe {
   return makeEvaluationSqlProbe(classifyAttemptOutcomeSql);
+}
+
+export async function prepareReadyAttemptOutcomeFixture(
+  seed: number,
+): Promise<AttemptOutcomeFixture> {
+  const probe = makeAttemptOutcomeSqlProbe();
+  const prepared = await prepareEvaluationState(probe.hooks);
+  const descriptor = queryDescriptor(seed);
+  const attempt = await beginEvaluation(prepared, descriptor);
+  return Object.freeze({ prepared, probe, descriptor, attempt });
+}
+
+export async function prepareCompletedAttemptOutcomeFixture(
+  seed: number,
+): Promise<AttemptOutcomeFixture> {
+  const fixture = await prepareReadyAttemptOutcomeFixture(seed);
+  const receipt = await completeEvaluation(
+    fixture.prepared,
+    fixture.attempt,
+    makeCompletionEvidence(fixture.prepared, fixture.attempt, {
+      dependencyLabels: ["attempt-outcome-boundary"],
+      publicationLabel: `attempt-outcome-boundary-${seed}`,
+    }),
+  );
+  if (receipt._tag !== "completed") {
+    fixture.prepared.database.close();
+    throw new Error(`Expected completed evaluation, received ${receipt._tag}.`);
+  }
+  return fixture;
+}
+
+export function reissueEvaluationAttemptForTesting(
+  attempt: QueryEvaluationAttempt,
+  overrides: Partial<QueryEvaluationAttemptInput>,
+): QueryEvaluationAttempt {
+  const descriptor = overrides.descriptor ?? attempt.descriptor;
+  const registrationCursor = overrides.registrationCursor
+    ?? attempt.registrationCursor;
+  return makeQueryEvaluationAttemptForTesting({
+    namespaceId: overrides.namespaceId ?? attempt.namespaceId,
+    syncModelId: overrides.syncModelId ?? attempt.syncModelId,
+    sourceEpoch: overrides.sourceEpoch ?? attempt.sourceEpoch,
+    descriptor: Object.freeze({ ...descriptor }),
+    generation: overrides.generation ?? attempt.generation,
+    expectedActiveGeneration: Object.hasOwn(overrides, "expectedActiveGeneration")
+      ? overrides.expectedActiveGeneration ?? null
+      : attempt.expectedActiveGeneration,
+    registrationCursor: Object.freeze({ ...registrationCursor }),
+    requestedDirtyThroughSequence: Object.hasOwn(
+      overrides,
+      "requestedDirtyThroughSequence",
+    )
+      ? overrides.requestedDirtyThroughSequence ?? null
+      : attempt.requestedDirtyThroughSequence,
+  });
 }
 
 export async function claimEvaluationAttempt(

@@ -2,7 +2,6 @@ import {
   MAX_EVALUATION_WORK_QUERY_INSPECTIONS,
   MAX_QUERY_DEPENDENCY_BYTES,
   MAX_QUERY_DEPENDENCY_KEYS,
-  MAX_QUERY_SYNC_WORK_REVISION,
   captureCanonicalDependencyKey,
   captureQueryGeneration,
   compareCanonicalBase64Url,
@@ -186,31 +185,6 @@ describe("deployment query-sync evaluation state limits", () => {
     }
   });
 
-  it("returns revision exhaustion before a terminal outcome write", async () => {
-    const prepared = await prepareEvaluationState();
-    try {
-      const attempt = await beginEvaluation(prepared, queryDescriptor(32));
-      prepared.database.prepare(`UPDATE deployment_sync_scope_state
-        SET evaluation_work_revision = ?
-        WHERE singleton = 1`).run(MAX_QUERY_SYNC_WORK_REVISION.toString());
-      const before = snapshot(prepared.database);
-
-      const exit = await Effect.runPromiseExit(
-        prepared.state.recordEvaluationAttemptOutcome(
-          attempt,
-          "terminalRefusal",
-        ),
-      );
-
-      expectTypedFailure(exit, {
-        _tag: "QuerySyncWorkRevisionExhaustedError",
-        operation: "recordEvaluationAttemptOutcome",
-      });
-      expect(snapshot(prepared.database)).toEqual(before);
-    } finally {
-      prepared.database.close();
-    }
-  });
 });
 
 function dependencyKey(

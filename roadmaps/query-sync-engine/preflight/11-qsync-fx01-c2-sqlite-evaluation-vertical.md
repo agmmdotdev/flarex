@@ -971,9 +971,8 @@ This accepted implementation checkpoint does not authorize:
    aggregate cursor reads forbidden. This is SQLite-local JavaScript
    consumption evidence; it does not claim Cloudflare cursor-buffering or
    Worker-heap behavior.
-7. Remaining C2 exit work includes maximum genuine-Workerd spelling, binding,
-   buffering, and heap proofs, and the attempt-outcome branches still named
-   below.
+7. Remaining C2 exit work is limited to genuine-Workerd maximum row/content
+   spelling, binding, buffering, heap, disposal, and reopen proof.
 8. The completion control-flow proof now covers all five start-stage no-write
    receipts, pending and unchanged exact replay, first material activation,
    unchanged-digest pending preservation, and every adapter-reachable non-limit
@@ -1108,18 +1107,44 @@ This accepted implementation checkpoint does not authorize:
     4,096 pending maximum; no inconsistent counter-only failures are
     fabricated. This is synchronous Node SQLite evidence only and makes no
     Workerd buffering, heap, row-spelling, or binding-limit claim.
+21. The attempt-outcome boundary proof now closes every adapter-reachable
+    authority, typed-mismatch, corruption, and exhaustion branch. It covers all
+    three attempt-authority tags, query absence, same-key identity collision,
+    and future generation against provisional-only, active-only, and
+    active-plus-provisional state. The three reachable retained-attempt
+    mismatch reasons are proven against live provisional, already-blocked
+    provisional, and current-completion facts, so malformed retained evidence
+    wins before an otherwise replayable blocked or superseded receipt.
+    `descriptorMismatch` and `generationMismatch` remain defensive members of
+    `InvalidEvaluationAttemptError`: query-key/identity checks settle descriptor
+    disagreement first, while both retained-attempt matchers are entered only
+    after generation equality. Tests do not fabricate unreachable variants.
+    A separate one-shot corruption table covers malformed descriptor identity,
+    invalid active freshness, an invalid provisional fence, an empty query,
+    noncanonical preceding generation, and an invalid retained-completion
+    window. Every case returns stored corruption with `notCommitted` certainty
+    after exactly the contract, scope, and target-query reads and performs no
+    DML. Finally, portable builders create a valid 4,096-query population with
+    32 MiB of retained identity and fill real pending content to exactly
+    64 MiB of counted canonical data. Transient exhaustion remains a no-write
+    eligible result at simultaneous revision and canonical maxima; terminal
+    refusal proves revision exhaustion wins there, while the same exact canonical
+    maximum at an ordinary revision returns the portable
+    `QuerySyncStateLimitError` for the block's exact two-byte
+    `countedCanonicalBytes` overflow. No unchanged metric dimension, retry,
+    contention, or unknown-commit failure is invented.
 
 Completion's remaining exit work is now limited to genuine-Workerd maximum
 proof. The complete Node SQLite maximum-population/state-limit, C2 serial-race,
 non-limit typed-error, and portable prohibited-corruption matrices are now
 proven.
 The accepted claim branch, boundary, and recovery matrix is complete, as are
-the nominal attempt-outcome branch/read-trace, write-rollback, affected-row,
-response-loss, and terminal-versus-completion matrices.
-Exhaustive attempt-outcome authority, typed-mismatch, corruption, and
-exhaustion branches remain under the broader C2 exit matrix above.
+the complete adapter-reachable attempt-outcome branch, boundary, corruption,
+exhaustion, read-trace, write-rollback, affected-row, response-loss, and
+terminal-versus-completion matrices.
 
 C2 remains implementation-complete but proof-incomplete at that private
-boundary. The next correctness work is the remaining C2 proof matrix. A fresh
-`QSYNC-FX01-C3` discussion stays blocked until C2 exits; this record does not
-pre-approve it.
+boundary. The sole remaining C2 exit proof is genuine-Workerd maximum
+row/content spelling, binding, buffering, heap, disposal, and reopen coverage.
+A fresh `QSYNC-FX01-C3` discussion stays blocked until C2 exits; this record
+does not pre-approve it.

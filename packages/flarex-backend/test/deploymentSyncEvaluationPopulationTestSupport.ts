@@ -1,6 +1,30 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 
-import type { QuerySyncState } from "@flarex/query-sync/internal/kernel";
+import {
+  MAX_CANONICAL_QUERY_IDENTITY_BYTES,
+  MAX_COUNTED_CANONICAL_BYTES,
+  MAX_INLINE_PUBLICATION_CONTENT_BYTES,
+  MAX_REFERENCE_QUERIES,
+  MAX_RETAINED_QUERY_IDENTITY_BYTES,
+  buildQuerySyncState,
+  captureQueryAuthorityWitness,
+  captureQueryDescriptor,
+  captureQueryGeneration,
+  captureQueryPublicationArtifact,
+  captureQueryResultDigest,
+  captureQuerySnapshot,
+  createEmptyQuerySyncState,
+  makePendingQueryPublication,
+  makeQueryPublicationIdentity,
+  pendingPublicationDisposition,
+  type CanonicalPublicationContent,
+  type NamespaceCursor,
+  type PendingQueryPublication,
+  type QueryState,
+  type QuerySyncState,
+  type QuerySyncWorkRevision,
+} from "@flarex/query-sync/internal/kernel";
+import { Encoding, Result } from "effect";
 
 import type {
   DeploymentQuerySyncBinding,
@@ -19,6 +43,278 @@ import {
   encodeDeploymentQuerySyncScopeRow,
   type EncodedDeploymentQuerySyncScopeRow,
 } from "../src/deploymentSync/RowCodec";
+
+const MAXIMUM_PENDING_CONTENT_ROWS = 32;
+const MAXIMUM_TARGET_INDEX = MAXIMUM_PENDING_CONTENT_ROWS;
+const MAXIMUM_POPULATION_IDENTITY_BYTES =
+  MAX_RETAINED_QUERY_IDENTITY_BYTES / MAX_REFERENCE_QUERIES;
+
+export interface CountedCanonicalMaximumEvaluationPopulation {
+  readonly state: QuerySyncState;
+  readonly target: QueryState;
+}
+
+export function buildCountedCanonicalMaximumEvaluationPopulation(input: {
+  readonly cursor: NamespaceCursor;
+  readonly evaluationWorkRevision: QuerySyncWorkRevision;
+}): CountedCanonicalMaximumEvaluationPopulation {
+  const maximumIdentity = canonicalData(
+    MAXIMUM_POPULATION_IDENTITY_BYTES,
+    0x69,
+  );
+  if (
+    !Number.isInteger(MAXIMUM_POPULATION_IDENTITY_BYTES)
+    || MAXIMUM_POPULATION_IDENTITY_BYTES
+      > MAX_CANONICAL_QUERY_IDENTITY_BYTES
+  ) {
+    throw new Error("Maximum retained identity bytes cannot be distributed.");
+  }
+  const emptyContents = Array.from(
+    { length: MAXIMUM_PENDING_CONTENT_ROWS },
+    () => canonicalContent(0, 0),
+  );
+  const emptyPopulation = buildMaximumIdentityPopulation(
+    input,
+    maximumIdentity,
+    emptyContents,
+  );
+  const contentDeficit = MAX_COUNTED_CANONICAL_BYTES
+    - emptyPopulation.state.metrics.countedCanonicalBytes;
+  if (
+    contentDeficit < 0
+    || contentDeficit
+      > MAXIMUM_PENDING_CONTENT_ROWS * MAX_INLINE_PUBLICATION_CONTENT_BYTES
+  ) {
+    throw new Error(
+      "The exact counted-canonical maximum cannot be represented by pending content.",
+    );
+  }
+
+  let remainingContentBytes = contentDeficit;
+  const contents = Array.from(
+    { length: MAXIMUM_PENDING_CONTENT_ROWS },
+    (_value, index) => {
+      const byteLength = Math.min(
+        remainingContentBytes,
+        MAX_INLINE_PUBLICATION_CONTENT_BYTES,
+      );
+      remainingContentBytes -= byteLength;
+      return canonicalContent(byteLength, 0x70 + (index % 16));
+    },
+  );
+  if (remainingContentBytes !== 0) {
+    throw new Error("Maximum pending content did not consume every byte.");
+  }
+
+  const population = buildMaximumIdentityPopulation(
+    input,
+    maximumIdentity,
+    contents,
+  );
+  if (
+    population.state.metrics.queryCount !== MAX_REFERENCE_QUERIES
+    || population.state.metrics.retainedIdentityBytes
+      !== MAX_RETAINED_QUERY_IDENTITY_BYTES
+    || population.state.metrics.pendingPublicationCount
+      !== MAXIMUM_PENDING_CONTENT_ROWS
+    || population.state.metrics.retainedPublicationContentBytes
+      !== contentDeficit
+    || population.state.metrics.countedCanonicalBytes
+      !== MAX_COUNTED_CANONICAL_BYTES
+  ) {
+    throw new Error("Maximum evaluation population metrics are not exact.");
+  }
+  return population;
+}
+
+function buildMaximumIdentityPopulation(
+  input: {
+    readonly cursor: NamespaceCursor;
+    readonly evaluationWorkRevision: QuerySyncWorkRevision;
+  },
+  queryIdentity: string,
+  contents: readonly CanonicalPublicationContent[],
+): CountedCanonicalMaximumEvaluationPopulation {
+  const completed = contents.map((content, index) => completedPendingQuery(
+    input.cursor,
+    index,
+    queryIdentity,
+    content,
+  ));
+  const provisional = Array.from(
+    { length: MAX_REFERENCE_QUERIES - completed.length },
+    (_value, offset) => provisionalQuery(
+      input.cursor,
+      completed.length + offset,
+      queryIdentity,
+    ),
+  );
+  const queries = [
+    ...completed.map(entry => entry.query),
+    ...provisional,
+  ];
+  const state = buildEvaluationPopulation({
+    cursor: input.cursor,
+    evaluationWorkRevision: input.evaluationWorkRevision,
+    queries,
+    pending: completed.map(entry => entry.pending),
+  });
+  const target = state.queries.find(query =>
+    query.descriptor.queryKey
+      === indexedCanonicalData(32, MAXIMUM_TARGET_INDEX, 0x4b)
+  );
+  if (target === undefined) {
+    throw new Error("Maximum evaluation population is missing its target.");
+  }
+  return Object.freeze({ state, target });
+}
+
+function buildEvaluationPopulation(input: {
+  readonly cursor: NamespaceCursor;
+  readonly evaluationWorkRevision: QuerySyncWorkRevision;
+  readonly queries: readonly QueryState[];
+  readonly pending: readonly PendingQueryPublication[];
+}): QuerySyncState {
+  const empty = resultSuccess(createEmptyQuerySyncState(input.cursor));
+  return resultSuccess(buildQuerySyncState({
+    cursor: input.cursor,
+    queries: input.queries,
+    evaluationWork: Object.freeze({
+      revision: input.evaluationWorkRevision,
+      fairnessAnchor: null,
+    }),
+    publicationWork: Object.freeze({
+      pending: input.pending,
+      inFlight: empty.publicationWork.inFlight,
+      latestDelivered: empty.publicationWork.latestDelivered,
+      precedingAttemptOutcome: empty.publicationWork.precedingAttemptOutcome,
+    }),
+  }));
+}
+
+function completedPendingQuery(
+  cursor: NamespaceCursor,
+  index: number,
+  queryIdentity: string,
+  content: CanonicalPublicationContent,
+): Readonly<{
+  readonly query: QueryState;
+  readonly pending: PendingQueryPublication;
+}> {
+  const descriptor = resultSuccess(captureQueryDescriptor({
+    queryKey: indexedCanonicalData(32, index, 0x4b),
+    queryIdentity,
+  }));
+  const generation = resultSuccess(captureQueryGeneration(1n));
+  const evaluationSnapshotSequence = resultSuccess(captureQuerySnapshot(
+    cursor.appliedThroughSequence,
+  ));
+  const resultDigest = resultSuccess(captureQueryResultDigest(
+    indexedCanonicalData(32, index, 0x5d),
+  ));
+  const authorityWitness = resultSuccess(captureQueryAuthorityWitness(
+    indexedCanonicalData(32, index, 0x7d),
+  ));
+  const identity = makeQueryPublicationIdentity({
+    namespaceId: cursor.namespaceId,
+    syncModelId: cursor.syncModelId,
+    sourceEpoch: cursor.sourceEpoch,
+    queryKey: descriptor.queryKey,
+    generation,
+  });
+  const pending = makePendingQueryPublication({
+    identity,
+    queryIdentity: descriptor.queryIdentity,
+    completedThroughSequence: cursor.appliedThroughSequence,
+    resultDigest,
+    content,
+  });
+  const query = Object.freeze({
+    descriptor,
+    active: Object.freeze({
+      generation,
+      evaluationSnapshotSequence,
+      freshThroughSequence: cursor.appliedThroughSequence,
+      dirtyThroughSequence: null,
+      resultDigest,
+      authorityWitness,
+      dependencyKeys: Object.freeze([]),
+    }),
+    provisional: null,
+    currentCompletion: Object.freeze({
+      identity,
+      queryIdentity: descriptor.queryIdentity,
+      expectedActiveGeneration: null,
+      registrationCursor: cursor,
+      requestedDirtyThroughSequence: null,
+      evaluationSnapshotSequence,
+      evaluationDependencyKeys: Object.freeze([]),
+      evaluationAuthorityWitness: authorityWitness,
+      refreshedThroughSequence: cursor.appliedThroughSequence,
+      relevantThroughSequence: null,
+      refreshAuthorityWitness: authorityWitness,
+      resultDigest,
+      publicationDisposition: pendingPublicationDisposition(identity),
+    }),
+    precedingCompletionIdentity: null,
+  } satisfies QueryState);
+  return Object.freeze({ query, pending });
+}
+
+function provisionalQuery(
+  cursor: NamespaceCursor,
+  index: number,
+  queryIdentity: string,
+): QueryState {
+  return Object.freeze({
+    descriptor: resultSuccess(captureQueryDescriptor({
+      queryKey: indexedCanonicalData(32, index, 0x4b),
+      queryIdentity,
+    })),
+    active: null,
+    provisional: Object.freeze({
+      generation: resultSuccess(captureQueryGeneration(1n)),
+      expectedActiveGeneration: null,
+      registrationCursor: cursor,
+      requestedDirtyThroughSequence: null,
+      evaluationDisposition: Object.freeze({ _tag: "ready" as const }),
+    }),
+    currentCompletion: null,
+    precedingCompletionIdentity: null,
+  });
+}
+
+function canonicalContent(
+  byteLength: number,
+  fill: number,
+): CanonicalPublicationContent {
+  return resultSuccess(captureQueryPublicationArtifact({
+    content: canonicalData(byteLength, fill),
+  })).content;
+}
+
+function canonicalData(byteLength: number, fill: number): string {
+  return Encoding.encodeBase64Url(new Uint8Array(byteLength).fill(fill));
+}
+
+function indexedCanonicalData(
+  byteLength: number,
+  index: number,
+  fill: number,
+): string {
+  const bytes = new Uint8Array(byteLength).fill(fill);
+  new DataView(bytes.buffer).setUint32(0, index, false);
+  return Encoding.encodeBase64Url(bytes);
+}
+
+function resultSuccess<A, E>(result: Result.Result<A, E>): A {
+  return Result.match(result, {
+    onFailure: failure => {
+      throw failure;
+    },
+    onSuccess: value => value,
+  });
+}
 
 export function seedEvaluationPopulation(
   database: DatabaseSync,
