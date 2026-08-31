@@ -23,7 +23,8 @@ evaluator, publisher, route, or production caller. The later fresh
 records the completed C1 implementation. The later accepted
 [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
 records the completed private evaluation-side adapter. Neither checkpoint
-retroactively makes D adapter authority. C3 remains blocked.
+retroactively makes D adapter authority. C3 is eligible only for a fresh
+explicit preflight and remains unapproved and unimplemented.
 
 The accepted correction is one private, runtime-neutral family of pure
 operation-scoped transition planners inside the existing
@@ -44,7 +45,7 @@ the required input to a future durable store transaction.
 | Does the planner run Effect or own transactions? | No. It is synchronous pure policy returning Effect v4 `Result`. The host owns serialization, transactions, clocks, and Effect lifting. |
 | Who owns counters and limits? | One portable accounting/invariant owner shared by the planners and aggregate builder. Adapters never reproduce semantic arithmetic. |
 | Is the old aggregate reducer retained as a second authority? | No. Aggregate APIs become planner-backed compatibility/oracle wrappers and displaced semantic branches are removed. |
-| What was the historical FX01 resume gate? | D1-D4 had to complete all nine planners and a fresh FX01 checkpoint had to approve one adapter slice. That condition later opened completed C1 and accepted C2 implementation checkpoints; C2 proof and the later C3 checkpoint remain separate gates. |
+| What was the historical FX01 resume gate? | D1-D4 had to complete all nine planners and a fresh FX01 checkpoint had to approve one adapter slice. That condition later opened completed C1 and C2 checkpoints; C2 exited privately on 2026-08-31, while C3 still requires its own explicit preflight and approval. |
 
 ## Why This Gate Exists
 
@@ -729,8 +730,9 @@ It records only the private empty-scope prerequisite followed by the complete
 three-operation SQLite vertical. The
 [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
 was subsequently accepted and implemented as the private six-operation SQLite
-evaluation vertical. Its required exit proof remains open, and C3 remains
-unauthorized.
+evaluation vertical. Its required exit proof completed on 2026-08-31. C3 is
+eligible for a fresh explicit preflight but remains unauthorized and
+unimplemented.
 
 `QSYNC-CF01` remains a separate delivery feasibility/selection gate and does
 not change this ordering.

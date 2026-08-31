@@ -12,7 +12,7 @@ The current production-inert code is evidence to classify as:
 | --- | --- |
 | deleted `flarex-backend/src/deploymentSync/Policy.ts` | C1 removed the displaced backend-local query-generation policy. Portable decisions now come through the private transition-plan boundary; do not recreate this file or a host reducer. |
 | `flarex-backend/src/deploymentSync/Model.ts` and `QuerySyncModel.ts` | Retain only backend-owned invalidation projection errors and Flarex model mapping. Do not mirror portable state unions or policy. |
-| `flarex-backend/src/deploymentSync/Store.ts` | Now composes the private generation-3 six-operation SQLite evaluation adapter implemented under C2. Finish C2 proof, then evolve this same authority in place only through a separately accepted C3 generation; do not create parallel tables or writes. |
+| `flarex-backend/src/deploymentSync/Store.ts` | Now composes the private generation-3 six-operation SQLite evaluation adapter completed under C2. Evolve this same authority in place only through a separately accepted C3 generation; do not create parallel tables or writes. |
 | `flarex-backend/src/deploymentSyncDO.ts` | Remains an empty production-inert per-scope placement shell with no callable surface or adapter construction. Later FX02 host composition may construct one namespace engine instance per object; the class is not semantic authority. |
 | `flarex-protocol/internal/scope-sync-v1` | Remains the concrete Flarex versioned codec/adapter contract until a separately approved migration. Its Flarex identities must not become generic engine types. |
 | `@flarex/persistence-postgres` commit feed | Remains authoritative and later implements the trusted replayable Flarex `ChangeSource`. |
@@ -153,17 +153,21 @@ not a complete uncertainty contract.
    empty-scope prerequisite, and the private generation-2 initialize, begin,
    and admitted-batch SQLite vertical completed in `12e2f375` and `b94abbb0`.
    The adapter remains package-private, unrouted, and production-inert.
-13. **Implementation present; exit proof open (`QSYNC-FX01-C2`).** The accepted
-   [C2 checkpoint](./preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
-   implemented its generation-3 six-operation evaluation vertical with focused
-   migration, rollback, portable-oracle, and genuine Workerd proof on
-   2026-08-30. Its exact fifteen-write generation-2 migration fault matrix and
-   SQLite-local 4,096-query streaming migration proof are also complete.
-14. **Open C2 exit gate.** Complete the retained non-migration maximum-
-   population, branch, race/read-trace, and genuine-Workerd proof matrix.
+13. **Complete (`QSYNC-FX01-C2`).** The accepted
+    [C2 checkpoint](./preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
+    implemented its generation-3 six-operation evaluation vertical with focused
+    migration, rollback, portable-oracle, and genuine Workerd proof on
+    2026-08-30. Its exact fifteen-write generation-2 migration fault matrix and
+    SQLite-local 4,096-query streaming migration proof are also complete.
+14. **Complete C2 exit proof.** On 2026-08-31 the pinned local Workerd lane
+    closed the retained maximum-population, row/content, binding, buffering,
+    disposal, and reopen matrix. This is not deployed Cloudflare evidence or a
+    measured 128 MiB guarantee, and dispose/recreate does not prove eviction or
+    hibernation.
 15. **Separate later gate (`QSYNC-FX01-C3`).** Preflight, explicitly accept,
-   implement, and prove the publication lifecycle plus complete nine-operation
-   adapter. FX01 is not complete before this gate exits.
+    implement, and prove the publication lifecycle plus complete nine-operation
+    adapter. C3 is eligible for that fresh discussion but is not approved or
+    implemented. FX01 is not complete before this gate exits.
 16. Independently run the Cloudflare Durable Streams feasibility spike and
    accept or reject it at explicit maturity, security, retention, payload, and
    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;

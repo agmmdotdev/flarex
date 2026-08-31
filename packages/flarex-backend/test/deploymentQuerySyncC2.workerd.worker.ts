@@ -1,4 +1,5 @@
 import {
+  MAX_REFERENCE_QUERIES,
   captureAdmittedInvalidationBatch,
   captureCanonicalDependencyKey,
   captureNamespaceCursor,
@@ -40,18 +41,25 @@ import {
   captureDeploymentQuerySyncBinding,
   makeDeploymentQuerySyncFreshInitializationCapabilityForTest,
 } from "../src/deploymentSync/Binding";
-import {
-  GENERATION_2_CONTRACT_TABLE_DDL,
-  GENERATION_2_DEPENDENCY_REVERSE_INDEX_DDL,
-  GENERATION_2_DEPENDENCY_TABLE_DDL,
-  GENERATION_2_QUERY_TABLE_DDL,
-  GENERATION_2_SCOPE_TABLE_DDL,
-} from "../src/deploymentSync/StorageContractGeneration2";
+import type {
+  DeploymentQuerySyncStorage,
+} from "../src/deploymentSync/StorageContract";
 import {
   makeDeploymentQuerySyncEvaluationState,
   type DeploymentQuerySyncEvaluationState,
 } from "../src/deploymentSync/Store";
 import { deploymentSyncObjectName } from "../src/routing";
+import {
+  createGeneration2Catalog,
+  encodedDigest,
+  exactBindingBudget,
+  makeMaximumCompletionMaterial,
+  maximumPopulationSummary,
+  maximumQueryDescriptor,
+  maximumRowSummary,
+  seedGeneration2Maximum,
+  storageWithBindingTrace,
+} from "./deploymentQuerySyncC2MaximumWorkerdTestSupport";
 
 interface TestEnv {
   readonly DEPLOYMENT_SYNCS: DurableObjectNamespace<DeploymentQuerySyncC2TestDO>;
@@ -78,6 +86,17 @@ export class DeploymentQuerySyncC2TestDO extends DurableObject<TestEnv> {
       case "seedGeneration2Orphan":
         seedGeneration2(this.ctx.storage.sql, true, input);
         return Response.json({ ok: true });
+      case "seedGeneration2Maximum":
+        return Response.json({
+          ok: true,
+          value: serializeUnknown(seedGeneration2Maximum(
+            this.ctx.storage,
+            Result.getOrThrow(captureDeploymentQuerySyncBinding({
+              objectId: this.ctx.id,
+              observation: activeHeadObservation(input),
+            })),
+          )),
+        });
       case "initialize":
         return await effectResponse(makeStateAndRun(
           this.ctx,
@@ -107,6 +126,47 @@ export class DeploymentQuerySyncC2TestDO extends DurableObject<TestEnv> {
             input,
           ),
         ));
+      case "migrateAndClaimMaximum":
+        return await effectResponse(makeStateAndRun(
+          this.ctx,
+          input,
+          state => migrateAndClaimMaximum(
+            state,
+            this.ctx.storage.sql,
+            input,
+          ),
+        ));
+      case "maximumRowVertical": {
+        const bindingCounts: number[] = [];
+        const storage = storageWithBindingTrace(
+          this.ctx.storage,
+          bindingCounts,
+        );
+        return await effectResponse(makeStateAndRun(
+          this.ctx,
+          { ...input, authorizedFresh: true },
+          state => maximumRowVertical(
+            state,
+            this.ctx.storage.sql,
+            bindingCounts,
+            input,
+          ),
+          storage,
+        ));
+      }
+      case "maximumPopulationSummary":
+        return Response.json(serializeUnknown({
+          ok: true,
+          value: maximumPopulationSummary(this.ctx.storage.sql),
+        }));
+      case "maximumRowSummary":
+        return Response.json(serializeUnknown({
+          ok: true,
+          value: maximumRowSummary(
+            this.ctx.storage.sql,
+            maximumQueryDescriptor(Number(input.querySeed ?? 1)),
+          ),
+        }));
       case "snapshot":
         return Response.json(serializeUnknown(snapshot(this.ctx.storage.sql)));
       case "catalog":
@@ -131,7 +191,11 @@ function makeStateAndRun<A, E>(
   ctx: DurableObjectState,
   input: TestRequest,
   run: (state: DeploymentQuerySyncEvaluationState) => Effect.Effect<A, E>,
-): Effect.Effect<A, E | unknown> {
+  storage: DeploymentQuerySyncStorage = ctx.storage,
+): Effect.Effect<
+  A,
+  E | Effect.Error<ReturnType<typeof makeDeploymentQuerySyncEvaluationState>>
+> {
   const observation = activeHeadObservation(input);
   const bindingInput = Object.freeze({ objectId: ctx.id, observation });
   const freshInitializationCapability = input.authorizedFresh === true
@@ -141,7 +205,7 @@ function makeStateAndRun<A, E>(
     : undefined;
   return makeDeploymentQuerySyncEvaluationState({
     binding: bindingInput,
-    storage: ctx.storage,
+    storage,
     ...(freshInitializationCapability === undefined
       ? {}
       : { freshInitializationCapability }),
@@ -253,6 +317,134 @@ function completionRollbackThenReplay(
   });
 }
 
+function migrateAndClaimMaximum(
+  state: DeploymentQuerySyncEvaluationState,
+  sql: SqlStorage,
+  input: TestRequest,
+) {
+  return Effect.gen(function* () {
+    const initialized = yield* state.initializeOrInspectNamespace(
+      bootstrapCursor(input),
+    );
+    if (initialized._tag !== "existing") {
+      return yield* Effect.die(new Error(
+        `Expected migrated maximum generation-2 state, observed ${initialized._tag}.`,
+      ));
+    }
+    const migratedPopulation = maximumPopulationSummary(sql);
+    const claimed = yield* state.claimEvaluationWork({
+      maximumQueryInspections: MAX_REFERENCE_QUERIES,
+      continuation: null,
+    });
+    if (claimed._tag !== "claimed") {
+      return yield* Effect.die(new Error(
+        `Expected maximum-population claim, observed ${claimed._tag}.`,
+      ));
+    }
+    return Object.freeze({
+      initialized: Object.freeze({
+        _tag: initialized._tag,
+        queryCount: initialized.metrics.queryCount,
+        retainedIdentityBytes: initialized.metrics.retainedIdentityBytes,
+      }),
+      claimed: Object.freeze({
+        _tag: claimed._tag,
+        generation: claimed.attempt.generation,
+        queryKey: claimed.attempt.descriptor.queryKey,
+        queryIdentityCharacters:
+          claimed.attempt.descriptor.queryIdentity.length,
+      }),
+      migratedPopulation,
+      claimedPopulation: maximumPopulationSummary(sql),
+    });
+  });
+}
+
+function maximumRowVertical(
+  state: DeploymentQuerySyncEvaluationState,
+  sql: SqlStorage,
+  bindingCounts: readonly number[],
+  input: TestRequest,
+) {
+  return Effect.gen(function* () {
+    const cursor = bootstrapCursor(input);
+    const initialized = yield* state.initializeOrInspectNamespace(cursor);
+    if (initialized._tag !== "initialized") {
+      return yield* Effect.die(new Error(
+        `Expected fresh maximum-row initialization, observed ${initialized._tag}.`,
+      ));
+    }
+    const descriptor = maximumQueryDescriptor(Number(input.querySeed ?? 1));
+    const begun = yield* state.beginQueryEvaluation(
+      firstEvaluationRequest(cursor, descriptor),
+    );
+    const attempt = requireCreatedAttempt(begun);
+    const material = makeMaximumCompletionMaterial(
+      cursor,
+      descriptor,
+      attempt,
+    );
+    const completed = yield* state.completeQueryEvaluation(
+      attempt,
+      material.evaluation,
+      material.refresh,
+      material.publication,
+    );
+    if (completed._tag !== "completed") {
+      return yield* Effect.die(new Error(
+        `Expected maximum-row completion, observed ${completed._tag}.`,
+      ));
+    }
+    const replayed = yield* state.completeQueryEvaluation(
+      attempt,
+      material.evaluation,
+      material.refresh,
+      material.publication,
+    );
+    if (replayed._tag !== "replayed") {
+      return yield* Effect.die(new Error(
+        `Expected maximum-row replay, observed ${replayed._tag}.`,
+      ));
+    }
+    const applied = yield* state.applyAdmittedBatchAndAdvance(
+      Result.getOrThrow(captureAdmittedInvalidationBatch({
+        namespaceId: cursor.namespaceId,
+        syncModelId: cursor.syncModelId,
+        sourceEpoch: cursor.sourceEpoch,
+        sourceSequence: 1n,
+        dependencyKeys: material.dependencyKeys,
+      })),
+    );
+    if (applied._tag !== "applied") {
+      return yield* Effect.die(new Error(
+        `Expected maximum-row invalidation, observed ${applied._tag}.`,
+      ));
+    }
+    return Object.freeze({
+      initialized: initialized._tag,
+      begun: begun._tag,
+      completed: Object.freeze({
+        _tag: completed._tag,
+        generation: completed.generation,
+        publicationDisposition: completed.publicationDisposition._tag,
+      }),
+      replayed: Object.freeze({
+        _tag: replayed._tag,
+        generation: replayed.generation,
+        publicationDisposition: replayed.publicationDisposition._tag,
+      }),
+      applied: Object.freeze({
+        _tag: applied._tag,
+        appliedSequence: applied.appliedSequence,
+        affectedQueryCount: applied.affectedQueryKeys.length,
+      }),
+      dependencyLookupBindingCounts: Object.freeze([...bindingCounts]),
+      bindingBudget: exactBindingBudget(sql),
+      maximumRow: maximumRowSummary(sql, descriptor),
+    });
+  });
+}
+
 function requireCreatedAttempt(
   receipt: Effect.Success<
     ReturnType<DeploymentQuerySyncEvaluationState["beginQueryEvaluation"]>
@@ -322,12 +514,6 @@ function queryDescriptor(input: TestRequest): QueryDescriptor {
   }));
 }
 
-function encodedDigest(byte: number): string {
-  return Encoding.encodeBase64Url(
-    Uint8Array.from({ length: 32 }, () => byte),
-  );
-}
-
 function activeHeadObservation(input: TestRequest) {
   return captureScopeSyncActiveHeadObservationV1({
     format: SCOPE_SYNC_ACTIVE_HEAD_OBSERVATION_FORMAT_V1,
@@ -370,11 +556,7 @@ function seedGeneration2(
   includeOrphan: boolean,
   input: TestRequest,
 ): void {
-  sql.exec(GENERATION_2_CONTRACT_TABLE_DDL);
-  sql.exec(GENERATION_2_SCOPE_TABLE_DDL);
-  sql.exec(GENERATION_2_QUERY_TABLE_DDL);
-  sql.exec(GENERATION_2_DEPENDENCY_TABLE_DDL);
-  sql.exec(GENERATION_2_DEPENDENCY_REVERSE_INDEX_DDL);
+  createGeneration2Catalog(sql);
   sql.exec(
     "INSERT INTO deployment_sync_contract_state VALUES (1, 2, 0)",
   );

@@ -8,6 +8,14 @@ import { fileURLToPath } from "node:url";
 import { build, type Plugin } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  MAX_CANONICAL_QUERY_IDENTITY_BYTES,
+  MAX_INLINE_PUBLICATION_CONTENT_BYTES,
+  MAX_REFERENCE_QUERIES,
+  MAX_RETAINED_QUERY_IDENTITY_BYTES,
+  canonicalBase64UrlEncodedLength,
+} from "@flarex/query-sync/internal/kernel";
+
 const epoch = "00000000-0000-4000-8000-000000000201";
 
 describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
@@ -217,6 +225,186 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     });
   });
 
+  it("proves maximum C2 host boundaries across disposal and reopen", async () => {
+    const persistPath = await mkdtemp(join(tmpdir(), "flarex-qsync-c2-max-"));
+    const populationScope = testScope(8);
+    const maximumRowScope = testScope(9);
+    const populationIdentityBytes = MAX_RETAINED_QUERY_IDENTITY_BYTES
+      / MAX_REFERENCE_QUERIES;
+    const populationIdentityCharacters = canonicalBase64UrlEncodedLength(
+      populationIdentityBytes,
+    );
+    const maximumIdentityCharacters = canonicalBase64UrlEncodedLength(
+      MAX_CANONICAL_QUERY_IDENTITY_BYTES,
+    );
+    const maximumContentCharacters = canonicalBase64UrlEncodedLength(
+      MAX_INLINE_PUBLICATION_CONTENT_BYTES,
+    );
+    let first: Miniflare | undefined;
+    let second: Miniflare | undefined;
+    try {
+      first = makeRuntime(workerBundle, persistPath);
+      const seededPopulation = await invoke(first, "seedGeneration2Maximum", {
+        ...observation(populationScope),
+        querySeed: 8,
+      });
+      expectSuccessResponse(seededPopulation);
+      const seededPopulationValue = successValue(seededPopulation);
+      const seededPopulationScopeMetrics = recordMember(
+        seededPopulationValue,
+        "scopeMetrics",
+      );
+      expect(seededPopulationScopeMetrics).toEqual(
+        populationScopeMetricsExpectation(safeIntegerMember(
+          seededPopulationScopeMetrics,
+          "countedCanonicalBytes",
+        )),
+      );
+      expect(seededPopulationValue).toMatchObject({
+        queryCount: MAX_REFERENCE_QUERIES,
+        retainedIdentityBytes: MAX_RETAINED_QUERY_IDENTITY_BYTES,
+        queryIdentityCharacters: populationIdentityCharacters,
+      });
+
+      const migration = await invoke(first, "migrateAndClaimMaximum", {
+        ...observation(populationScope),
+        authorizedFresh: true,
+      });
+      expectSuccessResponse(migration);
+      const migrationValue = successValue(migration);
+      const claimedPopulation = recordMember(
+        migrationValue,
+        "claimedPopulation",
+      );
+      const populationScopeMetrics = recordMember(
+        claimedPopulation,
+        "scopeMetrics",
+      );
+      expect(populationScopeMetrics).toEqual(populationScopeMetricsExpectation(
+        safeIntegerMember(populationScopeMetrics, "countedCanonicalBytes"),
+      ));
+      expect(migration).toMatchObject({
+        ok: true,
+        value: {
+          initialized: {
+            _tag: "existing",
+            queryCount: MAX_REFERENCE_QUERIES,
+            retainedIdentityBytes: MAX_RETAINED_QUERY_IDENTITY_BYTES,
+          },
+          claimed: {
+            _tag: "claimed",
+            generation: "1",
+            queryIdentityCharacters: populationIdentityCharacters,
+          },
+          migratedPopulation: maximumPopulationExpectation(
+            populationIdentityCharacters,
+            seededPopulationScopeMetrics,
+          ),
+          claimedPopulation: maximumPopulationExpectation(
+            populationIdentityCharacters,
+            populationScopeMetrics,
+          ),
+        },
+      });
+
+      const maximumRow = await invoke(first, "maximumRowVertical", {
+        ...observation(maximumRowScope),
+        querySeed: 9,
+      });
+      expectSuccessResponse(maximumRow);
+      const maximumRowValue = successValue(maximumRow);
+      const maximumRowStored = recordMember(maximumRowValue, "maximumRow");
+      const maximumRowScopeMetrics = recordMember(
+        maximumRowStored,
+        "scopeMetrics",
+      );
+      expect(maximumRowScopeMetrics).toEqual(maximumRowScopeMetricsExpectation(
+        safeIntegerMember(maximumRowScopeMetrics, "countedCanonicalBytes"),
+      ));
+      expect(maximumRow).toMatchObject({
+        ok: true,
+        value: {
+          initialized: "initialized",
+          begun: "created",
+          completed: {
+            _tag: "completed",
+            generation: "1",
+            publicationDisposition: "pending",
+          },
+          replayed: {
+            _tag: "replayed",
+            generation: "1",
+            publicationDisposition: "pending",
+          },
+          applied: {
+            _tag: "applied",
+            appliedSequence: "1",
+            affectedQueryCount: 1,
+          },
+          dependencyLookupBindingCounts: [96, 1],
+          bindingBudget: { bindings: 100, total: 4_950 },
+          maximumRow: maximumRowExpectation(
+            maximumIdentityCharacters,
+            maximumContentCharacters,
+            maximumRowScopeMetrics,
+          ),
+        },
+      });
+
+      await first.dispose();
+      first = undefined;
+      second = makeRuntime(workerBundle, persistPath);
+
+      expect(await invoke(
+        second,
+        "initialize",
+        observation(populationScope),
+      )).toMatchObject({
+        ok: true,
+        value: {
+          _tag: "existing",
+          metrics: populationScopeMetrics,
+        },
+      });
+      expect(await invoke(second, "maximumPopulationSummary", {
+        actorScopeUuid: populationScope,
+      })).toEqual({
+        ok: true,
+        value: maximumPopulationExpectation(
+          populationIdentityCharacters,
+          populationScopeMetrics,
+        ),
+      });
+
+      expect(await invoke(
+        second,
+        "initialize",
+        observation(maximumRowScope),
+      )).toMatchObject({
+        ok: true,
+        value: {
+          _tag: "existing",
+          metrics: maximumRowScopeMetrics,
+        },
+      });
+      expect(await invoke(second, "maximumRowSummary", {
+        ...observation(maximumRowScope),
+        querySeed: 9,
+      })).toEqual({
+        ok: true,
+        value: maximumRowExpectation(
+          maximumIdentityCharacters,
+          maximumContentCharacters,
+          maximumRowScopeMetrics,
+        ),
+      });
+    } finally {
+      if (first !== undefined) await first.dispose();
+      if (second !== undefined) await second.dispose();
+      await rm(persistPath, { recursive: true, force: true });
+    }
+  }, 480_000);
+
   it("does not expose C3 publication operations", async () => {
     const response = await dispatch(runtime, "claimPublication", {
       actorScopeUuid: testScope(7),
@@ -236,6 +424,99 @@ function observation(actorScopeUuid: string) {
 
 function testScope(ordinal: number): string {
   return `00000000-0000-4000-8000-${ordinal.toString().padStart(12, "0")}`;
+}
+
+function maximumPopulationExpectation(
+  identityCharacters: number,
+  scopeMetrics: Readonly<Record<string, unknown>>,
+) {
+  return {
+    localContractGeneration: 3,
+    queryCount: MAX_REFERENCE_QUERIES,
+    readyQueryCount: MAX_REFERENCE_QUERIES,
+    minimumIdentityCharacters: identityCharacters,
+    maximumIdentityCharacters: identityCharacters,
+    scopeMetrics,
+    firstEdgeExact: true,
+    lastEdgeExact: true,
+  };
+}
+
+function maximumRowExpectation(
+  identityCharacters: number,
+  contentCharacters: number,
+  scopeMetrics: Readonly<Record<string, unknown>>,
+) {
+  return {
+    queryIdentityExact: true,
+    pendingQueryIdentityExact: true,
+    publicationContentExact: true,
+    queryIdentityCharacters: identityCharacters,
+    publicationContentCharacters: contentCharacters,
+    combinedPendingPayloadCharacters:
+      identityCharacters + contentCharacters,
+    activeDependencyCount: 97,
+    completionDependencyCount: 97,
+    scopeMetrics,
+    activeGeneration: "1",
+    activeDirtyThroughSequence: "1",
+    completionGeneration: "1",
+    completionPublicationDisposition: "pending",
+    pendingGeneration: "1",
+  };
+}
+
+function populationScopeMetricsExpectation(countedCanonicalBytes: number) {
+  return {
+    queryCount: MAX_REFERENCE_QUERIES,
+    retainedIdentityBytes: MAX_RETAINED_QUERY_IDENTITY_BYTES,
+    dependencyMemberships: 0,
+    pendingPublicationCount: 0,
+    inFlightPublicationCount: 0,
+    retainedPublicationContentBytes: 0,
+    settlementEnvelopeBytes: 0,
+    countedCanonicalBytes,
+  };
+}
+
+function maximumRowScopeMetricsExpectation(countedCanonicalBytes: number) {
+  return {
+    queryCount: 1,
+    retainedIdentityBytes: MAX_CANONICAL_QUERY_IDENTITY_BYTES,
+    dependencyMemberships: 97,
+    pendingPublicationCount: 1,
+    inFlightPublicationCount: 0,
+    retainedPublicationContentBytes: MAX_INLINE_PUBLICATION_CONTENT_BYTES,
+    settlementEnvelopeBytes: 0,
+    countedCanonicalBytes,
+  };
+}
+
+function successValue(
+  response: Readonly<{ readonly ok: true; readonly value: unknown }>,
+): Readonly<Record<string, unknown>> {
+  if (isRecord(response.value)) return response.value;
+  throw new Error("Expected successful Workerd response value to be a record.");
+}
+
+function recordMember(
+  record: Readonly<Record<string, unknown>>,
+  member: string,
+): Readonly<Record<string, unknown>> {
+  const value = record[member];
+  if (isRecord(value)) return value;
+  throw new Error(`Expected Workerd response member ${member} to be a record.`);
+}
+
+function safeIntegerMember(
+  record: Readonly<Record<string, unknown>>,
+  member: string,
+): number {
+  const value = record[member];
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+  throw new Error(
+    `Expected Workerd response member ${member} to be a safe integer.`,
+  );
 }
 
 async function invoke(

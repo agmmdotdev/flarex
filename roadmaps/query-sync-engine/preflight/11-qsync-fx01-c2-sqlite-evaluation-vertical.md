@@ -2,10 +2,12 @@
 
 ## Status
 
-**Checkpoint status:** accepted. The private six-operation implementation and
-focused proof were completed on 2026-08-30 in the implementation checkpoint
-containing this record. **C2 has not exited:** the complete Required Proof
-Matrix below remains open. C3 and production activation remain blocked.
+**Checkpoint status:** complete and exited on 2026-08-31. The private
+six-operation implementation completed on 2026-08-30, and the complete Required
+Proof Matrix below closed on 2026-08-31. C2 remains package-private, unrouted,
+and production-inert. C3 is now eligible only for a fresh explicit preflight and
+discussion; it is not approved or implemented, and production activation
+remains unauthorized.
 
 `QSYNC-FX01-C1` completed in `b94abbb0` after its portable empty-scope
 prerequisite completed in `12e2f375`. The portable completion and evaluation
@@ -912,7 +914,7 @@ a production fallback.
 
 ## Validation And Commit Gates
 
-Before C2 can exit, the implementation must pass:
+C2's exit requires all of the following to remain green at commit:
 
 - `pnpm --filter @flarex/query-sync typecheck` and its complete serial tests;
 - `pnpm --filter flarex-backend typecheck`;
@@ -950,13 +952,15 @@ This accepted implementation checkpoint does not authorize:
 - `QSYNC-FX01-C3`, `QSYNC-FX02`, `QSYNC-FX03`, `R03-B`, `SV-R Live`, Legacy
   cutover, or production-readiness claims.
 
-## Implementation Receipt And Open Exit Gate
+## Implementation And Exit Receipt
 
 1. The exact generation-3 catalog, migration/readiness proof, and bounded
    module split are implemented.
 2. All six accepted operations have focused semantic, atomicity, corruption,
-   migration, limit, and real Workerd coverage, including streaming dependency
-   member/byte sentinels. This is not yet the complete matrix above.
+   migration, limit, and real Workerd coverage. The streaming dependency
+   member/byte sentinels remain focused Node SQLite evidence; the pinned local
+   Workerd maximum-host boundaries are recorded separately in item 7. Together
+   they close the complete retained matrix above.
 3. The complete portable query-sync and affected backend suites pass serially,
    together with typecheck, build, lint, and focused boundary gates.
 4. The adapter remains package-private, unrouted, and unable to claim or
@@ -971,8 +975,18 @@ This accepted implementation checkpoint does not authorize:
    aggregate cursor reads forbidden. This is SQLite-local JavaScript
    consumption evidence; it does not claim Cloudflare cursor-buffering or
    Worker-heap behavior.
-7. Remaining C2 exit work is limited to genuine-Workerd maximum row/content
-   spelling, binding, buffering, heap, disposal, and reopen proof.
+7. The final pinned local host proof runs under Miniflare `4.20260611.0` and
+   Workerd `1.20260611.1`. It migrates 4,096 generation-2 provisional rows with
+   exactly 32 MiB of retained query identity to generation 3, then executes the
+   real 4,096-inspection claim path. A separate maximum row proves exact
+   round trips for a 131,072-byte canonical query identity and 1 MiB retained
+   publication content. A 97-key invalidation records the real dependency SQL
+   binding chunks as 96 plus 1, and an exact 100-binding SQL probe succeeds.
+   Persisted Miniflare disposal followed by a fresh instance, reopen, and
+   re-authentication verifies that the exact counters and edge rows are
+   retained. This is local Workerd evidence, not deployed Cloudflare evidence
+   or a measured 128 MiB guarantee; dispose/recreate is not an eviction or
+   hibernation claim.
 8. The completion control-flow proof now covers all five start-stage no-write
    receipts, pending and unchanged exact replay, first material activation,
    unchanged-digest pending preservation, and every adapter-reachable non-limit
@@ -1134,17 +1148,15 @@ This accepted implementation checkpoint does not authorize:
     `countedCanonicalBytes` overflow. No unchanged metric dimension, retry,
     contention, or unknown-commit failure is invented.
 
-Completion's remaining exit work is now limited to genuine-Workerd maximum
-proof. The complete Node SQLite maximum-population/state-limit, C2 serial-race,
-non-limit typed-error, and portable prohibited-corruption matrices are now
-proven.
+The complete Node SQLite maximum-population/state-limit, C2 serial-race,
+non-limit typed-error, and portable prohibited-corruption matrices are proven.
 The accepted claim branch, boundary, and recovery matrix is complete, as are
 the complete adapter-reachable attempt-outcome branch, boundary, corruption,
 exhaustion, read-trace, write-rollback, affected-row, response-loss, and
 terminal-versus-completion matrices.
 
-C2 remains implementation-complete but proof-incomplete at that private
-boundary. The sole remaining C2 exit proof is genuine-Workerd maximum
-row/content spelling, binding, buffering, heap, disposal, and reopen coverage.
-A fresh `QSYNC-FX01-C3` discussion stays blocked until C2 exits; this record
-does not pre-approve it.
+C2 exited at that private, production-inert boundary on 2026-08-31 after the
+pinned local Workerd maximum row/content, binding, buffering, disposal, and
+reopen proof in item 7 completed the retained matrix. `QSYNC-FX01` remains
+incomplete. A fresh `QSYNC-FX01-C3` preflight and discussion is now eligible,
+but this record neither approves nor implements C3.

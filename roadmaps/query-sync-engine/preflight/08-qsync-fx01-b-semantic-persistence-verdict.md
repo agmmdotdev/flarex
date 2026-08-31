@@ -16,7 +16,8 @@ This B checkpoint itself authorized no DDL, local storage-contract generation,
 migration, Durable Object behavior, state-adapter code, or C1-C3 semantic
 vertical. The later C1 checkpoint authorized and completed C1 in `b94abbb0`.
 The later accepted C2 checkpoint now records the implemented private
-evaluation-side vertical and its still-open exit proof. C3 remains blocked.
+evaluation-side vertical and its completed 2026-08-31 exit proof. C3 is merely
+eligible for a fresh explicit preflight and remains unapproved and unimplemented.
 
 The separate portable-core
 [`QSYNC01-D0` preflight](./09-qsync01-d-operation-scoped-transition-plans.md)
@@ -25,7 +26,7 @@ transition-plan seam and D1-D4 sequence. D1-D4 are now complete. This B record
 remains the historical access-plan evidence; D owns the completed portable
 correction, the later C1 record owns completed generation-2 adapter authority,
 and the later C2 record owns generation-3 evaluation-side implementation
-authority while its required proof matrix remains open.
+authority with its required proof matrix now complete.
 
 ## Decision Summary
 
@@ -480,9 +481,11 @@ matrix includes:
 At B time, the Workerd suite proved only cursor-store isolation, exact decimal
 round trips, replay, compare-and-swap, selected corruption, rollback, and
 callback-defect preservation. C1 later added real Workerd proof for its
-generation-2 three-operation vertical. Neither evidence set is nine-operation
-conformance. Persisted Miniflare dispose/recreate can prove reopen; targeted
-eviction still needs an explicit harness/dependency decision before C3.
+generation-2 three-operation vertical. C2 later completed its pinned local
+Workerd maximum, binding, disposal, and reopen proof. None of these evidence
+sets is nine-operation conformance or deployed Cloudflare proof. Persisted
+Miniflare dispose/recreate proves reopen, not eviction or hibernation; targeted
+eviction still needs an explicit harness/dependency decision in C3.
 
 ## Platform Evidence
 
@@ -551,6 +554,7 @@ At the time it completed, this docs checkpoint did not authorize:
 The `QSYNC-FX01-C1` checkpoint was subsequently accepted and completed in
 [`10-qsync-fx01-c1-sqlite-vertical.md`](./10-qsync-fx01-c1-sqlite-vertical.md).
 The [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
-was subsequently accepted and implemented as a private, unrouted generation-3
-evaluation-side vertical. Its exit proof, C3, and every production host/
-delivery boundary remain blocked.
+was subsequently accepted, implemented, and exited on 2026-08-31 as a private,
+unrouted generation-3 evaluation-side vertical. C3 is eligible for a fresh
+explicit preflight but remains unapproved and unimplemented; every production
+host/delivery boundary remains unauthorized.
