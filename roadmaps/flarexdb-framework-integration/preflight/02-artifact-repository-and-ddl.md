@@ -7,11 +7,11 @@ preparation, stored reconstruction, opaque repository identity/control-
 database composition, runtime-authenticated starter composition, deterministic
 control-session lifecycle, and the artifact-private PostgreSQL control-session
 adapter, exact point-read repository operation, private locked admission,
-bounded identity listing, and focused PGlite repository evidence implemented;
-focused ordinary-role PostgreSQL 18 migration/catalog, control-session, point-
-read, exact-admission convergence, and deployment-row blocking evidence
-implemented, together with collision contention, both dependency-lock orders,
-cross-deployment non-blocking, owner/lineage coordinate isolation under
+bounded identity listing, and supporting PGlite repository evidence
+implemented; focused ordinary-role PostgreSQL 18 migration/catalog, control-
+session, point-read, exact-admission convergence, and deployment-row blocking
+evidence implemented, together with collision contention, both dependency-lock
+orders, cross-deployment non-blocking, owner/lineage coordinate isolation under
 contention, native post-write rollback, and driver-edge pre-/post-`COMMIT`
 settlement recovery after discarding the uncertain backend and using a
 distinct recovery backend, plus advisory-lock-backed callback-SQL and server-
@@ -20,8 +20,11 @@ server-enforced lock and statement timeouts, and detached optimistic and post-
 resolution reconstruction deadlines, plus deployment-first cross-owner lock
 ordering with both the framework and Application schema-version artifact writer
 as the initial holder; active-SQL and recovery-work deadline quarantine is now
-implemented under the separately accepted `FSA-PG-DRAIN-01` correction, while
-wider genuine PostgreSQL acceptance remains incomplete
+implemented under the separately accepted `FSA-PG-DRAIN-01` correction; native
+bounded-list ordering, pagination, and natural-index plan evidence are
+implemented; the genuine-PostgreSQL acceptance enumerated by this record is
+complete, while the exact remaining PGlite repository evidence below keeps the
+private repository checkpoint incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -1057,7 +1060,10 @@ ordinary SQL-rejection mapping. Every lookahead row is decoded before slicing.
 This evidence does not claim snapshot pagination or genuine PostgreSQL index,
 driver, collation, cancellation, or pool behavior.
 
-Remaining PGlite repository evidence must prove:
+The following repository-lane evidence remains open. Existing physical-
+constraint tests, pure stored-codec matrices, and representative PGlite
+operation tests are supporting evidence, but they do not discharge these items
+without a focused acceptance reconciliation and receipt:
 
 - same-deployment/same-owner dependency admission and physical rejection of
   cross-owner, cross-deployment, duplicate-target, or same-lineage rows;
@@ -1115,9 +1121,13 @@ prove:
   backend is destroyed and before admission returns. Detached optimistic
   reconstruction keeps the same deadline after its healthy read backend has
   already been released, while post-resolution reconstruction must discard its
-  still-owned read backend on timeout; and
+  still-owned read backend on timeout;
 - the deployment-first lock order introduces no deadlock in the supported
-  operation sequence.
+  operation sequence; and
+- the native bounded list preserves fixed-length digest-byte ordering, exact
+  coordinate isolation, exclusive cursor and lookahead behavior, identity-only
+  transfer, and realistic use of the admitted natural unique index for initial
+  and resumed pages.
 
 Focused ordinary-role PostgreSQL 18 evidence now proves the additive migration
 rollback, receipt and idempotent replay; native catalog, collation, identity,
@@ -1227,6 +1237,21 @@ expected typed digest collision. These are native storage and session-lifetime
 receipts combined with controlled WebCrypto suspension; they are not claims of
 PostgreSQL query cancellation.
 
+Two focused list scenarios complete the genuine-PostgreSQL evidence enumerated
+for this private repository checkpoint. The real artifact control-session
+adapter proves native fixed-length `bytea` digest ordering across the `7f`/`80`
+boundary, exclusive existing, non-existent gap, and terminal cursors, exact
+deployment/owner/lineage isolation, the `100/101` lookahead boundary, and an
+exact-100 terminal page. A test-local client proxy captures the exact successful
+driver-issued list statements. With sequential scans left enabled and 20,000
+analyzed representative rows, both the initial and resumed identity-only
+statements use `fx_framework_artifact_identity_unique` in forward, single-loop,
+101-row index scans without an explicit sort, sequential scan, or post-index
+filter; the resumed index condition includes the exclusive digest bound. The
+statements select only the four identity columns and never mention canonical
+bytes or the dependency table. This is local native ordering and plan evidence,
+not snapshot-pagination, hosted, or production-scale performance evidence.
+
 #### FSA-PG-DRAIN-01: active SQL is not drained before deadline return
 
 Status: corrected under the separately accepted owner record in
@@ -1258,13 +1283,12 @@ safe discard merely because the pool emitted `remove`.
 Affected owner: the artifact-private PostgreSQL control-session adapter's
 Drizzle/native-query tracking and quarantine-drain boundary. The correction
 uses a bounded PostgreSQL PID-plus-secret CancelRequest, then drains tracked
-work before destroying the original client and observing transport end. Both desired
-acceptances now run without skips, including a one-connection control pool and
-the distinct recovery backend. Native identity-list/index behavior remains
-unproved.
-
-This focused evidence does not complete the private repository checkpoint or
-open a downstream gate.
+work before destroying the original client and observing transport end. Both
+desired acceptances now run without skips, including a one-connection control
+pool and the distinct recovery backend. The separate native list scenarios
+above now complete the genuine-PostgreSQL evidence enumerated by this record.
+The exact remaining PGlite repository evidence still keeps the private
+repository checkpoint incomplete, and no downstream gate is open.
 
 ## Accepted Implementation Checkpoint
 
@@ -1287,10 +1311,10 @@ It must stop with no package-root export, framework adapter, Application
 writer, installation, readiness, binding, migration coordinator, runtime
 caller, or production activation.
 
-If genuine PostgreSQL is unavailable, the code may remain an explicitly
-incomplete private checkpoint after PGlite evidence, but it cannot be marked
-complete and no downstream installation or adapter gate may rely on its lock
-or concurrency claims.
+The completed genuine-PostgreSQL lane is required evidence for this checkpoint
+and cannot be substituted by PGlite. It remains local acceptance evidence; no
+downstream installation, hosted, or production gate may infer readiness from
+its lock, concurrency, deadline, or plan receipts alone.
 
 ## Exit Decision
 
@@ -1299,10 +1323,12 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next independently authorized acceptance step is native identity-list/index
-evidence. The implemented DDL,
-preparation capability, stored loader/reconstruction, point read, locked
-admission, bounded identity list, repository
-identity, authenticated starter, deterministic control-session lifecycle, and
-artifact-private PostgreSQL control-session adapter do not open any
-installation, framework-adapter, runtime, public, or production gate.
+The next independently authorized acceptance step is the remaining PGlite
+repository evidence above. Completing those exact items, or deliberately
+resolving an inapplicable item in this accepted record, closes the private
+repository checkpoint. The implemented DDL, preparation capability, stored
+loader/reconstruction, point read, locked admission, bounded identity list,
+repository identity, authenticated starter, deterministic control-session
+lifecycle, completed genuine-PostgreSQL acceptance, and artifact-private
+PostgreSQL control-session adapter do not open any installation, framework-
+adapter, runtime, public, hosted, or production gate.

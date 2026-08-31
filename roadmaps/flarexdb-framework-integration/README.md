@@ -8,7 +8,7 @@ repository-construction sub-checkpoints, runtime-authenticated control-session
 starter, deterministic control-session lifecycle, and an artifact-private
 PostgreSQL control-session adapter are implemented, together with the exact
 private point-read, locked-admission, and bounded identity-list operations with
-focused PGlite evidence. Focused ordinary-role PostgreSQL 18 evidence now
+supporting PGlite evidence. Focused ordinary-role PostgreSQL 18 evidence now
 proves the native migration/catalog, control-session probe, point read, exact-
 admission convergence, deployment-row blocking, collision contention, both
 dependency-lock orders, cross-deployment non-blocking, owner/lineage coordinate
@@ -20,8 +20,12 @@ and statement timeouts, and detached and post-resolution reconstruction
 deadlines, plus both supported cross-owner deployment-lock holder orders with
 the existing Application schema-version artifact writer. The separately
 accepted `FSA-PG-DRAIN-01` correction now cancels and drains active native
-SQL and recovery work before returning; wider genuine-PostgreSQL acceptance
-remains incomplete.
+SQL and recovery work before returning. Native bounded-list ordering,
+pagination, and initial/resumed natural-index behavior complete the genuine-
+PostgreSQL acceptance enumerated for the private artifact repository. The
+explicit remaining PGlite repository evidence and later lifecycle codecs remain
+gated.
+
 Installation, binding, Payload/Medusa adapters, runtime wiring, and production
 work remain pending and production-inert.
 
@@ -101,7 +105,7 @@ Preflight records:
 | File | Status | Decision |
 | --- | --- | --- |
 | [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; first checkpoint implemented | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred repository, installation, and binding contracts |
-| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; private repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, admission/concurrency/rollback/recovery/interruption, seven native deadline receipts, and supported cross-owner deadlock-absence evidence implemented; native identity-list/index and wider genuine-PostgreSQL acceptance remain incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
+| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; private repository operations and supporting PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, admission/concurrency/rollback/recovery/interruption, seven native deadline receipts, supported cross-owner deadlock-absence evidence, and native identity-list/index behavior implemented; genuine-PostgreSQL acceptance complete, exact remaining PGlite repository evidence incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 | [`preflight/03-postgres-active-work-quarantine.md`](./preflight/03-postgres-active-work-quarantine.md) | Accepted; owner correction and native acceptance implemented | Artifact-private authenticated PostgreSQL backend cancellation, tracked-work drain, original-client discard, and fail-closed cleanup semantics for `FSA-PG-DRAIN-01` |
 
 ## Current Architecture
@@ -192,7 +196,7 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, admission/concurrency/rollback/recovery/interruption, queued-acquisition, server lock/statement, reconstruction-deadline, active-work cancellation/drain, and supported cross-owner lock-order evidence implemented; native list/index behavior and later lifecycle codecs remain gated |
+| Framework-neutral artifact/install/binding model | Private artifact repository operations and supporting PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, admission/concurrency/rollback/recovery/interruption, queued-acquisition, server lock/statement, reconstruction-deadline, active-work cancellation/drain, supported cross-owner lock-order, and native list/index evidence implemented; exact remaining PGlite repository evidence and later lifecycle codecs remain gated |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |
@@ -238,12 +242,13 @@ repository construction are implemented privately, together with the
 authenticated session starter, deterministic control-session lifecycle,
 private PostgreSQL control-session adapter, and deterministic fake-pool
 evidence, plus the exact private point-read, locked-admission, and bounded
-identity-list operations and focused PGlite evidence. Genuine-PostgreSQL
-acceptance is partially proven by focused ordinary-role migration/catalog,
-control-session, point-read, exact-admission convergence, and deployment-lock
-evidence, plus collision contention, ordered dependency races, and cross-
-deployment non-blocking, owner/lineage coordinate isolation, and post-write
-rollback. It also proves that driver-edge faults immediately before and after
+identity-list operations and supporting PGlite evidence. The ordinary-role
+PostgreSQL 18 acceptance enumerated by that preflight is complete. It includes
+focused migration/catalog, control-session, point-read, exact-admission
+convergence, and deployment-lock evidence, plus collision contention, ordered
+dependency races, cross-deployment non-blocking, owner/lineage coordinate
+isolation, and post-write rollback. It also proves that driver-edge faults
+immediately before and after
 native `COMMIT` quarantine and remove the uncertain backend, recover on one
 distinct backend, return `created` before `COMMIT` or `existing` after
 acknowledgement, preserve one parent and one dependency edge, and replay as
@@ -261,8 +266,8 @@ interruption, creates uncertainty and causes recovery. The durable parent and
 edge remain single and replay as `existing`. This proves neither query or
 `COMMIT` cancellation nor a TCP partition, socket reset, server crash or
 failover, backend termination, lost acknowledgement in transit, or a combined
-`decisionUncertain`/interruption failure, so genuine-PostgreSQL acceptance
-remains incomplete.
+`decisionUncertain`/interruption failure. Those cases remain outside this
+accepted native evidence.
 
 Five additional native deadline receipts now separate timeout authority and
 session lifetime precisely: a saturated one-connection pool expires queued
@@ -299,6 +304,16 @@ stops the exact backend's active work, tracked work drains, and the original
 client transport is destroyed and observed closed before return. Both native
 tests run without skips; the initial active case also proves a one-connection
 control pool needs no reserved pool slot.
+
+Native identity-list evidence now runs the exact private operation through the
+real artifact control-session adapter. It proves fixed-length `bytea` ordering,
+exclusive existing, gap, and terminal cursors, deployment/owner/lineage
+isolation, the exact `100/101` lookahead boundary, and an exact-100 terminal
+page. The exact driver-issued initial and resumed identity-only statements use
+`fx_framework_artifact_identity_unique` in forward single-loop 101-row index
+scans with sequential scans left enabled, no explicit sort, no sequential scan,
+and no post-index filter. This is local native list/index evidence, not snapshot
+pagination, hosted behavior, or production-scale performance evidence.
 
 The implemented sub-boundary contains only:
 
@@ -341,10 +356,11 @@ The implemented sub-boundary contains only:
   clock preservation, distinct recovery, and complete interruption/deadline/
   finalizer `Cause` preservation.
 
-The remaining independently authorized private acceptance work may add only
-identity-list/index evidence. The `FSA-PG-DRAIN-01` owner correction and its
-active-SQL/recovery deadline receipts are complete locally; hosted and
-production activation remain separate gates.
+The remaining independently authorized private repository work is the exact
+PGlite repository evidence listed in the accepted repository preflight. Native
+identity-list/index evidence and the `FSA-PG-DRAIN-01` owner correction are
+complete locally. Completing the PGlite evidence may close the private
+repository checkpoint; hosted and production activation remain separate gates.
 
 This authority stops at the files and evidence named by that record.
 Installation, readiness, availability, Application-reference, Payload-overlay,
