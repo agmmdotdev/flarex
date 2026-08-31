@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Effect, Result } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 import type { PoolClient } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -42,6 +42,7 @@ import {
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const ARTIFACT_INTERRUPT_ADVISORY_CLASS_ID = 80_931;
 const CONCURRENT_ADMISSIONS = 8;
 const DEFAULT_DEPLOYMENT_ID = "deployment-framework-admission-pg";
 const COMMIT_SETTLEMENT_RECOVERY_SCENARIOS = [
@@ -703,6 +704,14 @@ describePostgres(
       }, 180_000);
     }
 
+    it("drains blocked callback SQL and rolls back before re-emitting interruption", async () => {
+      await expectPostgresCallbackInterruption();
+    }, 180_000);
+
+    it("drains blocked COMMIT and recovers before re-emitting interruption", async () => {
+      await expectPostgresCommitInterruptionRecovery();
+    }, 180_000);
+
     it("does not serialize an independent deployment behind a held lock", async () => {
       await withTemporaryPostgresPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
@@ -910,6 +919,534 @@ async function expectPostgresCommitSettlementRecovery(
       observedPool.close();
     }
   });
+}
+
+async function expectPostgresCallbackInterruption(): Promise<void> {
+  await withTemporaryPostgresPersistence(async persistence => {
+    await expectPostgres18OrdinaryRole(persistence);
+    await insertDeployment(persistence);
+    const stableRepository = makePostgresArtifactRepository(persistence);
+    const dependency = await captureArtifact({
+      lineageId: "catalog-callback-interruption-dependency",
+    });
+    expect((await admitArtifact(stableRepository, dependency)).status)
+      .toBe("created");
+    const parent = await captureArtifact({
+      lineageId: "catalog-callback-interruption-parent",
+      dependencies: [dependency.identity],
+    });
+    const preparedParent = prepareAdmissionOrThrow(parent);
+    const observedPool = observePostgresControlPool(persistence);
+    const transactionClients: PoolClient[] = [];
+    const transactionBackendPids: number[] = [];
+    const lifecycleEvents: string[] = [];
+    const interruptedRepository = makePostgresArtifactRepository(
+      persistence,
+      {
+        controlPool: observedPool.controlPool,
+        controlSessionOptions: {
+          lifecycleFault: ({ phase, edge, client }) => {
+            lifecycleEvents.push(`${phase}:${edge}`);
+            if (phase === "begin" && edge === "before") {
+              transactionClients.push(client);
+              transactionBackendPids.push(
+                observedPool.backendPidFor(client),
+              );
+            }
+          },
+        },
+      },
+    );
+
+    try {
+      await withPostgresArtifactAdvisoryBlocker(
+        persistence,
+        async (blockerPid, releaseBlocker) => {
+          await installPostgresCallbackInterruptionBarrier(
+            persistence,
+            blockerPid,
+          );
+          const interrupted = await interruptAdmissionWhileBlocked({
+            effect: admitFrameworkSchemaArtifactEffect(
+              interruptedRepository,
+              preparedParent,
+            ),
+            waitForBlocked: () => waitForPostgresBackendBlockedBy(
+              persistence,
+              blockerPid,
+            ),
+            releaseBlocker,
+            expectedQuery: query => query.toLowerCase().includes(
+              DEPENDENCY_TABLE,
+            ),
+            expectedQueryDescription: "dependency-edge insert",
+          });
+          expect(interrupted.blockedBefore.waiterPid).toBe(
+            transactionBackendPids[0],
+          );
+          expect(interrupted.blockedAfter.waiterPid).toBe(
+            transactionBackendPids[0],
+          );
+          expectSingleInterruptExit(interrupted.exit);
+        },
+      );
+
+      expect(transactionClients).toHaveLength(1);
+      expect(transactionBackendPids).toHaveLength(1);
+      expect(lifecycleEvents.filter(event => event === "begin:before"))
+        .toHaveLength(1);
+      expect(lifecycleEvents.some(event => event.startsWith("commit:")))
+        .toBe(false);
+      expect(lifecycleEvents.some(event => event.startsWith("quarantine:")))
+        .toBe(false);
+      expect(lifecycleEvents.slice(-4)).toEqual([
+        "rollback:before",
+        "rollback:after",
+        "release:before",
+        "release:after",
+      ]);
+      expect(observedPool.removedBackendPids()).toEqual([]);
+      expect(await countArtifactRows(persistence, dependency)).toBe(1);
+      expect(await countArtifactRows(persistence, parent)).toBe(0);
+      expect(await countDependencyRows(persistence, parent)).toBe(0);
+      expect(await countAllDependencyRows(persistence)).toBe(0);
+
+      expect(await admitArtifact(stableRepository, parent)).toEqual({
+        status: "created",
+        artifact: parent,
+      });
+      expect(await countArtifactRows(persistence, dependency)).toBe(1);
+      expect(await countArtifactRows(persistence, parent)).toBe(1);
+      expect(await countDependencyRows(persistence, parent)).toBe(1);
+      expect(await countAllDependencyRows(persistence)).toBe(1);
+      expect(await admitArtifact(stableRepository, parent)).toEqual({
+        status: "existing",
+        artifact: parent,
+      });
+    } finally {
+      observedPool.close();
+      await dropPostgresCallbackInterruptionBarrier(persistence);
+    }
+  });
+}
+
+async function expectPostgresCommitInterruptionRecovery(): Promise<void> {
+  await withTemporaryPostgresPersistence(async persistence => {
+    await expectPostgres18OrdinaryRole(persistence);
+    await insertDeployment(persistence);
+    const stableRepository = makePostgresArtifactRepository(persistence);
+    const dependency = await captureArtifact({
+      lineageId: "catalog-commit-interruption-dependency",
+    });
+    expect((await admitArtifact(stableRepository, dependency)).status)
+      .toBe("created");
+    const parent = await captureArtifact({
+      lineageId: "catalog-commit-interruption-parent",
+      dependencies: [dependency.identity],
+    });
+    const preparedParent = prepareAdmissionOrThrow(parent);
+    const observedPool = observePostgresControlPool(persistence);
+    const transactionClients: PoolClient[] = [];
+    const transactionBackendPids: number[] = [];
+    const lifecycleEvents: string[] = [];
+    let initialClient: PoolClient | undefined;
+    let faulted = false;
+    const interruptedRepository = makePostgresArtifactRepository(
+      persistence,
+      {
+        controlPool: observedPool.controlPool,
+        controlSessionOptions: {
+          lifecycleFault: ({ phase, edge, client }) => {
+            lifecycleEvents.push(`${phase}:${edge}`);
+            if (phase === "begin" && edge === "before") {
+              initialClient ??= client;
+              transactionClients.push(client);
+              transactionBackendPids.push(
+                observedPool.backendPidFor(client),
+              );
+            }
+            if (
+              !faulted &&
+              client === initialClient &&
+              phase === "commit" &&
+              edge === "after"
+            ) {
+              faulted = true;
+              throw new Error(
+                "Injected post-COMMIT acknowledgement fault during interruption.",
+              );
+            }
+          },
+        },
+      },
+    );
+
+    try {
+      await withPostgresArtifactAdvisoryBlocker(
+        persistence,
+        async (blockerPid, releaseBlocker) => {
+          await installPostgresCommitInterruptionBarrier(
+            persistence,
+            blockerPid,
+            parent.identity.lineageId,
+          );
+          const interrupted = await interruptAdmissionWhileBlocked({
+            effect: admitFrameworkSchemaArtifactEffect(
+              interruptedRepository,
+              preparedParent,
+            ),
+            waitForBlocked: () => waitForPostgresBackendBlockedBy(
+              persistence,
+              blockerPid,
+            ),
+            releaseBlocker,
+            expectedQuery: query => query.trim().toLowerCase() === "commit",
+            expectedQueryDescription: "native COMMIT",
+          });
+          expect(interrupted.blockedBefore.waiterPid).toBe(
+            transactionBackendPids[0],
+          );
+          expect(interrupted.blockedAfter.waiterPid).toBe(
+            transactionBackendPids[0],
+          );
+          expectSingleInterruptExit(interrupted.exit);
+        },
+      );
+
+      expect(faulted).toBe(true);
+      expect(transactionClients).toHaveLength(2);
+      expect(new Set(transactionClients).size).toBe(2);
+      expect(transactionBackendPids).toHaveLength(2);
+      expect(new Set(transactionBackendPids).size).toBe(2);
+      expect(lifecycleEvents.filter(event => event === "begin:before"))
+        .toHaveLength(2);
+      expect(lifecycleEvents.filter(event => event === "commit:before"))
+        .toHaveLength(2);
+      expect(lifecycleEvents.filter(event => event === "commit:after"))
+        .toHaveLength(2);
+      expect(lifecycleEvents.filter(event => event === "quarantine:before"))
+        .toHaveLength(1);
+      expect(lifecycleEvents.filter(event => event === "quarantine:after"))
+        .toHaveLength(1);
+      expect(lifecycleEvents.slice(-2)).toEqual([
+        "release:before",
+        "release:after",
+      ]);
+      const initialBackendPid = transactionBackendPids[0];
+      if (initialBackendPid === undefined) {
+        throw new Error("Expected an interrupted PostgreSQL COMMIT backend PID.");
+      }
+      await waitForDiscardedPostgresBackend(
+        persistence,
+        observedPool,
+        initialBackendPid,
+      );
+      expect(observedPool.removedBackendPids()).toEqual([
+        initialBackendPid,
+      ]);
+      expect(await countArtifactRows(persistence, dependency)).toBe(1);
+      expect(await countArtifactRows(persistence, parent)).toBe(1);
+      expect(await countDependencyRows(persistence, parent)).toBe(1);
+      expect(await countAllDependencyRows(persistence)).toBe(1);
+
+      expect(await admitArtifact(stableRepository, parent)).toEqual({
+        status: "existing",
+        artifact: parent,
+      });
+      expect(await countArtifactRows(persistence, parent)).toBe(1);
+      expect(await countDependencyRows(persistence, parent)).toBe(1);
+      expect(await countAllDependencyRows(persistence)).toBe(1);
+    } finally {
+      observedPool.close();
+      await dropPostgresCommitInterruptionBarrier(persistence);
+    }
+  });
+}
+
+interface BlockedPostgresBackend {
+  readonly waiterPid: number;
+  readonly query: string;
+}
+
+interface InterruptedBlockedAdmission<Value, Failure> {
+  readonly exit: Exit.Exit<Value, Failure>;
+  readonly blockedBefore: BlockedPostgresBackend;
+  readonly blockedAfter: BlockedPostgresBackend;
+}
+
+async function interruptAdmissionWhileBlocked<Value, Failure>(
+  input: Readonly<{
+    readonly effect: Effect.Effect<Value, Failure, never>;
+    readonly waitForBlocked: () => Promise<BlockedPostgresBackend>;
+    readonly releaseBlocker: () => Promise<void>;
+    readonly expectedQuery: (query: string) => boolean;
+    readonly expectedQueryDescription: string;
+  }>,
+): Promise<InterruptedBlockedAdmission<Value, Failure>> {
+  const controller = new AbortController();
+  const exitPromise = Effect.runPromiseExit(input.effect, {
+    signal: controller.signal,
+  });
+  let settled = false;
+  void exitPromise.then(() => {
+    settled = true;
+  });
+  let blockedBefore: BlockedPostgresBackend | undefined;
+  let blockedAfter: BlockedPostgresBackend | undefined;
+  let coordinationCause: unknown;
+  let releaseCause: unknown;
+  try {
+    blockedBefore = await input.waitForBlocked();
+    if (!input.expectedQuery(blockedBefore.query)) {
+      throw new Error(
+        `Expected blocked PostgreSQL ${input.expectedQueryDescription}, got ${blockedBefore.query}.`,
+      );
+    }
+    controller.abort();
+    await delay(0);
+    blockedAfter = await input.waitForBlocked();
+    if (!input.expectedQuery(blockedAfter.query)) {
+      throw new Error(
+        `Expected PostgreSQL ${input.expectedQueryDescription} to remain blocked after interruption.`,
+      );
+    }
+    expect(blockedAfter.waiterPid).toBe(blockedBefore.waiterPid);
+    expect(settled).toBe(false);
+  } catch (cause) {
+    coordinationCause = cause;
+    controller.abort();
+  } finally {
+    releaseCause = await input.releaseBlocker().then(
+      () => undefined,
+      cause => cause,
+    );
+  }
+  const exit = await exitPromise;
+  if (coordinationCause !== undefined) throw coordinationCause;
+  if (releaseCause !== undefined) throw releaseCause;
+  if (blockedBefore === undefined || blockedAfter === undefined) {
+    throw new Error("Expected two PostgreSQL blocked-backend observations.");
+  }
+  return Object.freeze({ exit, blockedBefore, blockedAfter });
+}
+
+function expectSingleInterruptExit(
+  exit: Exit.Exit<unknown, unknown>,
+): void {
+  expect(Exit.isFailure(exit)).toBe(true);
+  if (Exit.isSuccess(exit)) {
+    throw new Error("Expected PostgreSQL artifact admission interruption.");
+  }
+  expect(exit.cause.reasons.filter(Cause.isInterruptReason)).toHaveLength(1);
+  expect(exit.cause.reasons.filter(Cause.isFailReason)).toHaveLength(0);
+  expect(exit.cause.reasons.filter(Cause.isDieReason)).toHaveLength(0);
+}
+
+async function withPostgresArtifactAdvisoryBlocker(
+  persistence: PostgresFlarexPersistence,
+  operation: (
+    blockerPid: number,
+    releaseBlocker: () => Promise<void>,
+  ) => Promise<void>,
+): Promise<void> {
+  const blocker = await persistence.pool.connect();
+  let primaryCause: unknown;
+  let transactionOpen = false;
+  let released = false;
+  const releaseBlocker = async (): Promise<void> => {
+    if (released) return;
+    const causes: unknown[] = [];
+    let destroy = false;
+    try {
+      if (transactionOpen) await blocker.query("rollback");
+    } catch (cause) {
+      destroy = true;
+      causes.push(cause);
+    } finally {
+      transactionOpen = false;
+      try {
+        blocker.release(destroy);
+      } catch (cause) {
+        causes.push(cause);
+      }
+      released = true;
+    }
+    if (causes.length > 0) {
+      throw new AggregateError(
+        causes,
+        "Failed to release PostgreSQL artifact interruption blocker.",
+      );
+    }
+  };
+  try {
+    const blockerPid = await readPostgresBackendPid(blocker);
+    await blocker.query("begin");
+    transactionOpen = true;
+    await blocker.query(
+      "select pg_advisory_xact_lock($1::integer, $2::integer)",
+      [ARTIFACT_INTERRUPT_ADVISORY_CLASS_ID, blockerPid],
+    );
+    await operation(blockerPid, releaseBlocker);
+  } catch (cause) {
+    primaryCause = cause;
+    throw cause;
+  } finally {
+    const cleanupCause = await releaseBlocker().then(
+      () => undefined,
+      cause => cause,
+    );
+    if (primaryCause === undefined && cleanupCause !== undefined) {
+      throw cleanupCause;
+    }
+  }
+}
+
+async function readPostgresBackendPid(client: PoolClient): Promise<number> {
+  const result = await client.query<{ backendPid: number }>(`
+    select pg_backend_pid()::int as "backendPid"
+  `);
+  const row = result.rows[0];
+  if (
+    !isNonArrayRecord(row) ||
+    typeof row.backendPid !== "number" ||
+    !Number.isSafeInteger(row.backendPid) ||
+    row.backendPid <= 0
+  ) {
+    throw new Error("PostgreSQL interruption blocker returned no backend PID.");
+  }
+  return row.backendPid;
+}
+
+async function waitForPostgresBackendBlockedBy(
+  persistence: PostgresFlarexPersistence,
+  blockerPid: number,
+): Promise<BlockedPostgresBackend> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await persistence.query<{
+      waiterPid: number;
+      query: string;
+    }>(`
+      select activity.pid::int as "waiterPid",
+             activity.query
+      from pg_stat_activity as activity
+      where activity.datname = current_database()
+        and activity.state = 'active'
+        and activity.wait_event_type = 'Lock'
+        and activity.wait_event = 'advisory'
+        and $1::int = any(pg_blocking_pids(activity.pid))
+      order by activity.pid
+    `, [blockerPid]);
+    const row = result.rows[0];
+    if (
+      isNonArrayRecord(row) &&
+      typeof row.waiterPid === "number" &&
+      Number.isSafeInteger(row.waiterPid) &&
+      row.waiterPid > 0 &&
+      typeof row.query === "string"
+    ) {
+      return Object.freeze({
+        waiterPid: row.waiterPid,
+        query: row.query,
+      });
+    }
+    await delay(25);
+  }
+  throw new Error(
+    `Timed out waiting for a PostgreSQL backend blocked by ${blockerPid}.`,
+  );
+}
+
+async function installPostgresCallbackInterruptionBarrier(
+  persistence: PostgresFlarexPersistence,
+  blockerPid: number,
+): Promise<void> {
+  await persistence.query(`
+    create function fx_test_framework_artifact_callback_barrier()
+    returns trigger
+    language plpgsql
+    as $function$
+    begin
+      if not exists (
+        select 1
+        from ${ARTIFACT_TABLE} as parent
+        where parent.artifact_storage_id = new.artifact_storage_id
+          and parent.deployment_id = new.deployment_id
+          and parent.owner = new.owner
+          and parent.lineage_id = new.artifact_lineage_id
+      ) then
+        raise exception
+          'parent artifact was not visible before interruption barrier';
+      end if;
+      perform pg_advisory_xact_lock(
+        ${ARTIFACT_INTERRUPT_ADVISORY_CLASS_ID},
+        ${blockerPid}
+      );
+      return new;
+    end
+    $function$;
+
+    create trigger fx_test_framework_artifact_callback_barrier
+    before insert on ${DEPENDENCY_TABLE}
+    for each row execute function
+      fx_test_framework_artifact_callback_barrier();
+  `);
+}
+
+async function dropPostgresCallbackInterruptionBarrier(
+  persistence: PostgresFlarexPersistence,
+): Promise<void> {
+  await persistence.query(`
+    drop trigger if exists
+      fx_test_framework_artifact_callback_barrier
+      on ${DEPENDENCY_TABLE};
+    drop function if exists
+      fx_test_framework_artifact_callback_barrier();
+  `);
+}
+
+async function installPostgresCommitInterruptionBarrier(
+  persistence: PostgresFlarexPersistence,
+  blockerPid: number,
+  lineageId: string,
+): Promise<void> {
+  await persistence.query(`
+    create function fx_test_framework_artifact_commit_barrier()
+    returns trigger
+    language plpgsql
+    as $function$
+    begin
+      perform pg_advisory_xact_lock(
+        ${ARTIFACT_INTERRUPT_ADVISORY_CLASS_ID},
+        ${blockerPid}
+      );
+      return new;
+    end
+    $function$;
+
+    create constraint trigger fx_test_framework_artifact_commit_barrier
+    after insert on ${ARTIFACT_TABLE}
+    deferrable initially deferred
+    for each row
+    when (new.lineage_id = ${postgresTextLiteral(lineageId)})
+    execute function fx_test_framework_artifact_commit_barrier();
+  `);
+}
+
+async function dropPostgresCommitInterruptionBarrier(
+  persistence: PostgresFlarexPersistence,
+): Promise<void> {
+  await persistence.query(`
+    drop trigger if exists
+      fx_test_framework_artifact_commit_barrier
+      on ${ARTIFACT_TABLE};
+    drop function if exists
+      fx_test_framework_artifact_commit_barrier();
+  `);
+}
+
+function postgresTextLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 interface ObservedPostgresControlPool {

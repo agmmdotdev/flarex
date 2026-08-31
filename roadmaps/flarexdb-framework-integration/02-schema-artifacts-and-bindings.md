@@ -13,9 +13,10 @@ session, point-read, exact-admission convergence, and deployment-lock evidence
 implemented, together with collision contention, both dependency-lock orders,
 cross-deployment non-blocking, owner/lineage coordinate isolation, and post-
 write rollback, plus driver-edge pre-/post-`COMMIT` settlement recovery after
-discarding the uncertain native backend and using a distinct recovery backend;
-wider genuine PostgreSQL acceptance and later lifecycle persistence codecs
-still gated
+discarding the uncertain native backend and using a distinct recovery backend,
+plus advisory-lock-backed callback-SQL and server-blocked-`COMMIT`
+interruption settlement; wider genuine PostgreSQL acceptance and later
+lifecycle persistence codecs still gated
 
 The additive authority architecture and exact artifact-envelope contract are
 frozen by
@@ -47,8 +48,16 @@ the parent insert when dependency-edge insertion fails. It also proves that
 driver-edge faults before native `COMMIT` and after its acknowledgement discard
 the uncertain backend, recover once on a distinct backend, converge to
 `created` or `existing` respectively, retain one parent and one edge, and replay
-as `existing`; it does not claim a real network failure or callback/`COMMIT`-
-in-flight interruption.
+as `existing`. Separate advisory-lock-backed tests prove that callback
+interruption drains a genuinely blocked dependency-edge insert before rollback
+and healthy release, while `pg_stat_activity` and `pg_blocking_pids` prove that
+native `COMMIT`-in-flight interruption waits through server-side settlement,
+initial-backend quarantine, and exactly one distinct-backend recovery before
+re-emitting the interrupt. A synthetic post-resolution driver fault, not the
+interruption, creates the uncertain outcome and causes that recovery. Those
+tests do not prove driver query or `COMMIT` cancellation, a real network
+failure, server crash or failover, backend termination, lost acknowledgement in
+transit, or a combined `decisionUncertain`/interruption failure.
 
 This plan owns the neutral identity and lifecycle mechanics needed to compile,
 install, validate, and bind Payload lifecycle, Medusa, and admitted system

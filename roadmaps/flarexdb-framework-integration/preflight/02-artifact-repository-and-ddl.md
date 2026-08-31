@@ -14,8 +14,9 @@ implemented, together with collision contention, both dependency-lock orders,
 cross-deployment non-blocking, owner/lineage coordinate isolation under
 contention, native post-write rollback, and driver-edge pre-/post-`COMMIT`
 settlement recovery after discarding the uncertain backend and using a
-distinct recovery backend; wider genuine PostgreSQL acceptance remains
-incomplete
+distinct recovery backend, plus advisory-lock-backed callback-SQL and server-
+blocked-`COMMIT` interruption settlement; wider genuine PostgreSQL acceptance
+remains incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -982,8 +983,10 @@ native pool discard, backend-session identity, timeout enforcement,
 transaction outcome, locking, or concurrency. A URL-gated server probe exists
 for one backend, `READ COMMITTED`, positive local budgets, and exact read
 `statement_timeout` restoration. The focused ordinary-role PostgreSQL 18 lane
-now runs that probe and proves those exact native facts; the deterministic
-doubles remain the only evidence for the wider fault matrix above.
+now runs that probe and also proves the two native interruption scenarios
+recorded under Genuine PostgreSQL Evidence below. The deterministic doubles
+remain the only evidence for adapter deadlines, cleanup failures, and wider
+fault combinations not explicitly recorded as native evidence.
 
 ### PGlite Migration Evidence
 
@@ -1136,11 +1139,40 @@ result is `created`. Injection immediately after PostgreSQL acknowledges
 durable parent and returns `existing`. Both paths retain exactly one parent and
 one dependency edge and replay as `existing`. This is deterministic driver-edge
 settlement evidence, not evidence for a TCP partition, server crash, lost
-acknowledgement in transit, or callback/`COMMIT`-in-flight interruption.
+acknowledgement in transit, or interruption while PostgreSQL is executing a
+statement.
 
-Callback and `COMMIT`-in-flight interruption, bounded deadline faults,
-supported-sequence deadlock absence, and native identity-list/index behavior
-remain unproved. This focused evidence does not complete the private repository
+Separate ordinary-role tests now use PostgreSQL advisory-lock barriers plus
+`pg_stat_activity` and `pg_blocking_pids`, rather than a timing-only callback,
+to prove both interruption paths. During callback work, a `BEFORE INSERT`
+dependency-edge trigger first observes the already-inserted parent and then
+blocks that edge statement. An Effect interruption remains unsettled until the
+barrier is released and the statement drains; native rollback and healthy
+release finish before an `Exit` containing exactly one interrupt and no typed
+failure or defect is re-emitted. The pre-existing dependency remains, no parent
+or edge survives, and a clean retry creates once and then replays as `existing`.
+No `COMMIT`, quarantine, or recovery begins. This proves statement drainage and
+transaction rollback, not driver query cancellation.
+
+During native `COMMIT`, a targeted `DEFERRABLE INITIALLY DEFERRED` constraint
+trigger blocks the initial backend, and the server activity row proves that
+exact backend is active on `COMMIT` while waiting for the advisory-lock holder.
+The Effect interruption remains unsettled through that server-side `COMMIT`;
+after release, a test-only post-acknowledgement driver-edge fault makes the
+result uncertain. That synthetic fault, not the interruption, causes the
+initial backend to be quarantined and removed; exactly one distinct recovery
+backend observes the durable parent and edge before an `Exit` with one interrupt
+reason and no typed failure or defect is re-emitted. The stored artifact then
+replays as `existing`. This composes native `COMMIT`-in-flight interruption with
+deterministic driver-edge acknowledgement uncertainty. It does not simulate
+query or `COMMIT` cancellation, a TCP partition, socket reset, server crash or
+failover, backend termination, or lost acknowledgement in transit, and it does
+not add a combined `decisionUncertain`/interruption failure claim.
+
+Bounded native deadline faults across acquisition, lock, statement, recovery,
+optimistic reconstruction, and post-resolution reconstruction, plus supported-
+sequence deadlock absence and native identity-list/index behavior, remain
+unproved. This focused evidence does not complete the private repository
 checkpoint or open a downstream gate.
 
 ## Accepted Implementation Checkpoint
@@ -1176,10 +1208,10 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next implementation step is the remaining genuine PostgreSQL callback/
-`COMMIT`-in-flight interruption, deadline, supported-sequence deadlock, and
-identity-list/index acceptance. The implemented DDL, preparation capability,
-stored loader/reconstruction, point read, locked admission, bounded identity
-list, repository identity, authenticated starter, deterministic control-session
-lifecycle, and artifact-private PostgreSQL control-session adapter do not open
-any installation, framework-adapter, runtime, public, or production gate.
+The next implementation step is the remaining genuine PostgreSQL deadline
+fault matrix, followed by supported-sequence deadlock and identity-list/index
+acceptance. The implemented DDL, preparation capability, stored loader/
+reconstruction, point read, locked admission, bounded identity list, repository
+identity, authenticated starter, deterministic control-session lifecycle, and
+artifact-private PostgreSQL control-session adapter do not open any
+installation, framework-adapter, runtime, public, or production gate.

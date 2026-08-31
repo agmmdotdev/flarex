@@ -14,7 +14,9 @@ admission convergence, deployment-row blocking, collision contention, both
 dependency-lock orders, cross-deployment non-blocking, owner/lineage coordinate
 isolation, post-write rollback, and driver-edge pre-/post-`COMMIT` settlement
 recovery after discarding the uncertain native backend and using a distinct
-recovery backend; wider genuine-PostgreSQL acceptance remains incomplete.
+recovery backend, plus advisory-lock-backed callback-SQL and server-blocked-
+`COMMIT` interruption settlement; wider genuine-PostgreSQL acceptance remains
+incomplete.
 Installation, binding, Payload/Medusa adapters, runtime wiring, and production
 work remain pending and production-inert.
 
@@ -94,7 +96,7 @@ Preflight records:
 | File | Status | Decision |
 | --- | --- | --- |
 | [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; first checkpoint implemented | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred repository, installation, and binding contracts |
-| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; private repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, point-read, exact admission, collision, dependency-race, coordinate-isolation, cross-deployment, post-write rollback, and driver-edge pre-/post-`COMMIT` settlement-recovery evidence implemented; wider genuine-PostgreSQL acceptance incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
+| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; private repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, point-read, exact admission, collision, dependency-race, coordinate-isolation, cross-deployment, post-write rollback, driver-edge pre-/post-`COMMIT` recovery, and native callback-SQL/server-blocked-`COMMIT` interruption evidence implemented; wider genuine-PostgreSQL acceptance incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 
 ## Current Architecture
 
@@ -184,7 +186,7 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, point-read, exact admission, collision, dependency-race, coordinate-isolation, cross-deployment, post-write rollback, and driver-edge pre-/post-`COMMIT` settlement-recovery evidence implemented; callback/in-flight interruption, deadlines, supported-sequence deadlock, native list/index behavior, and later lifecycle codecs remain gated |
+| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, point-read, exact admission, collision, dependency-race, coordinate-isolation, cross-deployment, post-write rollback, driver-edge pre-/post-`COMMIT` settlement recovery, and native callback-SQL/server-blocked-`COMMIT` interruption evidence implemented; deadlines, supported-sequence deadlock, native list/index behavior, and later lifecycle codecs remain gated |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |
@@ -240,9 +242,21 @@ native `COMMIT` quarantine and remove the uncertain backend, recover on one
 distinct backend, return `created` before `COMMIT` or `existing` after
 acknowledgement, preserve one parent and one dependency edge, and replay as
 `existing`. This is not evidence for a TCP partition, server crash, lost
-acknowledgement in transit, or callback/`COMMIT`-in-flight interruption, so
-genuine-PostgreSQL acceptance remains incomplete. The implemented sub-boundary
-contains only:
+acknowledgement in transit, or interruption while PostgreSQL is executing a
+statement. Separate advisory-lock-backed tests prove that an interruption while
+a dependency-edge insert is blocked remains pending until the statement drains,
+then rolls back the already-inserted parent and releases the healthy backend
+before re-emitting exactly one interrupt. They also prove through
+`pg_stat_activity` and `pg_blocking_pids` that an interruption while the initial
+backend is executing native `COMMIT` remains pending through settlement, then
+waits through quarantine and exactly one distinct-backend recovery after a
+test-only post-acknowledgement driver fault. That synthetic fault, not the
+interruption, creates uncertainty and causes recovery. The durable parent and
+edge remain single and replay as `existing`. This proves neither query or
+`COMMIT` cancellation nor a TCP partition, socket reset, server crash or
+failover, backend termination, lost acknowledgement in transit, or a combined
+`decisionUncertain`/interruption failure, so genuine-PostgreSQL acceptance
+remains incomplete. The implemented sub-boundary contains only:
 
 - an additive private control registry plus dependency sidecar;
 - database-only compact storage identities while retaining the full natural
@@ -284,8 +298,8 @@ contains only:
   finalizer `Cause` preservation.
 
 The remaining private acceptance work may add only the unproved genuine-
-PostgreSQL callback/`COMMIT`-in-flight interruption, deadline, supported-
-sequence deadlock, and list/index evidence.
+PostgreSQL deadline fault matrix, supported-sequence deadlock evidence, and
+identity-list/index evidence.
 
 This authority stops at the files and evidence named by that record.
 Installation, readiness, availability, Application-reference, Payload-overlay,
