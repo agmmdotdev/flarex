@@ -822,6 +822,7 @@ regression suites:
   support;
 - `test/deploymentSyncEvaluationClaimBoundaries.test.ts`;
 - `test/deploymentSyncEvaluationClaimRaces.test.ts`;
+- `test/deploymentSyncEvaluationCompletionRaces.test.ts`;
 - `test/deploymentSyncEvaluationStateAtomicity.test.ts`;
 - `test/deploymentSyncEvaluationStateLimits.test.ts`;
 - `test/deploymentQuerySyncC2.workerd.test.ts`; and
@@ -967,9 +968,8 @@ This accepted implementation checkpoint does not authorize:
    consumption evidence; it does not claim Cloudflare cursor-buffering or
    Worker-heap behavior.
 7. Remaining C2 exit work includes the matrix's other exhaustive typed and
-   corruption branches, non-migration maximum aggregate populations, the
-   completion-versus-exact-next-invalidation race, and maximum genuine-Workerd
-   spelling, binding, buffering, and heap proofs.
+   corruption branches, non-migration maximum aggregate populations, and
+   maximum genuine-Workerd spelling, binding, buffering, and heap proofs.
 8. The completion control-flow proof now covers all five start-stage no-write
    receipts, pending and unchanged exact replay, first material activation,
    unchanged-digest pending preservation, replay fingerprint and content
@@ -1056,13 +1056,27 @@ This accepted implementation checkpoint does not authorize:
     Dependencies and pending publication remain byte-for-byte unchanged, and
     no nested transaction, SQL-hook re-entry, lease, or scheduling primitive is
     introduced.
+18. The completion serializability proof executes both complete transaction
+    orders for a generation-1 provisional completion and the exact-next
+    sequence-12 invalidation over its dependency. Completion-first returns the
+    exact portable `completed` receipt, installs active and completion
+    dependencies plus pending publication, then lets invalidation affect the
+    query and retain active dirtiness through sequence 12 at work revision 3.
+    Invalidation-first affects no query because provisional dependencies are
+    not active invalidation authority; the completion then returns the exact
+    portable `refreshRequired` receipt after only the contract, scope, and
+    scalar-query reads, performs no write, and retains the generation-1
+    provisional at work revision 1. Both histories match the portable scope,
+    all eight counters, and exact raw query/dependency/pending projections, and
+    their final states remain observably distinct. No nested transaction,
+    SQL-hook re-entry, barrier, lease, or scheduling abstraction is introduced.
 
 Completion's remaining exit work still includes the exhaustive typed and
-prohibited-corruption matrix, non-migration maximum populations/bytes, and its
-exact-next-invalidation race proof. Host maximum proof also remains. The
-accepted claim branch, boundary, recovery, and serial-race matrix is complete,
-as are the nominal attempt-outcome branch/read-trace, write-rollback,
-affected-row, response-loss, and terminal-versus-completion matrices.
+prohibited-corruption matrix and non-migration maximum populations/bytes. Host
+maximum proof also remains. The complete C2 serial-race matrix is now proven.
+The accepted claim branch, boundary, and recovery matrix is complete, as are
+the nominal attempt-outcome branch/read-trace, write-rollback, affected-row,
+response-loss, and terminal-versus-completion matrices.
 Exhaustive attempt-outcome authority, typed-mismatch, corruption, and
 exhaustion branches remain under the broader C2 exit matrix above.
 
