@@ -131,7 +131,10 @@ describe("deployment query-sync completion control flow", () => {
       );
       expectTypedFailure(replayExit, {
         _tag: "InvalidQueryCompletionReplayError",
+        operation: "completeQueryEvaluation",
         reason: "fingerprintMismatch",
+        queryKey: firstAttempt.descriptor.queryKey,
+        generation: firstAttempt.generation,
       });
       expect(probe.stop()).toEqual([
         ...COMPLETION_COMMON_READ_STAGES,
@@ -153,7 +156,10 @@ describe("deployment query-sync completion control flow", () => {
       );
       expectTypedFailure(contentExit, {
         _tag: "InvalidQueryCompletionReplayError",
+        operation: "completeQueryEvaluation",
         reason: "publicationContentMismatch",
+        queryKey: firstAttempt.descriptor.queryKey,
+        generation: firstAttempt.generation,
       });
       expect(probe.stop()).toEqual([
         ...COMPLETION_COMMON_READ_STAGES,
@@ -246,6 +252,7 @@ describe("deployment query-sync completion control flow", () => {
 
       expectTypedFailure(exit, {
         _tag: "InvalidQueryEvidenceError",
+        operation: "completeQueryEvaluation",
         reason: "evaluationRefreshDependenciesMismatch",
       });
       expect(probe.stop()).toEqual(COMPLETION_COMMON_READ_STAGES);

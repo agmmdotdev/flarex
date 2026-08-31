@@ -816,6 +816,8 @@ regression suites:
 - `test/deploymentSyncEvaluationState.test.ts`;
 - `test/deploymentSyncEvaluationStateCompletionBranches.test.ts` and its
   completion-specific test support;
+- `test/deploymentSyncEvaluationCompletionBoundaries.test.ts`;
+- `test/deploymentSyncEvaluationCompletionCorruption.test.ts`;
 - `test/deploymentSyncEvaluationAttemptOutcome.test.ts` and its
   outcome-specific test support;
 - `test/deploymentSyncEvaluationClaim.test.ts` and its claim-specific test
@@ -967,15 +969,16 @@ This accepted implementation checkpoint does not authorize:
    aggregate cursor reads forbidden. This is SQLite-local JavaScript
    consumption evidence; it does not claim Cloudflare cursor-buffering or
    Worker-heap behavior.
-7. Remaining C2 exit work includes the matrix's other exhaustive typed and
-   corruption branches, non-migration maximum aggregate populations, and
-   maximum genuine-Workerd spelling, binding, buffering, and heap proofs.
+7. Remaining C2 exit work includes non-migration maximum aggregate populations,
+   maximum genuine-Workerd spelling, binding, buffering, and heap proofs, and
+   the attempt-outcome branches still named below.
 8. The completion control-flow proof now covers all five start-stage no-write
    receipts, pending and unchanged exact replay, first material activation,
-   unchanged-digest pending preservation, replay fingerprint and content
-   failures, and representative typed failures at start, replay, and material
-   read stages. Every case pins its exact SQL read trace and unchanged durable
-   snapshot when no write is authorized.
+   unchanged-digest pending preservation, and every adapter-reachable non-limit
+   typed failure at start, replay, and material read stages. State-limit errors
+   remain with the maximum-population proof in item 7. Every completed case
+   pins its exact SQL read trace and unchanged durable snapshot when no write is
+   authorized.
 9. A changed-digest two-dependency replacement now records its exact ten-write
    sequence and injects the same foreign defect immediately before and after
    every write. Every position proves full query, dependency, pending, and
@@ -1070,10 +1073,25 @@ This accepted implementation checkpoint does not authorize:
     all eight counters, and exact raw query/dependency/pending projections, and
     their final states remain observably distinct. No nested transaction,
     SQL-hook re-entry, barrier, lease, or scheduling abstraction is introduced.
+19. The completion boundary proof now table-drives all three authority-error
+    tags at each of the attempt, evaluation, and refresh inputs; all fifteen
+    evidence-relation reasons; all four reachable publication-recapture
+    failures; query
+    absence, identity collision, generation mismatch, blocked work, both replay
+    conflicts, and work-revision exhaustion. The requested-dirty-frontier case
+    uses a valid generation-2 history whose replayed begin coalesces dirtiness to
+    sequence 13 while retaining registration at sequence 12. A separate
+    generation-3 corruption matrix covers every DDL-permitted target-observable
+    scalar, dependency, role/set, orphaning, and pending/completion inconsistency
+    category while excluding optional missing retained content and other valid
+    empty states. Every row proves the exact read cutoff, a Cause failure rather
+    than a defect, exact domain fields or nested stored-state issue with
+    `notCommitted` certainty, no DML, and an unchanged durable snapshot.
 
-Completion's remaining exit work still includes the exhaustive typed and
-prohibited-corruption matrix and non-migration maximum populations/bytes. Host
-maximum proof also remains. The complete C2 serial-race matrix is now proven.
+Completion's remaining exit work is now limited to non-migration maximum
+populations/bytes, their completion state-limit failures, and genuine-Workerd
+maximum proof. The complete C2 serial-race, non-limit typed-error, and portable
+prohibited-corruption matrices are now proven.
 The accepted claim branch, boundary, and recovery matrix is complete, as are
 the nominal attempt-outcome branch/read-trace, write-rollback, affected-row,
 response-loss, and terminal-versus-completion matrices.
