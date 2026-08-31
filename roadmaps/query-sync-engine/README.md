@@ -29,8 +29,10 @@ vertical are complete in `b94abbb0`; its empty-scope prerequisite completed in
 and its generation-3 completion, evaluation-claim, and attempt-outcome
 vertical completed on 2026-08-30 in the implementation checkpoint containing
 that record. Its pinned local Workerd exit proof completed on 2026-08-31. C2 is
-complete, private, unrouted, and production-inert; C3 is merely eligible for a
-fresh explicit preflight and is not approved or implemented. The accepted
+complete, private, unrouted, and production-inert. The accepted docs-only
+[`QSYNC-FX01-C3` checkpoint](./preflight/12-qsync-fx01-c3-publication-lifecycle.md)
+now authorizes its bounded, private generation-4 publication-lifecycle medium
+vertical; implementation and exit proof remain incomplete. The accepted
 docs-only
 [`QSYNC01-D0` preflight](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
 now freezes that seam, its staged-read protocol, exact accounting authority,
@@ -205,7 +207,7 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete in `a9b309d0`; C4 complete in `87a7566f`; private and production-inert |
 | `QSYNC01-D` | Operation-scoped transition-plan seam with bounded fact inputs, explicit logical changes, exact counters, and equivalence to the aggregate reducers | Complete through D4; all nine operations are private and production-inert |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
-| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | A complete; B complete docs-only; D complete; C1 complete in `b94abbb0`; C2 complete, private, and production-inert on 2026-08-31; C3 eligible only for a fresh unapproved preflight; FX01 incomplete; independent of delivery selection |
+| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | A complete; B complete docs-only; D complete; C1 complete in `b94abbb0`; C2 complete, private, and production-inert on 2026-08-31; C3 accepted docs-only, implementation and proof incomplete; FX01 incomplete; independent of delivery selection |
 | `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Blocked on `QSYNC-FX01` |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
@@ -253,7 +255,7 @@ paths.
 - [`preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md`](./preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md)
   is the accepted Flarex mapping and Cloudflare SQLite adapter preflight. It
   records the completed A mapping/codecs/vector subgate, completed C1, the
-  completed private C2 SQLite vertical, and still-unapproved C3 gate.
+  completed private C2 SQLite vertical, and accepted but incomplete C3 gate.
 - [`preflight/08-qsync-fx01-b-semantic-persistence-verdict.md`](./preflight/08-qsync-fx01-b-semantic-persistence-verdict.md)
   is the completed docs-only B access-plan and seam verdict. It stops before
   schema and records the missing core seam that D now owns.
@@ -270,15 +272,19 @@ paths.
   is the completed C2 implementation and exit-proof record for generation-3
   completion evidence, pending-publication intent, evaluation claiming, and
   evaluation-attempt outcomes.
+- [`preflight/12-qsync-fx01-c3-publication-lifecycle.md`](./preflight/12-qsync-fx01-c3-publication-lifecycle.md)
+  is the accepted docs-only generation-4 publication-lifecycle checkpoint. Its
+  medium implementation vertical and exit proof remain incomplete.
 
 ## Next Correctness Gate
 
-The next correctness work is a fresh explicit `QSYNC-FX01-C3` preflight and
-discussion. C2 exited on 2026-08-31 but remains package-private, unrouted, and
-production-inert. C3 is not approved or implemented; it must separately freeze
-the publication claim/outcome/completion lifecycle and complete nine-operation
-adapter. `QSYNC-FX01` remains incomplete. Neither A, B, C4, D, C1, nor C2
-authorizes a real `ResultPublisher`, delivery-adapter selection, Postgres source
+The next correctness work is the accepted
+[`QSYNC-FX01-C3` medium vertical](./preflight/12-qsync-fx01-c3-publication-lifecycle.md).
+C2 exited on 2026-08-31 but remains package-private, unrouted, and
+production-inert. C3 now authorizes generation-4 publication
+claim/outcome/completion and the complete private nine-operation adapter, but
+neither is implemented or proved. `QSYNC-FX01` remains incomplete. C3 does not
+authorize a real `ResultPublisher`, delivery-adapter selection, Postgres source
 composition, public/client APIs, production routing, Legacy/product migration,
 cutover, or `R03-B`.
 `QSYNC-CF01` remains the independent delivery feasibility and selection gate.

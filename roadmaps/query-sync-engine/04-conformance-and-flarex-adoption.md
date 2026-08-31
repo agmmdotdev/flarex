@@ -164,10 +164,12 @@ not a complete uncertainty contract.
     disposal, and reopen matrix. This is not deployed Cloudflare evidence or a
     measured 128 MiB guarantee, and dispose/recreate does not prove eviction or
     hibernation.
-15. **Separate later gate (`QSYNC-FX01-C3`).** Preflight, explicitly accept,
-    implement, and prove the publication lifecycle plus complete nine-operation
-    adapter. C3 is eligible for that fresh discussion but is not approved or
-    implemented. FX01 is not complete before this gate exits.
+15. **Accepted separate gate (`QSYNC-FX01-C3`).** Implement and prove the
+    accepted
+    [docs-only C3 checkpoint](./preflight/12-qsync-fx01-c3-publication-lifecycle.md):
+    the generation-4 publication lifecycle plus complete private nine-operation
+    adapter. C3 implementation and proof remain incomplete. FX01 is not
+    complete before this gate exits.
 16. Independently run the Cloudflare Durable Streams feasibility spike and
    accept or reject it at explicit maturity, security, retention, payload, and
    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;

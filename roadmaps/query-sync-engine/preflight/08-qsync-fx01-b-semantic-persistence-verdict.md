@@ -16,8 +16,9 @@ This B checkpoint itself authorized no DDL, local storage-contract generation,
 migration, Durable Object behavior, state-adapter code, or C1-C3 semantic
 vertical. The later C1 checkpoint authorized and completed C1 in `b94abbb0`.
 The later accepted C2 checkpoint now records the implemented private
-evaluation-side vertical and its completed 2026-08-31 exit proof. C3 is merely
-eligible for a fresh explicit preflight and remains unapproved and unimplemented.
+evaluation-side vertical and its completed 2026-08-31 exit proof. The later C3
+checkpoint is now accepted docs-only; implementation and proof remain
+incomplete.
 
 The separate portable-core
 [`QSYNC01-D0` preflight](./09-qsync01-d-operation-scoped-transition-plans.md)
@@ -555,6 +556,8 @@ The `QSYNC-FX01-C1` checkpoint was subsequently accepted and completed in
 [`10-qsync-fx01-c1-sqlite-vertical.md`](./10-qsync-fx01-c1-sqlite-vertical.md).
 The [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
 was subsequently accepted, implemented, and exited on 2026-08-31 as a private,
-unrouted generation-3 evaluation-side vertical. C3 is eligible for a fresh
-explicit preflight but remains unapproved and unimplemented; every production
-host/delivery boundary remains unauthorized.
+unrouted generation-3 evaluation-side vertical. The accepted docs-only
+[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) now
+authorizes its bounded generation-4 medium vertical; implementation and proof
+remain incomplete, and every production host/delivery boundary remains
+unauthorized.

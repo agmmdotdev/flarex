@@ -5,8 +5,9 @@
 **Checkpoint status:** complete and exited on 2026-08-31. The private
 six-operation implementation completed on 2026-08-30, and the complete Required
 Proof Matrix below closed on 2026-08-31. C2 remains package-private, unrouted,
-and production-inert. C3 is now eligible only for a fresh explicit preflight and
-discussion; it is not approved or implemented, and production activation
+and production-inert. The subsequent docs-only
+[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) is now
+accepted; implementation and proof remain incomplete, and production activation
 remains unauthorized.
 
 `QSYNC-FX01-C1` completed in `b94abbb0` after its portable empty-scope
@@ -1158,5 +1159,6 @@ terminal-versus-completion matrices.
 C2 exited at that private, production-inert boundary on 2026-08-31 after the
 pinned local Workerd maximum row/content, binding, buffering, disposal, and
 reopen proof in item 7 completed the retained matrix. `QSYNC-FX01` remains
-incomplete. A fresh `QSYNC-FX01-C3` preflight and discussion is now eligible,
-but this record neither approves nor implements C3.
+incomplete. The subsequent docs-only
+[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) is now
+accepted, but this C2 record neither implements C3 nor expands its boundary.

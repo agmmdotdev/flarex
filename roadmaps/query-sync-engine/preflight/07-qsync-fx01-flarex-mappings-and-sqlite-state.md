@@ -15,15 +15,18 @@ vertical are complete in `12e2f375` and `b94abbb0`. The accepted
 [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
 and its generation-3 three-operation evaluation extension were implemented on
 2026-08-30, and its pinned local Workerd exit proof completed on 2026-08-31.
-C2 is complete, package-private, unrouted, and production-inert. C3,
-Durable Object behavior, source/evaluator composition, callers, and production
-routing remain separately unauthorized.
+C2 is complete, package-private, unrouted, and production-inert. The accepted
+docs-only
+[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) now
+authorizes its bounded generation-4 publication-lifecycle medium vertical. C3
+implementation is incomplete; Durable Object behavior, source/evaluator
+composition, callers, and production routing remain separately unauthorized.
 
 The subsequent docs-only
 [`QSYNC01-D0` preflight](./09-qsync01-d-operation-scoped-transition-plans.md)
 accepted the missing portable seam and its D1-D4 implementation order. D0 added
-no code; D1-D4, C1, and C2 are now complete. C3 is eligible only for its own
-fresh explicit preflight and discussion; it is not approved or implemented.
+no code; D1-D4, C1, and C2 are now complete. C3's docs-only checkpoint is now
+accepted; its implementation and exit proof remain incomplete.
 
 `QSYNC01-A` through `QSYNC01-C4` are complete, private, reference-backed, and
 production-inert; C4 completed in `87a7566f`. They prove the portable
@@ -42,7 +45,8 @@ prerequisite is complete.
 The user accepted the package direction, `QSYNC-FX01-A` boundary, and docs-only
 B investigation recorded here. Historically, B accepted no DDL, storage
 generation, migration, or C1-C3 implementation. C1 and C2 later gained and
-completed their own authority; C3 remains unapproved. B-era terms such as
+completed their own authority; C3 later gained its separately bounded accepted
+authority but remains unimplemented. B-era terms such as
 "would own" and "would require" describe the then-unapproved target unless a
 later checkpoint explicitly supersedes them.
 
@@ -90,7 +94,7 @@ That outcome is divided into reviewable subgates:
 | `QSYNC-FX01-B` | Docs-only semantic-persistence feasibility: authenticated binding, every operation's exact read/transition/write plan, current core-seam verdict, and only then proposed DDL/migration | Complete; stop before schema; no code authorized |
 | `QSYNC-FX01-C1` | First private semantic vertical: authenticated binding plus initialize, begin, and admitted-batch application with only the rows those operations require | Complete in `b94abbb0` after prerequisite `12e2f375`; private and production-inert |
 | `QSYNC-FX01-C2` | Evaluation completion and recovery vertical: complete, claim, and attempt-outcome operations with their dependency/fingerprint/publication-intent rows | Complete on 2026-08-31; private, unrouted, and production-inert |
-| `QSYNC-FX01-C3` | Publication claim/outcome/completion, the complete nine-operation adapter, reference conformance, and genuine Workerd restart/rollback/corruption proof | Eligible for a fresh explicit preflight; not approved or implemented |
+| `QSYNC-FX01-C3` | Publication claim/outcome/completion, the complete nine-operation adapter, reference conformance, and genuine Workerd restart/rollback/corruption proof | Accepted docs-only in `12-qsync-fx01-c3-publication-lifecycle.md`; implementation and proof incomplete |
 
 No subgate is a usable production path. FX01 exits only when A, B, and C1-C3
 are complete and the adapter remains unrouted. C1/C2 stay package-private and
@@ -427,7 +431,8 @@ deterministic and production-inert.
 
 The following constraints remain the broad staged target. C1's exact
 generation-2 DDL and C2's generation-3 evaluation extension are implemented
-authority; C2's exit proof is complete and C3 DDL remains unaccepted. The
+authority; C2's exit proof is complete, while C3 DDL is accepted only through
+the later C3 checkpoint and remains unimplemented. The
 completed docs-only B checkpoint enumerates every operation's bounded read set,
 portable transition/decision seam, exact write set, receipt, rollback point,
 and required logical access path in
@@ -440,7 +445,7 @@ reproducing material portable logic in SQL. It therefore stopped before schema
 and proposed the separate `QSYNC01-D` preflight. D1-D4 have since completed the
 planner seam, and C1/C2 have implemented the first two private SQLite
 verticals. No schema-only implementation slice is allowed. C3 remains a
-separate, unapproved gate.
+separate accepted but incomplete gate.
 
 ### Construction and lifecycle
 
@@ -733,7 +738,8 @@ have since completed the planner seam and its reducer-equivalence, replay,
 limit, and atomicity proof. C1 then implemented and proved the private
 generation-2 initialize, begin, and admitted-batch vertical.
 
-The next correctness work is a fresh explicit C3 preflight and discussion. C2
-has exited, but its publication lifecycle, storage generation, complete
-nine-operation proof, and continued private boundary still require separate C3
-acceptance. C3 is not approved or implemented, and FX01 remains incomplete.
+The next correctness work is the accepted
+[`QSYNC-FX01-C3` medium vertical](./12-qsync-fx01-c3-publication-lifecycle.md).
+C2 has exited, while generation-4 publication lifecycle, the complete private
+nine-operation adapter, and their exit proof remain unimplemented. FX01 remains
+incomplete.
