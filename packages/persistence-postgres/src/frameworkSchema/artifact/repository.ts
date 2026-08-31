@@ -1,18 +1,31 @@
 import { copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { Data, Effect, Result } from "effect";
+import { Data, Duration, Effect, Encoding, Option, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import { copyCapturedFrameworkSchemaArtifactEvidence } from "./canonical";
 import {
   hasFrameworkSchemaArtifactControlSessionComposition,
+  failFrameworkSchemaArtifactControlDeadline,
+  remainingFrameworkSchemaArtifactControlMilliseconds,
+  runFrameworkSchemaArtifactControlEffect,
+  runFrameworkSchemaArtifactControlInitialReadEffect,
+  runFrameworkSchemaArtifactControlReadEffect,
+  startFrameworkSchemaArtifactControlDeadline,
   withFrameworkSchemaArtifactRawControlSessionTransactionEffect,
+  type FrameworkSchemaArtifactControlSessionDeadlineIssue,
+  type FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+  type FrameworkSchemaArtifactControlSessionResourceIssue,
   type FrameworkSchemaArtifactControlSessionStarter,
   type FrameworkSchemaArtifactControlSessionTransaction,
+  type FrameworkSchemaArtifactControlDeadline,
+  type FrameworkSchemaArtifactControlDecision,
+  type FrameworkSchemaArtifactControlResult,
 } from "./controlSession";
 import {
   FrameworkSchemaArtifactError,
+  FrameworkSchemaArtifactInvariantDefect,
   FrameworkSchemaArtifactRepositoryConfigurationError,
 } from "./errors";
 import {
@@ -41,11 +54,18 @@ export interface FrameworkSchemaArtifactAdmissionEvidence {
   readonly artifact: FrameworkSchemaArtifact;
   readonly identity: FrameworkSchemaArtifactIdentity;
   readonly dependencies: readonly FrameworkSchemaArtifactIdentity[];
+  readonly dependencyEvidence:
+    readonly FrameworkSchemaArtifactAdmissionDependencyEvidence[];
   readonly artifactSha256Bytes: Uint8Array;
   readonly canonicalByteLength: number;
   readonly canonicalBytes: Uint8Array;
   readonly frameFormat: typeof FRAMEWORK_SCHEMA_ARTIFACT_FORMAT;
   readonly frameVersion: typeof FRAMEWORK_SCHEMA_ARTIFACT_VERSION;
+}
+
+export interface FrameworkSchemaArtifactAdmissionDependencyEvidence {
+  readonly identity: FrameworkSchemaArtifactIdentity;
+  readonly artifactSha256Bytes: Uint8Array;
 }
 
 export interface FrameworkSchemaArtifactRepositoryTimeoutPolicy {
@@ -69,6 +89,53 @@ export interface FrameworkSchemaArtifactRepository {
 
 export interface FrameworkSchemaArtifactControlTransaction {
   readonly [frameworkSchemaArtifactControlTransactionBrand]: true;
+}
+
+export interface FrameworkSchemaArtifactRepositoryReadWork<
+  Preparation,
+  Detached,
+  Value,
+  Failure,
+> {
+  readonly prepareEffect: () => Effect.Effect<Preparation, Failure, never>;
+  readonly queryAndDetachEffect: (
+    database: FlarexMetadataDatabase,
+    preparation: Preparation,
+  ) => Effect.Effect<Detached, Failure, never>;
+  readonly reconstructEffect: (
+    detached: Detached,
+    preparation: Preparation,
+  ) => Effect.Effect<Value, Failure, never>;
+}
+
+export interface FrameworkSchemaArtifactRepositoryAdmissionWork<
+  Preparation,
+  Detached,
+  Value,
+  Failure,
+> {
+  readonly prepareEffect: () => Effect.Effect<Preparation, Failure, never>;
+  readonly queryAndDetachOptimisticEffect: (
+    database: FlarexMetadataDatabase,
+    preparation: Preparation,
+  ) => Effect.Effect<Detached, Failure, never>;
+  readonly reconstructOptimisticEffect: (
+    detached: Detached,
+    preparation: Preparation,
+  ) => Effect.Effect<Option.Option<Value>, Failure, never>;
+  readonly runLockedEffect: (
+    transaction: FrameworkSchemaArtifactControlTransaction,
+    preparation: Preparation,
+    attempt: "initial" | "recovery",
+  ) => Effect.Effect<
+    FrameworkSchemaArtifactControlDecision<Value>,
+    Failure,
+    never
+  >;
+  readonly resolveExistingEffect: (
+    database: FlarexMetadataDatabase,
+    preparation: Preparation,
+  ) => Effect.Effect<Value, Failure, never>;
 }
 
 export class FrameworkSchemaArtifactRepositoryInvariantDefect extends
@@ -205,6 +272,143 @@ export function withFrameworkSchemaArtifactControlTransactionEffect<
   });
 }
 
+/**
+ * Authenticate one repository, release its read session after detached query
+ * work, then bound reconstruction with the same absolute deadline.
+ */
+export const runFrameworkSchemaArtifactRepositoryReadEffect = Effect.fn(
+  "FrameworkSchemaArtifactRepository.read",
+)(<Preparation, Detached, Value, Failure>(
+  repository: FrameworkSchemaArtifactRepository,
+  work: FrameworkSchemaArtifactRepositoryReadWork<
+    Preparation,
+    Detached,
+    Value,
+    Failure
+  >,
+): Effect.Effect<
+  Value,
+  | Failure
+  | FrameworkSchemaArtifactControlSessionDeadlineIssue
+  | FrameworkSchemaArtifactControlSessionResourceIssue,
+  never
+> => Effect.suspend(() => {
+  const repositoryState = frameworkSchemaArtifactRepositoryStates.get(
+    repository,
+  );
+  if (repositoryState === undefined) {
+    return Effect.die(
+      new FrameworkSchemaArtifactRepositoryInvariantDefect({
+        reason: "invalidRepository",
+      }),
+    );
+  }
+
+  return Effect.gen(function* () {
+    const preparation = yield* Effect.suspend(work.prepareEffect);
+    const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      "read",
+      repositoryState.timeoutPolicy.readTimeoutMilliseconds,
+    );
+    const detached = yield* runFrameworkSchemaArtifactControlReadEffect(
+      repositoryState.controlSessionStarter,
+      { deadline },
+      database => Effect.suspend(() =>
+        work.queryAndDetachEffect(database, preparation)
+      ),
+    );
+    return yield* runBoundedReconstructionEffect(
+      deadline,
+      () => work.reconstructEffect(detached, preparation),
+    );
+  });
+}));
+
+/** Own one optimistic read and the complete locked admission lifecycle. */
+export const runFrameworkSchemaArtifactRepositoryAdmissionEffect = Effect.fn(
+  "FrameworkSchemaArtifactRepository.admit",
+)(<Preparation, Detached, Value, Failure>(
+  repository: FrameworkSchemaArtifactRepository,
+  work: FrameworkSchemaArtifactRepositoryAdmissionWork<
+    Preparation,
+    Detached,
+    Value,
+    Failure
+  >,
+): Effect.Effect<
+  FrameworkSchemaArtifactControlResult<Value>,
+  | Failure
+  | FrameworkSchemaArtifactControlSessionDeadlineIssue
+  | FrameworkSchemaArtifactControlSessionResourceIssue
+  | FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+  never
+> => Effect.suspend(() => {
+  const repositoryState = frameworkSchemaArtifactRepositoryStates.get(
+    repository,
+  );
+  if (repositoryState === undefined) {
+    return Effect.die(
+      new FrameworkSchemaArtifactRepositoryInvariantDefect({
+        reason: "invalidRepository",
+      }),
+    );
+  }
+
+  return Effect.gen(function* () {
+    const preparation = yield* Effect.suspend(work.prepareEffect);
+    const initialDeadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      "initial",
+      repositoryState.timeoutPolicy.attemptTimeoutMilliseconds,
+    );
+    const detached = yield*
+      runFrameworkSchemaArtifactControlInitialReadEffect(
+        repositoryState.controlSessionStarter,
+        { deadline: initialDeadline },
+        database => Effect.suspend(() =>
+          work.queryAndDetachOptimisticEffect(database, preparation)
+        ),
+      );
+    const optimistic = yield* runBoundedReconstructionEffect(
+      initialDeadline,
+      () => work.reconstructOptimisticEffect(detached, preparation),
+    );
+    if (Option.isSome(optimistic)) {
+      return Object.freeze({
+        status: "existing" as const,
+        value: optimistic.value,
+      });
+    }
+
+    return yield* runFrameworkSchemaArtifactControlEffect(
+      repositoryState.controlSessionStarter,
+      {
+        initialDeadline,
+        lockTimeoutMilliseconds:
+          repositoryState.timeoutPolicy.lockTimeoutMilliseconds,
+        recoveryTimeoutMilliseconds:
+          repositoryState.timeoutPolicy.recoveryTimeoutMilliseconds,
+      },
+      {
+        runLockedEffect: (sessionTransaction, attempt) =>
+          withFrameworkSchemaArtifactControlTransactionEffect(
+            repository,
+            sessionTransaction,
+            transaction => Effect.suspend(() =>
+              work.runLockedEffect(
+                transaction,
+                preparation,
+                attempt,
+              )
+            ),
+          ),
+        resolveExistingEffect: database => Effect.suspend(() =>
+          work.resolveExistingEffect(database, preparation)
+        ),
+      },
+    );
+  });
+}));
+
 /** Authenticate a scoped token before a locked primitive can construct SQL. */
 export function withFrameworkSchemaArtifactRawControlTransactionEffect<
   Value,
@@ -282,6 +486,9 @@ export function prepareFrameworkSchemaArtifactAdmission(
     dependencies: snapshotFrameworkSchemaArtifactIdentities(
       artifact.dependencies,
     ),
+    dependencyEvidence: snapshotFrameworkSchemaArtifactAdmissionDependencies(
+      artifact.dependencies,
+    ),
     artifactSha256Bytes: copyBytes(captured.artifactSha256Bytes),
     canonicalByteLength: captured.canonicalBytes.byteLength,
     canonicalBytes: copyBytes(captured.canonicalBytes),
@@ -314,6 +521,9 @@ export function getPreparedFrameworkSchemaArtifactAdmissionEvidence(
     dependencies: snapshotFrameworkSchemaArtifactIdentities(
       state.dependencies,
     ),
+    dependencyEvidence: snapshotFrameworkSchemaArtifactAdmissionDependencies(
+      state.dependencyEvidence.map(dependency => dependency.identity),
+    ),
     artifactSha256Bytes: copyBytes(state.artifactSha256Bytes),
     canonicalByteLength: state.canonicalByteLength,
     canonicalBytes: copyBytes(state.canonicalBytes),
@@ -340,6 +550,55 @@ function snapshotFrameworkSchemaArtifactIdentities(
     snapshotFrameworkSchemaArtifactIdentity,
   ));
 }
+
+function snapshotFrameworkSchemaArtifactAdmissionDependencies(
+  dependencies: readonly FrameworkSchemaArtifactIdentity[],
+): readonly FrameworkSchemaArtifactAdmissionDependencyEvidence[] {
+  return Object.freeze(dependencies.map((dependency) => {
+    const stableArtifactSha256Bytes = Encoding.decodeHex(
+      dependency.artifactSha256,
+    ).pipe(Result.match({
+      onFailure: () => {
+        throw new FrameworkSchemaArtifactInvariantDefect({
+          reason: "ownedSnapshotInvalid",
+        });
+      },
+      onSuccess: copyBytes,
+    }));
+    return Object.freeze({
+      identity: snapshotFrameworkSchemaArtifactIdentity(dependency),
+      get artifactSha256Bytes(): Uint8Array {
+        return copyBytes(stableArtifactSha256Bytes);
+      },
+    });
+  }));
+}
+
+const runBoundedReconstructionEffect = Effect.fn(
+  "FrameworkSchemaArtifactRepository.reconstructBounded",
+)(function*<Value, Failure>(
+  deadline: FrameworkSchemaArtifactControlDeadline,
+  reconstructEffect: () => Effect.Effect<Value, Failure, never>,
+): Effect.fn.Return<
+  Value,
+  Failure | FrameworkSchemaArtifactControlSessionDeadlineIssue
+> {
+  const remainingMilliseconds = yield*
+    remainingFrameworkSchemaArtifactControlMilliseconds(deadline, "read");
+  const reconstructionResult = yield* Effect.raceFirst(
+    Effect.result(Effect.suspend(reconstructEffect)),
+    Effect.sleep(Duration.millis(remainingMilliseconds)).pipe(
+      Effect.andThen(
+        failFrameworkSchemaArtifactControlDeadline(deadline, "read"),
+      ),
+    ),
+  );
+  yield* remainingFrameworkSchemaArtifactControlMilliseconds(
+    deadline,
+    "read",
+  );
+  return yield* Effect.fromResult(reconstructionResult);
+});
 
 function isFrameworkSchemaArtifactRepositoryTimeoutPolicy(
   policy: FrameworkSchemaArtifactRepositoryTimeoutPolicy,

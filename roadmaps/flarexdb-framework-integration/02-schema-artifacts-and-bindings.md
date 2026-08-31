@@ -6,9 +6,10 @@ Status: accepted target architecture; private artifact value, additive DDL,
 runtime-authenticated admission preparation, stored reconstruction, and
 repository construction, plus the runtime-authenticated control-session
 starter, deterministic control-session lifecycle, and artifact-private
-PostgreSQL control-session adapter implemented; repository operations and
-genuine PostgreSQL acceptance incomplete; later lifecycle persistence codecs
-still gated
+PostgreSQL control-session adapter implemented, together with the exact private
+point-read, locked-admission, and bounded identity-list operations with focused
+PGlite evidence; genuine PostgreSQL acceptance incomplete; later lifecycle
+persistence codecs still gated
 
 The additive authority architecture and exact artifact-envelope contract are
 frozen by
@@ -28,9 +29,11 @@ runtime-authenticated admission preparation, operation-neutral stored
 reconstruction, opaque control-bound repository construction, authenticated
 starter composition, deterministic executable control-session lifecycle, and
 the artifact-private PostgreSQL control-session adapter with deterministic
-fake-pool evidence are implemented so far; no repository operation, Payload or
-Medusa adapter, runtime caller, public API, or production composition is
-activated.
+fake-pool evidence are implemented, as are the neutral size-gated stored loader
+and exact private point read, locked admission, and bounded identity list with
+focused PGlite evidence. Genuine PostgreSQL acceptance remains incomplete; no
+Payload or Medusa adapter, runtime caller, public API, or production composition
+is activated.
 
 This plan owns the neutral identity and lifecycle mechanics needed to compile,
 install, validate, and bind Payload lifecycle, Medusa, and admitted system

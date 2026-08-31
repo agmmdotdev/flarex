@@ -1,10 +1,10 @@
-import { compareBytesLexicographically } from "@flarex/utils/bytes";
+import { compareBytesLexicographically, copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import {
   compareUtf16Strings,
   isNonBlankString,
 } from "@flarex/utils/strings";
-import { Brand, Result } from "effect";
+import { Brand, Encoding, Result } from "effect";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 
 import {
@@ -19,6 +19,7 @@ import {
   type FrameworkSchemaArtifactCodec,
   type FrameworkSchemaArtifactCodecFormat,
   type FrameworkSchemaArtifactCodecVersion,
+  type FrameworkSchemaArtifactCoordinate,
   type FrameworkSchemaArtifactFrame,
   type FrameworkSchemaArtifactIdentity,
   type FrameworkSchemaArtifactOwner,
@@ -26,11 +27,13 @@ import {
   type FrameworkSchemaArtifactSha256,
   type FrameworkSchemaCapabilityId,
   type FrameworkSchemaLineageId,
+  type ListFrameworkSchemaArtifactIdentitiesInput,
 } from "./model";
 
 export const MAX_FRAMEWORK_SCHEMA_ARTIFACT_COMMON_IDENTITY_UTF8_BYTES = 1_024;
 export const MAX_FRAMEWORK_SCHEMA_ARTIFACT_CAPABILITIES = 256;
 export const MAX_FRAMEWORK_SCHEMA_ARTIFACT_DEPENDENCIES = 256;
+export const MAX_FRAMEWORK_SCHEMA_ARTIFACT_LIST_LIMIT = 100;
 export const MAX_FRAMEWORK_SCHEMA_ARTIFACT_JSON_CONTAINER_LEVELS = 128;
 export const MAX_FRAMEWORK_SCHEMA_ARTIFACT_JSON_NODES = 262_144;
 export const MAX_FRAMEWORK_SCHEMA_ARTIFACT_CANONICAL_BYTES = 1_048_576;
@@ -52,6 +55,21 @@ const DEPENDENCY_KEYS = [
   "lineageId",
   "artifactSha256",
 ] as const;
+const IDENTITY_KEYS = [
+  "deploymentId",
+  "owner",
+  "lineageId",
+  "artifactSha256",
+] as const satisfies ReadonlyArray<keyof FrameworkSchemaArtifactIdentity>;
+const LIST_INPUT_KEYS = [
+  "deploymentId",
+  "owner",
+  "lineageId",
+  "afterArtifactSha256",
+  "limit",
+] as const satisfies ReadonlyArray<
+  keyof ListFrameworkSchemaArtifactIdentitiesInput
+>;
 const LOWERCASE_SHA256 = /^[0-9a-f]{64}$/;
 const UTF8 = new TextEncoder();
 const OWNER_ORDINAL = {
@@ -70,6 +88,33 @@ const brandArtifactSha256 = Brand.nominal<FrameworkSchemaArtifactSha256>();
 interface JsonCaptureBudget {
   nodes: number;
 }
+
+export interface DecodedFrameworkSchemaArtifactIdentity {
+  readonly identity: FrameworkSchemaArtifactIdentity;
+  readonly artifactSha256Bytes: Uint8Array;
+}
+
+export interface FrameworkSchemaArtifactIdentityIssue {
+  readonly _tag: "FrameworkSchemaArtifactIdentityIssue";
+}
+
+export interface DecodedFrameworkSchemaArtifactListInput {
+  readonly coordinate: FrameworkSchemaArtifactCoordinate;
+  readonly afterArtifactSha256: FrameworkSchemaArtifactSha256 | null;
+  readonly afterArtifactSha256Bytes: Uint8Array | null;
+  readonly limit: number;
+}
+
+export interface FrameworkSchemaArtifactListInputIssue {
+  readonly _tag: "FrameworkSchemaArtifactListInputIssue";
+}
+
+const frameworkSchemaArtifactIdentityIssue = Object.freeze({
+  _tag: "FrameworkSchemaArtifactIdentityIssue" as const,
+});
+const frameworkSchemaArtifactListInputIssue = Object.freeze({
+  _tag: "FrameworkSchemaArtifactListInputIssue" as const,
+});
 
 interface JsonRootHolder {
   value?: Json;
@@ -149,6 +194,83 @@ export function normalizeFrameworkSchemaArtifact(
       payload,
     } satisfies FrameworkSchemaArtifactFrame);
   });
+}
+
+/** Strictly snapshot one complete natural identity and its owned digest. */
+export function decodeFrameworkSchemaArtifactIdentityResult(
+  input: unknown,
+): Result.Result<
+  DecodedFrameworkSchemaArtifactIdentity,
+  FrameworkSchemaArtifactIdentityIssue
+> {
+  return Result.gen(function* () {
+    const fields = yield* captureExactRecordValues(input, IDENTITY_KEYS);
+    const deploymentId = yield* decodeCommonIdentityString(fields.at(0));
+    const owner = yield* decodeArtifactOwner(fields.at(1), false);
+    const lineageId = yield* decodeCommonIdentityString(fields.at(2)).pipe(
+      Result.map(brandLineageId),
+    );
+    const artifactSha256 = yield* decodeArtifactSha256(fields.at(3));
+    const artifactSha256Bytes = yield* Encoding.decodeHex(
+      artifactSha256,
+    ).pipe(Result.mapError(() => FrameworkSchemaArtifactError.invalidInput()));
+    const stableArtifactSha256Bytes = copyBytes(artifactSha256Bytes);
+    return Object.freeze({
+      identity: Object.freeze({
+        deploymentId,
+        owner,
+        lineageId,
+        artifactSha256,
+      }),
+      get artifactSha256Bytes(): Uint8Array {
+        return copyBytes(stableArtifactSha256Bytes);
+      },
+    });
+  }).pipe(Result.mapError(() => frameworkSchemaArtifactIdentityIssue));
+}
+
+/** Strictly snapshot one bounded identity-list request and cursor. */
+export function decodeFrameworkSchemaArtifactListInputResult(
+  input: unknown,
+): Result.Result<
+  DecodedFrameworkSchemaArtifactListInput,
+  FrameworkSchemaArtifactListInputIssue
+> {
+  return Result.gen(function* () {
+    const fields = yield* captureExactRecordValues(input, LIST_INPUT_KEYS);
+    const deploymentId = yield* decodeCommonIdentityString(fields.at(0));
+    const owner = yield* decodeArtifactOwner(fields.at(1), false);
+    const lineageId = yield* decodeCommonIdentityString(fields.at(2)).pipe(
+      Result.map(brandLineageId),
+    );
+    const cursorInput = fields.at(3);
+    const afterArtifactSha256 = cursorInput === null
+      ? null
+      : yield* decodeArtifactSha256(cursorInput);
+    const decodedCursorBytes = afterArtifactSha256 === null
+      ? null
+      : yield* Encoding.decodeHex(afterArtifactSha256).pipe(
+        Result.mapError(() => FrameworkSchemaArtifactError.invalidInput()),
+      );
+    const stableCursorBytes = decodedCursorBytes === null
+      ? null
+      : copyBytes(decodedCursorBytes);
+    const limit = fields.at(4);
+    if (
+      !isPositiveSafeInteger(limit) ||
+      limit > MAX_FRAMEWORK_SCHEMA_ARTIFACT_LIST_LIMIT
+    ) {
+      return yield* Result.fail(FrameworkSchemaArtifactError.invalidInput());
+    }
+    return Object.freeze({
+      coordinate: Object.freeze({ deploymentId, owner, lineageId }),
+      afterArtifactSha256,
+      get afterArtifactSha256Bytes(): Uint8Array | null {
+        return stableCursorBytes === null ? null : copyBytes(stableCursorBytes);
+      },
+      limit,
+    });
+  }).pipe(Result.mapError(() => frameworkSchemaArtifactListInputIssue));
 }
 
 export function compareFrameworkSchemaArtifactIdentities(

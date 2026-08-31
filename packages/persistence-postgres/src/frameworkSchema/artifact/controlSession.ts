@@ -454,10 +454,34 @@ export function runFrameworkSchemaArtifactControlReadEffect<Value, Failure>(
   Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
   never
 > {
-  return Effect.flatMap(
-    requireDeadlineKind(input.deadline, "read"),
-    () => Effect.flatMap(starterStateEffect(starter), (state) =>
-      state.driver.runReadEffect(input, work)),
+  return runControlReadEffect(
+    starter,
+    input,
+    "read",
+    work,
+  );
+}
+
+/** Run the optimistic admission read under its enclosing initial deadline. */
+export function runFrameworkSchemaArtifactControlInitialReadEffect<
+  Value,
+  Failure,
+>(
+  starter: FrameworkSchemaArtifactControlSessionStarter,
+  input: FrameworkSchemaArtifactControlReadInput,
+  work: (
+    database: FlarexMetadataDatabase,
+  ) => Effect.Effect<Value, Failure, never>,
+): Effect.Effect<
+  Value,
+  Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+  never
+> {
+  return runControlReadEffect(
+    starter,
+    input,
+    "initial",
+    work,
   );
 }
 
@@ -807,6 +831,28 @@ function starterStateEffect(
       }),
     )
     : Effect.succeed(state);
+}
+
+function runControlReadEffect<Value, Failure>(
+  starter: FrameworkSchemaArtifactControlSessionStarter,
+  input: FrameworkSchemaArtifactControlReadInput,
+  deadlineKind: Extract<
+    FrameworkSchemaArtifactControlDeadlineKind,
+    "read" | "initial"
+  >,
+  work: (
+    database: FlarexMetadataDatabase,
+  ) => Effect.Effect<Value, Failure, never>,
+): Effect.Effect<
+  Value,
+  Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+  never
+> {
+  return Effect.flatMap(
+    requireDeadlineKind(input.deadline, deadlineKind),
+    () => Effect.flatMap(starterStateEffect(starter), (state) =>
+      state.driver.runReadEffect(input, work)),
+  );
 }
 
 function failDecisionUncertain(

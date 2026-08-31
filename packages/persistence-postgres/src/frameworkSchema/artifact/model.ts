@@ -57,6 +57,17 @@ export interface FrameworkSchemaArtifactIdentity
   readonly artifactSha256: FrameworkSchemaArtifactSha256;
 }
 
+export interface ListFrameworkSchemaArtifactIdentitiesInput
+  extends FrameworkSchemaArtifactCoordinate {
+  readonly afterArtifactSha256: FrameworkSchemaArtifactSha256 | null;
+  readonly limit: number;
+}
+
+export interface FrameworkSchemaArtifactIdentityPage {
+  readonly items: readonly FrameworkSchemaArtifactIdentity[];
+  readonly nextAfterArtifactSha256: FrameworkSchemaArtifactSha256 | null;
+}
+
 export interface FrameworkSchemaArtifactCodec {
   readonly format: FrameworkSchemaArtifactCodecFormat;
   readonly version: FrameworkSchemaArtifactCodecVersion;

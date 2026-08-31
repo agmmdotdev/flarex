@@ -6,8 +6,9 @@ Status: accepted on 2026-08-30; additive DDL, runtime-authenticated admission
 preparation, stored reconstruction, opaque repository identity/control-
 database composition, runtime-authenticated starter composition, deterministic
 control-session lifecycle, and the artifact-private PostgreSQL control-session
-adapter implemented; repository operations and genuine PostgreSQL acceptance
-remain incomplete
+adapter, exact point-read repository operation, private locked admission,
+bounded identity listing, and focused PGlite repository evidence implemented;
+genuine PostgreSQL acceptance remains incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -1002,30 +1003,50 @@ PGlite must prove:
 
 ### PGlite Repository Evidence
 
-PGlite must prove:
+The private point-read foundation provides strict detached identity decoding,
+repository authentication before identity access, absent and dependency-bearing
+reads, release before reconstruction and hashing, exact query-stage failures,
+stored-corruption projection, hash-cause preservation, and one absolute
+deadline through post-release hashing. Stored-codec coverage retains the
+exhaustive row, frame, and dependency corruption matrix.
 
-- created then exact-existing replay;
-- a different digest under one lineage is retained as a distinct artifact;
-- equal full identity with different authentic canonical bytes is a typed
-  digest collision;
-- malformed or contradictory bytes under an equal full identity are stored
-  corruption, never a digest collision;
-- admission-owned reconstruction returns only `operation: "admit"` failures,
-  while the public reader returns only `operation: "read"` failures;
-- missing deployment and every missing-dependency position roll back cleanly;
+Private locked admission provides a transaction-owning facade, one initial
+deadline spanning optimistic read and the control-session lifecycle, compact
+in-lock replay comparison, one bounded ordinal dependency-resolution join,
+atomic parent and edge insertion, and admission-owned out-of-lock
+reconstruction. PGlite coverage includes created and optimistic-existing
+outcomes, immutable lineage history, missing deployment, missing-dependency
+ordinals, canonical dependency-edge order, the 256-dependency boundary,
+compact locked exact replay without hashing, authentic collision versus stored
+corruption, a raced compact mismatch that hashes only after the transaction,
+parent rollback after dependency-insert failure, and exact
+`decisionUncertain / settle` projection. It does not establish native
+row-locking, concurrency, quarantine, distinct-session recovery, or deadline
+behavior.
+
+Private bounded identity listing authenticates the repository before strict
+five-field request decoding, requires an explicit `1..100` limit and nullable
+exclusive digest cursor, fixes the complete coordinate, and reads only the four
+identity columns in byte order with one lookahead row. Focused PGlite coverage
+proves null and non-existent gap cursors, digest-boundary ordering, empty and
+terminal pages, the exact 100/101 boundary, last-returned cursors, deployment/
+owner/lineage isolation, fresh frozen identity-only pages, success without the
+canonical-bytes column or dependency table, corrupt lookahead projection, and
+ordinary SQL-rejection mapping. Every lookahead row is decoded before slicing.
+This evidence does not claim snapshot pagination or genuine PostgreSQL index,
+driver, collation, cancellation, or pool behavior.
+
+Remaining PGlite repository evidence must prove:
+
 - same-deployment/same-owner dependency admission and physical rejection of
   cross-owner, cross-deployment, duplicate-target, or same-lineage rows;
 - raw ordinal reordering is admitted only as deliberate corruption and is
   rejected by exact replay and full point read;
-- parent and dependency insertion roll back atomically after an injected
-  failure;
 - full read, absent read, bounded size gate, invalid UTF-8, invalid JSON,
   noncanonical frame, identity/digest/frame drift, invalid audit time, and every
   dependency mismatch;
-- list validation, byte-order pagination, maximum-page boundary, cursor gaps,
-  owner/lineage isolation, and identity-only projection;
-- SQL rejection mapping and interruption settlement;
-- no hashing or owner-codec work occurs while the admission lock is held.
+- interruption settlement;
+- no owner-codec work while the lock is held.
 
 PGlite does not prove row-lock blocking, concurrent claim convergence,
 connection quarantine, distinct-session recovery, deadline enforcement,
@@ -1075,7 +1096,9 @@ prove:
   operation sequence.
 
 `FLAREX_POSTGRES_DATABASE_URL` is not configured in the current environment,
-so this documentation checkpoint claims no genuine-PostgreSQL receipt.
+so the added `frameworkSchemaArtifactRead.postgres.test.ts` lane is skipped and
+this documentation checkpoint claims no genuine-PostgreSQL point-read,
+admission, or wider repository receipt.
 
 ## Accepted Implementation Checkpoint
 
@@ -1110,10 +1133,10 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next step is the transaction-owning repository operations above, followed
-by genuine PostgreSQL migration, settlement, locking, and concurrency
-acceptance. The implemented DDL, preparation capability, stored
-reconstruction, repository identity, authenticated starter, deterministic
-control-session lifecycle, and artifact-private PostgreSQL control-session
-adapter do not open any installation, framework-adapter, runtime, public, or
-production gate.
+The next implementation step is genuine PostgreSQL migration, repository,
+settlement, locking, and concurrency acceptance. The implemented DDL,
+preparation capability, stored loader/reconstruction, point read, locked
+admission, bounded identity list, repository identity, authenticated starter,
+deterministic control-session lifecycle, and artifact-private PostgreSQL
+control-session adapter do not open any installation, framework-adapter,
+runtime, public, or production gate.

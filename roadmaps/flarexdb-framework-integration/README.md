@@ -6,8 +6,9 @@ Status: active accepted roadmap domain. The private artifact-value, additive
 DDL, runtime-authenticated admission-preparation, stored-reconstruction, and
 repository-construction sub-checkpoints, runtime-authenticated control-session
 starter, deterministic control-session lifecycle, and an artifact-private
-PostgreSQL control-session adapter are implemented. Repository operations
-remain incomplete, and the genuine-PostgreSQL lane is not yet run.
+PostgreSQL control-session adapter are implemented, together with the exact
+private point-read, locked-admission, and bounded identity-list operations with
+focused PGlite evidence. The genuine-PostgreSQL lane is not yet run.
 Installation, binding, Payload/Medusa adapters, runtime wiring, and production
 work remain pending and production-inert.
 
@@ -87,7 +88,7 @@ Preflight records:
 | File | Status | Decision |
 | --- | --- | --- |
 | [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; first checkpoint implemented | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred repository, installation, and binding contracts |
-| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; DDL, preparation, reconstruction, repository construction, starter authenticity, deterministic control-session lifecycle, private PostgreSQL adapter, and fake-pool evidence implemented; operations incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
+| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; DDL, preparation, neutral loading/reconstruction, repository construction, starter authenticity, deterministic control-session lifecycle, private PostgreSQL adapter, point read, locked admission, bounded identity list, and focused PGlite evidence implemented; genuine-PostgreSQL acceptance incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 
 ## Current Architecture
 
@@ -177,7 +178,7 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Artifact value, additive DDL, admission preparation, stored reconstruction, repository construction, starter authenticity, deterministic control-session lifecycle, private PostgreSQL adapter, and fake-pool evidence implemented privately; repository operations and genuine-PostgreSQL acceptance remain incomplete; later lifecycle codecs stay gated |
+| Framework-neutral artifact/install/binding model | Artifact value, additive DDL, admission preparation, neutral stored loading/reconstruction, repository construction, starter authenticity, deterministic control-session lifecycle, private PostgreSQL adapter, exact point read, locked admission, bounded identity list, and focused PGlite evidence implemented privately; genuine-PostgreSQL acceptance remains incomplete; later lifecycle codecs stay gated |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |
@@ -222,8 +223,9 @@ preparation, operation-neutral stored reconstruction, and control-bound
 repository construction are implemented privately, together with the
 authenticated session starter, deterministic control-session lifecycle,
 private PostgreSQL control-session adapter, and deterministic fake-pool
-evidence. Repository operations and genuine-PostgreSQL acceptance remain
-incomplete. The implemented sub-boundary contains only:
+evidence, plus the exact private point-read, locked-admission, and bounded
+identity-list operations and focused PGlite evidence. Genuine-PostgreSQL
+acceptance remains incomplete. The implemented sub-boundary contains only:
 
 - an additive private control registry plus dependency sidecar;
 - database-only compact storage identities while retaining the full natural
@@ -233,6 +235,17 @@ incomplete. The implemented sub-boundary contains only:
   prepared-admission capability;
 - fail-closed stored parent, canonical-frame, and dependency reconstruction
   through the same capture owner;
+- a strict four-field identity decoder, neutral size-gated parent/dependency
+  loader, and exact private point read that releases its session before common
+  reconstruction and keeps one absolute deadline through hashing;
+- private transaction-owning admission with optimistic full reconstruction,
+  deployment-row locking, compact exact-replay comparison, one bounded
+  dependency-resolution join, atomic parent/edge insertion, and admission-owned
+  collision/corruption projection outside the lock;
+- strict bounded identity discovery with required `1..100` limits, explicit
+  nullable exclusive digest cursors, `limit + 1` byte-order pagination, exact
+  coordinate isolation, frozen identity-only pages, and no canonical or
+  dependency transfer;
 - a frozen opaque repository identity bound to its exact control database,
   runtime-authenticated session starter, and validated fixed timeout policy;
 - an absolute Effect-clock deadline model, deterministic settlement and one-
@@ -253,13 +266,8 @@ incomplete. The implemented sub-boundary contains only:
   clock preservation, distinct recovery, and complete interruption/deadline/
   finalizer `Cause` preservation.
 
-The remaining bounded private implementation may add only:
-
-- the transaction-owning repository operations;
-- exact replay, digest-collision, dependency, corruption, point-read, and
-  bounded identity-list behavior; and
-- genuine-PostgreSQL migration, repository, settlement, and concurrency
-  evidence.
+The remaining private acceptance work may add only genuine-PostgreSQL
+migration, repository, settlement, locking, and concurrency evidence.
 
 This authority stops at the files and evidence named by that record.
 Installation, readiness, availability, Application-reference, Payload-overlay,

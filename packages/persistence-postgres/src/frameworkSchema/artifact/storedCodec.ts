@@ -14,6 +14,7 @@ import {
 import {
   type FrameworkSchemaArtifactError,
   FrameworkSchemaArtifactInvariantDefect,
+  type FrameworkSchemaArtifactStoredStage,
 } from "./errors";
 import {
   FRAMEWORK_SCHEMA_ARTIFACT_FORMAT,
@@ -28,11 +29,6 @@ import {
   MAX_FRAMEWORK_SCHEMA_ARTIFACT_CANONICAL_BYTES,
   MAX_FRAMEWORK_SCHEMA_ARTIFACT_DEPENDENCIES,
 } from "./policy";
-
-export type FrameworkSchemaArtifactStoredStage =
-  | "artifactRow"
-  | "canonicalFrame"
-  | "dependencyRows";
 
 export type FrameworkSchemaArtifactStoredIssue =
   | Readonly<{
@@ -443,7 +439,11 @@ function mapCaptureErrorToStoredIssue(
         persistenceStage: "reconstructArtifact",
         cause: error.cause,
       } satisfies FrameworkSchemaArtifactStoredIssue);
+    case "deploymentMissing":
+    case "dependencyMissing":
     case "digestCollision":
+    case "storedStateCorrupt":
+    case "decisionUncertain":
       return new FrameworkSchemaArtifactInvariantDefect({
         reason: "unexpectedCaptureFailure",
       });
