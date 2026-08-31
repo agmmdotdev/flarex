@@ -46,6 +46,9 @@ import {
   GENERATION_2_QUERY_TABLE_DDL,
   GENERATION_2_SCOPE_TABLE_DDL,
 } from "../src/deploymentSync/StorageContractGeneration2";
+import {
+  migrateDeploymentQuerySyncGeneration2ToGeneration3,
+} from "../src/deploymentSync/StorageContractGeneration3";
 
 const scopeUuid = ScopeUuidV1Schema.make(
   "00000000-0000-4000-8000-000000000031",
@@ -481,6 +484,83 @@ export function applicationSchema(database: DatabaseSync): readonly unknown[] {
     FROM main.sqlite_schema
     WHERE name NOT LIKE 'sqlite_%'
     ORDER BY type, name`).all();
+}
+
+export function migrateSqliteHarnessToGeneration3(
+  harness: SqliteHarness,
+): void {
+  harness.storage.transactionSync(() => {
+    migrateDeploymentQuerySyncGeneration2ToGeneration3(harness.storage.sql);
+  });
+}
+
+export function snapshotGeneration3Predecessor(database: DatabaseSync) {
+  return Object.freeze({
+    schema: applicationSchema(database),
+    contract: rowsIfTablePresent(
+      database,
+      "deployment_sync_contract_state",
+      `SELECT * FROM deployment_sync_contract_state ORDER BY singleton`,
+    ),
+    scope: rowsIfTablePresent(
+      database,
+      "deployment_sync_scope_state",
+      `SELECT * FROM deployment_sync_scope_state ORDER BY singleton`,
+    ),
+    queries: rowsIfTablePresent(
+      database,
+      "deployment_sync_queries",
+      `SELECT * FROM deployment_sync_queries
+        ORDER BY query_key COLLATE BINARY`,
+    ),
+    dependencies: rowsIfTablePresent(
+      database,
+      "deployment_sync_query_dependencies",
+      `SELECT * FROM deployment_sync_query_dependencies
+        ORDER BY query_key COLLATE BINARY, role, generation,
+          dependency_key COLLATE BINARY`,
+    ),
+    pending: rowsIfTablePresent(
+      database,
+      "deployment_sync_pending_publications",
+      `SELECT * FROM deployment_sync_pending_publications
+        ORDER BY query_key COLLATE BINARY`,
+    ),
+  });
+}
+
+function rowsIfTablePresent(
+  database: DatabaseSync,
+  tableName: string,
+  query: string,
+): readonly unknown[] | null {
+  const exists = database.prepare(`SELECT 1 AS present
+    FROM main.sqlite_schema
+    WHERE type = 'table' AND name = ?`).get(tableName);
+  return exists === undefined ? null : database.prepare(query).all();
+}
+
+export function storageWithMutationObserver(
+  storage: DeploymentQuerySyncStorage,
+  onMutation: (query: string) => void,
+): DeploymentQuerySyncStorage {
+  const exec: DeploymentQuerySyncSqlStorage["exec"] = <
+    Row extends Record<string, SqlStorageValue>,
+  >(
+    query: string,
+    ...bindings: SQLInputValue[]
+  ): SqlStorageCursor<Row> => {
+    if (/^(?:alter|create|delete|drop|insert|replace|update)\b/iu.test(
+      query.trimStart(),
+    )) {
+      onMutation(query);
+    }
+    return storage.sql.exec<Row>(query, ...bindings);
+  };
+  return Object.freeze({
+    transactionSync: storage.transactionSync,
+    sql: Object.freeze({ exec }),
+  });
 }
 
 export interface Generation2StateSnapshot {

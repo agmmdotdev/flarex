@@ -27,11 +27,15 @@ import {
   type EvaluationSqlInvocation,
   makeEvaluationSqlProbe,
   prepareEvaluationState,
-  type PreparedEvaluationState,
   queryDescriptor,
   snapshotEvaluationState,
   success,
 } from "./deploymentSyncEvaluationStateTestSupport";
+import {
+  acceptanceFor,
+  claimInstalledPublication,
+  installPendingPublication,
+} from "./deploymentSyncPublicationTestSupport";
 
 type PublicationSqlStage = "read" | "write";
 
@@ -60,42 +64,6 @@ function expectDefect<A, E>(exit: Exit.Exit<A, E>, expected: Error): void {
   if (!Exit.isFailure(exit)) throw new Error("Expected Effect defect.");
   expect(Cause.hasDies(exit.cause)).toBe(true);
   expect(success(Cause.findDefect(exit.cause))).toBe(expected);
-}
-
-async function installPendingPublication(
-  prepared: PreparedEvaluationState,
-  seed: number,
-  label: string,
-) {
-  const evaluationAttempt = await beginEvaluation(
-    prepared,
-    queryDescriptor(seed),
-  );
-  const input = completionInput(prepared, evaluationAttempt, label);
-  await expect(Effect.runPromise(prepared.state.completeQueryEvaluation(
-    evaluationAttempt,
-    input.evaluation,
-    input.refresh,
-    input.publication,
-  ))).resolves.toMatchObject({ _tag: "completed" });
-  return Object.freeze({ evaluationAttempt, input });
-}
-
-async function claimInstalledPublication(
-  prepared: PreparedEvaluationState,
-): Promise<PublicationAttempt> {
-  const receipt = await Effect.runPromise(prepared.state.claimPublication());
-  if (receipt._tag !== "claimed") {
-    throw new Error(`Expected publication claim, received ${receipt._tag}.`);
-  }
-  return receipt.attempt;
-}
-
-function acceptanceFor(attempt: PublicationAttempt) {
-  return makeAcceptedQueryPublicationEvidenceForTesting({
-    identity: attempt.publication.identity,
-    resultDigest: attempt.publication.resultDigest,
-  });
 }
 
 function requireRecord(value: unknown): Readonly<Record<string, unknown>> {

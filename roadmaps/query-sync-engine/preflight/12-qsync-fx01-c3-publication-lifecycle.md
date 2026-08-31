@@ -492,6 +492,8 @@ methods.
 
 ### 2. Exhaustive catalog, corruption, and transaction closure
 
+**Status:** complete in the current implementation checkpoint.
+
 - populated generation-3 preservation at real limits;
 - altered, additive, mixed, unsupported, malformed, and lifecycle-impossible
   predecessor refusal;

@@ -115,6 +115,8 @@ export interface EvaluationSqlProbe<Stage extends string> {
   readonly stop: () => readonly Stage[];
   readonly snapshot: () => readonly Stage[];
   readonly completed: () => readonly EvaluationSqlObservation<Stage>[];
+  readonly writeCount: () => number;
+  readonly faultWasTriggered: () => boolean;
 }
 
 export function makeEvaluationSqlProbe<Stage extends string>(
@@ -127,6 +129,7 @@ export function makeEvaluationSqlProbe<Stage extends string>(
     readonly mode: AffectedRowRefusalMode;
   }> | undefined;
   let writeOrdinal = 0;
+  let faultWasTriggered = false;
   let stages: Stage[] = [];
   let observations: EvaluationSqlObservation<Stage>[] = [];
 
@@ -140,6 +143,7 @@ export function makeEvaluationSqlProbe<Stage extends string>(
         fault?.phase === "before"
         && fault.writeOrdinal === writeOrdinal
       ) {
+        faultWasTriggered = true;
         throw fault.cause;
       }
     },
@@ -170,6 +174,7 @@ export function makeEvaluationSqlProbe<Stage extends string>(
         && fault?.phase === "after"
         && fault.writeOrdinal === writeOrdinal
       ) {
+        faultWasTriggered = true;
         throw fault.cause;
       }
     },
@@ -179,6 +184,7 @@ export function makeEvaluationSqlProbe<Stage extends string>(
     stages = [];
     observations = [];
     writeOrdinal = 0;
+    faultWasTriggered = false;
     enabled = true;
   };
 
@@ -205,6 +211,8 @@ export function makeEvaluationSqlProbe<Stage extends string>(
     },
     snapshot: () => Object.freeze([...stages]),
     completed: () => Object.freeze([...observations]),
+    writeCount: () => writeOrdinal,
+    faultWasTriggered: () => faultWasTriggered,
   });
 }
 

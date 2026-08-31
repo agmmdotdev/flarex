@@ -4,24 +4,14 @@ import {
   ensureDeploymentQuerySyncStorageReady,
 } from "../src/deploymentSync/StorageContract";
 import {
-  migrateDeploymentQuerySyncGeneration2ToGeneration3,
-} from "../src/deploymentSync/StorageContractGeneration3";
-import {
   applicationSchema,
   createGeneration2Catalog,
   makeBinding,
   makeSqliteHarness,
+  migrateSqliteHarnessToGeneration3,
   seedProvisionalOnlyGeneration2,
   success,
 } from "./deploymentSyncStorageContractGeneration3TestSupport";
-
-function migrateFixtureToGeneration3(
-  harness: ReturnType<typeof makeSqliteHarness>,
-): void {
-  harness.storage.transactionSync(() => {
-    migrateDeploymentQuerySyncGeneration2ToGeneration3(harness.storage.sql);
-  });
-}
 
 function retainedGeneration3Rows(database: ReturnType<
   typeof makeSqliteHarness
@@ -48,7 +38,7 @@ describe("deployment query-sync generation-3 to generation-4 migration", () => {
     const harness = makeSqliteHarness();
     try {
       createGeneration2Catalog(harness.database, false);
-      migrateFixtureToGeneration3(harness);
+      migrateSqliteHarnessToGeneration3(harness);
 
       const ready = success(ensureDeploymentQuerySyncStorageReady(
         harness.storage,
@@ -73,7 +63,7 @@ describe("deployment query-sync generation-3 to generation-4 migration", () => {
     try {
       const binding = makeBinding();
       seedProvisionalOnlyGeneration2(harness.database, binding);
-      migrateFixtureToGeneration3(harness);
+      migrateSqliteHarnessToGeneration3(harness);
       const beforeRows = retainedGeneration3Rows(harness.database);
       const beforeSchema = applicationSchema(harness.database);
 
