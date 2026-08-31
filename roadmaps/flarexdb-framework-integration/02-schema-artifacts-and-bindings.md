@@ -15,8 +15,11 @@ cross-deployment non-blocking, owner/lineage coordinate isolation, and post-
 write rollback, plus driver-edge pre-/post-`COMMIT` settlement recovery after
 discarding the uncertain native backend and using a distinct recovery backend,
 plus advisory-lock-backed callback-SQL and server-blocked-`COMMIT`
-interruption settlement; wider genuine PostgreSQL acceptance and later
-lifecycle persistence codecs still gated
+interruption settlement, native queued-acquisition expiry, server lock and
+statement timeouts, and detached and post-resolution reconstruction deadlines;
+active-SQL and recovery-work deadlines remain blocked by `FSA-PG-DRAIN-01`, and
+wider genuine PostgreSQL acceptance and later lifecycle persistence codecs
+remain gated
 
 The additive authority architecture and exact artifact-envelope contract are
 frozen by
@@ -58,6 +61,18 @@ interruption, creates the uncertain outcome and causes that recovery. Those
 tests do not prove driver query or `COMMIT` cancellation, a real network
 failure, server crash or failover, backend termination, lost acknowledgement in
 transit, or a combined `decisionUncertain`/interruption failure.
+
+Five focused deadline receipts now prove queued native-pool acquisition expiry,
+server-enforced `lock_timeout` and `statement_timeout`, detached optimistic
+reconstruction expiry after healthy read-session release, and post-resolution
+reconstruction expiry with removal of its still-owned idle read backend. A
+sixth active-SQL probe and its recovery-work counterpart exposed
+`FSA-PG-DRAIN-01`: the pool emits `remove` and admission returns while the
+advisory-lock-blocked PostgreSQL PID remains active until its external blocker
+is released. Those two desired acceptances remain skipped without weakening
+their drain-and-absence contract. The artifact-private PostgreSQL control-
+session tracking/quarantine owner requires separate preflight and approval
+before correction.
 
 This plan owns the neutral identity and lifecycle mechanics needed to compile,
 install, validate, and bind Payload lifecycle, Medusa, and admitted system

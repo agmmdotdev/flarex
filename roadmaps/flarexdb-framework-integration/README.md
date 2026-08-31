@@ -15,8 +15,10 @@ dependency-lock orders, cross-deployment non-blocking, owner/lineage coordinate
 isolation, post-write rollback, and driver-edge pre-/post-`COMMIT` settlement
 recovery after discarding the uncertain native backend and using a distinct
 recovery backend, plus advisory-lock-backed callback-SQL and server-blocked-
-`COMMIT` interruption settlement; wider genuine-PostgreSQL acceptance remains
-incomplete.
+`COMMIT` interruption settlement, native queued-acquisition expiry, server lock
+and statement timeouts, and detached and post-resolution reconstruction
+deadlines. Active-SQL and recovery-work deadlines remain blocked by
+`FSA-PG-DRAIN-01`; wider genuine-PostgreSQL acceptance remains incomplete.
 Installation, binding, Payload/Medusa adapters, runtime wiring, and production
 work remain pending and production-inert.
 
@@ -96,7 +98,7 @@ Preflight records:
 | File | Status | Decision |
 | --- | --- | --- |
 | [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; first checkpoint implemented | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred repository, installation, and binding contracts |
-| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; private repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, point-read, exact admission, collision, dependency-race, coordinate-isolation, cross-deployment, post-write rollback, driver-edge pre-/post-`COMMIT` recovery, and native callback-SQL/server-blocked-`COMMIT` interruption evidence implemented; wider genuine-PostgreSQL acceptance incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
+| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; private repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, admission/concurrency/rollback/recovery/interruption, and five native deadline receipts implemented; `FSA-PG-DRAIN-01` blocks active-SQL and recovery-work deadline completion, and wider genuine-PostgreSQL acceptance remains incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 
 ## Current Architecture
 
@@ -186,7 +188,7 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, point-read, exact admission, collision, dependency-race, coordinate-isolation, cross-deployment, post-write rollback, driver-edge pre-/post-`COMMIT` settlement recovery, and native callback-SQL/server-blocked-`COMMIT` interruption evidence implemented; deadlines, supported-sequence deadlock, native list/index behavior, and later lifecycle codecs remain gated |
+| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, admission/concurrency/rollback/recovery/interruption, queued-acquisition, server lock/statement, and reconstruction-deadline evidence implemented; `FSA-PG-DRAIN-01`, supported-sequence deadlock, native list/index behavior, and later lifecycle codecs remain gated |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |
@@ -256,7 +258,30 @@ edge remain single and replay as `existing`. This proves neither query or
 `COMMIT` cancellation nor a TCP partition, socket reset, server crash or
 failover, backend termination, lost acknowledgement in transit, or a combined
 `decisionUncertain`/interruption failure, so genuine-PostgreSQL acceptance
-remains incomplete. The implemented sub-boundary contains only:
+remains incomplete.
+
+Five additional native deadline receipts now separate timeout authority and
+session lifetime precisely: a saturated one-connection pool expires queued
+acquisition and destroys its late backend; PostgreSQL's real clock returns
+`55P03` for the deployment lock and `57014` for dependency-edge insertion while
+the Effect clock stays frozen; detached optimistic reconstruction expires only
+after its healthy read backend has been released; and post-resolution
+reconstruction expires while its idle read backend is still owned, so that
+backend is removed. All paths retain exact atomic rows and prove clean replay or
+collision behavior. They do not claim driver query cancellation.
+
+The same lane exposed `FSA-PG-DRAIN-01`: after a host deadline expires during a
+genuinely advisory-lock-blocked INSERT, admission returns and the pool emits
+`remove`, but `pg_stat_activity` still shows that PID active until the blocker
+is released. A recovery-work reproduction removes the initial uncertain
+backend but returns its final `decisionUncertain` while the distinct recovery
+backend is still active on the blocked INSERT. The accepted contract requires
+tracked SQL to reject and drain before return. The desired active-SQL and
+recovery tests remain skipped with their absence assertions intact; changing
+the artifact-private PostgreSQL control-session owner requires a separate
+preflight and approval.
+
+The implemented sub-boundary contains only:
 
 - an additive private control registry plus dependency sidecar;
 - database-only compact storage identities while retaining the full natural
@@ -297,9 +322,9 @@ remains incomplete. The implemented sub-boundary contains only:
   clock preservation, distinct recovery, and complete interruption/deadline/
   finalizer `Cause` preservation.
 
-The remaining private acceptance work may add only the unproved genuine-
-PostgreSQL deadline fault matrix, supported-sequence deadlock evidence, and
-identity-list/index evidence.
+The remaining private acceptance work may add only the separately approved
+`FSA-PG-DRAIN-01` correction and its active-SQL/recovery deadline receipts,
+supported-sequence deadlock evidence, and identity-list/index evidence.
 
 This authority stops at the files and evidence named by that record.
 Installation, readiness, availability, Application-reference, Payload-overlay,

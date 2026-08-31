@@ -15,7 +15,10 @@ cross-deployment non-blocking, owner/lineage coordinate isolation under
 contention, native post-write rollback, and driver-edge pre-/post-`COMMIT`
 settlement recovery after discarding the uncertain backend and using a
 distinct recovery backend, plus advisory-lock-backed callback-SQL and server-
-blocked-`COMMIT` interruption settlement; wider genuine PostgreSQL acceptance
+blocked-`COMMIT` interruption settlement, native queued-acquisition expiry,
+server-enforced lock and statement timeouts, and detached optimistic and post-
+resolution reconstruction deadlines; active-SQL and recovery-work deadlines
+remain blocked by `FSA-PG-DRAIN-01`, and wider genuine PostgreSQL acceptance
 remains incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
@@ -451,12 +454,13 @@ settlement, release, and any initial `resolveExisting` reconstruction. The
 recovery deadline starts as soon as initial settlement becomes uncertain and
 covers quarantine of that session, acquisition of a distinct session,
 transaction work, settlement, and any recovery reconstruction. The connection
-owner applies the remaining budget to acquisition, bounded autocommit reads,
-host cancellation, `lock_timeout`, and `statement_timeout`; expiration drains
-or cancels the active operation, requests destruction of its session, and never
-returns that session to the pool. After destruction is requested, cleanup may
-outlive the operation or recovery deadline only within the adapter's separate
-bounded drain window. The private adapter defaults that window to 5,000 ms and
+owner contract applies the remaining budget to acquisition, bounded autocommit
+reads, host callback interruption, `lock_timeout`, and `statement_timeout`.
+Expiration must request destruction of the owned session, drain tracked native
+work before returning or report bounded cleanup failure, and never make that
+session reusable. Cleanup may outlive the operation or recovery deadline only
+within the adapter's separate bounded drain window. The private adapter defaults
+that window to 5,000 ms and
 accepts only trusted construction values from 1 through 60,000 ms. It snapshots
 and freezes adapter options once during construction, so later caller mutation
 or changing getters cannot weaken the bound. Failure to destroy or settle
@@ -640,9 +644,13 @@ and this repository does not convert it to an installation-level
 
 The repository's read deadline starts before connection acquisition and spans
 both queries plus reconstruction and hashing. Detached rows are retained and a
-healthy session is released before CPU/crypto reconstruction. Timeout drains
-or cancels active database work, discards an active session when necessary,
-and returns a read `resourceFailure` at the active persistence stage.
+healthy session is released before CPU/crypto reconstruction. The timeout
+contract must drain or cancel active database work, discard an active session
+when necessary, and only then return a read `resourceFailure` at the active
+persistence stage. Deterministic adapter evidence covers that contract, and
+native detached-reconstruction evidence covers the healthy-release path;
+native active-SQL drain-before-return proof remains blocked by
+`FSA-PG-DRAIN-01` below.
 
 For a present row, the reader:
 
@@ -983,10 +991,12 @@ native pool discard, backend-session identity, timeout enforcement,
 transaction outcome, locking, or concurrency. A URL-gated server probe exists
 for one backend, `READ COMMITTED`, positive local budgets, and exact read
 `statement_timeout` restoration. The focused ordinary-role PostgreSQL 18 lane
-now runs that probe and also proves the two native interruption scenarios
-recorded under Genuine PostgreSQL Evidence below. The deterministic doubles
-remain the only evidence for adapter deadlines, cleanup failures, and wider
-fault combinations not explicitly recorded as native evidence.
+now runs that probe, proves the two native interruption scenarios, and supplies
+the five completed native deadline receipts recorded under Genuine PostgreSQL
+Evidence below. Deterministic doubles remain the only passing evidence for the
+active-SQL and recovery-work deadline contracts blocked by `FSA-PG-DRAIN-01`,
+cleanup failures, and wider fault combinations not explicitly recorded as
+native evidence.
 
 ### PGlite Migration Evidence
 
@@ -1097,11 +1107,14 @@ prove:
   session, and convergence reaches `created` or `existing` without duplicate
   rows;
 - acquisition, lock, statement, and recovery-deadline faults are bounded; a
-  timed-out recovery discards its session and yields one non-retryable
+  timed-out recovery must discard its session and yield one non-retryable
   `decisionUncertain` with both original causes and no second attempt;
-- the optimistic admission reconstruction and the post-`resolveExisting`
-  reconstruction both obey the initial attempt deadline, cancel or drain their
-  active queries, and discard a timed-out session before returning; and
+- the optimistic query phase and post-`resolveExisting` work obey the initial
+  attempt deadline. Timed-out active SQL must drain after its checked-out
+  backend is destroyed and before admission returns. Detached optimistic
+  reconstruction keeps the same deadline after its healthy read backend has
+  already been released, while post-resolution reconstruction must discard its
+  still-owned read backend on timeout; and
 - the deployment-first lock order introduces no deadlock in the supported
   operation sequence.
 
@@ -1169,11 +1182,71 @@ query or `COMMIT` cancellation, a TCP partition, socket reset, server crash or
 failover, backend termination, or lost acknowledgement in transit, and it does
 not add a combined `decisionUncertain`/interruption failure claim.
 
-Bounded native deadline faults across acquisition, lock, statement, recovery,
-optimistic reconstruction, and post-resolution reconstruction, plus supported-
-sequence deadlock absence and native identity-list/index behavior, remain
-unproved. This focused evidence does not complete the private repository
-checkpoint or open a downstream gate.
+The focused deadline lane now supplies five independent ordinary-role
+PostgreSQL 18 receipts. A dedicated one-connection pool proves that an initial
+deadline can expire while native node-postgres acquisition is queued, that the
+late-delivered backend is destroyed and disappears from `pg_stat_activity`,
+that no transaction or artifact write starts, and that a clean retry creates
+and replays the artifact. A held deployment row plus a frozen Effect test clock
+lets PostgreSQL's real clock enforce `lock_timeout`; SQLSTATE `55P03` maps to
+`lockDeployment`, rolls back, releases the healthy backend without removal,
+leaves no artifact state, and permits a clean retry. A parent-insert trigger
+sets a transaction-local two-second statement budget before a dependency-edge
+trigger sleeps; PostgreSQL returns SQLSTATE `57014` at `insertDependencies`,
+rolls back the parent and edge while retaining the dependency, and releases the
+healthy backend before retry succeeds.
+
+The same lane proves the reconstruction lifetime distinction. When optimistic
+queries find an already stored artifact, the native read backend is healthy,
+idle, and released before controlled hashing stalls; advancing the original
+initial deadline returns `resourceFailure / reconstructArtifact` without pool
+removal or stored-state change, and restored hashing replays as `existing`. In
+an absent-then-collision race, the first waiter commits the authentic winner,
+the second commits a read-only `resolveExisting` decision, and its subsequent
+native read backend is idle but still checked out while controlled hashing
+stalls. Expiry returns the same reconstruct stage, removes that owned backend,
+preserves the single winner byte-for-byte, and an ordinary retry returns the
+expected typed digest collision. These are native storage and session-lifetime
+receipts combined with controlled WebCrypto suspension; they are not claims of
+PostgreSQL query cancellation.
+
+#### FSA-PG-DRAIN-01: active SQL is not drained before deadline return
+
+Status: open owner-boundary defect; production correction not authorized by
+this acceptance slice.
+
+Reproduction: an ordinary-role `BEFORE INSERT` trigger blocks the admission
+backend on a held advisory transaction lock. `pg_stat_activity` and
+`pg_blocking_pids()` first prove the exact artifact INSERT is active and blocked;
+the frozen Effect clock is then advanced so the host deadline wins long before
+PostgreSQL's 30-second lock and statement budgets. The same mechanism is
+repeated on the second, distinct recovery backend after a test-only pre-
+`COMMIT` uncertainty makes the initial transaction roll back.
+
+Expected: deadline settlement requests backend destruction, waits for the
+tracked native statement to reject and drain, proves the backend absent from
+`pg_stat_activity`, and only then returns the initial `resourceFailure` or the
+recovery `decisionUncertain`.
+
+Actual: admission returns and the node-postgres pool emits `remove`, but the
+same backend PID remains `active`, waiting on the advisory lock, until the test
+releases that external blocker. In the recovery scenario the initial uncertain
+backend is gone, while the second recovery backend remains active after the
+final `decisionUncertain` has returned. This contradicts the accepted tracked-
+query/drain-before-return contract. It does not prove query cancellation or a
+safe discard merely because the pool emitted `remove`.
+
+Affected owner: the artifact-private PostgreSQL control-session adapter's
+Drizzle/native-query tracking and quarantine-drain boundary. The desired
+active-SQL and recovery-work acceptance tests remain explicitly skipped under
+this issue rather than weakening their absence assertions or changing shared
+core from a system-test slice. A separate preflight and approval are required
+before changing that owner.
+
+Native active-SQL and recovery-work deadline completion remains blocked by
+`FSA-PG-DRAIN-01`. Supported-sequence deadlock absence and native identity-list/
+index behavior also remain unproved. This focused evidence does not complete
+the private repository checkpoint or open a downstream gate.
 
 ## Accepted Implementation Checkpoint
 
@@ -1208,10 +1281,11 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next implementation step is the remaining genuine PostgreSQL deadline
-fault matrix, followed by supported-sequence deadlock and identity-list/index
-acceptance. The implemented DDL, preparation capability, stored loader/
-reconstruction, point read, locked admission, bounded identity list, repository
+The next shared-core step requires a separately approved preflight for
+`FSA-PG-DRAIN-01`; independent acceptance may otherwise continue with supported-
+sequence deadlock and identity-list/index evidence. The implemented DDL,
+preparation capability, stored loader/reconstruction, point read, locked
+admission, bounded identity list, repository
 identity, authenticated starter, deterministic control-session lifecycle, and
 artifact-private PostgreSQL control-session adapter do not open any
 installation, framework-adapter, runtime, public, or production gate.
