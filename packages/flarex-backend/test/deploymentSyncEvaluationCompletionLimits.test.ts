@@ -69,6 +69,8 @@ const MATERIAL_READ_TRACE = Object.freeze([
   "active-dependencies-read",
   "completion-dependencies-read",
   "pending-publication-read",
+  "in-flight-publication-read",
+  "publication-state-read",
 ] as const satisfies readonly CompletionSqlStage[]);
 
 const MAXIMUM_TEST_TIMEOUT = 120_000;

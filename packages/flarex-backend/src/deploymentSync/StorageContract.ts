@@ -17,25 +17,23 @@ import {
   readDeploymentQuerySyncGeneration2MigrationState,
 } from "./StorageContractGeneration2";
 import {
-  createFreshDeploymentQuerySyncGeneration3,
   deploymentQuerySyncGeneration3Catalog,
   migrateDeploymentQuerySyncGeneration1ToGeneration3,
   migrateDeploymentQuerySyncGeneration2ToGeneration3,
   readDeploymentQuerySyncGeneration3Contract,
   readReadyDeploymentQuerySyncGeneration3,
 } from "./StorageContractGeneration3";
+import {
+  createFreshDeploymentQuerySyncGeneration4,
+  deploymentQuerySyncGeneration4Catalog,
+  migrateDeploymentQuerySyncGeneration3ToGeneration4,
+  readDeploymentQuerySyncGeneration4Contract,
+  readReadyDeploymentQuerySyncGeneration4,
+} from "./StorageContractGeneration4";
 
 export type { DeploymentQuerySyncContractState } from "./RowCodec";
 
-export type DeploymentQuerySyncStateOperation = Extract<
-  QuerySyncStateOperation,
-  | "initializeOrInspectNamespace"
-  | "beginQueryEvaluation"
-  | "applyAdmittedBatchAndAdvance"
-  | "completeQueryEvaluation"
-  | "claimEvaluationWork"
-  | "recordEvaluationAttemptOutcome"
->;
+export type DeploymentQuerySyncStateOperation = QuerySyncStateOperation;
 
 export type DeploymentQuerySyncSqlStorage = Pick<SqlStorage, "exec">;
 
@@ -71,7 +69,7 @@ export interface DeploymentQuerySyncStorageIndexDefinition {
 }
 
 export interface DeploymentQuerySyncStorageCatalogDefinition {
-  readonly generation: 1 | 2 | 3;
+  readonly generation: 1 | 2 | 3 | 4;
   readonly tables: readonly DeploymentQuerySyncStorageTableDefinition[];
   readonly indexes: readonly DeploymentQuerySyncStorageIndexDefinition[];
 }
@@ -89,6 +87,7 @@ const STORAGE_CATALOGS = Object.freeze([
   deploymentQuerySyncGeneration1Catalog,
   deploymentQuerySyncGeneration2Catalog,
   deploymentQuerySyncGeneration3Catalog,
+  deploymentQuerySyncGeneration4Catalog,
 ]);
 const APPLICATION_TABLE_NAMES = new Set<string>(
   STORAGE_CATALOGS.flatMap(catalog =>
@@ -760,6 +759,7 @@ type CatalogClassification = Readonly<
   | { readonly _tag: "generation1" }
   | { readonly _tag: "generation2" }
   | { readonly _tag: "generation3" }
+  | { readonly _tag: "generation4" }
 >;
 
 function catalogTableNamesEqual(
@@ -791,10 +791,13 @@ function classifyCatalog(
           return Object.freeze({ _tag: "generation2" as const });
         case 3:
           return Object.freeze({ _tag: "generation3" as const });
+        case 4:
+          return Object.freeze({ _tag: "generation4" as const });
       }
     }
     return yield* Result.fail(contractIssue("catalogShapeUnsupported", {
-      expected: "freshOrExactGeneration1OrExactGeneration2OrExactGeneration3",
+      expected:
+        "freshOrExactGeneration1OrExactGeneration2OrExactGeneration3OrExactGeneration4",
       observed: snapshot,
     }));
   });
@@ -805,6 +808,14 @@ function authenticateGeneration3Catalog(
 ): Result.Result<void, DeploymentQuerySyncStorageContractIssue> {
   return readCatalogSnapshot(sql).pipe(Result.flatMap(snapshot =>
     inspectCatalog(sql, snapshot, deploymentQuerySyncGeneration3Catalog)
+  ));
+}
+
+function authenticateGeneration4Catalog(
+  sql: DeploymentQuerySyncSqlStorage,
+): Result.Result<void, DeploymentQuerySyncStorageContractIssue> {
+  return readCatalogSnapshot(sql).pipe(Result.flatMap(snapshot =>
+    inspectCatalog(sql, snapshot, deploymentQuerySyncGeneration4Catalog)
   ));
 }
 
@@ -863,7 +874,7 @@ export function readDeploymentQuerySyncContractState<
   DeploymentQuerySyncContractState,
   DeploymentQuerySyncStorageContractError<Operation>
 > {
-  return readDeploymentQuerySyncGeneration3Contract(sql, operation);
+  return readDeploymentQuerySyncGeneration4Contract(sql, operation);
 }
 
 export function ensureDeploymentQuerySyncStorageReady(
@@ -878,7 +889,7 @@ export function ensureDeploymentQuerySyncStorageReady(
     const catalog = yield* classifyCatalog(sql).pipe(Result.mapError(incompatible));
     switch (catalog._tag) {
       case "fresh":
-        createFreshDeploymentQuerySyncGeneration3(sql);
+        createFreshDeploymentQuerySyncGeneration4(sql);
         break;
       case "generation1": {
         const legacy = yield* readDeploymentQuerySyncGeneration1Scope(sql);
@@ -893,16 +904,50 @@ export function ensureDeploymentQuerySyncStorageReady(
           binding,
           emptyScope,
         );
+        yield* authenticateGeneration3Catalog(sql).pipe(
+          Result.mapError(incompatible),
+        );
+        const predecessor = yield* readReadyDeploymentQuerySyncGeneration3(
+          sql,
+          binding,
+        );
+        migrateDeploymentQuerySyncGeneration3ToGeneration4(
+          sql,
+          predecessor.durableInitializedHistory,
+        );
         break;
       }
-      case "generation2":
+      case "generation2": {
         yield* readDeploymentQuerySyncGeneration2MigrationState(sql, binding);
         migrateDeploymentQuerySyncGeneration2ToGeneration3(sql);
+        yield* authenticateGeneration3Catalog(sql).pipe(
+          Result.mapError(incompatible),
+        );
+        const predecessor = yield* readReadyDeploymentQuerySyncGeneration3(
+          sql,
+          binding,
+        );
+        migrateDeploymentQuerySyncGeneration3ToGeneration4(
+          sql,
+          predecessor.durableInitializedHistory,
+        );
         break;
-      case "generation3":
-        return yield* readReadyDeploymentQuerySyncGeneration3(sql, binding);
+      }
+      case "generation3": {
+        const predecessor = yield* readReadyDeploymentQuerySyncGeneration3(
+          sql,
+          binding,
+        );
+        migrateDeploymentQuerySyncGeneration3ToGeneration4(
+          sql,
+          predecessor.durableInitializedHistory,
+        );
+        break;
+      }
+      case "generation4":
+        return yield* readReadyDeploymentQuerySyncGeneration4(sql, binding);
     }
-    yield* authenticateGeneration3Catalog(sql).pipe(Result.mapError(incompatible));
-    return yield* readReadyDeploymentQuerySyncGeneration3(sql, binding);
+    yield* authenticateGeneration4Catalog(sql).pipe(Result.mapError(incompatible));
+    return yield* readReadyDeploymentQuerySyncGeneration4(sql, binding);
   }));
 }

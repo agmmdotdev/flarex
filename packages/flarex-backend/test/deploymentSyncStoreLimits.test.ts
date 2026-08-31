@@ -42,9 +42,9 @@ import {
   type DeploymentQuerySyncBinding,
 } from "../src/deploymentSync/Binding";
 import {
-  makeDeploymentQuerySyncEvaluationState,
-  type DeploymentQuerySyncEvaluationState,
-  type DeploymentQuerySyncEvaluationStateInput,
+  makeDeploymentQuerySyncState,
+  type DeploymentQuerySyncState,
+  type DeploymentQuerySyncStateInput,
 } from "../src/deploymentSync/Store";
 import type {
   DeploymentQuerySyncStorage,
@@ -99,7 +99,7 @@ interface SqliteHarness {
 
 interface InitializedFixture {
   readonly harness: SqliteHarness;
-  readonly state: DeploymentQuerySyncEvaluationState;
+  readonly state: DeploymentQuerySyncState;
   readonly binding: DeploymentQuerySyncBinding;
 }
 
@@ -543,7 +543,7 @@ async function makeInitializedFixture(): Promise<InitializedFixture> {
   const harness = makeSqliteHarness();
   const input = stateInput(harness);
   const binding = success(captureDeploymentQuerySyncBinding(input.binding));
-  const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState(input));
+  const state = await Effect.runPromise(makeDeploymentQuerySyncState(input));
   await Effect.runPromise(
     state.initializeOrInspectNamespace(binding.bootstrapCursor),
   );
@@ -568,7 +568,7 @@ function observation() {
 
 function stateInput(
   harness: SqliteHarness,
-): DeploymentQuerySyncEvaluationStateInput {
+): DeploymentQuerySyncStateInput {
   const binding = Object.freeze({
     objectId: Object.freeze({ name: `deployment-sync:${scopeUuid}` }),
     observation: observation(),

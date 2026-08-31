@@ -45,8 +45,8 @@ import {
   type DeploymentQuerySyncBinding,
 } from "../src/deploymentSync/Binding";
 import {
-  makeDeploymentQuerySyncEvaluationState,
-  type DeploymentQuerySyncEvaluationState,
+  makeDeploymentQuerySyncState,
+  type DeploymentQuerySyncState,
 } from "../src/deploymentSync/Store";
 import type {
   DeploymentQuerySyncSqlStorage,
@@ -62,8 +62,9 @@ const epochUuid = ScopeEpochUuidV1Schema.make(
 
 export interface PreparedEvaluationState {
   readonly database: DatabaseSync;
-  readonly state: DeploymentQuerySyncEvaluationState;
+  readonly state: DeploymentQuerySyncState;
   readonly binding: DeploymentQuerySyncBinding;
+  readonly storage: DeploymentQuerySyncStorage;
 }
 
 export interface EvaluationSqlInvocation {
@@ -210,6 +211,19 @@ export function makeEvaluationSqlProbe<Stage extends string>(
 export async function prepareEvaluationState(
   hooks: EvaluationStorageHooks = {},
 ): Promise<PreparedEvaluationState> {
+  return prepareState(hooks, true);
+}
+
+export async function prepareUninitializedEvaluationState(
+  hooks: EvaluationStorageHooks = {},
+): Promise<PreparedEvaluationState> {
+  return prepareState(hooks, false);
+}
+
+async function prepareState(
+  hooks: EvaluationStorageHooks,
+  initialize: boolean,
+): Promise<PreparedEvaluationState> {
   const database = new DatabaseSync(":memory:");
   const storage = makeSqliteStorage(database, hooks);
   const bindingInput = Object.freeze({
@@ -230,16 +244,18 @@ export async function prepareEvaluationState(
     }),
   });
   const binding = success(captureDeploymentQuerySyncBinding(bindingInput));
-  const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState({
+  const state = await Effect.runPromise(makeDeploymentQuerySyncState({
     binding: bindingInput,
     storage,
     freshInitializationCapability:
       makeDeploymentQuerySyncFreshInitializationCapabilityForTest(binding),
   }));
-  await Effect.runPromise(
-    state.initializeOrInspectNamespace(binding.bootstrapCursor),
-  );
-  return Object.freeze({ database, state, binding });
+  if (initialize) {
+    await Effect.runPromise(
+      state.initializeOrInspectNamespace(binding.bootstrapCursor),
+    );
+  }
+  return Object.freeze({ database, state, binding, storage });
 }
 
 export function queryDescriptor(seed: number): QueryDescriptor {
@@ -345,6 +361,12 @@ export function snapshotEvaluationState(database: DatabaseSync) {
     ).all(),
     pending: database.prepare(
       "SELECT * FROM deployment_sync_pending_publications ORDER BY query_key",
+    ).all(),
+    inFlight: database.prepare(
+      "SELECT * FROM deployment_sync_in_flight_publication ORDER BY singleton",
+    ).all(),
+    publicationState: database.prepare(
+      "SELECT * FROM deployment_sync_publication_state ORDER BY singleton",
     ).all(),
   });
 }

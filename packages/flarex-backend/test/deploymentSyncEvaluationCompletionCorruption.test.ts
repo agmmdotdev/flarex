@@ -36,11 +36,17 @@ const REPLAY_PENDING_READ_STAGES = Object.freeze([
   "pending-publication-read",
 ] as const satisfies readonly CompletionSqlStage[]);
 
-const MATERIAL_READ_STAGES = Object.freeze([
+const MATERIAL_PENDING_READ_STAGES = Object.freeze([
   ...COMPLETION_COMMON_READ_STAGES,
   "active-dependencies-read",
   "completion-dependencies-read",
   "pending-publication-read",
+] as const satisfies readonly CompletionSqlStage[]);
+
+const MATERIAL_READ_STAGES = Object.freeze([
+  ...MATERIAL_PENDING_READ_STAGES,
+  "in-flight-publication-read",
+  "publication-state-read",
 ] as const satisfies readonly CompletionSqlStage[]);
 
 const extraDependencyKey = Encoding.encodeBase64Url(
@@ -342,7 +348,7 @@ const pendingScenarios = [
       "pendingPublicationFactsInvalid",
       null,
     ),
-    stages: MATERIAL_READ_STAGES,
+    stages: MATERIAL_PENDING_READ_STAGES,
   },
 ] as const satisfies readonly CompletionCorruptionScenario[];
 

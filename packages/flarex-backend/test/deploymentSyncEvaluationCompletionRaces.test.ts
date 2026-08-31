@@ -42,6 +42,8 @@ const MATERIAL_COMPLETION_TRACE = Object.freeze([
   "active-dependencies-read",
   "completion-dependencies-read",
   "pending-publication-read",
+  "in-flight-publication-read",
+  "publication-state-read",
   "complete-query-write",
   "active-dependencies-delete",
   "active-dependency-insert",

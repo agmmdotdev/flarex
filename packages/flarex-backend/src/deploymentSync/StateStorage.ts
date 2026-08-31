@@ -10,7 +10,7 @@ import { Data, Effect, Result } from "effect";
 
 import type { DeploymentQuerySyncBinding } from "./Binding";
 import {
-  decodeDeploymentQuerySyncGeneration3ScopeRowResult,
+  decodeDeploymentQuerySyncScopeRowResult,
   encodeDeploymentQuerySyncScopeRow,
   type DeploymentQuerySyncContractState,
   type DeploymentQuerySyncStoredScopeState,
@@ -215,7 +215,7 @@ export function readDeploymentQuerySyncScope<
       ),
     ));
   }
-  return decodeDeploymentQuerySyncGeneration3ScopeRowResult(rows[0]).pipe(
+  return decodeDeploymentQuerySyncScopeRowResult(rows[0]).pipe(
     Result.mapError(cause => deploymentQuerySyncStoredStateCorrupt(
       operation,
       "storedAggregateInvalid",
@@ -404,7 +404,7 @@ export function markDeploymentQuerySyncInitialized(
     main.deployment_sync_contract_state
     SET durable_initialized_history = 1
     WHERE singleton = 1
-      AND local_contract_generation = 3
+      AND local_contract_generation = 4
       AND durable_initialized_history = 0
     RETURNING singleton`);
   expectSingleDeploymentQuerySyncWrite(

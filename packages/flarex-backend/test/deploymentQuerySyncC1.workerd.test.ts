@@ -47,8 +47,10 @@ import {
 } from "../src/deploymentSync/DependencyRowCodec";
 import {
   encodeDeploymentQuerySyncCompleteQueryRow,
-  encodeDeploymentQuerySyncPendingPublicationRow,
 } from "../src/deploymentSync/EvaluationRowCodec";
+import {
+  encodeDeploymentQuerySyncPendingPublicationRow,
+} from "../src/deploymentSync/PublicationRowCodec";
 import {
   FLAREX_APPLICATION_QUERY_SYNC_MODEL_ID_V1,
 } from "../src/deploymentSync/QuerySyncModel";
@@ -106,7 +108,7 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     expect(await invoke(runtime, "snapshot", { actorScopeUuid })).toEqual({
       contract: [{
         singleton: 1,
-        local_contract_generation: 3,
+        local_contract_generation: 4,
         durable_initialized_history: 0,
       }],
       scope: [],
@@ -126,7 +128,7 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     expect(await invoke(runtime, "snapshot", { actorScopeUuid })).toEqual({
       contract: [{
         singleton: 1,
-        local_contract_generation: 3,
+        local_contract_generation: 4,
         durable_initialized_history: 1,
       }],
       scope: [encodeScopeRow(emptyState(actorScopeUuid, epochA, 0n))],
@@ -158,7 +160,9 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     expect(providerKvObjectNames(catalogResponse)).toEqual(["_cf_KV"]);
     expect(applicationObjectNames(catalogResponse)).toEqual([
       "deployment_sync_contract_state",
+      "deployment_sync_in_flight_publication",
       "deployment_sync_pending_publications",
+      "deployment_sync_publication_state",
       "deployment_sync_queries",
       "deployment_sync_query_dependencies",
       "deployment_sync_query_dependencies_reverse",
@@ -216,7 +220,7 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     const stored = await invoke(runtime, "snapshot", { actorScopeUuid });
     expect(stored).toMatchObject({
       contract: [{
-        local_contract_generation: 3,
+        local_contract_generation: 4,
         durable_initialized_history: 1,
       }],
       scope: [{
@@ -231,7 +235,9 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
       actorScopeUuid,
     }))).toEqual([
       "deployment_sync_contract_state",
+      "deployment_sync_in_flight_publication",
       "deployment_sync_pending_publications",
+      "deployment_sync_publication_state",
       "deployment_sync_queries",
       "deployment_sync_query_dependencies",
       "deployment_sync_query_dependencies_reverse",
@@ -268,7 +274,7 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     expect(await invoke(runtime, "snapshot", { actorScopeUuid })).toEqual({
       contract: [{
         singleton: 1,
-        local_contract_generation: 3,
+        local_contract_generation: 4,
         durable_initialized_history: 1,
       }],
       scope: [encodeScopeRow(portable.state)],
@@ -312,7 +318,7 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     expect(await invoke(runtime, "snapshot", { actorScopeUuid })).toEqual({
       contract: [{
         singleton: 1,
-        local_contract_generation: 3,
+        local_contract_generation: 4,
         durable_initialized_history: 1,
       }],
       scope: [encodeScopeRow(portable.state)],
@@ -324,7 +330,7 @@ describe("private deployment query-sync C1 Workerd SQLite vertical", () => {
     });
   });
 
-  it("persists generation 3 across Workerd disposal and reconstruction", async () => {
+  it("persists generation 4 across Workerd disposal and reconstruction", async () => {
     const persistPath = await mkdtemp(join(tmpdir(), "flarex-qsync-c1-"));
     const actorScopeUuid = testScope(8);
     const input = observation(actorScopeUuid, epochA, 0n);

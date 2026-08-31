@@ -2,11 +2,12 @@
 
 ## Status
 
-**Checkpoint status:** accepted on 2026-08-31, docs only; implementation and
-exit proof are incomplete. `QSYNC-FX01-C2` is complete and exited in
-`13ee4aa6`. This checkpoint grants implementation authority for one bounded,
-package-private, unrouted, and production-inert generation-4 publication
-lifecycle vertical.
+**Checkpoint status:** accepted on 2026-08-31. The first medium generation-4
+publication-lifecycle vertical and its base proof are implemented in the
+current checkpoint. The exhaustive closure, repeated schedules, limits, and
+final Workerd exit remain incomplete. `QSYNC-FX01-C2` is complete and exited
+in `13ee4aa6`. C3 remains package-private, unrouted, production-inert, and
+incomplete.
 
 Acceptance authorizes only the DDL, migration, database clock, adapter work,
 private naming cleanup, and proof inside this record. It does not itself
@@ -471,6 +472,8 @@ commit or reviewable checkpoint, but none individually exits C3.
 
 ### 1. Medium generation-4 lifecycle vertical and base proof
 
+**Status:** complete in the current implementation checkpoint.
+
 - catalog, predecessor migration, readiness, and codecs;
 - exact SQLite clock;
 - all three publication operations;
@@ -592,6 +595,6 @@ Accepted on 2026-08-31 with these decisions:
    operations plus the final unversioned private facade name; and
 4. honest C3 reopen proof with deployed eviction/hibernation deferred to FX02.
 
-Implementation may now begin inside this boundary. `QSYNC-FX01-C3` remains
-incomplete and production-inert until the medium vertical and every remaining
-exit proof pass.
+The medium implementation-and-base-proof vertical is complete.
+`QSYNC-FX01-C3` remains incomplete and production-inert until every remaining
+phase-2 through phase-4 exit proof passes.

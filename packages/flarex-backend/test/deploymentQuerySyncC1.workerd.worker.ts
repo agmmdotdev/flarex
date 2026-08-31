@@ -33,8 +33,8 @@ import {
   makeDeploymentQuerySyncFreshInitializationCapabilityForTest,
 } from "../src/deploymentSync/Binding";
 import {
-  makeDeploymentQuerySyncEvaluationState,
-  type DeploymentQuerySyncEvaluationState,
+  makeDeploymentQuerySyncState,
+  type DeploymentQuerySyncState,
 } from "../src/deploymentSync/Store";
 import { deploymentSyncObjectName } from "../src/routing";
 
@@ -249,7 +249,7 @@ export default {
 function makeStateAndRun<A, E>(
   ctx: DurableObjectState,
   input: TestRequest,
-  run: (state: DeploymentQuerySyncEvaluationState) => Effect.Effect<A, E>,
+  run: (state: DeploymentQuerySyncState) => Effect.Effect<A, E>,
 ): Effect.Effect<A, E | unknown> {
   const observation = activeHeadObservation(input);
   const bindingInput = Object.freeze({ objectId: ctx.id, observation });
@@ -258,7 +258,7 @@ function makeStateAndRun<A, E>(
       Result.getOrThrow(captureDeploymentQuerySyncBinding(bindingInput)),
     )
     : undefined;
-  return makeDeploymentQuerySyncEvaluationState({
+  return makeDeploymentQuerySyncState({
     binding: bindingInput,
     storage: ctx.storage,
     ...(freshInitializationCapability === undefined
@@ -421,6 +421,9 @@ function seedNormalizedFixture(
       scope.retained_publication_content_bytes,
       scope.settlement_envelope_bytes,
       scope.counted_canonical_bytes,
+    );
+    storage.sql.exec(
+      "INSERT INTO main.deployment_sync_publication_state (singleton) VALUES (1)",
     );
     for (const query of fixture.queries) {
       storage.sql.exec(

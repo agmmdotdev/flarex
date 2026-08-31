@@ -6,9 +6,9 @@ import { Data, Result } from "effect";
 
 import type { DeploymentQuerySyncBinding } from "./Binding";
 import {
-  decodeDeploymentQuerySyncContractRowResult,
-  decodeDeploymentQuerySyncScopeRowResult,
-  type DeploymentQuerySyncContractState,
+  decodeDeploymentQuerySyncGeneration3ContractRowResult,
+  decodeDeploymentQuerySyncGeneration3ScopeRowResult,
+  type DeploymentQuerySyncGeneration3ContractState,
 } from "./RowCodec";
 import type {
   DeploymentQuerySyncSqlStorage,
@@ -426,7 +426,7 @@ export function readDeploymentQuerySyncGeneration3Contract<
   sql: DeploymentQuerySyncSqlStorage,
   operation: Operation,
 ): Result.Result<
-  DeploymentQuerySyncContractState,
+  DeploymentQuerySyncGeneration3ContractState,
   DeploymentQuerySyncStorageContractError<Operation>
 > {
   const rows = sql.exec<EncodedContractRow>(`SELECT
@@ -450,7 +450,7 @@ export function readDeploymentQuerySyncGeneration3Contract<
       issue("contractRowDuplicate", { observed: rows.length }),
     ));
   }
-  return decodeDeploymentQuerySyncContractRowResult(rows[0]).pipe(
+  return decodeDeploymentQuerySyncGeneration3ContractRowResult(rows[0]).pipe(
     Result.mapError(cause => cause.reason === "unsupportedContractGeneration"
       ? incompatible(
         operation,
@@ -469,7 +469,7 @@ export function readReadyDeploymentQuerySyncGeneration3(
   sql: DeploymentQuerySyncSqlStorage,
   binding: DeploymentQuerySyncBinding,
 ): Result.Result<
-  DeploymentQuerySyncContractState,
+  DeploymentQuerySyncGeneration3ContractState,
   DeploymentQuerySyncStorageContractError<
     typeof STORAGE_READINESS_OPERATION
   >
@@ -512,7 +512,9 @@ export function readReadyDeploymentQuerySyncGeneration3(
     }
     const scope = scopeRows[0] === undefined
       ? null
-      : yield* decodeDeploymentQuerySyncScopeRowResult(scopeRows[0]).pipe(
+      : yield* decodeDeploymentQuerySyncGeneration3ScopeRowResult(
+        scopeRows[0],
+      ).pipe(
         Result.mapError(cause => corrupt(
           STORAGE_READINESS_OPERATION,
           "storedAggregateInvalid",

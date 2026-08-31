@@ -83,7 +83,7 @@ function queryRow() {
 }
 
 describe("deployment query-sync SQLite row codecs", () => {
-  it("decodes generation-1 and generation-2 predecessors plus generation 3", () => {
+  it("decodes generation-1 and generation-2 predecessors plus generation 4", () => {
     const legacy = success(decodeDeploymentSyncGeneration1ScopeRowResult({
       singleton: 1,
       local_schema_revision: 1,
@@ -102,7 +102,7 @@ describe("deployment query-sync SQLite row codecs", () => {
     );
     const contract = success(decodeDeploymentQuerySyncContractRowResult({
       singleton: 1,
-      local_contract_generation: 3,
+      local_contract_generation: 4,
       durable_initialized_history: 1,
     }));
 
@@ -119,7 +119,7 @@ describe("deployment query-sync SQLite row codecs", () => {
       durableInitializedHistory: true,
     });
     expect(contract).toEqual({
-      localContractGeneration: 3,
+      localContractGeneration: 4,
       durableInitializedHistory: true,
     });
     expect(Object.isFrozen(legacy)).toBe(true);

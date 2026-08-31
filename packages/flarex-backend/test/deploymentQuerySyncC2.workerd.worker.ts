@@ -15,6 +15,9 @@ import type {
   QueryEvaluationAttempt,
 } from "@flarex/query-sync/internal/kernel";
 import {
+  makeAcceptedQueryPublicationEvidenceForTesting,
+} from "@flarex/query-sync/testing/conformance";
+import {
   deriveGenerationRefreshEvidence,
 } from "@flarex/query-sync/testing/reference-model";
 import { DurableObject } from "cloudflare:workers";
@@ -41,12 +44,15 @@ import {
   captureDeploymentQuerySyncBinding,
   makeDeploymentQuerySyncFreshInitializationCapabilityForTest,
 } from "../src/deploymentSync/Binding";
+import {
+  readDeploymentQuerySyncPublicationInstant,
+} from "../src/deploymentSync/PublicationClock";
 import type {
   DeploymentQuerySyncStorage,
 } from "../src/deploymentSync/StorageContract";
 import {
-  makeDeploymentQuerySyncEvaluationState,
-  type DeploymentQuerySyncEvaluationState,
+  makeDeploymentQuerySyncState,
+  type DeploymentQuerySyncState,
 } from "../src/deploymentSync/Store";
 import { deploymentSyncObjectName } from "../src/routing";
 import {
@@ -126,6 +132,34 @@ export class DeploymentQuerySyncC2TestDO extends DurableObject<TestEnv> {
             input,
           ),
         ));
+      case "publicationClock":
+        return Response.json({
+          ok: true,
+          value: String(readDeploymentQuerySyncPublicationInstant(
+            this.ctx.storage.sql,
+            "claimPublication",
+          )),
+        });
+      case "preparePublicationForReopen":
+        return await effectResponse(makeStateAndRun(
+          this.ctx,
+          { ...input, authorizedFresh: true },
+          state => preparePublicationForReopen(
+            state,
+            this.ctx.storage.sql,
+            input,
+          ),
+        ));
+      case "completePublicationAfterReopen":
+        return await effectResponse(makeStateAndRun(
+          this.ctx,
+          input,
+          state => completePublicationAfterReopen(
+            state,
+            this.ctx.storage.sql,
+            input,
+          ),
+        ));
       case "migrateAndClaimMaximum":
         return await effectResponse(makeStateAndRun(
           this.ctx,
@@ -190,11 +224,11 @@ export default {
 function makeStateAndRun<A, E>(
   ctx: DurableObjectState,
   input: TestRequest,
-  run: (state: DeploymentQuerySyncEvaluationState) => Effect.Effect<A, E>,
+  run: (state: DeploymentQuerySyncState) => Effect.Effect<A, E>,
   storage: DeploymentQuerySyncStorage = ctx.storage,
 ): Effect.Effect<
   A,
-  E | Effect.Error<ReturnType<typeof makeDeploymentQuerySyncEvaluationState>>
+  E | Effect.Error<ReturnType<typeof makeDeploymentQuerySyncState>>
 > {
   const observation = activeHeadObservation(input);
   const bindingInput = Object.freeze({ objectId: ctx.id, observation });
@@ -203,7 +237,7 @@ function makeStateAndRun<A, E>(
       Result.getOrThrow(captureDeploymentQuerySyncBinding(bindingInput)),
     )
     : undefined;
-  return makeDeploymentQuerySyncEvaluationState({
+  return makeDeploymentQuerySyncState({
     binding: bindingInput,
     storage,
     ...(freshInitializationCapability === undefined
@@ -213,7 +247,7 @@ function makeStateAndRun<A, E>(
 }
 
 function fullVertical(
-  state: DeploymentQuerySyncEvaluationState,
+  state: DeploymentQuerySyncState,
   input: TestRequest,
 ) {
   return Effect.gen(function* () {
@@ -270,7 +304,7 @@ function fullVertical(
 }
 
 function completionRollbackThenReplay(
-  state: DeploymentQuerySyncEvaluationState,
+  state: DeploymentQuerySyncState,
   sql: SqlStorage,
   input: TestRequest,
 ) {
@@ -317,8 +351,106 @@ function completionRollbackThenReplay(
   });
 }
 
+function preparePublicationForReopen(
+  state: DeploymentQuerySyncState,
+  sql: SqlStorage,
+  input: TestRequest,
+) {
+  return Effect.gen(function* () {
+    const cursor = bootstrapCursor(input);
+    const initialized = yield* state.initializeOrInspectNamespace(cursor);
+    const descriptor = queryDescriptor(input);
+    const begun = yield* state.beginQueryEvaluation(
+      firstEvaluationRequest(cursor, descriptor),
+    );
+    const attempt = requireCreatedAttempt(begun);
+    const material = completionMaterial(cursor, descriptor, attempt);
+    const completed = yield* state.completeQueryEvaluation(
+      attempt,
+      material.evaluation,
+      material.refresh,
+      material.publication,
+    );
+    const claimed = yield* state.claimPublication();
+    if (claimed._tag !== "claimed") {
+      return yield* Effect.die(new Error(
+        `Expected publication claim, observed ${claimed._tag}.`,
+      ));
+    }
+    const recorded = yield* state.recordPublicationAttemptOutcome(
+      claimed.attempt,
+      "outcomeUnknown",
+    );
+    if (recorded._tag !== "recorded") {
+      return yield* Effect.die(new Error(
+        `Expected publication outcome record, observed ${recorded._tag}.`,
+      ));
+    }
+    return Object.freeze({
+      initialized,
+      completed,
+      claimed,
+      recorded,
+      stored: snapshot(sql),
+    });
+  });
+}
+
+function completePublicationAfterReopen(
+  state: DeploymentQuerySyncState,
+  sql: SqlStorage,
+  input: TestRequest,
+) {
+  return Effect.gen(function* () {
+    const initialized = yield* state.initializeOrInspectNamespace(
+      bootstrapCursor(input),
+    );
+    const reopened = snapshot(sql);
+    const replayedClaim = yield* state.claimPublication();
+    if (replayedClaim._tag !== "replayed") {
+      return yield* Effect.die(new Error(
+        `Expected publication claim replay, observed ${replayedClaim._tag}.`,
+      ));
+    }
+    const accepted = makeAcceptedQueryPublicationEvidenceForTesting({
+      identity: replayedClaim.attempt.publication.identity,
+      resultDigest: replayedClaim.attempt.publication.resultDigest,
+    });
+    const beforeFailure = snapshot(sql);
+    sql.exec(`CREATE TRIGGER deployment_sync_test_fail_publication_completion
+      BEFORE UPDATE OF in_flight_publication_count
+      ON deployment_sync_scope_state
+      WHEN OLD.in_flight_publication_count = 1
+        AND NEW.in_flight_publication_count = 0
+      BEGIN
+        SELECT RAISE(FAIL, 'forced publication completion rollback');
+      END`);
+    const failedExit = yield* Effect.exit(
+      state.completePublication(accepted),
+    );
+    sql.exec("DROP TRIGGER deployment_sync_test_fail_publication_completion");
+    const afterFailure = snapshot(sql);
+    const completed = yield* state.completePublication(accepted);
+    const replayed = yield* state.completePublication(accepted);
+    return Object.freeze({
+      initialized,
+      reopened,
+      replayedClaim,
+      firstDied: Exit.isFailure(failedExit)
+        && Cause.hasDies(failedExit.cause),
+      firstTypedFailure: Exit.isFailure(failedExit)
+        && Option.isSome(Cause.findErrorOption(failedExit.cause)),
+      beforeFailure,
+      afterFailure,
+      completed,
+      replayed,
+      stored: snapshot(sql),
+    });
+  });
+}
+
 function migrateAndClaimMaximum(
-  state: DeploymentQuerySyncEvaluationState,
+  state: DeploymentQuerySyncState,
   sql: SqlStorage,
   input: TestRequest,
 ) {
@@ -361,7 +493,7 @@ function migrateAndClaimMaximum(
 }
 
 function maximumRowVertical(
-  state: DeploymentQuerySyncEvaluationState,
+  state: DeploymentQuerySyncState,
   sql: SqlStorage,
   bindingCounts: readonly number[],
   input: TestRequest,
@@ -447,7 +579,7 @@ function maximumRowVertical(
 
 function requireCreatedAttempt(
   receipt: Effect.Success<
-    ReturnType<DeploymentQuerySyncEvaluationState["beginQueryEvaluation"]>
+    ReturnType<DeploymentQuerySyncState["beginQueryEvaluation"]>
   >,
 ): QueryEvaluationAttempt {
   if (receipt._tag !== "created") {
@@ -602,6 +734,16 @@ function snapshot(sql: SqlStorage) {
       sql,
       "deployment_sync_pending_publications",
       "query_key",
+    ),
+    inFlight: selectIfPresent(
+      sql,
+      "deployment_sync_in_flight_publication",
+      "singleton",
+    ),
+    publicationState: selectIfPresent(
+      sql,
+      "deployment_sync_publication_state",
+      "singleton",
     ),
   });
 }

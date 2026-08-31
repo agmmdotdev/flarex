@@ -54,6 +54,10 @@ import {
   decodeDeploymentQuerySyncDependencyRowResult,
 } from "./DependencyRowCodec";
 import { makeDeploymentQuerySyncEvaluationOperations } from "./EvaluationState";
+import { makeDeploymentQuerySyncPublicationOperations } from "./PublicationState";
+import {
+  insertEmptyDeploymentQuerySyncPublicationState,
+} from "./PublicationStorage";
 import {
   MAX_DEPLOYMENT_QUERY_SYNC_SQL_DATA_KEYS,
   assertDeploymentQuerySyncPlannedScopeAuthority,
@@ -102,26 +106,18 @@ type ApplyStateError = Effect.Error<ReturnType<
   QuerySyncTransitionState["applyAdmittedBatchAndAdvance"]
 >>;
 
-export type DeploymentQuerySyncEvaluationState = Pick<
-  QuerySyncTransitionState,
-  | "initializeOrInspectNamespace"
-  | "beginQueryEvaluation"
-  | "applyAdmittedBatchAndAdvance"
-  | "completeQueryEvaluation"
-  | "claimEvaluationWork"
-  | "recordEvaluationAttemptOutcome"
->;
+export type DeploymentQuerySyncState = QuerySyncTransitionState;
 
-export interface DeploymentQuerySyncEvaluationStateInput {
+export interface DeploymentQuerySyncStateInput {
   readonly binding: DeploymentQuerySyncBindingInput;
   readonly storage: DeploymentQuerySyncStorage;
   readonly freshInitializationCapability?:
     DeploymentQuerySyncFreshInitializationCapability;
 }
 
-export const makeDeploymentQuerySyncEvaluationState = Effect.fn(
-  "DeploymentQuerySyncEvaluationState.make",
-)(function* (input: DeploymentQuerySyncEvaluationStateInput) {
+export const makeDeploymentQuerySyncState = Effect.fn(
+  "DeploymentQuerySyncState.make",
+)(function* (input: DeploymentQuerySyncStateInput) {
   const binding = yield* Effect.fromResult(
     captureDeploymentQuerySyncBinding(input.binding),
   );
@@ -138,9 +134,9 @@ function makeBoundState(
   freshInitializationCapability:
     DeploymentQuerySyncFreshInitializationCapability | undefined,
   binding: DeploymentQuerySyncBinding,
-): DeploymentQuerySyncEvaluationState {
+): DeploymentQuerySyncState {
   const initializeOrInspectNamespace = Effect.fn(
-    "DeploymentQuerySyncEvaluationState.initializeOrInspectNamespace",
+    "DeploymentQuerySyncState.initializeOrInspectNamespace",
   )((cursor: NamespaceCursor) => initializeNamespace(
     storage,
     freshInitializationCapability,
@@ -148,13 +144,13 @@ function makeBoundState(
     cursor,
   ));
   const beginQueryEvaluation = Effect.fn(
-    "DeploymentQuerySyncEvaluationState.beginQueryEvaluation",
+    "DeploymentQuerySyncState.beginQueryEvaluation",
   )((request: BeginQueryEvaluationRequest) => runDeploymentQuerySyncTransaction(
     storage,
     sql => beginResult(sql, binding, request),
   ));
   const applyAdmittedBatchAndAdvance = Effect.fn(
-    "DeploymentQuerySyncEvaluationState.applyAdmittedBatchAndAdvance",
+    "DeploymentQuerySyncState.applyAdmittedBatchAndAdvance",
   )((batch: AdmittedInvalidationBatch) => runDeploymentQuerySyncTransaction(
     storage,
     sql => applyResult(sql, binding, batch),
@@ -164,6 +160,7 @@ function makeBoundState(
     beginQueryEvaluation,
     applyAdmittedBatchAndAdvance,
     ...makeDeploymentQuerySyncEvaluationOperations(storage, binding),
+    ...makeDeploymentQuerySyncPublicationOperations(storage, binding),
   });
 }
 
@@ -251,6 +248,7 @@ function initializeResult(
       sql,
       storedDeploymentQuerySyncScopeFromFacts(binding, plan.nextScope),
     );
+    insertEmptyDeploymentQuerySyncPublicationState(sql);
     markDeploymentQuerySyncInitialized(sql);
     return plan.receipt;
   });

@@ -439,19 +439,24 @@ export function validatePublicationLifecycleFacts(
   scope: QuerySyncScopeFacts,
   lifecycle: PublicationLifecycleFacts,
 ): Result.Result<void, QuerySyncTransitionFactError> {
-  if (
-    !inFlightStateValid(lifecycle)
-    || (
-      lifecycle.precedingAttemptOutcome !== null
-      && !precedingOutcomeReceiptValid(lifecycle.precedingAttemptOutcome)
-    )
-    || !lifecycleAuthoritiesValid(scope, lifecycle)
-    || !lifecycleLinksValid(lifecycle)
-    || !lifecycleMetricsValid(scope, lifecycle)
-  ) {
+  if (!publicationLifecycleFactsAreValid(scope, lifecycle)) {
     return factFailure(operation, "publicationLifecycleFactsInvalid");
   }
   return Result.succeed(undefined);
+}
+
+export function publicationLifecycleFactsAreValid(
+  scope: QuerySyncScopeFacts,
+  lifecycle: PublicationLifecycleFacts,
+): boolean {
+  return inFlightStateValid(lifecycle)
+    && !(
+      lifecycle.precedingAttemptOutcome !== null
+      && !precedingOutcomeReceiptValid(lifecycle.precedingAttemptOutcome)
+    )
+    && lifecycleAuthoritiesValid(scope, lifecycle)
+    && lifecycleLinksValid(lifecycle)
+    && lifecycleMetricsValid(scope, lifecycle);
 }
 
 export function validatePublicationOwnerFacts(

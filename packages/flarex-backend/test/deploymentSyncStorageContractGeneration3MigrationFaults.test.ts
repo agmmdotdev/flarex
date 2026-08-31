@@ -9,6 +9,9 @@ import {
   type DeploymentQuerySyncStorage,
 } from "../src/deploymentSync/StorageContract";
 import {
+  migrateDeploymentQuerySyncGeneration2ToGeneration3,
+} from "../src/deploymentSync/StorageContractGeneration3";
+import {
   makeBinding,
   makeSqliteHarness,
   seedProvisionalOnlyGeneration2,
@@ -32,9 +35,26 @@ const migrationSteps = Object.freeze([
   "drop generation-2 query table",
   "drop generation-2 dependency table",
   "create dependency reverse index",
+  "rename generation-3 contract table",
+  "create generation-4 contract table",
+  "copy generation-4 contract row",
+  "drop generation-3 contract table",
+  "create in-flight publication table",
+  "create publication state table",
+  "insert empty publication state",
 ] as const);
 
 type MigrationStep = (typeof migrationSteps)[number];
+
+const generation4Steps = Object.freeze([
+  "rename generation-3 contract table",
+  "create generation-4 contract table",
+  "copy generation-4 contract row",
+  "drop generation-3 contract table",
+  "create in-flight publication table",
+  "create publication state table",
+  "insert empty publication state",
+] as const satisfies readonly MigrationStep[]);
 
 function normalizeSql(query: string): string {
   return query.trim().replaceAll(/\s+/g, " ").toLowerCase();
@@ -47,10 +67,11 @@ function migrationStepFor(query: string): MigrationStep | null {
   ) {
     return "drop dependency reverse index";
   }
-  if (
-    sql.startsWith("alter table main.deployment_sync_contract_state rename to")
-  ) {
+  if (sql === "alter table main.deployment_sync_contract_state rename to deployment_sync_contract_state_generation_2") {
     return "rename generation-2 contract table";
+  }
+  if (sql === "alter table main.deployment_sync_contract_state rename to deployment_sync_contract_state_generation_3") {
+    return "rename generation-3 contract table";
   }
   if (
     sql.startsWith("alter table main.deployment_sync_queries rename to")
@@ -64,8 +85,17 @@ function migrationStepFor(query: string): MigrationStep | null {
   ) {
     return "rename generation-2 dependency table";
   }
-  if (sql.startsWith("create table deployment_sync_contract_state")) {
+  if (
+    sql.startsWith("create table deployment_sync_contract_state")
+    && sql.includes("check (local_contract_generation = 3)")
+  ) {
     return "create generation-3 contract table";
+  }
+  if (
+    sql.startsWith("create table deployment_sync_contract_state")
+    && sql.includes("check (local_contract_generation = 4)")
+  ) {
+    return "create generation-4 contract table";
   }
   if (sql.startsWith("create table deployment_sync_queries")) {
     return "create generation-3 query table";
@@ -80,8 +110,17 @@ function migrationStepFor(query: string): MigrationStep | null {
   ) {
     return "create generation-3 pending table";
   }
-  if (sql.startsWith("insert into main.deployment_sync_contract_state")) {
+  if (
+    sql.startsWith("insert into main.deployment_sync_contract_state")
+    && sql.includes("select singleton, 3, durable_initialized_history")
+  ) {
     return "copy contract row";
+  }
+  if (
+    sql.startsWith("insert into main.deployment_sync_contract_state")
+    && sql.includes("select singleton, 4, durable_initialized_history")
+  ) {
+    return "copy generation-4 contract row";
   }
   if (sql.startsWith("insert into main.deployment_sync_queries")) {
     return "copy query rows";
@@ -111,6 +150,28 @@ function migrationStepFor(query: string): MigrationStep | null {
   ) {
     return "create dependency reverse index";
   }
+  if (
+    sql === "drop table main.deployment_sync_contract_state_generation_3"
+  ) {
+    return "drop generation-3 contract table";
+  }
+  if (
+    sql.startsWith(
+      "create table deployment_sync_in_flight_publication",
+    )
+  ) {
+    return "create in-flight publication table";
+  }
+  if (
+    sql.startsWith("create table deployment_sync_publication_state")
+  ) {
+    return "create publication state table";
+  }
+  if (
+    sql.startsWith("insert into main.deployment_sync_publication_state")
+  ) {
+    return "insert empty publication state";
+  }
   if (sql.startsWith("select ") || sql.startsWith("pragma ")) return null;
   throw new Error(`Unrecognized migration statement: ${sql}`);
 }
@@ -129,7 +190,11 @@ const faultCases = migrationSteps.flatMap((step, index) =>
   (["before", "after"] as const).map(timing => ({ index, step, timing }))
 );
 
-describe("generation-2 to generation-3 migration fault proof", () => {
+const generation4FaultCases = generation4Steps.flatMap((step, index) =>
+  (["before", "after"] as const).map(timing => ({ index, step, timing }))
+);
+
+describe("generation-2 through generation-4 migration fault proof", () => {
   it("pins the complete ordered migration write program", () => {
     const harness = makeSqliteHarness();
     try {
@@ -164,15 +229,17 @@ describe("generation-2 to generation-3 migration fault proof", () => {
       const binding = makeBinding();
       seedProvisionalOnlyGeneration2(harness.database, binding);
       const stateBefore = snapshotGeneration2State(harness.database);
-      let migrationWriteSeen = false;
+      let generation4WriteSeen = false;
       const exec: DeploymentQuerySyncSqlStorage["exec"] = <
         Row extends Record<string, SqlStorageValue>,
       >(
         query: string,
         ...bindings: SQLInputValue[]
       ): SqlStorageCursor<Row> => {
-        if (migrationStepFor(query) !== null) migrationWriteSeen = true;
-        if (migrationWriteSeen && query === "PRAGMA table_list") {
+        if (migrationStepFor(query) === "insert empty publication state") {
+          generation4WriteSeen = true;
+        }
+        if (generation4WriteSeen && query === "PRAGMA table_list") {
           return harness.storage.sql.exec<Row>(`SELECT
             'main' AS schema,
             'unexpected' AS name,
@@ -202,7 +269,7 @@ describe("generation-2 to generation-3 migration fault proof", () => {
         harness.storage,
         binding,
       ))).toEqual({
-        localContractGeneration: 3,
+        localContractGeneration: 4,
         durableInitializedHistory: true,
       });
     } finally {
@@ -267,7 +334,7 @@ describe("generation-2 to generation-3 migration fault proof", () => {
           binding,
         ));
         expect(ready).toEqual({
-          localContractGeneration: 3,
+          localContractGeneration: 4,
           durableInitializedHistory: true,
         });
         expect(harness.database.prepare(`SELECT
@@ -301,6 +368,83 @@ describe("generation-2 to generation-3 migration fault proof", () => {
           binding,
         ))).toEqual(ready);
         expect(postCommitWrites).toBe(0);
+      } finally {
+        harness.database.close();
+      }
+    },
+  );
+
+  it.each(generation4FaultCases)(
+    "restores exact generation 3 after a $timing fault at $step",
+    ({ index: faultIndex, step: expectedStep, timing }) => {
+      const harness = makeSqliteHarness();
+      try {
+        const binding = makeBinding();
+        seedProvisionalOnlyGeneration2(harness.database, binding);
+        harness.storage.transactionSync(() => {
+          migrateDeploymentQuerySyncGeneration2ToGeneration3(
+            harness.storage.sql,
+          );
+        });
+        const stateBefore = Object.freeze({
+          ...snapshotGeneration2State(harness.database),
+          pendingRows: harness.database.prepare(`SELECT *
+            FROM deployment_sync_pending_publications
+            ORDER BY query_key COLLATE BINARY`).all(),
+        });
+        const fault = new Error(
+          `generation-4 fault ${timing} write ${faultIndex + 1}`,
+        );
+        const attempted: MigrationStep[] = [];
+        let generation4WriteIndex = 0;
+        const exec: DeploymentQuerySyncSqlStorage["exec"] = <
+          Row extends Record<string, SqlStorageValue>,
+        >(
+          query: string,
+          ...bindings: SQLInputValue[]
+        ): SqlStorageCursor<Row> => {
+          const step = migrationStepFor(query);
+          if (step === null) {
+            return harness.storage.sql.exec<Row>(query, ...bindings);
+          }
+          const currentIndex = generation4WriteIndex;
+          generation4WriteIndex += 1;
+          attempted.push(step);
+          if (currentIndex === faultIndex && timing === "before") throw fault;
+          const cursor = harness.storage.sql.exec<Row>(query, ...bindings);
+          if (currentIndex === faultIndex && timing === "after") throw fault;
+          return cursor;
+        };
+        let caught: unknown;
+
+        try {
+          ensureDeploymentQuerySyncStorageReady(
+            storageWithExec(harness.storage, exec),
+            binding,
+          );
+        } catch (cause) {
+          caught = cause;
+        }
+
+        expect(attempted.at(-1)).toBe(expectedStep);
+        expect(caught).toBe(fault);
+        expect(Object.freeze({
+          ...snapshotGeneration2State(harness.database),
+          pendingRows: harness.database.prepare(`SELECT *
+            FROM deployment_sync_pending_publications
+            ORDER BY query_key COLLATE BINARY`).all(),
+        })).toEqual(stateBefore);
+        expect(harness.database.prepare(`SELECT local_contract_generation
+          FROM deployment_sync_contract_state`).get()?.local_contract_generation)
+          .toBe(3);
+
+        expect(success(ensureDeploymentQuerySyncStorageReady(
+          harness.storage,
+          binding,
+        ))).toEqual({
+          localContractGeneration: 4,
+          durableInitializedHistory: true,
+        });
       } finally {
         harness.database.close();
       }

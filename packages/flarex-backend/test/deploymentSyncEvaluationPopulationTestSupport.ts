@@ -35,10 +35,12 @@ import {
 } from "../src/deploymentSync/DependencyRowCodec";
 import {
   encodeDeploymentQuerySyncCompleteQueryRow,
-  encodeDeploymentQuerySyncPendingPublicationRow,
   type EncodedDeploymentQuerySyncCompleteQueryRow,
-  type EncodedDeploymentQuerySyncPendingPublicationRow,
 } from "../src/deploymentSync/EvaluationRowCodec";
+import {
+  encodeDeploymentQuerySyncPendingPublicationRow,
+  type EncodedDeploymentQuerySyncPendingPublicationRow,
+} from "../src/deploymentSync/PublicationRowCodec";
 import {
   encodeDeploymentQuerySyncScopeRow,
   type EncodedDeploymentQuerySyncScopeRow,

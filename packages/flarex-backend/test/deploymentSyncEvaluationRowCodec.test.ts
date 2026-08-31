@@ -10,10 +10,12 @@ import {
   decodeDeploymentQuerySyncCompleteQueryRowResult,
   decodeDeploymentQuerySyncEvaluationAttemptOutcomeRowResult,
   decodeDeploymentQuerySyncEvaluationWorkScanRowResult,
-  decodeDeploymentQuerySyncPendingPublicationRowResult,
   encodeDeploymentQuerySyncCompleteQueryRow,
-  encodeDeploymentQuerySyncPendingPublicationRow,
 } from "../src/deploymentSync/EvaluationRowCodec";
+import {
+  decodeDeploymentQuerySyncPendingPublicationRowResult,
+  encodeDeploymentQuerySyncPendingPublicationRow,
+} from "../src/deploymentSync/PublicationRowCodec";
 import {
   decodeDeploymentQuerySyncGeneration3ScopeRowResult,
 } from "../src/deploymentSync/RowCodec";
@@ -271,6 +273,30 @@ describe("deployment query-sync generation-3 evaluation row codecs", () => {
       completed_through_sequence: "3",
     }, scope, query))).toMatchObject({
       reason: "pendingPublicationFactsInvalid",
+    });
+    expect(failure(decodeDeploymentQuerySyncPendingPublicationRowResult({
+      ...row,
+      completed_through_sequence: "6",
+    }, scope, query))).toMatchObject({
+      reason: "pendingPublicationFactsInvalid",
+      field: null,
+    });
+    expect(failure(decodeDeploymentQuerySyncPendingPublicationRowResult({
+      ...row,
+      completed_through_sequence: "not-a-sequence",
+      query_identity: "not-an-identity",
+    }, scope, query))).toMatchObject({
+      reason: "valueInvalid",
+      field: "completed_through_sequence",
+    });
+    expect(failure(decodeDeploymentQuerySyncPendingPublicationRowResult({
+      ...row,
+      completed_through_sequence: "6",
+      result_digest: "=",
+      content: "=",
+    }, scope, query))).toMatchObject({
+      reason: "valueInvalid",
+      field: "result_digest",
     });
   });
 

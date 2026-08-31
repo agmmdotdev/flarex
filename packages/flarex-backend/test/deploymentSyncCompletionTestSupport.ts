@@ -34,6 +34,8 @@ export type CompletionSqlStage =
   | "active-dependencies-read"
   | "completion-dependencies-read"
   | "pending-publication-read"
+  | "in-flight-publication-read"
+  | "publication-state-read"
   | "complete-query-write"
   | "active-dependencies-delete"
   | "active-dependency-insert"
@@ -188,6 +190,14 @@ function classifyCompletionSql(
     sql.startsWith("select")
     && sql.includes("from main.deployment_sync_pending_publications")
   ) return "pending-publication-read";
+  if (
+    sql.startsWith("select")
+    && sql.includes("from main.deployment_sync_in_flight_publication")
+  ) return "in-flight-publication-read";
+  if (
+    sql.startsWith("select")
+    && sql.includes("from main.deployment_sync_publication_state")
+  ) return "publication-state-read";
   if (
     sql.startsWith("update")
     && sql.includes("main.deployment_sync_queries set")

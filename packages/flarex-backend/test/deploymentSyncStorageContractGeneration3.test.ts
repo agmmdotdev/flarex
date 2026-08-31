@@ -15,8 +15,8 @@ import {
   success,
 } from "./deploymentSyncStorageContractGeneration3TestSupport";
 
-describe("deployment query-sync generation-3 storage contract", () => {
-  it("creates the exact five-table generation-3 catalog and reopens without writes", () => {
+describe("deployment query-sync current storage contract", () => {
+  it("creates the exact seven-table generation-4 catalog and reopens without writes", () => {
     const harness = makeSqliteHarness();
     try {
       const binding = makeBinding();
@@ -33,7 +33,7 @@ describe("deployment query-sync generation-3 storage contract", () => {
       ));
 
       expect(first).toEqual({
-        localContractGeneration: 3,
+        localContractGeneration: 4,
         durableInitializedHistory: false,
       });
       expect(second).toEqual(first);
@@ -50,7 +50,9 @@ describe("deployment query-sync generation-3 storage contract", () => {
           String(right.name),
         ))).toEqual([
         { name: "deployment_sync_contract_state", strict: 1, wr: 1 },
+        { name: "deployment_sync_in_flight_publication", strict: 1, wr: 1 },
         { name: "deployment_sync_pending_publications", strict: 1, wr: 1 },
+        { name: "deployment_sync_publication_state", strict: 1, wr: 1 },
         { name: "deployment_sync_queries", strict: 1, wr: 1 },
         { name: "deployment_sync_query_dependencies", strict: 1, wr: 1 },
         { name: "deployment_sync_scope_state", strict: 1, wr: 1 },
@@ -77,7 +79,7 @@ describe("deployment query-sync generation-3 storage contract", () => {
         makeBinding(),
       ));
 
-      expect(ready.localContractGeneration).toBe(3);
+      expect(ready.localContractGeneration).toBe(4);
       expect(harness.database.prepare(
         "SELECT count(*) AS value FROM _cf_KV",
       ).get()?.value).toBe(0);
@@ -89,7 +91,7 @@ describe("deployment query-sync generation-3 storage contract", () => {
     }
   });
 
-  it("migrates empty and populated provisional-only generation 2 in place", () => {
+  it("migrates empty and populated provisional-only generation 2 through generation 4", () => {
     const emptyHarness = makeSqliteHarness();
     const populatedHarness = makeSqliteHarness();
     try {
@@ -115,11 +117,11 @@ describe("deployment query-sync generation-3 storage contract", () => {
       FROM deployment_sync_queries`).get();
 
       expect(emptyReady).toEqual({
-        localContractGeneration: 3,
+        localContractGeneration: 4,
         durableInitializedHistory: false,
       });
       expect(populatedReady).toEqual({
-        localContractGeneration: 3,
+        localContractGeneration: 4,
         durableInitializedHistory: true,
       });
       expect(queryAfter).toEqual({
@@ -131,6 +133,12 @@ describe("deployment query-sync generation-3 storage contract", () => {
       expect(populatedHarness.database.prepare(
         "SELECT count(*) AS value FROM deployment_sync_pending_publications",
       ).get()?.value).toBe(0);
+      expect(emptyHarness.database.prepare(
+        "SELECT count(*) AS value FROM deployment_sync_publication_state",
+      ).get()?.value).toBe(0);
+      expect(populatedHarness.database.prepare(
+        "SELECT * FROM deployment_sync_publication_state",
+      ).get()).toMatchObject({ singleton: 1, attempt_ordinal: null });
     } finally {
       emptyHarness.database.close();
       populatedHarness.database.close();

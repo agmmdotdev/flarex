@@ -57,10 +57,17 @@ import {
   decodeDeploymentQuerySyncCompleteQueryRowResult,
   decodeDeploymentQuerySyncEvaluationAttemptOutcomeRowResult,
   decodeDeploymentQuerySyncEvaluationWorkScanRowResult,
-  decodeDeploymentQuerySyncPendingPublicationRowResult,
   encodeDeploymentQuerySyncCompleteQueryRow,
-  encodeDeploymentQuerySyncPendingPublicationRow,
+  DEPLOYMENT_QUERY_SYNC_COMPLETE_QUERY_COLUMNS,
 } from "./EvaluationRowCodec";
+import {
+  decodeDeploymentQuerySyncPendingPublicationRowResult,
+  encodeDeploymentQuerySyncPendingPublicationRow,
+} from "./PublicationRowCodec";
+import {
+  readDeploymentQuerySyncCompletionPublicationLifecycle,
+  readDeploymentQuerySyncRetainedPublication,
+} from "./PublicationStorage";
 import {
   decodeDeploymentQuerySyncQueryRowResult,
   encodeDeploymentQuerySyncQueryRow,
@@ -111,33 +118,6 @@ type ClaimPlannerError =
   | ResumeClaimEvaluationWorkScanError
   | ResumeClaimEvaluationWorkSelectedQueryError;
 
-const COMPLETE_QUERY_COLUMNS = `
-  query_key,
-  query_identity,
-  active_generation,
-  active_evaluation_snapshot_sequence,
-  active_fresh_through_sequence,
-  active_dirty_through_sequence,
-  active_result_digest,
-  active_authority_witness,
-  provisional_generation,
-  provisional_expected_active_generation,
-  provisional_registration_sequence,
-  provisional_requested_dirty_through_sequence,
-  provisional_disposition,
-  completion_generation,
-  completion_expected_active_generation,
-  completion_registration_sequence,
-  completion_requested_dirty_through_sequence,
-  completion_evaluation_snapshot_sequence,
-  completion_evaluation_authority_witness,
-  completion_refreshed_through_sequence,
-  completion_relevant_through_sequence,
-  completion_refresh_authority_witness,
-  completion_result_digest,
-  completion_publication_disposition,
-  preceding_completion_generation`;
-
 const SCAN_QUERY_COLUMNS = `
   query_key,
   active_generation,
@@ -182,7 +162,7 @@ export function makeDeploymentQuerySyncEvaluationOperations(
   binding: DeploymentQuerySyncBinding,
 ): EvaluationOperations {
   const completeQueryEvaluation = Effect.fn(
-    "DeploymentQuerySyncEvaluationState.completeQueryEvaluation",
+    "DeploymentQuerySyncState.completeQueryEvaluation",
   )((
     attempt: QueryEvaluationAttempt,
     evaluation: QueryEvaluationEvidence,
@@ -201,14 +181,14 @@ export function makeDeploymentQuerySyncEvaluationOperations(
   ));
 
   const claimEvaluationWork = Effect.fn(
-    "DeploymentQuerySyncEvaluationState.claimEvaluationWork",
+    "DeploymentQuerySyncState.claimEvaluationWork",
   )((request: EvaluationWorkScanRequest) => runDeploymentQuerySyncTransaction(
     storage,
     sql => claimEvaluationWorkResult(sql, binding, request),
   ));
 
   const recordEvaluationAttemptOutcome = Effect.fn(
-    "DeploymentQuerySyncEvaluationState.recordEvaluationAttemptOutcome",
+    "DeploymentQuerySyncState.recordEvaluationAttemptOutcome",
   )((attempt: QueryEvaluationAttempt, outcome: EvaluationAttemptOutcome) =>
     runDeploymentQuerySyncTransaction(
       storage,
@@ -287,13 +267,17 @@ function completeQueryEvaluationResult(
       const retainedPublication =
         start.intent.retainedPublicationIdentity === null
           ? null
-          : yield* readPendingPublication(
-            sql,
-            scope,
-            query,
-            start.intent.queryKey,
-            "completeQueryEvaluation",
-          );
+          : query === null
+            ? yield* Result.fail(storedCorrupt(
+              "completeQueryEvaluation",
+              "retainedPublicationOwnerMissing",
+            ))
+            : yield* readDeploymentQuerySyncRetainedPublication(
+              sql,
+              scope,
+              query,
+              start.intent.retainedPublicationIdentity,
+            );
       const read: CompleteQueryReplayFactsRead = Object.freeze({
         queryKey: start.intent.queryKey,
         completionDependencies,
@@ -329,12 +313,12 @@ function completeQueryEvaluationResult(
       start.intent.pendingPublicationQueryKey,
       "completeQueryEvaluation",
     );
-    const lifecycle: CompletionPublicationLifecycleFacts = Object.freeze({
-      queryKey: start.intent.publicationLifecycleQueryKey,
-      inFlight: null,
-      latestDelivered: null,
-      precedingAttemptOutcome: null,
-    });
+    const lifecycle: CompletionPublicationLifecycleFacts = yield*
+      readDeploymentQuerySyncCompletionPublicationLifecycle(
+        sql,
+        scope,
+        start.intent.publicationLifecycleQueryKey,
+      );
     const read: CompleteQueryMaterialFactsRead = Object.freeze({
       queryKey: start.intent.queryKey,
       activeDependencies,
@@ -458,7 +442,7 @@ function readCompleteQuery<
   QuerySyncStoredStateCorruptError<Operation>
 > {
   const rows = sql.exec<Record<string, SqlStorageValue>>(`SELECT
-    ${COMPLETE_QUERY_COLUMNS}
+    ${DEPLOYMENT_QUERY_SYNC_COMPLETE_QUERY_COLUMNS}
   FROM main.deployment_sync_queries
   WHERE query_key = ?
   ORDER BY query_key COLLATE BINARY
@@ -1105,12 +1089,32 @@ function replacePendingPublication(
   expected: PendingQueryPublication | null,
   next: PendingQueryPublication,
 ): void {
-  const removed = sql.exec<EncodedPendingPublicationRow>(`DELETE FROM
-    main.deployment_sync_pending_publications
-    WHERE query_key = ?
-    RETURNING query_key, generation, query_identity,
-      completed_through_sequence, result_digest, content`,
-  next.identity.queryKey);
+  const removed = expected === null
+    ? sql.exec<EncodedPendingPublicationRow>(`DELETE FROM
+      main.deployment_sync_pending_publications
+      WHERE query_key IS ?
+      RETURNING query_key, generation, query_identity,
+        completed_through_sequence, result_digest, content`,
+    next.identity.queryKey)
+    : (() => {
+      const row = encodeDeploymentQuerySyncPendingPublicationRow(expected);
+      return sql.exec<EncodedPendingPublicationRow>(`DELETE FROM
+        main.deployment_sync_pending_publications
+        WHERE query_key IS ?
+          AND generation IS ?
+          AND query_identity IS ?
+          AND completed_through_sequence IS ?
+          AND result_digest IS ?
+          AND content IS ?
+        RETURNING query_key, generation, query_identity,
+          completed_through_sequence, result_digest, content`,
+      row.query_key,
+      row.generation,
+      row.query_identity,
+      row.completed_through_sequence,
+      row.result_digest,
+      row.content);
+    })();
   expectDeploymentQuerySyncWrites(
     "completeQueryEvaluation",
     expected === null ? 0 : 1,

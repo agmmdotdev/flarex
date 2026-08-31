@@ -31,7 +31,7 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     await runtime.dispose();
   });
 
-  it("creates the exact strict generation-3 catalog beside provider KV", async () => {
+  it("creates the exact strict generation-4 catalog beside provider KV", async () => {
     const actorScopeUuid = testScope(1);
     expect(await invoke(runtime, "putKvThenInitialize", {
       ...observation(actorScopeUuid),
@@ -47,7 +47,9 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     expect(providerKvObjectNames(catalogResponse)).toEqual(["_cf_KV"]);
     expect(applicationObjectNames(catalogResponse)).toEqual([
       "deployment_sync_contract_state",
+      "deployment_sync_in_flight_publication",
       "deployment_sync_pending_publications",
+      "deployment_sync_publication_state",
       "deployment_sync_queries",
       "deployment_sync_query_dependencies",
       "deployment_sync_query_dependencies_reverse",
@@ -55,7 +57,13 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     ]);
     expect(applicationTableFacts(catalogResponse)).toEqual([
       { name: "deployment_sync_contract_state", strict: 1, wr: 1 },
+      {
+        name: "deployment_sync_in_flight_publication",
+        strict: 1,
+        wr: 1,
+      },
       { name: "deployment_sync_pending_publications", strict: 1, wr: 1 },
+      { name: "deployment_sync_publication_state", strict: 1, wr: 1 },
       { name: "deployment_sync_queries", strict: 1, wr: 1 },
       { name: "deployment_sync_query_dependencies", strict: 1, wr: 1 },
       { name: "deployment_sync_scope_state", strict: 1, wr: 1 },
@@ -94,7 +102,7 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     });
     const stored = await invoke(runtime, "snapshot", { actorScopeUuid });
     expect(stored).toMatchObject({
-      contract: [{ local_contract_generation: 3 }],
+      contract: [{ local_contract_generation: 4 }],
       scope: [{
         applied_through_sequence: "1",
         query_count: 1,
@@ -145,34 +153,94 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     });
   });
 
-  it("reopens generation 3 after real Workerd disposal", async () => {
+  it("reopens and completes an uncertain publication after Workerd disposal and recreation", async () => {
     const persistPath = await mkdtemp(join(tmpdir(), "flarex-qsync-c2-"));
     const actorScopeUuid = testScope(4);
     let first: Miniflare | undefined;
     let second: Miniflare | undefined;
     try {
       first = makeRuntime(workerBundle, persistPath);
-      const response = await invoke(first, "fullVertical", {
+      const response = await invoke(first, "preparePublicationForReopen", {
         ...observation(actorScopeUuid),
         querySeed: 4,
       });
       expectSuccessResponse(response);
-      expect(response).toMatchObject({ ok: true });
+      const preparedStored = recordMember(successValue(response), "stored");
+      expect(response).toMatchObject({
+        ok: true,
+        value: {
+          initialized: { _tag: "initialized" },
+          completed: { _tag: "completed" },
+          claimed: { _tag: "claimed" },
+          recorded: {
+            _tag: "recorded",
+            nextAttemptOrdinal: 2,
+            nextDisposition: "uncertain",
+          },
+          stored: {
+            contract: [{ local_contract_generation: 4 }],
+            pending: [],
+            inFlight: [{ singleton: 1, generation: "1" }],
+            publicationState: [{
+              singleton: 1,
+              attempt_ordinal: 2,
+              attempt_disposition: "uncertain",
+              preceding_outcome: "outcomeUnknown",
+              preceding_receipt_tag: "recorded",
+            }],
+          },
+        },
+      });
       await first.dispose();
       first = undefined;
 
       second = makeRuntime(workerBundle, persistPath);
-      expect(await invoke(second, "initialize", observation(actorScopeUuid)))
-        .toMatchObject({
-          ok: true,
-          value: { _tag: "existing" },
-        });
-      expect(await invoke(second, "snapshot", { actorScopeUuid }))
-        .toMatchObject({
-          contract: [{ local_contract_generation: 3 }],
-          queries: [{ provisional_disposition: "blocked" }],
-          pending: [{ generation: "1" }],
-        });
+      const completion = await invoke(
+        second,
+        "completePublicationAfterReopen",
+        observation(actorScopeUuid),
+      );
+      expectSuccessResponse(completion);
+      const completionValue = successValue(completion);
+      expect(recordMember(completionValue, "reopened")).toEqual(
+        preparedStored,
+      );
+      expect(recordMember(completionValue, "beforeFailure")).toEqual(
+        preparedStored,
+      );
+      expect(recordMember(completionValue, "afterFailure")).toEqual(
+        recordMember(completionValue, "beforeFailure"),
+      );
+      expect(completion).toMatchObject({
+        ok: true,
+        value: {
+          initialized: { _tag: "existing" },
+          replayedClaim: {
+            _tag: "replayed",
+            attempt: { attemptOrdinal: 2 },
+          },
+          firstDied: true,
+          firstTypedFailure: false,
+          completed: { _tag: "completed" },
+          replayed: { _tag: "replayed" },
+          stored: {
+            pending: [],
+            inFlight: [],
+            scope: [{
+              pending_publication_count: 0,
+              in_flight_publication_count: 0,
+              retained_publication_content_bytes: 0,
+              settlement_envelope_bytes: 0,
+            }],
+            publicationState: [{
+              attempt_ordinal: null,
+              attempt_disposition: null,
+              preceding_outcome: "outcomeUnknown",
+              preceding_receipt_tag: "recorded",
+            }],
+          },
+        },
+      });
     } finally {
       if (first !== undefined) await first.dispose();
       if (second !== undefined) await second.dispose();
@@ -196,8 +264,9 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     expect(await invoke(runtime, "snapshot", {
       actorScopeUuid: migratableScope,
     })).toMatchObject({
-      contract: [{ local_contract_generation: 3 }],
+      contract: [{ local_contract_generation: 4 }],
       pending: [],
+      publicationState: [{ singleton: 1 }],
     });
 
     const refusedScope = testScope(6);
@@ -222,6 +291,8 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     })).toMatchObject({
       contract: [{ local_contract_generation: 2 }],
       pending: [],
+      inFlight: [],
+      publicationState: [],
     });
   });
 
@@ -405,11 +476,19 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     }
   }, 480_000);
 
-  it("does not expose C3 publication operations", async () => {
-    const response = await dispatch(runtime, "claimPublication", {
+  it("reads canonical milliseconds from the pinned Workerd SQLite clock", async () => {
+    const response = await invoke(runtime, "publicationClock", {
       actorScopeUuid: testScope(7),
     });
-    expect(response.status).toBe(404);
+    if (
+      !isRecord(response)
+      || response.ok !== true
+      || typeof response.value !== "string"
+    ) {
+      throw new Error("Expected a successful Workerd publication clock read.");
+    }
+    expect(response.value).toMatch(/^(?:0|[1-9][0-9]*)$/u);
+    expect(Number.isSafeInteger(Number(response.value))).toBe(true);
   });
 });
 
@@ -431,7 +510,7 @@ function maximumPopulationExpectation(
   scopeMetrics: Readonly<Record<string, unknown>>,
 ) {
   return {
-    localContractGeneration: 3,
+    localContractGeneration: 4,
     queryCount: MAX_REFERENCE_QUERIES,
     readyQueryCount: MAX_REFERENCE_QUERIES,
     minimumIdentityCharacters: identityCharacters,

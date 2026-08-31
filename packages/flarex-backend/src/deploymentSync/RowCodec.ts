@@ -48,7 +48,8 @@ import {
 } from "flarex-protocol/storage-authority";
 
 const GENERATION_2_LOCAL_CONTRACT = 2 as const;
-const LOCAL_CONTRACT_GENERATION = 3 as const;
+const GENERATION_3_LOCAL_CONTRACT = 3 as const;
+const LOCAL_CONTRACT_GENERATION = 4 as const;
 const LEGACY_LOCAL_SCHEMA_REVISION = 1 as const;
 const MAX_IN_FLIGHT_PUBLICATION_COUNT = 1;
 
@@ -63,7 +64,9 @@ export type DeploymentQuerySyncRowKind =
   | "evaluationQuery"
   | "evaluationAttemptOutcome"
   | "evaluationWorkScan"
-  | "pendingPublication";
+  | "pendingPublication"
+  | "inFlightPublication"
+  | "publicationState";
 
 export type DeploymentQuerySyncRowField =
   | "singleton"
@@ -115,6 +118,23 @@ export type DeploymentQuerySyncRowField =
   | "completed_through_sequence"
   | "result_digest"
   | "content"
+  | "attempt_ordinal"
+  | "first_attempt_at"
+  | "last_attempt_at"
+  | "attempt_disposition"
+  | "attempt_block_reason"
+  | "latest_delivered_query_key"
+  | "latest_delivered_generation"
+  | "latest_delivered_result_digest"
+  | "preceding_query_key"
+  | "preceding_generation"
+  | "preceding_result_digest"
+  | "preceding_attempt_ordinal"
+  | "preceding_outcome"
+  | "preceding_receipt_tag"
+  | "preceding_next_attempt_ordinal"
+  | "preceding_next_disposition"
+  | "preceding_block_reason"
   | "role"
   | "generation"
   | "dependency_key";
@@ -138,6 +158,7 @@ export class DeploymentQuerySyncRowCodecError extends Data.TaggedError(
     | "completionFactsInvalid"
     | "generation3ScopeInvalid"
     | "pendingPublicationFactsInvalid"
+    | "publicationStateGroupInvalid"
     | "scanFactsInvalid"
     | "queryFactsInvalid"
     | "unsupportedContractGeneration"
@@ -162,6 +183,11 @@ export interface DeploymentQuerySyncContractState {
 
 export interface DeploymentQuerySyncGeneration2ContractState {
   readonly localContractGeneration: typeof GENERATION_2_LOCAL_CONTRACT;
+  readonly durableInitializedHistory: boolean;
+}
+
+export interface DeploymentQuerySyncGeneration3ContractState {
+  readonly localContractGeneration: typeof GENERATION_3_LOCAL_CONTRACT;
   readonly durableInitializedHistory: boolean;
 }
 
@@ -702,7 +728,16 @@ export function decodeDeploymentQuerySyncGeneration2ContractRowResult(
   return decodeContractRowResult(input, GENERATION_2_LOCAL_CONTRACT);
 }
 
-function decodeContractRowResult<Generation extends 2 | 3>(
+export function decodeDeploymentQuerySyncGeneration3ContractRowResult(
+  input: unknown,
+): Result.Result<
+  DeploymentQuerySyncGeneration3ContractState,
+  DeploymentQuerySyncRowCodecError
+> {
+  return decodeContractRowResult(input, GENERATION_3_LOCAL_CONTRACT);
+}
+
+function decodeContractRowResult<Generation extends 2 | 3 | 4>(
   input: unknown,
   expectedGeneration: Generation,
 ): Result.Result<

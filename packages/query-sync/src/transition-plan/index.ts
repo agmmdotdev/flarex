@@ -189,6 +189,9 @@ export type {
   PublicationOwnerQueryFacts,
 } from "./PublicationFacts.js";
 export {
+  publicationLifecycleFactsAreValid,
+} from "./PublicationInvariants.js";
+export {
   MAX_PUBLICATION_ATTEMPT_AGE_MILLISECONDS,
 } from "./PublicationWork.js";
 export type {

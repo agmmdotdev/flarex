@@ -60,7 +60,7 @@ function storageWithMutationObserver(
 }
 
 describe("generation-2 maximum-population migration", () => {
-  it("streams all 4,096 provisional-only rows into generation 3", () => {
+  it("streams all 4,096 provisional-only rows through generation 4", () => {
     const harness = makeSqliteHarness({
       streamGeneration2MigrationRows: true,
     });
@@ -132,7 +132,7 @@ describe("generation-2 maximum-population migration", () => {
       ));
 
       expect(ready).toEqual({
-        localContractGeneration: 3,
+        localContractGeneration: 4,
         durableInitializedHistory: true,
       });
       expect(harness.migrationStreamEvidence).toEqual({
@@ -198,6 +198,11 @@ describe("generation-2 maximum-population migration", () => {
         FROM deployment_sync_pending_publications`).get()?.value).toBe(0);
       expect(harness.database.prepare(`SELECT *
         FROM deployment_sync_scope_state`).get()).toEqual(expectedScopeRow);
+      expect(harness.database.prepare(`SELECT *
+        FROM deployment_sync_publication_state`).get()).toMatchObject({
+        singleton: 1,
+        attempt_ordinal: null,
+      });
 
       let reentryMutations = 0;
       expect(success(ensureDeploymentQuerySyncStorageReady(

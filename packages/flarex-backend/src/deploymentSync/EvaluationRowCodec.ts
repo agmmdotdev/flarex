@@ -1,15 +1,11 @@
 import {
   MAX_QUERY_GENERATION,
-  captureCanonicalQueryIdentity,
   captureCanonicalQueryKey,
   captureQueryAuthorityWitness,
-  captureQueryPublicationArtifact,
   captureQueryResultDigest,
-  makePendingQueryPublication,
   makeQueryPublicationIdentity,
   pendingPublicationDisposition,
   unchangedPublicationDisposition,
-  type PendingQueryPublication,
   type ProvisionalQueryState,
   type QueryPublicationIdentity,
 } from "@flarex/query-sync/internal/kernel";
@@ -40,6 +36,33 @@ import {
   type DeploymentQuerySyncRowCodecError,
 } from "./RowCodec";
 
+export const DEPLOYMENT_QUERY_SYNC_COMPLETE_QUERY_COLUMNS = `
+  query_key,
+  query_identity,
+  active_generation,
+  active_evaluation_snapshot_sequence,
+  active_fresh_through_sequence,
+  active_dirty_through_sequence,
+  active_result_digest,
+  active_authority_witness,
+  provisional_generation,
+  provisional_expected_active_generation,
+  provisional_registration_sequence,
+  provisional_requested_dirty_through_sequence,
+  provisional_disposition,
+  completion_generation,
+  completion_expected_active_generation,
+  completion_registration_sequence,
+  completion_requested_dirty_through_sequence,
+  completion_evaluation_snapshot_sequence,
+  completion_evaluation_authority_witness,
+  completion_refreshed_through_sequence,
+  completion_relevant_through_sequence,
+  completion_refresh_authority_witness,
+  completion_result_digest,
+  completion_publication_disposition,
+  preceding_completion_generation`;
+
 export interface EncodedDeploymentQuerySyncCompleteQueryRow
   extends DeploymentQuerySyncBaseQueryRowValues {
   readonly provisional_disposition: "ready" | "blocked" | null;
@@ -58,15 +81,6 @@ export interface EncodedDeploymentQuerySyncCompleteQueryRow
     | "pending"
     | null;
   readonly preceding_completion_generation: string | null;
-}
-
-export interface EncodedDeploymentQuerySyncPendingPublicationRow {
-  readonly query_key: string;
-  readonly generation: string;
-  readonly query_identity: string;
-  readonly completed_through_sequence: string;
-  readonly result_digest: string;
-  readonly content: string;
 }
 
 const completionFields = {
@@ -110,15 +124,6 @@ const RawEvaluationWorkScanRowSchema = Schema.Struct({
   provisional_disposition: Schema.NullOr(Schema.String),
 });
 
-const RawPendingPublicationRowSchema = Schema.Struct({
-  query_key: Schema.String,
-  generation: Schema.String,
-  query_identity: Schema.String,
-  completed_through_sequence: Schema.String,
-  result_digest: Schema.String,
-  content: Schema.String,
-});
-
 const strictRowOptions = { onExcessProperty: "error" } as const;
 const decodeRawCompleteQueryRow = Schema.decodeUnknownResult(
   RawCompleteQueryRowSchema,
@@ -130,10 +135,6 @@ const decodeRawEvaluationAttemptOutcomeRow = Schema.decodeUnknownResult(
 );
 const decodeRawEvaluationWorkScanRow = Schema.decodeUnknownResult(
   RawEvaluationWorkScanRowSchema,
-  strictRowOptions,
-);
-const decodeRawPendingPublicationRow = Schema.decodeUnknownResult(
-  RawPendingPublicationRowSchema,
   strictRowOptions,
 );
 
@@ -698,100 +699,5 @@ export function decodeDeploymentQuerySyncEvaluationWorkScanRowResult(
             }),
         }),
     });
-  });
-}
-
-export function decodeDeploymentQuerySyncPendingPublicationRowResult(
-  input: unknown,
-  scope: QuerySyncScopeFacts,
-  query: CompleteQueryScalarFacts,
-): Result.Result<PendingQueryPublication, DeploymentQuerySyncRowCodecError> {
-  return Result.gen(function* () {
-    const row = yield* decodeDeploymentQuerySyncRowShapeResult(
-      "pendingPublication",
-      decodeRawPendingPublicationRow(input),
-    );
-    const queryKey = yield* captureDeploymentQuerySyncCanonicalValueResult(
-      "pendingPublication",
-      "query_key",
-      captureCanonicalQueryKey(row.query_key),
-    );
-    const generation = yield* decodeDeploymentQuerySyncGenerationResult(
-      "pendingPublication",
-      "generation",
-      row.generation,
-    );
-    const completedThroughSequence = yield*
-      decodeDeploymentQuerySyncSequenceResult(
-        "pendingPublication",
-        "completed_through_sequence",
-        row.completed_through_sequence,
-      );
-    const resultDigest = yield* captureDeploymentQuerySyncCanonicalValueResult(
-      "pendingPublication",
-      "result_digest",
-      captureQueryResultDigest(row.result_digest),
-    );
-    const artifact = yield* captureQueryPublicationArtifact({
-      content: row.content,
-    }).pipe(Result.mapError((cause) => deploymentQuerySyncRowCodecError(
-      "pendingPublication",
-      "valueInvalid",
-      "content",
-      cause,
-    )));
-    const queryIdentity = yield* captureDeploymentQuerySyncCanonicalValueResult(
-      "pendingPublication",
-      "query_identity",
-      captureCanonicalQueryIdentity(row.query_identity),
-    );
-    const identity = publicationIdentity(scope, queryKey, generation);
-    const publication = makePendingQueryPublication({
-      identity,
-      queryIdentity,
-      completedThroughSequence,
-      resultDigest,
-      content: artifact.content,
-    });
-    const active = query.active;
-    const completion = query.currentCompletion;
-    const sameGenerationValid = active !== null
-      && generation === active.generation
-      && completion !== null
-      && completion.publicationDisposition._tag === "pending"
-      && completion.identity.generation === generation
-      && completedThroughSequence === completion.refreshedThroughSequence
-      && resultDigest === completion.resultDigest;
-    if (
-      queryKey !== query.descriptor.queryKey
-      || queryIdentity !== query.descriptor.queryIdentity
-      || active === null
-      || generation > active.generation
-      || completedThroughSequence > scope.cursor.appliedThroughSequence
-      || completedThroughSequence > active.freshThroughSequence
-      || resultDigest !== active.resultDigest
-      || (generation === active.generation && !sameGenerationValid)
-    ) {
-      return yield* Result.fail(deploymentQuerySyncRowCodecError(
-        "pendingPublication",
-        "pendingPublicationFactsInvalid",
-        null,
-      ));
-    }
-    return publication;
-  });
-}
-
-export function encodeDeploymentQuerySyncPendingPublicationRow(
-  publication: PendingQueryPublication,
-): EncodedDeploymentQuerySyncPendingPublicationRow {
-  return Object.freeze({
-    query_key: publication.identity.queryKey,
-    generation: publication.identity.generation.toString(),
-    query_identity: publication.queryIdentity,
-    completed_through_sequence:
-      publication.completedThroughSequence.toString(),
-    result_digest: publication.resultDigest,
-    content: publication.content,
   });
 }

@@ -234,7 +234,7 @@ describe("deployment query-sync SQLite storage contract", () => {
     ))).toBe(true);
   });
 
-  it("creates exact generation 3 once for a truly fresh database", () => {
+  it("creates exact generation 4 once for a truly fresh database", () => {
     const harness = makeSqliteHarness();
     try {
       const binding = makeBinding();
@@ -251,7 +251,7 @@ describe("deployment query-sync SQLite storage contract", () => {
       ));
 
       expect(first).toEqual({
-        localContractGeneration: 3,
+        localContractGeneration: 4,
         durableInitializedHistory: false,
       });
       expect(second).toEqual(first);
@@ -260,7 +260,9 @@ describe("deployment query-sync SQLite storage contract", () => {
       ).get()?.value).toBe(changesAfterFirst);
       expect(applicationSchemaNames(harness.database)).toEqual([
         "deployment_sync_contract_state",
+        "deployment_sync_in_flight_publication",
         "deployment_sync_pending_publications",
+        "deployment_sync_publication_state",
         "deployment_sync_queries",
         "deployment_sync_query_dependencies",
         "deployment_sync_query_dependencies_reverse",
@@ -316,7 +318,7 @@ describe("deployment query-sync SQLite storage contract", () => {
             operation: "initializeOrInspectNamespace",
             reason: "storedAggregateInvalid",
             cause: {
-              _tag: "DeploymentQuerySyncStorageContractIssue",
+              _tag: "DeploymentQuerySyncGeneration4ContractIssue",
               reason: "historyDependentRowsPresent",
             },
           });

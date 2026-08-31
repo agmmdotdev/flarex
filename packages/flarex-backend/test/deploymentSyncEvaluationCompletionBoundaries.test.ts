@@ -43,6 +43,8 @@ const MATERIAL_READ_STAGES = Object.freeze([
   "active-dependencies-read",
   "completion-dependencies-read",
   "pending-publication-read",
+  "in-flight-publication-read",
+  "publication-state-read",
 ] as const satisfies readonly CompletionSqlStage[]);
 
 const foreignNamespaceId = success(captureSyncNamespaceId(

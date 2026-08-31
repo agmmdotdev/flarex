@@ -56,18 +56,20 @@ import {
 } from "../src/deploymentSync/RowCodec";
 import {
   encodeDeploymentQuerySyncCompleteQueryRow,
-  encodeDeploymentQuerySyncPendingPublicationRow,
   type EncodedDeploymentQuerySyncCompleteQueryRow,
-  type EncodedDeploymentQuerySyncPendingPublicationRow,
 } from "../src/deploymentSync/EvaluationRowCodec";
+import {
+  encodeDeploymentQuerySyncPendingPublicationRow,
+  type EncodedDeploymentQuerySyncPendingPublicationRow,
+} from "../src/deploymentSync/PublicationRowCodec";
 import {
   encodeDeploymentQuerySyncDependencyRow,
   type EncodedDeploymentQuerySyncDependencyRow,
 } from "../src/deploymentSync/DependencyRowCodec";
 import {
-  makeDeploymentQuerySyncEvaluationState,
-  type DeploymentQuerySyncEvaluationState,
-  type DeploymentQuerySyncEvaluationStateInput,
+  makeDeploymentQuerySyncState,
+  type DeploymentQuerySyncState,
+  type DeploymentQuerySyncStateInput,
 } from "../src/deploymentSync/Store";
 import type {
   DeploymentQuerySyncSqlStorage,
@@ -569,7 +571,7 @@ async function prepareState(
   harness: SqliteHarness,
   authorizedFresh: boolean,
 ): Promise<Readonly<{
-  readonly state: DeploymentQuerySyncEvaluationState;
+  readonly state: DeploymentQuerySyncState;
   readonly binding: DeploymentQuerySyncBinding;
 }>> {
   const inputBinding = bindingInput();
@@ -581,20 +583,20 @@ async function prepareState(
     binding: inputBinding,
     storage: harness.storage,
   });
-  const input: DeploymentQuerySyncEvaluationStateInput = capability === undefined
+  const input: DeploymentQuerySyncStateInput = capability === undefined
     ? base
     : Object.freeze({
       ...base,
       freshInitializationCapability: capability,
     });
-  const state = await Effect.runPromise(makeDeploymentQuerySyncEvaluationState(input));
+  const state = await Effect.runPromise(makeDeploymentQuerySyncState(input));
   return Object.freeze({ state, binding });
 }
 
 async function prepareInitializedState(
   harness: SqliteHarness,
 ): Promise<Readonly<{
-  readonly state: DeploymentQuerySyncEvaluationState;
+  readonly state: DeploymentQuerySyncState;
   readonly binding: DeploymentQuerySyncBinding;
 }>> {
   const prepared = await prepareState(harness, true);
