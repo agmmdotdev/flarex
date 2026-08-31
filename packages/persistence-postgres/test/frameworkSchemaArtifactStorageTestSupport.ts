@@ -208,6 +208,8 @@ export async function expectFrameworkArtifactStorageCatalog(
       '${ARTIFACT_TABLE}'::regclass,
       '${DEPENDENCY_TABLE}'::regclass
     )
+      -- PostgreSQL 18 also catalogs NOT NULL here; columns prove it above.
+      and constraint_row.contype <> 'n'
     order by conname
   `);
   expect(constraints.rows.map(row => row.constraint_name)).toEqual([

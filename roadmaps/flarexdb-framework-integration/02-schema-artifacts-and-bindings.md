@@ -8,7 +8,9 @@ repository construction, plus the runtime-authenticated control-session
 starter, deterministic control-session lifecycle, and artifact-private
 PostgreSQL control-session adapter implemented, together with the exact private
 point-read, locked-admission, and bounded identity-list operations with focused
-PGlite evidence; genuine PostgreSQL acceptance incomplete; later lifecycle
+PGlite evidence; focused ordinary-role PostgreSQL migration/catalog, control-
+session, point-read, exact-admission convergence, and deployment-lock evidence
+implemented; wider genuine PostgreSQL acceptance and later lifecycle
 persistence codecs still gated
 
 The additive authority architecture and exact artifact-envelope contract are
@@ -32,8 +34,10 @@ the artifact-private PostgreSQL control-session adapter with deterministic
 fake-pool evidence are implemented, as are the neutral size-gated stored loader
 and exact private point read, locked admission, and bounded identity list with
 focused PGlite evidence. Genuine PostgreSQL acceptance remains incomplete; no
-Payload or Medusa adapter, runtime caller, public API, or production composition
-is activated.
+Payload or Medusa adapter, runtime caller, public API, or production
+composition is activated. The focused native lane currently proves only the
+migration/catalog, control-session, point-read, exact-admission convergence,
+and deployment-row blocking boundary.
 
 This plan owns the neutral identity and lifecycle mechanics needed to compile,
 install, validate, and bind Payload lifecycle, Medusa, and admitted system

@@ -8,7 +8,9 @@ database composition, runtime-authenticated starter composition, deterministic
 control-session lifecycle, and the artifact-private PostgreSQL control-session
 adapter, exact point-read repository operation, private locked admission,
 bounded identity listing, and focused PGlite repository evidence implemented;
-genuine PostgreSQL acceptance remains incomplete
+focused ordinary-role PostgreSQL 18 migration/catalog, control-session, point-
+read, exact-admission convergence, and deployment-row blocking evidence
+implemented; wider genuine PostgreSQL acceptance remains incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -974,9 +976,9 @@ These receipts use deterministic `pg` pool/client doubles. They do not prove
 native pool discard, backend-session identity, timeout enforcement,
 transaction outcome, locking, or concurrency. A URL-gated server probe exists
 for one backend, `READ COMMITTED`, positive local budgets, and exact read
-`statement_timeout` restoration, but it is skipped because
-`FLAREX_POSTGRES_DATABASE_URL` is unavailable. This checkpoint therefore
-claims no genuine-PostgreSQL acceptance receipt.
+`statement_timeout` restoration. The focused ordinary-role PostgreSQL 18 lane
+now runs that probe and proves those exact native facts; the deterministic
+doubles remain the only evidence for the wider fault matrix above.
 
 ### PGlite Migration Evidence
 
@@ -1095,10 +1097,23 @@ prove:
 - the deployment-first lock order introduces no deadlock in the supported
   operation sequence.
 
-`FLAREX_POSTGRES_DATABASE_URL` is not configured in the current environment,
-so the added `frameworkSchemaArtifactRead.postgres.test.ts` lane is skipped and
-this documentation checkpoint claims no genuine-PostgreSQL point-read,
-admission, or wider repository receipt.
+Focused ordinary-role PostgreSQL 18 evidence now proves the additive migration
+rollback, receipt and idempotent replay; native catalog, collation, identity,
+constraint and index shapes; 8 KiB block-size/key-fit assumptions; native
+`GENERATED ALWAYS` rejection; one-backend `READ COMMITTED` control-session
+budgets and read reset; present and absent point read; concurrent exact
+admission converging to one `created` result and one physical dependency-edge
+set; and `pg_blocking_pids` observation of contenders queued behind the
+deployment row before the later contender observes the committed winner. The
+catalog assertion reads nullability from `information_schema.columns` and
+excludes PostgreSQL 18's duplicate `pg_constraint` `contype = 'n'` entries from
+the separately asserted named-constraint inventory.
+
+Equal-identity collision contention, dependency races, different-deployment
+non-blocking, wider identity isolation, rollback release, interruption and
+settlement recovery, bounded deadline faults, deadlock absence, and native
+identity-list/index behavior remain unproved. This focused evidence does not
+complete the private repository checkpoint or open a downstream gate.
 
 ## Accepted Implementation Checkpoint
 
@@ -1133,8 +1148,9 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next implementation step is genuine PostgreSQL migration, repository,
-settlement, locking, and concurrency acceptance. The implemented DDL,
+The next implementation step is the remaining genuine PostgreSQL collision,
+dependency-race, cross-deployment isolation, rollback, settlement/recovery,
+deadline, deadlock, and identity-list/index acceptance. The implemented DDL,
 preparation capability, stored loader/reconstruction, point read, locked
 admission, bounded identity list, repository identity, authenticated starter,
 deterministic control-session lifecycle, and artifact-private PostgreSQL
