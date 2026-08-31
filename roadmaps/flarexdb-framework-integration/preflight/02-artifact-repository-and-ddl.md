@@ -10,7 +10,9 @@ adapter, exact point-read repository operation, private locked admission,
 bounded identity listing, and focused PGlite repository evidence implemented;
 focused ordinary-role PostgreSQL 18 migration/catalog, control-session, point-
 read, exact-admission convergence, and deployment-row blocking evidence
-implemented; wider genuine PostgreSQL acceptance remains incomplete
+implemented, together with collision contention, both dependency-lock orders,
+and cross-deployment non-blocking; wider genuine PostgreSQL acceptance remains
+incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -1105,15 +1107,22 @@ budgets and read reset; present and absent point read; concurrent exact
 admission converging to one `created` result and one physical dependency-edge
 set; and `pg_blocking_pids` observation of contenders queued behind the
 deployment row before the later contender observes the committed winner. The
+same waiter graph proves equal-identity/different-canonical contention stores
+exactly one canonical winner and returns one typed `digestCollision`; parent-
+first dependency admission fails with exact `dependencyMissing` evidence,
+leaves no parent or edge, and releases the queued dependency; dependency-first
+admission commits before the already-started parent reads under `READ
+COMMITTED`, producing one exact edge; and an independent deployment commits
+and becomes externally visible while the first deployment remains blocked. The
 catalog assertion reads nullability from `information_schema.columns` and
 excludes PostgreSQL 18's duplicate `pg_constraint` `contype = 'n'` entries from
 the separately asserted named-constraint inventory.
 
-Equal-identity collision contention, dependency races, different-deployment
-non-blocking, wider identity isolation, rollback release, interruption and
-settlement recovery, bounded deadline faults, deadlock absence, and native
-identity-list/index behavior remain unproved. This focused evidence does not
-complete the private repository checkpoint or open a downstream gate.
+Owner/lineage isolation under contention, rollback after a native write
+failure, interruption and settlement recovery, bounded deadline faults,
+deadlock absence, and native identity-list/index behavior remain unproved.
+This focused evidence does not complete the private repository checkpoint or
+open a downstream gate.
 
 ## Accepted Implementation Checkpoint
 
@@ -1148,9 +1157,9 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next implementation step is the remaining genuine PostgreSQL collision,
-dependency-race, cross-deployment isolation, rollback, settlement/recovery,
-deadline, deadlock, and identity-list/index acceptance. The implemented DDL,
+The next implementation step is the remaining genuine PostgreSQL owner/lineage
+contention isolation, post-write rollback, settlement/recovery, deadline,
+deadlock, and identity-list/index acceptance. The implemented DDL,
 preparation capability, stored loader/reconstruction, point read, locked
 admission, bounded identity list, repository identity, authenticated starter,
 deterministic control-session lifecycle, and artifact-private PostgreSQL

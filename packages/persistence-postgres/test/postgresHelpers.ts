@@ -25,6 +25,11 @@ export interface HeldPostgresDeploymentLock {
   readonly blockerPid: number;
 }
 
+export interface BlockedPostgresDeploymentLockWaiter {
+  readonly waiterPid: number;
+  readonly blockerPids: readonly number[];
+}
+
 export interface TemporaryPostgresSchemaOptions {
   readonly connectionString: string;
   readonly migrationsSchema: string;
@@ -60,8 +65,7 @@ export async function acquirePostgresDeploymentLock(
     }
     return { client, blockerPid };
   } catch (error) {
-    await client.query("rollback").catch(() => undefined);
-    client.release();
+    await rollbackAndReleasePostgresClient(client);
     throw error;
   }
 }
@@ -102,6 +106,55 @@ export async function waitForBlockedPostgresDeploymentLocks(
   }
   throw new Error(
     `Timed out waiting for ${expectedBlocked} deployment locks blocked by backend ${lock.blockerPid}.`,
+  );
+}
+
+export async function waitForBlockedPostgresDeploymentLockWaiters(
+  persistence: PostgresFlarexPersistence,
+  lock: HeldPostgresDeploymentLock,
+  expectedBlocked: number,
+): Promise<readonly BlockedPostgresDeploymentLockWaiter[]> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await persistence.query<{
+      waiterPid: number;
+      blockerPids: number[];
+    }>(
+      `
+        with recursive blocked(pid) as (
+          select activity.pid
+          from pg_stat_activity as activity
+          where $1::int = any(pg_blocking_pids(activity.pid))
+
+          union
+
+          select activity.pid
+          from pg_stat_activity as activity
+          join blocked as blocker
+            on blocker.pid = any(pg_blocking_pids(activity.pid))
+        )
+        select activity.pid::int as "waiterPid",
+               pg_blocking_pids(activity.pid) as "blockerPids"
+        from blocked
+        join pg_stat_activity as activity using (pid)
+        where activity.datname = current_database()
+          and activity.wait_event_type = 'Lock'
+          and activity.query ilike '%deployments%'
+          and activity.query ilike '%for update%'
+        order by activity.pid
+      `,
+      [lock.blockerPid],
+    );
+    if (result.rows.length >= expectedBlocked) {
+      return Object.freeze(result.rows.map(row => Object.freeze({
+        waiterPid: row.waiterPid,
+        blockerPids: Object.freeze([...row.blockerPids]),
+      })));
+    }
+    await delay(25);
+  }
+  throw new Error(
+    `Timed out waiting for ${expectedBlocked} deployment-lock waiters blocked by backend ${lock.blockerPid}.`,
   );
 }
 

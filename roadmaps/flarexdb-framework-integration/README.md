@@ -10,7 +10,8 @@ PostgreSQL control-session adapter are implemented, together with the exact
 private point-read, locked-admission, and bounded identity-list operations with
 focused PGlite evidence. Focused ordinary-role PostgreSQL 18 evidence now
 proves the native migration/catalog, control-session probe, point read, exact-
-admission convergence, and deployment-row blocking boundary; wider genuine-
+admission convergence, deployment-row blocking, collision contention, both
+dependency-lock orders, and cross-deployment non-blocking; wider genuine-
 PostgreSQL acceptance remains incomplete.
 Installation, binding, Payload/Medusa adapters, runtime wiring, and production
 work remain pending and production-inert.
@@ -91,7 +92,7 @@ Preflight records:
 | File | Status | Decision |
 | --- | --- | --- |
 | [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; first checkpoint implemented | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred repository, installation, and binding contracts |
-| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; private repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, point-read, exact-admission convergence, and deployment-lock evidence implemented; wider genuine-PostgreSQL acceptance incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
+| [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted; private repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, point-read, exact admission, collision, dependency-race, and cross-deployment evidence implemented; wider genuine-PostgreSQL acceptance incomplete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 
 ## Current Architecture
 
@@ -181,7 +182,7 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, point-read, exact-admission convergence, and deployment-lock evidence implemented; wider genuine-PostgreSQL acceptance and later lifecycle codecs remain gated |
+| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite evidence implemented; focused ordinary-role PostgreSQL migration/catalog, control-session, point-read, exact admission, collision, dependency-race, and cross-deployment evidence implemented; wider genuine-PostgreSQL acceptance and later lifecycle codecs remain gated |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |
@@ -230,7 +231,9 @@ evidence, plus the exact private point-read, locked-admission, and bounded
 identity-list operations and focused PGlite evidence. Genuine-PostgreSQL
 acceptance is partially proven by focused ordinary-role migration/catalog,
 control-session, point-read, exact-admission convergence, and deployment-lock
-evidence, but remains incomplete. The implemented sub-boundary contains only:
+evidence, plus collision contention, ordered dependency races, and cross-
+deployment non-blocking, but remains incomplete. The implemented sub-boundary
+contains only:
 
 - an additive private control registry plus dependency sidecar;
 - database-only compact storage identities while retaining the full natural
@@ -272,8 +275,8 @@ evidence, but remains incomplete. The implemented sub-boundary contains only:
   finalizer `Cause` preservation.
 
 The remaining private acceptance work may add only the unproved genuine-
-PostgreSQL repository collision, dependency race, cross-deployment isolation,
-rollback, settlement/recovery, deadline, deadlock, and list/index evidence.
+PostgreSQL owner/lineage contention isolation, post-write rollback,
+settlement/recovery, deadline, deadlock, and list/index evidence.
 
 This authority stops at the files and evidence named by that record.
 Installation, readiness, availability, Application-reference, Payload-overlay,

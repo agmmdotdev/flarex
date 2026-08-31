@@ -1,10 +1,12 @@
-import { Result } from "effect";
-import { describe, expect, it } from "vitest";
+import { Effect, Result } from "effect";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { admitFrameworkSchemaArtifactEffect } from
   "../src/frameworkSchema/artifact/admission";
-import { captureFrameworkSchemaArtifact } from
-  "../src/frameworkSchema/artifact/canonical";
+import {
+  captureFrameworkSchemaArtifact,
+  copyCapturedFrameworkSchemaArtifactEvidence,
+} from "../src/frameworkSchema/artifact/canonical";
 import { makeFrameworkSchemaArtifactControlSessionStarter } from
   "../src/frameworkSchema/artifact/controlSession";
 import type {
@@ -17,6 +19,7 @@ import {
   makeFrameworkSchemaArtifactRepository,
   prepareFrameworkSchemaArtifactAdmission,
   type FrameworkSchemaArtifactRepository,
+  type PreparedFrameworkSchemaArtifactAdmission,
 } from "../src/frameworkSchema/artifact/repository";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect } from "./effectTestRuntime";
@@ -26,15 +29,22 @@ import {
 } from "./frameworkSchemaArtifactStorageTestSupport";
 import {
   acquirePostgresDeploymentLock,
+  type BlockedPostgresDeploymentLockWaiter,
   type HeldPostgresDeploymentLock,
   postgresUrl,
   rollbackAndReleasePostgresClient,
-  waitForBlockedPostgresDeploymentLocks,
+  waitForBlockedPostgresDeploymentLockWaiters,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const CONCURRENT_ADMISSIONS = 8;
+const DEFAULT_DEPLOYMENT_ID = "deployment-framework-admission-pg";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describePostgres(
   "private framework schema artifact admission - PostgreSQL",
@@ -123,25 +133,397 @@ describePostgres(
         await insertDeployment(persistence);
         const repository = makePostgresArtifactRepository(persistence);
         const artifact = await captureArtifact();
-        const lock = await acquirePostgresDeploymentLock(
+        const prepared = prepareAdmissionOrThrow(artifact);
+        const admissions: ReturnType<typeof admitPreparedArtifact>[] = [];
+
+        await runWithBlockedDeploymentLock(
           persistence,
           artifact.identity.deploymentId,
+          2,
+          track => {
+            admissions.push(track(admitPreparedArtifact(
+              repository,
+              prepared,
+            )));
+            admissions.push(track(admitPreparedArtifact(
+              repository,
+              prepared,
+            )));
+          },
         );
-        const admissions = [
-          admitArtifact(repository, artifact),
-          admitArtifact(repository, artifact),
-        ] as const;
-        const admissionResults = Promise.all(admissions);
-        void admissionResults.catch(() => undefined);
-
-        await releaseAfterBlocked(lock, persistence, 2, admissions);
-        const results = await admissionResults;
+        const results = await Promise.all(admissions);
 
         expect(results.map(result => result.status).sort()).toEqual([
           "created",
           "existing",
         ]);
         expect(await countArtifactRows(persistence, artifact)).toBe(1);
+      });
+    }, 180_000);
+
+    it("serializes concurrent canonical collisions to one stored winner", async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        await expectPostgres18OrdinaryRole(persistence);
+        await insertDeployment(persistence);
+        const repository = makePostgresArtifactRepository(persistence);
+        const first = await captureArtifact({
+          lineageId: "catalog-collision",
+          payload: { modules: ["first"] },
+        });
+        const firstEvidence = requireCapturedEvidence(first);
+        vi.stubGlobal(
+          "crypto",
+          cryptoReturning(firstEvidence.artifactSha256Bytes),
+        );
+        const second = await captureArtifact({
+          lineageId: "catalog-collision",
+          payload: { modules: ["second"] },
+        });
+        const secondEvidence = requireCapturedEvidence(second);
+        expect(second.identity).toEqual(first.identity);
+        expect(second.canonicalJson).not.toBe(first.canonicalJson);
+        expect(secondEvidence.canonicalBytes).not.toEqual(
+          firstEvidence.canonicalBytes,
+        );
+        const preparedAttempts = [first, second].map(artifact =>
+          Object.freeze({
+            artifact,
+            prepared: prepareAdmissionOrThrow(artifact),
+          })
+        );
+        const attempts: Array<Readonly<{
+          artifact: FrameworkSchemaArtifact;
+          admission: ReturnType<typeof admitPreparedArtifactResult>;
+        }>> = [];
+
+        try {
+          await runWithBlockedDeploymentLock(
+            persistence,
+            first.identity.deploymentId,
+            2,
+            track => {
+              for (const attempt of preparedAttempts) {
+                attempts.push(Object.freeze({
+                  artifact: attempt.artifact,
+                  admission: track(admitPreparedArtifactResult(
+                    repository,
+                    attempt.prepared,
+                  )),
+                }));
+              }
+            },
+          );
+          const outcomes = await Promise.all(attempts.map(async attempt =>
+            Object.freeze({
+              artifact: attempt.artifact,
+              outcome: await attempt.admission,
+            })
+          ));
+          let winner: FrameworkSchemaArtifact | undefined;
+          let collisionCount = 0;
+          for (const attempt of outcomes) {
+            if (Result.isSuccess(attempt.outcome)) {
+              expect(attempt.outcome.success.status).toBe("created");
+              expect(attempt.outcome.success.artifact).toBe(attempt.artifact);
+              expect(winner).toBeUndefined();
+              winner = attempt.artifact;
+            } else {
+              collisionCount += 1;
+              expect(attempt.outcome.failure).toMatchObject({
+                operation: "admit",
+                reason: "digestCollision",
+                message: "Framework schema artifact digest collision",
+                retryable: false,
+                identity: first.identity,
+              });
+              expect(attempt.outcome.failure.identity).not.toBe(first.identity);
+              expect(Object.hasOwn(attempt.outcome.failure, "cause")).toBe(
+                false,
+              );
+            }
+          }
+          expect(collisionCount).toBe(1);
+          if (winner === undefined) {
+            throw new Error("Expected one collision winner.");
+          }
+          const winnerEvidence = requireCapturedEvidence(winner);
+          const loser = winner === first ? second : first;
+          const loserEvidence = requireCapturedEvidence(loser);
+          const stored = await persistence.query<{
+            canonicalByteLength: number;
+            canonicalBytesHex: string;
+            admittedAtFinite: boolean;
+          }>(`
+            select canonical_byte_length as "canonicalByteLength",
+                   encode(canonical_bytes, 'hex') as "canonicalBytesHex",
+                   isfinite(admitted_at) as "admittedAtFinite"
+            from ${ARTIFACT_TABLE}
+            where deployment_id = $1
+              and owner = $2
+              and lineage_id = $3
+              and artifact_sha256 = decode($4, 'hex')
+          `, [
+            winner.identity.deploymentId,
+            winner.identity.owner,
+            winner.identity.lineageId,
+            winner.identity.artifactSha256,
+          ]);
+          expect(stored.rows).toEqual([{
+            canonicalByteLength: winnerEvidence.canonicalBytes.byteLength,
+            canonicalBytesHex: Buffer.from(
+              winnerEvidence.canonicalBytes,
+            ).toString("hex"),
+            admittedAtFinite: true,
+          }]);
+          expect(stored.rows[0]?.canonicalBytesHex).not.toBe(
+            Buffer.from(loserEvidence.canonicalBytes).toString("hex"),
+          );
+          expect(await countArtifactRows(persistence, winner)).toBe(1);
+          expect(await countDependencyRows(persistence, winner)).toBe(0);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+    }, 180_000);
+
+    it("rolls back a parent queued before its missing dependency", async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        await expectPostgres18OrdinaryRole(persistence);
+        await insertDeployment(persistence);
+        const repository = makePostgresArtifactRepository(persistence);
+        const dependency = await captureArtifact({
+          lineageId: "catalog-parent-first-dependency",
+        });
+        const parent = await captureArtifact({
+          lineageId: "catalog-parent-first",
+          dependencies: [dependency.identity],
+        });
+        const preparedParent = prepareAdmissionOrThrow(parent);
+        const preparedDependency = prepareAdmissionOrThrow(dependency);
+        let parentAdmission:
+          ReturnType<typeof admitPreparedArtifactResult> | undefined;
+        let dependencyAdmission:
+          ReturnType<typeof admitPreparedArtifactResult> | undefined;
+
+        await runWithBlockedDeploymentLock(
+          persistence,
+          parent.identity.deploymentId,
+          1,
+          track => {
+            parentAdmission = track(admitPreparedArtifactResult(
+              repository,
+              preparedParent,
+            ));
+          },
+          async (lock, firstWaiters, track) => {
+            dependencyAdmission = track(admitPreparedArtifactResult(
+              repository,
+              preparedDependency,
+            ));
+            const allWaiters =
+              await waitForBlockedPostgresDeploymentLockWaiters(
+              persistence,
+              lock,
+              2,
+            );
+            expectOrderedDeploymentLockQueue(
+              lock,
+              firstWaiters,
+              allWaiters,
+            );
+          },
+        );
+        if (parentAdmission === undefined) {
+          throw new Error("Expected parent admission to start.");
+        }
+        if (dependencyAdmission === undefined) {
+          throw new Error("Expected dependency admission to start.");
+        }
+        const [parentOutcome, dependencyOutcome] = await Promise.all([
+          parentAdmission,
+          dependencyAdmission,
+        ]);
+        expect(Result.isFailure(parentOutcome)).toBe(true);
+        if (Result.isSuccess(parentOutcome)) {
+          throw new Error("Expected the parent admission to fail.");
+        }
+        expect(parentOutcome.failure).toMatchObject({
+          operation: "admit",
+          reason: "dependencyMissing",
+          message: "Framework schema artifact dependency is missing",
+          retryable: false,
+          identity: parent.identity,
+          dependencyIdentity: dependency.identity,
+          dependencyOrdinal: 0,
+        });
+        expect(Object.hasOwn(parentOutcome.failure, "cause")).toBe(false);
+        expect(Result.isSuccess(dependencyOutcome)).toBe(true);
+        if (Result.isFailure(dependencyOutcome)) {
+          throw dependencyOutcome.failure;
+        }
+        expect(dependencyOutcome.success).toEqual({
+          status: "created",
+          artifact: dependency,
+        });
+        expect(await countArtifactRows(persistence, parent)).toBe(0);
+        expect(await countArtifactRows(persistence, dependency)).toBe(1);
+        expect(await countAllDependencyRows(persistence)).toBe(0);
+      });
+    }, 180_000);
+
+    it("observes a dependency committed by the earlier queued waiter", async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        await expectPostgres18OrdinaryRole(persistence);
+        await insertDeployment(persistence);
+        const repository = makePostgresArtifactRepository(persistence);
+        const dependency = await captureArtifact({
+          lineageId: "catalog-dependency-first-dependency",
+        });
+        const parent = await captureArtifact({
+          lineageId: "catalog-dependency-first",
+          dependencies: [dependency.identity],
+        });
+        const preparedDependency = prepareAdmissionOrThrow(dependency);
+        const preparedParent = prepareAdmissionOrThrow(parent);
+        let dependencyAdmission:
+          ReturnType<typeof admitPreparedArtifactResult> | undefined;
+        let parentAdmission:
+          ReturnType<typeof admitPreparedArtifactResult> | undefined;
+
+        await runWithBlockedDeploymentLock(
+          persistence,
+          parent.identity.deploymentId,
+          1,
+          track => {
+            dependencyAdmission = track(admitPreparedArtifactResult(
+              repository,
+              preparedDependency,
+            ));
+          },
+          async (lock, firstWaiters, track) => {
+            parentAdmission = track(admitPreparedArtifactResult(
+              repository,
+              preparedParent,
+            ));
+            const allWaiters =
+              await waitForBlockedPostgresDeploymentLockWaiters(
+              persistence,
+              lock,
+              2,
+            );
+            expectOrderedDeploymentLockQueue(
+              lock,
+              firstWaiters,
+              allWaiters,
+            );
+          },
+        );
+        if (dependencyAdmission === undefined) {
+          throw new Error("Expected dependency admission to start.");
+        }
+        if (parentAdmission === undefined) {
+          throw new Error("Expected parent admission to start.");
+        }
+        const [dependencyOutcome, parentOutcome] = await Promise.all([
+          dependencyAdmission,
+          parentAdmission,
+        ]);
+        expect(Result.isSuccess(dependencyOutcome)).toBe(true);
+        if (Result.isFailure(dependencyOutcome)) {
+          throw dependencyOutcome.failure;
+        }
+        expect(dependencyOutcome.success).toEqual({
+          status: "created",
+          artifact: dependency,
+        });
+        expect(Result.isSuccess(parentOutcome)).toBe(true);
+        if (Result.isFailure(parentOutcome)) throw parentOutcome.failure;
+        expect(parentOutcome.success).toEqual({
+          status: "created",
+          artifact: parent,
+        });
+        expect(await countArtifactRows(persistence, dependency)).toBe(1);
+        expect(await countArtifactRows(persistence, parent)).toBe(1);
+        expect(await countDependencyRows(persistence, parent)).toBe(1);
+      });
+    }, 180_000);
+
+    it("does not serialize an independent deployment behind a held lock", async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        await expectPostgres18OrdinaryRole(persistence);
+        const blockedDeploymentId = `${DEFAULT_DEPLOYMENT_ID}-blocked`;
+        const independentDeploymentId = `${DEFAULT_DEPLOYMENT_ID}-independent`;
+        await insertDeployment(persistence, blockedDeploymentId);
+        await insertDeployment(persistence, independentDeploymentId);
+        const repository = makePostgresArtifactRepository(persistence);
+        const blocked = await captureArtifact({
+          deploymentId: blockedDeploymentId,
+          lineageId: "catalog-blocked-deployment",
+        });
+        const independent = await captureArtifact({
+          deploymentId: independentDeploymentId,
+          lineageId: "catalog-independent-deployment",
+        });
+        const preparedBlocked = prepareAdmissionOrThrow(blocked);
+        const preparedIndependent = prepareAdmissionOrThrow(independent);
+        let blockedAdmission:
+          ReturnType<typeof admitPreparedArtifactResult> | undefined;
+
+        await runWithBlockedDeploymentLock(
+          persistence,
+          blockedDeploymentId,
+          1,
+          track => {
+            blockedAdmission = track(admitPreparedArtifactResult(
+              repository,
+              preparedBlocked,
+            ));
+          },
+          async (lock, firstWaiters, track) => {
+            expect(firstWaiters).toHaveLength(1);
+            expect(firstWaiters[0]?.blockerPids).toContain(lock.blockerPid);
+            const independentOutcome = await track(
+              admitPreparedArtifactResult(
+                repository,
+                preparedIndependent,
+              ),
+            );
+            expect(Result.isSuccess(independentOutcome)).toBe(true);
+            if (Result.isFailure(independentOutcome)) {
+              throw independentOutcome.failure;
+            }
+            expect(independentOutcome.success).toEqual({
+              status: "created",
+              artifact: independent,
+            });
+            expect(await countArtifactRows(persistence, blocked)).toBe(0);
+            expect(await countArtifactRows(persistence, independent)).toBe(1);
+            const stillBlocked =
+              await waitForBlockedPostgresDeploymentLockWaiters(
+                persistence,
+                lock,
+                1,
+              );
+            expect(stillBlocked).toHaveLength(1);
+            expect(stillBlocked[0]?.waiterPid).toBe(
+              firstWaiters[0]?.waiterPid,
+            );
+          },
+        );
+        if (blockedAdmission === undefined) {
+          throw new Error("Expected blocked admission to start.");
+        }
+        const blockedOutcome = await blockedAdmission;
+        expect(Result.isSuccess(blockedOutcome)).toBe(true);
+        if (Result.isFailure(blockedOutcome)) throw blockedOutcome.failure;
+        expect(blockedOutcome.success).toEqual({
+          status: "created",
+          artifact: blocked,
+        });
+        expect(await countArtifactRows(persistence, blocked)).toBe(1);
+        expect(await countArtifactRows(persistence, independent)).toBe(1);
+        expect(await countDependencyRows(persistence, blocked)).toBe(0);
+        expect(await countDependencyRows(persistence, independent)).toBe(0);
       });
     }, 180_000);
   },
@@ -170,7 +552,7 @@ async function captureArtifact(
   overrides: Partial<FrameworkSchemaArtifactCaptureInput> = {},
 ): Promise<FrameworkSchemaArtifact> {
   return runEffect(captureFrameworkSchemaArtifact({
-    deploymentId: "deployment-framework-admission-pg",
+    deploymentId: DEFAULT_DEPLOYMENT_ID,
     owner: "medusa",
     lineageId: "catalog-main",
     payloadCodec: { format: "medusa-dml", version: 1 },
@@ -186,20 +568,45 @@ async function admitArtifact(
   repository: FrameworkSchemaArtifactRepository,
   artifact: FrameworkSchemaArtifact,
 ) {
+  return admitPreparedArtifact(repository, prepareAdmissionOrThrow(artifact));
+}
+
+function prepareAdmissionOrThrow(
+  artifact: FrameworkSchemaArtifact,
+): PreparedFrameworkSchemaArtifactAdmission {
+  return Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(artifact));
+}
+
+function admitPreparedArtifact(
+  repository: FrameworkSchemaArtifactRepository,
+  prepared: PreparedFrameworkSchemaArtifactAdmission,
+) {
   return runEffect(admitFrameworkSchemaArtifactEffect(
     repository,
-    Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(artifact)),
+    prepared,
+  ));
+}
+
+function admitPreparedArtifactResult(
+  repository: FrameworkSchemaArtifactRepository,
+  prepared: PreparedFrameworkSchemaArtifactAdmission,
+) {
+  return runEffect(Effect.result(
+    admitFrameworkSchemaArtifactEffect(
+      repository,
+      prepared,
+    ),
   ));
 }
 
 async function insertDeployment(
   persistence: PostgresFlarexPersistence,
+  deploymentId: string = DEFAULT_DEPLOYMENT_ID,
 ): Promise<void> {
   await persistence.query(`
     insert into deployments (deployment_id, project_id)
-    values ('deployment-framework-admission-pg',
-            'project-framework-admission-pg')
-  `);
+    values ($1, $2)
+  `, [deploymentId, `project-for-${deploymentId}`]);
 }
 
 async function expectPostgres18OrdinaryRole(
@@ -247,20 +654,110 @@ async function countArtifactRows(
   return result.rows[0]?.count ?? 0;
 }
 
-async function releaseAfterBlocked(
-  lock: HeldPostgresDeploymentLock,
+async function countDependencyRows(
   persistence: PostgresFlarexPersistence,
+  artifact: FrameworkSchemaArtifact,
+): Promise<number> {
+  const result = await persistence.query<{ count: number }>(`
+    select count(*)::int as count
+    from ${DEPENDENCY_TABLE} as edge
+    join ${ARTIFACT_TABLE} as parent
+      on parent.artifact_storage_id = edge.artifact_storage_id
+    where parent.deployment_id = $1
+      and parent.owner = $2
+      and parent.lineage_id = $3
+      and parent.artifact_sha256 = decode($4, 'hex')
+  `, [
+    artifact.identity.deploymentId,
+    artifact.identity.owner,
+    artifact.identity.lineageId,
+    artifact.identity.artifactSha256,
+  ]);
+  return result.rows[0]?.count ?? 0;
+}
+
+async function countAllDependencyRows(
+  persistence: PostgresFlarexPersistence,
+): Promise<number> {
+  const result = await persistence.query<{ count: number }>(`
+    select count(*)::int as count
+    from ${DEPENDENCY_TABLE}
+  `);
+  return result.rows[0]?.count ?? 0;
+}
+
+function requireCapturedEvidence(artifact: FrameworkSchemaArtifact) {
+  const evidence = copyCapturedFrameworkSchemaArtifactEvidence(artifact);
+  if (evidence === undefined) {
+    throw new Error("Expected authentic framework artifact evidence.");
+  }
+  return evidence;
+}
+
+function cryptoReturning(bytes: Uint8Array): object {
+  const stableBytes = Uint8Array.from(bytes);
+  return Object.freeze({
+    subtle: Object.freeze({
+      digest(): Promise<ArrayBuffer> {
+        return Promise.resolve(Uint8Array.from(stableBytes).buffer);
+      },
+    }),
+  });
+}
+
+function expectOrderedDeploymentLockQueue(
+  lock: HeldPostgresDeploymentLock,
+  firstWaiters: readonly BlockedPostgresDeploymentLockWaiter[],
+  allWaiters: readonly BlockedPostgresDeploymentLockWaiter[],
+): void {
+  expect(firstWaiters).toHaveLength(1);
+  const firstWaiter = firstWaiters[0];
+  if (firstWaiter === undefined) {
+    throw new Error("Expected the first deployment-lock waiter.");
+  }
+  expect(firstWaiter.blockerPids).toContain(lock.blockerPid);
+  expect(allWaiters).toHaveLength(2);
+  expect(allWaiters).toContainEqual(firstWaiter);
+  const secondWaiter = allWaiters.find(
+    waiter => waiter.waiterPid !== firstWaiter.waiterPid,
+  );
+  expect(secondWaiter?.blockerPids).toContain(firstWaiter.waiterPid);
+}
+
+type TrackBlockedOperation = <Value>(operation: Promise<Value>) =>
+  Promise<Value>;
+
+async function runWithBlockedDeploymentLock(
+  persistence: PostgresFlarexPersistence,
+  deploymentId: string,
   expectedBlocked: number,
-  operations: ReadonlyArray<Promise<unknown>>,
+  startOperations: (track: TrackBlockedOperation) => void,
+  whileBlocked: (
+    lock: HeldPostgresDeploymentLock,
+    waiters: readonly BlockedPostgresDeploymentLockWaiter[],
+    track: TrackBlockedOperation,
+  ) => Promise<void> = () => Promise.resolve(),
 ): Promise<void> {
+  const lock = await acquirePostgresDeploymentLock(
+    persistence,
+    deploymentId,
+  );
+  const operations: Promise<unknown>[] = [];
+  const track: TrackBlockedOperation = operation => {
+    operations.push(operation);
+    void operation.catch(() => undefined);
+    return operation;
+  };
   let released = false;
   let setupError: unknown;
   try {
-    await waitForBlockedPostgresDeploymentLocks(
+    startOperations(track);
+    const waiters = await waitForBlockedPostgresDeploymentLockWaiters(
       persistence,
       lock,
       expectedBlocked,
     );
+    await whileBlocked(lock, waiters, track);
     await lock.client.query("commit");
     released = true;
   } catch (error) {
