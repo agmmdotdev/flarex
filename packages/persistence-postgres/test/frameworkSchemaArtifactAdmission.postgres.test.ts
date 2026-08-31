@@ -3,6 +3,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
+import {
+  CatalogSchemaVersionIdSchema,
+  CatalogSchemaVersionSchema,
+} from "flarex-protocol/schema-manifest";
 import { Pool, type PoolClient } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -35,6 +39,11 @@ import {
   type PreparedFrameworkSchemaArtifactAdmission,
 } from "../src/frameworkSchema/artifact/repository";
 import type { PostgresFlarexPersistence } from "../src/postgres";
+import {
+  ensureSchemaVersionArtifactInTransactionEffect,
+  prepareSchemaVersionArtifactEffect,
+  type PreparedSchemaVersionArtifact,
+} from "../src/schemaVersionArtifacts";
 import { runEffect } from "./effectTestRuntime";
 import {
   ARTIFACT_TABLE,
@@ -51,9 +60,23 @@ import {
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const ARTIFACT_DEADLOCK_ADVISORY_CLASS_ID = 80_932;
 const ARTIFACT_INTERRUPT_ADVISORY_CLASS_ID = 80_931;
 const CONCURRENT_ADMISSIONS = 8;
 const DEFAULT_DEPLOYMENT_ID = "deployment-framework-admission-pg";
+const SUPPORTED_LOCK_ORDER_SCENARIOS = [
+  {
+    label: "framework artifact first",
+    holder: "framework",
+  },
+  {
+    label: "Application schema-version artifact first",
+    holder: "application",
+  },
+] as const satisfies readonly Readonly<{
+  label: string;
+  holder: "application" | "framework";
+}>[];
 const COMMIT_SETTLEMENT_RECOVERY_SCENARIOS = [
   {
     label: "before PostgreSQL receives COMMIT",
@@ -617,6 +640,97 @@ describePostgres(
       });
     }, 180_000);
 
+    it.each(SUPPORTED_LOCK_ORDER_SCENARIOS)(
+      "keeps the supported cross-owner lock order acyclic with $label",
+      async ({ holder }) => {
+        await withTemporaryPostgresPersistence(async persistence => {
+          await expectPostgres18OrdinaryRole(persistence);
+          await insertDeployment(persistence);
+          const repository = makePostgresArtifactRepository(persistence);
+          const suffix = holder === "framework"
+            ? "framework_first"
+            : "application_first";
+          const dependency = await captureArtifact({
+            lineageId: `catalog-deadlock-${suffix}-dependency`,
+          });
+          expect(await admitArtifact(repository, dependency)).toEqual({
+            status: "created",
+            artifact: dependency,
+          });
+          const parent = await captureArtifact({
+            lineageId: `catalog-deadlock-${suffix}-parent`,
+            dependencies: [dependency.identity],
+          });
+          const preparedParent = prepareAdmissionOrThrow(parent);
+          const applicationArtifact = await runEffect(
+            prepareSchemaVersionArtifactEffect({
+              deploymentId: parent.identity.deploymentId,
+              schemaVersionId: CatalogSchemaVersionIdSchema.make(
+                `schema_artifact_deadlock_${suffix}`,
+              ),
+              version: CatalogSchemaVersionSchema.make(1),
+              manifest: {
+                tables: [{ name: `deadlock_${suffix}` }],
+              },
+            }),
+          );
+
+          const observed = await runSupportedCrossOwnerLockOrder({
+            persistence,
+            holder,
+            frameworkArtifact: parent,
+            applicationArtifact,
+            startFramework: () => admitPreparedArtifact(
+              repository,
+              preparedParent,
+            ),
+            startApplication: () => ensureApplicationSchemaVersionArtifact(
+              persistence,
+              applicationArtifact,
+            ),
+          });
+
+          expect(observed.frameworkResult).toEqual({
+            status: "created",
+            artifact: parent,
+          });
+          expect(observed.applicationResult).toMatchObject({
+            status: "created",
+            artifact: {
+              deploymentId: applicationArtifact.deploymentId,
+              schemaVersionId: applicationArtifact.schemaVersionId,
+              version: applicationArtifact.version,
+            },
+          });
+          expect(observed.holderBackendPid).not.toBe(
+            observed.waiterBackendPid,
+          );
+          expect(await countArtifactRows(persistence, dependency)).toBe(1);
+          expect(await countArtifactRows(persistence, parent)).toBe(1);
+          expect(await countDependencyRows(persistence, parent)).toBe(1);
+          expect(await countApplicationSchemaVersionRows(
+            persistence,
+            applicationArtifact,
+          )).toBe(1);
+          expect(await admitArtifact(repository, parent)).toEqual({
+            status: "existing",
+            artifact: parent,
+          });
+          const applicationReplay =
+            await ensureApplicationSchemaVersionArtifact(
+              persistence,
+              applicationArtifact,
+            );
+          expect(applicationReplay).toEqual({
+            status: "existing",
+            artifact: observed.applicationResult.artifact,
+          });
+          expect(await countAllDependencyRows(persistence)).toBe(1);
+        });
+      },
+      180_000,
+    );
+
     it("rolls back an inserted parent when dependency-edge insertion fails", async () => {
       await withTemporaryPostgresPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
@@ -876,6 +990,169 @@ const DEFAULT_POSTGRES_ARTIFACT_TIMEOUT_POLICY = Object.freeze({
   recoveryTimeoutMilliseconds: 30_000,
   lockTimeoutMilliseconds: 10_000,
 }) satisfies FrameworkSchemaArtifactRepositoryTimeoutPolicy;
+
+interface CapturedTestFailure {
+  readonly cause: unknown;
+}
+
+function captureTestFailure(
+  operation: Promise<void>,
+): Promise<CapturedTestFailure | undefined> {
+  return operation.then(
+    () => undefined,
+    cause => ({ cause }),
+  );
+}
+
+async function runSupportedCrossOwnerLockOrder(input: Readonly<{
+  persistence: PostgresFlarexPersistence;
+  holder: "application" | "framework";
+  frameworkArtifact: FrameworkSchemaArtifact;
+  applicationArtifact: PreparedSchemaVersionArtifact;
+  startFramework: () => ReturnType<typeof admitPreparedArtifact>;
+  startApplication: () => ReturnType<
+    typeof ensureApplicationSchemaVersionArtifact
+  >;
+}>): Promise<Readonly<{
+  frameworkResult: Awaited<ReturnType<typeof admitPreparedArtifact>>;
+  applicationResult: Awaited<ReturnType<
+    typeof ensureApplicationSchemaVersionArtifact
+  >>;
+  holderBackendPid: number;
+  waiterBackendPid: number;
+}>> {
+  let frameworkOperation:
+    ReturnType<typeof admitPreparedArtifact> | undefined;
+  let applicationOperation:
+    ReturnType<typeof ensureApplicationSchemaVersionArtifact> | undefined;
+  let holderBackendPid: number | undefined;
+  let waiterBackendPid: number | undefined;
+  const trackedOperations: Promise<unknown>[] = [];
+  const track = <Value>(operation: Promise<Value>): Promise<Value> => {
+    trackedOperations.push(operation);
+    void operation.catch(() => undefined);
+    return operation;
+  };
+  let primaryFailure: CapturedTestFailure | undefined;
+  try {
+    await withPostgresArtifactAdvisoryBlocker(
+      input.persistence,
+      async (blockerPid, releaseBlocker) => {
+        let coordinationFailure: CapturedTestFailure | undefined;
+        try {
+          await installPostgresSupportedLockOrderBarrier(
+            input.persistence,
+            input.holder,
+            blockerPid,
+            input.frameworkArtifact,
+            input.applicationArtifact,
+          );
+          if (input.holder === "framework") {
+            frameworkOperation = track(input.startFramework());
+          } else {
+            applicationOperation = track(input.startApplication());
+          }
+          const holderBlocked = await waitForPostgresBackendBlockedBy(
+            input.persistence,
+            blockerPid,
+          );
+          holderBackendPid = holderBlocked.waiterPid;
+          const expectedHolderTable = input.holder === "framework"
+            ? ARTIFACT_TABLE
+            : "fx_control_schema_version";
+          expect(holderBlocked.query.toLowerCase()).toContain(
+            expectedHolderTable,
+          );
+
+          if (input.holder === "framework") {
+            applicationOperation = track(input.startApplication());
+          } else {
+            frameworkOperation = track(input.startFramework());
+          }
+          const deploymentWaiter =
+            await waitForPostgresDeploymentLockWaiterBlockedBy(
+              input.persistence,
+              holderBlocked.waiterPid,
+            );
+          waiterBackendPid = deploymentWaiter.waiterPid;
+          expect(deploymentWaiter.blockerPids).toContain(
+            holderBlocked.waiterPid,
+          );
+          expect(deploymentWaiter.blockerPids).not.toContain(
+            deploymentWaiter.waiterPid,
+          );
+          expect(new Set([
+            blockerPid,
+            holderBlocked.waiterPid,
+            deploymentWaiter.waiterPid,
+          ]).size).toBe(3);
+        } catch (cause) {
+          coordinationFailure = { cause };
+        }
+
+        const releaseFailure = await captureTestFailure(releaseBlocker());
+        const settlements = await Promise.allSettled(trackedOperations);
+        const operationCauses = settlements.flatMap(settlement =>
+          settlement.status === "rejected" ? [settlement.reason] : []
+        );
+        const causes = [
+          ...operationCauses,
+          ...(coordinationFailure === undefined
+            ? []
+            : [coordinationFailure.cause]),
+          ...(releaseFailure === undefined ? [] : [releaseFailure.cause]),
+        ];
+        if (causes.length === 1) throw causes[0];
+        if (causes.length > 1) {
+          throw new AggregateError(
+            causes,
+            "Supported cross-owner lock-order evidence failed.",
+          );
+        }
+      },
+      ARTIFACT_DEADLOCK_ADVISORY_CLASS_ID,
+    );
+  } catch (cause) {
+    primaryFailure = { cause };
+  }
+  const cleanupFailure = await captureTestFailure(
+    dropPostgresSupportedLockOrderBarrier(input.persistence),
+  );
+  if (primaryFailure !== undefined && cleanupFailure !== undefined) {
+    throw new AggregateError(
+      [primaryFailure.cause, cleanupFailure.cause],
+      "Supported lock-order operation and barrier cleanup both failed.",
+    );
+  }
+  if (primaryFailure !== undefined) throw primaryFailure.cause;
+  if (cleanupFailure !== undefined) throw cleanupFailure.cause;
+
+  if (
+    frameworkOperation === undefined ||
+    applicationOperation === undefined ||
+    holderBackendPid === undefined ||
+    waiterBackendPid === undefined
+  ) {
+    throw new Error("Expected both supported lock-order operations to run.");
+  }
+  const [frameworkResult, applicationResult] = await Promise.all([
+    frameworkOperation,
+    applicationOperation,
+  ]);
+  const remainingWaits = await input.persistence.query<{ count: number }>(`
+    select count(*)::int as count
+    from pg_stat_activity
+    where pid = any($1::int[])
+      and wait_event_type = 'Lock'
+  `, [[holderBackendPid, waiterBackendPid]]);
+  expect(remainingWaits.rows).toEqual([{ count: 0 }]);
+  return Object.freeze({
+    frameworkResult,
+    applicationResult,
+    holderBackendPid,
+    waiterBackendPid,
+  });
+}
 
 async function expectPostgresArtifactAcquisitionDeadline(): Promise<void> {
   await withTemporaryPostgresPersistence(async persistence => {
@@ -2538,9 +2815,10 @@ async function withPostgresArtifactAdvisoryBlocker(
     blockerPid: number,
     releaseBlocker: () => Promise<void>,
   ) => Promise<void>,
+  advisoryClassId: number = ARTIFACT_INTERRUPT_ADVISORY_CLASS_ID,
 ): Promise<void> {
   const blocker = await persistence.pool.connect();
-  let primaryCause: unknown;
+  let primaryFailure: CapturedTestFailure | undefined;
   let transactionOpen = false;
   let released = false;
   const releaseBlocker = async (): Promise<void> => {
@@ -2564,7 +2842,7 @@ async function withPostgresArtifactAdvisoryBlocker(
     if (causes.length > 0) {
       throw new AggregateError(
         causes,
-        "Failed to release PostgreSQL artifact interruption blocker.",
+        "Failed to release PostgreSQL artifact advisory blocker.",
       );
     }
   };
@@ -2574,21 +2852,21 @@ async function withPostgresArtifactAdvisoryBlocker(
     transactionOpen = true;
     await blocker.query(
       "select pg_advisory_xact_lock($1::integer, $2::integer)",
-      [ARTIFACT_INTERRUPT_ADVISORY_CLASS_ID, blockerPid],
+      [advisoryClassId, blockerPid],
     );
     await operation(blockerPid, releaseBlocker);
   } catch (cause) {
-    primaryCause = cause;
-    throw cause;
-  } finally {
-    const cleanupCause = await releaseBlocker().then(
-      () => undefined,
-      cause => cause,
-    );
-    if (primaryCause === undefined && cleanupCause !== undefined) {
-      throw cleanupCause;
-    }
+    primaryFailure = { cause };
   }
+  const cleanupFailure = await captureTestFailure(releaseBlocker());
+  if (primaryFailure !== undefined && cleanupFailure !== undefined) {
+    throw new AggregateError(
+      [primaryFailure.cause, cleanupFailure.cause],
+      "PostgreSQL artifact advisory operation and cleanup both failed.",
+    );
+  }
+  if (primaryFailure !== undefined) throw primaryFailure.cause;
+  if (cleanupFailure !== undefined) throw cleanupFailure.cause;
 }
 
 async function readPostgresBackendPid(client: PoolClient): Promise<number> {
@@ -2645,6 +2923,131 @@ async function waitForPostgresBackendBlockedBy(
   throw new Error(
     `Timed out waiting for a PostgreSQL backend blocked by ${blockerPid}.`,
   );
+}
+
+async function waitForPostgresDeploymentLockWaiterBlockedBy(
+  persistence: PostgresFlarexPersistence,
+  blockerPid: number,
+): Promise<BlockedPostgresDeploymentLockWaiter> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await persistence.query<{
+      waiterPid: number;
+      blockerPids: number[];
+    }>(`
+      select activity.pid::int as "waiterPid",
+             pg_blocking_pids(activity.pid) as "blockerPids"
+      from pg_stat_activity as activity
+      where activity.datname = current_database()
+        and activity.state = 'active'
+        and activity.wait_event_type = 'Lock'
+        and activity.query ilike '%deployments%'
+        and activity.query ilike '%for update%'
+        and $1::int = any(pg_blocking_pids(activity.pid))
+      order by activity.pid
+    `, [blockerPid]);
+    const row = result.rows[0];
+    if (
+      isNonArrayRecord(row) &&
+      typeof row.waiterPid === "number" &&
+      Number.isSafeInteger(row.waiterPid) &&
+      row.waiterPid > 0 &&
+      Array.isArray(row.blockerPids) &&
+      row.blockerPids.every(pid =>
+        typeof pid === "number" && Number.isSafeInteger(pid) && pid > 0
+      )
+    ) {
+      return Object.freeze({
+        waiterPid: row.waiterPid,
+        blockerPids: Object.freeze([...row.blockerPids]),
+      });
+    }
+    await delay(25);
+  }
+  throw new Error(
+    `Timed out waiting for a deployment lock behind backend ${blockerPid}.`,
+  );
+}
+
+async function installPostgresSupportedLockOrderBarrier(
+  persistence: PostgresFlarexPersistence,
+  holder: "application" | "framework",
+  blockerPid: number,
+  frameworkArtifact: FrameworkSchemaArtifact,
+  applicationArtifact: PreparedSchemaVersionArtifact,
+): Promise<void> {
+  if (holder === "framework") {
+    await persistence.query(`
+      create function fx_test_supported_lock_order_barrier()
+      returns trigger
+      language plpgsql
+      as $function$
+      begin
+        if new.deployment_id = ${postgresTextLiteral(
+          frameworkArtifact.identity.deploymentId,
+        )}
+          and new.lineage_id = ${postgresTextLiteral(
+            frameworkArtifact.identity.lineageId,
+          )}
+        then
+          perform pg_advisory_xact_lock(
+            ${ARTIFACT_DEADLOCK_ADVISORY_CLASS_ID},
+            ${blockerPid}
+          );
+        end if;
+        return new;
+      end
+      $function$;
+
+      create trigger fx_test_supported_lock_order_barrier
+      before insert on ${ARTIFACT_TABLE}
+      for each row execute function
+        fx_test_supported_lock_order_barrier();
+    `);
+    return;
+  }
+
+  await persistence.query(`
+    create function fx_test_supported_lock_order_barrier()
+    returns trigger
+    language plpgsql
+    as $function$
+    begin
+      if new.deployment_id = ${postgresTextLiteral(
+        applicationArtifact.deploymentId,
+      )}
+        and new.schema_version_id = ${postgresTextLiteral(
+          applicationArtifact.schemaVersionId,
+        )}
+      then
+        perform pg_advisory_xact_lock(
+          ${ARTIFACT_DEADLOCK_ADVISORY_CLASS_ID},
+          ${blockerPid}
+        );
+      end if;
+      return new;
+    end
+    $function$;
+
+    create trigger fx_test_supported_lock_order_barrier
+    before insert on fx_control_schema_version
+    for each row execute function
+      fx_test_supported_lock_order_barrier();
+  `);
+}
+
+async function dropPostgresSupportedLockOrderBarrier(
+  persistence: PostgresFlarexPersistence,
+): Promise<void> {
+  await persistence.query(`
+    drop trigger if exists
+      fx_test_supported_lock_order_barrier
+      on ${ARTIFACT_TABLE};
+    drop trigger if exists
+      fx_test_supported_lock_order_barrier
+      on fx_control_schema_version;
+    drop function if exists fx_test_supported_lock_order_barrier();
+  `);
 }
 
 async function installPostgresCallbackInterruptionBarrier(
@@ -2896,6 +3299,18 @@ function admitPreparedArtifactResult(
   ));
 }
 
+function ensureApplicationSchemaVersionArtifact(
+  persistence: PostgresFlarexPersistence,
+  artifact: PreparedSchemaVersionArtifact,
+) {
+  return persistence.drizzle.transaction(transaction => runEffect(
+    ensureSchemaVersionArtifactInTransactionEffect(
+      transaction,
+      artifact,
+    ),
+  ));
+}
+
 async function insertDeployment(
   persistence: PostgresFlarexPersistence,
   deploymentId: string = DEFAULT_DEPLOYMENT_ID,
@@ -2980,6 +3395,20 @@ async function countAllDependencyRows(
     select count(*)::int as count
     from ${DEPENDENCY_TABLE}
   `);
+  return result.rows[0]?.count ?? 0;
+}
+
+async function countApplicationSchemaVersionRows(
+  persistence: PostgresFlarexPersistence,
+  artifact: PreparedSchemaVersionArtifact,
+): Promise<number> {
+  const result = await persistence.query<{ count: number }>(`
+    select count(*)::int as count
+    from fx_control_schema_version
+    where deployment_id = $1
+      and schema_version_id = $2
+      and version = $3
+  `, [artifact.deploymentId, artifact.schemaVersionId, artifact.version]);
   return result.rows[0]?.count ?? 0;
 }
 

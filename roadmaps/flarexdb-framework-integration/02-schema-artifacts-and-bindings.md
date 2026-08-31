@@ -16,10 +16,11 @@ write rollback, plus driver-edge pre-/post-`COMMIT` settlement recovery after
 discarding the uncertain native backend and using a distinct recovery backend,
 plus advisory-lock-backed callback-SQL and server-blocked-`COMMIT`
 interruption settlement, native queued-acquisition expiry, server lock and
-statement timeouts, and detached and post-resolution reconstruction deadlines;
-active-SQL and recovery-work deadlines remain blocked by `FSA-PG-DRAIN-01`, and
-wider genuine PostgreSQL acceptance and later lifecycle persistence codecs
-remain gated
+statement timeouts, detached and post-resolution reconstruction deadlines, and
+both supported cross-owner deployment-lock holder orders with the existing
+Application schema-version artifact writer; active-SQL and recovery-work
+deadlines remain blocked by `FSA-PG-DRAIN-01`, and wider genuine PostgreSQL
+acceptance and later lifecycle persistence codecs remain gated
 
 The additive authority architecture and exact artifact-envelope contract are
 frozen by
@@ -73,6 +74,17 @@ is released. Those two desired acceptances remain skipped without weakening
 their drain-and-absence contract. The artifact-private PostgreSQL control-
 session tracking/quarantine owner requires separate preflight and approval
 before correction.
+
+Two additional ordinary-role scenarios prove the supported deployment-first
+sequence against the existing Application schema-version artifact writer. A
+targeted trigger blocks the initial writer only after it owns the deployment
+row; native activity and blocker evidence then shows the other writer queued on
+its own deployment-row lock. Reversing the initial holder produces the same
+acyclic external-barrier -> holder -> waiter graph. Both writers create once,
+replay as `existing`, and leave exactly one Application row plus the framework
+dependency, parent, and edge. This is bounded cross-owner lock-order evidence,
+not universal deadlock freedom, deadlock retry, or composite-transaction
+authority.
 
 This plan owns the neutral identity and lifecycle mechanics needed to compile,
 install, validate, and bind Payload lifecycle, Medusa, and admitted system

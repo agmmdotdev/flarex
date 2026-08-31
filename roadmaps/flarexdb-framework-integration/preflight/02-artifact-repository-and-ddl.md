@@ -17,9 +17,10 @@ settlement recovery after discarding the uncertain backend and using a
 distinct recovery backend, plus advisory-lock-backed callback-SQL and server-
 blocked-`COMMIT` interruption settlement, native queued-acquisition expiry,
 server-enforced lock and statement timeouts, and detached optimistic and post-
-resolution reconstruction deadlines; active-SQL and recovery-work deadlines
-remain blocked by `FSA-PG-DRAIN-01`, and wider genuine PostgreSQL acceptance
-remains incomplete
+resolution reconstruction deadlines, plus deployment-first cross-owner lock
+ordering with both the framework and Application schema-version artifact writer
+as the initial holder; active-SQL and recovery-work deadlines remain blocked by
+`FSA-PG-DRAIN-01`, and wider genuine PostgreSQL acceptance remains incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -1144,6 +1145,22 @@ permits a clean retry. The catalog assertion reads nullability from
 `pg_constraint` `contype = 'n'` entries from the separately asserted named-
 constraint inventory.
 
+Two cross-owner ordinary-role scenarios now prove the supported deployment-
+first sequence against the existing Application schema-version artifact writer.
+All artifact preparation completes before either transaction starts. A targeted
+`BEFORE INSERT` trigger blocks the first writer on an external advisory
+transaction lock only after that writer owns the deployment row; native
+`pg_stat_activity` and `pg_blocking_pids()` then prove the second writer is
+waiting on its own `deployments ... FOR UPDATE` behind that exact backend. The
+test runs once with the dependency-bearing framework admission first and once
+with the Application writer first, producing the acyclic wait graph external
+blocker -> holder -> deployment waiter in both directions. After release, both
+first attempts return `created`, both exact replays return `existing`, and one
+Application row, one framework dependency, one parent, and one edge remain.
+This is supported cross-owner lock-order evidence, not universal PostgreSQL
+deadlock freedom, forced-`40P01` recovery, composite-transaction reuse, or a
+new retry policy.
+
 Driver-edge fault injection immediately before native `COMMIT` now proves that
 the uncommitted backend is removed and absent from `pg_stat_activity`, one
 distinct recovery backend creates the dependency-bearing parent, and the final
@@ -1244,9 +1261,9 @@ core from a system-test slice. A separate preflight and approval are required
 before changing that owner.
 
 Native active-SQL and recovery-work deadline completion remains blocked by
-`FSA-PG-DRAIN-01`. Supported-sequence deadlock absence and native identity-list/
-index behavior also remain unproved. This focused evidence does not complete
-the private repository checkpoint or open a downstream gate.
+`FSA-PG-DRAIN-01`. Native identity-list/index behavior also remains unproved.
+This focused evidence does not complete the private repository checkpoint or
+open a downstream gate.
 
 ## Accepted Implementation Checkpoint
 
@@ -1282,8 +1299,8 @@ in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
 The next shared-core step requires a separately approved preflight for
-`FSA-PG-DRAIN-01`; independent acceptance may otherwise continue with supported-
-sequence deadlock and identity-list/index evidence. The implemented DDL,
+`FSA-PG-DRAIN-01`; independent acceptance may otherwise continue with identity-
+list/index evidence. The implemented DDL,
 preparation capability, stored loader/reconstruction, point read, locked
 admission, bounded identity list, repository
 identity, authenticated starter, deterministic control-session lifecycle, and
