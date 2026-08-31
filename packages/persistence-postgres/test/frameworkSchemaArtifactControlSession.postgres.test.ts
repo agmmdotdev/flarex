@@ -1,8 +1,15 @@
+import { createServer, type Socket } from "node:net";
 import { sql } from "drizzle-orm";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Cause, Clock, Effect, Exit, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
-import { Client, Pool, type PoolClient, type QueryResultRow } from "pg";
+import {
+  Client,
+  Pool,
+  type PoolClient,
+  type PoolConfig,
+  type QueryResultRow,
+} from "pg";
 import { describe, expect, it } from "vitest";
 
 import type { FlarexMetadataDatabase } from "../src/deployments";
@@ -41,6 +48,11 @@ interface FakeClientOptions {
   >;
   readonly releaseFailure?: (destroy: boolean) => unknown | undefined;
   readonly rollbackCommand?: string;
+  readonly runtimeBackendKeyData?: Readonly<{
+    readonly processId: number;
+    readonly secretKey: number;
+  }>;
+  readonly emitEndOnDestroy?: boolean;
   readonly settleDelayedOnDestroy?: boolean;
   readonly useForeignPromise?: boolean;
 }
@@ -725,6 +737,182 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     expect(quarantineTimeoutReads).toBe(1);
   });
 
+  it("bounds a stalled authenticated cancellation transport", async () => {
+    const sockets = new Set<Socket>();
+    const server = createServer(socket => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected a TCP cancellation-test listener.");
+    }
+
+    try {
+      const events: string[] = [];
+      const delayed = deferred<FakeQueryResult>();
+      const client = fakePoolClient("cancel-stall", events, {
+        delayedQuery: delayed,
+        emitEndOnDestroy: true,
+        runtimeBackendKeyData: { processId: 731, secretKey: -913 },
+      });
+      const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+        queuedPool([client], events, {
+          host: "127.0.0.1",
+          port: address.port,
+        }),
+        { quarantineDrainTimeoutMilliseconds: 20 },
+      );
+      const deadline = await Effect.runPromise(
+        startFrameworkSchemaArtifactControlDeadline("read", 1_000),
+      );
+      const controller = new AbortController();
+
+      const exitPromise = Effect.runPromiseExit(driver.runReadEffect(
+        { deadline },
+        database => Effect.sync(() => {
+          void Promise.resolve(
+            database.execute(sql.raw("select delayed_user_query")),
+          ).catch(() => undefined);
+        }).pipe(Effect.andThen(Effect.never)),
+      ), { signal: controller.signal });
+      await waitFor(() => events.includes(
+        "cancel-stall:query:select delayed_user_query",
+      ));
+      controller.abort();
+      const exit = await exitPromise;
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const cleanupDefect = exit.cause.reasons
+          .filter(Cause.isDieReason)
+          .map(reason => reason.defect)
+          .find(defect => defect instanceof
+            FrameworkSchemaArtifactControlSessionCleanupDefect);
+        expect(cleanupDefect).toMatchObject({ phase: "quarantine" });
+      }
+      expect(events).toContain("cancel-stall:release:true");
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => error === undefined ? resolve() : reject(error));
+      });
+    }
+  });
+
+  it("maps cancellation connection errors into cleanup failure", async () => {
+    const reservation = createServer();
+    await new Promise<void>((resolve, reject) => {
+      reservation.once("error", reject);
+      reservation.listen(0, "127.0.0.1", resolve);
+    });
+    const address = reservation.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected a TCP cancellation-test listener.");
+    }
+    await new Promise<void>((resolve, reject) => {
+      reservation.close(error => error === undefined ? resolve() : reject(error));
+    });
+
+    const events: string[] = [];
+    const delayed = deferred<FakeQueryResult>();
+    const client = fakePoolClient("cancel-error", events, {
+      delayedQuery: delayed,
+      emitEndOnDestroy: true,
+      runtimeBackendKeyData: { processId: 947, secretKey: 1_127 },
+    });
+    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+      queuedPool([client], events, {
+        host: "127.0.0.1",
+        port: address.port,
+      }),
+      { quarantineDrainTimeoutMilliseconds: 500 },
+    );
+    const deadline = await Effect.runPromise(
+      startFrameworkSchemaArtifactControlDeadline("read", 1_000),
+    );
+    const controller = new AbortController();
+
+    const exitPromise = Effect.runPromiseExit(driver.runReadEffect(
+      { deadline },
+      database => Effect.sync(() => {
+        void Promise.resolve(
+          database.execute(sql.raw("select delayed_user_query")),
+        ).catch(() => undefined);
+      }).pipe(Effect.andThen(Effect.never)),
+    ), { signal: controller.signal });
+    await waitFor(() => events.includes(
+      "cancel-error:query:select delayed_user_query",
+    ));
+    controller.abort();
+    const exit = await exitPromise;
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(exit.cause.reasons.filter(Cause.isDieReason).some(reason =>
+        reason.defect instanceof
+          FrameworkSchemaArtifactControlSessionCleanupDefect &&
+        reason.defect.phase === "quarantine"
+      )).toBe(true);
+    }
+    expect(events).toContain("cancel-error:release:true");
+  });
+
+  it("fails cancellation closed before opening a TLS transport", async () => {
+    const events: string[] = [];
+    const delayed = deferred<FakeQueryResult>();
+    const client = fakePoolClient("cancel-tls", events, {
+      delayedQuery: delayed,
+      emitEndOnDestroy: true,
+      runtimeBackendKeyData: { processId: 1_013, secretKey: -1_219 },
+    });
+    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+      queuedPool([client], events, {
+        host: "127.0.0.1",
+        port: 1,
+        ssl: true,
+      }),
+      { quarantineDrainTimeoutMilliseconds: 500 },
+    );
+    const deadline = await Effect.runPromise(
+      startFrameworkSchemaArtifactControlDeadline("read", 1_000),
+    );
+    const controller = new AbortController();
+
+    const exitPromise = Effect.runPromiseExit(driver.runReadEffect(
+      { deadline },
+      database => Effect.sync(() => {
+        void Promise.resolve(
+          database.execute(sql.raw("select delayed_user_query")),
+        ).catch(() => undefined);
+      }).pipe(Effect.andThen(Effect.never)),
+    ), { signal: controller.signal });
+    await waitFor(() => events.includes(
+      "cancel-tls:query:select delayed_user_query",
+    ));
+    controller.abort();
+    const exit = await exitPromise;
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const defects = exit.cause.reasons.filter(Cause.isDieReason).map(
+        reason => reason.defect,
+      );
+      expect(defects.some(defect => defect instanceof
+        FrameworkSchemaArtifactControlSessionCleanupDefect &&
+        defect.phase === "quarantine"
+      )).toBe(true);
+      expect(Cause.pretty(exit.cause)).toContain(
+        "authenticated cancellation is not enabled for TLS connections",
+      );
+    }
+    expect(events).toContain("cancel-tls:release:true");
+  });
+
   it("destroys a checked-out client when session construction throws", async () => {
     const events: string[] = [];
     const client = fakePoolClient("construction", events);
@@ -1144,9 +1332,11 @@ async function initialDeadline(timeoutMilliseconds = 1_000) {
 function queuedPool(
   clients: readonly PoolClient[],
   events: string[],
+  options?: PoolConfig,
 ): ControlPool {
   const queue = [...clients];
   return {
+    ...(options === undefined ? {} : { options }),
     connect(callback) {
       const client = queue.shift();
       if (client === undefined) {
@@ -1168,6 +1358,19 @@ function fakePoolClient(
   options: FakeClientOptions = {},
 ): PoolClient {
   const client = new Client();
+  if (options.runtimeBackendKeyData !== undefined) {
+    Reflect.set(client, "_connected", true);
+    Reflect.set(
+      client,
+      "processID",
+      options.runtimeBackendKeyData.processId,
+    );
+    Reflect.set(
+      client,
+      "secretKey",
+      options.runtimeBackendKeyData.secretKey,
+    );
+  }
   Object.defineProperty(client, "query", {
     configurable: true,
     value: function (this: unknown, query: unknown, values?: unknown) {
@@ -1220,6 +1423,9 @@ function fakePoolClient(
         )) {
           delayed.reject(cause);
         }
+      }
+      if (destroy && options.emitEndOnDestroy === true) {
+        queueMicrotask(() => client.emit("end"));
       }
     },
   });

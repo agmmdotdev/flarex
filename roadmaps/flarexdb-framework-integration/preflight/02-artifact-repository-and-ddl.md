@@ -19,8 +19,9 @@ blocked-`COMMIT` interruption settlement, native queued-acquisition expiry,
 server-enforced lock and statement timeouts, and detached optimistic and post-
 resolution reconstruction deadlines, plus deployment-first cross-owner lock
 ordering with both the framework and Application schema-version artifact writer
-as the initial holder; active-SQL and recovery-work deadlines remain blocked by
-`FSA-PG-DRAIN-01`, and wider genuine PostgreSQL acceptance remains incomplete
+as the initial holder; active-SQL and recovery-work deadline quarantine is now
+implemented under the separately accepted `FSA-PG-DRAIN-01` correction, while
+wider genuine PostgreSQL acceptance remains incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -649,9 +650,9 @@ healthy session is released before CPU/crypto reconstruction. The timeout
 contract must drain or cancel active database work, discard an active session
 when necessary, and only then return a read `resourceFailure` at the active
 persistence stage. Deterministic adapter evidence covers that contract, and
-native detached-reconstruction evidence covers the healthy-release path;
-native active-SQL drain-before-return proof remains blocked by
-`FSA-PG-DRAIN-01` below.
+native detached-reconstruction evidence covers the healthy-release path. Native
+active-SQL drain-before-return is now covered by the accepted correction in
+[`03-postgres-active-work-quarantine.md`](./03-postgres-active-work-quarantine.md).
 
 For a present row, the reader:
 
@@ -993,10 +994,9 @@ transaction outcome, locking, or concurrency. A URL-gated server probe exists
 for one backend, `READ COMMITTED`, positive local budgets, and exact read
 `statement_timeout` restoration. The focused ordinary-role PostgreSQL 18 lane
 now runs that probe, proves the two native interruption scenarios, and supplies
-the five completed native deadline receipts recorded under Genuine PostgreSQL
-Evidence below. Deterministic doubles remain the only passing evidence for the
-active-SQL and recovery-work deadline contracts blocked by `FSA-PG-DRAIN-01`,
-cleanup failures, and wider fault combinations not explicitly recorded as
+the seven completed native deadline receipts recorded under Genuine PostgreSQL
+Evidence below. Deterministic doubles remain the only passing evidence for
+cleanup failures and wider fault combinations not explicitly recorded as
 native evidence.
 
 ### PGlite Migration Evidence
@@ -1229,8 +1229,9 @@ PostgreSQL query cancellation.
 
 #### FSA-PG-DRAIN-01: active SQL is not drained before deadline return
 
-Status: open owner-boundary defect; production correction not authorized by
-this acceptance slice.
+Status: corrected under the separately accepted owner record in
+[`03-postgres-active-work-quarantine.md`](./03-postgres-active-work-quarantine.md);
+production and hosted activation remain unauthorized.
 
 Reproduction: an ordinary-role `BEFORE INSERT` trigger blocks the admission
 backend on a held advisory transaction lock. `pg_stat_activity` and
@@ -1245,8 +1246,9 @@ tracked native statement to reject and drain, proves the backend absent from
 `pg_stat_activity`, and only then returns the initial `resourceFailure` or the
 recovery `decisionUncertain`.
 
-Actual: admission returns and the node-postgres pool emits `remove`, but the
-same backend PID remains `active`, waiting on the advisory lock, until the test
+Observed before correction: admission returns and the node-postgres pool emits
+`remove`, but the same backend PID remains `active`, waiting on the advisory
+lock, until the test
 releases that external blocker. In the recovery scenario the initial uncertain
 backend is gone, while the second recovery backend remains active after the
 final `decisionUncertain` has returned. This contradicts the accepted tracked-
@@ -1254,14 +1256,13 @@ query/drain-before-return contract. It does not prove query cancellation or a
 safe discard merely because the pool emitted `remove`.
 
 Affected owner: the artifact-private PostgreSQL control-session adapter's
-Drizzle/native-query tracking and quarantine-drain boundary. The desired
-active-SQL and recovery-work acceptance tests remain explicitly skipped under
-this issue rather than weakening their absence assertions or changing shared
-core from a system-test slice. A separate preflight and approval are required
-before changing that owner.
+Drizzle/native-query tracking and quarantine-drain boundary. The correction
+uses a bounded PostgreSQL PID-plus-secret CancelRequest, then drains tracked
+work before destroying the original client and observing transport end. Both desired
+acceptances now run without skips, including a one-connection control pool and
+the distinct recovery backend. Native identity-list/index behavior remains
+unproved.
 
-Native active-SQL and recovery-work deadline completion remains blocked by
-`FSA-PG-DRAIN-01`. Native identity-list/index behavior also remains unproved.
 This focused evidence does not complete the private repository checkpoint or
 open a downstream gate.
 
@@ -1298,9 +1299,8 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next shared-core step requires a separately approved preflight for
-`FSA-PG-DRAIN-01`; independent acceptance may otherwise continue with identity-
-list/index evidence. The implemented DDL,
+The next independently authorized acceptance step is native identity-list/index
+evidence. The implemented DDL,
 preparation capability, stored loader/reconstruction, point read, locked
 admission, bounded identity list, repository
 identity, authenticated starter, deterministic control-session lifecycle, and

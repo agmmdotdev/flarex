@@ -11,7 +11,13 @@ import {
   NodePgTransaction,
 } from "drizzle-orm/node-postgres/session";
 import { Cause, Duration, Effect, Exit } from "effect";
-import type { PoolClient, QueryResult, QueryResultRow } from "pg";
+import {
+  Client,
+  type PoolClient,
+  type PoolConfig,
+  type QueryResult,
+  type QueryResultRow,
+} from "pg";
 
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
@@ -38,6 +44,7 @@ import {
 } from "./schema";
 
 interface FrameworkSchemaArtifactPostgresPool {
+  readonly options?: PoolConfig;
   connect(
     callback: (
       error: Error | undefined,
@@ -69,11 +76,19 @@ interface CheckedOutConnectionWorkFailure {
   readonly cause: unknown;
 }
 
+interface PostgresBackendKeyData {
+  readonly processId: number;
+  readonly secretKey: number;
+}
+
 interface CheckedOutConnection {
   readonly client: PoolClient;
   readonly database: FlarexMetadataDatabase;
   readonly transaction: FlarexMetadataTransaction;
   readonly identity: FrameworkSchemaArtifactControlConnectionIdentity;
+  readonly backendKeyData: PostgresBackendKeyData | undefined;
+  readonly cancellationClientConfig: PoolConfig | undefined;
+  readonly hasNodePostgresTransport: boolean;
   readonly trackPromise: <Value>(promise: Promise<Value>) => Promise<Value>;
   readonly runQuery: <Row extends QueryResultRow>(
     phase: FrameworkSchemaArtifactControlSessionPhase,
@@ -81,7 +96,9 @@ interface CheckedOutConnection {
     values?: readonly unknown[],
   ) => Promise<QueryResult<Row>>;
   readonly closeWorkFence: () => void;
+  readonly hasPendingWork: () => boolean;
   readonly drain: () => Promise<CheckedOutConnectionDrain>;
+  readonly observeTransportEnd: () => Promise<void> | undefined;
   readonly workFailure: () => CheckedOutConnectionWorkFailure | undefined;
   readonly connectionError: () => unknown | undefined;
   readonly detachConnectionErrorObserver: () => void;
@@ -128,9 +145,10 @@ const connectionIdentities = new WeakMap<
  *
  * Pool acquisition uses node-postgres' callback API because its Promise API
  * cannot abandon an already queued waiter. If acquisition expires, a later
- * callback destroys the late client with `release(true)`. The public Pool API
- * cannot prove that discard synchronously, so no node-postgres internals are
- * inspected or mutated here.
+ * callback destroys the late client with `release(true)`. Active-work
+ * quarantine sends the exact session's BackendKeyData CancelRequest, drains
+ * tracked work, and destroys the original transport without another pool slot
+ * or a PID-only cross-session signal.
  */
 export function makePostgresFrameworkSchemaArtifactControlSessionDriver(
   pool: FrameworkSchemaArtifactPostgresPool,
@@ -928,7 +946,11 @@ function acquireConnection(
               return;
             }
             try {
-              finish(Effect.succeed(makeCheckedOutConnection(client, options)));
+              finish(Effect.succeed(makeCheckedOutConnection(
+                client,
+                pool.options,
+                options,
+              )));
             } catch (cause) {
               const cleanupCause = destroyAcquiredAfterConstructionFailure(
                 client,
@@ -985,6 +1007,7 @@ const acquireRecoveryConnection = Effect.fn(
 
 function makeCheckedOutConnection(
   client: PoolClient,
+  cancellationClientConfig: PoolConfig | undefined,
   options: NormalizedPostgresControlSessionOptions,
 ): CheckedOutConnection {
   const pending = new Set<Promise<void>>();
@@ -993,6 +1016,7 @@ function makeCheckedOutConnection(
   let observedConnectionError: unknown;
   let observerAttached = true;
   let released = false;
+  const hasTransport = hasNodePostgresTransport(client);
   const observeConnectionError = (cause: Error) => {
     observedConnectionError ??= cause;
   };
@@ -1052,6 +1076,9 @@ function makeCheckedOutConnection(
     database,
     transaction,
     identity: connectionIdentity(client),
+    backendKeyData: readNodePostgresBackendKeyData(client),
+    cancellationClientConfig,
+    hasNodePostgresTransport: hasTransport,
     trackPromise,
     runQuery: <Row extends QueryResultRow>(
       phase: FrameworkSchemaArtifactControlSessionPhase,
@@ -1078,6 +1105,7 @@ function makeCheckedOutConnection(
     closeWorkFence: () => {
       workFenceOpen = false;
     },
+    hasPendingWork: () => pending.size > 0,
     drain: async () => {
       while (pending.size > 0) {
         await Promise.all(pending);
@@ -1086,6 +1114,9 @@ function makeCheckedOutConnection(
         ? Object.freeze({ kind: "settled" })
         : Object.freeze({ kind: "failed", cause: trackedWorkFailure.cause });
     },
+    observeTransportEnd: () => hasTransport
+      ? new Promise<void>(resolve => client.once("end", resolve))
+      : undefined,
     workFailure: () => trackedWorkFailure,
     connectionError: () => observedConnectionError,
     detachConnectionErrorObserver: () => {
@@ -1098,6 +1129,47 @@ function makeCheckedOutConnection(
       released = true;
     },
   };
+}
+
+function readNodePostgresBackendKeyData(
+  client: PoolClient,
+): PostgresBackendKeyData | undefined {
+  // BackendKeyData is the PostgreSQL protocol's authenticated cancellation
+  // identity. node-postgres retains both fields at runtime but omits them from
+  // PoolClient's published TypeScript surface.
+  const processId = Reflect.get(client, "processID");
+  const secretKey = Reflect.get(client, "secretKey");
+  return isPostgresProcessId(processId) && isPostgresInt32(secretKey)
+    ? Object.freeze({ processId, secretKey })
+    : undefined;
+}
+
+function isPostgresProcessId(value: unknown): value is number {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0 &&
+    value <= 2_147_483_647;
+}
+
+function isPostgresInt32(value: unknown): value is number {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= -2_147_483_648 &&
+    value <= 2_147_483_647;
+}
+
+function hasNodePostgresTransport(client: PoolClient): boolean {
+  if (Reflect.get(client, "_connected") !== true) return false;
+  const connection = Reflect.get(client, "connection");
+  if (
+    typeof connection !== "object" ||
+    connection === null ||
+    Array.isArray(connection)
+  ) {
+    return false;
+  }
+  const stream = Reflect.get(connection, "stream");
+  return typeof stream === "object" && stream !== null;
 }
 
 function connectionIdentity(
@@ -1186,15 +1258,6 @@ function runCallbackEffect<Database, Value, Failure>(
       },
       connection,
     ));
-}
-
-function drainConnectionEffect(
-  connection: CheckedOutConnection,
-): Effect.Effect<void, unknown, never> {
-  return Effect.tryPromise({
-    try: () => connection.drain().then(() => undefined),
-    catch: cause => cause,
-  });
 }
 
 function runDrainEffect(
@@ -1405,34 +1468,269 @@ const quarantineConnectionEffect = Effect.fn(
   options: NormalizedPostgresControlSessionOptions,
 ): Effect.fn.Return<QuarantineResult> {
   connection.closeWorkFence();
-  const release = yield* releaseConnectionEffect(
+  // oxlint-disable-next-line flarex/no-platform-time-inside-effect -- REVIEW: host - PostgreSQL foreign-driver quarantine requires real monotonic time because Effect TestClock may be frozen
+  const quarantineExpiresAt = performance.now() +
+    options.quarantineDrainTimeoutMilliseconds;
+  const transportEndPromise = connection.observeTransportEnd();
+  const activeWorkRequiresDestruction = connection.hasPendingWork();
+  const backendKeyData = connection.backendKeyData;
+  const cancellationClientConfig = connection.cancellationClientConfig;
+  const canAuthenticateCancellation = activeWorkRequiresDestruction &&
+    backendKeyData !== undefined &&
+    cancellationClientConfig !== undefined;
+  const cancellation = canAuthenticateCancellation
+    ? yield* Effect.exit(Effect.uninterruptible(Effect.tryPromise({
+      try: () => sendPostgresCancelRequest(
+        backendKeyData,
+        cancellationClientConfig,
+        remainingPlatformMilliseconds(quarantineExpiresAt),
+      ),
+      catch: cause => cause,
+    })))
+    : undefined;
+  const cancellationConfirmed = cancellation !== undefined &&
+    Exit.isSuccess(cancellation);
+  // If the authenticated CancelRequest cannot be confirmed, destroy the exact
+  // checked-out client before draining. This fallback is safe from PID reuse,
+  // but a native node-postgres connection still fails quarantine closed because
+  // remote cancellation was not proven.
+  const earlyRelease = activeWorkRequiresDestruction && !cancellationConfirmed
+    ? yield* releaseConnectionEffect(
+      connection,
+      true,
+      "quarantine",
+      options,
+    )
+    : undefined;
+  const drain = yield* boundedQuarantineDrainExitEffect(
+    connection,
+    remainingPlatformMilliseconds(quarantineExpiresAt),
+  );
+  const release = earlyRelease ?? (yield* releaseConnectionEffect(
     connection,
     true,
     "quarantine",
     options,
-  );
-  const drain = yield* Effect.exit(Effect.raceFirst(
-    drainConnectionEffect(connection),
-    Effect.sleep(Duration.millis(
-      options.quarantineDrainTimeoutMilliseconds,
-    )).pipe(Effect.andThen(Effect.fail(
-      new Error(
-        "PostgreSQL quarantine drain did not settle after client destruction.",
-      ),
-    ))),
   ));
-  if (release.kind === "released" && Exit.isSuccess(drain)) {
+  const transportEnd = transportEndPromise === undefined
+    ? undefined
+    : yield* boundedPlatformPromiseExitEffect(
+      transportEndPromise,
+      remainingPlatformMilliseconds(quarantineExpiresAt),
+      "PostgreSQL quarantine transport did not close after client destruction.",
+    );
+  if (
+    release.kind === "released" &&
+    Exit.isSuccess(drain) &&
+    (transportEnd === undefined || Exit.isSuccess(transportEnd)) &&
+    (
+      !activeWorkRequiresDestruction ||
+      !connection.hasNodePostgresTransport ||
+      cancellationConfirmed
+    )
+  ) {
     return Object.freeze({ kind: "confirmed" });
   }
   const causes = [
     ...(release.kind === "failed" ? [release.cause] : []),
+    ...(cancellation !== undefined && Exit.isFailure(cancellation)
+      ? [cancellation.cause]
+      : []),
+    ...(activeWorkRequiresDestruction &&
+        connection.hasNodePostgresTransport &&
+        !canAuthenticateCancellation
+      ? [new Error(
+        "PostgreSQL authenticated active-work cancellation is unavailable.",
+      )]
+      : []),
     ...(Exit.isFailure(drain) ? [drain.cause] : []),
+    ...(transportEnd !== undefined && Exit.isFailure(transportEnd)
+      ? [transportEnd.cause]
+      : []),
   ];
   return Object.freeze({
     kind: "failed",
     cause: aggregateCauses(causes, "PostgreSQL quarantine failed."),
   });
 });
+
+function boundedQuarantineDrainExitEffect(
+  connection: CheckedOutConnection,
+  timeoutMilliseconds: number,
+): Effect.Effect<Exit.Exit<void, unknown>, never, never> {
+  return boundedPlatformPromiseExitEffect(
+    connection.drain().then(() => undefined),
+    timeoutMilliseconds,
+    "PostgreSQL quarantine drain did not settle after exact-client destruction.",
+  );
+}
+
+function remainingPlatformMilliseconds(expiresAt: number): number {
+  // oxlint-disable-next-line flarex/no-platform-time-inside-effect -- REVIEW: host - PostgreSQL foreign-driver quarantine requires real monotonic time because Effect TestClock may be frozen
+  return Math.max(0, Math.ceil(expiresAt - performance.now()));
+}
+
+function sendPostgresCancelRequest(
+  backendKeyData: PostgresBackendKeyData,
+  clientConfig: PoolConfig,
+  timeoutMilliseconds: number,
+): Promise<void> {
+  const cancellationClient = new Client(clientConfig);
+  if (cancellationClient.ssl !== false) {
+    return Promise.reject(new Error(
+      "PostgreSQL authenticated cancellation is not enabled for TLS connections.",
+    ));
+  }
+  const connection = cancellationClient.connection;
+  const connect = Reflect.get(connection, "connect");
+  const cancel = Reflect.get(connection, "cancel");
+  if (typeof connect !== "function" || typeof cancel !== "function") {
+    return Promise.reject(new Error(
+      "Installed node-postgres connection has no cancellation protocol capability.",
+    ));
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let cancelSent = false;
+    let observedError: unknown;
+    const removeListeners = () => {
+      connection.removeListener("connect", onConnect);
+      connection.removeListener("end", onEnd);
+      connection.removeListener("error", onError);
+    };
+    const settleFailure = (cause: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // Retain the error observer until the destroyed transport emits end; a
+      // late EventEmitter error must never become an uncaught host exception.
+      connection.removeListener("connect", onConnect);
+      reject(cause);
+    };
+    const destroyTransport = (cause: unknown) => {
+      observedError ??= cause;
+      try {
+        cancellationClient.connection.stream.destroy();
+      } catch (destroyCause) {
+        observedError = aggregateCauses(
+          [observedError, destroyCause],
+          "PostgreSQL cancellation transport destruction failed.",
+        );
+      }
+    };
+    const onConnect = () => {
+      try {
+        Reflect.apply(cancel, connection, [
+          backendKeyData.processId,
+          backendKeyData.secretKey,
+        ]);
+        cancelSent = true;
+      } catch (cause) {
+        destroyTransport(cause);
+        settleFailure(observedError);
+      }
+    };
+    const onError = (cause: unknown) => {
+      if (cancelSent && isExpectedPostgresCancelTransportClosure(cause)) {
+        return;
+      }
+      destroyTransport(cause);
+      settleFailure(observedError);
+    };
+    const onEnd = () => {
+      removeListeners();
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (observedError !== undefined) {
+        reject(observedError);
+      } else if (!cancelSent) {
+        reject(new Error(
+          "PostgreSQL cancellation transport ended before sending CancelRequest.",
+        ));
+      } else {
+        resolve();
+      }
+    };
+    const timer = setTimeout(() => {
+      const timeoutCause = new Error(
+        "PostgreSQL authenticated CancelRequest did not settle within the quarantine budget.",
+      );
+      destroyTransport(timeoutCause);
+      settleFailure(observedError);
+    }, timeoutMilliseconds);
+
+    connection.once("connect", onConnect);
+    connection.once("end", onEnd);
+    connection.on("error", onError);
+    try {
+      if (cancellationClient.host.startsWith("/")) {
+        Reflect.apply(connect, connection, [
+          `${cancellationClient.host}/.s.PGSQL.${cancellationClient.port}`,
+        ]);
+      } else {
+        Reflect.apply(connect, connection, [
+          cancellationClient.port,
+          cancellationClient.host,
+        ]);
+      }
+    } catch (cause) {
+      destroyTransport(cause);
+      settleFailure(observedError);
+    }
+  });
+}
+
+function isExpectedPostgresCancelTransportClosure(cause: unknown): boolean {
+  if (typeof cause !== "object" || cause === null) return false;
+  const code = Reflect.get(cause, "code");
+  return code === "ECONNRESET" || code === "EPIPE";
+}
+
+function boundedPlatformPromiseExitEffect(
+  promise: Promise<void>,
+  timeoutMilliseconds: number,
+  timeoutMessage: string,
+): Effect.Effect<Exit.Exit<void, unknown>, never, never> {
+  return Effect.exit(Effect.tryPromise({
+    try: () => settleWithinPlatformTimeout(
+      promise,
+      timeoutMilliseconds,
+      timeoutMessage,
+    ),
+    catch: cause => cause,
+  }));
+}
+
+function settleWithinPlatformTimeout<Value>(
+  promise: Promise<Value>,
+  timeoutMilliseconds: number,
+  timeoutMessage: string,
+): Promise<Value> {
+  return new Promise<Value>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(timeoutMessage));
+    }, timeoutMilliseconds);
+    void promise.then(
+      value => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      cause => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(cause);
+      },
+    );
+  });
+}
 
 function failAfterQuarantine<Failure>(
   connection: CheckedOutConnection,

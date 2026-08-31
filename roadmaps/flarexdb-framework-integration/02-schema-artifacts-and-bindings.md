@@ -18,9 +18,10 @@ plus advisory-lock-backed callback-SQL and server-blocked-`COMMIT`
 interruption settlement, native queued-acquisition expiry, server lock and
 statement timeouts, detached and post-resolution reconstruction deadlines, and
 both supported cross-owner deployment-lock holder orders with the existing
-Application schema-version artifact writer; active-SQL and recovery-work
-deadlines remain blocked by `FSA-PG-DRAIN-01`, and wider genuine PostgreSQL
-acceptance and later lifecycle persistence codecs remain gated
+Application schema-version artifact writer, plus the separately accepted
+active-SQL and recovery-work cancellation/drain correction for
+`FSA-PG-DRAIN-01`; wider genuine PostgreSQL acceptance and later lifecycle
+persistence codecs remain gated
 
 The additive authority architecture and exact artifact-envelope contract are
 frozen by
@@ -68,12 +69,14 @@ server-enforced `lock_timeout` and `statement_timeout`, detached optimistic
 reconstruction expiry after healthy read-session release, and post-resolution
 reconstruction expiry with removal of its still-owned idle read backend. A
 sixth active-SQL probe and its recovery-work counterpart exposed
-`FSA-PG-DRAIN-01`: the pool emits `remove` and admission returns while the
-advisory-lock-blocked PostgreSQL PID remains active until its external blocker
-is released. Those two desired acceptances remain skipped without weakening
-their drain-and-absence contract. The artifact-private PostgreSQL control-
-session tracking/quarantine owner requires separate preflight and approval
-before correction.
+`FSA-PG-DRAIN-01`: the pool emitted `remove` and admission returned while the
+advisory-lock-blocked PostgreSQL PID remained active until its external blocker
+was released. The separately accepted
+[`preflight/03-postgres-active-work-quarantine.md`](./preflight/03-postgres-active-work-quarantine.md)
+corrects that artifact-private owner with authenticated PostgreSQL
+BackendKeyData cancellation, tracked-work drain, and original-client discard. Both native
+acceptances now run without skips, and the initial case passes with its control
+pool capped at one connection.
 
 Two additional ordinary-role scenarios prove the supported deployment-first
 sequence against the existing Application schema-version artifact writer. A

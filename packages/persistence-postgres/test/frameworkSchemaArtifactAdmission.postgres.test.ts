@@ -833,13 +833,11 @@ describePostgres(
       await expectPostgresArtifactStatementTimeout();
     }, 180_000);
 
-    // FSA-PG-DRAIN-01 keeps these desired native acceptances visible without
-    // converting the observed early-settlement defect into supported behavior.
-    it.skip("destroys and drains active native SQL when the host deadline expires [blocked by FSA-PG-DRAIN-01]", async () => {
+    it("destroys and drains active native SQL when the host deadline expires", async () => {
       await expectPostgresArtifactActiveStatementDeadline();
     }, 180_000);
 
-    it.skip("stops after one native recovery when its work deadline expires [blocked by FSA-PG-DRAIN-01]", async () => {
+    it("stops after one native recovery when its work deadline expires", async () => {
       await expectPostgresArtifactRecoveryDeadline();
     }, 180_000);
 
@@ -1395,7 +1393,8 @@ async function expectPostgresArtifactActiveStatementDeadline(): Promise<void> {
       lineageId: "catalog-active-statement-deadline",
     });
     const prepared = prepareAdmissionOrThrow(artifact);
-    const observedPool = observePostgresControlPool(persistence);
+    const controlPool = await makeDedicatedPostgresControlPool(persistence, 1);
+    const observedPool = observePostgresControlPool(persistence, controlPool);
     const lifecycleEvents: string[] = [];
     const transactionBackendPids: number[] = [];
     try {
@@ -1482,6 +1481,7 @@ async function expectPostgresArtifactActiveStatementDeadline(): Promise<void> {
       );
     } finally {
       observedPool.close();
+      await controlPool.end();
       await dropPostgresArtifactActiveStatementBarrier(persistence);
     }
 
@@ -3161,6 +3161,7 @@ function observePostgresControlPool(
   };
   pool.on("remove", observeRemoval);
   const controlPool: PostgresArtifactControlPool = Object.freeze({
+    options: pool.options,
     connect(callback: PostgresArtifactControlPoolConnect) {
       pool.connect((error, client, release) => {
         if (error !== undefined || client === undefined) {
