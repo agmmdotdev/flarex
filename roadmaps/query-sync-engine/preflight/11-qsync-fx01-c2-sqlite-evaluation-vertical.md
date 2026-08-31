@@ -824,7 +824,9 @@ regression suites:
   support;
 - `test/deploymentSyncEvaluationClaimBoundaries.test.ts`;
 - `test/deploymentSyncEvaluationClaimRaces.test.ts`;
+- `test/deploymentSyncEvaluationCompletionLimits.test.ts`;
 - `test/deploymentSyncEvaluationCompletionRaces.test.ts`;
+- `test/deploymentSyncEvaluationPopulationTestSupport.ts`;
 - `test/deploymentSyncEvaluationStateAtomicity.test.ts`;
 - `test/deploymentSyncEvaluationStateLimits.test.ts`;
 - `test/deploymentQuerySyncC2.workerd.test.ts`; and
@@ -969,16 +971,16 @@ This accepted implementation checkpoint does not authorize:
    aggregate cursor reads forbidden. This is SQLite-local JavaScript
    consumption evidence; it does not claim Cloudflare cursor-buffering or
    Worker-heap behavior.
-7. Remaining C2 exit work includes non-migration maximum aggregate populations,
-   maximum genuine-Workerd spelling, binding, buffering, and heap proofs, and
-   the attempt-outcome branches still named below.
+7. Remaining C2 exit work includes maximum genuine-Workerd spelling, binding,
+   buffering, and heap proofs, and the attempt-outcome branches still named
+   below.
 8. The completion control-flow proof now covers all five start-stage no-write
    receipts, pending and unchanged exact replay, first material activation,
    unchanged-digest pending preservation, and every adapter-reachable non-limit
-   typed failure at start, replay, and material read stages. State-limit errors
-   remain with the maximum-population proof in item 7. Every completed case
-   pins its exact SQL read trace and unchanged durable snapshot when no write is
-   authorized.
+   typed failure at start, replay, and material read stages. The reachable
+   state-limit errors are now closed by the maximum-population proof in item
+   20. Every completed case pins its exact SQL read trace and unchanged durable
+   snapshot when no write is authorized.
 9. A changed-digest two-dependency replacement now records its exact ten-write
    sequence and injects the same foreign defect immediately before and after
    every write. Every position proves full query, dependency, pending, and
@@ -1087,11 +1089,30 @@ This accepted implementation checkpoint does not authorize:
     empty states. Every row proves the exact read cutoff, a Cause failure rather
     than a defect, exact domain fields or nested stored-state issue with
     `notCommitted` certainty, no DML, and an unchanged durable snapshot.
+20. A non-migration Node SQLite generation-3 maximum proof now persists only
+    portable-builder-derived queries, dependencies, pending publications, and
+    all eight matching scope counters through a test-owned population helper.
+    Exact-edge material completion preserves 4,096 queries, 32 MiB of retained
+    identities, 4,096 pending rows, 32 MiB of retained publication content,
+    262,144 active memberships, 524,288 physical active-plus-completion rows,
+    and 64 MiB of counted canonical data. The retained-content population
+    includes 32 exact 1 MiB publication bodies; the dependency populations
+    exercise 8,192 members and exact 4 MiB decoded bytes in both roles. Both
+    roles also retain streaming 8,193-member and 4 MiB-plus-one sentinels.
+    From valid prestates, completion returns the unmodified portable
+    `QuerySyncStateLimitError` for `dependencyMemberships`,
+    `retainedPublicationContentBytes`, and `countedCanonicalBytes` before DML,
+    with exact read traces and unchanged lightweight durable evidence. Query
+    count and retained identity bytes are invariant during completion, while
+    one pending row per query means completion can reach but cannot exceed the
+    4,096 pending maximum; no inconsistent counter-only failures are
+    fabricated. This is synchronous Node SQLite evidence only and makes no
+    Workerd buffering, heap, row-spelling, or binding-limit claim.
 
-Completion's remaining exit work is now limited to non-migration maximum
-populations/bytes, their completion state-limit failures, and genuine-Workerd
-maximum proof. The complete C2 serial-race, non-limit typed-error, and portable
-prohibited-corruption matrices are now proven.
+Completion's remaining exit work is now limited to genuine-Workerd maximum
+proof. The complete Node SQLite maximum-population/state-limit, C2 serial-race,
+non-limit typed-error, and portable prohibited-corruption matrices are now
+proven.
 The accepted claim branch, boundary, and recovery matrix is complete, as are
 the nominal attempt-outcome branch/read-trace, write-rollback, affected-row,
 response-loss, and terminal-versus-completion matrices.

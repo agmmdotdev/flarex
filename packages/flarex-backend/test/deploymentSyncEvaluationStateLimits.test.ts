@@ -21,90 +21,96 @@ import {
 } from "./deploymentSyncEvaluationStateTestSupport";
 
 describe("deployment query-sync evaluation state limits", () => {
-  it("streams the 8,192-member boundary without using cursor toArray", () => {
-    const queryKey = queryDescriptor(19).queryKey;
-    const generation = resultSuccess(captureQueryGeneration(1n));
-    const maximumKeys = Array.from(
-      { length: MAX_QUERY_DEPENDENCY_KEYS },
-      (_value, index) => dependencyKey(index, 2),
-    ).toSorted(compareCanonicalBase64Url);
-    const atLimit = readDeploymentQuerySyncDependencies(
-      dependencySql("completion", maximumKeys, queryKey, generation),
-      "completeQueryEvaluation",
-      "completion",
-      queryKey,
-      generation,
-      MAX_QUERY_DEPENDENCY_KEYS + 1,
-    );
-    expect(resultSuccess(atLimit)?.dependencyKeys).toHaveLength(
-      MAX_QUERY_DEPENDENCY_KEYS,
-    );
-
-    const aboveLimit = readDeploymentQuerySyncDependencies(
-      dependencySql(
-        "completion",
-        [...maximumKeys, dependencyKey(MAX_QUERY_DEPENDENCY_KEYS, 2)]
-          .toSorted(compareCanonicalBase64Url),
+  it.each(["active", "completion"] as const)(
+    "streams the 8,192-member %s boundary without cursor toArray",
+    role => {
+      const queryKey = queryDescriptor(19).queryKey;
+      const generation = resultSuccess(captureQueryGeneration(1n));
+      const maximumKeys = Array.from(
+        { length: MAX_QUERY_DEPENDENCY_KEYS },
+        (_value, index) => dependencyKey(index, 2),
+      ).toSorted(compareCanonicalBase64Url);
+      const atLimit = readDeploymentQuerySyncDependencies(
+        dependencySql(role, maximumKeys, queryKey, generation),
+        "completeQueryEvaluation",
+        role,
         queryKey,
         generation,
-      ),
-      "completeQueryEvaluation",
-      "completion",
-      queryKey,
-      generation,
-      MAX_QUERY_DEPENDENCY_KEYS + 1,
-    );
-    expect(resultFailure(aboveLimit)).toMatchObject({
-      _tag: "QuerySyncStoredStateCorruptError",
-      reason: "storedAggregateInvalid",
-      cause: {
-        evidence: { reason: "dependencyMemberLimitExceeded" },
-      },
-    });
-  });
+        MAX_QUERY_DEPENDENCY_KEYS + 1,
+      );
+      expect(resultSuccess(atLimit)?.dependencyKeys).toHaveLength(
+        MAX_QUERY_DEPENDENCY_KEYS,
+      );
 
-  it("streams the exact 4 MiB dependency-byte boundary", () => {
-    const queryKey = queryDescriptor(20).queryKey;
-    const generation = resultSuccess(captureQueryGeneration(1n));
-    const maximumValueBytes = 16_384;
-    const exactKeys = Array.from(
-      { length: MAX_QUERY_DEPENDENCY_BYTES / maximumValueBytes },
-      (_value, index) => dependencyKey(index, maximumValueBytes),
-    ).toSorted(compareCanonicalBase64Url);
-    const atLimit = readDeploymentQuerySyncDependencies(
-      dependencySql("active", exactKeys, queryKey, generation),
-      "completeQueryEvaluation",
-      "active",
-      queryKey,
-      generation,
-      MAX_QUERY_DEPENDENCY_KEYS + 1,
-    );
-    expect(resultSuccess(atLimit)?.dependencyKeys).toHaveLength(
-      exactKeys.length,
-    );
-
-    const aboveLimit = readDeploymentQuerySyncDependencies(
-      dependencySql(
-        "active",
-        [...exactKeys, dependencyKey(257, 1)]
-          .toSorted(compareCanonicalBase64Url),
+      const aboveLimit = readDeploymentQuerySyncDependencies(
+        dependencySql(
+          role,
+          [...maximumKeys, dependencyKey(MAX_QUERY_DEPENDENCY_KEYS, 2)]
+            .toSorted(compareCanonicalBase64Url),
+          queryKey,
+          generation,
+        ),
+        "completeQueryEvaluation",
+        role,
         queryKey,
         generation,
-      ),
-      "completeQueryEvaluation",
-      "active",
-      queryKey,
-      generation,
-      MAX_QUERY_DEPENDENCY_KEYS + 1,
-    );
-    expect(resultFailure(aboveLimit)).toMatchObject({
-      _tag: "QuerySyncStoredStateCorruptError",
-      reason: "storedAggregateInvalid",
-      cause: {
-        evidence: { reason: "dependencyByteLimitExceeded" },
-      },
-    });
-  });
+        MAX_QUERY_DEPENDENCY_KEYS + 1,
+      );
+      expect(resultFailure(aboveLimit)).toMatchObject({
+        _tag: "QuerySyncStoredStateCorruptError",
+        reason: "storedAggregateInvalid",
+        cause: {
+          evidence: { reason: "dependencyMemberLimitExceeded" },
+        },
+      });
+    },
+  );
+
+  it.each(["active", "completion"] as const)(
+    "streams the exact 4 MiB %s dependency-byte boundary",
+    role => {
+      const queryKey = queryDescriptor(20).queryKey;
+      const generation = resultSuccess(captureQueryGeneration(1n));
+      const maximumValueBytes = 16_384;
+      const exactKeys = Array.from(
+        { length: MAX_QUERY_DEPENDENCY_BYTES / maximumValueBytes },
+        (_value, index) => dependencyKey(index, maximumValueBytes),
+      ).toSorted(compareCanonicalBase64Url);
+      const atLimit = readDeploymentQuerySyncDependencies(
+        dependencySql(role, exactKeys, queryKey, generation),
+        "completeQueryEvaluation",
+        role,
+        queryKey,
+        generation,
+        MAX_QUERY_DEPENDENCY_KEYS + 1,
+      );
+      expect(resultSuccess(atLimit)?.dependencyKeys).toHaveLength(
+        exactKeys.length,
+      );
+
+      const aboveLimit = readDeploymentQuerySyncDependencies(
+        dependencySql(
+          role,
+          [...exactKeys, dependencyKey(257, 1)]
+            .toSorted(compareCanonicalBase64Url),
+          queryKey,
+          generation,
+        ),
+        "completeQueryEvaluation",
+        role,
+        queryKey,
+        generation,
+        MAX_QUERY_DEPENDENCY_KEYS + 1,
+      );
+      expect(resultFailure(aboveLimit)).toMatchObject({
+        _tag: "QuerySyncStoredStateCorruptError",
+        reason: "storedAggregateInvalid",
+        cause: {
+          evidence: { reason: "dependencyByteLimitExceeded" },
+        },
+      });
+    },
+  );
 
   it("rejects scan budgets outside the portable bound without writes", async () => {
     const prepared = await prepareEvaluationState();
