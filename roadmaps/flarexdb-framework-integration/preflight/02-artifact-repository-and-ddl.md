@@ -11,8 +11,9 @@ bounded identity listing, and focused PGlite repository evidence implemented;
 focused ordinary-role PostgreSQL 18 migration/catalog, control-session, point-
 read, exact-admission convergence, and deployment-row blocking evidence
 implemented, together with collision contention, both dependency-lock orders,
-and cross-deployment non-blocking; wider genuine PostgreSQL acceptance remains
-incomplete
+cross-deployment non-blocking, owner/lineage coordinate isolation under
+contention, and native post-write rollback; wider genuine PostgreSQL
+acceptance remains incomplete
 
 The private owner-qualified artifact value checkpoint is implemented and
 production-inert. This preflight freezes the next additive boundary only:
@@ -1113,16 +1114,22 @@ first dependency admission fails with exact `dependencyMissing` evidence,
 leaves no parent or edge, and releases the queued dependency; dependency-first
 admission commits before the already-started parent reads under `READ
 COMMITTED`, producing one exact edge; and an independent deployment commits
-and becomes externally visible while the first deployment remains blocked. The
-catalog assertion reads nullability from `information_schema.columns` and
-excludes PostgreSQL 18's duplicate `pg_constraint` `contype = 'n'` entries from
-the separately asserted named-constraint inventory.
+and becomes externally visible while the first deployment remains blocked.
+Same-deployment contenders carrying one forced digest now prove that distinct
+owner and lineage coordinates create three exact physical rows while an exact
+duplicate converges to `existing`. An ordinary-role test trigger observes the
+new parent inside the admission transaction before rejecting dependency-edge
+insertion; the typed `insertDependencies` resource failure leaves the existing
+dependency intact, rolls back the parent and all edges, releases the lock, and
+permits a clean retry. The catalog assertion reads nullability from
+`information_schema.columns` and excludes PostgreSQL 18's duplicate
+`pg_constraint` `contype = 'n'` entries from the separately asserted named-
+constraint inventory.
 
-Owner/lineage isolation under contention, rollback after a native write
-failure, interruption and settlement recovery, bounded deadline faults,
-deadlock absence, and native identity-list/index behavior remain unproved.
-This focused evidence does not complete the private repository checkpoint or
-open a downstream gate.
+Interruption and settlement recovery, bounded deadline faults, deadlock
+absence, and native identity-list/index behavior remain unproved. This focused
+evidence does not complete the private repository checkpoint or open a
+downstream gate.
 
 ## Accepted Implementation Checkpoint
 
@@ -1157,11 +1164,10 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next implementation step is the remaining genuine PostgreSQL owner/lineage
-contention isolation, post-write rollback, settlement/recovery, deadline,
-deadlock, and identity-list/index acceptance. The implemented DDL,
-preparation capability, stored loader/reconstruction, point read, locked
-admission, bounded identity list, repository identity, authenticated starter,
-deterministic control-session lifecycle, and artifact-private PostgreSQL
-control-session adapter do not open any installation, framework-adapter,
-runtime, public, or production gate.
+The next implementation step is the remaining genuine PostgreSQL settlement/
+recovery, deadline, deadlock, and identity-list/index acceptance. The
+implemented DDL, preparation capability, stored loader/reconstruction, point
+read, locked admission, bounded identity list, repository identity,
+authenticated starter, deterministic control-session lifecycle, and artifact-
+private PostgreSQL control-session adapter do not open any installation,
+framework-adapter, runtime, public, or production gate.

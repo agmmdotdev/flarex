@@ -286,6 +286,145 @@ describePostgres(
       });
     }, 180_000);
 
+    it("isolates owner and lineage coordinates under deployment contention", async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        await expectPostgres18OrdinaryRole(persistence);
+        await insertDeployment(persistence);
+        const repository = makePostgresArtifactRepository(persistence);
+        const medusaSharedLineage = await captureArtifact({
+          lineageId: "catalog-shared-coordinate",
+          payload: { modules: ["medusa-shared"] },
+        });
+        const sharedDigestEvidence = requireCapturedEvidence(
+          medusaSharedLineage,
+        );
+        vi.stubGlobal(
+          "crypto",
+          cryptoReturning(sharedDigestEvidence.artifactSha256Bytes),
+        );
+        const payloadSharedLineage = await captureArtifact({
+          owner: "payload",
+          lineageId: "catalog-shared-coordinate",
+          payloadCodec: { format: "payload-config", version: 1 },
+          provenance: { source: "payload-config-loader" },
+          capabilities: ["framework.payload.catalog"],
+          payload: { collections: ["catalog"] },
+        });
+        const medusaOtherLineage = await captureArtifact({
+          lineageId: "catalog-other-coordinate",
+          payload: { modules: ["medusa-other"] },
+        });
+        const coordinateArtifacts = [
+          medusaSharedLineage,
+          payloadSharedLineage,
+          medusaOtherLineage,
+        ] as const;
+        expect(coordinateArtifacts.map(artifact =>
+          artifact.identity.artifactSha256
+        )).toEqual([
+          medusaSharedLineage.identity.artifactSha256,
+          medusaSharedLineage.identity.artifactSha256,
+          medusaSharedLineage.identity.artifactSha256,
+        ]);
+        expect(new Set(coordinateArtifacts.map(artifact =>
+          artifact.canonicalJson
+        )).size).toBe(3);
+        const attempts = [
+          medusaSharedLineage,
+          payloadSharedLineage,
+          medusaOtherLineage,
+          medusaSharedLineage,
+        ].map(artifact => Object.freeze({
+          artifact,
+          prepared: prepareAdmissionOrThrow(artifact),
+        }));
+        const admissions: Array<Readonly<{
+          artifact: FrameworkSchemaArtifact;
+          admission: ReturnType<typeof admitPreparedArtifact>;
+        }>> = [];
+
+        try {
+          await runWithBlockedDeploymentLock(
+            persistence,
+            medusaSharedLineage.identity.deploymentId,
+            attempts.length,
+            track => {
+              for (const attempt of attempts) {
+                admissions.push(Object.freeze({
+                  artifact: attempt.artifact,
+                  admission: track(admitPreparedArtifact(
+                    repository,
+                    attempt.prepared,
+                  )),
+                }));
+              }
+            },
+            (_lock, waiters) => {
+              expect(waiters).toHaveLength(attempts.length);
+              return Promise.resolve();
+            },
+          );
+          const outcomes = await Promise.all(admissions.map(
+            async attempt => Object.freeze({
+              artifact: attempt.artifact,
+              result: await attempt.admission,
+            }),
+          ));
+          expect(outcomes.filter(outcome =>
+            outcome.result.status === "created"
+          )).toHaveLength(3);
+          expect(outcomes.filter(outcome =>
+            outcome.result.status === "existing"
+          )).toHaveLength(1);
+          expect(outcomes.filter(outcome =>
+            outcome.artifact === medusaSharedLineage
+          ).map(outcome => outcome.result.status).sort()).toEqual([
+            "created",
+            "existing",
+          ]);
+          for (const distinctArtifact of [
+            payloadSharedLineage,
+            medusaOtherLineage,
+          ]) {
+            expect(outcomes.find(outcome =>
+              outcome.artifact === distinctArtifact
+            )?.result.status).toBe("created");
+          }
+
+          const stored = await persistence.query<{
+            owner: string;
+            lineageId: string;
+            artifactSha256: string;
+            canonicalBytesHex: string;
+          }>(`
+            select owner,
+                   lineage_id as "lineageId",
+                   encode(artifact_sha256, 'hex') as "artifactSha256",
+                   encode(canonical_bytes, 'hex') as "canonicalBytesHex"
+            from ${ARTIFACT_TABLE}
+            where deployment_id = $1
+              and artifact_sha256 = decode($2, 'hex')
+            order by owner, lineage_id
+          `, [
+            medusaSharedLineage.identity.deploymentId,
+            medusaSharedLineage.identity.artifactSha256,
+          ]);
+          const expectedStored = coordinateArtifacts.map(artifact => ({
+            owner: artifact.identity.owner,
+            lineageId: artifact.identity.lineageId,
+            artifactSha256: artifact.identity.artifactSha256,
+            canonicalBytesHex: Buffer.from(
+              requireCapturedEvidence(artifact).canonicalBytes,
+            ).toString("hex"),
+          })).sort(compareStoredArtifactCoordinates);
+          expect(stored.rows).toEqual(expectedStored);
+          expect(await countAllDependencyRows(persistence)).toBe(0);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+    }, 180_000);
+
     it("rolls back a parent queued before its missing dependency", async () => {
       await withTemporaryPostgresPersistence(async persistence => {
         await expectPostgres18OrdinaryRole(persistence);
@@ -442,6 +581,96 @@ describePostgres(
           status: "created",
           artifact: parent,
         });
+        expect(await countArtifactRows(persistence, dependency)).toBe(1);
+        expect(await countArtifactRows(persistence, parent)).toBe(1);
+        expect(await countDependencyRows(persistence, parent)).toBe(1);
+      });
+    }, 180_000);
+
+    it("rolls back an inserted parent when dependency-edge insertion fails", async () => {
+      await withTemporaryPostgresPersistence(async persistence => {
+        await expectPostgres18OrdinaryRole(persistence);
+        await insertDeployment(persistence);
+        const repository = makePostgresArtifactRepository(persistence);
+        const dependency = await captureArtifact({
+          lineageId: "catalog-post-write-dependency",
+        });
+        expect((await admitArtifact(repository, dependency)).status)
+          .toBe("created");
+        const parent = await captureArtifact({
+          lineageId: "catalog-post-write-parent",
+          dependencies: [dependency.identity],
+        });
+        const preparedParent = prepareAdmissionOrThrow(parent);
+        await persistence.query(`
+          create function fx_test_reject_framework_dependency_insert()
+          returns trigger
+          language plpgsql
+          as $$
+          begin
+            if not exists (
+              select 1
+              from ${ARTIFACT_TABLE} as parent
+              where parent.artifact_storage_id = new.artifact_storage_id
+                and parent.deployment_id = new.deployment_id
+                and parent.owner = new.owner
+                and parent.lineage_id = new.artifact_lineage_id
+            ) then
+              raise exception
+                'parent artifact was not visible before dependency insert';
+            end if;
+            raise exception 'forced framework dependency insert failure';
+          end;
+          $$;
+
+          create trigger fx_test_reject_framework_dependency_insert
+          before insert on ${DEPENDENCY_TABLE}
+          for each row execute function
+            fx_test_reject_framework_dependency_insert();
+        `);
+        let failedOutcome:
+          Awaited<ReturnType<typeof admitPreparedArtifactResult>> | undefined;
+        try {
+          failedOutcome = await admitPreparedArtifactResult(
+            repository,
+            preparedParent,
+          );
+        } finally {
+          await persistence.query(`
+            drop trigger if exists
+              fx_test_reject_framework_dependency_insert
+              on ${DEPENDENCY_TABLE};
+            drop function if exists
+              fx_test_reject_framework_dependency_insert();
+          `);
+        }
+        if (failedOutcome === undefined) {
+          throw new Error("Expected a captured dependency-insert outcome.");
+        }
+        expect(Result.isFailure(failedOutcome)).toBe(true);
+        if (Result.isSuccess(failedOutcome)) {
+          throw new Error("Expected dependency-edge insertion to fail.");
+        }
+        expect(failedOutcome.failure).toMatchObject({
+          operation: "admit",
+          reason: "resourceFailure",
+          message: "Framework schema artifact admission persistence failed",
+          retryable: false,
+          identity: parent.identity,
+          stage: "insertDependencies",
+          cause: expect.objectContaining({
+            cause: expect.objectContaining({
+              code: "P0001",
+              message: "forced framework dependency insert failure",
+            }),
+          }),
+        });
+        expect(await countArtifactRows(persistence, dependency)).toBe(1);
+        expect(await countArtifactRows(persistence, parent)).toBe(0);
+        expect(await countAllDependencyRows(persistence)).toBe(0);
+
+        expect(await admitPreparedArtifact(repository, preparedParent))
+          .toEqual({ status: "created", artifact: parent });
         expect(await countArtifactRows(persistence, dependency)).toBe(1);
         expect(await countArtifactRows(persistence, parent)).toBe(1);
         expect(await countDependencyRows(persistence, parent)).toBe(1);
@@ -703,6 +932,15 @@ function cryptoReturning(bytes: Uint8Array): object {
       },
     }),
   });
+}
+
+function compareStoredArtifactCoordinates(
+  left: Readonly<{ owner: string; lineageId: string }>,
+  right: Readonly<{ owner: string; lineageId: string }>,
+): number {
+  if (left.owner !== right.owner) return left.owner < right.owner ? -1 : 1;
+  if (left.lineageId === right.lineageId) return 0;
+  return left.lineageId < right.lineageId ? -1 : 1;
 }
 
 function expectOrderedDeploymentLockQueue(
