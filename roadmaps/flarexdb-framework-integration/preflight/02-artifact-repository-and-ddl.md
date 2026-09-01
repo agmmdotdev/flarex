@@ -7,7 +7,7 @@ preparation, stored reconstruction, opaque repository identity/control-
 database composition, runtime-authenticated starter composition, deterministic
 control-session lifecycle, and the artifact-private PostgreSQL control-session
 adapter, exact point-read repository operation, private locked admission,
-bounded identity listing, and supporting PGlite repository evidence
+bounded identity listing, and focused PGlite repository evidence
 implemented; focused ordinary-role PostgreSQL 18 migration/catalog, control-
 session, point-read, exact-admission convergence, and deployment-row blocking
 evidence implemented, together with collision contention, both dependency-lock
@@ -22,12 +22,12 @@ ordering with both the framework and Application schema-version artifact writer
 as the initial holder; active-SQL and recovery-work deadline quarantine is now
 implemented under the separately accepted `FSA-PG-DRAIN-01` correction; native
 bounded-list ordering, pagination, and natural-index plan evidence are
-implemented; the genuine-PostgreSQL acceptance enumerated by this record is
-complete, while the exact remaining PGlite repository evidence below keeps the
-private repository checkpoint incomplete
+implemented; the genuine-PostgreSQL acceptance enumerated by this record and
+the focused PGlite repository acceptance below are complete; the private
+repository checkpoint is complete and production-inert
 
-The private owner-qualified artifact value checkpoint is implemented and
-production-inert. This preflight freezes the next additive boundary only:
+The private owner-qualified artifact repository checkpoint is implemented and
+production-inert. This preflight froze that additive boundary only:
 
 - control-authority storage for immutable framework schema artifacts;
 - physical dependency evidence and dependency-existence admission;
@@ -37,8 +37,8 @@ production-inert. This preflight freezes the next additive boundary only:
 - static Flarex platform migration compatibility; and
 - separate PGlite and genuine-PostgreSQL acceptance evidence.
 
-Acceptance authorizes only the private files and evidence listed under
-Implementation Checkpoint. It does **not** authorize:
+The accepted implementation was limited to the private files and evidence
+listed under Implementation Checkpoint. It did **not** authorize:
 
 - a package-root export or runtime caller;
 - an Application artifact writer or any change to the Application schema,
@@ -301,10 +301,10 @@ The accepted production database prerequisite for this schema is
 `block_size >= 8192`. The maximum natural and supporting keys are designed for
 the ordinary 8 KiB-or-larger PostgreSQL B-tree tuple limit, not a custom 4 KiB
 build. This additive migration does not install a host prerequisite hook; a
-later production-readiness gate must reject a smaller build. This private
-checkpoint remains incomplete unless its genuine-PostgreSQL lane observes the
-prerequisite and proves the keys with incompressible, well-formed maximum-byte
-identities rather than highly compressible repeated text.
+later production-readiness gate must reject a smaller build. The completed
+genuine-PostgreSQL lane observed this prerequisite and proved the keys with
+incompressible, well-formed maximum-byte identities rather than highly
+compressible repeated text.
 
 The implementation uses Drizzle `bigint(..., { mode: "bigint" })` for every
 storage-ID column and a private schema-local custom text type for the explicit
@@ -1004,7 +1004,7 @@ native evidence.
 
 ### PGlite Migration Evidence
 
-PGlite must prove:
+The completed PGlite lane proves:
 
 - fresh migration and a second idempotent migration;
 - both table names in the exact table inventory;
@@ -1060,20 +1060,44 @@ ordinary SQL-rejection mapping. Every lookahead row is decoded before slicing.
 This evidence does not claim snapshot pagination or genuine PostgreSQL index,
 driver, collation, cancellation, or pool behavior.
 
-The following repository-lane evidence remains open. Existing physical-
-constraint tests, pure stored-codec matrices, and representative PGlite
-operation tests are supporting evidence, but they do not discharge these items
-without a focused acceptance reconciliation and receipt:
+Focused repository acceptance now reconciles the physical, pure-codec, loader,
+and facade layers:
 
-- same-deployment/same-owner dependency admission and physical rejection of
-  cross-owner, cross-deployment, duplicate-target, or same-lineage rows;
-- raw ordinal reordering is admitted only as deliberate corruption and is
-  rejected by exact replay and full point read;
-- full read, absent read, bounded size gate, invalid UTF-8, invalid JSON,
-  noncanonical frame, identity/digest/frame drift, invalid audit time, and every
-  dependency mismatch;
-- interruption settlement;
-- no owner-codec work while the lock is held.
+- authentic same-deployment/same-owner dependencies admit in canonical order;
+  parent-valid edges to a target in another deployment or owner independently
+  fail the target foreign key, a distinct target with the parent's lineage
+  fails the lineage check, and duplicate targets remain physically rejected;
+- a privileged raw `0 -> 2`, `1 -> 0`, `2 -> 1` ordinal swap remains physically
+  representable and finishes with dense ordinals, but exact admission replay
+  and the full point read both report `dependencyRows` corruption without
+  sorting or repair;
+- full dependency-bearing and absent point reads are joined by persisted
+  rejection of the bounded canonical-byte transfer, invalid UTF-8, invalid
+  JSON, noncanonical text, canonical and physical identity/digest drift, stored
+  frame-format/version drift, and non-finite audit time;
+- persisted dependency corruption covers missing, extra, and ordinal-gap rows;
+  duplicate, zero, and self targets; wrong deployment, owner, and parent
+  lineage; same or unmatched dependency lineage; a coherent but canonically
+  wrong target; short and drifted joined digests; and 257 stored rows. The
+  production loader transfers only 256 rows in the last case while its derived
+  window count remains `257`, then rejects the mismatch;
+- interruption requested after successful dependency-bearing locked work stays
+  pending until PGlite `COMMIT` and fixture release complete. One parent and
+  edge are durable, the final `Cause` contains exactly one interrupt and no
+  typed failure or defect, and a clean exact replay returns `existing`; and
+- the owner-codec item is resolved as deliberately inapplicable to this
+  checkpoint. The repository accepts only an authenticated prepared common
+  artifact and exposes no Payload, Medusa, compiler, user-code, or owner-codec
+  callback in lock scope. Existing receipts prove common hashing and full
+  reconstruction occur outside the transaction. Any later owner adapter must
+  prove its codec completes before common capture/preparation under a separate
+  accepted adapter preflight.
+
+Wrong parent storage identity and caller-selected dependency window-count text
+are not observable through the production loader: its query anchors the parent
+storage ID and derives the count in SQL. The pure defensive stored-codec matrix
+retains those impossible driver-shape checks; the repository lane does not fake
+them through a second loader path.
 
 PGlite does not prove row-lock blocking, concurrent claim convergence,
 connection quarantine, distinct-session recovery, deadline enforcement,
@@ -1081,8 +1105,7 @@ deadlock behavior, or genuine PostgreSQL migration semantics.
 
 ### Genuine PostgreSQL Evidence
 
-Before the private repository checkpoint is complete, genuine PostgreSQL must
-prove:
+The completed genuine-PostgreSQL lane proves:
 
 - the additive migration applies atomically in a temporary schema, rolls back
   on injected failure, records one receipt, and replays idempotently;
@@ -1287,12 +1310,13 @@ work before destroying the original client and observing transport end. Both
 desired acceptances now run without skips, including a one-connection control
 pool and the distinct recovery backend. The separate native list scenarios
 above now complete the genuine-PostgreSQL evidence enumerated by this record.
-The exact remaining PGlite repository evidence still keeps the private
-repository checkpoint incomplete, and no downstream gate is open.
+The focused PGlite repository receipts above now complete the remaining local
+lane. The private repository checkpoint is complete, and no downstream gate is
+open.
 
 ## Accepted Implementation Checkpoint
 
-The bounded implementation checkpoint may change only:
+The bounded implementation checkpoint was limited to:
 
 - private artifact capture authenticity state;
 - private opaque repository/control-transaction composition plus
@@ -1301,17 +1325,17 @@ The bounded implementation checkpoint may change only:
   test-only PGlite evidence, without changing the existing located-transaction
   contracts;
 - the two private Drizzle table declarations;
-- the next generated additive migration, journal, and snapshot;
+- the generated additive migration, journal, and snapshot;
 - focused PGlite and genuine-PostgreSQL artifact repository, settlement, and
   authority-boundary tests;
 - the PGlite migration inventory and one additive-upgrade test; and
 - roadmap receipts for that exact checkpoint.
 
-It must stop with no package-root export, framework adapter, Application
+Its boundary excluded any package-root export, framework adapter, Application
 writer, installation, readiness, binding, migration coordinator, runtime
 caller, or production activation.
 
-The completed genuine-PostgreSQL lane is required evidence for this checkpoint
+The completed genuine-PostgreSQL lane was required evidence for this checkpoint
 and cannot be substituted by PGlite. It remains local acceptance evidence; no
 downstream installation, hosted, or production gate may infer readiness from
 its lock, concurrency, deadline, or plan receipts alone.
@@ -1323,12 +1347,12 @@ meaning in the common value owner, physical identity and dependency existence
 in PostgreSQL, and framework interpretation in its lane adapter. It introduces
 no second Application authority and no generic relational developer API.
 
-The next independently authorized acceptance step is the remaining PGlite
-repository evidence above. Completing those exact items, or deliberately
-resolving an inapplicable item in this accepted record, closes the private
-repository checkpoint. The implemented DDL, preparation capability, stored
+The private repository checkpoint is complete. This record authorizes no
+further implementation. The implemented DDL, preparation capability, stored
 loader/reconstruction, point read, locked admission, bounded identity list,
 repository identity, authenticated starter, deterministic control-session
-lifecycle, completed genuine-PostgreSQL acceptance, and artifact-private
-PostgreSQL control-session adapter do not open any installation, framework-
-adapter, runtime, public, hosted, or production gate.
+lifecycle, completed PGlite and genuine-PostgreSQL acceptance, and artifact-
+private PostgreSQL control-session adapter do not open any installation,
+framework-adapter, runtime, public, hosted, or production gate. Installation,
+readiness, availability, Application-reference, Payload-overlay, and
+`DataBindingSet` persistence require their own accepted preflight.

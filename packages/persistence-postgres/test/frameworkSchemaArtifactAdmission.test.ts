@@ -1,5 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import {
   afterEach,
   describe,
@@ -28,6 +28,8 @@ import {
   type FrameworkSchemaArtifactRepository,
   type PreparedFrameworkSchemaArtifactAdmission,
 } from "../src/frameworkSchema/artifact/repository";
+import { getFrameworkSchemaArtifactEffect } from
+  "../src/frameworkSchema/artifact/read";
 import {
   createPGlitePersistence,
   type PGliteFlarexPersistence,
@@ -285,6 +287,101 @@ describe("private framework schema artifact admission", () => {
       const existing = await admitArtifact(fixture.repository, parent);
       expect(existing.status).toBe("existing");
       expect(existing.artifact).toEqual(parent);
+    });
+  }, 120_000);
+
+  it("rejects constraint-valid raw ordinal reordering in exact replay and point read", async () => {
+    await withPGlitePersistence(async persistence => {
+      await insertDeployment(persistence);
+      const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+        persistence,
+      );
+      const dependencies = await Promise.all([0, 1].map(index =>
+        captureArtifact({
+          lineageId: `lineage-reordered-dependency-${index}`,
+          payload: { table: `reordered-dependency-${index}` },
+        })
+      ));
+      for (const dependency of dependencies) {
+        await admitArtifact(fixture.repository, dependency);
+      }
+      const parent = await captureArtifact({
+        lineageId: "lineage-reordered-parent",
+        dependencies: dependencies.map(dependency => dependency.identity),
+      });
+      await admitArtifact(fixture.repository, parent);
+      const parentStorageId = await requireArtifactStorageId(
+        persistence,
+        parent,
+      );
+
+      await persistence.query(`
+        update ${DEPENDENCY_TABLE}
+        set dependency_ordinal = 2
+        where artifact_storage_id = $1 and dependency_ordinal = 0
+      `, [parentStorageId]);
+      await persistence.query(`
+        update ${DEPENDENCY_TABLE}
+        set dependency_ordinal = 0
+        where artifact_storage_id = $1 and dependency_ordinal = 1
+      `, [parentStorageId]);
+      await persistence.query(`
+        update ${DEPENDENCY_TABLE}
+        set dependency_ordinal = 1
+        where artifact_storage_id = $1 and dependency_ordinal = 2
+      `, [parentStorageId]);
+
+      const reordered = await persistence.query<{
+        ordinal: number;
+        lineage_id: string;
+      }>(`
+        select edge.dependency_ordinal as ordinal, target.lineage_id
+        from ${DEPENDENCY_TABLE} as edge
+        join ${ARTIFACT_TABLE} as target
+          on target.artifact_storage_id = edge.dependency_storage_id
+        where edge.artifact_storage_id = $1
+        order by edge.dependency_ordinal asc
+      `, [parentStorageId]);
+      expect(reordered.rows).toEqual([
+        {
+          ordinal: 0,
+          lineage_id: requireArtifactAt(dependencies, 1).identity.lineageId,
+        },
+        {
+          ordinal: 1,
+          lineage_id: requireArtifactAt(dependencies, 0).identity.lineageId,
+        },
+      ]);
+
+      const replayError = await runEffectFailure(
+        admitFrameworkSchemaArtifactEffect(
+          fixture.repository,
+          prepareOrThrow(parent),
+        ),
+      );
+      expect(replayError).toMatchObject({
+        operation: "admit",
+        reason: "storedStateCorrupt",
+        storedStage: "dependencyRows",
+        identity: parent.identity,
+      });
+      expect(Object.hasOwn(replayError, "stage")).toBe(false);
+      expect(Object.hasOwn(replayError, "cause")).toBe(false);
+
+      const readError = await runEffectFailure(
+        getFrameworkSchemaArtifactEffect(
+          fixture.repository,
+          parent.identity,
+        ),
+      );
+      expect(readError).toMatchObject({
+        operation: "read",
+        reason: "storedStateCorrupt",
+        storedStage: "dependencyRows",
+        identity: parent.identity,
+      });
+      expect(Object.hasOwn(readError, "stage")).toBe(false);
+      expect(Object.hasOwn(readError, "cause")).toBe(false);
     });
   }, 120_000);
 
@@ -550,6 +647,91 @@ describe("private framework schema artifact admission", () => {
     });
   }, 120_000);
 
+  it("settles commit and release before re-emitting a successful admission interruption", async () => {
+    await withPGlitePersistence(async persistence => {
+      await insertDeployment(persistence);
+      const seedFixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+        persistence,
+      );
+      const dependency = await captureArtifact({
+        lineageId: "lineage-interrupted-dependency",
+      });
+      await admitArtifact(seedFixture.repository, dependency);
+      const parent = await captureArtifact({
+        lineageId: "lineage-interrupted-parent",
+        dependencies: [dependency.identity],
+      });
+
+      const result = await runEffect(Effect.gen(function* () {
+        const beforeCommit = yield* Deferred.make<void>();
+        const releaseCommit = yield* Deferred.make<void>();
+        const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(
+          persistence,
+          {
+            beforeInitialCommitEffect: Deferred.succeed(
+              beforeCommit,
+              undefined,
+            ).pipe(Effect.andThen(Deferred.await(releaseCommit))),
+          },
+        );
+        const worker = yield* Effect.forkChild(
+          admitFrameworkSchemaArtifactEffect(
+            fixture.repository,
+            prepareOrThrow(parent),
+          ),
+        );
+        yield* Deferred.await(beforeCommit);
+        const transactionActiveBeforeRelease = fixture.isTransactionActive();
+        let interruptionSettled = false;
+        const interrupter = yield* Effect.forkChild(
+          Fiber.interrupt(worker).pipe(Effect.tap(() => Effect.sync(() => {
+            interruptionSettled = true;
+          }))),
+        );
+        yield* Effect.yieldNow;
+        const interruptionPendingBeforeRelease = !interruptionSettled;
+        const eventsBeforeRelease = [...fixture.events];
+        yield* Deferred.succeed(releaseCommit, undefined);
+        const exit = yield* Fiber.await(worker);
+        yield* Fiber.join(interrupter);
+        return {
+          events: [...fixture.events],
+          eventsBeforeRelease,
+          exit,
+          interruptionPendingBeforeRelease,
+          transactionActiveAfterSettlement: fixture.isTransactionActive(),
+          transactionActiveBeforeRelease,
+          repository: fixture.repository,
+        };
+      }));
+
+      expect(result.transactionActiveBeforeRelease).toBe(true);
+      expect(result.interruptionPendingBeforeRelease).toBe(true);
+      expect(result.eventsBeforeRelease.at(-1)).toBe("initial:beforeCommit");
+      expect(result.eventsBeforeRelease).not.toContain("initial:commit");
+      expect(result.eventsBeforeRelease).not.toContain("initial:release");
+      expect(result.events.slice(-2)).toEqual([
+        "initial:commit",
+        "initial:release",
+      ]);
+      expect(result.events).not.toContain("initial:rollback");
+      expect(result.events).not.toContain("initial:quarantine");
+      expect(result.transactionActiveAfterSettlement).toBe(false);
+      expect(Exit.isFailure(result.exit)).toBe(true);
+      if (Exit.isFailure(result.exit)) {
+        expect(result.exit.cause.reasons.filter(Cause.isInterruptReason))
+          .toHaveLength(1);
+        expect(Cause.hasFails(result.exit.cause)).toBe(false);
+        expect(Cause.hasDies(result.exit.cause)).toBe(false);
+      }
+      expect(await countArtifacts(persistence, parent)).toBe(1);
+      expect(await countArtifactDependencies(persistence, parent)).toBe(1);
+      const replay = await admitArtifact(result.repository, parent);
+      expect(replay.status).toBe("existing");
+      expect(replay.artifact).toEqual(parent);
+    });
+  }, 120_000);
+
   it("projects uncertain settlement with both exact causes and no ordinary cause", async () => {
     await withPGlitePersistence(async persistence => {
       await insertDeployment(persistence);
@@ -710,6 +892,46 @@ async function countLineageArtifacts(
     artifact.identity.owner,
     artifact.identity.lineageId,
   ]);
+  return Number(result.rows[0]?.count ?? "0");
+}
+
+async function requireArtifactStorageId(
+  persistence: PGliteFlarexPersistence,
+  artifact: FrameworkSchemaArtifact,
+): Promise<string> {
+  const result = await persistence.query<{ storage_id: string }>(`
+    select artifact_storage_id::text as storage_id
+    from ${ARTIFACT_TABLE}
+    where deployment_id = $1
+      and owner = $2
+      and lineage_id = $3
+      and artifact_sha256 = decode($4, 'hex')
+  `, [
+    artifact.identity.deploymentId,
+    artifact.identity.owner,
+    artifact.identity.lineageId,
+    artifact.identity.artifactSha256,
+  ]);
+  const storageId = result.rows[0]?.storage_id;
+  if (storageId === undefined) {
+    throw new Error("Missing framework artifact storage identity.");
+  }
+  return storageId;
+}
+
+async function countArtifactDependencies(
+  persistence: PGliteFlarexPersistence,
+  artifact: FrameworkSchemaArtifact,
+): Promise<number> {
+  const artifactStorageId = await requireArtifactStorageId(
+    persistence,
+    artifact,
+  );
+  const result = await persistence.query<{ count: string }>(`
+    select count(*)::text as count
+    from ${DEPENDENCY_TABLE}
+    where artifact_storage_id = $1
+  `, [artifactStorageId]);
   return Number(result.rows[0]?.count ?? "0");
 }
 

@@ -8,11 +8,11 @@ repository construction, plus the runtime-authenticated control-session
 starter, deterministic control-session lifecycle, and artifact-private
 PostgreSQL control-session adapter implemented, together with the exact private
 point-read, locked-admission, and bounded identity-list operations with
-supporting PGlite evidence; focused ordinary-role PostgreSQL migration/catalog,
-control-session, point-read, exact-admission convergence, and deployment-lock
-evidence implemented, together with collision contention, both dependency-lock
-orders,
-cross-deployment non-blocking, owner/lineage coordinate isolation, and post-
+completed focused PGlite evidence; focused ordinary-role PostgreSQL
+migration/catalog, control-session, point-read, exact-admission convergence, and
+deployment-lock evidence implemented, together with collision contention, both
+dependency-lock orders, cross-deployment non-blocking, owner/lineage coordinate
+isolation, and post-
 write rollback, plus driver-edge pre-/post-`COMMIT` settlement recovery after
 discarding the uncertain native backend and using a distinct recovery backend,
 plus advisory-lock-backed callback-SQL and server-blocked-`COMMIT`
@@ -22,9 +22,9 @@ both supported cross-owner deployment-lock holder orders with the existing
 Application schema-version artifact writer, plus the separately accepted
 active-SQL and recovery-work cancellation/drain correction for
 `FSA-PG-DRAIN-01`, and native bounded-list ordering, pagination, and natural-
-index plan evidence; the accepted genuine-PostgreSQL evidence for this private
-repository checkpoint is implemented, while the exact remaining PGlite
-repository evidence and later lifecycle persistence codecs remain gated
+index plan evidence; the private repository checkpoint and its accepted PGlite
+and genuine-PostgreSQL evidence are complete, while later lifecycle persistence
+codecs remain gated
 
 The additive authority architecture and exact artifact-envelope contract are
 frozen by
@@ -33,9 +33,9 @@ That record also owns the required invariants and sequencing for later
 Application-bridge, installation, activation, typed-failure, Effect, and
 evidence preflights.
 
-The next additive persistence boundary is accepted in
+The completed additive persistence boundary is recorded in
 [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
-It freezes a private control registry and dependency sidecar, authenticated
+It froze a private control registry and dependency sidecar, authenticated
 control-bound admission with bounded settlement recovery, full point-read
 corruption checks, bounded identity listing, and the PGlite/PostgreSQL evidence
 split. Its implementation authority is limited to the exact private files and
@@ -46,12 +46,18 @@ starter composition, deterministic executable control-session lifecycle, and
 the artifact-private PostgreSQL control-session adapter with deterministic
 fake-pool evidence are implemented, as are the neutral size-gated stored loader
 and exact private point read, locked admission, and bounded identity list with
-supporting PGlite evidence. The exact remaining PGlite repository matrix in the
-accepted preflight is incomplete. The ordinary-role PostgreSQL acceptance
-enumerated by that preflight is complete, including native bounded-list and
-natural-index behavior. No Payload or Medusa adapter, runtime caller, public
-API, or production composition is activated. The focused native lane proves the
-migration/catalog, control-session, point-read, exact-admission convergence,
+completed focused PGlite evidence. The PGlite repository matrix now proves the
+independent dependency target constraints, privileged ordinal corruption at
+both facades, persisted bounded-loader and corruption behavior, and interruption
+deferral through commit and release. Query-unreachable row
+shapes remain defensive pure-codec evidence. The absent owner-codec hook is
+explicitly inapplicable to this checkpoint and remains a future adapter
+obligation before common capture/preparation. The ordinary-role PostgreSQL
+acceptance enumerated by that preflight is complete, including native bounded-
+list and natural-index behavior. No Payload or Medusa adapter, runtime caller,
+public API, or production composition is activated. The focused native lane
+proves the migration/catalog, control-session, point-read, exact-admission
+convergence,
 deployment-row blocking, collision, ordered dependency-race, and independent-
 deployment boundary, plus owner/lineage coordinate isolation and rollback after
 the parent insert when dependency-edge insertion fails. It also proves that
@@ -104,11 +110,11 @@ single-loop 101-row index scans without an explicit sort, sequential scan, or
 post-index filter. This completes the genuine-PostgreSQL list/index item without
 claiming snapshot pagination, hosted behavior, or production-scale performance.
 
-The next bounded checkpoint is the explicit remaining PGlite repository
-evidence in
-[`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
-It does not authorize installation, readiness, binding, framework adapters,
-runtime wiring, or production activation.
+The private repository checkpoint in
+[`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md)
+is complete and authorizes no additional implementation. Installation,
+readiness, availability, binding, framework adapters, runtime wiring, and
+production activation remain separate preflight gates.
 
 This plan owns the neutral identity and lifecycle mechanics needed to compile,
 install, validate, and bind Payload lifecycle, Medusa, and admitted system

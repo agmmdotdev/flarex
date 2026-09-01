@@ -18,6 +18,7 @@ import type { PGliteFlarexPersistence } from "../src/pglite";
 
 export interface PGliteFrameworkSchemaArtifactAdmissionFixtureOptions {
   readonly beforeInitialTransaction?: () => Promise<void>;
+  readonly beforeInitialCommitEffect?: Effect.Effect<void, never, never>;
   readonly uncertainAfterCommit?: Readonly<{
     readonly initialSettlementCause: unknown;
     readonly quarantineCause: unknown;
@@ -85,7 +86,9 @@ export function makePGliteFrameworkSchemaArtifactAdmissionFixture(
         events.push("read:release");
       })));
     }),
-    runInitialTransactionEffect: <Value, Failure>(
+    runInitialTransactionEffect: Effect.fn(
+      "FrameworkSchemaArtifactPGliteTestControlSession.initialTransaction",
+    )(function* <Value, Failure>(
       input: Parameters<
         FrameworkSchemaArtifactControlSessionDriver[
           "runInitialTransactionEffect"
@@ -99,11 +102,11 @@ export function makePGliteFrameworkSchemaArtifactAdmissionFixture(
       work: (
         transaction: FlarexMetadataTransaction,
       ) => Effect.Effect<Value, Failure, never>,
-    ): Effect.Effect<
+    ): Effect.fn.Return<
       FrameworkSchemaArtifactControlInitialSettlement<Value, Failure>,
       never,
       never
-    > => Effect.gen(function* () {
+    > {
       initialRuns += 1;
       if (
         initialRuns === 1 &&
@@ -117,17 +120,22 @@ export function makePGliteFrameworkSchemaArtifactAdmissionFixture(
       transactionActive = true;
       events.push("initial:callback");
       const callback = yield* Effect.exit(restore(work(transaction)));
-      transactionActive = false;
       if (Exit.isFailure(callback)) {
         events.push("initial:rollback");
         yield* Effect.promise(() => persistence.query("rollback"));
+        transactionActive = false;
         return Object.freeze({
           kind: "callbackRolledBack" as const,
           callbackCause: callback.cause,
         });
       }
+      if (options.beforeInitialCommitEffect !== undefined) {
+        events.push("initial:beforeCommit");
+        yield* options.beforeInitialCommitEffect;
+      }
       events.push("initial:commit");
       yield* Effect.promise(() => persistence.query("commit"));
+      transactionActive = false;
       if (options.uncertainAfterCommit !== undefined) {
         const recoveryDeadline = yield*
           startFrameworkSchemaArtifactControlDeadline(

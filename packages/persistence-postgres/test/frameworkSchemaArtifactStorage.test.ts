@@ -71,7 +71,9 @@ describe("framework schema artifact storage - PGlite", () => {
       await persistence.query(`
         insert into deployments (deployment_id, project_id)
         values
-          ('deployment_framework_artifacts', 'project_framework_artifacts')
+          ('deployment_framework_artifacts', 'project_framework_artifacts'),
+          ('deployment_framework_artifacts_other',
+           'project_framework_artifacts_other')
       `);
 
       const dependencyStorageId = await insertArtifact(persistence, {
@@ -83,6 +85,25 @@ describe("framework schema artifact storage - PGlite", () => {
         deploymentId: "deployment_framework_artifacts",
         lineageId: "artifact_lineage",
         digestHex: "22".repeat(32),
+      });
+      const crossDeploymentTargetStorageId = await insertArtifact(
+        persistence,
+        {
+          deploymentId: "deployment_framework_artifacts_other",
+          lineageId: "dependency_other_deployment",
+          digestHex: "66".repeat(32),
+        },
+      );
+      const crossOwnerTargetStorageId = await insertArtifact(persistence, {
+        deploymentId: "deployment_framework_artifacts",
+        owner: "medusa",
+        lineageId: "dependency_other_owner",
+        digestHex: "77".repeat(32),
+      });
+      const sameLineageTargetStorageId = await insertArtifact(persistence, {
+        deploymentId: "deployment_framework_artifacts",
+        lineageId: "artifact_lineage",
+        digestHex: "88".repeat(32),
       });
       await expectSqlFailure(insertArtifact(persistence, {
         deploymentId: "deployment_framework_artifacts",
@@ -154,6 +175,33 @@ describe("framework schema artifact storage - PGlite", () => {
         dependencyOrdinal: 1,
         dependencyLineageId: "dependency_lineage",
       }), "23503", "fx_framework_artifact_dependency_parent_fk");
+      await expectSqlFailure(insertDependency(persistence, {
+        artifactStorageId,
+        dependencyStorageId: crossDeploymentTargetStorageId,
+        deploymentId: "deployment_framework_artifacts",
+        owner: "payload",
+        artifactLineageId: "artifact_lineage",
+        dependencyOrdinal: 1,
+        dependencyLineageId: "dependency_other_deployment",
+      }), "23503", "fx_framework_artifact_dependency_target_fk");
+      await expectSqlFailure(insertDependency(persistence, {
+        artifactStorageId,
+        dependencyStorageId: crossOwnerTargetStorageId,
+        deploymentId: "deployment_framework_artifacts",
+        owner: "payload",
+        artifactLineageId: "artifact_lineage",
+        dependencyOrdinal: 1,
+        dependencyLineageId: "dependency_other_owner",
+      }), "23503", "fx_framework_artifact_dependency_target_fk");
+      await expectSqlFailure(insertDependency(persistence, {
+        artifactStorageId,
+        dependencyStorageId: sameLineageTargetStorageId,
+        deploymentId: "deployment_framework_artifacts",
+        owner: "payload",
+        artifactLineageId: "artifact_lineage",
+        dependencyOrdinal: 1,
+        dependencyLineageId: "artifact_lineage",
+      }), "23514", "fx_framework_artifact_dependency_identity_check");
       await insertDependency(persistence, {
         artifactStorageId,
         dependencyStorageId,
@@ -198,7 +246,7 @@ describe("framework schema artifact storage - PGlite", () => {
       await expectUtf8ByteLimits(persistence);
 
       const beforeClose = await storedArtifactCounts(persistence);
-      expect(beforeClose).toEqual({ artifacts: "4", dependencies: "1" });
+      expect(beforeClose).toEqual({ artifacts: "7", dependencies: "1" });
 
       await db.close();
       db = undefined;
