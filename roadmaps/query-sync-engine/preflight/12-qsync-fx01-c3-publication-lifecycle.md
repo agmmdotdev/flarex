@@ -9,8 +9,10 @@ pinned-Workerd exit matrix all pass in the current checkpoint. `QSYNC-FX01-C2`
 exited in `13ee4aa6`; `QSYNC-FX01-C3` and the `QSYNC-FX01` umbrella are now
 complete. They remain package-private, unrouted, and production-inert.
 
-Completion unblocks `QSYNC-FX02` only for its own bounded preflight. FX02 is
-not implemented or authorized by this record.
+Completion unblocked only the separate
+[`QSYNC-FX02` preflight](./13-qsync-fx02-postgres-host-composition.md), which
+was subsequently accepted. FX02 remains unimplemented and is not authorized
+by this C3 record.
 
 Acceptance authorized only the DDL, migration, database clock, adapter work,
 private naming cleanup, and proof inside this record. The completed checkpoint
@@ -586,8 +588,9 @@ The accepted decision is:
 
 - keep disposal/recreate/reopen as mandatory C3 adapter exit evidence;
 - do not relabel it as eviction or hibernation; and
-- move deployed eviction/hibernation proof to FX02, where a real
-  `DeploymentSyncDO` host composition and caller lifecycle exist.
+- move deployed restart/cold-recreation evidence to FX02, where a real
+  `DeploymentSyncDO` host composition and caller lifecycle exist. The
+  non-WebSocket sync actor has no WebSocket-hibernation exit claim.
 
 This completed checkpoint explicitly supersedes only the older claim that the
 storage-only C3 adapter can prove a deployed host eviction. The exit evidence
@@ -628,11 +631,13 @@ Accepted on 2026-08-31 and completed on 2026-09-01 with these decisions:
 2. the exact SQLite text-millisecond clock and defect boundary;
 3. one medium implementation-and-base-proof vertical containing all three
    operations plus the final unversioned private facade name; and
-4. honest C3 reopen proof with deployed eviction/hibernation deferred to FX02.
+4. honest C3 reopen proof with deployed restart/cold-recreation evidence
+   deferred to FX02.
 
 The medium implementation-and-base-proof vertical plus phase-2, phase-3, and
 phase-4 closure are complete. `QSYNC-FX01-C3` and `QSYNC-FX01` are complete,
-package-private, unrouted, and production-inert. `QSYNC-FX02` is now unblocked
-for a separate accepted preflight only; it remains unimplemented. No
+package-private, unrouted, and production-inert. The separately accepted
+[`QSYNC-FX02` preflight](./13-qsync-fx02-postgres-host-composition.md) now owns
+the ordered Postgres/host composition; it remains unimplemented. No
 publisher, client, delivery, Postgres-source, host-composition, public API, or
 production claim follows from this exit.

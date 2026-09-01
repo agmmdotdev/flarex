@@ -180,13 +180,15 @@ not a complete uncertainty contract.
     accept or reject it at explicit maturity, security, retention, payload, and
     cost gates. Rejection does not block the Flarex model/source/SQLite adapter;
     it blocks only that delivery composition.
-17. **Unblocked; preflight required (`QSYNC-FX02`).** Freeze the exact Postgres
-    source, authenticated query registration/evaluation/rerun host composition,
-    lifecycle, and semantic-outbox processing boundaries. FX01 completion does
-    not implement or authorize this work.
-18. Only after an accepted FX02 preflight, adapt the authoritative Postgres
-    commit feed as the replayable change source and prove contiguous
-    duplicate/reverse/gap/reset behavior.
+17. **Preflight accepted (`QSYNC-FX02`).** The
+    [FX02 record](./preflight/13-qsync-fx02-postgres-host-composition.md)
+    freezes the exact Postgres source, authenticated query registration/
+    evaluation/rerun host composition, lifecycle, wake recovery, and semantic-
+    outbox processing boundaries. Implementation has not started.
+18. Implement FX02-A: adapt one correlated authoritative Postgres scope/feed/
+    head read as the replayable change source and prove contiguous duplicate/
+    reverse/gap/reset behavior through the authenticated executor/backend
+    boundary before adding Durable Object behavior.
 19. Compose query execution, provisional completion, rerun coalescing,
     unchanged suppression, and processing of the already-semantic durable
     publication outbox.

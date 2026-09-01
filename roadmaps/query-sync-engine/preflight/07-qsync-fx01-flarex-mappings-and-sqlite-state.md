@@ -723,10 +723,11 @@ This umbrella and the completed FX01-A/B/C1/C2/C3 checkpoints do not authorize:
   second real durable host.
 
 `QSYNC-CF01` remains the independent delivery feasibility/selection gate.
-`QSYNC-FX02` is now unblocked as the next preflight for the Postgres source,
-authenticated query evaluation, host orchestration, and deployed
-eviction/hibernation evidence; it is not implemented. `QSYNC-FX03` remains
-delivery, gateway/client,
+The separate
+[`QSYNC-FX02` preflight](./13-qsync-fx02-postgres-host-composition.md) is now
+accepted for the Postgres source, authenticated query evaluation, host
+orchestration, and accurately labeled deployed restart/cold-recreation
+evidence; it is not implemented. `QSYNC-FX03` remains delivery, gateway/client,
 reconnect/reset, target-only cutover, Legacy retirement, and `R03-B` adoption.
 
 ## Validation And Review Gates
@@ -752,7 +753,9 @@ with Node SQLite and pinned local Workerd rollback/disposal-recreate/reopen
 proof. `QSYNC-FX01` is complete, package-private, unrouted, and
 production-inert.
 
-The next correctness work is a separate `QSYNC-FX02` preflight. FX01 completion
-unblocks that preflight; it does not implement the Postgres source, evaluator or
-host composition, prove deployed Cloudflare eviction/hibernation, choose or
-implement delivery, expose a public API, or unblock FX03, CF01, or `R03-B`.
+The next correctness work is the medium `QSYNC-FX02-A` correlated Postgres
+source vertical accepted by
+[`preflight/13`](./13-qsync-fx02-postgres-host-composition.md). FX01 completion
+does not implement the source, evaluator or host composition, prove a deployed
+restart or eviction, choose or implement delivery, expose a public API, or
+unblock FX03, CF01, or `R03-B`.

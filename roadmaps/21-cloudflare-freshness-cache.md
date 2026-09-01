@@ -29,8 +29,11 @@ completed its generation-4 publication lifecycle, complete private
 nine-operation adapter, exact-limit matrix, and pinned local Workerd
 rollback/disposal-recreate/reopen exit on 2026-09-01. `QSYNC-FX01` is complete,
 private, unrouted, and production-inert.
-Its completion unblocks `QSYNC-FX02` as the next preflight; FX02 is not
-implemented.
+The bounded
+[`QSYNC-FX02` preflight](./query-sync-engine/preflight/13-qsync-fx02-postgres-host-composition.md)
+was accepted on 2026-09-01; FX02 implementation has not started. Its first
+approved medium slice is the correlated Postgres scope/feed/head source
+vertical through the existing authenticated executor/backend boundary.
 Roadmap 21 remains the accepted concrete Flarex/Cloudflare adapter authority.
 Ordered Postgres catch-up, source/evaluator and host composition, registration,
 reset/reconnect, rerun, delivery selection and implementation, public APIs, and
@@ -635,8 +638,10 @@ ordered gates are now:
    completed its generation-4 publication lifecycle, complete private
    nine-operation adapter, exact maximum/plus-one matrix, and pinned local
    Workerd disposal/recreate/reopen proof on 2026-09-01. This closes FX01
-   privately and production-inertly; deployed Cloudflare eviction/hibernation
-   remains deferred to FX02 host composition.
+   privately and production-inertly; deployed Cloudflare restart/cold-
+   recreation evidence remains deferred to FX02 host composition. The sync
+   actor has no WebSocket endpoint, so WebSocket hibernation remains a separate
+   ConnectionDO/delivery concern.
 8. Independently run `QSYNC-CF01` against pinned upstream Durable Streams
    packages on real Cloudflare; accept or reject on conformance,
    auth/isolation, retention/rotation, payload, uncertainty recovery,
@@ -666,11 +671,12 @@ ordered gates are now:
      Legacy timestamp registry or compatibility `SchedulerDO` is an interim
      owner.
 
-FX01 completion unblocks a separate `QSYNC-FX02` preflight as the next adapter
-gate; no FX02 source, evaluator, host-composition, or deployed-lifecycle work in
-this sequence is implemented yet. `QSYNC-CF01`, `QSYNC-FX03`, delivery, public
-APIs, production activation, and `R03-B` retain their distinct incomplete
-gates.
+The
+[`QSYNC-FX02` preflight](./query-sync-engine/preflight/13-qsync-fx02-postgres-host-composition.md)
+is accepted. FX02-A is the next adapter implementation gate; no FX02 source,
+evaluator, host-composition, or deployed-lifecycle work in this sequence is
+implemented yet. `QSYNC-CF01`, `QSYNC-FX03`, delivery, public APIs, production
+activation, and `R03-B` retain their distinct incomplete gates.
 
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are not next gates. They require a
 separate measured need and their own gap-free correctness proofs after v1 sync

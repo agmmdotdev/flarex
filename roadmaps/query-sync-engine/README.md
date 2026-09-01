@@ -34,10 +34,13 @@ complete, private, unrouted, and production-inert. The accepted
 now records the completed bounded, private generation-4 publication-lifecycle
 vertical, exhaustive phase-2 closure, repeated cross-operation and conformance
 phase-3 closure, and exact-limit plus pinned-Workerd phase-4 exit. C3 and
-`QSYNC-FX01` are complete, package-private, unrouted, and production-inert.
-`QSYNC-FX02` is unblocked only to begin its own bounded preflight, which must be
-accepted before implementation; FX02 remains unimplemented. The accepted
-docs-only
+`QSYNC-FX01` are complete, package-private, unrouted, and production-inert. The
+[`QSYNC-FX02` preflight](./preflight/13-qsync-fx02-postgres-host-composition.md)
+was accepted on 2026-09-01 and freezes the Postgres source, authenticated
+registration/evaluation, Cloudflare host, wake recovery, lifecycle, and
+semantic publication-outbox boundaries. FX02 implementation has not started;
+its first approved medium slice is the correlated Postgres source vertical.
+The accepted docs-only
 [`QSYNC01-D0` preflight](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
 now freezes that seam, its staged-read protocol, exact accounting authority,
 proof matrix, and D1-D4 implementation order. D0 itself added no code; D1-D4
@@ -219,7 +222,7 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-D` | Operation-scoped transition-plan seam with bounded fact inputs, explicit logical changes, exact counters, and equivalence to the aggregate reducers | Complete through D4; all nine operations are private and production-inert |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
 | `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Complete through C3; private, unrouted, production-inert, and independent of delivery selection |
-| `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Unblocked; bounded preflight required; not implemented |
+| `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Preflight accepted; FX02-A correlated Postgres source is next; implementation not started |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
 
@@ -290,16 +293,18 @@ paths.
 
 ## Next Correctness Gate
 
-The next correctness work is a bounded `QSYNC-FX02` preflight that must be
-separately accepted before implementation. It must freeze the authoritative
-Postgres catch-up boundary,
-authenticated query registration/evaluation/rerun host composition, lifecycle
-ownership, and processing of the already-semantic publication outbox before
-implementation starts. `QSYNC-FX01` is complete, but that completion is only a
-prerequisite: it does not implement or authorize FX02.
+The next correctness work is the medium `QSYNC-FX02-A` correlated Postgres
+source vertical accepted by
+[`preflight/13`](./preflight/13-qsync-fx02-postgres-host-composition.md). It
+adds one persistence-owned correlated scope/feed/head read, one strict private
+executor/backend codec, the authenticated executor host, and the backend
+`ReplayableChangeSource` adapter ending at portable admission. It adds no
+Durable Object behavior, evaluator, publisher, schema, or production caller.
 
 The FX01 exit remains private, unrouted, and production-inert. It proves no
-deployed Cloudflare eviction or hibernation, runtime portability, production
+deployed Cloudflare restart or eviction, runtime portability, production
 readiness, product parity, real `ResultPublisher`, delivery adapter,
-public/client API, Legacy/product migration, cutover, or `R03-B`.
+public/client API, Legacy/product migration, cutover, or `R03-B`. The sync
+actor does not accept WebSockets, so WebSocket hibernation remains a separate
+ConnectionDO/delivery concern rather than an FX02 host claim.
 `QSYNC-CF01` remains the independent delivery feasibility and selection gate.
