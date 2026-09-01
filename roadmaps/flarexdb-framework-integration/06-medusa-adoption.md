@@ -4,7 +4,8 @@
 
 Status: accepted source-backed sequence with the inert fork source island
 implemented and verified; active package promotion and the Flarex-backed
-Medusa adapter remain unimplemented and production-unauthorized
+Medusa adapter remain unimplemented, gated by the core-first three-lane proof,
+and production-unauthorized
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,
@@ -26,6 +27,11 @@ verification contract, reuse classification, and later package-promotion
 gates. The island is not a production dependency. Only source-map-admitted
 packages promoted into the active root workspace may later enter the Medusa
 adapter graph.
+
+[`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md)
+owns the prerequisite order before any such package promotion. Source mapping
+and inert fixture extraction may proceed early; package convergence waits for
+the shared-core, Flarex Application, and Payload gates named there.
 
 The admitted island now pins fork commit
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f` as 8,496 exact tracked regular
@@ -179,6 +185,31 @@ migration requirements fail admission before serving traffic.
 - Keep live fork DML normalization and candidate compilation outside this step;
   those begin only after the connected source closure is promoted.
 - Generate no public application schema and expose no raw database handle.
+
+### Shared-core and earlier-lane promotion hold
+
+Do not begin the Currency-connected foundational promotion until all of these
+are complete:
+
+- the exact Medusa source/capability map and exact Payload contract preflight;
+- value-only `RelationalSchema` admission;
+- framework installation, readiness, availability, binding, and migration-
+  coordinator mechanics;
+- an owner-scoped relational transaction/store capability;
+- transaction-bound mutation receipts and typed common finalization under their
+  separately accepted owner preflights;
+- a synthetic reserved-relational lifecycle/transaction proof, including
+  fail-closed unadmitted-receipt rejection and rollback, in PGlite and genuine
+  PostgreSQL;
+- the complete existing Flarex Application document/OCC/native-relation/commit
+  regression proof;
+- Payload scalar CRUD and nested request-transaction proof; and
+- Payload's first non-reactive top-level one/many relation proof.
+
+These gates prepare and verify the mechanisms Medusa will later consume. They
+do not implement Medusa semantics in shared core. Once they pass, promotion
+still begins with unchanged fork compatibility and remains separate from the
+later Medusa transaction-propagation and typed commerce receipt adaptations.
 
 ### Currency-connected foundational promotion
 

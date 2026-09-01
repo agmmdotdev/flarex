@@ -17,6 +17,12 @@ resnapshot claims.
 There is currently no Payload dependency, adapter package, `ctx.cms` runtime,
 or production Payload path in the repository.
 
+The exact Payload contract preflight below may proceed now as source-backed
+constraint extraction. It authorizes no dependency, adapter package, runtime
+import, write-policy change, migration, or compatibility claim. The accepted
+cross-lane order is owned by
+[`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md).
+
 ## Ownership Boundary
 
 FlarexDB owns:
@@ -114,6 +120,45 @@ artifact provenance, not parallel version-named adapter packages.
 - Freeze package dependency direction.
 - Create no adapter package or compatibility claim before acceptance.
 
+### Shared-core and Application preservation prerequisites
+
+Before the first Payload adapter or writable collection is implemented:
+
+- complete the value-only relational schema, installation/readiness/binding,
+  migration-coordinator, owner-scoped transaction/store, receipt/finalizer, and
+  synthetic reserved-relational lifecycle/transaction proof gates required by
+  the core-first preflight;
+- rerun the complete existing Flarex Application document, OCC, native-relation,
+  commit, and read vertical without routing Application content through the
+  reserved-relational store; and
+- retain Application as the schema, row, OCC, relation, and commit authority for
+  Payload content.
+
+These prerequisites prepare shared mechanisms and prove non-regression. They do
+not make Payload content a `RelationalSchema` consumer or authorize Payload
+framework behavior inside shared core.
+
+### CMS request transaction and commit participation preflight
+
+Before scalar CRUD implementation, complete the mandatory transaction-owner and
+commit-owner preflights from
+[`04-transactions-and-commit-publication.md`](./04-transactions-and-commit-publication.md):
+
+- define the CMS request transaction host, nested Local API reuse, scope and
+  binding revalidation, timeout, interruption, rollback, settlement, and exact
+  finalization boundary;
+- compose authenticated Application row and later relation capabilities without
+  exposing the current `AppRowTransaction`, a raw database handle, or the
+  reserved-relational transaction host;
+- do not use the Dynamic Worker logical journal for trusted Payload commands;
+- publish scalar content mutations only through the already admitted exact
+  Application-row fact family and common finalizer; and
+- require a separate typed family and commit-owner preflight before any Payload
+  lifecycle sidecar can participate in a commit.
+
+This gate must be accepted before implementing nested rollback, transaction-
+local reads, or the exactly-one commit/change/outbox claim.
+
 ### Application write-policy admission preflight
 
 This separately approved Application-owner gate is mandatory before the first
@@ -185,15 +230,26 @@ This gate must pass before the first CMS-managed write is accepted:
 - Use PGlite for the fast matrix and genuine PostgreSQL for rollback,
   uniqueness, transaction-local reads, and concurrency.
 
-### Schema evolution and lifecycle migrations
+### Relation-bearing Application candidate and overlay rebinding
 
-- Publish content changes only through the authenticated Application
-  Analysis/publication chain as Application schema candidates.
-- Activate only after existing managed-schema readiness.
-- Execute Payload lifecycle/data plans through the fenced migration host.
-- Prove checksums, replay, interruption, retry, receipts, and recovery.
-- Permit hook bypass only through explicit migration/import/repair authority
-  while retaining row, relation, uniqueness, scope, feed, and outbox rules.
+- Capture a new independently digestible relation-bearing Payload
+  configuration/provenance artifact. The stable Payload policy ID and ordinary
+  write-owner mode may remain unchanged, but the configuration digest must
+  change from the scalar candidate.
+- Compile that exact relation-bearing configuration through the existing
+  authenticated Application Analysis/publication chain as one new Application
+  schema candidate, recording the new Payload configuration digest in its
+  authenticated per-table write-policy evidence.
+- Build its managed-schema structures and activate only after the exact
+  readiness proof passes.
+- Rebind the Payload content overlay to that exact active Application head,
+  schema/readiness/placement reference, stable table and relation identities,
+  authenticated write-policy evidence, stable policy ID/write-owner mode, and
+  the new relation-bearing Payload configuration/provenance digest.
+- Reject serving from the previous overlay after Application head movement and
+  prove that no second content schema or dual-writer interval exists.
+- Keep Payload lifecycle/data migrations and unrelated schema features disabled
+  for this first relation candidate.
 
 ### Native relation adoption
 
@@ -218,6 +274,16 @@ conformance before accepting a configuration that permits them.
 
 Run the claimed upstream relationship behavior plus PGlite and genuine
 PostgreSQL evidence. This step makes no subscription or reconnect claim.
+
+### Broader schema evolution and lifecycle migrations
+
+- Publish content changes only through the authenticated Application
+  Analysis/publication chain as Application schema candidates.
+- Activate only after existing managed-schema readiness.
+- Execute Payload lifecycle/data plans through the fenced migration host.
+- Prove checksums, replay, interruption, retry, receipts, and recovery.
+- Permit hook bypass only through explicit migration/import/repair authority
+  while retaining row, relation, uniqueness, scope, feed, and outbox rules.
 
 ### Lifecycle islands
 

@@ -3,26 +3,29 @@
 ## Status And Authorization
 
 **Preflight status:** accepted on 2026-08-30; private artifact-value checkpoint
-implemented on 2026-08-30. The current Application lifecycle, scope authority,
-catalog identity, persistence placement, and Effect ownership have been
-audited. This record freezes the additive architecture and the exact artifact-
-envelope contract. Artifact persistence, installation, readiness, availability,
-Application-bridge, and binding persistence codecs remain later preflights.
+implemented on 2026-08-30. The separately gated artifact repository, DDL,
+control-session, and PGlite plus genuine-PostgreSQL acceptance are also complete.
+The current Application lifecycle, scope authority, catalog identity,
+persistence placement, and Effect ownership have been audited. This record
+freezes the additive architecture and exact artifact-envelope contract.
+Installation, readiness, availability, Application-bridge, and binding
+persistence codecs remain later preflights.
 
 The completed checkpoint is limited to the owner-qualified artifact value
 model, canonical capture, digest policy, capture failures, and contract tests
 inside the private persistence owner. This record does **not** authorize:
 
-- a database migration or relational DDL;
-- an artifact, installation, readiness, or binding repository;
+- new relational DDL or a framework installation migration;
+- an installation, readiness, availability, or binding repository;
 - a new Application artifact writer or active head;
 - a Payload or Medusa import, adapter, route, or runtime caller;
 - a public API or package export;
 - production selection; or
 - a fallback, comparison path, dual read, or dual write.
 
-Those boundaries are deliberate. The first code slice proves that every later
-stored coordinate has one meaning before any new persistent authority exists.
+Those boundaries are deliberate. The completed artifact checkpoints prove that
+every later stored coordinate has one meaning before installation or binding
+authority exists.
 
 ## Accepted Decision
 
@@ -1045,17 +1048,22 @@ canonical instant handling. Focused tests must then prove:
   that a live reference came from one coherent current head/readiness/schema
   basis.
 
-### Later PGlite repository lane
+### PGlite evidence split
 
-PGlite may prove migrations, constraints, replay/conflict behavior, rollback,
-corrupt-row rejection, cold reopen, availability invalidation, and broad
-Application regression. It does not prove lock or concurrency semantics.
+The separately gated artifact repository now has PGlite evidence for its
+migration, constraints, replay/conflict behavior, rollback, corrupt-row
+rejection, and cold reopen claims. PGlite may later prove corresponding
+installation and availability behavior plus broad Application regression. It
+does not prove lock or concurrency semantics.
 
-### Later genuine-PostgreSQL lane
+### Genuine-PostgreSQL evidence split
 
-Genuine PostgreSQL is mandatory for:
+The artifact repository preflight separately records its completed ordinary-
+role genuine-PostgreSQL evidence. Genuine PostgreSQL remains mandatory for the
+later installation and binding claims, including:
 
-- concurrent artifact and installation convergence;
+- concurrent installation convergence and its interaction with immutable
+  artifact identity;
 - owner and lineage isolation under contention;
 - Application-head movement racing framework activation;
 - availability withdrawal racing activation and serving admission;
@@ -1066,23 +1074,23 @@ Genuine PostgreSQL is mandatory for:
 - proof that stale generation, epoch, readiness, or availability can never
   serve.
 
-No genuine-PostgreSQL evidence is claimed by this documentation checkpoint.
+This identity record does not itself claim those later receipts.
 
 ## Ordered Implementation Checkpoints
 
 1. **Private artifact value contract — complete:** artifact models, canonical
    capture, digest/replay policy, capture errors, brands, and focused tests are
    implemented privately with no storage or caller.
-2. **Artifact repository/DDL preflight — accepted; DDL sub-checkpoint
-   implemented:**
+2. **Private artifact repository/DDL — complete:**
    [`02-artifact-repository-and-ddl.md`](./02-artifact-repository-and-ddl.md)
-   freezes the additive artifact tables, exact keys, dependency admission,
-   corruption rules, and migration compatibility. The additive tables and
-   PGlite DDL evidence are implemented; repository behavior and genuine
-   PostgreSQL acceptance remain incomplete.
-3. **Private artifact repository — implementation gate:** admit and read
-   owner-qualified immutable artifacts without an Application writer or
-   runtime caller, and retain the genuine-PostgreSQL evidence gate.
+   freezes and implements the additive artifact tables, exact keys, dependency
+   admission, corruption rules, migration compatibility, private repository,
+   control-session behavior, and focused PGlite plus genuine-PostgreSQL
+   acceptance without an Application writer or runtime caller.
+3. **Consumer-informed relational constraint gate — next:** complete the exact
+   Medusa source/capability map and Payload contract preflight, then implement
+   the private value-only `RelationalSchema` as ordered by
+   [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).
 4. **Installation/readiness/availability frame and repository preflights:**
    proceed only after the relational-schema and migration-coordinator
    preflights constrain plan and structure evidence.
@@ -1097,12 +1105,13 @@ does not become authorized merely because this preflight is accepted.
 
 ## Exit Decision
 
-The architecture preflight and private artifact-value checkpoint are complete.
-They resolve the owner collision, preserve the one existing Application
-authority, and distinguish desired artifacts from physical proof, current
-availability, and subordinate framework selection. Checkpoint 2's repository
-and DDL contract is accepted in
+The architecture preflight, private artifact-value checkpoint, and separately
+gated private artifact repository/DDL checkpoint are complete. They resolve the
+owner collision, preserve the one existing Application authority, and
+distinguish desired artifacts from physical proof, current availability, and
+subordinate framework selection. The repository implementation and its focused
+PGlite plus genuine-PostgreSQL acceptance are owned by
 [`02-artifact-repository-and-ddl.md`](./02-artifact-repository-and-ddl.md).
-Work may proceed only through its bounded private implementation checkpoint;
-all later lifecycle, adapter, runtime, public, and production gates remain
-closed.
+Work may proceed only through the consumer-informed constraint and value-only
+`RelationalSchema` sequence; all later lifecycle, adapter, runtime, public, and
+production gates remain closed until their own preflights pass.

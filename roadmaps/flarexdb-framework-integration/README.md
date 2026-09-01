@@ -68,12 +68,15 @@ Use these sources in order:
    native document-relation foundation.
 5. [`../query-sync-engine/README.md`](../query-sync-engine/README.md) owns the
    runtime-neutral downstream query-sync product and kernel.
-6. [`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md)
+6. [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md)
+   owns the consumer-informed shared-core, Flarex Application, Payload, then
+   Medusa proof and promotion order.
+7. [`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md)
    owns the Medusa source hierarchy, inert fork island, provenance, and later
    package-promotion boundary. The selected Cloudflare-oriented fork is the
    primary Medusa source; official Medusa is historical provenance and
    comparison evidence only.
-7. Current code, migrations, any source snapshot already admitted by its own
+8. Current code, migrations, any source snapshot already admitted by its own
    gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -110,10 +113,11 @@ Preflight records:
 
 | File | Status | Decision |
 | --- | --- | --- |
-| [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; first checkpoint implemented | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred repository, installation, and binding contracts |
+| [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; artifact value complete and separately gated artifact repository complete | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred installation and binding contracts |
 | [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted and implemented; private repository operations, focused PGlite repository acceptance, ordinary-role PostgreSQL migration/catalog, control-session, admission/concurrency/rollback/recovery/interruption, seven native deadline receipts, supported cross-owner deadlock-absence evidence, and native identity-list/index behavior complete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 | [`preflight/03-postgres-active-work-quarantine.md`](./preflight/03-postgres-active-work-quarantine.md) | Accepted; owner correction and native acceptance implemented | Artifact-private authenticated PostgreSQL backend cancellation, tracked-work drain, original-client discard, and fail-closed cleanup semantics for `FSA-PG-DRAIN-01` |
-| [`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md) | Accepted architecture; inert source-island implementation pending | Cloudflare-oriented fork as primary source, official Medusa as provenance baseline, independent verified island, reuse classification, and separately gated package promotion |
+| [`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md) | Accepted; inert source island imported and verified, package promotion pending | Cloudflare-oriented fork as primary source, official Medusa as provenance baseline, independent verified island, reuse classification, and separately gated package promotion |
+| [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md) | Accepted sequencing; consumer audits and implementation pending | Consumer-informed shared core followed by Flarex Application preservation, Payload scalar and native-relation proofs, then Medusa package convergence |
 
 ## Current Architecture
 
@@ -161,49 +165,58 @@ do not prove an adapter, migration engine, runtime caller, or production path.
 The smallest safe sequence is:
 
 1. Freeze system ownership, trust boundaries, and the exact private capability
-   surface.
-2. Add owner-qualified artifact, installation, readiness, and binding concepts
-   beside the current application path without rerouting it.
-3. Admit one clean committed revision of the Cloudflare-oriented Medusa fork
-   into the verified, inert `third_party/medusa` source island. This source-only
-   admission is complete at fork commit
-   `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`; official Medusa remains
-   historical provenance and comparison evidence, and no active package or
-   runtime import was added.
-4. Complete the exact package/capability source maps and contract audit from
-   that island so the actual DML, repository, Link, Query, transaction,
-   migration, workflow, lock, event, and idempotency contracts constrain the
-   shared primitives.
-5. Admit the canonical value-only `RelationalSchema` contract, encoding,
-   digest, provenance, and unsupported-capability rules against exact
-   source-audited fixtures; do not compile a live Medusa candidate or perform
-   DDL yet.
-6. Prove the migration coordinator on a synthetic relational schema, including
-   lease loss, retry, replay, and readiness.
-7. Promote only the exact admitted private, test-only Currency-connected
-   foundational closure, make persistence preparation module-scoped, and
-   compile the complete configured supported module/link set for one pinned
-   candidate. Completeness is candidate-relative; the first candidate may
-   contain Currency alone.
-8. Complete the commerce transaction-host/transaction-owner preflight.
-9. Complete the commit-owner preflight and add typed commerce-row plus admitted
-   Medusa event-intent families to the common finalizer.
-10. Install and exercise the fresh Currency-only baseline through a scope-pinned
-   commerce transaction while preserving unchanged Medusa service behavior.
-11. Admit Product's exact typed event-intent contracts before its first write,
-    then add and prove Product intra-module relationships.
-12. Select and install both endpoint modules for one real stored Module Link,
-    admit its typed link fact and exact event-intent contracts, then exercise it
-    with database-enforced uniqueness/cardinality and genuine-PostgreSQL
-    concurrency evidence.
-13. Add custom repositories and Query integration.
-14. Complete the separate Application-owner write-policy admission preflight,
-    then begin Payload scalar CRUD and request-transaction conformance through
-    the existing document foundation, followed by relations and lifecycle
-    behavior.
-15. Add cross-domain references only after both endpoint lanes have stable
+   surface. The private framework-artifact repository checkpoint is complete.
+2. Keep the clean committed Cloudflare-oriented Medusa fork in the verified,
+   inert `third_party/medusa` source island. This source-only admission is
+   complete at fork commit `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`;
+   official Medusa remains historical provenance and comparison evidence, and
+   no active package or runtime import exists.
+3. In parallel, complete the exact Medusa package/capability source map from
+   that island and the exact Payload release/adapter contract preflight. These
+   audits constrain shared primitives but authorize no package promotion,
+   adapter, runtime import, or write path.
+4. Admit the private canonical value-only `RelationalSchema` contract,
+   encoding, digest, provenance, and unsupported-capability rules against exact
+   source-audited fixtures. Perform no DDL and compile no live Medusa candidate.
+5. Add the separately preflighted framework installation, readiness,
+   availability, binding, and migration-coordinator owners.
+6. Complete the mandatory transaction-owner preflight, then add its narrow
+   owner-scoped relational transaction/store capability. Do not create a
+   universal database or transaction API.
+7. Complete the mandatory commit-owner preflight, then add its transaction-
+   bound mutation receipts and typed finalization mechanics without inventing a
+   generic relational change-fact family.
+8. Prove the framework-neutral lifecycle and transaction path on a synthetic
+   reserved-relational schema through artifact, installation, readiness,
+   binding, migration, transaction-local mutation/read, authenticated receipt
+   preparation, fail-closed finalization rejection, and rollback in PGlite and
+   genuine PostgreSQL. Do not invent a generic synthetic change-fact family.
+9. Run the complete existing Flarex Application document, OCC, native-relation,
+   commit, and read vertical to prove that shared-core work did not reroute or
+   weaken Application authority.
+10. With the exact Payload contract accepted, complete the CMS request-
+   transaction-host, Application commit-participation/finalization, and
+   Application write-policy gates, then prove one scalar-only CMS-managed
+   collection and nested request transaction through the existing Application
+   document path.
+11. Publish and activate a relation-bearing Application candidate, rebind its
+    Payload overlay to that exact active head/readiness/placement, then prove
+    Payload's first top-level, nonlocalized, monomorphic one/many relationships
+    through the existing non-reactive native Application relation path.
+    `R03-B` remains required only for reactive/reconnectable claims.
+12. Only after steps 3 through 11 pass, promote the exact private, test-only
+    Currency-connected Medusa closure, establish unchanged compatibility, and
+    adapt it to the already-proven shared mechanisms.
+13. Admit Currency transaction propagation, commerce-row/event-intent receipts,
+    and typed finalization before the fresh Currency baseline may write.
+14. Add Product and its intra-module relationships, then both endpoints and the
+    typed link/event contracts for one real stored Module Link with database-
+    enforced uniqueness/cardinality and genuine-PostgreSQL concurrency proof.
+15. Add custom repositories, Query, workflows, locks, idempotency, events, and
+    broader modules only through their own bounded conformance gates.
+16. Add cross-domain references only after both endpoint lanes have stable
     identities, bindings, lifecycle rules, and committed change facts.
-16. Run full conformance, scale, recovery, hosted, and operator gates before
+17. Run full conformance, scale, recovery, hosted, and operator gates before
     any production activation.
 
 Steps may be split into smaller implementation checkpoints, but later steps do
@@ -216,8 +229,15 @@ not authorize earlier owner changes implicitly.
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
 | Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite plus ordinary-role PostgreSQL acceptance complete; installation, readiness, availability, Application-reference, Payload-overlay, `DataBindingSet`, and later lifecycle codecs remain gated |
 | Medusa fork source island and package convergence | Inert source island admitted and verified at fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`; source maps, contract audit, every active package promotion, and all runtime/adapter activation remain pending |
-| Relational schema representation | Pending preflight |
-| Framework migration coordinator | Pending preflight |
+| Core-first three-lane execution sequence | Accepted; exact Medusa and Payload constraint audits are next |
+| Relational schema representation | Accepted target contract; value implementation pending exact consumer audits |
+| Framework migration coordinator | Accepted target contract; owner-specific preflight and implementation pending |
+| Owner-scoped relational store and typed finalization | Not implemented; transaction-owner and commit-owner preflights required |
+| Synthetic reserved-relational lifecycle/transaction proof | Pending the shared-core implementation gates; must reject and roll back an unadmitted mutation fact family |
+| Flarex Application preservation proof | Current private `SV-R Core` baseline complete; post-core full regression pending |
+| Payload scalar/request-transaction proof | Pending exact Payload contract, shared-core, Application preservation, CMS transaction/commit, and write-policy gates |
+| Payload non-reactive one/many relation proof | Pending the scalar proof plus relation-bearing Application candidate/readiness/overlay rebinding; `R03-B` is not required for this non-reactive gate |
+| Medusa Currency/Product/Module Link promotion | Blocked on the preceding shared-core, Flarex Application, and Payload gates |
 | Trusted commerce transaction host | Pending preflight |
 | Typed commerce commit participation | Pending separate commit-owner preflight |
 | Flarex-backed Medusa adapter | Not implemented |

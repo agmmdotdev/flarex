@@ -28,12 +28,13 @@ Use these documents with it:
   classification, and package-promotion gates; and
 - code, migrations, and tests own exact implementation status.
 
-The Cloudflare-oriented `agmmdotdev/medusa-fork` snapshot to be admitted under
-that preflight is the primary integration source. No snapshot has been imported
-yet. Official Medusa source and npm packages are historical provenance,
-licensing, and comparison evidence only; they do not silently replace fork
-behavior. The future pinned island is not a runtime dependency. Only separately
-promoted packages may later enter the adapter graph.
+The Cloudflare-oriented `agmmdotdev/medusa-fork` snapshot admitted under that
+preflight is the primary integration source. The verified inert island pins fork
+commit `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`. Official Medusa source and npm
+packages are historical provenance, licensing, and comparison evidence only;
+they do not silently replace fork behavior. The pinned island is not a runtime
+dependency. Only separately admitted and promoted packages may later enter the
+adapter graph after the core-first three-lane prerequisites pass.
 
 ## Decision
 
@@ -302,11 +303,12 @@ accepted order and current status are owned by
 [`Medusa Adoption`](../roadmaps/flarexdb-framework-integration/06-medusa-adoption.md)
 and its framework master roadmap. The accepted
 [`Medusa fork source-island preflight`](../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md)
-must admit the inert source snapshot before the exact contract audit and final
-shared-schema admission. Package promotion remains a separate gate. The later
-order also requires commerce-row and typed event-intent commit admission before
-Currency writes, and commerce-link commit admission before the first stored
-Module Link writes.
+has admitted the inert source snapshot. The exact contract audit and final
+shared-schema admission remain pending. Package promotion remains a separate
+gate after the shared-core, Flarex Application, Payload scalar, and Payload
+native-relation proofs. The later order also requires commerce-row and typed
+event-intent commit admission before Currency writes, and commerce-link commit
+admission before the first stored Module Link writes.
 
 Passing a small adapter test means private compatibility progress. It does not
 mean full Medusa parity, public availability, migration readiness, or

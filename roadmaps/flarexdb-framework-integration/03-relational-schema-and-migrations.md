@@ -2,7 +2,8 @@
 
 ## Status And Scope
 
-Status: accepted target contract; implementation pending
+Status: accepted target contract; exact consumer audits and implementation
+pending
 
 This plan owns the value-only relational schema boundary and the shared
 execution mechanics for framework-owned migration plans. It does not own DML,
@@ -35,6 +36,17 @@ before this model's implementable field and capability set is frozen. Official
 Medusa is provenance and comparison evidence, not the integration source that
 constrains this model. The accepted shape is a boundary, not authority to invent
 a speculative substitute for fork DML or repository behavior.
+
+The exact Payload release-and-adapter contract audit must also complete before
+shared migration, binding, transaction, or receipt capabilities that Payload
+would consume are frozen. That audit constrains only exact shared mechanisms.
+It does not make Payload content part of `RelationalSchema`: Payload content
+continues through the authenticated Application document schema, row, OCC, and
+native-relation path, with Payload-owned lifecycle plans remaining separate.
+
+[`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md)
+owns the consumer-informed proof order and the stop before Medusa package
+promotion.
 
 ## Domain Compilers
 
@@ -151,8 +163,8 @@ but it cannot partially activate the runtime schema.
 
 ## First Proof
 
-Before wiring Medusa into an adapter or runtime, prove the coordinator on a
-small synthetic relational schema:
+Before wiring any framework adapter or promoting an active Medusa package,
+prove the coordinator on a small synthetic reserved-relational schema:
 
 - fresh install;
 - interrupted step and exact resume;
@@ -163,8 +175,16 @@ small synthetic relational schema:
 - activation after readiness; and
 - safe retention of the previous installation.
 
-Then compile the Medusa Currency module into a fresh baseline without
-custom repositories, Query, Module Links, public API, or production routing.
+This migration-coordinator proof stops there. Next complete the separately
+preflighted installation/binding, transaction-owner and owner-scoped store,
+commit-owner and receipt/finalizer mechanics, followed by the complete synthetic
+reserved-relational lifecycle/transaction proof. Then prove the full existing
+Flarex Application vertical, Payload scalar/request-transaction behavior, and
+Payload's relation-bearing candidate plus first non-reactive native one/many
+relation behavior in the order frozen by
+[`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md).
+Only after those gates pass may the Medusa roadmap promote the connected
+Currency closure and compile a live Currency candidate.
 
 ## Exit Criteria
 

@@ -12,26 +12,28 @@ Cloudflare-oriented fork currently maintained at
 `https://github.com/agmmdotdev/medusa-fork.git`, not an official Medusa npm
 release or the current official Medusa repository head.
 
-The fork will first enter this repository as an inert, independently
-installable source island under:
+The fork has entered this repository as an inert, independently installable
+source island under:
 
 ```text
 third_party/medusa/
 ```
 
-Selected packages and connected behavior may then be promoted one bounded
-closure at a time into the active Flarex root workspace. Promotion reuses the
-fork's actual source, package contracts, control flow, and tests; it is not a
-clean-room reimplementation and it does not make the pinned island a production
-runtime dependency.
+Selected packages and connected behavior may later be promoted one bounded
+closure at a time into the active Flarex root workspace after the prerequisites
+in
+[`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md)
+pass. Promotion reuses the fork's actual source, package contracts, control
+flow, and tests; it is not a clean-room reimplementation and it does not make
+the pinned island a production runtime dependency.
 
 The official Medusa repository remains historical provenance, licensing input,
 and compatibility evidence. It is not the source candidate that Flarex will
 adapt because it does not contain the fork's Worker-safe and runtime-agnostic
 refactors.
 
-This preflight authorizes only the later implementation of the inert source
-island and its verification boundary. It does not authorize:
+The inert source island and its verification boundary are now implemented.
+This preflight does not authorize:
 
 - a root-workspace `@medusajs/*` package;
 - a Flarex-backed Medusa adapter;
@@ -232,6 +234,8 @@ admit pinned fork snapshot
   -> select one connected package/capability closure
   -> characterize source, dependencies, and unchanged tests
   -> admit a source map and target owner
+  -> wait for every shared-core, Flarex Application, and Payload prerequisite
+     in 05-core-first-three-lane-readiness.md
   -> promote source into the Flarex root workspace
   -> establish the unchanged compatibility baseline
   -> adapt only admitted infrastructure seams
@@ -297,49 +301,56 @@ At the same time, existing limitations remain relevant:
 This distinction prevents two opposite mistakes: discarding proven fork work,
 or treating Cloudflare portability as proof of FlarexDB integration.
 
-The read-only preflight audit also observed that the fork's portable-entrypoint
-guards, real Currency service import audit, composed Worker import guard, and
-runtime source-reach-in guard pass on the current checkout. The composed guard
-covered 1,593 bundled inputs and the Currency audit reported 65 inputs with no
-Worker blockers. Workerd/runtime suites were not rerun during this docs-only
-audit because they build or materialize artifacts. These observations are
-directional evidence only; the final clean island pin must reproduce its own
-named receipts.
+An earlier read-only audit observed passing portable-entrypoint, real Currency,
+composed Worker, and runtime source-reach-in guards. The admitted clean-pin
+implementation receipt below now owns the exact reproducible results, including
+the selected Workerd/D1 and unchanged Currency lanes. The next source-map audit
+must regenerate any capability claim it uses rather than relying on the earlier
+directional snapshot.
 
 ## Provisional Promotion Sequence
 
-The exact source audit may narrow this order. The initial direction is:
+The exact source audit may narrow a promoted closure or the internal Medusa
+sequence after the global hold. It cannot relax or reorder the prerequisites in
+[`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).
+The initial direction is:
 
-1. Admit the complete fork source island and independent regression commands.
+1. Retain the admitted complete fork source island and independent regression
+   commands. This step is complete.
 2. Map the mature and portable DML entrypoints, DAL contracts, types, utility
    closure, module persistence adapter, static manifests, and unchanged tests.
    Do not promote standalone `@medusajs/dml` as if it were already the complete
    relationship grammar.
 3. Use the fork's actual Currency model and Drizzle/integration behavior as
-   source-backed constraints for Flarex `RelationalSchema`, then prove the
-   synthetic migration coordinator. Do not make Drizzle or D1 the Flarex
-   schema or transaction authority.
-4. Make the first active promotion a private, test-only connected Currency
+   source-backed constraints for Flarex `RelationalSchema` and the later shared
+   mechanisms. Do not make Drizzle or D1 the Flarex schema or transaction
+   authority.
+4. Hold every active package promotion while the shared-core synthetic proof,
+   full Flarex Application preservation proof, Payload scalar/request-
+   transaction proof, and Payload non-reactive one/many relation proof complete
+   in the order owned by
+   [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).
+5. Make the first active promotion a private, test-only connected Currency
    portability closure rather than one superficially isolated npm package. It
    includes the actual Currency model, service, and static manifest; mature DML
    normalization; the exact portable DAL/modules-sdk/type/utility closure; the
    repository adapter needed for the relocation baseline; and unchanged
    Currency assertions across their separately claimed persistence/runtime
    lanes.
-5. Before runtime adaptation, replace mutable prepared-model state with an
+6. Before runtime adaptation, replace mutable prepared-model state with an
    immutable instance- or module-scoped adapter and define the isolation of
    `MedusaModule` state. Keep migrations, Link, workflows, locks, events,
    idempotency, CMS interaction, and public commerce APIs outside this first
    promoted closure.
-6. Meet the shared-core track at the Flarex-backed Currency candidate only
+7. Meet the shared-core track at the Flarex-backed Currency candidate only
    after commerce transaction ownership and typed commit participation pass
    their own gates.
-7. Promote Product and its intra-module relationships, then both endpoint
+8. Promote Product and its intra-module relationships, then both endpoint
    modules for the first real stored Module Link.
-8. Admit custom repositories and Query, followed by workflows, locks,
+9. Admit custom repositories and Query, followed by workflows, locks,
    idempotency, events, and larger module/runtime closures according to their
    real dependency graphs and unchanged tests.
-9. Promote Cart, Order, and other broad transactional modules only after their
+10. Promote Cart, Order, and other broad transactional modules only after their
    required module, Link, workflow, and transaction semantics are admitted.
 
 This is not a claim that later fork work is unusable. It is the safe activation
@@ -347,18 +358,24 @@ order for Flarex authority.
 
 ## Interaction With Shared Core Work
 
-Source convergence and Flarex core implementation are parallel, gated tracks:
+Source constraint extraction may run alongside the exact Payload audit. Active
+package convergence begins only after the core, Application, and Payload proof
+track completes:
 
 ```text
 Medusa fork track
-  source island -> source maps -> promoted compatible packages
+  admitted source island -> source maps / fixtures -> promotion hold
 
-Flarex core track
+core and earlier-lane track
   artifact repository -> RelationalSchema -> migration coordinator
-  -> commerce transaction host -> typed commit participation
+  -> transaction-owner/store -> commit-owner/receipts/finalizer
+  -> synthetic lifecycle/transaction proof
+  -> Flarex Application preservation
+  -> Payload scalar/request transaction -> Payload native one/many relations
 
-convergence
-  promoted Currency closure -> Flarex-backed Medusa adapter -> private proof
+promotion gate
+  Currency closure -> commerce transaction/commit admission
+  -> Flarex-backed Currency proof -> Product -> first stored Module Link
 ```
 
 The exact fork audit must precede freezing `RelationalSchema`, because the real
@@ -474,6 +491,9 @@ through `medusa:*` commands.
 
 Before a promoted closure can enter the active root workspace:
 
+- every shared-core, Flarex Application, and Payload prerequisite in
+  [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md)
+  has passed;
 - its source map and package dependency closure are accepted;
 - every selected operation has one reuse classification and target owner;
 - unchanged fork tests pass before adaptation;
@@ -526,11 +546,13 @@ Stop for a new preflight rather than continuing when:
 
 ## Next Authorized Slice
 
-After this docs-only preflight is accepted and the clean-pin condition above is
-resolved, the next bounded implementation slice may create and verify
-`third_party/medusa` only. It must stop before creating an active root
-`@medusajs/*` package or any Flarex adapter/core/runtime integration.
+The source island is admitted and verified. The next bounded Medusa slice is the
+exact package/capability source map that constrains the value-only
+`RelationalSchema` implementation and the later shared mechanisms. It may add
+source maps, inert fixtures, and verification evidence only.
 
-After source-island admission, the next architecture slice is the exact
-package/capability source map that constrains the value-only
-`RelationalSchema` preflight.
+It must stop before creating an active root `@medusajs/*` package or any Flarex
+adapter/core/runtime integration. Package promotion remains blocked until every
+prerequisite named by
+[`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md)
+passes.
