@@ -2,9 +2,9 @@
 
 ## Status
 
-**Preflight status:** accepted on 2026-09-01. FX02-A is implemented and locally
-validated; its live real-Postgres receipt remains pending, so it is not marked
-exited. FX02-B through FX02-D have not started.
+**Preflight status:** accepted on 2026-09-01. FX02-A exited on 2026-09-01 after
+its focused local matrix, clean implementation reviews, and isolated real-
+Postgres 18.3 receipt passed. FX02-B through FX02-D have not started.
 
 This record accepts the ordered FX02 architecture and authorizes only the
 bounded implementation slices defined below. It does not activate the existing
@@ -485,14 +485,17 @@ The approved FX02-A code vertical is implemented and remains private. It adds:
 - focused codec, PGlite, host, request-lifecycle authentication, backend-client,
   exact response-byte, reset, cursor, epoch, and fault-mapping tests.
 
-The PGlite correlated source proof and all focused host/client tests pass. The
-real-Postgres correlated test is checked in and skips when
-`FLAREX_POSTGRES_DATABASE_URL` is absent; this machine had no configured real
-Postgres lane, so FX02-A's live real-Postgres receipt remains pending and the
-slice is not marked exited. `CommitFeedRepositoryV1.listAfter` remains intact,
-and its existing PGlite regression suite passes.
+The PGlite correlated source proof and all focused host/client tests pass.
+On 2026-09-01 the checked-in real-Postgres test also passed 1/1 against an
+isolated PostgreSQL 18.3 server with `pg_is_in_recovery() = false`. The server
+used the installed PostgreSQL binaries, a disposable loopback-only cluster,
+and `FLAREX_POSTGRES_DATABASE_URL`; it was not PGlite. The server was stopped
+and its temporary cluster removed after the receipt. Both required final
+implementation reviews reported no actionable findings.
+`CommitFeedRepositoryV1.listAfter` remains intact, and its existing PGlite
+regression suite passes. These receipts close FX02-A.
 
-The next gate is the real-Postgres FX02-A receipt and review closure. FX02-B is
-not authorized by this checkpoint. FX02 remains incomplete, and no Durable
-Object behavior, evaluator, publisher, schema, public/client API, production
-caller, delivery selection, or activation was added.
+FX02-B is the next ordered slice and is not authorized by this checkpoint.
+FX02 remains incomplete, and no Durable Object behavior, evaluator, publisher,
+schema, public/client API, production caller, delivery selection, or activation
+was added.

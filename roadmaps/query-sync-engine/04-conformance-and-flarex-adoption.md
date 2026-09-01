@@ -185,12 +185,12 @@ not a complete uncertainty contract.
     freezes the exact Postgres source, authenticated query registration/
     evaluation/rerun host composition, lifecycle, wake recovery, and semantic-
     outbox processing boundaries.
-18. **FX02-A implementation checkpoint.** The private correlated authoritative
+18. **FX02-A exited.** The private correlated authoritative
     Postgres scope/feed/head read, strict executor/backend codec, authenticated
     host, service-binding client, and replayable-source/admission adapter are
-    implemented. Focused local proofs pass; the checked-in real-Postgres test
-    awaits `FLAREX_POSTGRES_DATABASE_URL`, so FX02-A is not marked exited and
-    no Durable Object behavior is authorized yet.
+    implemented. Focused local proofs, clean final reviews, and the checked-in
+    real-Postgres test against isolated PostgreSQL 18.3 passed on 2026-09-01.
+    No Durable Object behavior is authorized by this exit.
 19. Compose query execution, provisional completion, rerun coalescing,
     unchanged suppression, and processing of the already-semantic durable
     publication outbox.
