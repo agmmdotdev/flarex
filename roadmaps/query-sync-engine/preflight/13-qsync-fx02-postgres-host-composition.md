@@ -577,3 +577,60 @@ fiber, public `fetch` route, production caller, client API, or production
 fresh-initialization authority was added. A local persisted Miniflare reopen is
 not described as Cloudflare eviction. FX02-B remains open until the separately
 isolated deployed restart/cold-recreation receipt passes.
+
+## FX02-B Isolated Hosted Exit Proof
+
+The deployed restart receipt uses the app-owned
+`@flarex/query-sync-hosted-probe` harness. It must not deploy the production-
+named backend or executor and must not bind a production database, namespace,
+route, queue, bucket, application, tenant, or secret.
+
+The isolated resource graph is fixed:
+
+| Worker | Exposure | Authority |
+| --- | --- | --- |
+| `flarex-query-sync-fx02b-source-probe` | private service binding only | deterministic two-commit source fixture |
+| `flarex-query-sync-fx02b-host-probe` | bearer-protected workers.dev route | one SQLite `DeploymentSyncProbeDO` namespace and the real private catch-up host |
+
+`DeploymentSyncProbeDO` subclasses the real `DeploymentSyncDO` only to add a
+fresh per-constructor boot ID to the private hosted receipt. It does not
+replace, copy, or alter portable catch-up, source admission, SQLite state,
+fresh-initialization capability, budget, or failure logic. The gateway fixes
+one synthetic scope and constructs the internal probe request from private
+configuration; callers cannot select an application, scope, source, cursor,
+budget, or fresh-initialization authority.
+
+The hosted sequence is bounded and ordered:
+
+1. authenticate exactly one Cloudflare account and prove both fixed Worker
+   names absent;
+2. deploy the private source and the initial host with three distinct ephemeral
+   bearer values supplied through temporary secret files;
+3. prove an unauthenticated gateway request returns 401;
+4. run one admitted-batch turn and require durable cursor `1` plus
+   `admittedBatchLimitReached`;
+5. deploy a code-distinct host version, then make at most twenty five-second
+   observations through a non-mutating identity RPC until a new Worker version
+   ID and different constructor boot ID are visible;
+6. only after that new boot is established, invoke resume once and require the
+   exact observed boot/version to advance the same Durable Object without fresh
+   authority from durable cursor `1` to caught-up cursor `2`; and
+7. deploy the explicit deleted-class migration, delete the host Worker, then
+   delete the now-unreferenced source Worker.
+
+The maximum hosted data-plane budget is twenty-three requests: one negative
+authentication check, one initialization, at most twenty read-only restart
+identity observations, and one resume. Service bindings add no separate
+service-binding charge, and the
+probe volume is far below the published included Workers request allowance;
+unexpected account selection, name ownership, deployment output, receipt
+shape, version/boot identity, retry count, or teardown behavior is a stop
+condition. Teardown never uses force deletion and failure to delete the Durable
+Object namespace leaves the source dependency in place for diagnosis.
+
+Cloudflare documents that code updates shut down Durable Object instances and
+that the next request constructs a replacement, while durable state must be
+written incrementally because there are no shutdown hooks. The receipt proves
+that exact controlled deployment restart. It does not claim a forced platform
+eviction. The explicit deleted-class migration permanently removes the
+isolated namespace and its stored probe data after the receipt is captured.

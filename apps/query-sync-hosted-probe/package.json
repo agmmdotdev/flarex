@@ -1,0 +1,32 @@
+{
+  "name": "@flarex/query-sync-hosted-probe",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm typecheck",
+    "deploy:host:dry-run": "wrangler deploy --dry-run --config wrangler.host.jsonc",
+    "deploy:host:teardown:dry-run": "wrangler deploy --dry-run --config wrangler.host.teardown.jsonc",
+    "deploy:source:dry-run": "wrangler deploy --dry-run --config wrangler.source.jsonc",
+    "hosted:run": "tsx scripts/runHostedReceipt.ts",
+    "test": "vitest run --no-file-parallelism --test-timeout=180000 --hook-timeout=30000",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@flarex/executor-http": "workspace:*",
+    "@flarex/query-sync": "workspace:*",
+    "@flarex/utils": "workspace:*",
+    "effect": "catalog:",
+    "flarex-backend": "workspace:*",
+    "flarex-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
+    "miniflare": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "flarex-query-sync-fx02b-host-probe",
+  "main": "src/teardownWorker.ts",
+  "compatibility_date": "2026-06-14",
+  "workers_dev": false,
+  "preview_urls": false,
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DeploymentSyncProbeDO"]
+    },
+    {
+      "tag": "v2-delete-probe-state",
+      "deleted_classes": ["DeploymentSyncProbeDO"]
+    }
+  ]
+}
