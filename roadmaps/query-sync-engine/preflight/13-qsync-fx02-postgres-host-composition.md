@@ -606,9 +606,10 @@ The hosted sequence is bounded and ordered:
    names absent;
 2. deploy the private source and the initial host with three distinct ephemeral
    bearer values supplied through temporary secret files;
-3. make at most twenty non-mutating readiness checks, retrying only the exact
-   classified configuration-propagation response, and prove an unauthenticated
-   gateway request returns 401;
+3. make at most twenty non-mutating readiness checks, retrying only a 404 that
+   cannot originate from the authentication-first host or the exact classified
+   configuration-propagation response, and prove an unauthenticated gateway
+   request returns 401;
 4. run one admitted-batch turn and require durable cursor `1` plus
    `admittedBatchLimitReached`;
 5. deploy a code-distinct host version, then make at most twenty five-second

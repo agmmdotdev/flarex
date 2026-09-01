@@ -684,6 +684,15 @@ const observeFailClosedGateway = Effect.fn(
     undefined,
   );
   if (response.status === 401) return;
+  // The host authenticates before routing, so its own unauthenticated response
+  // cannot be 404. A 404 here is the workers.dev edge not seeing the freshly
+  // deployed Worker yet, and is safe to observe again without touching the DO.
+  if (response.status === 404) {
+    return yield* Effect.fail(new TransientHostedProbeError({
+      classification: "deploymentVisibility",
+      message: "The newly deployed workers.dev host is not visible yet.",
+    }));
+  }
   if (
     response.status === 500
     && response.headers.get("x-flarex-probe-classification")

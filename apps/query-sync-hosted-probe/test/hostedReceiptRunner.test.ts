@@ -52,6 +52,7 @@ describe("FX02-B hosted receipt runner", () => {
   it("returns success only after namespace and Worker absence are proven", async () => {
     const harness = makeCommandHarness();
     const responses = [
+      new Response(null, { status: 404 }),
       jsonResponse(
         { error: "misconfigured", classification: "configuration_unavailable" },
         500,
