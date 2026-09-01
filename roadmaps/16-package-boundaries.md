@@ -67,7 +67,11 @@ Decisive current implementation anchors include:
   [`packages/flarex-test/src`](../packages/flarex-test/src) for local tooling
   and tests; and
 - [`third_party/trigger.dev`](../third_party/trigger.dev) for the pinned,
-  independently installable Trigger.dev compatibility source island; and
+  independently installable Trigger.dev compatibility source island;
+- the accepted
+  [`Medusa fork source-island preflight`](./flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md)
+  for the pending independently installable primary-fork snapshot and package-
+  promotion boundary; and
 - [`scripts/check-effect-boundaries.mjs`](../scripts/check-effect-boundaries.mjs)
   plus app-specific Worker bundle checks for executable boundary enforcement.
 
@@ -118,9 +122,9 @@ persistence, analysis, SDK, and protocol packages for local development.
 dependencies are permitted only for development and test composition; they
 must not be copied into production Worker cores.
 
-### Package Ownership
+### Workspace And Source-Island Ownership
 
-| Workspace member | Current responsibility | Boundary |
+| Member or island | Current responsibility | Boundary |
 | --- | --- | --- |
 | `@flarex/utils` | Total, deterministic, domain-neutral primitives proven reusable across independent package owners | Dependency leaf with no runtime dependencies, Effect, Flarex-domain contracts, persistence, host logic, crypto/authority, canonical protocol encodings, or legacy compatibility; exports are explicit subpaths |
 | `flarex-protocol` | Shared JSON-safe wire contracts, decoders, identities, manifests, and protocol types | Must remain host-neutral and must not acquire persistence, Worker, Node, or application orchestration |
@@ -139,6 +143,7 @@ must not be copied into production Worker cores.
 | `@flarex/artifact-runtime` (`apps/artifact-runtime`) | Hosted Dynamic Worker materialization and execution-artifact service | Owns Cloudflare Worker Loader/R2/service-binding adaptation; user code receives restricted syscall transports, never raw platform or database capabilities |
 | `@flarex/example` (`apps/example`) | Consumer fixture and example application | Behaves like a normal user project; it must not become platform infrastructure or own Flarex Wrangler deployment |
 | `third_party/trigger.dev` | Frozen Trigger.dev run-engine and supervisor compatibility source island used as migration input for durable execution | Excluded from the Flarex workspace and runtime graph; it has no Flarex imports, database authority, routing authority, public API, or activation path. Future adoption must use Flarex-owned adapters and preserve the existing Postgres commit authority. |
+| planned `third_party/medusa` | Refreshable, exact snapshot of the admitted Cloudflare-oriented Medusa fork used as primary source, regression evidence, and incremental package-promotion input | Excluded from the Flarex workspace, lockfile, runtime graph, and deployable bundles. It retains its independent pnpm workspace and official-upstream provenance. No active package imports the island; every promoted closure requires a source map, bounded dependency graph, root-owned package, retained tests, and a separate semantic/activation gate. |
 
 No `packages/flarex-core` package currently exists. Add another shared package
 only when two legitimate owners duplicate a stable, coherent abstraction and
@@ -857,6 +862,10 @@ Preserve a small public SDK and protocol base, a framework-neutral trusted
 executor/persistence core, explicit host adapters, and thin deployable apps.
 Move behavior only when its authority is clear; do not create packages merely
 to reduce file size or hide a cyclic design.
+
+Moving source into an inert compatibility island does not make it a root
+workspace package, reusable runtime dependency, adapter, or activated product
+path. Promotion and activation remain separate evidence-backed changes.
 
 The replacement should progressively shrink and then remove the authoritative
 role of legacy Durable Object and initial-Postgres app-data code after target

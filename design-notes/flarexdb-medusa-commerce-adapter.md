@@ -3,7 +3,7 @@
 Status: accepted adapter-boundary correction; no Flarex-backed Medusa adapter
 is implemented or production-authorized by this note
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-01
 
 This note owns the intended mapping from Medusa's persistence, repository,
 module-link, transaction, workflow, and locking contracts onto FlarexDB. It
@@ -22,8 +22,18 @@ Use these documents with it:
 - [`flarexdb-payload-relational-adapter.md`](./flarexdb-payload-relational-adapter.md)
   owns CMS exposure and Payload lifecycle authority;
 - [`../roadmaps/flarexdb-framework-integration/06-medusa-adoption.md`](../roadmaps/flarexdb-framework-integration/06-medusa-adoption.md)
-  owns Medusa adapter execution order and status; and
+  owns Medusa adapter execution order and status;
+- [`../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md`](../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md)
+  owns the primary-fork source hierarchy, provenance, inert island, reuse
+  classification, and package-promotion gates; and
 - code, migrations, and tests own exact implementation status.
+
+The Cloudflare-oriented `agmmdotdev/medusa-fork` snapshot to be admitted under
+that preflight is the primary integration source. No snapshot has been imported
+yet. Official Medusa source and npm packages are historical provenance,
+licensing, and comparison evidence only; they do not silently replace fork
+behavior. The future pinned island is not a runtime dependency. Only separately
+promoted packages may later enter the adapter graph.
 
 ## Decision
 
@@ -78,7 +88,8 @@ It is not itself the product API or semantic owner.
 ## Schema Inputs And Compilation
 
 Medusa DML is necessary but not sufficient. The schema compiler must consume a
-pinned, source-audited input set:
+pinned, source-audited input set derived from the admitted primary-fork
+snapshot:
 
 ```text
 DML model definitions
@@ -96,8 +107,8 @@ custom repository/query/workflow/locking capabilities
   -> admission requirements applied to both outputs
 ```
 
-The Medusa adapter owns normalization of the actual DML and resolved module and
-link set. It emits the value-only `RelationalSchema` separately from
+The Medusa adapter owns normalization of the actual fork DML and resolved
+module and link set. It emits the value-only `RelationalSchema` separately from
 Medusa-owned semantic migration intent compiled into a domain `MigrationPlan`.
 Flarex validates, canonically encodes, digests, installs, and physically lowers
 the schema artifact, then executes the approved plan through the fenced
@@ -105,13 +116,14 @@ migration host. It must not manually duplicate all Medusa table declarations in
 a second schema language. Both outputs record provenance and fail closed when a
 module uses an unsupported persistence capability.
 
-Fresh Flarex installations use a baseline compiled from one pinned configured
-supported module/link set; the first candidate may contain Currency alone. The
-historical MikroORM/Postgres migration archive is legacy evidence rather than
-an executable Flarex plan. Explicit Medusa-owned semantic or data migration
-intent preserves transformations and compatibility behavior that cannot be
-inferred from final DML. Runtime and migration capabilities therefore remain
-separate trusted roles.
+Fresh Flarex installations use a baseline compiled from one admitted
+primary-fork snapshot, its recorded official-upstream provenance baseline, and
+one configured supported module/link set; the first candidate may contain
+Currency alone. The historical MikroORM/Postgres migration archive is legacy
+evidence rather than an executable Flarex plan. Explicit Medusa-owned semantic
+or data migration intent preserves transformations and compatibility behavior
+that cannot be inferred from final DML. Runtime and migration capabilities
+therefore remain separate trusted roles.
 
 ## Three Relation Profiles
 
@@ -288,10 +300,13 @@ silently removing bounds.
 This note does not authorize or duplicate an implementation sequence. The sole
 accepted order and current status are owned by
 [`Medusa Adoption`](../roadmaps/flarexdb-framework-integration/06-medusa-adoption.md)
-and its framework master roadmap. In particular, that order requires the exact
-source audit before final shared-schema admission, commerce-row and typed event-
-intent commit admission before Currency writes, and commerce-link commit
-admission before the first stored Module Link writes.
+and its framework master roadmap. The accepted
+[`Medusa fork source-island preflight`](../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md)
+must admit the inert source snapshot before the exact contract audit and final
+shared-schema admission. Package promotion remains a separate gate. The later
+order also requires commerce-row and typed event-intent commit admission before
+Currency writes, and commerce-link commit admission before the first stored
+Module Link writes.
 
 Passing a small adapter test means private compatibility progress. It does not
 mean full Medusa parity, public availability, migration readiness, or

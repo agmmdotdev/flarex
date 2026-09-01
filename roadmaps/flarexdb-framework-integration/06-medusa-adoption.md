@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-Status: accepted source-backed sequence; no Flarex-backed Medusa adapter is
-implemented or production-authorized
+Status: accepted source-backed sequence and fork-island architecture; source
+island, active package promotion, and Flarex-backed Medusa adapter remain
+unimplemented and production-unauthorized
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,
@@ -12,9 +13,23 @@ workflow, locking, idempotency, and commerce-event semantics.
 It does not turn Medusa tables into public application tables or make Flarex
 core depend on Medusa.
 
+## Source Authority
+
+The primary integration source is the Cloudflare-oriented fork maintained at
+`https://github.com/agmmdotdev/medusa-fork.git`. Official Medusa source and npm
+packages are historical provenance, licensing, and comparison evidence; they
+will not override behavior in the future selected fork snapshot.
+
+[`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md)
+owns the exact source hierarchy, clean pin, inert `third_party/medusa` island,
+verification contract, reuse classification, and later package-promotion
+gates. The island is not a production dependency. Only source-map-admitted
+packages promoted into the active root workspace may later enter the Medusa
+adapter graph.
+
 ## Current Source Findings
 
-The current fork demonstrates important compatibility surfaces:
+The locally audited fork demonstrates important compatibility surfaces:
 
 - modules currently consume the mature `@medusajs/utils/dml/model` grammar,
   whose models include scalar fields, indexes, checks, defaults, soft-delete
@@ -30,7 +45,15 @@ The current fork demonstrates important compatibility surfaces:
   cascade, extra-data, and read-only semantics; and
 - custom repositories and Query require more than basic generated CRUD.
 
-The current Drizzle proof is not yet a production adapter:
+The fork is also substantially more advanced than a plain Node-oriented
+Medusa checkout. It contains portable DML/DAL experiments, Drizzle and
+Cloudflare persistence packages, Worker-safe runtime entrypoints, static
+manifests, Query/runtime work, Cloudflare workflow/event/lock integrations,
+physical Worker import guards, and real unchanged module assertions exercised
+through multiple persistence lanes.
+
+That work is valuable source and conformance evidence to reuse. It is not yet
+a Flarex-backed production adapter:
 
 - prepared module models are held in mutable module-global state while static
   modules may load concurrently;
@@ -41,6 +64,10 @@ The current Drizzle proof is not yet a production adapter:
   introspection/diff logic; and
 - Link uniqueness uses an application precheck that storage must close under
   concurrency.
+
+These findings must be regenerated from the final admitted fork pin. The fork
+continues to evolve, so this summary constrains the preflight but is not a
+substitute for its machine-verified package and capability source maps.
 
 ## Ownership Boundary
 
@@ -98,7 +125,8 @@ compile its value output into Flarex `RelationalSchema`.
 
 The first supported environment is deliberately narrow:
 
-- one pinned Medusa fork revision;
+- one admitted clean snapshot of the primary Medusa fork with its official
+  upstream provenance baseline recorded;
 - one homogeneous configured supported module/link set per candidate; the
   first candidate may contain Currency alone;
 - one shared physical relational installation;
@@ -111,22 +139,63 @@ migration requirements fail admission before serving traffic.
 
 ## Implementation Sequence
 
-### Source and contract preflight
+### Source-island admission
 
-- Pin the exact fork revision, package graph, license, and supported module set.
-- Consolidate the actual mature DML parser and current Drizzle compiler inputs.
+- Implement the accepted source-island preflight without adding a root package,
+  adapter, runtime import, route, or deployment binding.
+- Pin one clean committed fork revision; never archive dirty or untracked local
+  checkout state implicitly.
+- Preserve the fork's exact independent workspace, lockfile, patches, package
+  graph, provenance, licenses, and selected regression commands.
+- Verify exact source bytes, file set, modes, links, package-manager pin, and
+  forbidden cross-workspace imports.
+
+### Source maps and contract audit
+
+- Consolidate the actual mature DML parser, portable DML/DAL experiments, and
+  current Drizzle compiler inputs from the admitted island.
 - Inventory repository, transaction, custom-query, Query, Link, workflow, lock,
   idempotency, event, and migration contracts.
 - Produce supported, deferred, and rejected capability matrices.
 - Freeze module-scoped preparation and dependency direction.
+- Classify every selected connected capability as unchanged, seam-adapted,
+  adapter-translated, or discarded, with provenance and retained tests.
+- Do not import the island from Flarex code merely to make the audit executable.
 
 ### Schema admission
 
-- Compile the complete configured normalized module/link set for the candidate
-  into canonical `RelationalSchema` values.
-- Admit provenance, deterministic encoding, digest, and unsupported-capability
-  failures.
+- Admit the canonical value-only `RelationalSchema` contract, deterministic
+  encoding, digest, provenance, and unsupported-capability failures using the
+  source-audited capability matrix and exact representative fixtures.
+- Keep live fork DML normalization and candidate compilation outside this step;
+  those begin only after the connected source closure is promoted.
 - Generate no public application schema and expose no raw database handle.
+
+### Currency-connected foundational promotion
+
+- Treat the promotion unit as the private, test-only connected Currency
+  portability closure, not as one superficially isolated npm package.
+- Admit and promote only the actual Currency model, service, static manifest,
+  mature DML normalization, and exact portable DAL, modules-sdk, type, utility,
+  module-preparation, and repository-adapter closure required to establish the
+  unchanged relocation baseline.
+- Preserve `@medusajs/*` manifest identities where they are part of the fork's
+  internal compatibility graph while using root-owned dependency versions,
+  tests, and bundle gates.
+- Give every promoted package a source map to the exact fork commit and source
+  closure; retain no runtime import or file dependency on the island.
+- Establish the unchanged fork compatibility baseline before adapting a Flarex
+  host seam.
+- Compile the complete configured normalized module/link set for the first
+  candidate into canonical `RelationalSchema` values through the promoted
+  source closure.
+- Before any runtime adaptation, replace mutable prepared-model state with
+  instance- or module-scoped ownership and define `MedusaModule` state
+  isolation.
+- Do not mistake the standalone scalar-oriented portable DML experiment for
+  the complete mature relationship-capable module grammar.
+- Keep migrations, Link, workflows, locks, events, idempotency, CMS
+  interaction, and public commerce APIs outside this first promoted closure.
 
 ### Commerce transaction-host admission
 
@@ -230,9 +299,10 @@ migration requirements fail admission before serving traffic.
 
 ## Migration Policy
 
-Fresh installs compile a baseline from the pinned complete configured supported
-module/link set for the candidate. Later upgrades combine structural artifact
-differences with explicit Medusa-owned semantic transformations.
+Fresh installs compile a baseline from the admitted primary-fork snapshot and
+the complete configured supported module/link set for the candidate. Later
+upgrades combine structural artifact differences with explicit Medusa-owned
+semantic transformations.
 
 Historical MikroORM/Postgres migrations remain legacy-backend evidence. They
 are translated only when a proven compatibility obligation requires a
@@ -241,6 +311,13 @@ and never silently applies DDL.
 
 ## Exit Criteria For Private Integration
 
+- The primary fork snapshot, official-upstream provenance baseline, source
+  file set, modes, links, lockfile, patches, licenses, and notices reproduce
+  exactly.
+- The inert island remains outside the root workspace and every active runtime
+  import graph.
+- Every promoted package or connected capability has an accepted source map,
+  bounded dependency closure, reuse classification, and retained test evidence.
 - All admitted modules use module-scoped immutable preparation.
 - Complete module/link compilation is deterministic.
 - Runtime binds to exactly one active commerce digest.

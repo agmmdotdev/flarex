@@ -28,10 +28,13 @@ encoding, and a digest. No DML closure, ORM entity, Drizzle object,
 
 The schema is internal. It is not a public developer relational DSL.
 
-The exact Medusa source-and-contract preflight must complete before this model's
-implementable field and capability set is frozen. The accepted shape is a
-boundary, not authority to invent a speculative substitute for Medusa DML or
-repository behavior.
+The exact Medusa source-and-contract audit must complete from the primary-fork
+snapshot admitted by
+[`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md)
+before this model's implementable field and capability set is frozen. Official
+Medusa is provenance and comparison evidence, not the integration source that
+constrains this model. The accepted shape is a boundary, not authority to invent
+a speculative substitute for fork DML or repository behavior.
 
 ## Domain Compilers
 
@@ -41,9 +44,10 @@ Each semantic owner compiles independently:
   managed-schema owner;
 - Payload content definitions compile into the application schema path while
   Payload lifecycle requirements remain Payload-owned; and
-- Medusa compiles normalized DML, the complete configured supported module/link
-  set for the candidate, resolved Joiner and Module Link configuration, and
-  declared persistence capabilities into one commerce relational artifact.
+- Medusa compiles normalized DML derived from the admitted primary-fork
+  snapshot, the complete configured supported module/link set for the
+  candidate, resolved Joiner and Module Link configuration, and declared
+  persistence capabilities into one commerce relational artifact.
 
 Do not create another Medusa DML grammar inside Flarex. The Medusa adapter owns
 normalization and translates its output at the boundary.
@@ -117,10 +121,11 @@ and uses the same coordinator and receipts.
 
 ## Medusa Baseline Policy
 
-The first commerce installation is a fresh baseline compiled from one pinned
-fork revision and the complete configured supported module/link set for that
-candidate. The first candidate may contain Currency alone. Do not replay or
-mechanically translate the full historical MikroORM migration archive.
+The first commerce installation is a fresh baseline compiled from the admitted
+primary-fork snapshot, its recorded official-upstream provenance baseline, and
+the complete configured supported module/link set for that candidate. The
+first candidate may contain Currency alone. Do not replay or mechanically
+translate the full historical MikroORM migration archive.
 
 Later upgrades use:
 

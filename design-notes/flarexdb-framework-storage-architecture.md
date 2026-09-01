@@ -1,10 +1,11 @@
 # FlarexDB Framework Storage Architecture
 
-Status: accepted cross-domain architecture; the shared framework-storage
-primitives, Payload adapter, and Medusa adapter remain unimplemented unless a
-focused roadmap gate states otherwise
+Status: accepted cross-domain architecture; the private owner-qualified
+artifact repository is implemented, while installation/binding, relational,
+migration, transaction-host, Payload-adapter, and Medusa-adapter work remains
+pending unless a focused roadmap gate states otherwise
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-01
 
 This note owns the durable boundary between the Flarex application data model,
 Payload CMS, Medusa commerce, and the shared FlarexDB mechanisms beneath them.
@@ -15,6 +16,9 @@ Execution order and implementation status belong to
 [`../roadmaps/flarexdb-framework-integration/README.md`](../roadmaps/flarexdb-framework-integration/README.md).
 The accepted artifact/install/binding identity decisions are recorded in
 [`../roadmaps/flarexdb-framework-integration/preflight/01-artifact-installation-and-binding-identity.md`](../roadmaps/flarexdb-framework-integration/preflight/01-artifact-installation-and-binding-identity.md).
+The Medusa primary-fork source hierarchy, inert island, provenance, and
+package-promotion boundary are recorded in
+[`../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md`](../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md).
 The existing
 [`../roadmaps/flarexdb-foundation/README.md`](../roadmaps/flarexdb-foundation/README.md)
 continues to own the document-first application foundation. Code, migrations,
@@ -224,7 +228,7 @@ There is no universal source schema.
 | --- | --- | --- |
 | Application | Standard/Application definition | application manifest and document-storage definitions |
 | Payload | Payload configuration plus explicit Application table references | authenticated Application content definitions; a Payload configuration/provenance overlay; and a separate optional lifecycle artifact when physical lifecycle structures exist |
-| Medusa | normalized DML, complete configured supported module/link set for the candidate, Joiner/Link configuration, explicit semantic migration intent, legacy migration evidence, and capability declarations | value-only reserved relational schema plus Medusa-owned semantic migration intent |
+| Medusa | normalized DML and capability evidence from the admitted Cloudflare-oriented primary-fork snapshot, complete configured supported module/link set for the candidate, Joiner/Link configuration, explicit semantic migration intent, and recorded official-upstream provenance | value-only reserved relational schema plus Medusa-owned semantic migration intent |
 
 The current `@flarex/managed-schema` remains application-specific. Its
 compatibility rules must not become a large conditional planner for every
@@ -404,10 +408,11 @@ process-global model set that can be overwritten while modules load in
 parallel. The complete resolved module and link set is compiled into one
 commerce schema candidate and activated coherently.
 
-The first supported shape uses one pinned Medusa fork revision and one
-homogeneous module set over shared scope-qualified reserved tables. Staggered
-or per-scope custom module sets require separate physical-installation and
-compatibility proofs.
+The first supported shape uses one admitted clean snapshot of the
+Cloudflare-oriented primary Medusa fork, its recorded official-upstream
+provenance baseline, and one homogeneous module set over shared scope-qualified
+reserved tables. Staggered or per-scope custom module sets require separate
+physical-installation and compatibility proofs.
 
 ## Payload Boundary
 
@@ -488,9 +493,18 @@ Framework integration packages may later use plain names:
 - `@flarex/payload-adapter`
 - `@flarex/medusa-adapter`
 
+Before any Medusa integration package exists, the primary fork enters
+`third_party/medusa` as an independently verified workspace outside the Flarex
+root package graph. That island is source and regression evidence, not an
+import surface. Later promotion copies only a source-map-admitted connected
+package/capability closure into a root-owned package with root-owned
+dependencies and tests; the active package retains no runtime path dependency
+on the island.
+
 The Flarex kernel must not import Medusa. The Medusa adapter may import Medusa
 contracts and private Flarex host contracts. Public application packages must
-not depend on either framework adapter.
+not depend on either framework adapter. No kernel, application, adapter, or
+runtime package imports the inert source island directly.
 
 ## Implementation Shape
 
@@ -520,6 +534,8 @@ The architecture is accepted, but it does not itself authorize:
 - a public relational developer API;
 - raw SQL or ORM access for application code;
 - production Payload or Medusa activation;
+- promotion of the Medusa fork or any `@medusajs/*` package into the active
+  workspace merely because the inert source island is admitted;
 - automatic atomic transactions across arbitrary semantic lanes;
 - a universal query AST;
 - generalization of current application edge storage;

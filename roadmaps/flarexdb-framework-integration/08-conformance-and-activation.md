@@ -11,6 +11,21 @@ Payload, Medusa, public APIs, routes, or deployment bindings.
 
 ## Evidence Lanes
 
+### Source and package provenance evidence
+
+- the admitted Medusa fork commit, exact tracked file set, modes, links,
+  lockfile, patches, licenses, notices, and official-upstream provenance
+  reproduce from the inert source island;
+- original-fork and imported-island commands produce the same named baseline
+  receipts for every claimed lane;
+- the island remains outside the Flarex root workspace, dependency graph,
+  runtime bundles, routes, and deployment bindings;
+- every promoted Medusa package or connected capability has an exact source
+  map, bounded local dependency closure, reuse classification, retained tests,
+  and rollback target; and
+- offline differential tests do not become production dual execution, dual
+  reads, comparison reads, dual writes, or fallback.
+
 ### Pure contract evidence
 
 - canonical schema encoding and digest determinism;

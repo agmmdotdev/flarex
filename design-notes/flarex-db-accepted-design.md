@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-01
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -2021,11 +2021,17 @@ custom repository/provider capability declarations
   -> admission requirements applied to both outputs
 ```
 
-Fresh installations compile a baseline from one pinned fork revision and the
-complete configured supported set for that candidate; the first candidate may
-contain Currency alone. Historical MikroORM/ModuleMigrationAdapter migrations,
-backfills, and triggers are translated only when a proven compatibility
-obligation requires them. The detailed authority and execution order live in
+Fresh installations compile a baseline from one admitted clean snapshot of the
+Cloudflare-oriented primary Medusa fork, its recorded official-upstream
+provenance baseline, and the complete configured supported set for that
+candidate; the first candidate may contain Currency alone. The fork first
+enters an inert, independently verified source island, and every active package
+promotion is separately source-mapped and gated. Historical
+MikroORM/ModuleMigrationAdapter migrations, backfills, and triggers are
+translated only when a proven compatibility obligation requires them. The
+detailed source boundary is recorded in
+[`../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md`](../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md).
+The detailed authority and execution order live in
 [`flarexdb-framework-storage-architecture.md`](./flarexdb-framework-storage-architecture.md)
 and the framework-integration roadmap.
 
@@ -2268,7 +2274,9 @@ Adapter contract references inspected:
 - Payload `packages/payload/src/database/types.ts` and Drizzle transaction,
   version, draft, and lock implementations.
 - Medusa DML, repository service, `ModuleJoinerConfig`, migration adapter, link
-  migration, and workflow execution models in the local Medusa fork.
+  migration, and workflow execution models in the Cloudflare-oriented primary
+  fork. Official Medusa remains provenance and comparison evidence rather than
+  a second semantic source.
 
 ## Remaining Risks
 

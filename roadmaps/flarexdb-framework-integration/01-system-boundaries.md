@@ -18,6 +18,7 @@ commerce behavior, physical migration DDL, or public API syntax.
 - [`../flarexdb-foundation/README.md`](../flarexdb-foundation/README.md)
 - [`../../design-notes/flarexdb-payload-relational-adapter.md`](../../design-notes/flarexdb-payload-relational-adapter.md)
 - [`../../design-notes/flarexdb-medusa-commerce-adapter.md`](../../design-notes/flarexdb-medusa-commerce-adapter.md)
+- [`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md)
 - [`../16-package-boundaries.md`](../16-package-boundaries.md)
 
 ## Accepted System Shape
@@ -84,6 +85,12 @@ The Flarex kernel never imports Medusa or Payload. A framework adapter may
 import the framework's contracts plus narrow private Flarex host contracts.
 Public application code imports neither adapter.
 
+The planned inert `third_party/medusa` fork island will be evidence and
+promotion input, not an import surface. Only a later source-map-admitted package
+promoted into the active root workspace may enter the Medusa adapter dependency
+graph. Source presence does not establish a reusable package owner or authorize
+runtime composition.
+
 Do not export Drizzle transactions, `pg` clients, Hyperdrive bindings,
 physical locators, raw commit stores, or migration-role capabilities from the
 adapter contract.
@@ -111,6 +118,10 @@ global singleton Context tags.
 Avoid speculative extraction. A repeated mechanism becomes a portable package
 only after independent owners prove identical semantics, failure behavior, and
 lifecycle.
+
+Every promoted Medusa closure requires an explicit target owner, bounded
+dependency graph, fork provenance, reuse classification, and retained tests.
+The whole fork never enters the active root workspace implicitly.
 
 ## Exit Criteria
 
