@@ -52,6 +52,11 @@ describe("FX02-B hosted receipt runner", () => {
   it("returns success only after namespace and Worker absence are proven", async () => {
     const harness = makeCommandHarness();
     const responses = [
+      jsonResponse(
+        { error: "misconfigured", classification: "configuration_unavailable" },
+        500,
+        { "x-flarex-probe-classification": "configuration_unavailable" },
+      ),
       new Response(null, { status: 401 }),
       jsonResponse(initialReceipt()),
       jsonResponse(identityReceipt(INITIAL_MARKER, "boot-initial", "version-initial")),
@@ -105,14 +110,19 @@ describe("FX02-B hosted receipt runner", () => {
 
   it("aborts a stalled request and still tears down both owned Workers", async () => {
     const harness = makeCommandHarness();
+    let requestCount = 0;
     await expect(Effect.runPromise(runHostedReceipt(
-      dependencies(harness.commands, stalledFetch),
+      dependencies(harness.commands, (input, init) => {
+        requestCount += 1;
+        return stalledFetch(input, init);
+      }),
       IDENTITY,
       { ...OPTIONS, requestTimeoutMilliseconds: 5 },
     ))).rejects.toMatchObject({
       _tag: "HostedReceiptRunnerError",
       reason: "hostedRequestFailed",
     });
+    expect(requestCount).toBe(1);
     expect(harness.exists()).toEqual({ host: false, source: false });
   });
 
@@ -409,9 +419,25 @@ function makeCommandHarness(
         ));
         return Effect.succeed(args.includes("--json")
           ? result(0, JSON.stringify([{
-            annotations: { "workers/message": message },
+            annotations: { "workers/message": `${message?.slice(0, 32)}...` },
+            versions: [{
+              version_id: source ? "source-version" : "host-version",
+              percentage: 100,
+            }],
           }]))
           : result(0, "deployment exists"));
+      }
+      if (args[0] === "versions" && args[1] === "list") {
+        const source = config === "wrangler.source.jsonc";
+        const exists = source ? sourceExists : hostExists;
+        const worker = source ? FX02B_SOURCE_WORKER : FX02B_HOST_WORKER;
+        if (!exists) return Effect.succeed(result(1, absentOutput(worker)));
+        return Effect.succeed(result(0, JSON.stringify([{
+          id: source ? "source-version" : "host-version",
+          annotations: {
+            "workers/message": source ? sourceMessage : hostMessage,
+          },
+        }])));
       }
       if (args[0] === "deploy" && config === "wrangler.source.jsonc") {
         sourceExists = true;

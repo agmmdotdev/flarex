@@ -68,7 +68,13 @@ export class DeploymentSyncProbeDO extends DeploymentSyncDO {
 export const fx02bHostWorker = {
   async fetch(request: Request, env: Fx02bHostEnv): Promise<Response> {
     const configuration = captureConfiguration(env);
-    if (configuration === null) return privateJson({ error: "misconfigured" }, 500);
+    if (configuration === null) {
+      return privateJson(
+        { error: "misconfigured", classification: "configuration_unavailable" },
+        500,
+        "configuration_unavailable",
+      );
+    }
     if (!(await hasExactBearerCapability(
       request,
       configuration.gatewayToken,

@@ -282,19 +282,17 @@ const runCampaign = Effect.fn("Fx02bHostedReceipt.campaign")(function* (
     const hostUrl = yield* readDeploymentUrl(initialDeployment.output);
 
     dependencies.stage("verify-fail-closed");
-    const unauthorized = yield* request(
-      dependencies,
-      options,
-      `${hostUrl}${FX02B_INITIAL_PATH}`,
-      undefined,
-    ).pipe(Effect.mapError(transientToTerminal("verifyFailClosed")));
-    if (unauthorized.status !== 401) {
-      return yield* Effect.fail(new HostedReceiptRunnerError({
-        operation: "verifyFailClosed",
-        reason: "hostedRequestFailed",
-        message: `Expected unauthenticated status 401, received ${unauthorized.status}.`,
-      }));
-    }
+    yield* Effect.retry(
+      observeFailClosedGateway(dependencies, options, hostUrl),
+      {
+        schedule: boundedVisibilitySchedule(options),
+        while: error =>
+          error._tag === "TransientHostedProbeError"
+          && error.classification === "deploymentVisibility",
+      },
+    ).pipe(Effect.mapError(error => error._tag === "HostedReceiptRunnerError"
+      ? error
+      : transientToTerminal("verifyFailClosed")(error)));
 
     dependencies.stage("initialize-cursor");
     const initialValue = yield* invokeProbe(
@@ -325,14 +323,8 @@ const runCampaign = Effect.fn("Fx02bHostedReceipt.campaign")(function* (
         initialReceipt,
       );
     });
-    const restartPolicy = Schedule.addDelay(
-      Schedule.recurs(options.maximumRestartProbes - 1),
-      () => Effect.succeed(Duration.millis(
-        options.restartProbeDelayMilliseconds,
-      )),
-    );
     const restartIdentity = yield* Effect.retry(observeRestart, {
-      schedule: restartPolicy,
+      schedule: boundedVisibilitySchedule(options),
       while: error => error._tag === "TransientHostedProbeError",
     }).pipe(Effect.mapError(error => error._tag === "HostedReceiptRunnerError"
       ? error
@@ -678,6 +670,48 @@ function request(
   }));
 }
 
+const observeFailClosedGateway = Effect.fn(
+  "Fx02bHostedReceipt.observeFailClosedGateway",
+)(function* (
+  dependencies: HostedReceiptRunnerDependencies,
+  options: HostedReceiptRunnerOptions,
+  hostUrl: string,
+): Effect.fn.Return<void, HostedReceiptRunnerError | TransientHostedProbeError> {
+  const response = yield* request(
+    dependencies,
+    options,
+    `${hostUrl}${FX02B_INITIAL_PATH}`,
+    undefined,
+  );
+  if (response.status === 401) return;
+  if (
+    response.status === 500
+    && response.headers.get("x-flarex-probe-classification")
+      === "configuration_unavailable"
+  ) {
+    return yield* Effect.fail(new TransientHostedProbeError({
+      classification: "deploymentVisibility",
+      message: "The deployed gateway configuration is not visible yet.",
+    }));
+  }
+  return yield* Effect.fail(new HostedReceiptRunnerError({
+    operation: "verifyFailClosed",
+    reason: "hostedRequestFailed",
+    message: `Expected unauthenticated status 401, received ${response.status}.`,
+  }));
+});
+
+function boundedVisibilitySchedule(
+  options: HostedReceiptRunnerOptions,
+) {
+  return Schedule.addDelay(
+    Schedule.recurs(options.maximumRestartProbes - 1),
+    () => Effect.succeed(Duration.millis(
+      options.restartProbeDelayMilliseconds,
+    )),
+  );
+}
+
 function requireAuthenticatedSingleAccount(
   dependencies: HostedReceiptRunnerDependencies,
 ): Effect.Effect<void, HostedReceiptRunnerError> {
@@ -833,11 +867,54 @@ const readCurrentDeploymentMessage = Effect.fn(
         "current deployment is missing",
       );
     }
-    const annotations = current.annotations;
+    const deploymentVersions = current.versions;
+    if (!Array.isArray(deploymentVersions) || deploymentVersions.length !== 1) {
+      return yield* ownershipUnknown(
+        lease.worker,
+        "current deployment does not have exactly one version",
+      );
+    }
+    const currentVersion = deploymentVersions[0];
+    if (
+      !isNonArrayRecord(currentVersion)
+      || typeof currentVersion.version_id !== "string"
+      || currentVersion.percentage !== 100
+    ) {
+      return yield* ownershipUnknown(
+        lease.worker,
+        "current deployment version identity is invalid",
+      );
+    }
+    const versionsResult = yield* dependencies.commands.run([
+      "versions", "list", "--config", lease.config, "--json",
+    ]);
+    if (versionsResult.code !== 0) {
+      return yield* ownershipUnknown(lease.worker, tail(versionsResult.output));
+    }
+    const versions = yield* parseJson(
+      "reconcileOwnership",
+      versionsResult.output,
+    );
+    if (!Array.isArray(versions)) {
+      return yield* ownershipUnknown(
+        lease.worker,
+        "version list is not an array",
+      );
+    }
+    const exactVersion = versions.find(version =>
+      isNonArrayRecord(version) && version.id === currentVersion.version_id
+    );
+    if (!isNonArrayRecord(exactVersion)) {
+      return yield* ownershipUnknown(
+        lease.worker,
+        "current deployment version is missing from the version catalog",
+      );
+    }
+    const annotations = exactVersion.annotations;
     if (!isNonArrayRecord(annotations)) {
       return yield* ownershipUnknown(
         lease.worker,
-        "current deployment annotations are missing",
+        "current version annotations are missing",
       );
     }
     const message = annotations["workers/message"];

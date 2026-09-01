@@ -606,7 +606,9 @@ The hosted sequence is bounded and ordered:
    names absent;
 2. deploy the private source and the initial host with three distinct ephemeral
    bearer values supplied through temporary secret files;
-3. prove an unauthenticated gateway request returns 401;
+3. make at most twenty non-mutating readiness checks, retrying only the exact
+   classified configuration-propagation response, and prove an unauthenticated
+   gateway request returns 401;
 4. run one admitted-batch turn and require durable cursor `1` plus
    `admittedBatchLimitReached`;
 5. deploy a code-distinct host version, then make at most twenty five-second
@@ -618,9 +620,9 @@ The hosted sequence is bounded and ordered:
 7. deploy the explicit deleted-class migration, delete the host Worker, then
    delete the now-unreferenced source Worker.
 
-The maximum hosted data-plane budget is twenty-three requests: one negative
-authentication check, one initialization, at most twenty read-only restart
-identity observations, and one resume. Service bindings add no separate
+The maximum hosted data-plane budget is forty-two requests: at most twenty
+negative-authentication readiness checks, one initialization, at most twenty
+read-only restart identity observations, and one resume. Service bindings add no separate
 service-binding charge, and the
 probe volume is far below the published included Workers request allowance;
 unexpected account selection, name ownership, deployment output, receipt
