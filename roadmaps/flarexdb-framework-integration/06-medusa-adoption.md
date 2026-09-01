@@ -2,9 +2,9 @@
 
 ## Status And Scope
 
-Status: accepted source-backed sequence and fork-island architecture; source
-island, active package promotion, and Flarex-backed Medusa adapter remain
-unimplemented and production-unauthorized
+Status: accepted source-backed sequence with the inert fork source island
+implemented and verified; active package promotion and the Flarex-backed
+Medusa adapter remain unimplemented and production-unauthorized
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,
@@ -26,6 +26,12 @@ verification contract, reuse classification, and later package-promotion
 gates. The island is not a production dependency. Only source-map-admitted
 packages promoted into the active root workspace may later enter the Medusa
 adapter graph.
+
+The admitted island now pins fork commit
+`48d5cc675e4e8bc821e22c20c88a751acc66fb5f` as 8,496 exact tracked regular
+files under [`third_party/medusa`](../../third_party/medusa). Its checksum and
+boundary verifiers are root-owned admission tooling, not a Medusa runtime
+dependency. No root `@medusajs/*` package or Flarex adapter exists yet.
 
 ## Current Source Findings
 
@@ -141,14 +147,17 @@ migration requirements fail admission before serving traffic.
 
 ### Source-island admission
 
-- Implement the accepted source-island preflight without adding a root package,
-  adapter, runtime import, route, or deployment binding.
-- Pin one clean committed fork revision; never archive dirty or untracked local
-  checkout state implicitly.
-- Preserve the fork's exact independent workspace, lockfile, patches, package
-  graph, provenance, licenses, and selected regression commands.
-- Verify exact source bytes, file set, modes, links, package-manager pin, and
-  forbidden cross-workspace imports.
+- Completed without adding a root package, adapter, runtime import, route, or
+  deployment binding.
+- The clean committed fork pin, independent workspace, lockfile, patches,
+  package graph, provenance, licenses, exact bytes/modes, and selected
+  regression commands are preserved and mechanically verified.
+- The root boundary derives active Flarex package names from root manifests and
+  rejects package/import edges, relative or absolute file and workspace path
+  dependencies, manifest/TypeScript/bundler aliases, static code and JSDoc
+  references, symlinks, broad workspace membership, and implicit root-script
+  entry. Island manifests, sources, configs, and symlinks are checked in the
+  reverse direction. A dedicated path-filtered CI job enforces admission.
 
 ### Source maps and contract audit
 

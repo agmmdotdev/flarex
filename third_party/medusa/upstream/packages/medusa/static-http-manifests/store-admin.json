@@ -1,0 +1,548 @@
+{
+  "exportName": "medusaStaticHttpManifest",
+  "generatedBy": "packages/medusa/scripts/generate-static-http-manifest.mjs from packages/medusa/static-http-manifests/store-admin.json",
+  "manifestDirectory": "packages/medusa/src/static",
+  "outputPath": "packages/medusa/src/static/http-manifest.ts",
+  "routeRoot": "packages/medusa/src/api",
+  "routes": [
+    {
+      "relativePath": "packages/medusa/src/api/admin/currencies/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/currencies/[code]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/plugins/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/feature-flags/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/promotions/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/batch/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/[id]/variants/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/[id]/variants/batch/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/[id]/variants/[variant_id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/[id]/images/[image_id]/variants/batch/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/[id]/variants/[variant_id]/images/batch/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/[id]/options/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/[id]/options/[option_id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/fulfillment-providers/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/fulfillment-sets/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/fulfillment-sets/[id]/service-zones/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/fulfillment-sets/[id]/service-zones/[zone_id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/stock-locations/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/stock-locations/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/stock-locations/[id]/sales-channels/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/stock-locations/[id]/fulfillment-sets/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/stock-locations/[id]/fulfillment-providers/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/shipping-profiles/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/shipping-profiles/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/shipping-option-types/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/shipping-option-types/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/shipping-options/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/shipping-options/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/shipping-options/[id]/rules/batch/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/tax-regions/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/tax-regions/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/collections/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/collections/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/collections/[id]/products/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/price-preferences/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/price-preferences/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/refund-reasons/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/refund-reasons/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/regions/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/regions/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/stores/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/stores/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/api-keys/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/api-keys/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/api-keys/[id]/revoke/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/api-keys/[id]/sales-channels/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/inventory-items/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/inventory-items/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/inventory-items/[id]/location-levels/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/reservations/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/reservations/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/locales/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/locales/[code]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/translations/batch/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/product-tags/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/product-types/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/product-types/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/product-categories/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/product-categories/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/product-categories/[id]/products/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/sales-channels/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/sales-channels/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/sales-channels/[id]/products/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/index/details/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/index/sync/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/users/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/users/me/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/users/[id]/get-route.ts",
+      "binding": "adminUsersByIdGetRoute",
+      "route": "/admin/users/:id"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/users/[id]/post-route.ts",
+      "binding": "adminUsersByIdPostRoute",
+      "route": "/admin/users/:id"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/users/[id]/delete-route.ts",
+      "binding": "adminUsersByIdDeleteRoute",
+      "route": "/admin/users/:id"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/users/[id]/roles/get-route.ts",
+      "binding": "adminUsersByIdRolesGetRoute",
+      "route": "/admin/users/:id/roles"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/users/[id]/roles/post-route.ts",
+      "binding": "adminUsersByIdRolesPostRoute",
+      "route": "/admin/users/:id/roles"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/users/[id]/roles/delete-route.ts",
+      "binding": "adminUsersByIdRolesDeleteRoute",
+      "route": "/admin/users/:id/roles"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/users/[id]/roles/[role_id]/delete-route.ts",
+      "binding": "adminUsersByIdRolesByRoleIdDeleteRoute",
+      "route": "/admin/users/:id/roles/:role_id"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/workflows-executions/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/workflows-executions/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/workflows-executions/[workflow_id]/[transaction_id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/workflows-executions/[workflow_id]/run/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/workflows-executions/[workflow_id]/steps/success/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/workflows-executions/[workflow_id]/steps/failure/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/workflows-executions/[workflow_id]/subscribe/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/workflows-executions/[workflow_id]/[transaction_id]/[step_id]/subscribe/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/currencies/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/currencies/[code]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/product-tags/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/product-tags/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/product-types/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/product-types/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/collections/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/collections/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/regions/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/regions/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/payment-providers/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/products/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/products/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/product-variants/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/product-variants/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/locales/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/shipping-options/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/shipping-options/[id]/calculate/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/carts/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/carts/[id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/carts/[id]/line-items/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/carts/[id]/line-items/[line_id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/carts/[id]/promotions/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/carts/[id]/shipping-methods/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/carts/[id]/taxes/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/carts/[id]/customer/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/carts/[id]/complete/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/customers/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/customers/me/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/customers/me/addresses/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/customers/me/addresses/[address_id]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/auth/session/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/auth/token/refresh/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/auth/[actor_type]/[auth_provider]/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/auth/[actor_type]/[auth_provider]/register/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/auth/[actor_type]/[auth_provider]/reset-password/route.ts"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/auth/[actor_type]/[auth_provider]/update/route.ts"
+    }
+  ],
+  "middlewares": [
+    {
+      "relativePath": "packages/medusa/src/api/admin/currencies/middlewares.ts",
+      "exportName": "adminCurrencyRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/promotions/middlewares.ts",
+      "exportName": "adminPromotionRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/products/middlewares.ts",
+      "exportName": "adminProductRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/fulfillment-providers/middlewares.ts",
+      "exportName": "adminFulfillmentProvidersRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/fulfillment-sets/middlewares.ts",
+      "exportName": "adminFulfillmentSetsRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/stock-locations/middlewares.ts",
+      "exportName": "adminStockLocationRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/shipping-profiles/middlewares.ts",
+      "exportName": "adminShippingProfilesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/shipping-option-types/middlewares.ts",
+      "exportName": "adminShippingOptionTypeRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/shipping-options/middlewares.ts",
+      "exportName": "adminShippingOptionRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/tax-regions/middlewares.ts",
+      "exportName": "adminTaxRegionRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/collections/middlewares.ts",
+      "exportName": "adminCollectionRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/price-preferences/middlewares.ts",
+      "exportName": "adminPricePreferencesRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/refund-reasons/middlewares.ts",
+      "exportName": "adminRefundReasonsRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/regions/middlewares.ts",
+      "exportName": "adminRegionRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/stores/middlewares.ts",
+      "exportName": "adminStoreRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/api-keys/middlewares.ts",
+      "exportName": "adminApiKeyRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/inventory-items/middlewares.ts",
+      "exportName": "adminInventoryRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/reservations/middlewares.ts",
+      "exportName": "adminReservationRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/locales/middlewares.ts",
+      "exportName": "adminLocalesRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/translations/middlewares.ts",
+      "exportName": "adminTranslationsRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/product-tags/middlewares.ts",
+      "exportName": "adminProductTagRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/product-types/middlewares.ts",
+      "exportName": "adminProductTypeRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/product-categories/middlewares.ts",
+      "exportName": "adminProductCategoryRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/sales-channels/middlewares.ts",
+      "exportName": "adminSalesChannelRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/index/middlewares.ts",
+      "exportName": "adminIndexRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/workflows-executions/middlewares.ts",
+      "exportName": "adminWorkflowsExecutionsMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/admin/users/middlewares.ts",
+      "exportName": "adminUserRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/currencies/middlewares.ts",
+      "exportName": "storeCurrencyRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/product-tags/middlewares.ts",
+      "exportName": "storeProductTagRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/product-types/middlewares.ts",
+      "exportName": "storeProductTypeRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/collections/middlewares.ts",
+      "exportName": "storeCollectionRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/regions/middlewares.ts",
+      "exportName": "storeRegionRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/payment-providers/middlewares.ts",
+      "exportName": "storePaymentProvidersMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/products/middlewares.ts",
+      "exportName": "storeProductRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/product-variants/middlewares.ts",
+      "exportName": "storeProductVariantRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/locales/middlewares.ts",
+      "exportName": "storeLocalesRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/shipping-options/middlewares.ts",
+      "exportName": "storeShippingOptionRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/carts/middlewares.ts",
+      "exportName": "storeCartRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/store/customers/middlewares.ts",
+      "exportName": "storeCustomerRoutesMiddlewares"
+    },
+    {
+      "relativePath": "packages/medusa/src/api/auth/middlewares.ts",
+      "exportName": "authRoutesMiddlewares"
+    }
+  ]
+}

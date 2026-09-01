@@ -1,0 +1,67 @@
+{
+  "name": "@medusajs/workflows-sdk",
+  "version": "2.13.4",
+  "description": "Set of workflows tooling for Medusa",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./composer": {
+      "types": "./dist/utils/composer/index.d.ts",
+      "import": "./dist/utils/composer/index.js",
+      "require": "./dist/utils/composer/index.js",
+      "default": "./dist/utils/composer/index.js"
+    },
+    "./helper/type": {
+      "types": "./dist/helper/type.d.ts",
+      "import": "./dist/helper/type.js",
+      "require": "./dist/helper/type.js",
+      "default": "./dist/helper/type.js"
+    },
+    "./medusa-workflow": {
+      "types": "./dist/medusa-workflow.d.ts",
+      "import": "./dist/medusa-workflow.js",
+      "require": "./dist/medusa-workflow.js",
+      "default": "./dist/medusa-workflow.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/core/workflows-sdk"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__mocks__",
+    "!dist/**/__fixtures__"
+  ],
+  "author": "Medusa",
+  "license": "MIT",
+  "devDependencies": {
+    "@medusajs/types": "workspace:*"
+  },
+  "dependencies": {
+    "@medusajs/deps": "workspace:*",
+    "@medusajs/modules-sdk": "workspace:*",
+    "@medusajs/orchestration": "workspace:*",
+    "@medusajs/utils": "workspace:*",
+    "ulid": "^2.3.0"
+  },
+  "scripts": {
+    "build": "rimraf dist && tsc --build",
+    "watch": "tsc --build --watch",
+    "test": "jest --bail --forceExit --testPathPattern=src",
+    "test:run": "node ./dist/utils/_playground.js"
+  }
+}

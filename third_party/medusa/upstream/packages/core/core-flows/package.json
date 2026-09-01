@@ -1,0 +1,99 @@
+{
+  "name": "@medusajs/core-flows",
+  "version": "2.13.4",
+  "description": "Set of workflow definitions for Medusa",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./customer/workflows/update-customers": {
+      "types": "./dist/customer/workflows/update-customers.d.ts",
+      "import": "./dist/customer/workflows/update-customers.js",
+      "require": "./dist/customer/workflows/update-customers.js",
+      "default": "./dist/customer/workflows/update-customers.js"
+    },
+    "./customer/workflows/create-addresses": {
+      "types": "./dist/customer/workflows/create-addresses.d.ts",
+      "import": "./dist/customer/workflows/create-addresses.js",
+      "require": "./dist/customer/workflows/create-addresses.js",
+      "default": "./dist/customer/workflows/create-addresses.js"
+    },
+    "./customer/workflows/update-addresses": {
+      "types": "./dist/customer/workflows/update-addresses.d.ts",
+      "import": "./dist/customer/workflows/update-addresses.js",
+      "require": "./dist/customer/workflows/update-addresses.js",
+      "default": "./dist/customer/workflows/update-addresses.js"
+    },
+    "./customer/workflows/delete-addresses": {
+      "types": "./dist/customer/workflows/delete-addresses.d.ts",
+      "import": "./dist/customer/workflows/delete-addresses.js",
+      "require": "./dist/customer/workflows/delete-addresses.js",
+      "default": "./dist/customer/workflows/delete-addresses.js"
+    },
+    "./auth/workflows/generate-reset-password-token": {
+      "types": "./dist/auth/workflows/generate-reset-password-token.d.ts",
+      "import": "./dist/auth/workflows/generate-reset-password-token.js",
+      "require": "./dist/auth/workflows/generate-reset-password-token.js",
+      "default": "./dist/auth/workflows/generate-reset-password-token.js"
+    },
+    "./user/workflows/assign-user-roles": {
+      "types": "./dist/user/workflows/assign-user-roles.d.ts",
+      "import": "./dist/user/workflows/assign-user-roles.js",
+      "require": "./dist/user/workflows/assign-user-roles.js",
+      "default": "./dist/user/workflows/assign-user-roles.js"
+    },
+    "./user/workflows/remove-user-roles": {
+      "types": "./dist/user/workflows/remove-user-roles.d.ts",
+      "import": "./dist/user/workflows/remove-user-roles.js",
+      "require": "./dist/user/workflows/remove-user-roles.js",
+      "default": "./dist/user/workflows/remove-user-roles.js"
+    },
+    "./user/workflows/update-users": {
+      "types": "./dist/user/workflows/update-users.d.ts",
+      "import": "./dist/user/workflows/update-users.js",
+      "require": "./dist/user/workflows/update-users.js",
+      "default": "./dist/user/workflows/update-users.js"
+    },
+    "./user/workflows/remove-user-account": {
+      "types": "./dist/user/workflows/remove-user-account.d.ts",
+      "import": "./dist/user/workflows/remove-user-account.js",
+      "require": "./dist/user/workflows/remove-user-account.js",
+      "default": "./dist/user/workflows/remove-user-account.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/core-flows"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__mocks__",
+    "!dist/**/__fixtures__"
+  ],
+  "author": "Medusa",
+  "license": "MIT",
+  "devDependencies": {
+    "@medusajs/framework": "workspace:*"
+  },
+  "dependencies": {
+    "@medusajs/workflows-sdk": "workspace:*",
+    "csv-parse": "^5.6.0",
+    "json-2-csv": "^5.5.4"
+  },
+  "peerDependencies": {
+    "@medusajs/framework": "workspace:*"
+  },
+  "scripts": {
+    "build": "rimraf dist && tsc --build",
+    "watch": "tsc --build --watch",
+    "test": "vitest run --config vitest.config.mts",
+    "test:jest": "jest --bail --forceExit --passWithNoTests"
+  }
+}

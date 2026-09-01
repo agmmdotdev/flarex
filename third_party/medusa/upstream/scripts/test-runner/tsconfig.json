@@ -1,0 +1,34 @@
+{
+  "extends": "../../_tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "allowImportingTsExtensions": true,
+    "baseUrl": "../..",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "rootDir": "./",
+    "paths": {
+      "@contract-services": [
+        "scripts/test-runner/contracts/fixtures/aliases/services/index.ts"
+      ],
+      "@contract-services/*": [
+        "scripts/test-runner/contracts/fixtures/aliases/services/*"
+      ],
+      "@contract-services-other": [
+        "scripts/test-runner/contracts/fixtures/aliases/services-other.ts"
+      ]
+    },
+    "strict": true,
+    "types": ["node", "jest"]
+  },
+  "include": ["./**/*.ts", "./**/*.mts"],
+  "exclude": [
+    "./contracts/__fixtures__",
+    "./contracts/__mocks__",
+    "./contracts/dist",
+    "./contracts/legacy-jest-bridge.typecheck.ts",
+    "./vitest-jest-compatibility-global.d.ts"
+  ]
+}

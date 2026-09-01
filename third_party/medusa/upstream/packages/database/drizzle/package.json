@@ -1,0 +1,33 @@
+{
+  "name": "@medusajs/drizzle",
+  "version": "2.13.4",
+  "description": "Drizzle persistence compiler for Medusa DML",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./d1": "./dist/d1.js",
+    "./medusa": "./dist/medusa.js",
+    "./medusa-test": "./dist/medusa-test.js",
+    "./migrations/node": "./dist/migrations-node.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build --clean && tsc --build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@medusajs/dal": "workspace:*",
+    "@medusajs/deps": "workspace:*",
+    "@medusajs/dml": "workspace:*",
+    "@medusajs/types": "workspace:*",
+    "@medusajs/utils": "workspace:*",
+    "drizzle-orm": "^0.44.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,7 +1,7 @@
 # Medusa Fork Source Island And Incremental Package Convergence
 
-Status: accepted architecture preflight; source import, package promotion, and
-Flarex-backed adapter implementation pending
+Status: accepted architecture preflight with the inert source island imported
+and verified; package promotion and Flarex-backed adapter implementation pending
 
 Last reviewed: 2026-09-01
 
@@ -114,6 +114,7 @@ third_party/medusa/
   upstream/                  exact complete tracked fork snapshot, including
                              its package.json, workspace, lockfile, and patches
   SOURCE.json                source and provenance manifest
+  SOURCE_COMMIT              exact selected Git commit-object payload
   SOURCE_SHA256SUMS          tracked content checksums
   NOTICE.md                  attribution and use description
   licenses/                  applicable exact license texts
@@ -409,6 +410,65 @@ The first implementation slice is complete only when:
 Full upstream Medusa or fork product parity is not required for source-island
 admission. The island must preserve the exact selected source and make its
 claimed regression lanes reproducible.
+
+### Source-island implementation receipt (2026-09-01)
+
+The inert admission slice is complete at clean fork commit
+`48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, tree
+`41cb1ea75b0ef88c352008adef4117a73266ad3c`. The imported snapshot contains
+8,496 checksum-pinned regular files, 42,554,626 source bytes, no symlinks or
+executable files, 88 package manifests, and 86 active workspace projects. It
+retains pnpm `11.7.0`, the exact lockfile, three fork patches, the upstream MIT
+license, fork baseline `3eaaa4ac12be140260320b22cc94ecb8bc71ab25`, and
+official `v2.13.4` provenance at
+`ad4437b298d499d1a51e54decad6de3f5ebd2181` without claiming a merge base.
+
+Passing admission evidence:
+
+- `pnpm medusa:source:verify` hashes the preserved raw commit object, proves
+  its declared tree, and verifies the exact indexed file set, worktree bytes,
+  blob IDs, reconstructed fork tree ID, modes, pin, inventories, and the
+  bidirectional workspace boundary;
+- verifier strict typecheck and eighteen focused boundary tests pass;
+- the live boundary scan covers all 34 Flarex manifests and their source,
+  TypeScript-config, and symlink graph, plus 88 Medusa manifests, 95 Medusa
+  TypeScript configs, zero Medusa symlinks, and exactly the 7,777
+  checksum-admitted Medusa source files;
+- a path-filtered CI admission job runs strict tooling typecheck, focused
+  boundary tests, the live boundary scan, and exact source verification when
+  either side of the isolation boundary changes;
+- `pnpm medusa:install` passes with the exact frozen lockfile and the fork's
+  validated `--ignore-scripts` install lane;
+- the 86-project workspace-dependency check passes with every local edge using
+  `workspace:*`;
+- the selected five-project portable foundation builds, and the unchanged
+  `@medusajs/modules-sdk` source suite passes 15 suites / 89 tests;
+- portable entrypoint checks pass with 5, 43, 46, and 5 bundled inputs; the
+  strict real-Currency audit passes with 65 bundled inputs and zero Worker
+  blockers; and the runtime-source import guard passes;
+- the real Currency module Workerd/D1 lane passes read, create, update,
+  soft-delete, restore, and delete while reporting statement transaction
+  semantics; and
+- the unchanged Currency package tests pass 2/2, while the same 13 integration
+  assertions pass separately through PGlite and Drizzle/SQLite.
+
+The original MikroORM/PostgreSQL Currency command remains named and runnable,
+but current local execution is not a passing PostgreSQL receipt: PostgreSQL 18
+was accepting connections and SCRAM authentication rejected the absent
+`DB_PASSWORD` with `client password must be a string`. PGlite and
+Drizzle/SQLite are not reported as substitutes for that lane.
+
+An exploratory `@medusajs/currency...` dependency build also exposed the fork's
+known cyclic/broad development graph: Currency itself built, but the selected
+73-project closure reached `@medusajs/medusa` before multiple module `dist`
+outputs and failed module resolution. That broad selector is not an admitted
+source-island command. The later Currency promotion source map must define a
+bounded topological closure rather than inherit that development graph.
+
+No root package, adapter, runtime route, binding, schema, migration, database
+write, public export, or production behavior changed. Ordinary root recursion
+still contains only `packages/*` and `apps/*`; entry into this island is explicit
+through `medusa:*` commands.
 
 ## Promotion Gate For Every Package Or Capability
 

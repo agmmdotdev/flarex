@@ -1,0 +1,319 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "WebWorker", "WebWorker.Iterable"],
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@medusajs/cloudflare-runtime": [
+        "../../packages/core/cloudflare-runtime/src/index.ts"
+      ],
+      "@medusajs/medusa/static/fetch-http-handler": [
+        "../../packages/medusa/src/static/fetch-http-handler.ts"
+      ],
+      "@medusajs/medusa/static/http-manifest": [
+        "../../packages/medusa/src/static/http-manifest.ts"
+      ],
+      "@medusajs/medusa/static/http-proof-manifest": [
+        "../../packages/medusa/src/static/http-proof-manifest.ts"
+      ],
+      "@medusajs/modules-sdk": [
+        "../../packages/core/modules-sdk/dist/index.d.ts"
+      ],
+      "@medusajs/modules-sdk/medusa-module": [
+        "../../packages/core/modules-sdk/dist/medusa-module.d.ts"
+      ],
+      "@medusajs/modules-sdk/static-app": [
+        "../../packages/core/modules-sdk/dist/static-app.d.ts"
+      ],
+      "@medusajs/utils/common/get-iso-string-from-date": [
+        "../../packages/core/utils/dist/common/get-iso-string-from-date.d.ts"
+      ],
+      "@medusajs/utils/common/get-caller-file-path": [
+        "../../packages/core/utils/dist/common/get-caller-file-path.d.ts"
+      ],
+      "@medusajs/utils/common/get-selects-and-relations-from-object-array": [
+        "../../packages/core/utils/dist/common/get-selects-and-relations-from-object-array.d.ts"
+      ],
+      "@medusajs/utils/common/group-by": [
+        "../../packages/core/utils/dist/common/group-by.d.ts"
+      ],
+      "@medusajs/utils/common/deep-copy": [
+        "../../packages/core/utils/dist/common/deep-copy.d.ts"
+      ],
+      "@medusajs/utils/common/deep-equal-obj": [
+        "../../packages/core/utils/dist/common/deep-equal-obj.d.ts"
+      ],
+      "@medusajs/utils/common/define-file-config": [
+        "../../packages/core/utils/dist/common/define-file-config.d.ts"
+      ],
+      "@medusajs/utils/common/normalize-locale": [
+        "../../packages/core/utils/dist/common/normalize-locale.d.ts"
+      ],
+      "@medusajs/utils/common/to-snake-case": [
+        "../../packages/core/utils/dist/common/to-snake-case.d.ts"
+      ],
+      "@medusajs/utils/common/get-set-difference": [
+        "../../packages/core/utils/dist/common/get-set-difference.d.ts"
+      ],
+      "@medusajs/utils/common/flatten-object-to-key-value-pairs": [
+        "../../packages/core/utils/dist/common/flatten-object-to-key-value-pairs.d.ts"
+      ],
+      "@medusajs/utils/common/rules": [
+        "../../packages/core/utils/dist/common/rules.d.ts"
+      ],
+      "@medusajs/utils/common/parse-stringify-if-necessary": [
+        "../../packages/core/utils/dist/common/parse-stringify-if-necessary.d.ts"
+      ],
+      "@medusajs/utils/common/remote-query-object-from-string": [
+        "../../packages/core/utils/dist/common/remote-query-object-from-string.d.ts"
+      ],
+      "@medusajs/utils/common/to-camel-case": [
+        "../../packages/core/utils/dist/common/to-camel-case.d.ts"
+      ],
+      "@medusajs/utils/core-flows/events": [
+        "../../packages/core/utils/dist/core-flows/events.d.ts"
+      ],
+      "@medusajs/utils/orchestration/types": [
+        "../../packages/core/utils/dist/orchestration/types.d.ts"
+      ],
+      "@medusajs/utils/orchestration/symbol": [
+        "../../packages/core/utils/dist/orchestration/symbol.d.ts"
+      ],
+      "@medusajs/utils/modules-sdk/decorators/inject-shared-context": [
+        "../../packages/core/utils/dist/modules-sdk/decorators/inject-shared-context.d.ts"
+      ],
+      "@medusajs/utils/common/pick-value-from-object": [
+        "../../packages/core/utils/dist/common/pick-value-from-object.d.ts"
+      ],
+      "@medusajs/utils/common/remove-nullisih": [
+        "../../packages/core/utils/dist/common/remove-nullisih.d.ts"
+      ],
+      "@medusajs/utils/fulfillment/events": [
+        "../../packages/core/utils/dist/fulfillment/events.d.ts"
+      ],
+      "@medusajs/utils/fulfillment/geo-zone": [
+        "../../packages/core/utils/dist/fulfillment/geo-zone.d.ts"
+      ],
+      "@medusajs/utils/fulfillment/shipping-options": [
+        "../../packages/core/utils/dist/fulfillment/shipping-options.d.ts"
+      ],
+      "@medusajs/utils/user/events": [
+        "../../packages/core/utils/dist/user/events.d.ts"
+      ],
+      "@medusajs/utils/notification/common": [
+        "../../packages/core/utils/dist/notification/common.d.ts"
+      ],
+      "@medusajs/utils/common/lower-case-first": [
+        "../../packages/core/utils/dist/common/lower-case-first.d.ts"
+      ],
+      "@medusajs/utils/event-bus/utils": [
+        "../../packages/core/utils/dist/event-bus/utils.d.ts"
+      ],
+      "@medusajs/utils/payment/abstract-payment-provider": [
+        "../../packages/core/utils/dist/payment/abstract-payment-provider.d.ts"
+      ],
+      "@medusajs/utils/payment/payment-collection": [
+        "../../packages/core/utils/dist/payment/payment-collection.d.ts"
+      ],
+      "@medusajs/utils/payment/payment-session": [
+        "../../packages/core/utils/dist/payment/payment-session.d.ts"
+      ],
+      "@medusajs/utils/payment/webhook": [
+        "../../packages/core/utils/dist/payment/webhook.d.ts"
+      ],
+      "@medusajs/payment/services": [
+        "../../packages/modules/payment/dist/services/index.d.ts"
+      ],
+      "@medusajs/payment/static-manifest": [
+        "../../packages/modules/payment/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/analytics/static-manifest": [
+        "../../packages/modules/analytics/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/api-key/static-manifest": [
+        "../../packages/modules/api-key/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/auth/static-manifest": [
+        "../../packages/modules/auth/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/caching/static-manifest": [
+        "../../packages/modules/caching/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/event-bus-local/static-manifest": [
+        "../../packages/modules/event-bus-local/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/event-bus-cloudflare": [
+        "../../packages/modules/event-bus-cloudflare/dist/index.d.ts"
+      ],
+      "@medusajs/event-bus-cloudflare/static-manifest": [
+        "../../packages/modules/event-bus-cloudflare/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/workflow-engine-inmemory/static-manifest": [
+        "../../packages/modules/workflow-engine-inmemory/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/workflow-engine-cloudflare/schedule-store": [
+        "../../packages/modules/providers/workflow-engine-cloudflare/dist/schedule-store.d.ts"
+      ],
+      "@medusajs/workflow-engine-cloudflare/execution-store": [
+        "../../packages/modules/providers/workflow-engine-cloudflare/dist/execution-store.d.ts"
+      ],
+      "@medusajs/workflow-engine-cloudflare/delayed-action-store": [
+        "../../packages/modules/providers/workflow-engine-cloudflare/dist/delayed-action-store.d.ts"
+      ],
+      "@medusajs/workflow-engine-cloudflare/scheduler-adapter": [
+        "../../packages/modules/providers/workflow-engine-cloudflare/dist/scheduler-adapter.d.ts"
+      ],
+      "@medusajs/locking/static-manifest": [
+        "../../packages/modules/locking/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/workflows-sdk": [
+        "../../packages/core/workflows-sdk/dist/index.d.ts"
+      ],
+      "@medusajs/workflows-sdk/composer": [
+        "../../packages/core/workflows-sdk/dist/utils/composer/index.d.ts"
+      ],
+      "@medusajs/workflows-sdk/helper/type": [
+        "../../packages/core/workflows-sdk/dist/helper/type.d.ts"
+      ],
+      "@medusajs/workflows-sdk/medusa-workflow": [
+        "../../packages/core/workflows-sdk/dist/medusa-workflow.d.ts"
+      ],
+      "@medusajs/orchestration/transaction": [
+        "../../packages/core/orchestration/dist/transaction/index.d.ts"
+      ],
+      "@medusajs/orchestration/transaction/errors": [
+        "../../packages/core/orchestration/dist/transaction/errors.d.ts"
+      ],
+      "@medusajs/orchestration/workflow/scheduler": [
+        "../../packages/core/orchestration/dist/workflow/scheduler.d.ts"
+      ],
+      "@medusajs/orchestration/workflow/local-workflow": [
+        "../../packages/core/orchestration/dist/workflow/local-workflow.d.ts"
+      ],
+      "@medusajs/orchestration/workflow/workflow-manager": [
+        "../../packages/core/orchestration/dist/workflow/workflow-manager.d.ts"
+      ],
+      "@medusajs/locking-cloudflare/provider": [
+        "../../packages/modules/providers/locking-cloudflare/dist/provider.d.ts"
+      ],
+      "@medusajs/link-modules/definitions/product-variant-price-set": [
+        "../../packages/modules/link-modules/dist/definitions/product-variant-price-set.d.ts"
+      ],
+      "@medusajs/product/joiner-config": [
+        "../../packages/modules/product/dist/joiner-config.d.ts"
+      ],
+      "@medusajs/pricing/joiner-config": [
+        "../../packages/modules/pricing/dist/joiner-config.d.ts"
+      ],
+      "@medusajs/file/static-manifest": [
+        "../../packages/modules/file/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/notification/static-manifest": [
+        "../../packages/modules/notification/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/fulfillment/static-manifest": [
+        "../../packages/modules/fulfillment/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/order/static-manifest": [
+        "../../packages/modules/order/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/utils/api-key/api-key-type": [
+        "../../packages/core/utils/dist/api-key/api-key-type.d.ts"
+      ],
+      "@medusajs/utils/order/status": [
+        "../../packages/core/utils/dist/order/status.d.ts"
+      ],
+      "@medusajs/utils/order/order-change-action": [
+        "../../packages/core/utils/dist/order/order-change-action.d.ts"
+      ],
+      "@medusajs/utils/order/order-change": [
+        "../../packages/core/utils/dist/order/order-change.d.ts"
+      ],
+      "@medusajs/utils/totals/shipping-method": [
+        "../../packages/core/utils/dist/totals/shipping-method/index.d.ts"
+      ],
+      "@medusajs/utils/totals/promotion": [
+        "../../packages/core/utils/dist/totals/promotion/index.d.ts"
+      ],
+      "@medusajs/utils/totals/transform-properties-to-bignumber": [
+        "../../packages/core/utils/dist/totals/transform-properties-to-bignumber.d.ts"
+      ],
+      "@medusajs/utils/pricing/enums": [
+        "../../packages/core/utils/dist/pricing/enums.d.ts"
+      ],
+      "@medusajs/utils/pricing/price-list": [
+        "../../packages/core/utils/dist/pricing/price-list.d.ts"
+      ],
+      "@medusajs/utils/promotion": [
+        "../../packages/core/utils/dist/promotion/index.d.ts"
+      ],
+      "@medusajs/utils/modules-sdk/policy-registry": [
+        "../../packages/core/utils/dist/modules-sdk/policy-registry.d.ts"
+      ],
+      "@medusajs/utils/dml/entity": [
+        "../../packages/core/utils/dist/dml/entity.d.ts"
+      ],
+      "@medusajs/utils/dml/model": [
+        "../../packages/core/utils/dist/dml/entity-builder.d.ts"
+      ],
+      "@medusajs/utils/link/links": [
+        "../../packages/core/utils/dist/link/links.d.ts"
+      ],
+      "@medusajs/utils/product/enums": [
+        "../../packages/core/utils/dist/product/enums.d.ts"
+      ],
+      "@medusajs/promotion/static-manifest": [
+        "../../packages/modules/promotion/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/rbac/static-manifest": [
+        "../../packages/modules/rbac/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/settings/static-manifest": [
+        "../../packages/modules/settings/dist/static-manifest.d.ts"
+      ],
+      "@medusajs/translation/static-manifest": [
+        "../../packages/modules/translation/dist/static-manifest.d.ts"
+      ],
+      "@mikro-orm/postgresql": [
+        "src/raw-filter-shim.ts"
+      ],
+      "@medusajs/framework/modules-sdk": [
+        "src/medusa-framework-modules-sdk.ts"
+      ],
+      "@medusajs/framework/types": [
+        "../../packages/core/framework/dist/types/index.d.ts"
+      ],
+      "@medusajs/framework/utils": [
+        "../../packages/core/framework/dist/utils/index.d.ts"
+      ],
+      "@medusajs/framework/utils/portable": [
+        "../../packages/core/framework/dist/utils/portable.d.ts"
+      ],
+      "@medusajs/framework/http": [
+        "../../packages/core/framework/src/http/portable.ts"
+      ],
+      "@medusajs/framework/http/fetch": [
+        "../../packages/core/framework/src/http/fetch.ts"
+      ],
+      "@medusajs/framework/http/static": [
+        "../../packages/core/framework/src/http/static.ts"
+      ],
+      "@medusajs/framework/zod": [
+        "../../packages/core/framework/src/zod/index.ts"
+      ],
+      "@medusajs/framework/feature-flags": [
+        "src/medusa-framework-feature-flags.ts"
+      ],
+      "@medusajs/user/static-manifest": [
+        "../../packages/modules/user/dist/static-manifest.d.ts"
+      ]
+    }
+  },
+  "include": ["src/**/*", "vite.config.ts"]
+}

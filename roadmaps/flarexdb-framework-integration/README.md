@@ -165,9 +165,11 @@ The smallest safe sequence is:
 2. Add owner-qualified artifact, installation, readiness, and binding concepts
    beside the current application path without rerouting it.
 3. Admit one clean committed revision of the Cloudflare-oriented Medusa fork
-   into the verified, inert `third_party/medusa` source island. Record official
-   Medusa only as historical provenance and comparison evidence; add no active
-   package or runtime import.
+   into the verified, inert `third_party/medusa` source island. This source-only
+   admission is complete at fork commit
+   `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`; official Medusa remains
+   historical provenance and comparison evidence, and no active package or
+   runtime import was added.
 4. Complete the exact package/capability source maps and contract audit from
    that island so the actual DML, repository, Link, Query, transaction,
    migration, workflow, lock, event, and idempotency contracts constrain the
@@ -213,7 +215,7 @@ not authorize earlier owner changes implicitly.
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
 | Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite plus ordinary-role PostgreSQL acceptance complete; installation, readiness, availability, Application-reference, Payload-overlay, `DataBindingSet`, and later lifecycle codecs remain gated |
-| Medusa fork source island and package convergence | Architecture preflight accepted; clean fork pin, inert source import, verification tooling, and every active package promotion remain pending |
+| Medusa fork source island and package convergence | Inert source island admitted and verified at fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`; source maps, contract audit, every active package promotion, and all runtime/adapter activation remain pending |
 | Relational schema representation | Pending preflight |
 | Framework migration coordinator | Pending preflight |
 | Trusted commerce transaction host | Pending preflight |

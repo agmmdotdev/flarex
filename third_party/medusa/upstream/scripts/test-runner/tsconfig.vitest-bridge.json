@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "./contracts/legacy-jest-bridge.typecheck.ts",
+    "./vitest-jest-compatibility-global.d.ts",
+    "./vitest-jest-compatibility.ts"
+  ],
+  "exclude": []
+}

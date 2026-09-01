@@ -1,0 +1,64 @@
+{
+  "name": "@medusajs/workflow-engine-cloudflare",
+  "version": "2.13.4",
+  "description": "Cloudflare Workflow Engine adapters for Medusa",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./execution-store": {
+      "types": "./dist/execution-store.d.ts",
+      "default": "./dist/execution-store.js"
+    },
+    "./delayed-action-store": {
+      "types": "./dist/delayed-action-store.d.ts",
+      "default": "./dist/delayed-action-store.js"
+    },
+    "./scheduler-adapter": {
+      "types": "./dist/scheduler-adapter.d.ts",
+      "default": "./dist/scheduler-adapter.js"
+    },
+    "./schedule-store": {
+      "types": "./dist/schedule-store.d.ts",
+      "default": "./dist/schedule-store.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__mocks__",
+    "!dist/**/__fixtures__"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/modules/providers/workflow-engine-cloudflare"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Medusa",
+  "license": "MIT",
+  "scripts": {
+    "watch": "tsc --build --watch",
+    "build": "rimraf dist && tsc --build",
+    "test": "jest --passWithNoTests src"
+  },
+  "keywords": [
+    "medusa-providers",
+    "medusa-workflow-engine",
+    "cloudflare"
+  ],
+  "dependencies": {
+    "@medusajs/orchestration": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260611.1"
+  }
+}

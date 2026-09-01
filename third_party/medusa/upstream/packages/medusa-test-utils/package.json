@@ -1,0 +1,54 @@
+{
+  "name": "@medusajs/test-utils",
+  "version": "2.13.4",
+  "description": "Test utils for Medusa",
+  "main": "dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/medusa-test-utils"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "rimraf dist && tsc --build",
+    "watch": "tsc --build --watch",
+    "test": "jest --passWithNoTests src"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__mocks__",
+    "!dist/**/__fixtures__"
+  ],
+  "author": "Medusa",
+  "license": "MIT",
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.4",
+    "@medusajs/core-flows": "workspace:*",
+    "@medusajs/framework": "workspace:*"
+  },
+  "dependencies": {
+    "@types/express": "^4.17.21",
+    "axios": "^1.13.1",
+    "cron-parser": "^4.9.0",
+    "express": "^4.21.0",
+    "get-port": "^5.1.1",
+    "ulid": "^2.3.0"
+  },
+  "peerDependencies": {
+    "@medusajs/core-flows": "workspace:*",
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/medusa": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@medusajs/core-flows": {
+      "optional": true
+    },
+    "@medusajs/medusa": {
+      "optional": true
+    }
+  },
+  "gitHead": "81a7ff73d012fda722f6e9ef0bd9ba0232d37808"
+}

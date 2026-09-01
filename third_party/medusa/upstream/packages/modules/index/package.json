@@ -1,0 +1,80 @@
+{
+  "name": "@medusajs/index",
+  "version": "2.13.4",
+  "description": "Medusa Index module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./portable": {
+      "types": "./dist/portable.d.ts",
+      "default": "./dist/portable.js"
+    },
+    "./worker-composition": {
+      "types": "./dist/worker-composition.d.ts",
+      "default": "./dist/worker-composition.js"
+    },
+    "./relation-query-proof-runner": {
+      "types": "./dist/relation-query-proof-runner.d.ts",
+      "default": "./dist/relation-query-proof-runner.js"
+    },
+    "./sqlite-index-service-composition": {
+      "types": "./dist/sqlite-index-service-composition.d.ts",
+      "default": "./dist/sqlite-index-service-composition.js"
+    },
+    "./services": {
+      "types": "./dist/services/index.d.ts",
+      "default": "./dist/services/index.js"
+    },
+    "./services/index-module-service": {
+      "types": "./dist/services/index-module-service.d.ts",
+      "default": "./dist/services/index-module-service.js"
+    },
+    "./services/sqlite-index-storage-provider": {
+      "types": "./dist/services/sqlite-index-storage-provider.d.ts",
+      "default": "./dist/services/sqlite-index-storage-provider.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__mocks__",
+    "!dist/**/__fixtures__"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/modules/index"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Medusa",
+  "license": "MIT",
+  "scripts": {
+    "watch": "tsc --build --watch",
+    "watch:test": "tsc --build tsconfig.spec.json --watch",
+    "resolve:aliases": "tsc --showConfig -p tsconfig.json > tsconfig.resolved.json && tsc-alias -p tsconfig.resolved.json && rimraf tsconfig.resolved.json",
+    "build": "rimraf dist && tsc --build && pnpm run resolve:aliases",
+    "test": "jest --passWithNoTests src",
+    "test:integration": "jest --passWithNoTests --forceExit --testPathPattern=\"integration-tests/__tests__/.*\\.spec\\.ts\"",
+    "test:integration:sqlite": "jest --passWithNoTests --runInBand integration-tests/__tests__/query-builder-sqlite.spec.ts integration-tests/__tests__/index-engine-module-sqlite.spec.ts integration-tests/__tests__/index-engine-module-sync-sqlite.spec.ts",
+    "migration:initial": "MIKRO_ORM_CLI_CONFIG=./mikro-orm.config.dev.ts MIKRO_ORM_ALLOW_GLOBAL_CLI=true medusa-mikro-orm migration:create --initial",
+    "migration:create": "MIKRO_ORM_CLI_CONFIG=./mikro-orm.config.dev.ts MIKRO_ORM_ALLOW_GLOBAL_CLI=true medusa-mikro-orm migration:create",
+    "migration:up": "MIKRO_ORM_CLI_CONFIG=./mikro-orm.config.dev.ts MIKRO_ORM_ALLOW_GLOBAL_CLI=true medusa-mikro-orm migration:up",
+    "orm:cache:clear": "MIKRO_ORM_CLI_CONFIG=./mikro-orm.config.dev.ts MIKRO_ORM_ALLOW_GLOBAL_CLI=true medusa-mikro-orm cache:clear"
+  },
+  "devDependencies": {
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/test-utils": "workspace:*"
+  },
+  "peerDependencies": {
+    "@medusajs/framework": "workspace:*"
+  }
+}

@@ -1,0 +1,8 @@
+/dist
+node_modules
+.DS_store
+.env*
+.env
+*.sql
+!src/migrations/drizzle-sqlite/
+!src/migrations/drizzle-sqlite/*.sql

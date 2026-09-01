@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Build and dev server artifacts
+.nitro/
+.output/
+.wrangler/
+dist/
+
+# Local source reference
+/vendure/
+
+# OS files
+.DS_Store
+Thumbs.db

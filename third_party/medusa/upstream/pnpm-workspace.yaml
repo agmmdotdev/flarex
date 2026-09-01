@@ -1,0 +1,54 @@
+packages:
+  - apps/*
+  - packages/medusa
+  - packages/medusa-test-utils
+  - packages/modules/*
+  - packages/modules/providers/*
+  - packages/plugins/*
+  - packages/core/*
+  - packages/database/*
+  - packages/framework/*
+  - packages/cli/*
+  - packages/*
+  - packages/admin/*
+  - packages/design-system/*
+  - packages/generated/*
+  - integration-tests/**/*
+
+nodeLinker: hoisted
+linkWorkspacePackages: true
+preferWorkspacePackages: true
+hoistWorkspacePackages: true
+confirmModulesPurge: false
+verifyDepsBeforeRun: false
+publicHoistPattern:
+  - "@medusajs/*"
+
+overrides:
+  pg: 8.16.3
+  "@types/react": ^18.3.2
+  "@types/react-dom": ^18.2.25
+  semver: ^7.5.2
+  axios: ^1.13.1
+  esbuild: ^0.28.1
+  vite: ^8.2.0
+  on-headers: ^1.1.0
+  validator: ^13.15.20
+
+patchedDependencies:
+  "@changesets/get-github-info@^0.5.2": patches/changesets-github-info.patch
+  "@changesets/assemble-release-plan@6.0.9": patches/@changesets-assemble-release-plan-npm-6.0.9-e01af97ef4.patch
+  "yalc@1.0.0-pre.53": patches/yalc-workspace-dependencies.patch
+
+allowBuilds:
+  "@swc/core": true
+  core-js: true
+  esbuild: true
+  msgpackr-extract: true
+  msw: true
+  protobufjs: true
+  sharp: true
+  workerd: true
+
+minimumReleaseAgeExclude:
+  - vite@8.2.0

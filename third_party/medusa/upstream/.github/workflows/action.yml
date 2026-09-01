@@ -1,0 +1,1325 @@
+name: Medusa Pipeline
+on:
+  push:
+    branches:
+      - develop
+      - v1.x
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.11.0
+        with:
+          access_token: ${{ github.token }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.7.0 --activate
+
+      - name: Assert changed
+        run: ./scripts/assert-changed-files-actions.sh "packages"
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+
+      - name: Check test runner foundation
+        run: pnpm check:test-runner-foundation
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            packages/**/dist
+            integration-tests/**/dist
+            !packages/**/node_modules
+          retention-days: 1
+
+  unit-tests-matrix:
+    needs: setup
+    name: Unit Tests - Shard ${{ matrix.shard_index }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        shard_index: [1, 2, 3, 4]
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Get number of CPU cores
+        id: cpu-cores
+        uses: SimenB/github-actions-cpu-cores@v2
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run unit tests
+        run: |
+          pnpm test --filter='!@medusajs/framework' --filter='!@medusajs/utils' -- -- --shard=${{ matrix.shard_index }}/4 --maxWorkers=${{ steps.cpu-cores.outputs.count }} --passWithNoTests
+          pnpm test --filter=@medusajs/framework --filter=@medusajs/utils -- -- --shard=${{ matrix.shard_index }}/4 --passWithNoTests
+
+  unit-tests:
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs: unit-tests-matrix
+    steps:
+      - run: exit 1
+        if: >-
+          ${{
+               contains(needs.unit-tests-matrix.result, 'failure')
+            || contains(needs.unit-tests-matrix.result, 'cancelled')
+            || contains(needs.unit-tests-matrix.result, 'skipped')
+          }}
+      - run: exit 0
+        if: ${{ contains(needs.unit-tests-matrix.result, 'success') }}
+
+  integration-tests-pglite:
+    needs: setup
+    name: PGlite Integration Tests (serial)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run serial PGlite integration matrix
+        run: pnpm test:integration:pglite
+
+  currency-integration-shadow:
+    needs: setup
+    name: Currency Integration Shadow
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Currency integration shadow
+        run: pnpm check:currency-integration-shadow
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  api-key-integration:
+    needs: setup
+    name: API Key Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run API Key integration
+        run: pnpm --filter @medusajs/api-key test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  translation-integration:
+    needs: setup
+    name: Translation Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Translation integration
+        run: pnpm --filter @medusajs/translation test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  settings-integration:
+    needs: setup
+    name: Settings Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Settings integration
+        run: pnpm --filter @medusajs/settings test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  store-integration:
+    needs: setup
+    name: Store Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Store integration
+        run: pnpm --filter @medusajs/store test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  region-integration:
+    needs: setup
+    name: Region Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Region integration
+        run: pnpm --filter @medusajs/region test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  rbac-integration:
+    needs: setup
+    name: RBAC Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run RBAC integration
+        run: pnpm --filter @medusajs/rbac test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  sales-channel-integration:
+    needs: setup
+    name: Sales Channel Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Sales Channel integration
+        run: pnpm --filter @medusajs/sales-channel test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  stock-location-integration:
+    needs: setup
+    name: Stock Location Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Stock Location integration
+        run: pnpm --filter @medusajs/stock-location test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  inventory-integration:
+    needs: setup
+    name: Inventory Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Inventory integration
+        run: pnpm --filter @medusajs/inventory test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  tax-integration:
+    needs: setup
+    name: Tax Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Tax integration
+        run: pnpm --filter @medusajs/tax test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  payment-integration:
+    needs: setup
+    name: Payment Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Payment integration
+        run: pnpm --filter @medusajs/payment test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  notification-integration:
+    needs: setup
+    name: Notification Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Notification integration
+        run: pnpm --filter @medusajs/notification test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  auth-emailpass-integration:
+    needs: setup
+    name: Auth Emailpass Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Auth Emailpass integration
+        run: pnpm --filter @medusajs/auth-emailpass test:integration
+
+  auth-github-integration:
+    needs: setup
+    name: Auth GitHub Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Auth GitHub integration
+        run: pnpm --filter @medusajs/auth-github test:integration
+
+  auth-google-integration:
+    needs: setup
+    name: Auth Google Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Auth Google integration
+        run: pnpm --filter @medusajs/auth-google test:integration
+
+  file-local-integration:
+    needs: setup
+    name: File Local Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run File Local integration
+        run: pnpm --filter @medusajs/file-local test:integration
+
+  file-s3-integration:
+    needs: setup
+    name: File S3 Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run File S3 integration
+        run: pnpm --filter @medusajs/file-s3 test:integration
+
+  notification-local-integration:
+    needs: setup
+    name: Notification Local Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Notification Local integration
+        run: pnpm --filter @medusajs/notification-local test:integration
+
+  notification-sendgrid-integration:
+    needs: setup
+    name: Notification SendGrid Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Notification SendGrid integration
+        run: pnpm --filter @medusajs/notification-sendgrid test:integration
+
+  locking-postgres-integration:
+    needs: setup
+    name: Locking Postgres Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_DB: medusa-locking-integration-vitest-1
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Locking Postgres integration
+        run: pnpm --filter @medusajs/locking-postgres test:integration
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PASSWORD: postgres
+          DB_PORT: "5432"
+          DB_USERNAME: postgres
+
+  locking-redis-integration:
+    needs: setup
+    name: Locking Redis Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 6379:6379
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Locking Redis integration
+        run: pnpm --filter @medusajs/locking-redis test:integration
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+
+  integration-tests-packages-matrix:
+    needs: setup
+    name: Package Integration Tests (${{ matrix.group }}) - Shard ${{ matrix.shard_index }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        group: ["slow", "fast"]
+        shard_index: [1, 2, 3]
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Get number of CPU cores
+        id: cpu-cores
+        uses: SimenB/github-actions-cpu-cores@v2
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run package integration tests
+        run: pnpm test:integration:packages:${{ matrix.group }} -- --shard=${{ matrix.shard_index }}/3 --maxWorkers=${{ steps.cpu-cores.outputs.count }}
+        env:
+          DB_PASSWORD: postgres
+          DB_USERNAME: postgres
+
+  integration-tests-packages:
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs:
+      - integration-tests-packages-matrix
+      - currency-integration-shadow
+      - api-key-integration
+      - translation-integration
+      - settings-integration
+      - store-integration
+      - region-integration
+      - rbac-integration
+      - sales-channel-integration
+      - stock-location-integration
+      - inventory-integration
+      - tax-integration
+      - payment-integration
+      - notification-integration
+      - auth-emailpass-integration
+      - auth-github-integration
+      - auth-google-integration
+      - file-local-integration
+      - file-s3-integration
+      - notification-local-integration
+      - notification-sendgrid-integration
+      - locking-postgres-integration
+      - locking-redis-integration
+    steps:
+      - run: exit 1
+        if: >-
+          ${{
+               contains(needs.integration-tests-packages-matrix.result, 'failure')
+            || contains(needs.integration-tests-packages-matrix.result, 'cancelled')
+            || contains(needs.integration-tests-packages-matrix.result, 'skipped')
+            || contains(needs.currency-integration-shadow.result, 'failure')
+            || contains(needs.currency-integration-shadow.result, 'cancelled')
+            || contains(needs.currency-integration-shadow.result, 'skipped')
+            || contains(needs.api-key-integration.result, 'failure')
+            || contains(needs.api-key-integration.result, 'cancelled')
+            || contains(needs.api-key-integration.result, 'skipped')
+            || contains(needs.translation-integration.result, 'failure')
+            || contains(needs.translation-integration.result, 'cancelled')
+            || contains(needs.translation-integration.result, 'skipped')
+            || contains(needs.settings-integration.result, 'failure')
+            || contains(needs.settings-integration.result, 'cancelled')
+            || contains(needs.settings-integration.result, 'skipped')
+            || contains(needs.store-integration.result, 'failure')
+            || contains(needs.store-integration.result, 'cancelled')
+            || contains(needs.store-integration.result, 'skipped')
+            || contains(needs.region-integration.result, 'failure')
+            || contains(needs.region-integration.result, 'cancelled')
+            || contains(needs.region-integration.result, 'skipped')
+            || contains(needs.rbac-integration.result, 'failure')
+            || contains(needs.rbac-integration.result, 'cancelled')
+            || contains(needs.rbac-integration.result, 'skipped')
+            || contains(needs.sales-channel-integration.result, 'failure')
+            || contains(needs.sales-channel-integration.result, 'cancelled')
+            || contains(needs.sales-channel-integration.result, 'skipped')
+            || contains(needs.stock-location-integration.result, 'failure')
+            || contains(needs.stock-location-integration.result, 'cancelled')
+            || contains(needs.stock-location-integration.result, 'skipped')
+            || contains(needs.inventory-integration.result, 'failure')
+            || contains(needs.inventory-integration.result, 'cancelled')
+            || contains(needs.inventory-integration.result, 'skipped')
+            || contains(needs.tax-integration.result, 'failure')
+            || contains(needs.tax-integration.result, 'cancelled')
+            || contains(needs.tax-integration.result, 'skipped')
+            || contains(needs.payment-integration.result, 'failure')
+            || contains(needs.payment-integration.result, 'cancelled')
+            || contains(needs.payment-integration.result, 'skipped')
+            || contains(needs.notification-integration.result, 'failure')
+            || contains(needs.notification-integration.result, 'cancelled')
+            || contains(needs.notification-integration.result, 'skipped')
+            || contains(needs.auth-emailpass-integration.result, 'failure')
+            || contains(needs.auth-emailpass-integration.result, 'cancelled')
+            || contains(needs.auth-emailpass-integration.result, 'skipped')
+            || contains(needs.auth-github-integration.result, 'failure')
+            || contains(needs.auth-github-integration.result, 'cancelled')
+            || contains(needs.auth-github-integration.result, 'skipped')
+            || contains(needs.auth-google-integration.result, 'failure')
+            || contains(needs.auth-google-integration.result, 'cancelled')
+            || contains(needs.auth-google-integration.result, 'skipped')
+            || contains(needs.file-local-integration.result, 'failure')
+            || contains(needs.file-local-integration.result, 'cancelled')
+            || contains(needs.file-local-integration.result, 'skipped')
+            || contains(needs.file-s3-integration.result, 'failure')
+            || contains(needs.file-s3-integration.result, 'cancelled')
+            || contains(needs.file-s3-integration.result, 'skipped')
+            || contains(needs.notification-local-integration.result, 'failure')
+            || contains(needs.notification-local-integration.result, 'cancelled')
+            || contains(needs.notification-local-integration.result, 'skipped')
+            || contains(needs.notification-sendgrid-integration.result, 'failure')
+            || contains(needs.notification-sendgrid-integration.result, 'cancelled')
+            || contains(needs.notification-sendgrid-integration.result, 'skipped')
+            || contains(needs.locking-postgres-integration.result, 'failure')
+            || contains(needs.locking-postgres-integration.result, 'cancelled')
+            || contains(needs.locking-postgres-integration.result, 'skipped')
+            || contains(needs.locking-redis-integration.result, 'failure')
+            || contains(needs.locking-redis-integration.result, 'cancelled')
+            || contains(needs.locking-redis-integration.result, 'skipped')
+          }}
+      - run: exit 0
+        if: >-
+          ${{
+               contains(needs.integration-tests-packages-matrix.result, 'success')
+            && contains(needs.currency-integration-shadow.result, 'success')
+            && contains(needs.api-key-integration.result, 'success')
+            && contains(needs.translation-integration.result, 'success')
+            && contains(needs.settings-integration.result, 'success')
+            && contains(needs.store-integration.result, 'success')
+            && contains(needs.region-integration.result, 'success')
+            && contains(needs.rbac-integration.result, 'success')
+            && contains(needs.sales-channel-integration.result, 'success')
+            && contains(needs.stock-location-integration.result, 'success')
+            && contains(needs.inventory-integration.result, 'success')
+            && contains(needs.tax-integration.result, 'success')
+            && contains(needs.payment-integration.result, 'success')
+            && contains(needs.notification-integration.result, 'success')
+            && contains(needs.auth-emailpass-integration.result, 'success')
+            && contains(needs.auth-github-integration.result, 'success')
+            && contains(needs.auth-google-integration.result, 'success')
+            && contains(needs.file-local-integration.result, 'success')
+            && contains(needs.file-s3-integration.result, 'success')
+            && contains(needs.notification-local-integration.result, 'success')
+            && contains(needs.notification-sendgrid-integration.result, 'success')
+            && contains(needs.locking-postgres-integration.result, 'success')
+            && contains(needs.locking-redis-integration.result, 'success')
+          }}
+
+  integration-tests-http-matrix:
+    needs: setup
+    name: HTTP Integration Tests - Shard ${{ matrix.shard_index }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        shard_index: [1, 2, 3, 4]
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Get number of CPU cores
+        id: cpu-cores
+        uses: SimenB/github-actions-cpu-cores@v2
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run HTTP integration tests
+        run: pnpm test:integration:http -- --shard=${{ matrix.shard_index }}/4 --maxWorkers=${{ steps.cpu-cores.outputs.count }}
+        env:
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+          NODE_OPTIONS: "--max_old_space_size=4096"
+
+  integration-tests-http:
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs: integration-tests-http-matrix
+    steps:
+      - run: exit 1
+        if: >-
+          ${{
+               contains(needs.integration-tests-http-matrix.result, 'failure')
+            || contains(needs.integration-tests-http-matrix.result, 'cancelled')
+            || contains(needs.integration-tests-http-matrix.result, 'skipped')
+          }}
+      - run: exit 0
+        if: ${{ contains(needs.integration-tests-http-matrix.result, 'success') }}
+
+  integration-tests-modules-matrix:
+    needs: setup
+    name: Module Integration Tests - Shard ${{ matrix.shard_index }}
+    strategy:
+      matrix:
+        shard_index: [1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 1s
+          --health-timeout 10s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+
+      - name: Get number of CPU cores
+        id: cpu-cores
+        uses: SimenB/github-actions-cpu-cores@v2
+
+      - name: Install dependencies
+        uses: ./.github/actions/cache-deps
+        with:
+          extension: pipeline
+          skip-build: "true"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Run Modules integration tests
+        run: pnpm test:integration:modules -- --shard=${{ matrix.shard_index }}/4 --maxWorkers=${{ steps.cpu-cores.outputs.count }}
+        env:
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+          NODE_OPTIONS: "--max_old_space_size=4096"
+          CHUNK: ${{ matrix.chunk }}
+          CHUNKS: ${{ needs.setup.outputs.module-chunks }}
+
+  integration-tests-modules:
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs: integration-tests-modules-matrix
+    steps:
+      - run: exit 1
+        if: >-
+          ${{
+               contains(needs.integration-tests-modules-matrix.result, 'failure')
+            || contains(needs.integration-tests-modules-matrix.result, 'cancelled')
+            || contains(needs.integration-tests-modules-matrix.result, 'skipped')
+          }}
+      - run: exit 0
+        if: ${{ contains(needs.integration-tests-modules-matrix.result, 'success') }}

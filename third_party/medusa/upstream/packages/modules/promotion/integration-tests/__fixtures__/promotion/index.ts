@@ -1,0 +1,110 @@
+import {
+  CreatePromotionDTO,
+  IPromotionModuleService,
+  PromotionDTO,
+} from "@medusajs/framework/types"
+import {
+  isPresent,
+  PromotionStatus,
+  toMikroORMEntity,
+} from "@medusajs/framework/utils"
+import { SqlEntityManager } from "@medusajs/framework/mikro-orm/postgresql"
+import { Promotion } from "@models"
+import { defaultPromotionsData } from "./data"
+
+export * from "./data"
+
+export async function createPromotions(
+  manager: SqlEntityManager,
+  promotionsData: CreatePromotionDTO[] = defaultPromotionsData
+): Promise<Promotion[]> {
+  const promotions: Promotion[] = []
+
+  for (let promotionData of promotionsData) {
+    let promotion = manager.create(toMikroORMEntity(Promotion), promotionData)
+
+    manager.persist(promotion)
+    await manager.flush()
+    promotions.push(promotion)
+  }
+
+  return promotions
+}
+
+export async function createSeedPromotions(
+  service: IPromotionModuleService,
+  promotionsData: CreatePromotionDTO[] = defaultPromotionsData
+): Promise<PromotionDTO[]> {
+  const promotions = await service.createPromotions(
+    promotionsData.map(normalizeSeedPromotionData)
+  )
+
+  return Array.isArray(promotions) ? promotions : [promotions]
+}
+
+function normalizeSeedPromotionData(
+  promotionData: CreatePromotionDTO
+): CreatePromotionDTO {
+  const applicationMethod = promotionData.application_method
+  if (
+    !applicationMethod ||
+    applicationMethod.allocation ||
+    (applicationMethod.target_type !== "items" &&
+      applicationMethod.target_type !== "shipping_methods")
+  ) {
+    return promotionData
+  }
+
+  return {
+    ...promotionData,
+    application_method: {
+      ...applicationMethod,
+      allocation: "across",
+    },
+  }
+}
+
+export async function createDefaultPromotions(
+  service: IPromotionModuleService,
+  promotionsData: Partial<CreatePromotionDTO>[] = defaultPromotionsData
+): Promise<PromotionDTO[]> {
+  const promotions: PromotionDTO[] = []
+
+  for (let promotionData of promotionsData) {
+    let promotion = await createDefaultPromotion(service, promotionData)
+
+    promotions.push(promotion)
+  }
+
+  return promotions
+}
+
+export async function createDefaultPromotion(
+  service: IPromotionModuleService,
+  data: Partial<CreatePromotionDTO>
+): Promise<PromotionDTO> {
+  const { application_method = {}, campaign = {}, ...promotion } = data
+
+  return await service.createPromotions({
+    code: "PROMOTION_TEST",
+    type: "standard",
+    status: PromotionStatus.ACTIVE,
+    campaign_id: "campaign-id-1",
+    ...promotion,
+    application_method: {
+      currency_code: "usd",
+      target_type: "items",
+      type: "fixed",
+      allocation: "across",
+      value: 1000,
+      ...application_method,
+    },
+    campaign: isPresent(campaign)
+      ? {
+          campaign_identifier: "campaign-identifier",
+          name: "new campaign",
+          ...campaign,
+        }
+      : undefined,
+  })
+}

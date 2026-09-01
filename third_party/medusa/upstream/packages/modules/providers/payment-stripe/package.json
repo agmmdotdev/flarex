@@ -1,0 +1,42 @@
+{
+  "name": "@medusajs/payment-stripe",
+  "version": "2.13.4",
+  "description": "Stripe payment provider for Medusa",
+  "main": "dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/modules/providers/payment-stripe"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__mocks__",
+    "!dist/**/__fixtures__"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Medusa",
+  "license": "MIT",
+  "scripts": {
+    "test": "vitest run --config vitest.config.mts",
+    "test:jest": "jest --passWithNoTests src",
+    "build": "rimraf dist && tsc --build ./tsconfig.json",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@medusajs/framework": "workspace:*"
+  },
+  "peerDependencies": {
+    "@medusajs/framework": "workspace:*"
+  },
+  "dependencies": {
+    "stripe": "^15.5.0"
+  },
+  "gitHead": "81a7ff73d012fda722f6e9ef0bd9ba0232d37808",
+  "keywords": [
+    "medusa-plugin",
+    "medusa-plugin-payment"
+  ]
+}

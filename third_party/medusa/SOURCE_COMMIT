@@ -1,0 +1,8 @@
+tree 41cb1ea75b0ef88c352008adef4117a73266ad3c
+parent afafc11bb2b0a0fb9abe6aca659f346aa028938b
+author agmmdotdev <agmmdotdev@gmail.com> 1787414463 +0630
+committer agmmdotdev <agmmdotdev@gmail.com> 1787414463 +0630
+
+fix(order): create claim and exchange shipping methods explicitly
+
+Co-authored-by: Cursor <cursoragent@cursor.com>

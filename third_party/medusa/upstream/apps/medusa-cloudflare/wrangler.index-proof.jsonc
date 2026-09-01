@@ -1,0 +1,37 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "medusa-cloudflare-index-proof",
+  "main": "src/index-proof-worker.ts",
+  "compatibility_date": "2026-06-11",
+  "d1_databases": [
+    {
+      "binding": "INDEX_DB",
+      "database_name": "medusa-cloudflare-index-proof",
+      "database_id": "00000000-0000-0000-0000-000000000002"
+    },
+    {
+      "binding": "INDEX_DB_TENANT_A",
+      "database_name": "medusa-cloudflare-index-proof-tenant-a",
+      "database_id": "00000000-0000-0000-0000-000000000003"
+    },
+    {
+      "binding": "INDEX_DB_TENANT_B",
+      "database_name": "medusa-cloudflare-index-proof-tenant-b",
+      "database_id": "00000000-0000-0000-0000-000000000004"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "INDEX_PROOFS",
+        "class_name": "IndexProofDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["IndexProofDO"]
+    }
+  ]
+}

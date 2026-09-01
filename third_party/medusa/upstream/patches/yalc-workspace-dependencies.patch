@@ -1,0 +1,57 @@
+diff --git a/src/copy.js b/src/copy.js
+--- a/src/copy.js
++++ b/src/copy.js
+@@ -98,25 +98,31 @@ var mapObj = function (obj, mapValue) {
+     }, {});
+ };
++var findPackageManifest = function (pkgName, workingDir) {
++    var currentDir = path_1.resolve(workingDir);
++    while (true) {
++        var pkgPath = path_1.join(currentDir, 'node_modules', pkgName, 'package.json');
++        if (fs_extra_1.default.existsSync(pkgPath)) {
++            return pkgPath;
++        }
++        var parentDir = path_1.dirname(currentDir);
++        if (parentDir === currentDir) {
++            throw new Error('Could not resolve workspace package location for ' + pkgName);
++        }
++        currentDir = parentDir;
++    }
++};
+ var resolveWorkspaceDepVersion = function (version, pkgName, workingDir) {
+-    var _a;
+     if (version !== '*' && version !== '^' && version !== '~') {
+         // Regular semver specification
+         return version;
+     }
+     // Resolve workspace version aliases
+     var prefix = version === '^' || version === '~' ? version : '';
+-    try {
+-        var pkgPath = require.resolve(path_1.join(pkgName, 'package.json'), {
+-            paths: [workingDir],
+-        });
+-        if (!pkgPath) {
+-        }
+-        var resolved = (_a = _1.readPackageManifest(path_1.dirname(pkgPath))) === null || _a === void 0 ? void 0 : _a.version;
+-        return "" + prefix + resolved || '*';
+-    }
+-    catch (e) {
+-        console.warn('Could not resolve workspace package location for', pkgName);
+-        return '*';
++    var pkgPath = findPackageManifest(pkgName, workingDir);
++    var pkg = _1.readPackageManifest(path_1.dirname(pkgPath));
++    if (!pkg || !pkg.version) {
++        throw new Error('Could not resolve workspace package version for ' + pkgName);
+     }
++    return "" + prefix + pkg.version;
+ };
+ var resolveWorkspaces = function (pkg, workingDir) {
+@@ -134,7 +140,7 @@ var resolveWorkspaces = function (pkg, workingDir) {
+             })
+             : deps;
+     };
+-    return __assign(__assign({}, pkg), { dependencies: resolveDeps(pkg.dependencies), devDependencies: resolveDeps(pkg.devDependencies), peerDependencies: resolveDeps(pkg.peerDependencies) });
++    return __assign(__assign({}, pkg), { dependencies: resolveDeps(pkg.dependencies), devDependencies: resolveDeps(pkg.devDependencies), optionalDependencies: resolveDeps(pkg.optionalDependencies), peerDependencies: resolveDeps(pkg.peerDependencies) });
+ };
+ var modPackageDev = function (pkg) {
+     return __assign(__assign({}, pkg), { scripts: pkg.scripts

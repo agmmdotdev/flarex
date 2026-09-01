@@ -1,0 +1,41 @@
+{
+  "name": "@medusajs/icons",
+  "version": "2.13.4",
+  "description": "Medusa UI React icon library",
+  "author": "Kasper Kristensen <kasper@medusajs.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa.git",
+    "directory": "packages/design-system/icons"
+  },
+  "main": "dist/cjs/medusa-icons.js",
+  "main:umd": "dist/umd/medusa-icons.js",
+  "module": "dist/esm/index.js",
+  "unpkg": "dist/umd/medusa-icons.min.js",
+  "typings": "dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm run build:bundles && pnpm run build:types",
+    "build:bundles": "rollup -c ./rollup.config.mjs",
+    "build:types": "tsc --emitDeclarationOnly",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest --run --coverage",
+    "generate": "rimraf ./src/components && toolbox icons -o './src/components'"
+  },
+  "devDependencies": {
+    "@medusajs/toolbox": "workspace:*",
+    "react": "^18.3.1"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "publishConfig": {
+    "access": "public"
+  }
+}

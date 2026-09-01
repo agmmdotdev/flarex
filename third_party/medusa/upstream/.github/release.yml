@@ -1,0 +1,17 @@
+changelog:
+  exclude:
+    authors:
+      - github-actions
+  categories:
+    - title: Features
+      labels:
+        - "type: feature"
+    - title: Bugs
+      labels:
+        - "type: bug"
+    - title: Chores
+      labels:
+        - "type: chore"
+    - title: Other Changes
+      labels:
+        - "*"

@@ -1,0 +1,60 @@
+{
+  "name": "@medusajs/link-modules",
+  "version": "2.13.4",
+  "description": "Medusa Default Link Modules Package and Definitions",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./definitions": {
+      "types": "./dist/definitions/index.d.ts",
+      "default": "./dist/definitions/index.js"
+    },
+    "./definitions/product-variant-price-set": {
+      "types": "./dist/definitions/product-variant-price-set.d.ts",
+      "default": "./dist/definitions/product-variant-price-set.js"
+    },
+    "./index-worker-static-manifest": {
+      "types": "./dist/index-worker-static-manifest.d.ts",
+      "default": "./dist/index-worker-static-manifest.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__mocks__",
+    "!dist/**/__fixtures__"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/modules/link-modules"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Medusa",
+  "license": "MIT",
+  "scripts": {
+    "watch": "tsc --build --watch",
+    "watch:test": "tsc --build tsconfig.spec.json --watch",
+    "prepare": "cross-env NODE_ENV=production pnpm run build",
+    "resolve:aliases": "tsc --showConfig -p tsconfig.json > tsconfig.resolved.json && tsc-alias -p tsconfig.resolved.json && rimraf tsconfig.resolved.json",
+    "build": "rimraf dist && tsc --build && pnpm run resolve:aliases",
+    "test": "jest --passWithNoTests --bail --forceExit --testPathPattern=src",
+    "test:integration": "jest --passWithNoTests --forceExit --testPathPattern=\"integration-tests/__tests__/.*\\.ts\""
+  },
+  "devDependencies": {
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/test-utils": "workspace:*"
+  },
+  "peerDependencies": {
+    "@medusajs/framework": "workspace:*"
+  }
+}

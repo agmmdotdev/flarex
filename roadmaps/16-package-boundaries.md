@@ -68,10 +68,10 @@ Decisive current implementation anchors include:
   and tests; and
 - [`third_party/trigger.dev`](../third_party/trigger.dev) for the pinned,
   independently installable Trigger.dev compatibility source island;
-- the accepted
+- [`third_party/medusa`](../third_party/medusa) for the admitted, independently
+  installable primary-fork source snapshot governed by the accepted
   [`Medusa fork source-island preflight`](./flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md)
-  for the pending independently installable primary-fork snapshot and package-
-  promotion boundary; and
+  and later package-promotion boundary; and
 - [`scripts/check-effect-boundaries.mjs`](../scripts/check-effect-boundaries.mjs)
   plus app-specific Worker bundle checks for executable boundary enforcement.
 
@@ -143,7 +143,7 @@ must not be copied into production Worker cores.
 | `@flarex/artifact-runtime` (`apps/artifact-runtime`) | Hosted Dynamic Worker materialization and execution-artifact service | Owns Cloudflare Worker Loader/R2/service-binding adaptation; user code receives restricted syscall transports, never raw platform or database capabilities |
 | `@flarex/example` (`apps/example`) | Consumer fixture and example application | Behaves like a normal user project; it must not become platform infrastructure or own Flarex Wrangler deployment |
 | `third_party/trigger.dev` | Frozen Trigger.dev run-engine and supervisor compatibility source island used as migration input for durable execution | Excluded from the Flarex workspace and runtime graph; it has no Flarex imports, database authority, routing authority, public API, or activation path. Future adoption must use Flarex-owned adapters and preserve the existing Postgres commit authority. |
-| planned `third_party/medusa` | Refreshable, exact snapshot of the admitted Cloudflare-oriented Medusa fork used as primary source, regression evidence, and incremental package-promotion input | Excluded from the Flarex workspace, lockfile, runtime graph, and deployable bundles. It retains its independent pnpm workspace and official-upstream provenance. No active package imports the island; every promoted closure requires a source map, bounded dependency graph, root-owned package, retained tests, and a separate semantic/activation gate. |
+| `third_party/medusa` | Refreshable, exact snapshot of the admitted Cloudflare-oriented Medusa fork used as primary source, regression evidence, and incremental package-promotion input | Pinned at fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f` and excluded from the Flarex workspace, lockfile, runtime graph, and deployable bundles. It retains its independent pnpm workspace and official-upstream provenance. No active package imports the island; every promoted closure requires a source map, bounded dependency graph, root-owned package, retained tests, and a separate semantic/activation gate. |
 
 No `packages/flarex-core` package currently exists. Add another shared package
 only when two legitimate owners duplicate a stable, coherent abstraction and

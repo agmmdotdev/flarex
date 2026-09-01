@@ -1,0 +1,8 @@
+# All files not owned by other teams must be reviewed by the core team
+*                                               @medusajs/core 
+package.json                                    @medusajs/core
+yarn.lock                                       @medusajs/os
+/.changeset/                                    @medusajs/os
+/packages/                                      @medusajs/os
+/integration-tests/                             @medusajs/os
+/packages/design-system/                        @medusajs/ui

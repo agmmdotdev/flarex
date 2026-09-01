@@ -1,0 +1,48 @@
+{
+  "name": "@medusajs/orchestration",
+  "version": "2.13.4",
+  "description": "Medusa utilities to orchestrate modules",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./transaction": "./dist/transaction/index.js",
+    "./transaction/errors": "./dist/transaction/errors.js",
+    "./transaction/orchestrator-builder": "./dist/transaction/orchestrator-builder.js",
+    "./transaction/types": "./dist/transaction/types.js",
+    "./workflow/local-workflow": "./dist/workflow/local-workflow.js",
+    "./workflow/scheduler": "./dist/workflow/scheduler.js",
+    "./workflow/workflow-manager": "./dist/workflow/workflow-manager.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/core/orchestration"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__fixtures__",
+    "!dist/**/__mocks__"
+  ],
+  "author": "Medusa",
+  "license": "MIT",
+  "devDependencies": {
+    "@medusajs/types": "workspace:*"
+  },
+  "dependencies": {
+    "@medusajs/deps": "workspace:*",
+    "@medusajs/utils": "workspace:*",
+    "ulid": "^2.3.0"
+  },
+  "scripts": {
+    "build": "rimraf dist && tsc --build",
+    "watch": "tsc --build --watch",
+    "test": "jest --bail --forceExit"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "medusa-cloudflare",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-11",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "medusa-cloudflare",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CURRENCY_PROOFS",
+        "class_name": "CurrencyProofDO"
+      },
+      {
+        "name": "CART_PROOFS",
+        "class_name": "CartProofDO"
+      },
+      {
+        "name": "MEDUSA_LOCKING",
+        "class_name": "MedusaLockingDO"
+      },
+      {
+        "name": "EVENT_CONSUMER_PROOFS",
+        "class_name": "EventConsumerProofDO"
+      },
+      {
+        "name": "INDEX_PROOFS",
+        "class_name": "IndexProofDO"
+      }
+    ]
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "MEDUSA_EVENTS",
+        "queue": "medusa-events"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "medusa-events",
+        "max_batch_size": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "medusa-events-dlq"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CurrencyProofDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["CartProofDO"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["MedusaLockingDO"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["EventConsumerProofDO"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["IndexProofDO"]
+    }
+  ]
+}

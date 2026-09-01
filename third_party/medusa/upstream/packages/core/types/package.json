@@ -1,0 +1,52 @@
+{
+  "name": "@medusajs/types",
+  "version": "2.13.4",
+  "description": "Medusa Types definition",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "export": {
+    ".": "./dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/core/types"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__fixtures__",
+    "!dist/**/__mocks__"
+  ],
+  "author": "Medusa",
+  "license": "MIT",
+  "scripts": {
+    "build": "rimraf dist && tsc --build",
+    "watch": "tsc --build --watch",
+    "test": "node -e \"process.exit(0)\" --"
+  },
+  "dependencies": {
+    "bignumber.js": "^9.1.2"
+  },
+  "devDependencies": {
+    "@medusajs/deps": "workspace:*"
+  },
+  "peerDependencies": {
+    "ioredis": "^5.4.1",
+    "vite": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ioredis": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
+  }
+}

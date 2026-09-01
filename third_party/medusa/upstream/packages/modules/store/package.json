@@ -1,0 +1,65 @@
+{
+  "name": "@medusajs/store",
+  "version": "2.13.4",
+  "description": "Medusa Store module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./models": {
+      "types": "./dist/models/index.d.ts",
+      "default": "./dist/models/index.js"
+    },
+    "./services": {
+      "types": "./dist/services/index.d.ts",
+      "default": "./dist/services/index.js"
+    },
+    "./static-manifest": {
+      "types": "./dist/static-manifest.d.ts",
+      "default": "./dist/static-manifest.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__mocks__",
+    "!dist/**/__fixtures__"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/modules/store"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Medusa",
+  "license": "MIT",
+  "scripts": {
+    "watch": "tsc --build --watch",
+    "watch:test": "tsc --build tsconfig.spec.json --watch",
+    "resolve:aliases": "tsc --showConfig -p tsconfig.json > tsconfig.resolved.json && tsc-alias -p tsconfig.resolved.json && rimraf tsconfig.resolved.json",
+    "build": "rimraf dist && tsc --build && pnpm run resolve:aliases",
+    "test": "vitest run --config vitest.config.mts",
+    "test:jest": "jest --bail --forceExit --testPathPattern=src",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:integration:jest": "jest --passWithNoTests --forceExit --testPathPattern=\"integration-tests/__tests__/.*\\.ts\"",
+    "migration:initial": "MIKRO_ORM_CLI_CONFIG=./mikro-orm.config.dev.ts MIKRO_ORM_ALLOW_GLOBAL_CLI=true medusa-mikro-orm migration:create --initial",
+    "migration:create": "MIKRO_ORM_CLI_CONFIG=./mikro-orm.config.dev.ts MIKRO_ORM_ALLOW_GLOBAL_CLI=true medusa-mikro-orm migration:create",
+    "migration:up": "MIKRO_ORM_CLI_CONFIG=./mikro-orm.config.dev.ts MIKRO_ORM_ALLOW_GLOBAL_CLI=true medusa-mikro-orm migration:up",
+    "orm:cache:clear": "MIKRO_ORM_CLI_CONFIG=./mikro-orm.config.dev.ts MIKRO_ORM_ALLOW_GLOBAL_CLI=true medusa-mikro-orm cache:clear"
+  },
+  "devDependencies": {
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/test-utils": "workspace:*"
+  },
+  "peerDependencies": {
+    "@medusajs/framework": "workspace:*"
+  }
+}

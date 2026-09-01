@@ -1,0 +1,73 @@
+import {
+  AuthenticatedMedusaRequest,
+  MedusaResponse,
+} from "@medusajs/framework/http"
+
+import { refetchApiKey } from "../helpers"
+import { MedusaError, Modules } from "@medusajs/framework/utils"
+import { HttpTypes } from "@medusajs/framework/types"
+
+const updateApiKeysWorkflowId = "update-api-keys"
+const deleteApiKeysWorkflowId = "delete-api-keys"
+
+export const GET = async (
+  req: AuthenticatedMedusaRequest<HttpTypes.SelectParams>,
+  res: MedusaResponse<HttpTypes.AdminApiKeyResponse>
+) => {
+  const apiKey = await refetchApiKey(
+    req.params.id,
+    req.scope,
+    req.queryConfig.fields
+  )
+
+  if (!apiKey) {
+    throw new MedusaError(
+      MedusaError.Types.NOT_FOUND,
+      `API Key with id: ${req.params.id} was not found`
+    )
+  }
+
+  res.status(200).json({ api_key: apiKey })
+}
+
+export const POST = async (
+  req: AuthenticatedMedusaRequest<
+    HttpTypes.AdminUpdateApiKey,
+    HttpTypes.SelectParams
+  >,
+  res: MedusaResponse<HttpTypes.AdminApiKeyResponse>
+) => {
+  const workflowEngine = req.scope.resolve(Modules.WORKFLOW_ENGINE)
+  await workflowEngine.run(updateApiKeysWorkflowId, {
+    input: {
+      selector: { id: req.params.id },
+      update: req.validatedBody,
+    },
+  })
+
+  const apiKey = await refetchApiKey(
+    req.params.id,
+    req.scope,
+    req.queryConfig.fields
+  )
+
+  res.status(200).json({ api_key: apiKey })
+}
+
+export const DELETE = async (
+  req: AuthenticatedMedusaRequest,
+  res: MedusaResponse<HttpTypes.AdminApiKeyDeleteResponse>
+) => {
+  const id = req.params.id
+  const workflowEngine = req.scope.resolve(Modules.WORKFLOW_ENGINE)
+
+  await workflowEngine.run(deleteApiKeysWorkflowId, {
+    input: { ids: [id] },
+  })
+
+  res.status(200).json({
+    id,
+    object: "api_key",
+    deleted: true,
+  })
+}

@@ -1,0 +1,9 @@
+{
+  "extends": "../../../../_tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "lib": ["ES2022", "WebWorker"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "exclude": ["./dist", "./node_modules", "./src/**/__tests__"]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@medusajs/drizzle-cloudflare",
+  "version": "2.13.4",
+  "description": "Cloudflare Durable Object SQLite manager for Medusa Drizzle persistence",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build --clean && tsc --build"
+  },
+  "dependencies": {
+    "@medusajs/drizzle": "workspace:*",
+    "drizzle-orm": "^0.44.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260611.1",
+    "typescript": "^5.6.2"
+  }
+}

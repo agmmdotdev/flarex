@@ -1,0 +1,8 @@
+"type: feature":
+ - head-branch: ["^feat"]
+
+"type: chore":
+ - head-branch: ["^chore"]
+
+"type: bug":
+ - head-branch: ["^fix"]

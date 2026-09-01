@@ -1,0 +1,49 @@
+import {
+  AuthenticatedMedusaRequest,
+  MedusaResponse,
+} from "@medusajs/framework/http"
+import { refetchBatchVariants, remapVariantResponse } from "../../../helpers"
+import { HttpTypes } from "@medusajs/framework/types"
+import { Modules } from "@medusajs/framework/utils"
+
+const batchProductVariantsWorkflowId = "batch-product-variants"
+
+export const POST = async (
+  req: AuthenticatedMedusaRequest<
+    HttpTypes.AdminBatchProductVariantRequest,
+    HttpTypes.SelectParams
+  >,
+  res: MedusaResponse<HttpTypes.AdminBatchProductVariantResponse>
+) => {
+  const productId = req.params.id
+
+  const normalizedInput = {
+    create: req.validatedBody.create?.map((c) => ({
+      ...c,
+      product_id: productId,
+    })),
+    update: req.validatedBody.update?.map((u) => ({
+      ...u,
+      product_id: productId,
+    })),
+    delete: req.validatedBody.delete,
+  }
+
+  const workflowEngine = req.scope.resolve(Modules.WORKFLOW_ENGINE)
+
+  const { result } = await workflowEngine.run(batchProductVariantsWorkflowId, {
+    input: normalizedInput,
+  })
+
+  const batchResults = await refetchBatchVariants(
+    result,
+    req.scope,
+    req.queryConfig.fields
+  )
+
+  res.status(200).json({
+    created: batchResults.created.map(remapVariantResponse),
+    updated: batchResults.updated.map(remapVariantResponse),
+    deleted: batchResults.deleted,
+  })
+}

@@ -1,0 +1,52 @@
+{
+  "name": "@medusajs/event-bus-cloudflare",
+  "version": "2.13.4",
+  "description": "Cloudflare Queue Event Bus Module for Medusa",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./static-manifest": {
+      "types": "./dist/static-manifest.d.ts",
+      "default": "./dist/static-manifest.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__mocks__",
+    "!dist/**/__fixtures__"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/modules/event-bus-cloudflare"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Medusa",
+  "license": "MIT",
+  "devDependencies": {
+    "@medusajs/framework": "workspace:*"
+  },
+  "scripts": {
+    "watch": "tsc --build --watch",
+    "build": "rimraf dist && tsc --build",
+    "test": "jest --passWithNoTests --testPathPattern=src"
+  },
+  "peerDependencies": {
+    "@medusajs/framework": "workspace:*"
+  },
+  "keywords": [
+    "medusa-modules",
+    "medusa-event-bus",
+    "cloudflare"
+  ]
+}

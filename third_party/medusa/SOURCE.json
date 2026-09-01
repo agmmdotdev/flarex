@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "forkRepository": "https://github.com/agmmdotdev/medusa-fork.git",
+  "commit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
+  "tree": "41cb1ea75b0ef88c352008adef4117a73266ad3c",
+  "commitObject": {
+    "path": "SOURCE_COMMIT",
+    "sha256": "9f7c69dbdbb68af8d7bb110ffaf8b4b420de17550c7b954152621766fe128f53"
+  },
+  "commitTitle": "fix(order): create claim and exchange shipping methods explicitly",
+  "committedAt": "2026-08-22T22:31:03+06:30",
+  "importedAt": "2026-09-01",
+  "sourceRoot": "upstream",
+  "sourceManifest": "SOURCE_SHA256SUMS",
+  "sourceManifestSha256": "d20d4f16843cd4844b2f1c4807a5787488e0f08bc068bba9641926984f183017",
+  "sourceFileCount": 8496,
+  "sourceContentBytes": 42554626,
+  "sourcePackageManifestCount": 88,
+  "packageBaseline": "2.13.4",
+  "packageManager": "pnpm@11.7.0",
+  "forkBaseline": {
+    "commit": "3eaaa4ac12be140260320b22cc94ecb8bc71ab25",
+    "title": "chore: initialize Medusa Cloudflare fork"
+  },
+  "officialUpstream": {
+    "repository": "https://github.com/medusajs/medusa.git",
+    "release": "v2.13.4",
+    "commit": "ad4437b298d499d1a51e54decad6de3f5ebd2181",
+    "relationship": "Historical package baseline only; no Git merge base with the selected fork commit is claimed."
+  },
+  "lockfile": {
+    "path": "upstream/pnpm-lock.yaml",
+    "sha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe"
+  },
+  "patches": [
+    {
+      "path": "upstream/patches/@changesets-assemble-release-plan-npm-6.0.9-e01af97ef4.patch",
+      "sha256": "b2e58ddbd9d3a10e9be2185544d494904536c3411574ae2b1e8f600e9f806f33"
+    },
+    {
+      "path": "upstream/patches/changesets-github-info.patch",
+      "sha256": "e92c9790147eebf84f6a9b673e5b2bc3993a0420433c6e3bd428b98124643140"
+    },
+    {
+      "path": "upstream/patches/yalc-workspace-dependencies.patch",
+      "sha256": "b06ad914fdb4c4d8571829c0a5482ca7ffc73f87fc05f202ce74243bbabab516"
+    }
+  ],
+  "licenseFiles": [
+    {
+      "path": "upstream/LICENSE",
+      "sha256": "f792b19e548b936c2a9a8e489e2f21e3b5a91e482910c57d9c9508f8933789af"
+    }
+  ],
+  "executableFiles": [],
+  "symlinks": {},
+  "excludedWorkingTreeContent": [
+    ".git",
+    "node_modules",
+    "build output",
+    "coverage",
+    "caches",
+    "logs",
+    "local databases",
+    "untracked diagnostics"
+  ],
+  "policy": "pinned-refreshable-source-island"
+}

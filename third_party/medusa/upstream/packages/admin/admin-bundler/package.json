@@ -1,0 +1,43 @@
+{
+  "name": "@medusajs/admin-bundler",
+  "version": "2.13.4",
+  "description": "Bundler for the Medusa admin dashboard.",
+  "author": "Kasper Kristensen <kasper@medusajs.com>",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "build": "tsup"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/admin/admin-bundler"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "devDependencies": {
+    "@medusajs/types": "workspace:*"
+  },
+  "dependencies": {
+    "@medusajs/admin-shared": "workspace:*",
+    "@medusajs/admin-vite-plugin": "workspace:*",
+    "@medusajs/dashboard": "workspace:*",
+    "@medusajs/ui-preset": "workspace:*",
+    "@vitejs/plugin-react": "^6.0.3",
+    "autoprefixer": "^10.4.19",
+    "compression": "^1.8.0",
+    "express": "^4.21.0",
+    "get-port": "^5.1.1",
+    "glob": "11.1.0",
+    "outdent": "^0.8.0",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "vite": "^8.2.0"
+  },
+  "packageManager": "pnpm@11.7.0"
+}

@@ -1,0 +1,49 @@
+{
+  "name": "@medusajs/modules-sdk",
+  "version": "2.13.4",
+  "description": "SDK for medusa modules",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./definitions": "./dist/definitions.js",
+    "./medusa-module": "./dist/medusa-module.js",
+    "./remote-query": "./dist/remote-query/index.js",
+    "./remote-query/node": "./dist/remote-query/node.js",
+    "./remote-query/portable": "./dist/remote-query/portable.js",
+    "./static-app": "./dist/static-app.js",
+    "./module-loader": "./dist/loaders/module-loader.js",
+    "./static-module-loader": "./dist/loaders/static-module-loader.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/medusajs/medusa",
+    "directory": "packages/core/modules-sdk"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__fixtures__",
+    "!dist/**/__mocks__"
+  ],
+  "author": "Medusa",
+  "license": "MIT",
+  "scripts": {
+    "build": "rimraf dist && tsc --build",
+    "test": "jest --bail --forceExit",
+    "watch": "tsc --build --watch"
+  },
+  "devDependencies": {
+    "@medusajs/types": "workspace:*"
+  },
+  "dependencies": {
+    "@medusajs/deps": "workspace:*",
+    "@medusajs/orchestration": "workspace:*",
+    "@medusajs/utils": "workspace:*"
+  }
+}
