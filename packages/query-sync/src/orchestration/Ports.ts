@@ -25,11 +25,15 @@ export interface QueryEvaluator {
   ) => Effect.Effect<QueryEvaluationArtifact, QueryEvaluatorError, never>;
 }
 
-export type QuerySyncOrchestrationState = Pick<
+export type QuerySyncCatchUpState = Pick<
   QuerySyncTransitionState,
   | "initializeOrInspectNamespace"
-  | "beginQueryEvaluation"
   | "applyAdmittedBatchAndAdvance"
+>;
+
+export type QuerySyncOrchestrationState = QuerySyncCatchUpState & Pick<
+  QuerySyncTransitionState,
+  | "beginQueryEvaluation"
   | "completeQueryEvaluation"
   | "claimEvaluationWork"
   | "recordEvaluationAttemptOutcome"

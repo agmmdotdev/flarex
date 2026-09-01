@@ -115,12 +115,34 @@ export interface DeploymentQuerySyncStateInput {
     DeploymentQuerySyncFreshInitializationCapability;
 }
 
+export interface BoundDeploymentQuerySyncStateInput {
+  readonly binding: DeploymentQuerySyncBinding;
+  readonly storage: DeploymentQuerySyncStorage;
+  readonly freshInitializationCapability?:
+    DeploymentQuerySyncFreshInitializationCapability;
+}
+
 export const makeDeploymentQuerySyncState = Effect.fn(
   "DeploymentQuerySyncState.make",
 )(function* (input: DeploymentQuerySyncStateInput) {
   const binding = yield* Effect.fromResult(
     captureDeploymentQuerySyncBinding(input.binding),
   );
+  return yield* makeDeploymentQuerySyncStateFromBinding({
+    binding,
+    storage: input.storage,
+    ...(input.freshInitializationCapability === undefined
+      ? {}
+      : {
+        freshInitializationCapability: input.freshInitializationCapability,
+      }),
+  });
+});
+
+export const makeDeploymentQuerySyncStateFromBinding = Effect.fn(
+  "DeploymentQuerySyncState.makeFromBinding",
+)(function* (input: BoundDeploymentQuerySyncStateInput) {
+  const binding = input.binding;
   const storage = bindDeploymentQuerySyncStorage(input.storage);
   const freshInitializationCapability = input.freshInitializationCapability;
   yield* Effect.suspend(() => Effect.fromResult(

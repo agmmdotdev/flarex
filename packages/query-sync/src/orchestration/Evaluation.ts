@@ -75,6 +75,7 @@ import type {
   EvaluationCallBudget,
   QueryEvaluationArtifact,
   QueryEvaluator,
+  QuerySyncOrchestrationState,
 } from "./Ports.js";
 import {
   awaitRetryDelay,
@@ -83,7 +84,10 @@ import {
   runStateOperationWithRetry,
 } from "./Turn.js";
 
-type EvaluationRuntime = OrchestrationTurnRuntime<EvaluationTurnBudget>;
+type EvaluationRuntime = OrchestrationTurnRuntime<
+  EvaluationTurnBudget,
+  QuerySyncOrchestrationState
+>;
 
 export type EvaluationCallLedger = Map<
   CanonicalQueryKey,

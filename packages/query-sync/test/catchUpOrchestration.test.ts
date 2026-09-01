@@ -25,6 +25,7 @@ import type {
 import {
   InvalidNamespaceQuerySyncPolicyError,
   InvalidQuerySyncTurnBudgetError,
+  makeNamespaceCatchUp,
   makeNamespaceQuerySync,
 } from "@flarex/query-sync/internal/orchestration";
 import type {
@@ -373,6 +374,41 @@ async function arrangeCatchUpBoundary(
 }
 
 describe("bounded query-sync catch-up orchestration", () => {
+  it("constructs catch-up without an evaluator", async () => {
+    const binding = cursor();
+    const source = await buildSource(binding, 0);
+    const state = await buildState(binding);
+
+    const invalid = makeNamespaceCatchUp({
+      bootstrapCursor: binding,
+      source,
+      state,
+      policy: { ...POLICY, stateAttemptsPerOperation: 0 },
+    });
+    expect(Result.isFailure(invalid)).toBe(true);
+    if (Result.isFailure(invalid)) {
+      expect(invalid.failure).toEqual(
+        new InvalidNamespaceQuerySyncPolicyError({
+          operation: "makeNamespaceCatchUp",
+          field: "stateAttemptsPerOperation",
+          reason: "invalidValue",
+        }),
+      );
+    }
+
+    const catchUp = getSuccess(makeNamespaceCatchUp({
+      bootstrapCursor: binding,
+      source,
+      state,
+      policy: POLICY,
+    }));
+    await expect(runEffect(catchUp.catchUp(BUDGET))).resolves.toMatchObject({
+      _tag: "caughtUp",
+      cursor: { appliedThroughSequence: 0n },
+      progress: { sourceCalls: 1 },
+    });
+  });
+
   it("captures policy and budget values in exact field order", async () => {
     const binding = cursor();
     const source = await buildSource(binding, 0);

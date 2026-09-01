@@ -69,7 +69,7 @@ export type QueryEvaluatorError =
 export class InvalidNamespaceQuerySyncPolicyError extends Data.TaggedError(
   "InvalidNamespaceQuerySyncPolicyError",
 )<{
-  readonly operation: "makeNamespaceQuerySync";
+  readonly operation: "makeNamespaceCatchUp" | "makeNamespaceQuerySync";
   readonly field: keyof NamespaceQuerySyncPolicy;
   readonly reason: "invalidValue" | "aboveHardMaximum" | "invalidPair";
 }> {}
@@ -119,6 +119,9 @@ export class EvaluationOutcomeSettlementDeadlineError
 export type NamespaceQuerySyncConstructionError =
   | CaptureNamespaceCursorError
   | InvalidNamespaceQuerySyncPolicyError;
+
+export type NamespaceCatchUpConstructionError =
+  NamespaceQuerySyncConstructionError;
 
 export type CatchUpTurnError =
   | InvalidQuerySyncTurnBudgetError

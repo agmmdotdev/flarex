@@ -259,11 +259,12 @@ export type EvaluationWorkTurnOutcome =
   | EvaluationBoundaryOutcome;
 
 function policyFailure(
+  operation: InvalidNamespaceQuerySyncPolicyError["operation"],
   field: InvalidNamespaceQuerySyncPolicyError["field"],
   reason: InvalidNamespaceQuerySyncPolicyError["reason"],
 ): Result.Result<never, InvalidNamespaceQuerySyncPolicyError> {
   return Result.fail(new InvalidNamespaceQuerySyncPolicyError({
-    operation: "makeNamespaceQuerySync",
+    operation,
     field,
     reason,
   }));
@@ -271,26 +272,36 @@ function policyFailure(
 
 export function captureNamespaceQuerySyncPolicy(
   input: NamespaceQuerySyncPolicy,
+  operation: InvalidNamespaceQuerySyncPolicyError["operation"] =
+    "makeNamespaceQuerySync",
 ): Result.Result<NamespaceQuerySyncPolicy, InvalidNamespaceQuerySyncPolicyError> {
   const stateAttemptsPerOperation = input.stateAttemptsPerOperation;
   if (!isPositiveSafeInteger(stateAttemptsPerOperation)) {
-    return policyFailure("stateAttemptsPerOperation", "invalidValue");
+    return policyFailure(operation, "stateAttemptsPerOperation", "invalidValue");
   }
   if (stateAttemptsPerOperation > MAX_STATE_ATTEMPTS_PER_OPERATION) {
-    return policyFailure("stateAttemptsPerOperation", "aboveHardMaximum");
+    return policyFailure(
+      operation,
+      "stateAttemptsPerOperation",
+      "aboveHardMaximum",
+    );
   }
 
   const sourceAttemptsPerRead = input.sourceAttemptsPerRead;
   if (!isPositiveSafeInteger(sourceAttemptsPerRead)) {
-    return policyFailure("sourceAttemptsPerRead", "invalidValue");
+    return policyFailure(operation, "sourceAttemptsPerRead", "invalidValue");
   }
   if (sourceAttemptsPerRead > MAX_SOURCE_ATTEMPTS_PER_READ) {
-    return policyFailure("sourceAttemptsPerRead", "aboveHardMaximum");
+    return policyFailure(
+      operation,
+      "sourceAttemptsPerRead",
+      "aboveHardMaximum",
+    );
   }
 
   const delays = input.retryDelayMilliseconds;
   if (!Array.isArray(delays) || delays.length !== 2) {
-    return policyFailure("retryDelayMilliseconds", "invalidPair");
+    return policyFailure(operation, "retryDelayMilliseconds", "invalidPair");
   }
   const firstDelay = delays[0];
   const secondDelay = delays[1];
@@ -298,22 +309,31 @@ export function captureNamespaceQuerySyncPolicy(
     !isNonNegativeSafeInteger(firstDelay)
     || !isNonNegativeSafeInteger(secondDelay)
   ) {
-    return policyFailure("retryDelayMilliseconds", "invalidPair");
+    return policyFailure(operation, "retryDelayMilliseconds", "invalidPair");
   }
   if (
     firstDelay > MAX_RETRY_DELAY_MILLISECONDS
     || secondDelay > MAX_RETRY_DELAY_MILLISECONDS
   ) {
-    return policyFailure("retryDelayMilliseconds", "aboveHardMaximum");
+    return policyFailure(
+      operation,
+      "retryDelayMilliseconds",
+      "aboveHardMaximum",
+    );
   }
 
   const settlementReserveMilliseconds =
     input.settlementReserveMilliseconds;
   if (!isPositiveSafeInteger(settlementReserveMilliseconds)) {
-    return policyFailure("settlementReserveMilliseconds", "invalidValue");
+    return policyFailure(
+      operation,
+      "settlementReserveMilliseconds",
+      "invalidValue",
+    );
   }
   if (settlementReserveMilliseconds >= MAX_TURN_WINDOW_MILLISECONDS) {
     return policyFailure(
+      operation,
       "settlementReserveMilliseconds",
       "aboveHardMaximum",
     );

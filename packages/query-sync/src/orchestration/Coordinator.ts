@@ -1,10 +1,6 @@
 import { Effect, Result } from "effect";
 
-import type {
-  AdmittedChangeSource,
-  ChangeReadBudget,
-  ChangeSourceReadRequest,
-} from "../change/Model.js";
+import type { AdmittedChangeSource } from "../change/Model.js";
 import {
   captureQueryGeneration,
 } from "../kernel/CanonicalValue.js";
@@ -43,6 +39,10 @@ import type {
   EvaluationWorkTurnError,
   NamespaceQuerySyncConstructionError,
 } from "./Errors.js";
+import {
+  captureAdmittedChangeSource,
+  makeCatchUpOperation,
+} from "./CatchUpCoordinator.js";
 import {
   evaluationBlockedOutcome,
   makeEvaluationCallLedger,
@@ -105,17 +105,6 @@ export interface NamespaceQuerySync {
   >;
 }
 
-function captureSource(source: AdmittedChangeSource): AdmittedChangeSource {
-  const readAfter = source.readAfter;
-  const capturedReadAfter: AdmittedChangeSource["readAfter"] = (
-    request: ChangeSourceReadRequest,
-    budget: ChangeReadBudget,
-  ) => readAfter.call(source, request, budget);
-  return Object.freeze({
-    readAfter: capturedReadAfter,
-  });
-}
-
 function captureState(
   state: QuerySyncTransitionState,
 ): QuerySyncOrchestrationState {
@@ -166,7 +155,10 @@ function makeEvaluationRuntime(
   policy: NamespaceQuerySyncPolicy,
   budget: EvaluationTurnBudget,
 ): Effect.Effect<
-  OrchestrationTurnRuntime<EvaluationTurnBudget>,
+  OrchestrationTurnRuntime<
+    EvaluationTurnBudget,
+    QuerySyncOrchestrationState
+  >,
   never,
   never
 > {
@@ -214,38 +206,15 @@ export function makeNamespaceQuerySync(
       input.bootstrapCursor,
     );
     const policy = yield* captureNamespaceQuerySyncPolicy(input.policy);
-    const source = captureSource(input.source);
+    const source = captureAdmittedChangeSource(input.source);
     const state = captureState(input.state);
     const evaluator = captureEvaluator(input.evaluator);
 
-    const catchUp: NamespaceQuerySync["catchUp"] = Effect.fn(
-      "QuerySync.Namespace.catchUp",
-    )(function*(budgetInput): Effect.fn.Return<
-      CatchUpTurnOutcome,
-      CatchUpTurnError,
-      never
-    > {
-      const budget = yield* Effect.fromResult(captureCatchUpTurnBudget(
-        "catchUp",
-        budgetInput,
-        policy.settlementReserveMilliseconds,
-      ));
-      const runtime = yield* makeTurnRuntime({
-        bootstrapCursor,
-        source,
-        state,
-        policy,
-        budget,
-        ledger: makeTurnLedger(bootstrapCursor),
-      });
-      const outcome = yield* catchUpNamespace(runtime, "initialCatchUp");
-      if (outcome._tag !== "caughtUp") return outcome;
-      return Object.freeze({
-        _tag: "caughtUp",
-        cursor: outcome.cursor,
-        authority: outcome.authority,
-        progress: freezeTurnProgress(runtime.ledger),
-      });
+    const catchUp = makeCatchUpOperation({
+      bootstrapCursor,
+      source,
+      state,
+      policy,
     });
 
     const beginQuery: NamespaceQuerySync["beginQuery"] = Effect.fn(

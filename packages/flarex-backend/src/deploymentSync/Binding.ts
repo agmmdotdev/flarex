@@ -239,6 +239,18 @@ const freshReservations = new WeakMap<
 export function makeDeploymentQuerySyncFreshInitializationCapabilityForTest(
   binding: DeploymentQuerySyncBinding,
 ): DeploymentQuerySyncFreshInitializationCapability {
+  return issueDeploymentQuerySyncFreshInitializationCapability(binding);
+}
+
+export function issueDeploymentQuerySyncFreshInitializationForIsolatedProbe(
+  binding: DeploymentQuerySyncBinding,
+): DeploymentQuerySyncFreshInitializationCapability {
+  return issueDeploymentQuerySyncFreshInitializationCapability(binding);
+}
+
+function issueDeploymentQuerySyncFreshInitializationCapability(
+  binding: DeploymentQuerySyncBinding,
+): DeploymentQuerySyncFreshInitializationCapability {
   const capability =
     new IssuedDeploymentQuerySyncFreshInitializationCapability();
   freshCapabilities.set(capability, {

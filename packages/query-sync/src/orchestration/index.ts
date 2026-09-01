@@ -1,5 +1,12 @@
 export { makeNamespaceQuerySync } from "./Coordinator.js";
 
+export { makeNamespaceCatchUp } from "./CatchUpCoordinator.js";
+
+export type {
+  NamespaceCatchUp,
+  NamespaceCatchUpInput,
+} from "./CatchUpCoordinator.js";
+
 export type {
   EvaluationWorkTurnRequest,
   NamespaceQuerySync,
@@ -21,6 +28,7 @@ export type {
   CatchUpTurnError,
   EvaluationPipelineError,
   EvaluationWorkTurnError,
+  NamespaceCatchUpConstructionError,
   NamespaceQuerySyncConstructionError,
   QueryEvaluationArtifactCaptureError,
   QueryEvaluatorError,
@@ -62,6 +70,7 @@ export type {
   EvaluationCallBudget,
   QueryEvaluationArtifact,
   QueryEvaluator,
+  QuerySyncCatchUpState,
 } from "./Ports.js";
 
 export { makeNamespacePublicationSync } from "./publication/Coordinator.js";

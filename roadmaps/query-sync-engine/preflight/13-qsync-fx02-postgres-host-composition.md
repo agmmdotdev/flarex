@@ -4,7 +4,9 @@
 
 **Preflight status:** accepted on 2026-09-01. FX02-A exited on 2026-09-01 after
 its focused local matrix, clean implementation reviews, and isolated real-
-Postgres 18.3 receipt passed. FX02-B through FX02-D have not started.
+Postgres 18.3 receipt passed. The FX02-B implementation is present locally; its
+isolated deployed restart receipt remains pending, so FX02-B has not exited.
+FX02-C and FX02-D have not started.
 
 This record accepts the ordered FX02 architecture and authorizes only the
 bounded implementation slices defined below. It does not activate the existing
@@ -435,7 +437,8 @@ the feed.
 This preflight does not authorize:
 
 - changes to portable query-sync models, planners, reducers, state operations,
-  limits, accounting, or orchestration;
+  limits, accounting, or orchestration, except the behavior-preserving
+  catch-up-only composition seam authorized by the FX02-B checkpoint below;
 - changes to commit compilation/execution, OCC, transaction journals,
   idempotency outcomes, authoritative application rows, commit/change facts,
   retention semantics, or the application outbox;
@@ -499,3 +502,78 @@ FX02-B is the next ordered slice and is not authorized by this checkpoint.
 FX02 remains incomplete, and no Durable Object behavior, evaluator, publisher,
 schema, public/client API, production caller, delivery selection, or activation
 was added.
+
+## FX02-B Approval Checkpoint — 2026-09-01
+
+FX02-B is approved as one medium, independently reviewed implementation slice.
+The portable coordinator currently requires a `QueryEvaluator` even when a
+host needs only `catchUp`. FX02-B must not satisfy that construction contract
+with an unused evaluator because evaluator selection and execution remain
+FX02-C authority.
+
+This checkpoint therefore authorizes one narrow, behavior-preserving portable
+composition change:
+
+- add a workspace-internal catch-up constructor that requires only the
+  bootstrap cursor, admitted source, catch-up state operations, and bounded
+  policy;
+- make the existing full namespace coordinator reuse the same catch-up
+  operation implementation; and
+- preserve every existing model, reducer, state transition, retry, budget,
+  accounting, outcome, error, and full-coordinator behavior.
+
+The backend slice composes that constructor with the admitted Flarex Postgres
+source and existing SQLite state inside a thin per-object `DeploymentSyncDO`.
+Its only caller is a strict bearer-protected probe command that is inert when
+its optional probe secret is absent. The probe may mint the existing
+process-local one-use fresh-initialization capability only after structural
+request decoding, bearer verification, deterministic object-name binding, and
+scope revalidation. This is isolated probe authority, not the production
+fresh-initialization authority deferred to FX03.
+
+Each probe invocation awaits exactly one bounded catch-up turn and returns its
+outcome. It adds no `fetch` route, alarm, background fiber, in-memory recovery
+authority, evaluator, publisher, registration, wake, checkpoint, delivery,
+client API, or production caller. External source I/O is never enclosed by
+`blockConcurrencyWhile`; replay-safe SQLite transitions remain the durable
+coordination authority.
+
+The implementation checkpoint requires focused portable and backend tests plus
+Workerd proof through the real `DeploymentSyncDO` for strict authentication,
+contiguous/duplicate/reverse/gap/history-reset/epoch outcomes, two-scope
+isolation, bounded continuation, lost-response replay, overlapping calls, and
+state recovery after object reconstruction. FX02-B does not exit until a
+separate isolated deployed probe proves restart/cold recreation; lack of deploy
+credentials may leave that final receipt pending without widening this slice.
+
+## FX02-B Current Implementation
+
+The approved local FX02-B code vertical is implemented and remains
+production-inert. It adds:
+
+- the workspace-internal `makeNamespaceCatchUp` constructor over only the
+  admitted source and two catch-up state operations, with the full namespace
+  coordinator reusing the same `catchUp` implementation;
+- one domain-first backend catch-up composition operation over the completed
+  Flarex Postgres source and SQLite state owners;
+- one strict `DeploymentSyncDO.runCatchUpProbe` RPC boundary that is disabled
+  when its optional probe secret is absent, revalidates deterministic scope
+  binding, and projects the portable opaque caught-up authority into a
+  structured-clone-safe probe receipt; and
+- a Workerd harness through the real Durable Object class and real SQLite
+  storage, with a protocol-correct executor service-binding source.
+
+Focused portable, backend, and Workerd coverage exercises fail-closed
+authentication, strict request rejection, bounded
+continuation, contiguous catch-up, duplicate/lost-response replay, source-gap
+corruption rejection, history and epoch boundaries, two-scope isolation,
+true overlapping fresh probes, and persisted recovery after object
+reconstruction.
+The portable catch-up suite retains the state-level gap, model replacement,
+state epoch replacement, and reset-required proofs.
+
+No evaluator, publisher, registration, alarm, wake, checkpoint, background
+fiber, public `fetch` route, production caller, client API, or production
+fresh-initialization authority was added. A local persisted Miniflare reopen is
+not described as Cloudflare eviction. FX02-B remains open until the separately
+isolated deployed restart/cold-recreation receipt passes.

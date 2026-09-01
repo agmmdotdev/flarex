@@ -33,7 +33,7 @@ import type {
   InitializeNamespaceReceipt,
 } from "../state/Receipts.js";
 import type { CatchUpTurnError } from "./Errors.js";
-import type { QuerySyncOrchestrationState } from "./Ports.js";
+import type { QuerySyncCatchUpState } from "./Ports.js";
 import {
   captureNamespaceCursorValue,
   freezeTurnProgress,
@@ -56,10 +56,11 @@ import {
 
 export interface OrchestrationTurnRuntime<
   Budget extends CatchUpTurnBudget = CatchUpTurnBudget,
+  State extends QuerySyncCatchUpState = QuerySyncCatchUpState,
 > {
   readonly bootstrapCursor: NamespaceCursor;
   readonly source: AdmittedChangeSource;
-  readonly state: QuerySyncOrchestrationState;
+  readonly state: State;
   readonly policy: NamespaceQuerySyncPolicy;
   readonly budget: Budget;
   readonly ledger: OrchestrationTurnLedger;
@@ -79,14 +80,17 @@ export type CatchUpInternalResult<
 
 export const makeTurnRuntime = Effect.fn(
   "QuerySync.Orchestration.makeTurnRuntime",
-)(function*<Budget extends CatchUpTurnBudget>(input: {
+)(function*<
+  Budget extends CatchUpTurnBudget,
+  State extends QuerySyncCatchUpState,
+>(input: {
   readonly bootstrapCursor: NamespaceCursor;
   readonly source: AdmittedChangeSource;
-  readonly state: QuerySyncOrchestrationState;
+  readonly state: State;
   readonly policy: NamespaceQuerySyncPolicy;
   readonly budget: Budget;
   readonly ledger: OrchestrationTurnLedger;
-}): Effect.fn.Return<OrchestrationTurnRuntime<Budget>> {
+}): Effect.fn.Return<OrchestrationTurnRuntime<Budget, State>> {
   const startNanos = yield* Clock.currentTimeNanos;
   const window = makeTurnWindow(
     startNanos,
