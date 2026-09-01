@@ -40,8 +40,14 @@ was accepted on 2026-09-01 and freezes the Postgres source, authenticated
 registration/evaluation, Cloudflare host, wake recovery, lifecycle, and
 semantic publication-outbox boundaries. The private FX02-A correlated Postgres
 source vertical exited on 2026-09-01 after its focused local matrix, clean final
-reviews, and an isolated real-Postgres 18.3 receipt passed. FX02-B has not
-started.
+reviews, and an isolated real-Postgres 18.3 receipt passed. FX02-B exited on
+2026-09-01 after local, Workerd, and isolated hosted controlled-restart
+receipts passed. The accepted
+[`QSYNC-FX02-C1` preflight](./preflight/14-qsync-fx02-c-application-query-evidence.md)
+now freezes the separate application-query evidence operation, query/snapshot
+authority, dependency capture, package direction, proof matrix, and the
+durable-evaluation-material stop boundary. C1 is the next ordered medium slice;
+no C1 code has started.
 The accepted docs-only
 [`QSYNC01-D0` preflight](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
 now freezes that seam, its staged-read protocol, exact accounting authority,
@@ -224,7 +230,7 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-D` | Operation-scoped transition-plan seam with bounded fact inputs, explicit logical changes, exact counters, and equivalence to the aggregate reducers | Complete through D4; all nine operations are private and production-inert |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
 | `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Complete through C3; private, unrouted, production-inert, and independent of delivery selection |
-| `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | FX02-A private source vertical exited on focused local plus real-Postgres 18.3 receipts; FX02-B not started |
+| `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | FX02-A and FX02-B exited; C1 evidence preflight accepted, implementation not started; remaining C and D work pending |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
 
@@ -292,24 +298,36 @@ paths.
   is the completed generation-4 publication-lifecycle checkpoint. Its medium
   implementation vertical, exhaustive phase-2 closure, repeated phase-3
   histories, exact Node SQLite limits, and pinned-Workerd phase-4 exit all pass.
+- [`preflight/13-qsync-fx02-postgres-host-composition.md`](./preflight/13-qsync-fx02-postgres-host-composition.md)
+  is the accepted FX02 host-composition authority and completed FX02-A/FX02-B
+  implementation and exit record. It freezes the later registration,
+  evaluator, wake, checkpoint and publication boundaries without activating
+  them.
+- [`preflight/14-qsync-fx02-c-application-query-evidence.md`](./preflight/14-qsync-fx02-c-application-query-evidence.md)
+  is the accepted C1 producer-evidence checkpoint. It freezes coherent query,
+  snapshot, authority, dependency and result capture while reserving durable
+  evaluation material and hosted evaluator composition for C2.
 
 ## Next Correctness Gate
 
-The private `QSYNC-FX02-A` correlated Postgres source vertical accepted by
-[`preflight/13`](./preflight/13-qsync-fx02-postgres-host-composition.md) is now
-implemented. Its strict codec, persistence-owned correlated scope/feed/head
-read, authenticated executor host, backend service-binding client, and
-`ReplayableChangeSource` adapter through portable admission pass focused codec,
-PGlite, host, authentication-lifecycle, and backend-client tests. The checked-in
-real-Postgres proof passed 1/1 on 2026-09-01 against isolated PostgreSQL 18.3,
-and both final implementation reviews reported no actionable findings. FX02-A
-is exited. The next correctness gate is a separately approved FX02-B private
-catch-up host slice; it has not started.
+FX02-A and FX02-B are exited. Their exact local, real-Postgres, Workerd and
+hosted controlled-restart evidence is recorded in
+[`preflight/13`](./preflight/13-qsync-fx02-postgres-host-composition.md).
+
+The next correctness gate is the approved medium `QSYNC-FX02-C1` application-
+query evidence vertical in
+[`preflight/14`](./preflight/14-qsync-fx02-c-application-query-evidence.md).
+It adds no route or production caller. C1 must preserve the public Query facade
+and worker wire while deriving one coherent query key, logical snapshot,
+authority, dependency set and canonical result from the existing application-
+query runtime. C2 remains unapproved because restart-safe reruns also need a
+separately frozen durable evaluation-material and hosted-execution contract.
 
 The FX01 exit remains private, unrouted, and production-inert. It proves no
-deployed Cloudflare restart or eviction, runtime portability, production
-readiness, product parity, real `ResultPublisher`, delivery adapter,
-public/client API, Legacy/product migration, cutover, or `R03-B`. The sync
-actor does not accept WebSockets, so WebSocket hibernation remains a separate
-ConnectionDO/delivery concern rather than an FX02 host claim.
+runtime portability, production readiness, product parity, real
+`ResultPublisher`, delivery adapter, public/client API, Legacy/product
+migration, cutover, or `R03-B`. FX02-B proves an isolated hosted controlled
+deployment restart, not forced eviction or WebSocket hibernation. The sync actor
+does not accept WebSockets, so hibernation remains a separate ConnectionDO/
+delivery concern rather than an FX02 host claim.
 `QSYNC-CF01` remains the independent delivery feasibility and selection gate.
