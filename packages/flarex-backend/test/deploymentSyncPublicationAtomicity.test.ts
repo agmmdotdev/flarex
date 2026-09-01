@@ -12,8 +12,11 @@ import {
   success,
 } from "./deploymentSyncEvaluationStateTestSupport";
 import {
+  CLAIM_WRITE_STAGES,
   COMPLETION_READ_STAGES,
+  COMPLETION_WRITE_STAGES,
   OUTCOME_READ_STAGES,
+  OUTCOME_WRITE_STAGES,
   PENDING_CLAIM_READ_STAGES,
   type PublicationSqlStage,
   acceptanceFor,
@@ -36,24 +39,6 @@ interface PublicationWriteProgram {
   readonly runExit: () => Promise<Exit.Exit<unknown, unknown>>;
   readonly runSuccess: () => Promise<unknown>;
 }
-
-const CLAIM_WRITE_STAGES = Object.freeze([
-  "pending-publication-delete",
-  "in-flight-publication-insert",
-  "publication-state-cas",
-  "scope-cas",
-] as const satisfies readonly PublicationSqlStage[]);
-
-const OUTCOME_WRITE_STAGES = Object.freeze([
-  "publication-state-cas",
-  "scope-cas",
-] as const satisfies readonly PublicationSqlStage[]);
-
-const COMPLETION_WRITE_STAGES = Object.freeze([
-  "in-flight-publication-delete",
-  "publication-state-cas",
-  "scope-cas",
-] as const satisfies readonly PublicationSqlStage[]);
 
 const operationCases = Object.freeze([
   Object.freeze({

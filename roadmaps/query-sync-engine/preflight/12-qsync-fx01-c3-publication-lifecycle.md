@@ -2,12 +2,12 @@
 
 ## Status
 
-**Checkpoint status:** accepted on 2026-08-31. The first medium generation-4
-publication-lifecycle vertical and its base proof are implemented in the
-current checkpoint. The exhaustive closure, repeated schedules, limits, and
-final Workerd exit remain incomplete. `QSYNC-FX01-C2` is complete and exited
-in `13ee4aa6`. C3 remains package-private, unrouted, production-inert, and
-incomplete.
+**Checkpoint status:** accepted on 2026-08-31. The medium generation-4
+publication-lifecycle vertical, exhaustive phase-2 closure, and repeated
+cross-operation and conformance phase-3 closure are implemented in the current
+checkpoint. Exact limits and the final Workerd exit remain incomplete.
+`QSYNC-FX01-C2` is complete and exited in `13ee4aa6`. C3 remains
+package-private, unrouted, production-inert, and incomplete.
 
 Acceptance authorizes only the DDL, migration, database clock, adapter work,
 private naming cleanup, and proof inside this record. It does not itself
@@ -507,6 +507,8 @@ methods.
 
 ### 3. Repeated cross-operation and conformance closure
 
+**Status:** complete in the current implementation checkpoint.
+
 - claim versus a new query completion;
 - publication completion versus exact-next invalidation;
 - response loss before and after commit; and
@@ -597,6 +599,6 @@ Accepted on 2026-08-31 with these decisions:
    operations plus the final unversioned private facade name; and
 4. honest C3 reopen proof with deployed eviction/hibernation deferred to FX02.
 
-The medium implementation-and-base-proof vertical is complete.
-`QSYNC-FX01-C3` remains incomplete and production-inert until every remaining
-phase-2 through phase-4 exit proof passes.
+The medium implementation-and-base-proof vertical plus phase-2 and phase-3
+closure are complete. `QSYNC-FX01-C3` remains incomplete and production-inert
+until the remaining phase-4 exit proof passes.

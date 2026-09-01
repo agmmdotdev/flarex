@@ -12,7 +12,7 @@ The current production-inert code is evidence to classify as:
 | --- | --- |
 | deleted `flarex-backend/src/deploymentSync/Policy.ts` | C1 removed the displaced backend-local query-generation policy. Portable decisions now come through the private transition-plan boundary; do not recreate this file or a host reducer. |
 | `flarex-backend/src/deploymentSync/Model.ts` and `QuerySyncModel.ts` | Retain only backend-owned invalidation projection errors and Flarex model mapping. Do not mirror portable state unions or policy. |
-| `flarex-backend/src/deploymentSync/Store.ts` | Now composes the private generation-3 six-operation SQLite evaluation adapter completed under C2. Evolve this same authority in place only through a separately accepted C3 generation; do not create parallel tables or writes. |
+| `flarex-backend/src/deploymentSync/Store.ts` | Now composes the private generation-4 nine-operation SQLite state adapter implemented through C3 phase 3. Complete the accepted C3 exit in place; do not create parallel tables or writes. |
 | `flarex-backend/src/deploymentSyncDO.ts` | Remains an empty production-inert per-scope placement shell with no callable surface or adapter construction. Later FX02 host composition may construct one namespace engine instance per object; the class is not semantic authority. |
 | `flarex-protocol/internal/scope-sync-v1` | Remains the concrete Flarex versioned codec/adapter contract until a separately approved migration. Its Flarex identities must not become generic engine types. |
 | `@flarex/persistence-postgres` commit feed | Remains authoritative and later implements the trusted replayable Flarex `ChangeSource`. |
@@ -164,12 +164,12 @@ not a complete uncertainty contract.
     disposal, and reopen matrix. This is not deployed Cloudflare evidence or a
     measured 128 MiB guarantee, and dispose/recreate does not prove eviction or
     hibernation.
-15. **Accepted separate gate (`QSYNC-FX01-C3`).** Implement and prove the
-    accepted
+15. **In progress (`QSYNC-FX01-C3`).** Implement and prove the accepted
     [docs-only C3 checkpoint](./preflight/12-qsync-fx01-c3-publication-lifecycle.md):
     the generation-4 publication lifecycle plus complete private nine-operation
-    adapter. C3 implementation and proof remain incomplete. FX01 is not
-    complete before this gate exits.
+    adapter. Implementation and proof through phase 3 are complete; exact
+    limits and the final Workerd exit remain. FX01 is not complete before this
+    gate exits.
 16. Independently run the Cloudflare Durable Streams feasibility spike and
    accept or reject it at explicit maturity, security, retention, payload, and
    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;

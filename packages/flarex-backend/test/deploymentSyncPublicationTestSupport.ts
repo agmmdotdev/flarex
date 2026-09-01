@@ -88,6 +88,24 @@ export const COMPLETION_READ_STAGES = Object.freeze([
   "owner-read",
 ] as const satisfies readonly PublicationSqlStage[]);
 
+export const CLAIM_WRITE_STAGES = Object.freeze([
+  "pending-publication-delete",
+  "in-flight-publication-insert",
+  "publication-state-cas",
+  "scope-cas",
+] as const satisfies readonly PublicationSqlStage[]);
+
+export const OUTCOME_WRITE_STAGES = Object.freeze([
+  "publication-state-cas",
+  "scope-cas",
+] as const satisfies readonly PublicationSqlStage[]);
+
+export const COMPLETION_WRITE_STAGES = Object.freeze([
+  "in-flight-publication-delete",
+  "publication-state-cas",
+  "scope-cas",
+] as const satisfies readonly PublicationSqlStage[]);
+
 export function makePublicationSqlProbe() {
   return makeEvaluationSqlProbe(classifyPublicationSql);
 }
@@ -95,13 +113,14 @@ export function makePublicationSqlProbe() {
 export function makeDeterministicPublicationOperations(
   prepared: PreparedEvaluationState,
   instants: readonly PublicationAttemptInstant[],
+  storage: PreparedEvaluationState["storage"] = prepared.storage,
 ): Readonly<{
   readonly operations: DeploymentQuerySyncPublicationOperations;
   readonly clockReads: () => number;
 }> {
   let clockReads = 0;
   const operations = makeDeploymentQuerySyncPublicationOperations(
-    bindDeploymentQuerySyncStorage(prepared.storage),
+    bindDeploymentQuerySyncStorage(storage),
     prepared.binding,
     () => {
       const instant = instants[clockReads];

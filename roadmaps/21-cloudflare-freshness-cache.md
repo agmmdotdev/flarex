@@ -25,8 +25,9 @@ and its generation-3 six-operation evaluation vertical were implemented on
 2026-08-30; its pinned local Workerd exit proof completed on 2026-08-31. C2 is
 complete, private, unrouted, and production-inert. The accepted docs-only
 [`QSYNC-FX01-C3` checkpoint](./query-sync-engine/preflight/12-qsync-fx01-c3-publication-lifecycle.md)
-now authorizes its bounded generation-4 publication-lifecycle medium vertical;
-implementation and exit proof remain incomplete.
+now contains its bounded generation-4 publication-lifecycle vertical plus
+phase-2 and phase-3 closure; exact limits and the final Workerd exit remain
+incomplete.
 Roadmap 21 remains the accepted concrete Flarex/Cloudflare adapter authority.
 Completion/recovery SQLite state, ordered Postgres catch-up, registration,
 reset/reconnect, rerun, Durable Streams delivery, and production caller
@@ -129,8 +130,8 @@ withdrawn as implementation authority and does not resume. Its useful evidence
 flows only through the successor `QSYNC-FX01` adapter gates. The portable
 transition/reference, semantic-state/orchestration, and D1-D4 planner
 prerequisites are complete; C1 completed and C2 implemented their separately
-accepted adapter slices. C2's full proof completed on 2026-08-31. C3's
-docs-only checkpoint is now accepted; its implementation and exit proof remain
+accepted adapter slices. C2's full proof completed on 2026-08-31. C3 is
+implemented through phase 3; exact limits and the final Workerd exit remain
 incomplete.
 
 The Flarex model/source/SQLite adapter may proceed independently of delivery
@@ -628,8 +629,9 @@ ordered gates are now:
 7. Implement and prove the accepted docs-only
    [`QSYNC-FX01-C3` checkpoint](./query-sync-engine/preflight/12-qsync-fx01-c3-publication-lifecycle.md):
    its generation-4 publication lifecycle and complete private nine-operation
-   adapter. C3 implementation and proof remain incomplete. FX01 remains
-   incomplete until C3 exits.
+   adapter. C3 implementation and proof are complete through phase 3; exact
+   limits and the final Workerd exit remain. FX01 remains incomplete until C3
+   exits.
 8. Independently run `QSYNC-CF01` against pinned upstream Durable Streams
    packages on real Cloudflare; accept or reject on conformance,
    auth/isolation, retention/rotation, payload, uncertainty recovery,
@@ -1374,8 +1376,8 @@ production-inert. B is complete docs-only with a historical stop-before-schema
 verdict. D1-D4 and the private planner seam are complete. C1 and its private
 generation-2 three-operation SQLite adapter are complete in `b94abbb0`. C2's
 private generation-3 six-operation evaluation vertical was implemented on
-2026-08-30 and exited privately on 2026-08-31; C3 is accepted docs-only but
-unimplemented, and FX01 remains incomplete.
+2026-08-30 and exited privately on 2026-08-31; C3 is implemented through phase
+3 but has not exited, and FX01 remains incomplete.
 
 The accepted umbrella record is
 [`query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md`](./query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md).

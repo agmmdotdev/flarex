@@ -1,7 +1,6 @@
 import {
   applyAdmittedInvalidations,
   beginQueryEvaluation,
-  buildQuerySyncState,
   captureAdmittedInvalidationBatch,
   captureCanonicalDependencyKey,
   capturePublicationAttemptInstant,
@@ -12,19 +11,19 @@ import {
   captureQueryResultDigest,
   claimEvaluationWork,
   claimPublication,
+  completePublication,
   completeQueryEvaluation,
   createEmptyQuerySyncState,
   recordEvaluationAttemptOutcome,
-  type QueryState,
+  recordPublicationAttemptOutcome,
   type QuerySyncState,
+  type SyncSequence,
 } from "@flarex/query-sync/internal/kernel";
-import type {
-  CompleteQueryScalarFacts,
-} from "@flarex/query-sync/internal/transition-plan";
 import {
   makeAcceptedQueryPublicationEvidenceForTesting,
   runStateConformanceCommands,
   type QuerySyncStateConformanceTarget,
+  type StateConformanceCommand,
 } from "@flarex/query-sync/testing/conformance";
 import {
   deriveGenerationRefreshEvidence,
@@ -34,156 +33,50 @@ import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 
 import {
-  decodeDeploymentQuerySyncDependencyRowsResult,
-  type DeploymentQuerySyncDependencyRole,
-} from "../src/deploymentSync/DependencyRowCodec";
+  captureCompletionBatch,
+} from "./deploymentSyncCompletionTestSupport";
 import {
-  decodeDeploymentQuerySyncCompleteQueryRowResult,
-} from "../src/deploymentSync/EvaluationRowCodec";
-import {
-  makeDeploymentQuerySyncPublicationOperations,
-} from "../src/deploymentSync/PublicationState";
-import {
-  decodeDeploymentQuerySyncPendingPublicationRowResult,
-} from "../src/deploymentSync/PublicationRowCodec";
-import {
-  readDeploymentQuerySyncPublicationLifecycle,
-} from "../src/deploymentSync/PublicationStorage";
-import {
-  decodeDeploymentQuerySyncScopeRowResult,
-} from "../src/deploymentSync/RowCodec";
-import {
-  bindDeploymentQuerySyncStorage,
-} from "../src/deploymentSync/StateStorage";
-import {
+  beginRequest,
   canonicalKey,
+  completionInput,
   prepareUninitializedEvaluationState,
   queryDescriptor,
   success,
   type PreparedEvaluationState,
 } from "./deploymentSyncEvaluationStateTestSupport";
+import {
+  type DeploymentQuerySyncPublicationOperations,
+  makeDeterministicPublicationOperations,
+} from "./deploymentSyncPublicationTestSupport";
+import {
+  normalizedDeploymentQuerySyncState,
+} from "./deploymentSyncStateConformanceTestSupport";
 
-function dependencyKeys(
-  prepared: PreparedEvaluationState,
-  queryKey: CompleteQueryScalarFacts["descriptor"]["queryKey"],
-  generation: NonNullable<CompleteQueryScalarFacts["active"]>["generation"],
-  role: DeploymentQuerySyncDependencyRole,
-) {
-  const rows = prepared.database.prepare(`SELECT *
-    FROM deployment_sync_query_dependencies
-    WHERE role = ? AND query_key = ? AND generation = ?
-    ORDER BY dependency_key COLLATE BINARY`).all(
-    role,
-    queryKey,
-    generation.toString(),
-  );
-  return success(decodeDeploymentQuerySyncDependencyRowsResult(rows, {
-    role,
-    queryKey,
-    generation,
-  })).dependencyKeys;
-}
+const SEEDED_HISTORY_CLOCK_MILLISECONDS = 50_000;
+const SEEDED_HISTORY_SEEDS = Object.freeze([
+  0x0102_0304,
+  0x1020_3040,
+  0x5f37_59df,
+  0x89ab_cdef,
+  0xfedc_ba98,
+  0x7fff_ffff,
+] as const);
+const ALL_OPERATION_TAGS = Object.freeze([
+  "applyAdmittedBatchAndAdvance",
+  "beginQueryEvaluation",
+  "claimEvaluationWork",
+  "claimPublication",
+  "completePublication",
+  "completeQueryEvaluation",
+  "initializeOrInspectNamespace",
+  "recordEvaluationAttemptOutcome",
+  "recordPublicationAttemptOutcome",
+] as const satisfies readonly StateConformanceCommand["_tag"][]);
 
-function queryState(
-  prepared: PreparedEvaluationState,
-  query: CompleteQueryScalarFacts,
-): QueryState {
-  const active = query.active === null
-    ? null
-    : Object.freeze({
-      ...query.active,
-      dependencyKeys: dependencyKeys(
-        prepared,
-        query.descriptor.queryKey,
-        query.active.generation,
-        "active",
-      ),
-    });
-  const currentCompletion = query.currentCompletion === null
-    ? null
-    : Object.freeze({
-      ...query.currentCompletion,
-      evaluationDependencyKeys: dependencyKeys(
-        prepared,
-        query.descriptor.queryKey,
-        query.currentCompletion.identity.generation,
-        "completion",
-      ),
-    });
-  return Object.freeze({
-    descriptor: query.descriptor,
-    active,
-    provisional: query.provisional,
-    currentCompletion,
-    precedingCompletionIdentity: query.precedingCompletionIdentity,
-  });
-}
-
-function metricsEqual(
-  left: QuerySyncState["metrics"],
-  right: QuerySyncState["metrics"],
-): boolean {
-  return left.queryCount === right.queryCount
-    && left.retainedIdentityBytes === right.retainedIdentityBytes
-    && left.dependencyMemberships === right.dependencyMemberships
-    && left.pendingPublicationCount === right.pendingPublicationCount
-    && left.inFlightPublicationCount === right.inFlightPublicationCount
-    && left.retainedPublicationContentBytes
-      === right.retainedPublicationContentBytes
-    && left.settlementEnvelopeBytes === right.settlementEnvelopeBytes
-    && left.countedCanonicalBytes === right.countedCanonicalBytes;
-}
-
-function normalizedSnapshot(
-  prepared: PreparedEvaluationState,
-): QuerySyncState | null {
-  const scopeRows = prepared.database.prepare(`SELECT *
-    FROM deployment_sync_scope_state
-    ORDER BY singleton`).all();
-  if (scopeRows.length === 0) return null;
-  if (scopeRows.length !== 1 || scopeRows[0] === undefined) {
-    throw new Error("Expected one conformance scope row.");
-  }
-  const scope = success(decodeDeploymentQuerySyncScopeRowResult(scopeRows[0]));
-  const queryRows = prepared.database.prepare(`SELECT *
-    FROM deployment_sync_queries
-    ORDER BY query_key COLLATE BINARY`).all();
-  const scalarQueries = queryRows.map(row => success(
-    decodeDeploymentQuerySyncCompleteQueryRowResult(row, scope.facts),
-  ));
-  const queries = scalarQueries.map(query => queryState(prepared, query));
-  const pendingRows = prepared.database.prepare(`SELECT *
-    FROM deployment_sync_pending_publications
-    ORDER BY query_key COLLATE BINARY`).all();
-  const pending = pendingRows.map(row => {
-    const rawQueryKey = row.query_key;
-    const owner = scalarQueries.find(
-      query => query.descriptor.queryKey === rawQueryKey,
-    );
-    if (owner === undefined) {
-      throw new Error("Expected a conformance pending-publication owner.");
-    }
-    return success(decodeDeploymentQuerySyncPendingPublicationRowResult(
-      row,
-      scope.facts,
-      owner,
-    ));
-  });
-  const lifecycle = success(readDeploymentQuerySyncPublicationLifecycle(
-    prepared.storage.sql,
-    scope,
-    "claimPublication",
-  ));
-  const state = success(buildQuerySyncState({
-    cursor: scope.facts.cursor,
-    queries,
-    evaluationWork: scope.facts.evaluationWork,
-    publicationWork: Object.freeze({ pending: Object.freeze(pending), ...lifecycle }),
-  }));
-  if (!metricsEqual(state.metrics, scope.facts.metrics)) {
-    throw new Error("Stored and normalized conformance metrics differ.");
-  }
-  return state;
+interface SeededHistoryFeatures {
+  readonly distinctTailBatchCount: number;
+  readonly hasMixedTailDependencyRelevance: boolean;
+  readonly successorTrailsFinalCursor: boolean;
 }
 
 describe("deployment query-sync shared state conformance", () => {
@@ -268,27 +161,14 @@ describe("deployment query-sync shared state conformance", () => {
         identity: publicationClaim.attempt.publication.identity,
         resultDigest: publicationClaim.attempt.publication.resultDigest,
       });
-      let clockReads = 0;
-      const publicationOperations = makeDeploymentQuerySyncPublicationOperations(
-        bindDeploymentQuerySyncStorage(prepared.storage),
-        prepared.binding,
-        () => {
-          clockReads += 1;
-          return instant;
-        },
+      const deterministic = makeDeterministicPublicationOperations(
+        prepared,
+        [instant, instant],
       );
-      const target = Object.freeze({
-        ...prepared.state,
-        ...publicationOperations,
-        bindingForConformance: Object.freeze({
-          namespaceId: prepared.binding.namespaceId,
-          syncModelId: prepared.binding.syncModelId,
-          sourceEpoch: prepared.binding.sourceEpoch,
-        }),
-        snapshotForConformance: () => Effect.sync(() =>
-          normalizedSnapshot(prepared)
-        ),
-      } satisfies QuerySyncStateConformanceTarget);
+      const target = makeConformanceTarget(
+        prepared,
+        deterministic.operations,
+      );
 
       const steps = await Effect.runPromise(Effect.gen(function* () {
         yield* TestClock.setTime(1_000);
@@ -340,9 +220,319 @@ describe("deployment query-sync shared state conformance", () => {
         expect(step.outcome).toEqual(step.expectedOutcome);
         expect(step.snapshot).toEqual(step.expectedSnapshot);
       }
-      expect(clockReads).toBe(2);
+      expect(deterministic.clockReads()).toBe(2);
     } finally {
       prepared.database.close();
     }
   });
+
+  it("matches repeated seeded nine-operation histories after every command", async () => {
+    const featureCoverage: SeededHistoryFeatures[] = [];
+    for (const seed of SEEDED_HISTORY_SEEDS) {
+      const prepared = await prepareUninitializedEvaluationState();
+      try {
+        const commands = makeSeededCommands(prepared, seed);
+        expect(makeSeededCommands(prepared, seed)).toEqual(commands);
+        featureCoverage.push(seededHistoryFeatures(commands));
+        expect(Array.from(new Set(commands.map(command => command._tag))).sort())
+          .toEqual(ALL_OPERATION_TAGS);
+        const instant = success(capturePublicationAttemptInstant(
+          SEEDED_HISTORY_CLOCK_MILLISECONDS,
+        ));
+        const deterministic = makeDeterministicPublicationOperations(
+          prepared,
+          [instant, instant],
+        );
+        const target = makeConformanceTarget(
+          prepared,
+          deterministic.operations,
+        );
+
+        const steps = await Effect.runPromise(Effect.gen(function* () {
+          yield* TestClock.setTime(SEEDED_HISTORY_CLOCK_MILLISECONDS);
+          return yield* runStateConformanceCommands(target, {
+            initialExpectedState: null,
+            commands,
+          });
+        }).pipe(Effect.provide(TestClock.layer())));
+
+        expect(steps).toHaveLength(commands.length);
+        for (const step of steps) {
+          expect(step.outcome).toEqual(step.expectedOutcome);
+          expect(step.snapshot).toEqual(step.expectedSnapshot);
+        }
+        expect(deterministic.clockReads()).toBe(2);
+      } finally {
+        prepared.database.close();
+      }
+    }
+    expect(featureCoverage.some(
+      features => features.distinctTailBatchCount === 3,
+    )).toBe(true);
+    expect(featureCoverage.some(
+      features => features.hasMixedTailDependencyRelevance,
+    )).toBe(true);
+    expect(featureCoverage.some(
+      features => features.successorTrailsFinalCursor,
+    )).toBe(true);
+  }, 120_000);
 });
+
+function makeSeededCommands(
+  prepared: PreparedEvaluationState,
+  seed: number,
+): readonly StateConformanceCommand[] {
+  let randomState = seed >>> 0;
+  const nextRandom = (): number => {
+    randomState = (
+      Math.imul(randomState, 1_664_525) + 1_013_904_223
+    ) >>> 0;
+    return randomState;
+  };
+  const nextChoice = (choiceCount: number): number =>
+    (nextRandom() >>> 16) % choiceCount;
+
+  const bootstrapCursor = prepared.binding.bootstrapCursor;
+  const descriptor = queryDescriptor(nextRandom());
+  const dependencyLabel = `seeded-conformance-${seed}`;
+  let expectedState: QuerySyncState = success(createEmptyQuerySyncState(
+    bootstrapCursor,
+  ));
+  const commands: StateConformanceCommand[] = [{
+    _tag: "initializeOrInspectNamespace",
+    bootstrapCursor,
+  }];
+  let sourceOffset = 0n;
+
+  const prefixCount = 1 + nextChoice(3);
+  for (let index = 0; index < prefixCount; index += 1) {
+    sourceOffset += 1n;
+    const batch = captureCompletionBatch(
+      prepared.binding,
+      bootstrapCursor.appliedThroughSequence + sourceOffset,
+      nextChoice(2) === 0 ? [dependencyLabel] : [],
+    );
+    commands.push({ _tag: "applyAdmittedBatchAndAdvance", batch });
+    expectedState = success(applyAdmittedInvalidations(
+      expectedState,
+      batch,
+    )).state;
+    if (nextChoice(2) === 0) {
+      commands.push({ _tag: "applyAdmittedBatchAndAdvance", batch });
+      expectedState = success(applyAdmittedInvalidations(
+        expectedState,
+        batch,
+      )).state;
+    }
+  }
+
+  const firstRequest = beginRequest(prepared.binding, descriptor);
+  commands.push({ _tag: "beginQueryEvaluation", request: firstRequest });
+  const begun = success(beginQueryEvaluation(expectedState, firstRequest));
+  if (begun._tag !== "created") {
+    throw new Error(`Expected seeded creation, received ${begun._tag}.`);
+  }
+  expectedState = begun.state;
+  if (nextChoice(2) === 0) {
+    commands.push({ _tag: "beginQueryEvaluation", request: firstRequest });
+    expectedState = success(beginQueryEvaluation(
+      expectedState,
+      firstRequest,
+    )).state;
+  }
+
+  const evaluationRequest = Object.freeze({
+    maximumQueryInspections: 1,
+    continuation: null,
+  });
+  const evaluationClaim = success(claimEvaluationWork(
+    expectedState,
+    evaluationRequest,
+  ));
+  if (evaluationClaim._tag !== "claimed") {
+    throw new Error("Expected deterministic seeded evaluation work.");
+  }
+  commands.push({
+    _tag: "claimEvaluationWork",
+    request: evaluationRequest,
+  });
+  expectedState = evaluationClaim.state;
+  commands.push({
+    _tag: "recordEvaluationAttemptOutcome",
+    attempt: evaluationClaim.attempt,
+    outcome: "transientExhausted",
+  });
+  expectedState = success(recordEvaluationAttemptOutcome(
+    expectedState,
+    evaluationClaim.attempt,
+    "transientExhausted",
+  )).state;
+
+  const firstCompletion = completionInput(
+    prepared,
+    evaluationClaim.attempt,
+    dependencyLabel,
+  );
+  commands.push({
+    _tag: "completeQueryEvaluation",
+    attempt: evaluationClaim.attempt,
+    ...firstCompletion,
+  });
+  expectedState = success(completeQueryEvaluation(
+    expectedState,
+    evaluationClaim.attempt,
+    firstCompletion.evaluation,
+    firstCompletion.refresh,
+    firstCompletion.publication,
+  )).state;
+
+  const instant = success(capturePublicationAttemptInstant(
+    SEEDED_HISTORY_CLOCK_MILLISECONDS,
+  ));
+  const publicationClaim = success(claimPublication(expectedState, instant));
+  if (publicationClaim._tag !== "claimed") {
+    throw new Error("Expected deterministic seeded publication work.");
+  }
+  commands.push({ _tag: "claimPublication" });
+  expectedState = publicationClaim.state;
+  commands.push({
+    _tag: "recordPublicationAttemptOutcome",
+    attempt: publicationClaim.attempt,
+    outcome: "knownNotAppended",
+  });
+  expectedState = success(recordPublicationAttemptOutcome(
+    expectedState,
+    publicationClaim.attempt,
+    "knownNotAppended",
+    instant,
+  )).state;
+  const acceptance = makeAcceptedQueryPublicationEvidenceForTesting({
+    identity: publicationClaim.attempt.publication.identity,
+    resultDigest: publicationClaim.attempt.publication.resultDigest,
+  });
+  commands.push({ _tag: "completePublication", evidence: acceptance });
+  expectedState = success(completePublication(
+    expectedState,
+    acceptance,
+  )).state;
+
+  const tailCount = 1 + nextChoice(3);
+  let requestedDirtyThroughSequence: SyncSequence | null = null;
+  for (let index = 0; index < tailCount; index += 1) {
+    sourceOffset += 1n;
+    const includesDependency = nextChoice(2) === 0;
+    const batch = captureCompletionBatch(
+      prepared.binding,
+      bootstrapCursor.appliedThroughSequence + sourceOffset,
+      includesDependency ? [dependencyLabel] : [],
+    );
+    if (includesDependency) {
+      requestedDirtyThroughSequence = batch.sourceSequence;
+    }
+    commands.push({ _tag: "applyAdmittedBatchAndAdvance", batch });
+    expectedState = success(applyAdmittedInvalidations(
+      expectedState,
+      batch,
+    )).state;
+    if (nextChoice(3) === 0) {
+      commands.push({ _tag: "applyAdmittedBatchAndAdvance", batch });
+      expectedState = success(applyAdmittedInvalidations(
+        expectedState,
+        batch,
+      )).state;
+    }
+  }
+
+  if (requestedDirtyThroughSequence !== null) {
+    const secondRequest = beginRequest(prepared.binding, descriptor, {
+      expectedActiveGeneration: evaluationClaim.attempt.generation,
+      requestedDirtyThroughSequence,
+    });
+    const secondBegin = success(beginQueryEvaluation(
+      expectedState,
+      secondRequest,
+    ));
+    if (secondBegin._tag !== "created") {
+      throw new Error(
+        `Expected seeded successor creation, received ${secondBegin._tag}.`,
+      );
+    }
+    commands.push({ _tag: "beginQueryEvaluation", request: secondRequest });
+    expectedState = secondBegin.state;
+    const secondCompletion = completionInput(
+      prepared,
+      secondBegin.attempt,
+      `${dependencyLabel}-successor`,
+    );
+    commands.push({
+      _tag: "completeQueryEvaluation",
+      attempt: secondBegin.attempt,
+      ...secondCompletion,
+    });
+  }
+
+  return Object.freeze(commands);
+}
+
+function seededHistoryFeatures(
+  commands: readonly StateConformanceCommand[],
+): SeededHistoryFeatures {
+  const publicationCompletionIndex = commands.findIndex(
+    command => command._tag === "completePublication",
+  );
+  if (publicationCompletionIndex < 0) {
+    throw new Error("Expected seeded publication completion.");
+  }
+  const tailCommands = commands.slice(publicationCompletionIndex + 1);
+  const tailBatches = tailCommands.filter(
+    (command): command is Extract<
+      StateConformanceCommand,
+      { readonly _tag: "applyAdmittedBatchAndAdvance" }
+    > => command._tag === "applyAdmittedBatchAndAdvance",
+  );
+  const distinctTailBatches = new Map<string, typeof tailBatches[number]>();
+  for (const command of tailBatches) {
+    distinctTailBatches.set(command.batch.sourceSequence.toString(), command);
+  }
+  const distinctBatches = Array.from(distinctTailBatches.values());
+  const finalBatch = distinctBatches.at(-1);
+  if (finalBatch === undefined) {
+    throw new Error("Expected at least one seeded tail batch.");
+  }
+  const dependencyRelevance = distinctBatches.map(
+    command => command.batch.dependencyKeys.length > 0,
+  );
+  const successor = tailCommands.find(
+    (command): command is Extract<
+      StateConformanceCommand,
+      { readonly _tag: "beginQueryEvaluation" }
+    > => command._tag === "beginQueryEvaluation",
+  );
+  const requestedDirtyThroughSequence = successor?.request
+    .requestedDirtyThroughSequence ?? null;
+  return Object.freeze({
+    distinctTailBatchCount: distinctBatches.length,
+    hasMixedTailDependencyRelevance:
+      new Set(dependencyRelevance).size > 1,
+    successorTrailsFinalCursor: requestedDirtyThroughSequence !== null
+      && requestedDirtyThroughSequence < finalBatch.batch.sourceSequence,
+  });
+}
+
+function makeConformanceTarget(
+  prepared: PreparedEvaluationState,
+  publicationOperations: DeploymentQuerySyncPublicationOperations,
+): QuerySyncStateConformanceTarget {
+  return Object.freeze({
+    ...prepared.state,
+    ...publicationOperations,
+    bindingForConformance: Object.freeze({
+      namespaceId: prepared.binding.namespaceId,
+      syncModelId: prepared.binding.syncModelId,
+      sourceEpoch: prepared.binding.sourceEpoch,
+    }),
+    snapshotForConformance: () => Effect.sync(() =>
+      normalizedDeploymentQuerySyncState(prepared)
+    ),
+  });
+}
