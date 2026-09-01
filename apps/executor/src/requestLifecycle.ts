@@ -36,7 +36,7 @@ export interface ExecutorHandlerFactoryInput<
 export interface RequestScopedExecutorWorkerDependencies<
   Client extends ExecutorDatabaseClient,
 > {
-  createClient(connectionString: string): Client;
+  createClient(connectionString: string, request: Request): Client;
   createHandler(
     input: ExecutorHandlerFactoryInput<Client>,
   ): ExecutorRequestHandler;
@@ -102,7 +102,7 @@ export function createRequestScopedExecutorWorker<
       let client: Client | undefined;
       let primaryFailure: PrimaryFailure = { failed: false };
       try {
-        client = dependencies.createClient(connectionString);
+        client = dependencies.createClient(connectionString, request);
         await client.connect();
         const handler = dependencies.createHandler({
           client,

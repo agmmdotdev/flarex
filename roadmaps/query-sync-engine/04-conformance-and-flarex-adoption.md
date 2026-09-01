@@ -184,11 +184,13 @@ not a complete uncertainty contract.
     [FX02 record](./preflight/13-qsync-fx02-postgres-host-composition.md)
     freezes the exact Postgres source, authenticated query registration/
     evaluation/rerun host composition, lifecycle, wake recovery, and semantic-
-    outbox processing boundaries. Implementation has not started.
-18. Implement FX02-A: adapt one correlated authoritative Postgres scope/feed/
-    head read as the replayable change source and prove contiguous duplicate/
-    reverse/gap/reset behavior through the authenticated executor/backend
-    boundary before adding Durable Object behavior.
+    outbox processing boundaries.
+18. **FX02-A implementation checkpoint.** The private correlated authoritative
+    Postgres scope/feed/head read, strict executor/backend codec, authenticated
+    host, service-binding client, and replayable-source/admission adapter are
+    implemented. Focused local proofs pass; the checked-in real-Postgres test
+    awaits `FLAREX_POSTGRES_DATABASE_URL`, so FX02-A is not marked exited and
+    no Durable Object behavior is authorized yet.
 19. Compose query execution, provisional completion, rerun coalescing,
     unchanged suppression, and processing of the already-semantic durable
     publication outbox.

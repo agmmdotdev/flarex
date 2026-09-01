@@ -256,59 +256,99 @@ export const readApplicationActiveRevisionForShareInTransactionEffect =
 /** Authenticates the exact current persisted active-head frame. */
 export const readApplicationActiveHeadForShareInTransactionEffect =
   Effect.fn("ApplicationActiveHead.readForShareInTransaction")(
-    function* (
+    (
       tx: AppRowTransaction,
       scopeId: TrustedScopeAuthority["scopeId"],
-    ) {
-      const rows = yield* query(
-        tx.select().from(fxSystemApplicationActiveHeads).where(eq(
-          fxSystemApplicationActiveHeads.scopeId,
-          scopeId,
-        )).limit(1).for("share"),
-      );
-      const row = rows[0];
-      if (row === undefined) return null;
-      const head = yield* decodeApplicationActiveHeadRowEffect(row);
-      return head.scopeId === scopeId
-        ? head
-        : yield* storedState(head.revisionId);
-    },
+    ) => readApplicationActiveHeadInTransaction(tx, scopeId, true),
   );
+
+/** Repeatable-read snapshot variant; the caller owns snapshot isolation. */
+export const readApplicationActiveHeadInTransactionEffect = Effect.fn(
+  "ApplicationActiveHead.readInTransaction",
+)((
+  tx: AppRowTransaction,
+  scopeId: TrustedScopeAuthority["scopeId"],
+) => readApplicationActiveHeadInTransaction(tx, scopeId, false));
 
 /** Authenticates one head and the immutable activation row it selects. */
 export const readCoherentApplicationActiveHeadForShareInTransactionEffect =
   Effect.fn("ApplicationActiveHead.readCoherentForShareInTransaction")(
-    function* (
+    (
       tx: AppRowTransaction,
       scopeId: TrustedScopeAuthority["scopeId"],
-    ): Effect.fn.Return<
-      CoherentApplicationActiveHead | null,
-      ApplicationActiveHeadStateError
-    > {
-      const head = yield* readApplicationActiveHeadForShareInTransactionEffect(
-        tx,
-        scopeId,
-      );
-      if (head === null) return null;
-      const rows = yield* query(
-        tx.select().from(fxSystemApplicationActivations).where(and(
-          eq(fxSystemApplicationActivations.scopeId, scopeId),
-          eq(
-            fxSystemApplicationActivations.activationSequence,
-            head.activationSequence,
-          ),
-        )).limit(1).for("share"),
-        head.revisionId,
-      );
-      const row = rows[0];
-      if (row === undefined) return yield* storedState(head.revisionId);
-      const activation = yield* decodeApplicationActivationRowEffect(row);
-      if (!activationMatchesHead(activation, head)) {
-        return yield* storedState(head.revisionId);
-      }
-      return Object.freeze({ head, activation });
-    },
+    ) => readCoherentApplicationActiveHeadInTransaction(
+      tx,
+      scopeId,
+      true,
+    ),
   );
+
+/** Repeatable-read snapshot variant; the caller owns snapshot isolation. */
+export const readCoherentApplicationActiveHeadInTransactionEffect = Effect.fn(
+  "ApplicationActiveHead.readCoherentInTransaction",
+)((
+  tx: AppRowTransaction,
+  scopeId: TrustedScopeAuthority["scopeId"],
+) => readCoherentApplicationActiveHeadInTransaction(tx, scopeId, false));
+
+const readApplicationActiveHeadInTransaction = Effect.fn(
+  "ApplicationActiveHead.readInOwnedTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  scopeId: TrustedScopeAuthority["scopeId"],
+  lockForShare: boolean,
+): Effect.fn.Return<
+  DecodedApplicationActiveHead | null,
+  ApplicationActiveHeadStateError
+> {
+  const base = tx.select().from(fxSystemApplicationActiveHeads).where(eq(
+    fxSystemApplicationActiveHeads.scopeId,
+    scopeId,
+  )).limit(1);
+  const rows = yield* query(lockForShare ? base.for("share") : base);
+  const row = rows[0];
+  if (row === undefined) return null;
+  const head = yield* decodeApplicationActiveHeadRowEffect(row);
+  return head.scopeId === scopeId
+    ? head
+    : yield* storedState(head.revisionId);
+});
+
+const readCoherentApplicationActiveHeadInTransaction = Effect.fn(
+  "ApplicationActiveHead.readCoherentInOwnedTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  scopeId: TrustedScopeAuthority["scopeId"],
+  lockForShare: boolean,
+): Effect.fn.Return<
+  CoherentApplicationActiveHead | null,
+  ApplicationActiveHeadStateError
+> {
+  const head = yield* readApplicationActiveHeadInTransaction(
+    tx,
+    scopeId,
+    lockForShare,
+  );
+  if (head === null) return null;
+  const base = tx.select().from(fxSystemApplicationActivations).where(and(
+    eq(fxSystemApplicationActivations.scopeId, scopeId),
+    eq(
+      fxSystemApplicationActivations.activationSequence,
+      head.activationSequence,
+    ),
+  )).limit(1);
+  const rows = yield* query(
+    lockForShare ? base.for("share") : base,
+    head.revisionId,
+  );
+  const row = rows[0];
+  if (row === undefined) return yield* storedState(head.revisionId);
+  const activation = yield* decodeApplicationActivationRowEffect(row);
+  if (!activationMatchesHead(activation, head)) {
+    return yield* storedState(head.revisionId);
+  }
+  return Object.freeze({ head, activation });
+});
 
 export function activationMatchesHead(
   activation: DecodedApplicationActivation,
@@ -449,7 +489,7 @@ const validateFrame = Effect.fn("ApplicationActiveHead.validateFrame")(
     revisionId: string,
   ) {
     if (bytes.byteLength < 1 || bytes.byteLength > MAX_FRAME_BYTES ||
-      !bytesEqualFullScan(yield* sha256(bytes), expectedSha256) ||
+      !bytesEqualFullScan(yield* sha256(bytes, revisionId), expectedSha256) ||
       !isJson(expected) || !bytesEqualFullScan(
         UTF8.encode(encodeCanonicalJson(expected, invariant)),
         bytes,
@@ -485,17 +525,20 @@ function retryableCause(cause: unknown): boolean {
   return code === "40001" || code === "40P01" || code === "55P03";
 }
 
-function sha256(bytes: Uint8Array) {
+function sha256(bytes: Uint8Array, revisionId: string) {
   return Effect.tryPromise({
     try: () =>
       globalThis.crypto.subtle.digest(
         "SHA-256",
         copyBytesToArrayBuffer(bytes),
       ).then(value => new Uint8Array(value)),
-    catch: cause => new Error("Application activation SHA-256 failed.", {
+    catch: cause => new ApplicationActiveHeadStateError({
+      reason: "resourceFailure",
+      retryable: false,
+      revisionId,
       cause,
     }),
-  }).pipe(Effect.orDie);
+  });
 }
 
 function invariant(issue: Readonly<{ reason: string }>): never {

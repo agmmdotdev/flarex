@@ -38,8 +38,10 @@ phase-3 closure, and exact-limit plus pinned-Workerd phase-4 exit. C3 and
 [`QSYNC-FX02` preflight](./preflight/13-qsync-fx02-postgres-host-composition.md)
 was accepted on 2026-09-01 and freezes the Postgres source, authenticated
 registration/evaluation, Cloudflare host, wake recovery, lifecycle, and
-semantic publication-outbox boundaries. FX02 implementation has not started;
-its first approved medium slice is the correlated Postgres source vertical.
+semantic publication-outbox boundaries. The private FX02-A correlated Postgres
+source vertical is implemented and locally validated; its live real-Postgres
+receipt remains pending, so the slice is not marked exited and FX02-B has not
+started.
 The accepted docs-only
 [`QSYNC01-D0` preflight](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
 now freezes that seam, its staged-read protocol, exact accounting authority,
@@ -222,7 +224,7 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-D` | Operation-scoped transition-plan seam with bounded fact inputs, explicit logical changes, exact counters, and equivalence to the aggregate reducers | Complete through D4; all nine operations are private and production-inert |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
 | `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Complete through C3; private, unrouted, production-inert, and independent of delivery selection |
-| `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Preflight accepted; FX02-A correlated Postgres source is next; implementation not started |
+| `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | FX02-A private source vertical implemented and locally validated; live real-Postgres receipt pending; FX02-B not started |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
 
@@ -293,13 +295,15 @@ paths.
 
 ## Next Correctness Gate
 
-The next correctness work is the medium `QSYNC-FX02-A` correlated Postgres
-source vertical accepted by
-[`preflight/13`](./preflight/13-qsync-fx02-postgres-host-composition.md). It
-adds one persistence-owned correlated scope/feed/head read, one strict private
-executor/backend codec, the authenticated executor host, and the backend
-`ReplayableChangeSource` adapter ending at portable admission. It adds no
-Durable Object behavior, evaluator, publisher, schema, or production caller.
+The private `QSYNC-FX02-A` correlated Postgres source vertical accepted by
+[`preflight/13`](./preflight/13-qsync-fx02-postgres-host-composition.md) is now
+implemented. Its strict codec, persistence-owned correlated scope/feed/head
+read, authenticated executor host, backend service-binding client, and
+`ReplayableChangeSource` adapter through portable admission pass focused codec,
+PGlite, host, authentication-lifecycle, and backend-client tests. The checked-in
+real-Postgres test skipped because `FLAREX_POSTGRES_DATABASE_URL` was absent, so
+the next correctness gate is that live receipt plus review closure; FX02-A is
+not marked exited and FX02-B has not started.
 
 The FX01 exit remains private, unrouted, and production-inert. It proves no
 deployed Cloudflare restart or eviction, runtime portability, production

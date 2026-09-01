@@ -2,7 +2,9 @@
 
 ## Status
 
-**Preflight status:** accepted on 2026-09-01. Implementation has not started.
+**Preflight status:** accepted on 2026-09-01. FX02-A is implemented and locally
+validated; its live real-Postgres receipt remains pending, so it is not marked
+exited. FX02-B through FX02-D have not started.
 
 This record accepts the ordered FX02 architecture and authorizes only the
 bounded implementation slices defined below. It does not activate the existing
@@ -467,6 +469,30 @@ Accepted on 2026-09-01 with these decisions:
 7. deployed restart/cold-recreation evidence replaces the inaccurate demand
    for a forced WebSocket-hibernation proof on the non-WebSocket sync actor.
 
-The next implementation work is the medium `QSYNC-FX02-A` correlated Postgres
-source vertical. FX02 remains unimplemented until its ordered slices exit, and
-completion will still not activate public/client delivery.
+## FX02-A Implementation Checkpoint — 2026-09-01
+
+The approved FX02-A code vertical is implemented and remains private. It adds:
+
+- the strict canonical `query-sync-source-read-v1` request/response codec and
+  count, source-byte, semantic, dependency, and elapsed budgets;
+- a persistence-owned repeatable-read, read-only correlated scope-clock,
+  retained-feed, and terminal active-head observation that reuses the existing
+  commit-feed validation through transaction-local mechanics;
+- a request-scoped Postgres-client adapter that does not expose Drizzle through
+  the runtime-persistence facade;
+- an authenticated executor route and a service-binding backend
+  `ReplayableChangeSource` adapter ending at `makeAdmittedChangeSource`; and
+- focused codec, PGlite, host, request-lifecycle authentication, backend-client,
+  exact response-byte, reset, cursor, epoch, and fault-mapping tests.
+
+The PGlite correlated source proof and all focused host/client tests pass. The
+real-Postgres correlated test is checked in and skips when
+`FLAREX_POSTGRES_DATABASE_URL` is absent; this machine had no configured real
+Postgres lane, so FX02-A's live real-Postgres receipt remains pending and the
+slice is not marked exited. `CommitFeedRepositoryV1.listAfter` remains intact,
+and its existing PGlite regression suite passes.
+
+The next gate is the real-Postgres FX02-A receipt and review closure. FX02-B is
+not authorized by this checkpoint. FX02 remains incomplete, and no Durable
+Object behavior, evaluator, publisher, schema, public/client API, production
+caller, delivery selection, or activation was added.

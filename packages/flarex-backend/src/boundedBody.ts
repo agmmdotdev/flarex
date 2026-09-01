@@ -24,7 +24,8 @@ async function readBoundedBodyPromise(
 ): Promise<Uint8Array> {
   if (body === null) return new Uint8Array();
   const reader = body.getReader();
-  const items: number[] = [];
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
   let reads = 0;
   const maximumReads = maximumBodyBytes === Number.MAX_SAFE_INTEGER
     ? Number.MAX_SAFE_INTEGER
@@ -42,19 +43,27 @@ async function readBoundedBodyPromise(
         await reader.cancel().catch(() => undefined);
         throw new BackendBodyTooLarge();
       }
-      for (const byte of Uint8Array.prototype.values.call(next.value)) {
-        if (items.length >= maximumBodyBytes) {
-          await reader.cancel().catch(() => undefined);
-          throw new BackendBodyTooLarge();
-        }
-        items.push(byte);
+      const chunk = new Uint8Array(next.value);
+      const candidateBytes = totalBytes + chunk.byteLength;
+      if (!Number.isSafeInteger(candidateBytes) ||
+        candidateBytes > maximumBodyBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new BackendBodyTooLarge();
       }
+      if (chunk.byteLength > 0) chunks.push(chunk);
+      totalBytes = candidateBytes;
     }
   } finally {
     signal.removeEventListener("abort", abort);
     reader.releaseLock();
   }
-  return Uint8Array.from(items);
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 class BackendBodyTooLarge extends Error {}

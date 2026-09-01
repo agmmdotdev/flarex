@@ -31,9 +31,12 @@ rollback/disposal-recreate/reopen exit on 2026-09-01. `QSYNC-FX01` is complete,
 private, unrouted, and production-inert.
 The bounded
 [`QSYNC-FX02` preflight](./query-sync-engine/preflight/13-qsync-fx02-postgres-host-composition.md)
-was accepted on 2026-09-01; FX02 implementation has not started. Its first
-approved medium slice is the correlated Postgres scope/feed/head source
-vertical through the existing authenticated executor/backend boundary.
+was accepted on 2026-09-01. Its first approved medium slice, the private
+correlated Postgres scope/feed/head source vertical through the existing
+authenticated executor/backend boundary, is implemented and locally validated.
+The checked-in real-Postgres proof skipped without
+`FLAREX_POSTGRES_DATABASE_URL`, so FX02-A is not marked exited and FX02-B has
+not started.
 Roadmap 21 remains the accepted concrete Flarex/Cloudflare adapter authority.
 Ordered Postgres catch-up, source/evaluator and host composition, registration,
 reset/reconnect, rerun, delivery selection and implementation, public APIs, and
@@ -673,10 +676,12 @@ ordered gates are now:
 
 The
 [`QSYNC-FX02` preflight](./query-sync-engine/preflight/13-qsync-fx02-postgres-host-composition.md)
-is accepted. FX02-A is the next adapter implementation gate; no FX02 source,
-evaluator, host-composition, or deployed-lifecycle work in this sequence is
-implemented yet. `QSYNC-CF01`, `QSYNC-FX03`, delivery, public APIs, production
-activation, and `R03-B` retain their distinct incomplete gates.
+is accepted. The private FX02-A source/codec/executor/backend vertical is
+implemented and locally validated, while its live real-Postgres receipt remains
+pending. No FX02-B Durable Object host, evaluator, publication processing, or
+deployed-lifecycle work is implemented. `QSYNC-CF01`, `QSYNC-FX03`, delivery,
+public APIs, production activation, and `R03-B` retain their distinct
+incomplete gates.
 
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are not next gates. They require a
 separate measured need and their own gap-free correctness proofs after v1 sync

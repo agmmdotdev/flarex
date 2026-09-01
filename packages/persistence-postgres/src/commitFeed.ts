@@ -25,6 +25,7 @@ import { MAX_APPLICATION_RELATION_ADJACENCY_CHANGES } from
   "./applicationRelationCommit/Model";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { detachDriverRows } from "./detachDriverRows";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   fxAppRowRevisions,
   fxSystemCommitAppRowChanges,
@@ -43,6 +44,7 @@ export const MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1 =
 export type CommitFeedInputFailureReasonV1 =
   | "scopeUuidInvalid"
   | "exclusiveCommitSeqInvalid"
+  | "maximumCommitsInvalid"
   | "cursorAheadOfClock";
 
 export type CommitFeedCorruptionReasonV1 =
@@ -168,6 +170,11 @@ export interface CommitFeedRepositoryOptionsV1 {
   readonly observeQuery?: (query: CommitFeedQueryV1) => void;
 }
 
+export interface CommitFeedTransactionReadInputV1
+  extends CommitFeedListAfterInputV1 {
+  readonly maximumCommits: number;
+}
+
 export interface CommitFeedQueryV1 {
   readonly name:
     | "clock"
@@ -266,11 +273,49 @@ export function createCommitFeedRepositoryV1(
       // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: lifecycle - optional observer hook is absent or void; a rejecting hook is an invariant defect
       yield* Effect.promise(() => Promise.resolve(options.afterRepeatableRead?.()));
     }
-    return yield* Effect.fromResult(materializeCommitFeedPage(input, captured));
+    return yield* Effect.fromResult(materializeCommitFeedPage(
+      input,
+      captured,
+      MAX_COMMIT_FEED_PAGE_COMMITS_V1,
+    ));
   });
 
   return Object.freeze({ listAfter });
 }
+
+/**
+ * Transaction-local feed operation for persistence compositions that must
+ * correlate the page with additional authority evidence in the same snapshot.
+ * The caller owns transaction isolation and settlement.
+ */
+export const readCommitFeedPageInTransactionV1Effect = Effect.fn(
+  "CommitFeed.readPageInTransaction",
+)(function* (
+  tx: FlarexMetadataTransaction,
+  rawInput: CommitFeedTransactionReadInputV1,
+): Effect.fn.Return<CommitFeedPageV1, CommitFeedListAfterErrorV1> {
+  const input = yield* Effect.fromResult(validateListAfterInput(rawInput));
+  const maximumCommits = yield* Effect.fromResult(
+    validateMaximumCommits(rawInput.maximumCommits),
+  );
+  const captured = yield* Effect.tryPromise({
+    try: () => captureCommitFeedRowsInTransaction(
+      tx,
+      input,
+      undefined,
+      maximumCommits,
+    ),
+    catch: (cause) => new CommitFeedSqlErrorV1({
+      operation: "listAfter",
+      cause,
+    }),
+  });
+  return yield* Effect.fromResult(materializeCommitFeedPage(
+    input,
+    captured,
+    maximumCommits,
+  ));
+});
 
 function validateListAfterInput(
   input: CommitFeedListAfterInputV1,
@@ -308,6 +353,21 @@ async function captureCommitFeedRows(
       accessMode: "read only",
     });
 
+    return captureCommitFeedRowsInTransaction(
+      tx,
+      input,
+      observeQuery,
+      MAX_COMMIT_FEED_PAGE_COMMITS_V1,
+    );
+  });
+}
+
+async function captureCommitFeedRowsInTransaction(
+  tx: FlarexMetadataTransaction,
+  input: ValidatedCommitFeedInputV1,
+  observeQuery: CommitFeedRepositoryOptionsV1["observeQuery"],
+  maximumCommits: number,
+): Promise<CapturedCommitFeedRowsV1> {
     const clockQuery = tx
       .select({
         scopeUuid: fxSystemScopeClocks.scopeUuid,
@@ -338,7 +398,7 @@ async function captureCommitFeedRows(
         gt(fxSystemCommits.commitSeq, input.exclusiveCommitSeq),
       ))
       .orderBy(asc(fxSystemCommits.commitSeq))
-      .limit(MAX_COMMIT_FEED_PAGE_COMMITS_V1 + 1);
+      .limit(maximumCommits + 1);
     observeCommitFeedQuery("headers", headerQuery, observeQuery);
     const headerRows = await headerQuery;
 
@@ -346,6 +406,7 @@ async function captureCommitFeedRows(
       input,
       clockRows,
       headerRows,
+      maximumCommits,
     );
     if (selection === null) {
       return Object.freeze({
@@ -456,13 +517,13 @@ async function captureCommitFeedRows(
       relationAdjacencyChangeRows:
         detachDriverRows(relationAdjacencyChangeRows),
     });
-  });
 }
 
 function selectHeadersForChildCapture(
   input: ValidatedCommitFeedInputV1,
   clockRows: ReadonlyArray<ScopeClockRow>,
   headerRows: ReadonlyArray<CommitHeaderRow>,
+  maximumCommits: number,
 ): HeaderCaptureSelectionV1 | null {
   const clock = clockRows.length === 1 ? clockRows[0] : undefined;
   if (
@@ -505,7 +566,7 @@ function selectHeadersForChildCapture(
   }
   const lastCapturedCommitSeq = expectedCommitSeq - 1n;
   if (
-    headerRows.length < MAX_COMMIT_FEED_PAGE_COMMITS_V1 + 1 &&
+    headerRows.length < maximumCommits + 1 &&
     lastCapturedCommitSeq < clock.lastCommitSeq
   ) {
     return null;
@@ -515,7 +576,7 @@ function selectHeadersForChildCapture(
   let expectedRelationAdjacencyChangeCount = 0;
   let selectedCount = 0;
   for (
-    const header of headerRows.slice(0, MAX_COMMIT_FEED_PAGE_COMMITS_V1)
+    const header of headerRows.slice(0, maximumCommits)
   ) {
     if (
       selectedCount > 0 &&
@@ -549,6 +610,7 @@ function selectHeadersForChildCapture(
 function materializeCommitFeedPage(
   input: ValidatedCommitFeedInputV1,
   captured: CapturedCommitFeedRowsV1,
+  maximumCommits: number,
 ): Result.Result<
   CommitFeedPageV1,
   CommitFeedInputErrorV1 | CommitFeedScopeNotFoundErrorV1 |
@@ -600,8 +662,9 @@ function materializeCommitFeedPage(
       input,
       clock,
       captured.headerRows,
+      maximumCommits,
     );
-    const selectedHeaders = selectPageHeaders(headers);
+    const selectedHeaders = selectPageHeaders(headers, maximumCommits);
     const expectedChangeCount = selectedHeaders.reduce(
       (total, header) => total + header.changeCount,
       0,
@@ -773,6 +836,7 @@ function validateCommitHeaders(
   input: ValidatedCommitFeedInputV1,
   clock: ScopeClockRow,
   rows: ReadonlyArray<CommitHeaderRow>,
+  maximumCommits: number,
 ): Result.Result<
   ReadonlyArray<CommitHeaderRow>,
   CommitFeedCorruptionErrorV1
@@ -807,7 +871,7 @@ function validateCommitHeaders(
   }
   const lastCapturedCommitSeq = expectedCommitSeq - 1n;
   if (
-    rows.length < MAX_COMMIT_FEED_PAGE_COMMITS_V1 + 1 &&
+    rows.length < maximumCommits + 1 &&
     lastCapturedCommitSeq < clock.lastCommitSeq
   ) {
     return corruption(
@@ -821,11 +885,12 @@ function validateCommitHeaders(
 
 function selectPageHeaders(
   headers: ReadonlyArray<CommitHeaderRow>,
+  maximumCommits: number,
 ): ReadonlyArray<CommitHeaderRow> {
   const selected: CommitHeaderRow[] = [];
   let changeCount = 0;
   let relationAdjacencyChangeCount = 0;
-  for (const header of headers.slice(0, MAX_COMMIT_FEED_PAGE_COMMITS_V1)) {
+  for (const header of headers.slice(0, maximumCommits)) {
     if (
       selected.length > 0 &&
       (
@@ -842,6 +907,17 @@ function selectPageHeaders(
     relationAdjacencyChangeCount += header.relationAdjacencyChangeCount;
   }
   return Object.freeze(selected);
+}
+
+function validateMaximumCommits(
+  value: number,
+): Result.Result<number, CommitFeedInputErrorV1> {
+  return Number.isSafeInteger(value) && value >= 1 &&
+      value <= MAX_COMMIT_FEED_PAGE_COMMITS_V1
+    ? Result.succeed(value)
+    : Result.fail(new CommitFeedInputErrorV1({
+        reason: "maximumCommitsInvalid",
+      }));
 }
 
 function materializeAppRowChange(

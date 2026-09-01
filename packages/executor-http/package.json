@@ -11,7 +11,8 @@
     "./internal/system-test/declarative-v2-authenticated-command-v1": "./src/declarativeV2AuthenticatedCommandV1.ts",
     "./internal/system-test/declarative-v2-authenticated-command-response-v1": "./src/declarativeV2AuthenticatedCommandResponseV1.ts",
     "./internal/system-test/declarative-v2-authenticated-command-restart-input-v1": "./src/declarativeV2AuthenticatedCommandRestartInputV1.ts",
-    "./internal-deployment-project-scope-lookup-v1": "./src/deploymentProjectScopeLookupV1.ts"
+    "./internal-deployment-project-scope-lookup-v1": "./src/deploymentProjectScopeLookupV1.ts",
+    "./internal-query-sync-source-read-v1": "./src/querySyncSourceReadV1.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
