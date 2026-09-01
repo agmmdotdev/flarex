@@ -4,9 +4,9 @@
 
 **Preflight status:** accepted on 2026-09-01. FX02-A exited on 2026-09-01 after
 its focused local matrix, clean implementation reviews, and isolated real-
-Postgres 18.3 receipt passed. The FX02-B implementation is present locally; its
-isolated deployed restart receipt remains pending, so FX02-B has not exited.
-FX02-C and FX02-D have not started.
+Postgres 18.3 receipt passed. FX02-B exited on 2026-09-01 after its local,
+Workerd, and isolated hosted controlled-restart receipts passed. FX02-C and
+FX02-D have not started, so FX02 as a whole remains incomplete.
 
 This record accepts the ordered FX02 architecture and authorizes only the
 bounded implementation slices defined below. It does not activate the existing
@@ -575,8 +575,8 @@ state epoch replacement, and reset-required proofs.
 No evaluator, publisher, registration, alarm, wake, checkpoint, background
 fiber, public `fetch` route, production caller, client API, or production
 fresh-initialization authority was added. A local persisted Miniflare reopen is
-not described as Cloudflare eviction. FX02-B remains open until the separately
-isolated deployed restart/cold-recreation receipt passes.
+not described as Cloudflare eviction. The separately isolated hosted receipt
+below closes FX02-B without activating this private host.
 
 ## FX02-B Isolated Hosted Exit Proof
 
@@ -637,3 +637,39 @@ written incrementally because there are no shutdown hooks. The receipt proves
 that exact controlled deployment restart. It does not claim a forced platform
 eviction. The explicit deleted-class migration permanently removes the
 isolated namespace and its stored probe data after the receipt is captured.
+
+## FX02-B Hosted Receipt — 2026-09-01
+
+The isolated hosted run `7a5c0a79a40f8be210cdc5d6` passed the frozen sequence:
+
+- the unauthenticated gateway check returned `401` before any Durable Object
+  operation;
+- the initial admitted-batch turn returned `continuationRequired` with
+  `admittedBatchLimitReached` at durable cursor `1`;
+- the controlled code deployment changed Worker version
+  `b9bacacf-3c1a-4557-ada4-b857f7b160a8` to
+  `761d838e-77af-4810-93b0-2819841606f0` and constructor boot
+  `b1c3bcb8-90a3-4c28-8dd8-ae3d24423dba4` to
+  `b54a3291-ec67-464a-8c83-455b46964cf0`;
+- the first read-only restart observation saw the new boot/version, after which
+  the single resume advanced the same isolated object from cursor `1` to
+  `caughtUp` cursor `2` without fresh-initialization authority; and
+- the deleted-class migration removed the isolated namespace, the harness
+  proved both Workers absent, and independent post-run Wrangler reads returned
+  exact Cloudflare error `10007` for both fixed names.
+
+Two earlier pre-mutation live attempts exposed hosted rollout behavior rather
+than query-sync behavior: one served the host before its configuration was
+visible, and one returned `404` before the freshly reported workers.dev host was
+visible. Readiness precedes initialization, so neither attempt invoked the
+Durable Object. Their owned resources were removed and exact absence was
+verified. The harness now joins the current 100%-traffic deployment version ID
+to its untruncated version annotation for cleanup authority and retries only
+the two non-mutating rollout states frozen above; transport failures remain
+terminal.
+
+This receipt is controlled code-deployment restart evidence, not proof of a
+forced platform eviction or hibernation event. Together with the already
+passing local and Workerd matrices, it closes FX02-B. It does not authorize
+FX02-C, FX02-D, production activation, a public/client API, or a delivery
+adapter.
