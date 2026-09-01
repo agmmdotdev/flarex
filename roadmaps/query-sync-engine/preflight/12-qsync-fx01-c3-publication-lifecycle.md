@@ -2,18 +2,20 @@
 
 ## Status
 
-**Checkpoint status:** accepted on 2026-08-31. The medium generation-4
-publication-lifecycle vertical, exhaustive phase-2 closure, and repeated
-cross-operation and conformance phase-3 closure are implemented in the current
-checkpoint. Exact limits and the final Workerd exit remain incomplete.
-`QSYNC-FX01-C2` is complete and exited in `13ee4aa6`. C3 remains
-package-private, unrouted, production-inert, and incomplete.
+**Checkpoint status:** complete on 2026-09-01. The medium generation-4
+publication-lifecycle vertical, exhaustive phase-2 closure, repeated
+cross-operation and conformance phase-3 closure, and phase-4 exact-limit and
+pinned-Workerd exit matrix all pass in the current checkpoint. `QSYNC-FX01-C2`
+exited in `13ee4aa6`; `QSYNC-FX01-C3` and the `QSYNC-FX01` umbrella are now
+complete. They remain package-private, unrouted, and production-inert.
 
-Acceptance authorizes only the DDL, migration, database clock, adapter work,
-private naming cleanup, and proof inside this record. It does not itself
-implement C3 and authorizes no public export, route, production caller,
-publisher, or production activation. C3 is complete only after every proof gate
-in this record passes.
+Completion unblocks `QSYNC-FX02` only for its own bounded preflight. FX02 is
+not implemented or authorized by this record.
+
+Acceptance authorized only the DDL, migration, database clock, adapter work,
+private naming cleanup, and proof inside this record. The completed checkpoint
+adds no public export, route, production caller, publisher, client, delivery
+adapter, or production activation.
 
 ## Accepted Decision
 
@@ -121,9 +123,10 @@ operation. All three methods and this base proof therefore land together in one
 medium vertical. It may use several internally coherent commits, but review and
 acceptance judge the complete vertical rather than a partial facade.
 
-Later slices close exhaustive corruption/fault enumeration, repeated race and
-conformance schedules, exact maximum/plus-one limits, and the final Workerd
-matrix. C3 does not exit until that complete matrix passes.
+The subsequent slices closed exhaustive corruption/fault enumeration, repeated
+race and conformance schedules, exact maximum/plus-one limits, and the final
+pinned-Workerd matrix. Together those slices exit C3 without widening its
+private adapter boundary.
 
 ## Capability And Naming Boundary
 
@@ -517,6 +520,8 @@ methods.
 
 ### 4. Limits and genuine Workerd exit
 
+**Status:** complete in the current implementation checkpoint.
+
 - 4,096 pending publications, one in-flight publication, and one newer pending
   publication behind that in-flight query;
 - 1 MiB content, 32 MiB retained publication content, settlement-envelope
@@ -545,6 +550,32 @@ methods.
 | conformance | shared nine-operation histories match every receipt and normalized snapshot |
 | Workerd lifecycle | pinned real Workerd catalog/clock/rollback/reopen proof with honest eviction labeling |
 
+## Exit Evidence
+
+The Node SQLite limit proof is owned by
+[`deploymentSyncPublicationLimits.test.ts`](../../../packages/flarex-backend/test/deploymentSyncPublicationLimits.test.ts)
+and its bounded fixture support. It proves the exact 4,096-pending and 32 MiB
+retained-content topology while one predecessor is in flight and that query has
+a newer pending generation. It also proves an exact 64 MiB claim, typed
+counted-canonical plus-one rejection before publication exposure or mutation,
+settlement-envelope reservation, and capacity-infallible outcome and completion
+after claim.
+
+The current unversioned pinned-host harness is
+[`deploymentQuerySync.workerd.test.ts`](../../../packages/flarex-backend/test/deploymentQuerySync.workerd.test.ts)
+with
+[`deploymentQuerySync.workerd.worker.ts`](../../../packages/flarex-backend/test/deploymentQuerySync.workerd.worker.ts).
+Under Miniflare `4.20260611.0` and Workerd `1.20260611.1`, it proves the maximum
+generation-4 publication lifecycle, the canonical pending selector query plan,
+forced transaction rollback, isolation between two named Durable Objects,
+disposal/recreation, and persisted reopen. The same pinned lane retains the
+earlier maximum row, binding, and buffering evidence.
+
+This evidence proves the private Node SQLite and pinned local Workerd adapter
+lanes only. It does not prove deployed Cloudflare behavior, eviction,
+hibernation, runtime portability, a production host, product parity, or any
+publisher/client/delivery path.
+
 ## Eviction And Hibernation Decision
 
 The existing B/FX01 wording asks C3 for explicit eviction/reopen proof, but the
@@ -558,10 +589,10 @@ The accepted decision is:
 - move deployed eviction/hibernation proof to FX02, where a real
   `DeploymentSyncDO` host composition and caller lifecycle exist.
 
-This accepted checkpoint explicitly supersedes only the older claim that the
-storage-only C3 adapter can prove a deployed host eviction. If an approved
-current Workerd harness exposes a genuine eviction control before C3 exits,
-add that evidence without changing semantic scope.
+This completed checkpoint explicitly supersedes only the older claim that the
+storage-only C3 adapter can prove a deployed host eviction. The exit evidence
+is deliberately limited to local disposal/recreation and persisted reopen; it
+does not relabel either as eviction or hibernation.
 
 ## Explicitly Not Authorized
 
@@ -588,9 +619,9 @@ This checkpoint does not authorize:
   `QSYNC-CF01`, `R03-B`, `SV-R Live`, runtime-portability, deployed-
   Cloudflare, production-readiness, or product-parity claims.
 
-## Accepted Checkpoint
+## Completed Checkpoint
 
-Accepted on 2026-08-31 with these decisions:
+Accepted on 2026-08-31 and completed on 2026-09-01 with these decisions:
 
 1. generation 4 with separate immutable in-flight and small lifecycle
    singleton tables;
@@ -599,6 +630,9 @@ Accepted on 2026-08-31 with these decisions:
    operations plus the final unversioned private facade name; and
 4. honest C3 reopen proof with deployed eviction/hibernation deferred to FX02.
 
-The medium implementation-and-base-proof vertical plus phase-2 and phase-3
-closure are complete. `QSYNC-FX01-C3` remains incomplete and production-inert
-until the remaining phase-4 exit proof passes.
+The medium implementation-and-base-proof vertical plus phase-2, phase-3, and
+phase-4 closure are complete. `QSYNC-FX01-C3` and `QSYNC-FX01` are complete,
+package-private, unrouted, and production-inert. `QSYNC-FX02` is now unblocked
+for a separate accepted preflight only; it remains unimplemented. No
+publisher, client, delivery, Postgres-source, host-composition, public API, or
+production claim follows from this exit.

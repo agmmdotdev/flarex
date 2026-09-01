@@ -19,13 +19,14 @@ publication lifecycle, completes the all-nine proof, and opens only the private
 This D preflight itself authorizes no Cloudflare SQLite schema, local storage
 generation, migration, Durable Object state adapter, Postgres source,
 evaluator, publisher, route, or production caller. The later fresh
-[`QSYNC-FX01-C1` checkpoint](./10-qsync-fx01-c1-sqlite-vertical.md) now
-records the completed C1 implementation. The later accepted
+[`QSYNC-FX01-C1` checkpoint](./10-qsync-fx01-c1-sqlite-vertical.md) records the
+completed C1 implementation. The later
 [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
-records the completed private evaluation-side adapter. Neither checkpoint
-retroactively makes D adapter authority. The subsequent docs-only
-[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) is now
-accepted; its implementation and proof remain incomplete.
+records the completed private evaluation-side adapter, and the subsequent
+[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md)
+records the completed private publication lifecycle and `QSYNC-FX01` exit.
+Those checkpoints do not retroactively make D adapter authority or authorize
+production activation.
 
 The accepted correction is one private, runtime-neutral family of pure
 operation-scoped transition planners inside the existing
@@ -46,7 +47,7 @@ the required input to a future durable store transaction.
 | Does the planner run Effect or own transactions? | No. It is synchronous pure policy returning Effect v4 `Result`. The host owns serialization, transactions, clocks, and Effect lifting. |
 | Who owns counters and limits? | One portable accounting/invariant owner shared by the planners and aggregate builder. Adapters never reproduce semantic arithmetic. |
 | Is the old aggregate reducer retained as a second authority? | No. Aggregate APIs become planner-backed compatibility/oracle wrappers and displaced semantic branches are removed. |
-| What was the historical FX01 resume gate? | D1-D4 had to complete all nine planners and a fresh FX01 checkpoint had to approve one adapter slice. That condition later opened completed C1 and C2 checkpoints; C2 exited privately on 2026-08-31, and the separate docs-only C3 checkpoint is now accepted but unimplemented. |
+| What was the historical FX01 resume gate? | D1-D4 had to complete all nine planners and a fresh FX01 checkpoint had to approve one adapter slice. That condition later opened the completed C1, C2, and C3 checkpoints; C3 exited privately on 2026-09-01 and completed FX01 without authorizing production activation. |
 
 ## Why This Gate Exists
 
@@ -732,8 +733,11 @@ three-operation SQLite vertical. The
 [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
 was subsequently accepted and implemented as the private six-operation SQLite
 evaluation vertical. Its required exit proof completed on 2026-08-31. The
-docs-only [`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md)
-is now accepted; its implementation and proof remain incomplete.
+[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) was
+subsequently accepted, implemented, and exited on 2026-09-01, completing
+`QSYNC-FX01` at a package-private, unrouted, production-inert boundary.
+`QSYNC-FX02` is only preflight-unblocked; delivery and production activation
+remain separately gated.
 
 `QSYNC-CF01` remains a separate delivery feasibility/selection gate and does
 not change this ordering.

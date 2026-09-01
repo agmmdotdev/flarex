@@ -23,16 +23,19 @@ three-operation SQLite vertical are complete in `b94abbb0`. The accepted
 [`QSYNC-FX01-C2` checkpoint](./query-sync-engine/preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
 and its generation-3 six-operation evaluation vertical were implemented on
 2026-08-30; its pinned local Workerd exit proof completed on 2026-08-31. C2 is
-complete, private, unrouted, and production-inert. The accepted docs-only
+complete, private, unrouted, and production-inert. The accepted
 [`QSYNC-FX01-C3` checkpoint](./query-sync-engine/preflight/12-qsync-fx01-c3-publication-lifecycle.md)
-now contains its bounded generation-4 publication-lifecycle vertical plus
-phase-2 and phase-3 closure; exact limits and the final Workerd exit remain
-incomplete.
+completed its generation-4 publication lifecycle, complete private
+nine-operation adapter, exact-limit matrix, and pinned local Workerd
+rollback/disposal-recreate/reopen exit on 2026-09-01. `QSYNC-FX01` is complete,
+private, unrouted, and production-inert.
+Its completion unblocks `QSYNC-FX02` as the next preflight; FX02 is not
+implemented.
 Roadmap 21 remains the accepted concrete Flarex/Cloudflare adapter authority.
-Completion/recovery SQLite state, ordered Postgres catch-up, registration,
-reset/reconnect, rerun, Durable Streams delivery, and production caller
-integration remain incomplete. Cache Durable Objects remain deferred
-optimizations.
+Ordered Postgres catch-up, source/evaluator and host composition, registration,
+reset/reconnect, rerun, delivery selection and implementation, public APIs, and
+production caller integration remain incomplete. Cache Durable Objects remain
+deferred optimizations.
 
 Reconnect-retention DDL is not part of FlarexDB foundation S07. Existing
 connection leases remain prototype mechanics, not the accepted replacement
@@ -129,10 +132,10 @@ construct/adapt the portable engine; it does not become a second engine.
 withdrawn as implementation authority and does not resume. Its useful evidence
 flows only through the successor `QSYNC-FX01` adapter gates. The portable
 transition/reference, semantic-state/orchestration, and D1-D4 planner
-prerequisites are complete; C1 completed and C2 implemented their separately
-accepted adapter slices. C2's full proof completed on 2026-08-31. C3 is
-implemented through phase 3; exact limits and the final Workerd exit remain
-incomplete.
+prerequisites are complete; C1-C3 completed their separately accepted adapter
+slices and proof matrices. C2's full proof completed on 2026-08-31, and C3's
+generation-4 exit completed on 2026-09-01. The resulting FX01 adapter remains
+private, unrouted, and production-inert.
 
 The Flarex model/source/SQLite adapter may proceed independently of delivery
 selection. Durable Streams must pass its own feasibility gate before any
@@ -486,23 +489,24 @@ The backend implements:
 These capabilities preserve useful regression cases and reusable delivery
 mechanics, not the final scope-local sync protocol. The production-inert
 `DeploymentSyncDO` remains an empty placement shell. The backend now contains
-one private generation-3 normalized SQLite authority intended for its
-object-local database. Its six-operation evaluation vertical covers binding,
-namespace initialization/inspection, evaluation begin, atomic admitted-batch
-invalidation plus cursor advance, completion evidence and dependency roles,
-pending-publication intent, evaluation claiming, and attempt outcomes. No
-production host constructs the adapter; publication claiming, publication
-attempt outcomes, and publication completion remain absent. No catch-up loop,
-`VersionDO`, `DocCacheDO`, or `QueryCacheDO` implementation exists.
+one private generation-4 normalized SQLite authority intended for its
+object-local database. Its complete nine-operation state adapter covers
+binding, namespace initialization/inspection, evaluation and publication
+claiming, admitted-batch invalidation plus cursor advance, completion,
+attempt-outcome, rollback, and recovery semantics. No production host constructs
+the adapter, executes a query, or publishes/delivers its retained result. No
+catch-up loop, `VersionDO`, `DocCacheDO`, or `QueryCacheDO` implementation
+exists.
 
 The current private protocol/model/adapter work owns strict cursor and wake
 contracts, scope-local dependency keys, logical-read projection, validated-
 commit invalidation projection, canonical Flarex query identity, and the
-generation-3 SQLite representation. Portable query/generation decisions come
+generation-4 SQLite representation. Portable query/generation decisions come
 from `@flarex/query-sync`; the deleted backend-local policy must not be
 recreated. The adapter has a normalized reverse dependency index and advances
 the cursor only through portable admitted-batch semantics. It does not run a
-query, claim publication work, deliver a result, or expose a production route.
+query, append to a delivery system, deliver a result, or expose a production
+route.
 
 ## Known Gaps And Limitations
 
@@ -626,12 +630,13 @@ ordered gates are now:
    maximum-population, race/read-trace, and pinned local Workerd proof matrix
    completed. This is not deployed Cloudflare evidence or a measured 128 MiB
    guarantee, and dispose/recreate does not prove eviction or hibernation.
-7. Implement and prove the accepted docs-only
-   [`QSYNC-FX01-C3` checkpoint](./query-sync-engine/preflight/12-qsync-fx01-c3-publication-lifecycle.md):
-   its generation-4 publication lifecycle and complete private nine-operation
-   adapter. C3 implementation and proof are complete through phase 3; exact
-   limits and the final Workerd exit remain. FX01 remains incomplete until C3
-   exits.
+7. The accepted
+   [`QSYNC-FX01-C3` checkpoint](./query-sync-engine/preflight/12-qsync-fx01-c3-publication-lifecycle.md)
+   completed its generation-4 publication lifecycle, complete private
+   nine-operation adapter, exact maximum/plus-one matrix, and pinned local
+   Workerd disposal/recreate/reopen proof on 2026-09-01. This closes FX01
+   privately and production-inertly; deployed Cloudflare eviction/hibernation
+   remains deferred to FX02 host composition.
 8. Independently run `QSYNC-CF01` against pinned upstream Durable Streams
    packages on real Cloudflare; accept or reject on conformance,
    auth/isolation, retention/rotation, payload, uncertainty recovery,
@@ -660,6 +665,12 @@ ordered gates are now:
 16. Run `R03-B` through the accepted portable engine plus Flarex adapters; no
      Legacy timestamp registry or compatibility `SchedulerDO` is an interim
      owner.
+
+FX01 completion unblocks a separate `QSYNC-FX02` preflight as the next adapter
+gate; no FX02 source, evaluator, host-composition, or deployed-lifecycle work in
+this sequence is implemented yet. `QSYNC-CF01`, `QSYNC-FX03`, delivery, public
+APIs, production activation, and `R03-B` retain their distinct incomplete
+gates.
 
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are not next gates. They require a
 separate measured need and their own gap-free correctness proofs after v1 sync
@@ -1200,7 +1211,8 @@ orchestration, planner seams, and reference conformance are complete through
 `QSYNC01-C4` and `QSYNC01-D4`. The accepted `QSYNC-FX01` adapter preflight is
 the successor: A and B are complete, C1 completed the private generation-2
 three-operation adapter, and C2 implemented the private generation-3
-six-operation evaluation adapter and completed its exit proof on 2026-08-31.
+six-operation evaluation adapter and completed its exit proof on 2026-08-31;
+C3 completed the generation-4 nine-operation adapter and exited on 2026-09-01.
 This does not displace this roadmap's
 concrete Flarex/Cloudflare ownership. Completed `SYNC01-A` through `SYNC01-F`
 remain valid evidence. This
@@ -1369,15 +1381,18 @@ SQL operations, indexes, and a two-megabyte BLOB/row ceiling. They do not make
 foreign-key enforcement a Flarex portability contract, so explicit bounded
 parent/child validation remains required above.
 
-### [ ] QSYNC-FX01 -- Flarex Mapping And Complete SQLite State Adapter
+### [x] QSYNC-FX01 -- Flarex Mapping And Complete SQLite State Adapter
 
-Status: accepted split preflight. A is complete, private, and
+Status: complete, private, unrouted, and production-inert as of 2026-09-01. A is
+complete, private, and
 production-inert. B is complete docs-only with a historical stop-before-schema
 verdict. D1-D4 and the private planner seam are complete. C1 and its private
 generation-2 three-operation SQLite adapter are complete in `b94abbb0`. C2's
 private generation-3 six-operation evaluation vertical was implemented on
-2026-08-30 and exited privately on 2026-08-31; C3 is implemented through phase
-3 but has not exited, and FX01 remains incomplete.
+2026-08-30 and exited privately on 2026-08-31. C3's generation-4 publication
+lifecycle, complete private nine-operation adapter, exact-limit matrix, and
+pinned local Workerd rollback/disposal-recreate/reopen exit completed on
+2026-09-01.
 
 The accepted umbrella record is
 [`query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md`](./query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md).
@@ -1397,8 +1412,9 @@ existed. D1-D4 closed that core seam and C1 evolved the existing cursor database
 in place without a second authority. The completed
 [`QSYNC-FX01-C2` checkpoint](./query-sync-engine/preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
 records the completed six-operation generation-3 evaluation boundary. The later
-C3 complete adapter must continue using one table set and cursor
-authority, pass reference/oracle plus genuine Workerd restart/rollback/
-corruption proof, and retain no direct cursor/query-generation compatibility
-path. Nothing here reauthorizes the withdrawn direct-backend `SYNC01-G` design
-or unblocks `R03-B`.
+[`QSYNC-FX01-C3` checkpoint](./query-sync-engine/preflight/12-qsync-fx01-c3-publication-lifecycle.md)
+records the completed generation-4 nine-operation adapter over that same table
+set and cursor authority plus its reference/oracle and pinned local Workerd
+proof. FX01 completion unblocks the separate FX02 preflight, but does not
+implement FX02, reauthorize the withdrawn direct-backend `SYNC01-G` design, or
+unblock FX03, CF01, delivery, public APIs, production activation, or `R03-B`.

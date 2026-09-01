@@ -467,7 +467,8 @@ matrix includes:
 
 - every staged physical write failure rolling back the complete transaction;
 - fresh authorized creation and exact cursor-only upgrade;
-- constructor re-entry, dispose/reopen, and genuine eviction/reconstruction;
+- constructor re-entry, pinned local Workerd disposal/recreate, and persisted
+  reopen;
 - response-loss replay for every replayable operation;
 - normalized malformed, noncanonical, orphan, duplicate, missing, excess,
   wrong-parent, and wrong-generation rows;
@@ -482,11 +483,14 @@ matrix includes:
 At B time, the Workerd suite proved only cursor-store isolation, exact decimal
 round trips, replay, compare-and-swap, selected corruption, rollback, and
 callback-defect preservation. C1 later added real Workerd proof for its
-generation-2 three-operation vertical. C2 later completed its pinned local
-Workerd maximum, binding, disposal, and reopen proof. None of these evidence
-sets is nine-operation conformance or deployed Cloudflare proof. Persisted
-Miniflare dispose/recreate proves reopen, not eviction or hibernation; targeted
-eviction still needs an explicit harness/dependency decision in C3.
+generation-2 three-operation vertical, C2 completed its pinned local maximum,
+binding, disposal, and reopen proof, and C3 completed pinned local
+generation-4 lifecycle and exit proof alongside separate Node SQLite
+nine-operation oracle conformance. This remains local-runtime evidence, not
+deployed Cloudflare proof. Persisted Miniflare
+dispose/recreate proves durable reopen after controlled instance disposal; it
+does not prove Cloudflare eviction or hibernation. Deployed eviction and
+hibernation evidence is deferred to `QSYNC-FX02`.
 
 ## Platform Evidence
 
@@ -556,8 +560,9 @@ The `QSYNC-FX01-C1` checkpoint was subsequently accepted and completed in
 [`10-qsync-fx01-c1-sqlite-vertical.md`](./10-qsync-fx01-c1-sqlite-vertical.md).
 The [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
 was subsequently accepted, implemented, and exited on 2026-08-31 as a private,
-unrouted generation-3 evaluation-side vertical. The accepted docs-only
-[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) now
-authorizes its bounded generation-4 medium vertical; implementation and proof
-remain incomplete, and every production host/delivery boundary remains
-unauthorized.
+unrouted generation-3 evaluation-side vertical. The
+[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) was
+subsequently accepted, implemented, and exited on 2026-09-01, completing
+`QSYNC-FX01` at a package-private, unrouted, production-inert boundary. That
+completion preflight-unblocks only `QSYNC-FX02`; it does not authorize FX02
+implementation or any production host, delivery, public API, or activation.

@@ -7,6 +7,7 @@ import {
   captureQueryEvaluationEvidence,
   captureQueryOperationTarget,
   captureQueryPublicationArtifact,
+  captureQuerySyncWorkRevision,
 } from "@flarex/query-sync/internal/kernel";
 import type {
   BeginQueryEvaluationRequest,
@@ -65,10 +66,20 @@ import {
   maximumRowSummary,
   seedGeneration2Maximum,
   storageWithBindingTrace,
-} from "./deploymentQuerySyncC2MaximumWorkerdTestSupport";
+} from "./deploymentQuerySyncMaximumWorkerdTestSupport";
+import {
+  seedEvaluationPopulationInStorage,
+} from "./deploymentSyncEvaluationPopulationTestSupport";
+import {
+  buildMaximumPublicationPopulation,
+  makePendingSelectionPlanProbe,
+  makePublicationSuccessorMaterial,
+  publicationLimitsSummary,
+  type PendingSelectionPlanProbe,
+} from "./deploymentSyncPublicationLimitTestSupport";
 
 interface TestEnv {
-  readonly DEPLOYMENT_SYNCS: DurableObjectNamespace<DeploymentQuerySyncC2TestDO>;
+  readonly DEPLOYMENT_SYNCS: DurableObjectNamespace<DeploymentQuerySyncTestDO>;
 }
 
 interface TestRequest {
@@ -80,10 +91,13 @@ interface TestRequest {
   readonly storageGenerationFence?: unknown;
   readonly commitSeq?: unknown;
   readonly querySeed?: unknown;
+  readonly selectedQueryKey?: unknown;
 }
 
-export class DeploymentQuerySyncC2TestDO extends DurableObject<TestEnv> {
+export class DeploymentQuerySyncTestDO extends DurableObject<TestEnv> {
   async fetch(request: Request): Promise<Response> {
+    // SAFETY: This private test worker receives only JSON bodies built by the
+    // typed test dispatcher below; each operation validates the members it uses.
     const input = await request.json() as TestRequest;
     switch (input.operation) {
       case "seedGeneration2Empty":
@@ -110,7 +124,7 @@ export class DeploymentQuerySyncC2TestDO extends DurableObject<TestEnv> {
           state => state.initializeOrInspectNamespace(bootstrapCursor(input)),
         ));
       case "putKvThenInitialize":
-        await this.ctx.storage.put("deployment-query-sync-c2-probe", "present");
+        await this.ctx.storage.put("deployment-query-sync-probe", "present");
         return await effectResponse(makeStateAndRun(
           this.ctx,
           input,
@@ -201,6 +215,39 @@ export class DeploymentQuerySyncC2TestDO extends DurableObject<TestEnv> {
             maximumQueryDescriptor(Number(input.querySeed ?? 1)),
           ),
         }));
+      case "prepareMaximumPublicationForReopen": {
+        const planProbe = makePendingSelectionPlanProbe(this.ctx.storage);
+        return await effectResponse(makeStateAndRun(
+          this.ctx,
+          { ...input, authorizedFresh: true },
+          state => prepareMaximumPublicationForReopen(
+            state,
+            this.ctx.storage,
+            this.ctx.id,
+            planProbe,
+            input,
+          ),
+          planProbe.storage,
+        ));
+      }
+      case "completeMaximumPublicationAfterReopen":
+        return await effectResponse(makeStateAndRun(
+          this.ctx,
+          input,
+          state => completeMaximumPublicationAfterReopen(
+            state,
+            this.ctx.storage.sql,
+            input,
+          ),
+        ));
+      case "publicationLimitsSummary":
+        return Response.json(serializeUnknown({
+          ok: true,
+          value: publicationLimitsSummary(
+            this.ctx.storage.sql,
+            String(input.selectedQueryKey),
+          ),
+        }));
       case "snapshot":
         return Response.json(serializeUnknown(snapshot(this.ctx.storage.sql)));
       case "catalog":
@@ -213,6 +260,8 @@ export class DeploymentQuerySyncC2TestDO extends DurableObject<TestEnv> {
 
 export default {
   async fetch(request: Request, env: TestEnv): Promise<Response> {
+    // SAFETY: The private Vitest dispatcher supplies the actor scope used for
+    // deterministic Durable Object placement; the DO validates operation input.
     const input = await request.clone().json() as TestRequest;
     const actorScopeUuid = ScopeUuidV1Schema.make(String(input.actorScopeUuid));
     return await env.DEPLOYMENT_SYNCS
@@ -234,6 +283,7 @@ function makeStateAndRun<A, E>(
   const bindingInput = Object.freeze({ objectId: ctx.id, observation });
   const freshInitializationCapability = input.authorizedFresh === true
     ? makeDeploymentQuerySyncFreshInitializationCapabilityForTest(
+      // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: invariant - the fixture supplies a Durable Object id and an already captured active-head observation
       Result.getOrThrow(captureDeploymentQuerySyncBinding(bindingInput)),
     )
     : undefined;
@@ -446,6 +496,218 @@ function completePublicationAfterReopen(
       replayed,
       stored: snapshot(sql),
     });
+  });
+}
+
+const prepareMaximumPublicationForReopen = Effect.fn(
+  "DeploymentQuerySyncWorkerdTest.prepareMaximumPublicationForReopen",
+)(function* (
+  state: DeploymentQuerySyncState,
+  storage: DeploymentQuerySyncStorage,
+  objectId: DurableObjectId,
+  planProbe: PendingSelectionPlanProbe,
+  input: TestRequest,
+) {
+    const binding = yield* Effect.fromResult(captureDeploymentQuerySyncBinding({
+      objectId,
+      observation: activeHeadObservation(input),
+    }));
+    const registrationCursor = bootstrapCursor(input);
+    const cursor = maximumPublicationCursor(input);
+    const initialized = yield* state.initializeOrInspectNamespace(
+      registrationCursor,
+    );
+    if (initialized._tag !== "initialized") {
+      return yield* Effect.die(new Error(
+        `Expected fresh maximum publication state, observed ${initialized._tag}.`,
+      ));
+    }
+    const population = buildMaximumPublicationPopulation({
+      cursor,
+      registrationCursor,
+      evaluationWorkRevision: yield* Effect.fromResult(
+        captureQuerySyncWorkRevision(1n),
+      ),
+    });
+    seedEvaluationPopulationInStorage(
+      storage,
+      binding,
+      population.state,
+    );
+    const selectedQueryKey = population.selectedPending.identity.queryKey;
+    const seeded = publicationLimitsSummary(storage.sql, selectedQueryKey);
+
+    storage.sql.exec(`CREATE TRIGGER
+      deployment_sync_test_fail_maximum_publication_claim
+      BEFORE INSERT ON deployment_sync_in_flight_publication
+      BEGIN
+        SELECT RAISE(FAIL, 'forced maximum publication claim rollback');
+      END`);
+    const failedExit = yield* Effect.exit(state.claimPublication());
+    storage.sql.exec(
+      "DROP TRIGGER deployment_sync_test_fail_maximum_publication_claim",
+    );
+    const afterFailedClaim = publicationLimitsSummary(
+      storage.sql,
+      selectedQueryKey,
+    );
+    if (
+      !Exit.isFailure(failedExit)
+      || !Cause.hasDies(failedExit.cause)
+      || Option.isSome(Cause.findErrorOption(failedExit.cause))
+      || planProbe.captureCount() !== 1
+    ) {
+      return yield* Effect.die(new Error(
+        "Expected one selector read and a defect-only maximum claim rollback.",
+      ));
+    }
+    const selectorPlan = planProbe.explain();
+
+    const claimed = yield* state.claimPublication();
+    if (claimed._tag !== "claimed" || planProbe.captureCount() !== 2) {
+      return yield* Effect.die(new Error(
+        `Expected successful maximum publication claim, observed ${claimed._tag}.`,
+      ));
+    }
+    const afterClaim = publicationLimitsSummary(storage.sql, selectedQueryKey);
+
+    const successorClaimed = yield* state.claimEvaluationWork({
+      maximumQueryInspections: 1,
+      continuation: null,
+    });
+    if (
+      successorClaimed._tag !== "claimed"
+      || successorClaimed.attempt.descriptor.queryKey !== selectedQueryKey
+    ) {
+      return yield* Effect.die(new Error(
+        `Expected selected-query successor claim, observed ${successorClaimed._tag}.`,
+      ));
+    }
+    const successorMaterial = makePublicationSuccessorMaterial(
+      cursor,
+      successorClaimed.attempt,
+    );
+    const successorCompleted = yield* state.completeQueryEvaluation(
+      successorClaimed.attempt,
+      successorMaterial.evaluation,
+      successorMaterial.refresh,
+      successorMaterial.publication,
+    );
+    if (
+      successorCompleted._tag !== "completed"
+      || successorCompleted.publicationDisposition._tag !== "pending"
+    ) {
+      return yield* Effect.die(new Error(
+        `Expected pending successor completion, observed ${successorCompleted._tag}.`,
+      ));
+    }
+    const afterSuccessor = publicationLimitsSummary(
+      storage.sql,
+      selectedQueryKey,
+    );
+    const recorded = yield* state.recordPublicationAttemptOutcome(
+      claimed.attempt,
+      "outcomeUnknown",
+    );
+    if (recorded._tag !== "recorded") {
+      return yield* Effect.die(new Error(
+        `Expected uncertain maximum publication record, observed ${recorded._tag}.`,
+      ));
+    }
+    const afterOutcome = publicationLimitsSummary(
+      storage.sql,
+      selectedQueryKey,
+    );
+    return Object.freeze({
+      initialized: initialized._tag,
+      selectedQueryKey,
+      seeded,
+      failedClaim: Object.freeze({
+        died: true,
+        typedFailure: false,
+        selectorCaptureCount: 1,
+      }),
+      afterFailedClaim,
+      selectorPlan,
+      claimed: publicationAttemptSummary(claimed),
+      selectorCaptureCount: planProbe.captureCount(),
+      afterClaim,
+      successorClaimed: Object.freeze({
+        _tag: successorClaimed._tag,
+        generation: successorClaimed.attempt.generation,
+        queryKey: successorClaimed.attempt.descriptor.queryKey,
+      }),
+      successorCompleted: Object.freeze({
+        _tag: successorCompleted._tag,
+        generation: successorCompleted.generation,
+        publicationDisposition:
+          successorCompleted.publicationDisposition._tag,
+      }),
+      afterSuccessor,
+      recorded: Object.freeze({
+        _tag: recorded._tag,
+        nextAttemptOrdinal: recorded.nextAttemptOrdinal,
+        nextDisposition: recorded.nextDisposition,
+      }),
+      afterOutcome,
+    });
+});
+
+const completeMaximumPublicationAfterReopen = Effect.fn(
+  "DeploymentQuerySyncWorkerdTest.completeMaximumPublicationAfterReopen",
+)(function* (
+  state: DeploymentQuerySyncState,
+  sql: SqlStorage,
+  input: TestRequest,
+) {
+    const selectedQueryKey = String(input.selectedQueryKey);
+    const initialized = yield* state.initializeOrInspectNamespace(
+      bootstrapCursor(input),
+    );
+    if (initialized._tag !== "existing") {
+      return yield* Effect.die(new Error(
+        `Expected reopened maximum publication state, observed ${initialized._tag}.`,
+      ));
+    }
+    const reopened = publicationLimitsSummary(sql, selectedQueryKey);
+    const replayedClaim = yield* state.claimPublication();
+    if (replayedClaim._tag !== "replayed") {
+      return yield* Effect.die(new Error(
+        `Expected maximum publication claim replay, observed ${replayedClaim._tag}.`,
+      ));
+    }
+    const accepted = makeAcceptedQueryPublicationEvidenceForTesting({
+      identity: replayedClaim.attempt.publication.identity,
+      resultDigest: replayedClaim.attempt.publication.resultDigest,
+    });
+    const completed = yield* state.completePublication(accepted);
+    const replayed = yield* state.completePublication(accepted);
+    if (completed._tag !== "completed" || replayed._tag !== "replayed") {
+      return yield* Effect.die(new Error(
+        `Expected maximum publication completion/replay, observed ${completed._tag}/${replayed._tag}.`,
+      ));
+    }
+    return Object.freeze({
+      initialized: initialized._tag,
+      reopened,
+      replayedClaim: publicationAttemptSummary(replayedClaim),
+      completed: completed._tag,
+      replayed: replayed._tag,
+      stored: publicationLimitsSummary(sql, selectedQueryKey),
+    });
+});
+
+function publicationAttemptSummary(
+  receipt: Extract<
+    Effect.Success<ReturnType<DeploymentQuerySyncState["claimPublication"]>>,
+    { readonly _tag: "claimed" | "replayed" }
+  >,
+) {
+  return Object.freeze({
+    _tag: receipt._tag,
+    attemptOrdinal: receipt.attempt.attemptOrdinal,
+    generation: receipt.attempt.publication.identity.generation,
+    queryKey: receipt.attempt.publication.identity.queryKey,
   });
 }
 
@@ -667,6 +929,7 @@ function activeHeadObservation(input: TestRequest) {
 }
 
 function bootstrapCursor(input: TestRequest) {
+  // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: invariant - the private fixture supplies schema-valid scope and active-head values
   const binding = Result.getOrThrow(captureDeploymentQuerySyncBinding({
     objectId: Object.freeze({
       name: deploymentSyncObjectName(ScopeUuidV1Schema.make(
@@ -675,11 +938,23 @@ function bootstrapCursor(input: TestRequest) {
     }),
     observation: activeHeadObservation(input),
   }));
+  // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: invariant - derives a zero-sequence cursor from an already captured fixture binding
   return Result.getOrThrow(captureNamespaceCursor({
     namespaceId: binding.namespaceId,
     syncModelId: binding.syncModelId,
     sourceEpoch: binding.sourceEpoch,
     appliedThroughSequence: 0n,
+  }));
+}
+
+function maximumPublicationCursor(input: TestRequest): NamespaceCursor {
+  const initial = bootstrapCursor(input);
+  // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: invariant - derives sequence 1 from an already captured fixture cursor
+  return Result.getOrThrow(captureNamespaceCursor({
+    namespaceId: initial.namespaceId,
+    syncModelId: initial.syncModelId,
+    sourceEpoch: initial.sourceEpoch,
+    appliedThroughSequence: 1n,
   }));
 }
 

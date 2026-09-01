@@ -1,4 +1,4 @@
-import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 
 import {
   MAX_CANONICAL_QUERY_IDENTITY_BYTES,
@@ -29,6 +29,9 @@ import { Encoding, Result } from "effect";
 import type {
   DeploymentQuerySyncBinding,
 } from "../src/deploymentSync/Binding";
+import type {
+  DeploymentQuerySyncStorage,
+} from "../src/deploymentSync/StorageContract";
 import {
   encodeDeploymentQuerySyncDependencyRow,
   type EncodedDeploymentQuerySyncDependencyRow,
@@ -323,26 +326,67 @@ export function seedEvaluationPopulation(
   binding: DeploymentQuerySyncBinding,
   state: QuerySyncState,
 ): void {
-  assertGeneration3PublicationLifecycle(state);
-  const scopeRow = encodeDeploymentQuerySyncScopeRow({
-    scopeUuid: binding.scopeUuid,
-    epochUuid: binding.epochUuid,
-    storageGeneration: binding.storageGeneration,
-    storageGenerationFence: binding.storageGenerationFence,
-    syncModelId: binding.syncModelId,
-    facts: Object.freeze({
-      cursor: state.cursor,
-      evaluationWork: state.evaluationWork,
-      metrics: state.metrics,
-    }),
-  });
   database.exec("BEGIN IMMEDIATE");
   try {
-    database.exec("DELETE FROM deployment_sync_pending_publications");
-    database.exec("DELETE FROM deployment_sync_query_dependencies");
-    database.exec("DELETE FROM deployment_sync_queries");
-    database.exec("DELETE FROM deployment_sync_scope_state");
-    database.prepare(`INSERT INTO deployment_sync_scope_state (
+    const insertScope = database.prepare(INSERT_SCOPE_SQL);
+    const insertQuery = database.prepare(INSERT_QUERY_SQL);
+    const insertDependency = database.prepare(INSERT_DEPENDENCY_SQL);
+    const insertPending = database.prepare(INSERT_PENDING_SQL);
+    writeEvaluationPopulation({
+      clear: () => {
+        database.exec("DELETE FROM deployment_sync_pending_publications");
+        database.exec("DELETE FROM deployment_sync_query_dependencies");
+        database.exec("DELETE FROM deployment_sync_queries");
+        database.exec("DELETE FROM deployment_sync_scope_state");
+      },
+      insertScope: row => {
+        insertScope.run(...scopeRowValues(row));
+      },
+      insertQuery: row => {
+        insertQuery.run(...queryRowValues(row));
+      },
+      insertDependency: row => {
+        insertDependency.run(...dependencyRowValues(row));
+      },
+      insertPending: row => {
+        insertPending.run(...pendingPublicationRowValues(row));
+      },
+    }, binding, state);
+    database.exec("COMMIT");
+  } catch (cause) {
+    database.exec("ROLLBACK");
+    throw cause;
+  }
+}
+
+export function seedEvaluationPopulationInStorage(
+  storage: DeploymentQuerySyncStorage,
+  binding: DeploymentQuerySyncBinding,
+  state: QuerySyncState,
+): void {
+  storage.transactionSync(() => writeEvaluationPopulation({
+    clear: () => {
+      storage.sql.exec("DELETE FROM deployment_sync_pending_publications");
+      storage.sql.exec("DELETE FROM deployment_sync_query_dependencies");
+      storage.sql.exec("DELETE FROM deployment_sync_queries");
+      storage.sql.exec("DELETE FROM deployment_sync_scope_state");
+    },
+    insertScope: row => {
+      storage.sql.exec(INSERT_SCOPE_SQL, ...scopeRowValues(row));
+    },
+    insertQuery: row => {
+      storage.sql.exec(INSERT_QUERY_SQL, ...queryRowValues(row));
+    },
+    insertDependency: row => {
+      storage.sql.exec(INSERT_DEPENDENCY_SQL, ...dependencyRowValues(row));
+    },
+    insertPending: row => {
+      storage.sql.exec(INSERT_PENDING_SQL, ...pendingPublicationRowValues(row));
+    },
+  }, binding, state));
+}
+
+const INSERT_SCOPE_SQL = `INSERT INTO deployment_sync_scope_state (
       singleton,
       scope_uuid,
       epoch_uuid,
@@ -360,10 +404,9 @@ export function seedEvaluationPopulation(
       retained_publication_content_bytes,
       settlement_envelope_bytes,
       counted_canonical_bytes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(...scopeRowValues(scopeRow));
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-    const insertQuery = database.prepare(`INSERT INTO deployment_sync_queries (
+const INSERT_QUERY_SQL = `INSERT INTO deployment_sync_queries (
       query_key,
       query_identity,
       active_generation,
@@ -389,69 +432,93 @@ export function seedEvaluationPopulation(
       completion_result_digest,
       completion_publication_disposition,
       preceding_completion_generation
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    const insertDependency = database.prepare(
-      `INSERT INTO deployment_sync_query_dependencies (
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+const INSERT_DEPENDENCY_SQL = `INSERT INTO deployment_sync_query_dependencies (
         role,
         query_key,
         generation,
         dependency_key
-      ) VALUES (?, ?, ?, ?)`,
-    );
-    const insertPending = database.prepare(
-      `INSERT INTO deployment_sync_pending_publications (
+      ) VALUES (?, ?, ?, ?)`;
+
+const INSERT_PENDING_SQL = `INSERT INTO deployment_sync_pending_publications (
         query_key,
         generation,
         query_identity,
         completed_through_sequence,
         result_digest,
         content
-      ) VALUES (?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?)`;
+
+interface EvaluationPopulationWriter {
+  readonly clear: () => void;
+  readonly insertScope: (row: EncodedDeploymentQuerySyncScopeRow) => void;
+  readonly insertQuery: (
+    row: EncodedDeploymentQuerySyncCompleteQueryRow,
+  ) => void;
+  readonly insertDependency: (
+    row: EncodedDeploymentQuerySyncDependencyRow,
+  ) => void;
+  readonly insertPending: (
+    row: EncodedDeploymentQuerySyncPendingPublicationRow,
+  ) => void;
+}
+
+type EvaluationPopulationSqlValue = null | number | string;
+
+function writeEvaluationPopulation(
+  writer: EvaluationPopulationWriter,
+  binding: DeploymentQuerySyncBinding,
+  state: QuerySyncState,
+): void {
+  assertEmptyPublicationLifecycle(state);
+  const scopeRow = encodeDeploymentQuerySyncScopeRow({
+    scopeUuid: binding.scopeUuid,
+    epochUuid: binding.epochUuid,
+    storageGeneration: binding.storageGeneration,
+    storageGenerationFence: binding.storageGenerationFence,
+    syncModelId: binding.syncModelId,
+    facts: Object.freeze({
+      cursor: state.cursor,
+      evaluationWork: state.evaluationWork,
+      metrics: state.metrics,
+    }),
+  });
+  writer.clear();
+  writer.insertScope(scopeRow);
+  for (const query of state.queries.toReversed()) {
+    writer.insertQuery(encodeDeploymentQuerySyncCompleteQueryRow(query));
+    const active = query.active;
+    if (active !== null) {
+      for (const dependencyKey of active.dependencyKeys) {
+        writer.insertDependency(encodeDeploymentQuerySyncDependencyRow({
+          role: "active",
+          queryKey: query.descriptor.queryKey,
+          generation: active.generation,
+          dependencyKey,
+        }));
+      }
+    }
+    const completion = query.currentCompletion;
+    if (completion !== null) {
+      for (const dependencyKey of completion.evaluationDependencyKeys) {
+        writer.insertDependency(encodeDeploymentQuerySyncDependencyRow({
+          role: "completion",
+          queryKey: query.descriptor.queryKey,
+          generation: completion.identity.generation,
+          dependencyKey,
+        }));
+      }
+    }
+  }
+  for (const publication of state.publicationWork.pending) {
+    writer.insertPending(
+      encodeDeploymentQuerySyncPendingPublicationRow(publication),
     );
-    for (const query of state.queries.toReversed()) {
-      insertQuery.run(...queryRowValues(
-        encodeDeploymentQuerySyncCompleteQueryRow(query),
-      ));
-      const active = query.active;
-      if (active !== null) {
-        for (const dependencyKey of active.dependencyKeys) {
-          insertDependency.run(...dependencyRowValues(
-            encodeDeploymentQuerySyncDependencyRow({
-              role: "active",
-              queryKey: query.descriptor.queryKey,
-              generation: active.generation,
-              dependencyKey,
-            }),
-          ));
-        }
-      }
-      const completion = query.currentCompletion;
-      if (completion !== null) {
-        for (const dependencyKey of completion.evaluationDependencyKeys) {
-          insertDependency.run(...dependencyRowValues(
-            encodeDeploymentQuerySyncDependencyRow({
-              role: "completion",
-              queryKey: query.descriptor.queryKey,
-              generation: completion.identity.generation,
-              dependencyKey,
-            }),
-          ));
-        }
-      }
-    }
-    for (const publication of state.publicationWork.pending) {
-      insertPending.run(...pendingPublicationRowValues(
-        encodeDeploymentQuerySyncPendingPublicationRow(publication),
-      ));
-    }
-    database.exec("COMMIT");
-  } catch (cause) {
-    database.exec("ROLLBACK");
-    throw cause;
   }
 }
 
-function assertGeneration3PublicationLifecycle(state: QuerySyncState): void {
+function assertEmptyPublicationLifecycle(state: QuerySyncState): void {
   if (
     state.publicationWork.inFlight !== null
     || state.publicationWork.latestDelivered !== null
@@ -460,14 +527,14 @@ function assertGeneration3PublicationLifecycle(state: QuerySyncState): void {
     || state.metrics.settlementEnvelopeBytes !== 0
   ) {
     throw new Error(
-      "Generation-3 evaluation fixtures cannot retain C3 publication lifecycle state.",
+      "Population seeding requires an empty publication lifecycle.",
     );
   }
 }
 
 function scopeRowValues(
   row: EncodedDeploymentQuerySyncScopeRow,
-): SQLInputValue[] {
+): EvaluationPopulationSqlValue[] {
   return [
     row.singleton,
     row.scope_uuid,
@@ -491,7 +558,7 @@ function scopeRowValues(
 
 function queryRowValues(
   row: EncodedDeploymentQuerySyncCompleteQueryRow,
-): SQLInputValue[] {
+): EvaluationPopulationSqlValue[] {
   return [
     row.query_key,
     row.query_identity,
@@ -523,13 +590,13 @@ function queryRowValues(
 
 function dependencyRowValues(
   row: EncodedDeploymentQuerySyncDependencyRow,
-): SQLInputValue[] {
+): EvaluationPopulationSqlValue[] {
   return [row.role, row.query_key, row.generation, row.dependency_key];
 }
 
 function pendingPublicationRowValues(
   row: EncodedDeploymentQuerySyncPendingPublicationRow,
-): SQLInputValue[] {
+): EvaluationPopulationSqlValue[] {
   return [
     row.query_key,
     row.generation,

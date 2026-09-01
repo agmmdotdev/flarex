@@ -741,8 +741,8 @@ C1 does not authorize:
    committed in `b94abbb0`.
 4. Work stopped at the C1 boundary. The separate
    [`QSYNC-FX01-C2` checkpoint](./11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
-   was then discussed, accepted, and implemented without widening C1; its
-   complete exit-proof matrix remains open.
+   was then discussed, accepted, implemented, and exited without widening C1;
+   its complete exit-proof matrix closed on 2026-08-31.
 
 C1's exit is achieved: the generation-2 migration and all three operations pass
 the focused and real Workerd proof, the unsafe direct advance is unavailable,

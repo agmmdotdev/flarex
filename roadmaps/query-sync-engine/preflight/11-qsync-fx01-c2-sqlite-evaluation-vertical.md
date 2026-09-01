@@ -5,10 +5,11 @@
 **Checkpoint status:** complete and exited on 2026-08-31. The private
 six-operation implementation completed on 2026-08-30, and the complete Required
 Proof Matrix below closed on 2026-08-31. C2 remains package-private, unrouted,
-and production-inert. The subsequent docs-only
-[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) is now
-accepted; implementation and proof remain incomplete, and production activation
-remains unauthorized.
+and production-inert. The subsequent
+[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md)
+completed on 2026-09-01 and completed the `QSYNC-FX01` umbrella at the same
+private, unrouted, production-inert boundary. Production activation remains
+unauthorized.
 
 `QSYNC-FX01-C1` completed in `b94abbb0` after its portable empty-scope
 prerequisite completed in `12e2f375`. The portable completion and evaluation
@@ -832,8 +833,8 @@ regression suites:
 - `test/deploymentSyncEvaluationPopulationTestSupport.ts`;
 - `test/deploymentSyncEvaluationStateAtomicity.test.ts`;
 - `test/deploymentSyncEvaluationStateLimits.test.ts`;
-- `test/deploymentQuerySyncC2.workerd.test.ts`; and
-- `test/deploymentQuerySyncC2.workerd.worker.ts`.
+- `test/deploymentQuerySync.workerd.test.ts`; and
+- `test/deploymentQuerySync.workerd.worker.ts`.
 
 The existing C1 files are already large. C2 must not append three unrelated
 transaction programs to a monolith or duplicate C1 binding/CAS logic. The
@@ -909,9 +910,9 @@ proposal requires its own accepted preflight and a new storage generation.
   catalogs, provider KV names, automatic indexes, 100 bindings, maximum row/
   content spellings, disposal, and reopen.
 
-Full shared nine-operation state conformance remains C3's exit proof. C2 must
-not claim it by wrapping the missing methods or by using the reference store as
-a production fallback.
+Full shared nine-operation state conformance was C3's exit proof and
+subsequently completed there. C2 did not claim it by wrapping the missing
+methods or by using the reference store as a production fallback.
 
 ## Validation And Commit Gates
 
@@ -1158,7 +1159,9 @@ terminal-versus-completion matrices.
 
 C2 exited at that private, production-inert boundary on 2026-08-31 after the
 pinned local Workerd maximum row/content, binding, buffering, disposal, and
-reopen proof in item 7 completed the retained matrix. `QSYNC-FX01` remains
-incomplete. The subsequent docs-only
-[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) is now
-accepted, but this C2 record neither implements C3 nor expands its boundary.
+reopen proof in item 7 completed the retained matrix. The subsequent
+[`QSYNC-FX01-C3` checkpoint](./12-qsync-fx01-c3-publication-lifecycle.md) was
+implemented and exited on 2026-09-01, completing `QSYNC-FX01` at a private,
+unrouted, production-inert boundary. This C2 record retains its historical
+six-operation scope and neither retroactively implements C3 nor expands its
+production boundary.

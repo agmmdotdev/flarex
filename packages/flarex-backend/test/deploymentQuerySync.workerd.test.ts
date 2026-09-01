@@ -10,15 +10,38 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   MAX_CANONICAL_QUERY_IDENTITY_BYTES,
+  MAX_COUNTED_CANONICAL_BYTES,
   MAX_INLINE_PUBLICATION_CONTENT_BYTES,
+  MAX_PENDING_PUBLICATIONS,
   MAX_REFERENCE_QUERIES,
   MAX_RETAINED_QUERY_IDENTITY_BYTES,
+  MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
+  PUBLICATION_SETTLEMENT_LIFECYCLE_BYTES,
+  QUERY_KEY_BYTES,
+  QUERY_RESULT_DIGEST_BYTES,
   canonicalBase64UrlEncodedLength,
 } from "@flarex/query-sync/internal/kernel";
 
 const epoch = "00000000-0000-4000-8000-000000000201";
+const FIXED_WIDTH_INTEGER_BYTES = 8;
+const ENUM_DISCRIMINANT_BYTES = 1;
+const RECORDED_RECEIPT_TAG_BYTES = 10;
+const CLAIMED_PUBLICATION_LIFECYCLE_BYTES =
+  (3 * FIXED_WIDTH_INTEGER_BYTES) + ENUM_DISCRIMINANT_BYTES;
+const RECORDED_OUTCOME_LIFECYCLE_BYTES = QUERY_KEY_BYTES
+  + (2 * FIXED_WIDTH_INTEGER_BYTES)
+  + QUERY_RESULT_DIGEST_BYTES
+  + ENUM_DISCRIMINANT_BYTES
+  + RECORDED_RECEIPT_TAG_BYTES;
+const CLAIMED_PUBLICATION_SETTLEMENT_ENVELOPE_BYTES =
+  PUBLICATION_SETTLEMENT_LIFECYCLE_BYTES
+  - CLAIMED_PUBLICATION_LIFECYCLE_BYTES;
+const RECORDED_OUTCOME_SETTLEMENT_ENVELOPE_BYTES =
+  PUBLICATION_SETTLEMENT_LIFECYCLE_BYTES
+  - CLAIMED_PUBLICATION_LIFECYCLE_BYTES
+  - RECORDED_OUTCOME_LIFECYCLE_BYTES;
 
-describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
+describe("private deployment query-sync Workerd SQLite vertical", () => {
   let workerBundle: string;
   let runtime: Miniflare;
 
@@ -154,7 +177,7 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
   });
 
   it("reopens and completes an uncertain publication after Workerd disposal and recreation", async () => {
-    const persistPath = await mkdtemp(join(tmpdir(), "flarex-qsync-c2-"));
+    const persistPath = await mkdtemp(join(tmpdir(), "flarex-qsync-"));
     const actorScopeUuid = testScope(4);
     let first: Miniflare | undefined;
     let second: Miniflare | undefined;
@@ -296,8 +319,8 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     });
   });
 
-  it("proves maximum C2 host boundaries across disposal and reopen", async () => {
-    const persistPath = await mkdtemp(join(tmpdir(), "flarex-qsync-c2-max-"));
+  it("proves maximum evaluation host boundaries across disposal and reopen", async () => {
+    const persistPath = await mkdtemp(join(tmpdir(), "flarex-qsync-max-"));
     const populationScope = testScope(8);
     const maximumRowScope = testScope(9);
     const populationIdentityBytes = MAX_RETAINED_QUERY_IDENTITY_BYTES
@@ -476,6 +499,204 @@ describe("private deployment query-sync C2 Workerd SQLite vertical", () => {
     }
   }, 480_000);
 
+  it("proves the maximum generation-4 publication lifecycle and named-object isolation across disposal and reopen", async () => {
+    const persistPath = await mkdtemp(join(tmpdir(), "flarex-qsync-c3-max-"));
+    const publicationScope = testScope(10);
+    const isolatedScope = testScope(11);
+    const maximumContentCharacters = canonicalBase64UrlEncodedLength(
+      MAX_INLINE_PUBLICATION_CONTENT_BYTES,
+    );
+    let first: Miniflare | undefined;
+    let second: Miniflare | undefined;
+    try {
+      first = makeRuntime(workerBundle, persistPath);
+      expect(await invoke(first, "initialize", {
+        ...observation(isolatedScope),
+        authorizedFresh: true,
+      })).toMatchObject({
+        ok: true,
+        value: { _tag: "initialized" },
+      });
+      const isolatedBefore = await invoke(first, "snapshot", {
+        actorScopeUuid: isolatedScope,
+      });
+      expect(isolatedBefore).toMatchObject({
+        contract: [{ local_contract_generation: 4 }],
+        scope: [{
+          query_count: 0,
+          pending_publication_count: 0,
+          in_flight_publication_count: 0,
+          retained_publication_content_bytes: 0,
+          settlement_envelope_bytes: 0,
+        }],
+        queries: [],
+        pending: [],
+        inFlight: [],
+        publicationState: [{ singleton: 1 }],
+      });
+
+      const prepared = await invoke(
+        first,
+        "prepareMaximumPublicationForReopen",
+        observation(publicationScope),
+      );
+      expectSuccessResponse(prepared);
+      const preparedValue = successValue(prepared);
+      const selectedQueryKey = stringMember(
+        preparedValue,
+        "selectedQueryKey",
+      );
+      const seeded = recordMember(preparedValue, "seeded");
+      const seededMetrics = recordMember(seeded, "scopeMetrics");
+      const seededCountedCanonicalBytes = safeIntegerMember(
+        seededMetrics,
+        "countedCanonicalBytes",
+      );
+      expect(seededCountedCanonicalBytes).toBeLessThan(
+        MAX_COUNTED_CANONICAL_BYTES,
+      );
+      expect(seeded).toEqual(maximumPublicationSeededExpectation(
+        maximumContentCharacters,
+        seededCountedCanonicalBytes,
+      ));
+      expect(recordMember(preparedValue, "afterFailedClaim")).toEqual(seeded);
+      const selectorPlanDetails = queryPlanDetails(
+        preparedValue,
+        "selectorPlan",
+      );
+      expect(selectorPlanDetails).toEqual([
+        "SCAN main.deployment_sync_pending_publications",
+      ]);
+      expect(selectorPlanDetails.some(detail =>
+        detail.includes("USE TEMP B-TREE")
+      )).toBe(false);
+      expect(prepared).toMatchObject({
+        ok: true,
+        value: {
+          initialized: "initialized",
+          failedClaim: {
+            died: true,
+            typedFailure: false,
+            selectorCaptureCount: 1,
+          },
+          claimed: {
+            _tag: "claimed",
+            attemptOrdinal: 1,
+            generation: "1",
+            queryKey: selectedQueryKey,
+          },
+          selectorCaptureCount: 2,
+          successorClaimed: {
+            _tag: "claimed",
+            generation: "2",
+            queryKey: selectedQueryKey,
+          },
+          successorCompleted: {
+            _tag: "completed",
+            generation: "2",
+            publicationDisposition: "pending",
+          },
+          recorded: {
+            _tag: "recorded",
+            nextAttemptOrdinal: 2,
+            nextDisposition: "uncertain",
+          },
+        },
+      });
+
+      const afterClaim = recordMember(preparedValue, "afterClaim");
+      expect(afterClaim).toEqual(maximumPublicationClaimedExpectation(
+        maximumContentCharacters,
+        seededCountedCanonicalBytes
+          + PUBLICATION_SETTLEMENT_LIFECYCLE_BYTES,
+      ));
+      const afterSuccessor = recordMember(preparedValue, "afterSuccessor");
+      const afterSuccessorMetrics = recordMember(
+        afterSuccessor,
+        "scopeMetrics",
+      );
+      const afterSuccessorCountedCanonicalBytes = safeIntegerMember(
+        afterSuccessorMetrics,
+        "countedCanonicalBytes",
+      );
+      expect(afterSuccessorCountedCanonicalBytes).toBeLessThanOrEqual(
+        MAX_COUNTED_CANONICAL_BYTES,
+      );
+      expect(afterSuccessor).toEqual(maximumPublicationSuccessorExpectation(
+        maximumContentCharacters,
+        afterSuccessorCountedCanonicalBytes,
+        CLAIMED_PUBLICATION_SETTLEMENT_ENVELOPE_BYTES,
+      ));
+      const afterOutcome = recordMember(preparedValue, "afterOutcome");
+      expect(afterOutcome).toEqual(maximumPublicationSuccessorExpectation(
+        maximumContentCharacters,
+        afterSuccessorCountedCanonicalBytes,
+        RECORDED_OUTCOME_SETTLEMENT_ENVELOPE_BYTES,
+      ));
+      expect(await invoke(first, "snapshot", {
+        actorScopeUuid: isolatedScope,
+      })).toEqual(isolatedBefore);
+
+      await first.dispose();
+      first = undefined;
+      second = makeRuntime(workerBundle, persistPath);
+      expect(await invoke(second, "initialize", {
+        ...observation(isolatedScope),
+      })).toMatchObject({
+        ok: true,
+        value: { _tag: "existing" },
+      });
+      expect(await invoke(second, "snapshot", {
+        actorScopeUuid: isolatedScope,
+      })).toEqual(isolatedBefore);
+
+      const completion = await invoke(
+        second,
+        "completeMaximumPublicationAfterReopen",
+        { ...observation(publicationScope), selectedQueryKey },
+      );
+      expectSuccessResponse(completion);
+      const completionValue = successValue(completion);
+      expect(recordMember(completionValue, "reopened")).toEqual(
+        afterOutcome,
+      );
+      expect(completion).toMatchObject({
+        ok: true,
+        value: {
+          initialized: "existing",
+          replayedClaim: {
+            _tag: "replayed",
+            attemptOrdinal: 2,
+            generation: "1",
+            queryKey: selectedQueryKey,
+          },
+          completed: "completed",
+          replayed: "replayed",
+        },
+      });
+      const stored = recordMember(completionValue, "stored");
+      const storedMetrics = recordMember(stored, "scopeMetrics");
+      const storedCountedCanonicalBytes = safeIntegerMember(
+        storedMetrics,
+        "countedCanonicalBytes",
+      );
+      expect(stored).toEqual(maximumPublicationCompletedExpectation(
+        storedCountedCanonicalBytes,
+      ));
+      expect(await invoke(second, "publicationLimitsSummary", {
+        actorScopeUuid: publicationScope,
+        selectedQueryKey,
+      })).toEqual({ ok: true, value: stored });
+      expect(await invoke(second, "snapshot", {
+        actorScopeUuid: isolatedScope,
+      })).toEqual(isolatedBefore);
+    } finally {
+      if (first !== undefined) await first.dispose();
+      if (second !== undefined) await second.dispose();
+      await rm(persistPath, { recursive: true, force: true });
+    }
+  }, 480_000);
+
   it("reads canonical milliseconds from the pinned Workerd SQLite clock", async () => {
     const response = await invoke(runtime, "publicationClock", {
       actorScopeUuid: testScope(7),
@@ -571,6 +792,164 @@ function maximumRowScopeMetricsExpectation(countedCanonicalBytes: number) {
   };
 }
 
+function maximumPublicationSeededExpectation(
+  maximumContentCharacters: number,
+  countedCanonicalBytes: number,
+) {
+  return {
+    physical: {
+      queryRowCount: MAX_REFERENCE_QUERIES,
+      pendingRowCount: MAX_PENDING_PUBLICATIONS,
+      inFlightRowCount: 0,
+      maximumContentPendingRowCount:
+        MAX_RETAINED_PUBLICATION_CONTENT_BYTES
+        / MAX_INLINE_PUBLICATION_CONTENT_BYTES,
+    },
+    scopeMetrics: maximumPublicationScopeMetricsExpectation({
+      pendingPublicationCount: MAX_PENDING_PUBLICATIONS,
+      inFlightPublicationCount: 0,
+      retainedPublicationContentBytes:
+        MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
+      settlementEnvelopeBytes: 0,
+      countedCanonicalBytes,
+    }),
+    selected: {
+      activeGeneration: "1",
+      provisionalGeneration: "2",
+      completionGeneration: "1",
+      completionPublicationDisposition: "pending",
+      pending: {
+        generation: "1",
+        contentCharacters: maximumContentCharacters,
+      },
+      inFlight: null,
+    },
+  };
+}
+
+function maximumPublicationClaimedExpectation(
+  maximumContentCharacters: number,
+  countedCanonicalBytes: number,
+) {
+  return {
+    physical: {
+      queryRowCount: MAX_REFERENCE_QUERIES,
+      pendingRowCount: MAX_PENDING_PUBLICATIONS - 1,
+      inFlightRowCount: 1,
+      maximumContentPendingRowCount:
+        (MAX_RETAINED_PUBLICATION_CONTENT_BYTES
+          / MAX_INLINE_PUBLICATION_CONTENT_BYTES) - 1,
+    },
+    scopeMetrics: maximumPublicationScopeMetricsExpectation({
+      pendingPublicationCount: MAX_PENDING_PUBLICATIONS - 1,
+      inFlightPublicationCount: 1,
+      retainedPublicationContentBytes:
+        MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
+      settlementEnvelopeBytes:
+        CLAIMED_PUBLICATION_SETTLEMENT_ENVELOPE_BYTES,
+      countedCanonicalBytes,
+    }),
+    selected: {
+      activeGeneration: "1",
+      provisionalGeneration: "2",
+      completionGeneration: "1",
+      completionPublicationDisposition: "pending",
+      pending: null,
+      inFlight: {
+        generation: "1",
+        contentCharacters: maximumContentCharacters,
+      },
+    },
+  };
+}
+
+function maximumPublicationSuccessorExpectation(
+  maximumContentCharacters: number,
+  countedCanonicalBytes: number,
+  settlementEnvelopeBytes: number,
+) {
+  return {
+    physical: {
+      queryRowCount: MAX_REFERENCE_QUERIES,
+      pendingRowCount: MAX_PENDING_PUBLICATIONS,
+      inFlightRowCount: 1,
+      maximumContentPendingRowCount:
+        (MAX_RETAINED_PUBLICATION_CONTENT_BYTES
+          / MAX_INLINE_PUBLICATION_CONTENT_BYTES) - 1,
+    },
+    scopeMetrics: maximumPublicationScopeMetricsExpectation({
+      pendingPublicationCount: MAX_PENDING_PUBLICATIONS,
+      inFlightPublicationCount: 1,
+      retainedPublicationContentBytes:
+        MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
+      settlementEnvelopeBytes,
+      countedCanonicalBytes,
+    }),
+    selected: {
+      activeGeneration: "2",
+      provisionalGeneration: null,
+      completionGeneration: "2",
+      completionPublicationDisposition: "pending",
+      pending: { generation: "2", contentCharacters: 0 },
+      inFlight: {
+        generation: "1",
+        contentCharacters: maximumContentCharacters,
+      },
+    },
+  };
+}
+
+function maximumPublicationCompletedExpectation(
+  countedCanonicalBytes: number,
+) {
+  return {
+    physical: {
+      queryRowCount: MAX_REFERENCE_QUERIES,
+      pendingRowCount: MAX_PENDING_PUBLICATIONS,
+      inFlightRowCount: 0,
+      maximumContentPendingRowCount:
+        (MAX_RETAINED_PUBLICATION_CONTENT_BYTES
+          / MAX_INLINE_PUBLICATION_CONTENT_BYTES) - 1,
+    },
+    scopeMetrics: maximumPublicationScopeMetricsExpectation({
+      pendingPublicationCount: MAX_PENDING_PUBLICATIONS,
+      inFlightPublicationCount: 0,
+      retainedPublicationContentBytes:
+        MAX_RETAINED_PUBLICATION_CONTENT_BYTES
+        - MAX_INLINE_PUBLICATION_CONTENT_BYTES,
+      settlementEnvelopeBytes: 0,
+      countedCanonicalBytes,
+    }),
+    selected: {
+      activeGeneration: "2",
+      provisionalGeneration: null,
+      completionGeneration: "2",
+      completionPublicationDisposition: "pending",
+      pending: { generation: "2", contentCharacters: 0 },
+      inFlight: null,
+    },
+  };
+}
+
+function maximumPublicationScopeMetricsExpectation(input: {
+  readonly pendingPublicationCount: number;
+  readonly inFlightPublicationCount: number;
+  readonly retainedPublicationContentBytes: number;
+  readonly settlementEnvelopeBytes: number;
+  readonly countedCanonicalBytes: number;
+}) {
+  return {
+    queryCount: MAX_REFERENCE_QUERIES,
+    retainedIdentityBytes: MAX_REFERENCE_QUERIES * 16,
+    dependencyMemberships: 0,
+    pendingPublicationCount: input.pendingPublicationCount,
+    inFlightPublicationCount: input.inFlightPublicationCount,
+    retainedPublicationContentBytes: input.retainedPublicationContentBytes,
+    settlementEnvelopeBytes: input.settlementEnvelopeBytes,
+    countedCanonicalBytes: input.countedCanonicalBytes,
+  };
+}
+
 function successValue(
   response: Readonly<{ readonly ok: true; readonly value: unknown }>,
 ): Readonly<Record<string, unknown>> {
@@ -585,6 +964,38 @@ function recordMember(
   const value = record[member];
   if (isRecord(value)) return value;
   throw new Error(`Expected Workerd response member ${member} to be a record.`);
+}
+
+function stringMember(
+  record: Readonly<Record<string, unknown>>,
+  member: string,
+): string {
+  const value = record[member];
+  if (typeof value === "string") return value;
+  throw new Error(`Expected Workerd response member ${member} to be a string.`);
+}
+
+function queryPlanDetails(
+  record: Readonly<Record<string, unknown>>,
+  member: string,
+): readonly string[] {
+  const value = record[member];
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `Expected Workerd response member ${member} to be an array.`,
+    );
+  }
+  return value.map((row, index) => {
+    if (
+      isRecord(row)
+      && typeof row.id === "number"
+      && Number.isSafeInteger(row.id)
+      && typeof row.parent === "number"
+      && Number.isSafeInteger(row.parent)
+      && typeof row.detail === "string"
+    ) return row.detail;
+    throw new Error(`Expected valid query-plan row ${index}.`);
+  });
 }
 
 function safeIntegerMember(
@@ -675,7 +1086,7 @@ function makeRuntime(workerBundle: string, persistPath?: string): Miniflare {
     compatibilityDate: "2026-06-14",
     durableObjects: {
       DEPLOYMENT_SYNCS: {
-        className: "DeploymentQuerySyncC2TestDO",
+        className: "DeploymentQuerySyncTestDO",
         useSQLite: true,
       },
     },
@@ -695,7 +1106,7 @@ async function bundleWorker(): Promise<string> {
       lib: {
         entry: join(
           backendDirectory,
-          "test/deploymentQuerySyncC2.workerd.worker.ts",
+          "test/deploymentQuerySync.workerd.worker.ts",
         ),
         formats: ["es"],
         fileName: "worker",
@@ -710,14 +1121,14 @@ async function bundleWorker(): Promise<string> {
     chunk.type === "chunk" && chunk.fileName === "worker.js"
   );
   if (worker === undefined || worker.type !== "chunk") {
-    throw new Error("Deployment query-sync C2 worker bundle missing.");
+    throw new Error("Deployment query-sync worker bundle missing.");
   }
   return worker.code;
 }
 
 function workspacePackageResolution(): Plugin {
   return {
-    name: "flarex-deployment-query-sync-c2-test-resolution",
+    name: "flarex-deployment-query-sync-test-resolution",
     resolveId(id) {
       if (
         id === "@flarex/query-sync"
