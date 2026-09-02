@@ -97,16 +97,34 @@ export const readFrameworkSchemaTargetNamespaceInTransactionEffect = Effect.fn(
   Option.Option<RestoredFrameworkSchemaTargetNamespace>,
   FrameworkMigrationRepositoryError
 > {
-  const expected = yield* authenticateTargetNamespace(
+  return yield* readFrameworkSchemaTargetNamespaceForOperationInTransactionEffect(
+    transaction,
     input,
     "readTargetNamespace",
   );
-  return yield* loadExactTargetNamespace(
-    transaction,
-    expected,
-    "readTargetNamespace",
-  );
 });
+
+export const readFrameworkSchemaTargetNamespaceForOperationInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationTargetRepository.readForOperation",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    input: FrameworkSchemaTargetNamespace,
+    operation: FrameworkMigrationRepositoryOperation,
+  ): Effect.fn.Return<
+    Option.Option<RestoredFrameworkSchemaTargetNamespace>,
+    FrameworkMigrationRepositoryError
+  > {
+    const expected = yield* authenticateTargetNamespace(
+      input,
+      operation,
+    );
+    return yield* loadExactTargetNamespace(
+      transaction,
+      expected,
+      operation,
+    );
+  });
 
 export const ensureFrameworkMigrationCollisionDomainInTransactionEffect =
   Effect.fn(
@@ -178,6 +196,27 @@ export const readFrameworkMigrationCollisionDomainInTransactionEffect =
     Option.Option<RestoredFrameworkMigrationCollisionDomain>,
     FrameworkMigrationRepositoryError
   > {
+    return yield*
+      readFrameworkMigrationCollisionDomainForOperationInTransactionEffect(
+        transaction,
+        targetNamespace,
+        coordinate,
+        "readCollisionDomain",
+      );
+  });
+
+export const readFrameworkMigrationCollisionDomainForOperationInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationCollisionRepository.readForOperation",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    targetNamespace: RestoredFrameworkSchemaTargetNamespace,
+    coordinate: FrameworkMigrationCollisionCoordinate,
+    operation: FrameworkMigrationRepositoryOperation,
+  ): Effect.fn.Return<
+    Option.Option<RestoredFrameworkMigrationCollisionDomain>,
+    FrameworkMigrationRepositoryError
+  > {
     if (
       !isRestoredFrameworkSchemaTargetNamespace(targetNamespace) ||
       !isStoredCollisionCoordinate(coordinate) ||
@@ -187,21 +226,19 @@ export const readFrameworkMigrationCollisionDomainInTransactionEffect =
       )
     ) {
       return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.referenceRefusal(
-          "readCollisionDomain",
-        ),
+        FrameworkMigrationRepositoryError.referenceRefusal(operation),
       );
     }
     const storedTargetNamespace = yield* requireStoredTargetNamespace(
       transaction,
       targetNamespace,
-      "readCollisionDomain",
+      operation,
     );
     return yield* loadExactCollisionDomain(
       transaction,
       storedTargetNamespace,
       coordinate,
-      "readCollisionDomain",
+      operation,
     );
   });
 
@@ -209,10 +246,7 @@ const authenticateTargetNamespace = Effect.fn(
   "FrameworkMigrationTargetRepository.authenticate",
 )(function* (
   input: FrameworkSchemaTargetNamespace,
-  operation: Extract<
-    FrameworkMigrationRepositoryOperation,
-    "ensureTargetNamespace" | "readTargetNamespace"
-  >,
+  operation: FrameworkMigrationRepositoryOperation,
 ): Effect.fn.Return<
   FrameworkSchemaTargetNamespace,
   FrameworkMigrationRepositoryError
@@ -280,10 +314,7 @@ const requireStoredTargetNamespace = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   targetNamespace: RestoredFrameworkSchemaTargetNamespace,
-  operation: Extract<
-    FrameworkMigrationRepositoryOperation,
-    "ensureCollisionDomain" | "readCollisionDomain"
-  >,
+  operation: FrameworkMigrationRepositoryOperation,
 ): Effect.fn.Return<
   RestoredFrameworkSchemaTargetNamespace,
   FrameworkMigrationRepositoryError
@@ -310,10 +341,7 @@ const loadExactCollisionDomain = Effect.fn(
   transaction: FlarexMetadataTransaction,
   targetNamespace: RestoredFrameworkSchemaTargetNamespace,
   coordinate: FrameworkMigrationCollisionCoordinate,
-  operation: Extract<
-    FrameworkMigrationRepositoryOperation,
-    "ensureCollisionDomain" | "readCollisionDomain"
-  >,
+  operation: FrameworkMigrationRepositoryOperation,
 ): Effect.fn.Return<
   Option.Option<RestoredFrameworkMigrationCollisionDomain>,
   FrameworkMigrationRepositoryError

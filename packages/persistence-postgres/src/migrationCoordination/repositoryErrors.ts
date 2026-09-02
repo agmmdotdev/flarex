@@ -4,10 +4,13 @@ export type FrameworkMigrationRepositoryOperation =
   | "ensureTargetNamespace"
   | "readTargetNamespace"
   | "ensureCollisionDomain"
-  | "readCollisionDomain";
+  | "readCollisionDomain"
+  | "ensurePhysicalNameAssignment"
+  | "readPhysicalNameAssignment";
 
 export type FrameworkMigrationRepositoryReason =
   | "immutableConflict"
+  | "physicalNameCollision"
   | "referenceRefusal"
   | "storedCorruption"
   | "resourceFailure";
@@ -26,17 +29,29 @@ class FrameworkMigrationRepositoryExpectedError extends Data.TaggedError(
     | "referenceRefusal"
     | "storedCorruption";
   readonly cause?: never;
+  readonly spelling?: never;
 }>> {}
+
+class FrameworkMigrationRepositoryPhysicalNameCollisionError extends
+  Data.TaggedError(
+    "FrameworkMigrationRepositoryError",
+  )<FrameworkMigrationRepositoryErrorCommon & Readonly<{
+    readonly reason: "physicalNameCollision";
+    readonly spelling: string;
+    readonly cause?: never;
+  }>> {}
 
 class FrameworkMigrationRepositoryResourceError extends Data.TaggedError(
   "FrameworkMigrationRepositoryError",
 )<FrameworkMigrationRepositoryErrorCommon & Readonly<{
   readonly reason: "resourceFailure";
   readonly cause: unknown;
+  readonly spelling?: never;
 }>> {}
 
 export type FrameworkMigrationRepositoryError =
   | FrameworkMigrationRepositoryExpectedError
+  | FrameworkMigrationRepositoryPhysicalNameCollisionError
   | FrameworkMigrationRepositoryResourceError;
 
 export const FrameworkMigrationRepositoryError = Object.freeze({
@@ -47,6 +62,18 @@ export const FrameworkMigrationRepositoryError = Object.freeze({
       operation,
       reason: "immutableConflict",
       message: "Framework migration metadata conflicts with stored evidence",
+    });
+  },
+
+  physicalNameCollision(
+    operation: FrameworkMigrationRepositoryOperation,
+    spelling: string,
+  ): FrameworkMigrationRepositoryError {
+    return new FrameworkMigrationRepositoryPhysicalNameCollisionError({
+      operation,
+      reason: "physicalNameCollision",
+      message: "Relational physical name is assigned to another preimage",
+      spelling,
     });
   },
 

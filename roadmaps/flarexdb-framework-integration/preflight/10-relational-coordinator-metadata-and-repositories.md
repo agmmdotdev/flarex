@@ -3,9 +3,10 @@
 Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
 focused PGlite DDL/catalog evidence, and source-private topological stored-value
 restoration implemented; the private target/collision repository family is
-implemented and the remaining repository families are pending; no target
-session, generated relational DDL, coordinator runtime, binding, adapter, or
-production activation is authorized
+implemented together with the physical-name assignment family, and the
+remaining repository families are pending; no target session, generated
+relational DDL, coordinator runtime, binding, adapter, or production activation
+is authorized
 
 Last reviewed: 2026-09-02
 
@@ -31,8 +32,8 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 5. complete PGlite storage/repository evidence and record the receipt.
 
 Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision
-family is complete and the remaining transaction-parameterized private
-repository families are pending.
+and physical-name assignment families are complete and the remaining
+transaction-parameterized private repository families are pending.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -616,9 +617,9 @@ large-byte read gating at SQL, PGlite close/reopen reconstruction, immutable
 replay/conflict behavior, and head CAS remain owned by the pending repository
 and evidence slices. No live target authority is minted.
 
-### Current target/collision repository boundary
+### Current target/collision and assignment repository boundary
 
-The first production-inert repository family consists of source-private,
+The current production-inert repository families consist of source-private,
 transaction-parameterized Effects that ensure and exactly read target
 namespaces and their collision domains. They accept the existing
 `FlarexMetadataTransaction` capability directly and never open, commit, roll
@@ -638,7 +639,19 @@ bytes are not returned to the application decoder. Repository failures
 distinguish immutable conflict, reference refusal, stored corruption, and
 foreign resource failure.
 
-The remaining assignment, plan, admission, attempt, receipt, terminal, event,
+Physical-name assignment operations accept exact canonical assignment evidence,
+not plan authority, so stored assignments can be loaded before reconstructing
+the physical layout and plan. The kernel corroborates the expected collision in
+the same transaction, authenticates the complete assignment, inserts without a
+conflict target, and resolves the global assignment digest before the global
+physical spelling. An exact digest occupant replays; a non-exact authentic
+occupant under the expected digest is an immutable conflict; a non-exact
+authentic occupant of the physical spelling is a physical-name collision. Every
+occupant is restored against its actual stored target/collision chain before
+classification, and assignment bytes use the same length-first SQL gate as
+target bytes.
+
+The remaining plan, admission, attempt, receipt, terminal, event,
 collision-head, installation, readiness, and availability repository families
 remain pending. These kernels add no CAS, coordinator policy, or live target.
 
@@ -691,6 +704,7 @@ Stop and open the owning checkpoint before:
 
 The exact target-local metadata and repository seam is frozen; its additive
 platform metadata catalog, source-private topological restoration, and private
-target/collision repository family are implemented. The remaining
-transaction-parameterized repository families are the next checkpoint-2 work.
-The opaque target and coordinator remain checkpoint 3.
+target/collision plus physical-name assignment repository families are
+implemented. The remaining transaction-parameterized repository families are
+the next checkpoint-2 work. The opaque target and coordinator remain
+checkpoint 3.

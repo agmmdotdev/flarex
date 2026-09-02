@@ -5,9 +5,9 @@
 Status: value-only relational schema, the first pure physical/coordination/
 lifecycle value checkpoint, additive private coordinator metadata DDL, and
 source-private topological restoration implemented production-inert;
-the private target/collision repository family is also implemented; remaining
-repositories, generated relational DDL, target-session, binding, and runtime
-gates remain closed
+the private target/collision and physical-name assignment repository families
+are also implemented; remaining repositories, generated relational DDL,
+target-session, binding, and runtime gates remain closed
 
 This plan owns the value-only relational schema boundary and the shared
 execution mechanics for framework-owned migration plans. It does not own DML,
@@ -51,8 +51,9 @@ cold-rehydration, and private repository contract is accepted in
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
 Its additive private metadata storage, focused PGlite DDL/catalog evidence, and
 source-private stored restoration are implemented. The private target/collision
-repository family is implemented; all later repository families remain pending.
-Target sessions, generated relational DDL, the Application projection,
+and physical-name assignment repository families are implemented; all later
+repository families remain pending. Target sessions, generated relational DDL,
+the Application projection,
 `DataBindingSet`, activation, and serving also remain pending.
 
 The exact Medusa source-and-contract audit is complete at fork commit
