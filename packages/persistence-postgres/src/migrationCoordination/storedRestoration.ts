@@ -1,6 +1,8 @@
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Brand, Effect } from "effect";
 
+import { compareFrameworkSchemaArtifactIdentities } from
+  "../frameworkSchema/artifact/policy";
 import { capturePrivateCanonicalValue } from
   "../frameworkSchema/privateCanonicalValue";
 import {
@@ -30,6 +32,7 @@ import {
 } from "../relationalSchema/physical/storedRestoration";
 import { isStoredRelationalPhysicalNameAssignmentFrame } from
   "../relationalSchema/physical/storedValidation";
+import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import {
   registerCapturedFrameworkMigrationPlanAdmission,
   registerCapturedFrameworkMigrationAttemptStart,
@@ -712,6 +715,14 @@ export const restoreStoredFrameworkMigrationPlanAdmission = Effect.fn(
   if (
     !isStoredFrameworkMigrationPlanAdmissionFrame(frame) ||
     !sameCollision(frame.collision, input.collision.coordinate) ||
+    compareFrameworkSchemaArtifactIdentities(
+      frame.artifact,
+      input.plan.plan.frame.artifact,
+    ) !== 0 ||
+    !scopePhysicalLocatorsEqual(
+      frame.physicalLocator,
+      input.plan.plan.frame.physicalLocator,
+    ) ||
     frame.planSha256 !== input.plan.plan.migrationPlanSha256 ||
     planSha256 !== input.plan.plan.migrationPlanSha256 ||
     row.admissionProfile !== frame.admissionProfile ||

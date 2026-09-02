@@ -142,7 +142,7 @@ describe("framework coordinator stored restoration", () => {
     expect(nextHistory.frame.availabilitySequence).toBe("3");
   });
 
-  it("rejects altered bytes, reordered sidecars, and forged dependencies", async () => {
+  it("rejects altered bytes, projection laundering, reordered sidecars, and forged dependencies", async () => {
     const fresh = await freshMigrationGraph();
     const rows = storedRows(fresh);
     const corruptBytes = new Uint8Array(rows.target.canonicalBytes);
@@ -197,6 +197,72 @@ describe("framework coordinator stored restoration", () => {
         nameAssignments: assignments,
       }),
     );
+    const alteredArtifactFrame = {
+      ...fresh.admission.frame,
+      artifact: {
+        ...fresh.admission.frame.artifact,
+        artifactSha256: "33".repeat(32),
+      },
+    };
+    const alteredArtifact = canonicalFixture(alteredArtifactFrame);
+    const alteredArtifactFailure = await runEffectFailure(
+      restoreStoredFrameworkMigrationPlanAdmission({
+        row: {
+          ...rows.admission,
+          admissionSha256: shaBytes(alteredArtifact.sha256Hex),
+          ...canonicalColumns(
+            alteredArtifactFrame,
+            alteredArtifact.canonicalJson,
+          ),
+        },
+        assignmentRows: rows.admissionAssignments,
+        collision,
+        plan,
+        previousPlan: null,
+        nameAssignments: assignments,
+      }),
+    );
+    expect(alteredArtifactFailure).toMatchObject({
+      _tag: "FrameworkMigrationValueError",
+      reason: "storedStateCorrupt",
+    });
+
+    const alteredLocatorProjections = [
+      { kind: "schema_per_scope" },
+      { databaseKey: "secondary" },
+    ] as const;
+    for (const projection of alteredLocatorProjections) {
+      const alteredLocatorFrame = {
+        ...fresh.admission.frame,
+        physicalLocator: {
+          ...fresh.admission.frame.physicalLocator,
+          ...projection,
+        },
+      };
+      const alteredLocator = canonicalFixture(alteredLocatorFrame);
+      const alteredLocatorFailure = await runEffectFailure(
+        restoreStoredFrameworkMigrationPlanAdmission({
+          row: {
+            ...rows.admission,
+            admissionSha256: shaBytes(alteredLocator.sha256Hex),
+            ...canonicalColumns(
+              alteredLocatorFrame,
+              alteredLocator.canonicalJson,
+            ),
+          },
+          assignmentRows: rows.admissionAssignments,
+          collision,
+          plan,
+          previousPlan: null,
+          nameAssignments: assignments,
+        }),
+      );
+      expect(alteredLocatorFailure).toMatchObject({
+        _tag: "FrameworkMigrationValueError",
+        reason: "storedStateCorrupt",
+      });
+    }
+
     const alternateSchema = syntheticSchemaInput();
     const extraSourceTable = alternateSchema.tables.find(table =>
       table.tableId === "parent"

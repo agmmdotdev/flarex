@@ -620,10 +620,10 @@ classification. Plan-aggregate reconstruction across PGlite close/reopen, the
 later repository families, and head CAS remain pending. No live target authority
 is minted.
 
-### Open admission-restoration dependency defect
+### Resolved admission-restoration dependency defect
 
-Status: open; blocks the plan-admission repository family until a separately
-approved correction lands in the stored-restoration owner.
+Status: resolved by the separately approved stored-restoration correction; the
+plan-admission repository family is unblocked.
 
 Reproducible scenario: start with a valid captured plan admission, change only
 its artifact digest or the physical locator kind/database key to another
@@ -642,11 +642,14 @@ mismatched admission as restored authority. The affected trust boundary is
 `migrationCoordination/storedRestoration.ts`; a repository-local duplicate check
 would leave cold restoration unsound and is not an acceptable workaround.
 
-Disposition: add the missing full artifact and physical-locator equality checks
-and an adversarial stored-restoration regression in a separately approved
-bounded correction. Then re-run the existing restoration suite before beginning
-the admission repository. No admission SQL kernel, public API, target session,
-or runtime authority is opened by this issue record.
+Disposition: the stored-restoration owner now compares the complete artifact
+identity and physical locator with the authenticated restored plan before
+registering admission authority. Adversarial regressions independently
+recanonicalize a different artifact digest, locator kind, and locator database
+key while retaining authentic plan, collision, assignment, and sidecar
+dependencies; each must fail as typed stored corruption. No admission SQL
+kernel, public API, target session, or runtime authority was opened by this
+correction.
 
 ### Current target/collision, assignment, and plan repository boundary
 
@@ -697,9 +700,8 @@ then dependency ordinal rather than lexical step ID.
 
 The remaining admission, attempt, receipt, terminal, event,
 collision-head, installation, readiness, and availability repository families
-remain pending. Admission is first and is blocked by the stored-restoration
-dependency defect above. These kernels add no CAS, coordinator policy, or live
-target.
+remain pending. Admission is first and its stored-restoration dependency is now
+resolved. These kernels add no CAS, coordinator policy, or live target.
 
 ## Checkpoint-2 Evidence
 
