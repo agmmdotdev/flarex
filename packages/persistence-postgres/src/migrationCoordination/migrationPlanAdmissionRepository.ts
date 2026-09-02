@@ -69,6 +69,8 @@ type PlanAdmissionRepositoryOperation = Extract<
   | "readAdmission"
   | "ensureAttemptStart"
   | "readAttemptStart"
+  | "ensureStepReceipt"
+  | "readStepReceipt"
 >;
 
 const ADMISSION_SIDECAR_INSERT_BATCH_SIZE = 256;

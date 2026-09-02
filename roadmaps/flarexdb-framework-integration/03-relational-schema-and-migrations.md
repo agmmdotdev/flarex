@@ -6,9 +6,10 @@ Status: value-only relational schema, the first pure physical/coordination/
 lifecycle value checkpoint, additive private coordinator metadata DDL, and
 source-private topological restoration implemented production-inert;
 the private target/collision, physical-name assignment, migration-plan
-aggregate, and plan-admission aggregate repository families are also
-implemented; remaining repositories, generated relational DDL,
-target-session, binding, and runtime gates remain closed
+aggregate, plan-admission aggregate, and immutable attempt-start repository
+families are also implemented, together with the source-private immutable
+step-receipt aggregate; remaining repositories, generated
+relational DDL, target-session, binding, and runtime gates remain closed
 
 This plan owns the value-only relational schema boundary and the shared
 execution mechanics for framework-owned migration plans. It does not own DML,
@@ -53,10 +54,14 @@ cold-rehydration, and private repository contract is accepted in
 Its additive private metadata storage, focused PGlite DDL/catalog evidence, and
 source-private stored restoration are implemented. The private target/collision,
 physical-name assignment, migration-plan aggregate, and plan-admission
-aggregate repository families are implemented. Admission uses explicit
-restored current and nullable previous-plan handles and performs full
-topological stored reconstruction with immutable replay/conflict and no
-healing; all later repository families remain pending. Target sessions,
+aggregate and immutable attempt-start repository families are implemented. The
+source-private immutable step-receipt aggregate is also implemented:
+it takes a restored attempt plus explicit dependency-receipt handles, resolves
+semantic identity before lazily consulting global digest identity, restores
+the dependency closure iteratively in topological order with memoization, and
+writes ordered sidecars only with a fresh root without healing committed
+aggregates. Terminal, event, mutable-head, installation, readiness, and
+availability repository families remain pending. Target sessions,
 generated relational DDL,
 the Application projection,
 `DataBindingSet`, activation, and serving also remain pending.

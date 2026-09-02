@@ -62,6 +62,14 @@ type AttemptStartRepositoryOperation = Extract<
   "ensureAttemptStart" | "readAttemptStart"
 >;
 
+type AttemptStartAggregateRepositoryOperation = Extract<
+  FrameworkMigrationRepositoryOperation,
+  | "ensureAttemptStart"
+  | "readAttemptStart"
+  | "ensureStepReceipt"
+  | "readStepReceipt"
+>;
+
 interface PreparedFrameworkMigrationAttemptStart {
   readonly admission: RestoredFrameworkMigrationPlanAdmission;
   readonly previousAttempt: RestoredFrameworkMigrationAttemptStart | null;
@@ -320,7 +328,7 @@ export const corroborateRestoredFrameworkMigrationAttemptStartInTransactionEffec
   )(function* (
     transaction: FlarexMetadataTransaction,
     expected: RestoredFrameworkMigrationAttemptStart,
-    operation: AttemptStartRepositoryOperation,
+    operation: AttemptStartAggregateRepositoryOperation,
   ): Effect.fn.Return<
     RestoredFrameworkMigrationAttemptStart,
     FrameworkMigrationRepositoryError
@@ -366,7 +374,7 @@ export const restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEf
     preferredCollision: RestoredFrameworkMigrationCollisionDomain,
     attemptStorageId: bigint,
     attemptId: string,
-    operation: AttemptStartRepositoryOperation,
+    operation: AttemptStartAggregateRepositoryOperation,
   ): Effect.fn.Return<
     RestoredFrameworkMigrationAttemptStart,
     FrameworkMigrationRepositoryError
@@ -621,7 +629,7 @@ const loadAttemptStartRootByStorageId = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   attemptStorageId: bigint,
-  operation: AttemptStartRepositoryOperation,
+  operation: AttemptStartAggregateRepositoryOperation,
 ): Effect.fn.Return<
   Option.Option<FrameworkMigrationAttemptStartDriverRow>,
   FrameworkMigrationRepositoryError
@@ -644,7 +652,7 @@ const restoreAttemptStartLineage = Effect.fn(
   transaction: FlarexMetadataTransaction,
   root: FrameworkMigrationAttemptStartDriverRow,
   preferredCollision: RestoredFrameworkMigrationCollisionDomain,
-  operation: AttemptStartRepositoryOperation,
+  operation: AttemptStartAggregateRepositoryOperation,
   preferredPreviousAttempt?: RestoredFrameworkMigrationAttemptStart | null,
   preferredAdmission?: RestoredFrameworkMigrationPlanAdmission,
 ): Effect.fn.Return<
@@ -816,7 +824,7 @@ const decodeAttemptStartRoot = Effect.fn(
   "FrameworkMigrationAttemptStartRepository.decodeRoot",
 )(function* (
   row: FrameworkMigrationAttemptStartDriverRow,
-  operation: AttemptStartRepositoryOperation,
+  operation: AttemptStartAggregateRepositoryOperation,
 ): Effect.fn.Return<
   DecodedFrameworkMigrationAttemptStartRoot,
   FrameworkMigrationRepositoryError
@@ -933,7 +941,7 @@ const decodeAttemptStartRoot = Effect.fn(
 });
 
 function runRepositoryStatement<Value>(
-  operation: AttemptStartRepositoryOperation,
+  operation: AttemptStartAggregateRepositoryOperation,
   statement: PromiseLike<Value>,
 ): Effect.Effect<Value, FrameworkMigrationRepositoryError> {
   return runDrizzleStatementEffect(
@@ -950,7 +958,7 @@ function decodeAuthenticatedSha256(value: string): Effect.Effect<Uint8Array> {
 }
 
 function mapStoredValueError(
-  operation: AttemptStartRepositoryOperation,
+  operation: AttemptStartAggregateRepositoryOperation,
   error: FrameworkMigrationValueError,
 ): FrameworkMigrationRepositoryError {
   return error.reason === "resourceFailure"
@@ -962,7 +970,7 @@ function mapStoredValueError(
 }
 
 function mapStoredRepositoryError(
-  operation: AttemptStartRepositoryOperation,
+  operation: AttemptStartAggregateRepositoryOperation,
   error: FrameworkMigrationRepositoryError,
 ): FrameworkMigrationRepositoryError {
   return error.reason === "resourceFailure"

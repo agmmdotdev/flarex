@@ -82,6 +82,8 @@ type MigrationPlanAggregateRepositoryOperation = Extract<
   | "readAdmission"
   | "ensureAttemptStart"
   | "readAttemptStart"
+  | "ensureStepReceipt"
+  | "readStepReceipt"
 >;
 
 const PLAN_SIDECAR_INSERT_BATCH_SIZE = 256;

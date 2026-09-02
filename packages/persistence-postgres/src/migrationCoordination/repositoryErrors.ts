@@ -12,7 +12,9 @@ export type FrameworkMigrationRepositoryOperation =
   | "ensureAdmission"
   | "readAdmission"
   | "ensureAttemptStart"
-  | "readAttemptStart";
+  | "readAttemptStart"
+  | "ensureStepReceipt"
+  | "readStepReceipt";
 
 export type FrameworkMigrationRepositoryReason =
   | "immutableConflict"

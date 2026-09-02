@@ -4,7 +4,8 @@ Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
 focused PGlite DDL/catalog evidence, and source-private topological stored-value
 restoration implemented; the private target/collision, physical-name
 assignment, migration-plan aggregate, plan-admission aggregate, and immutable
-attempt-start repository families are implemented, and the remaining
+attempt-start and step-receipt aggregate repository families are implemented,
+and the later
 repository families are pending; no target session, generated
 relational DDL, coordinator runtime, binding, adapter, or production activation
 is authorized
@@ -34,8 +35,9 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 
 Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision,
 physical-name assignment, migration-plan aggregate, plan-admission aggregate,
-and immutable attempt-start families are complete and the remaining
-transaction-parameterized private repository families are pending.
+immutable attempt-start, and immutable step-receipt families are complete;
+terminal, event, mutable-head,
+installation, readiness, and availability families remain pending.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -75,8 +77,8 @@ write authority.
 - The control artifact repository cannot construct or use this repository.
 - A locator, decoded target namespace, raw Drizzle database, raw connection, or
   raw transaction cannot mint target authority.
-- Checkpoint 2 exposes no production repository factory. Its pending SQL
-  kernels must take the package-owned transaction capability so PGlite can
+- Checkpoint 2 exposes no production repository factory. Its SQL kernels must
+  take the package-owned transaction capability so PGlite can
   prove storage behavior and checkpoint 3 can later enclose them.
 - Checkpoint 3 must be the first live composition root. It will authenticate a
   host-issued opaque target, open the exact target transaction, and keep the
@@ -616,10 +618,12 @@ checks keep all restoration operations absent from the root and export map.
 
 This started as in-process stored-row restoration evidence. The implemented
 target, collision, assignment, plan, plan-admission, and attempt-start
-repository families now add actual transaction reads, length-first SQL byte
-gates, and immutable replay/conflict classification. Plan-aggregate
-reconstruction across PGlite close/reopen, the later repository families, and
-head CAS remain pending. No live target authority is minted.
+repository families add actual transaction reads, length-first SQL byte gates,
+and immutable replay/conflict classification. The source-private immutable
+step-receipt aggregate repository now provides the same boundary for receipt
+graphs. Later
+repository families and head CAS remain pending. No live target authority is
+minted.
 
 ### Resolved admission-restoration dependency defect
 
@@ -653,7 +657,7 @@ dependencies; each must fail as typed stored corruption. No admission SQL
 kernel, public API, target session, or runtime authority was opened by this
 correction.
 
-### Current target/collision, assignment, plan, admission, and attempt boundary
+### Current target/collision, assignment, plan, admission, attempt, and receipt boundary
 
 The current production-inert repository families consist of source-private,
 transaction-parameterized Effects that ensure and exactly read target
@@ -760,9 +764,52 @@ and exact
 foreign driver-cause projection. This remains functional PGlite evidence, not
 a genuine-PostgreSQL concurrency, locking, database-time, or production claim.
 
-The remaining step-receipt, terminal, event, collision-head, installation,
-readiness, and availability repository families remain pending. These kernels
-add no CAS, coordinator policy, or live target.
+The immutable step-receipt repository accepts one exact restored
+attempt, the captured receipt, and explicit restored handles for every direct
+dependency in canonical order. It corroborates the attempt and dependency
+handles through the caller's transaction before accepting a receipt. The
+repository resolves the semantic identity `(attempt_storage_id, step_id)`
+first. Only when that identity is absent does it lazily resolve a global receipt
+digest occupant for exact replay or immutable-conflict classification; a digest
+is authenticated evidence, not a replacement semantic identity.
+
+An existing occupant is reconstructed from its actual stored attempt and
+complete transitive dependency-receipt closure. Reconstruction is iterative and
+topological rather than recursive, memoizes each receipt reached during the walk,
+dependency reached during the walk, and rejects cycles, missing dependencies,
+wrong attempts, and non-topological evidence as stored corruption or reference
+refusal at the owning boundary. Root canonical bytes pass the same SQL
+length-first gate before transfer and canonical authentication as the earlier
+repository families.
+
+Only a freshly inserted receipt root receives its complete ordered dependency
+sidecars. Replay, conflict resolution, and a zero-row insert reload never add,
+replace, reorder, or heal sidecars. An exact semantic-identity replay returns
+the committed storage identity; a different authentic occupant under either
+the semantic identity or global digest is an immutable conflict.
+
+Focused PGlite functional evidence covers
+source privacy, absence, ensure/read/exact replay, dependency order and closure,
+semantic-identity and digest conflict, caller rollback, corruption and no
+healing, the canonical length-first gate, and foreign driver-cause projection.
+It does not prove genuine-PostgreSQL locking, concurrency, production-scale
+performance, or production readiness.
+
+This slice changes no DDL or Drizzle schema and creates no package-root export,
+public API, live target, coordinator runtime, lock, lease policy, CAS, terminal,
+event, installation, readiness, or availability behavior. The terminal, event,
+collision-head, installation, readiness, and availability repository families
+remain pending.
+
+Receipt-closure memoization is deliberately local to one repository call. A
+linear plan of `N` steps executed only through these production-inert kernels
+can therefore still accumulate `O(N^2)` dependency point reads as each later
+receipt re-corroborates its transitive prefix. The repository does not retain a
+raw transaction or trust a prior process-local handle to hide that cost.
+Checkpoint 3 must own a transaction/session-scoped authenticated cache,
+materialized closure anchor, or another bounded database proof before
+production activation; this checkpoint does not claim production-scale receipt
+execution.
 
 ## Checkpoint-2 Evidence
 
@@ -815,6 +862,7 @@ The exact target-local metadata and repository seam is frozen; its additive
 platform metadata catalog, source-private topological restoration, and private
 target/collision, physical-name assignment, migration-plan aggregate,
 plan-admission aggregate, and immutable attempt-start repository families are
-implemented. The remaining transaction-parameterized repository families are
-the next checkpoint-2 work. The opaque target and coordinator remain
-checkpoint 3.
+implemented, together with the immutable step-receipt aggregate repository.
+Terminal, event, mutable-head, installation,
+readiness, and availability repositories remain later work. The opaque target
+and coordinator remain checkpoint 3.
