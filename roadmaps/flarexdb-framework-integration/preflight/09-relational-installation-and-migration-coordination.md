@@ -1,8 +1,10 @@
 # Relational Installation And Migration Coordination Preflight
 
 Status: accepted; checkpoint 1 private pure values and goldens implemented;
-no coordinator repository, platform metadata migration, target session,
-relational DDL, runtime caller, binding, or activation is implemented
+checkpoint 2 exact metadata/repository contract accepted separately and its
+additive private metadata DDL plus focused PGlite catalog evidence implemented;
+stored restoration and repositories remain pending; no target session,
+generated relational DDL, runtime caller, binding, or activation is implemented
 
 Last reviewed: 2026-09-02
 
@@ -428,14 +430,15 @@ migration-capability profile. The composition root must issue the same
 canonical identity for aliases of one physical database. Locator and identity
 fields decoded from a plan are comparison evidence only.
 
-The current checked-in platform migration tree runs in both control and located
-target schemas. The later metadata migration therefore deliberately accepts
-duplicate physical presence of coordinator tables wherever that common tree is
-installed. Table presence grants no authority: only a target-side composition
-root may construct the opaque coordinator repository, and it must authenticate
-the exact target capability above. The control composition root receives no
-coordinator constructor. Splitting control and target migration trees remains
-a separate, larger persistence-owner change and is not authorized here.
+The current checked-in platform migration tree is shared by control and located
+target schemas. The checked-in coordinator metadata migration therefore
+deliberately accepts duplicate physical presence of its tables wherever that
+common tree is applied. Table presence grants no authority: only a future
+target-side composition root may construct the opaque coordinator repository,
+and it must authenticate the exact target capability above. The control
+composition root receives no coordinator constructor. Splitting control and
+target migration trees remains a separate, larger persistence-owner change and
+is not authorized here.
 
 ## Software Capabilities And Database Roles
 
@@ -449,14 +452,15 @@ a separate, larger persistence-owner change and is not authorized here.
 | Runtime data capability | later execute owner-scoped store operations | DDL, migration claims, readiness publication, or availability changes |
 
 For checkpoints 1 through 5, `FrameworkMigrationTarget` is a module-local
-software capability, not a PostgreSQL login or grant boundary. Local PGlite and
-ordinary-role PostgreSQL evidence proves the typed runner, target composition,
-and repository containment only; it does not prove that a leaked raw connection
-is database-restricted. A separate mandatory hosted/production preflight must
-own a dedicated PostgreSQL role or credential profile, provisioning and
-rotation, `GRANT`/`REVOKE`, pool/Hyperdrive composition, captured-schema
-restriction, and negative privilege tests. Until that passes, no document may
-claim database-enforced migration-role isolation.
+software capability, not a PostgreSQL login or grant boundary. Later local
+PGlite and ordinary-role PostgreSQL lanes can prove typed runner, target
+composition, and repository containment only; the current metadata-DDL receipt
+proves none of those layers. Even the later lanes cannot prove that a leaked raw
+connection is database-restricted. A separate mandatory hosted/production
+preflight must own a dedicated PostgreSQL role or credential profile,
+provisioning and rotation, `GRANT`/`REVOKE`, pool/Hyperdrive composition,
+captured-schema restriction, and negative privilege tests. Until that passes,
+no document may claim database-enforced migration-role isolation.
 
 ## Lease, Attempt, And Step State
 
@@ -604,13 +608,13 @@ test selection cannot become a production binding or serving fallback.
 
 ## Persistence Direction
 
-The coordinator cannot bootstrap its own ledger. A later approved platform
-migration adds only its bounded metadata tables through the existing checked-in
-Drizzle runner. Because that tree is common, the tables are physically present
-in control and target schemas; only an authenticated target repository may use
-them. The generated SQL, journal, and snapshot remain platform history.
-Framework-owned physical tables are then installed only by the coordinator
-from admitted typed plans; they never appear as generated Drizzle migrations.
+The coordinator cannot bootstrap its own ledger. The checked-in `0080` platform
+migration adds only its bounded metadata tables through the existing Drizzle
+runner. Because that tree is common, the tables are physically present wherever
+it is applied; only a future authenticated target repository may use them. The
+generated SQL, journal, and snapshot remain platform history. Framework-owned
+physical tables are later installed only by the coordinator from admitted typed
+plans; they never appear as generated Drizzle migrations.
 
 Likely private domain placement is:
 
@@ -680,7 +684,7 @@ This record must prove by inspection that it contains:
 - explicit binding and activation deferral; and
 - no implementation or production authority.
 
-### Future pure evidence
+### Completed checkpoint-1 pure evidence
 
 - Golden cross-process target-namespace, physical-layout, name-assignment,
   plan, ledger, installation, readiness, availability-history, and
@@ -696,16 +700,18 @@ This record must prove by inspection that it contains:
 - Caller detachment, recursive freezing, aggregate bounds, and corrupt stored
   frame rejection.
 
-### Future PGlite evidence
+### Remaining PGlite coordinator evidence
 
-PGlite is the functional lane only. It must cover platform metadata migration,
-fresh synthetic installation, exact replay, fault rollback, cold reopen,
-interrupted progress, corrupt-ledger rejection, validation refusal, readiness,
-availability transitions, then a separately admitted base-backed additive
-candidate that retains the base structures. Unrelated catalog objects remain
-outside the candidate projection; unregistered objects that conflict with a
-requested assignment are rejected rather than adopted. PGlite makes no lock,
-concurrency, lease-contention, PostgreSQL-catalog-plan, or production claim.
+PGlite is the functional lane only. The additive metadata slice proves its
+migration, injected-fault rollback/retry, representative root invariants, and
+root-row preservation across close/reopen. Later slices must cover topological
+rehydration, fresh synthetic installation, exact replay, interrupted progress,
+corrupt-ledger rejection, validation refusal, readiness, availability
+transitions, then a separately admitted base-backed additive candidate that
+retains the base structures. Unrelated catalog objects remain outside the
+candidate projection; unregistered objects that conflict with a requested
+assignment are rejected rather than adopted. PGlite makes no lock, concurrency,
+lease-contention, PostgreSQL-catalog-plan, or production claim.
 
 ### Future genuine PostgreSQL evidence
 
@@ -745,9 +751,11 @@ Each checkpoint requires a separate implementation approval:
    availability-head frames with golden tests. Freeze their exact identities,
    bounds, canonical preimages, and digests. No SQL, repository, or target
    caller.
-2. **Additive platform metadata DDL and private repositories:** freeze exact
-   tables/codecs first, then use the checked-in Drizzle migration path. No
-   relational target DDL yet.
+2. **Additive platform metadata DDL and private repositories:** the exact
+   storage, cold-rehydration, and private-kernel contract is accepted in
+   [`10-relational-coordinator-metadata-and-repositories.md`](./10-relational-coordinator-metadata-and-repositories.md).
+   Implement its bounded slices through the checked-in Drizzle migration path.
+   No relational target DDL yet.
 3. **Target session and PGlite coordinator:** implement the opaque target,
    collision-domain claim, attempts, exact step receipts, structural runner,
    recovery, validation, readiness, and availability for one synthetic
@@ -811,17 +819,24 @@ root export or package export-map entry. Focused proof lives in
 `migrationCoordinationValues.test.ts`, and
 `frameworkSchemaInstallationValues.test.ts`.
 
-This receipt does not authorize checkpoint 2. There is still no coordinator
-metadata migration, table declaration, repository, SQL/DDL runner, opaque
-target session, lease orchestration, binding, adapter, runtime caller, or
-production activation.
+This checkpoint-1 receipt did not itself authorize checkpoint 2. The separate
+checkpoint-2 storage contract is now accepted in
+[`10-relational-coordinator-metadata-and-repositories.md`](./10-relational-coordinator-metadata-and-repositories.md);
+its first additive metadata DDL slice is now complete with focused PGlite
+catalog, previous-head upgrade, atomic rollback/retry, representative root
+constraint/foreign-key/uniqueness rejection, nullable discriminated-tuple
+rejection, and root-row cold-reopen evidence. It still does not authorize a
+relational SQL/DDL runner, opaque target session, lease orchestration, binding,
+adapter, runtime caller, or production activation.
 
 ## Non-Goals And Stop Conditions
 
-This preflight performs no code or database change. Stop and open the owning
-gate before:
+This umbrella preflight performs no code or database change by itself. The
+accepted checkpoint-2 successor above is the only authority for its exact
+metadata DDL and repository slices. Stop and open the owning gate before:
 
-- adding a migration file, table declaration, DDL runner, repository, service,
+- adding any migration file, table declaration, or repository outside the
+  exact checkpoint-2 successor contract, or adding a DDL runner, service,
   Layer, export, route, runtime caller, or production binding;
 - splitting the common control/target platform migration tree;
 - implementing `DataBindingSet`, Application projection, activation, serving,
@@ -845,15 +860,17 @@ gate before:
 
 ## Exit Decision
 
-The installation and structural migration authority is now coherent enough for
-the first pure implementation checkpoint. The plan/installation digest cycle
-is removed, different candidates share one stable DDL collision domain,
+The installation and structural migration authority has passed its private pure
+value checkpoint and additive metadata-DDL slice. The plan/installation digest
+cycle is removed, different candidates share one stable DDL collision domain,
 semantic IDs no longer leak into PostgreSQL identifiers, scope isolation is a
 physical invariant, coexisting additive candidates have an exact observed-
 projection meaning, and physical evidence cannot masquerade as runtime
 compatibility.
 
 The explicit checkpoint-1 approval has now been exercised and its private
-pure-value receipt is complete above. Checkpoint 2 remains closed pending its
-own approval. This record still opens no persistence, DDL, target execution,
-binding, adapter, runtime, hosted, public, or production gate.
+pure-value receipt is complete above. Checkpoint 2 is separately accepted, and
+only its additive private metadata DDL slice is complete; stored restoration and
+repository kernels remain pending in that checkpoint. This record still opens
+no generated relational DDL, target execution, binding, adapter, runtime,
+hosted, public, or production gate.

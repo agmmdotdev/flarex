@@ -561,6 +561,13 @@
       "when": 1788110579376,
       "tag": "0079_bright_puppet_master",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1788342227333,
+      "tag": "0080_nosy_marvel_zombies",
+      "breakpoints": true
     }
   ]
 }

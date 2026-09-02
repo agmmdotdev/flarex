@@ -2,9 +2,10 @@
 
 ## Status And Scope
 
-Status: value-only relational schema and the first pure physical/coordination/
-lifecycle value checkpoint implemented privately and production-inert; every
-DDL, repository, target-session, binding, and runtime gate remains closed
+Status: value-only relational schema, the first pure physical/coordination/
+lifecycle value checkpoint, and additive private coordinator metadata DDL
+implemented production-inert; stored restoration, repository, generated
+relational DDL, target-session, binding, and runtime gates remain closed
 
 This plan owns the value-only relational schema boundary and the shared
 execution mechanics for framework-owned migration plans. It does not own DML,
@@ -43,9 +44,13 @@ coordinator, readiness, and availability design is accepted in
 [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md).
 Its first pure-value checkpoint is implemented under the private
 `relationalSchema/physical`, `migrationCoordination`, and
-`frameworkSchema/installation` owners. The record still deliberately defers
-metadata DDL, repositories, target sessions, the Application projection,
-`DataBindingSet`, activation, and serving.
+`frameworkSchema/installation` owners. The exact checkpoint-2 metadata,
+cold-rehydration, and private repository contract is accepted in
+[`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
+Its additive private metadata storage and focused PGlite DDL/catalog evidence
+are implemented; stored restoration and private repositories remain pending.
+Target sessions, generated relational DDL, the Application projection,
+`DataBindingSet`, activation, and serving also remain pending.
 
 The exact Medusa source-and-contract audit is complete at fork commit
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f` in
@@ -218,6 +223,8 @@ coordinator on a small synthetic reserved-relational schema:
 
 The design boundary and ordered implementation checkpoints are frozen by
 [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md).
+The exact checkpoint-2 storage/repository boundary is frozen by
+[`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
 The coordinator proof stops at authenticated readiness and availability. Next
 complete the Application-projection and `DataBindingSet` preflight, then a
 separate synthetic-`system` selection preflight because the initial binding set

@@ -118,3 +118,27 @@ export {
   fxControlFrameworkSchemaArtifactDependencies,
   fxControlFrameworkSchemaArtifacts,
 } from "./frameworkSchema/artifact/schema";
+
+export {
+  fxSystemFrameworkSchemaAvailabilityHeads,
+  fxSystemFrameworkSchemaAvailabilityHistory,
+  fxSystemFrameworkSchemaInstallations,
+  fxSystemFrameworkSchemaReadiness,
+} from "./frameworkSchema/installation/schema";
+
+export {
+  fxSystemFrameworkMigrationAdmissionAssignments,
+  fxSystemFrameworkMigrationAttemptStarts,
+  fxSystemFrameworkMigrationAttemptTerminals,
+  fxSystemFrameworkMigrationCollisionDomains,
+  fxSystemFrameworkMigrationCollisionHeads,
+  fxSystemFrameworkMigrationEvents,
+  fxSystemFrameworkMigrationPlanAdmissions,
+  fxSystemFrameworkMigrationPlans,
+  fxSystemFrameworkMigrationPlanStepDependencies,
+  fxSystemFrameworkMigrationPlanSteps,
+  fxSystemFrameworkMigrationStepReceiptDependencies,
+  fxSystemFrameworkMigrationStepReceipts,
+  fxSystemFrameworkSchemaTargetNamespaces,
+  fxSystemRelationalPhysicalNameAssignments,
+} from "./migrationCoordination/schema";
