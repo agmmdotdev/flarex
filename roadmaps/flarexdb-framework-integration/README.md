@@ -27,8 +27,12 @@ PostgreSQL acceptance enumerated for the private artifact repository. Together
 the PGlite and genuine-PostgreSQL lanes complete the private repository
 checkpoint. Later lifecycle codecs remain gated.
 
-Installation, binding, Payload/Medusa adapters, runtime wiring, and production
-work remain pending and production-inert.
+The exact Medusa package/capability map and Payload `3.88.0` adapter-contract
+audit are accepted, and the private value-only relational schema is implemented
+and production-inert. The relational installation/readiness/availability,
+physical-lowering, and structural migration-coordination authority is accepted
+in design only. Its implementation, the later binding checkpoint,
+Payload/Medusa adapters, runtime wiring, and production work remain pending.
 
 This domain owns the extraction and admission of shared FlarexDB mechanisms
 needed by Payload and Medusa, plus the ordered adapter conformance work that
@@ -76,8 +80,21 @@ Use these sources in order:
    package-promotion boundary. The selected Cloudflare-oriented fork is the
    primary Medusa source; official Medusa is historical provenance and
    comparison evidence only.
-8. Current code, migrations, any source snapshot already admitted by its own
-   gate, and decisive tests prove exact implemented behavior.
+8. [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md)
+   owns the exact pinned-fork capability classifications, reproducibly measured
+   65-input Currency semantic graph, and broader exploratory graph constraints.
+9. [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md)
+   owns the exact Payload `3.88.0` adapter, transaction, query, internal-
+   collection, migration, relation, and first-profile constraints.
+10. [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md)
+    owns the implemented private relational value vocabulary, normalization,
+    framework-artifact composition, evidence receipt, and closed boundaries.
+11. [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md)
+    owns the cycle-free installation identity, deterministic scope-isolated
+    physical lowering, stable migration collision domain, coordinator ledger,
+    recovery, readiness/availability, and database-evidence design.
+12. Current code, migrations, any source snapshot already admitted by its own
+    gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
 the foundation plans, the foundation owner controls until a separate approved
@@ -102,7 +119,7 @@ not transfer mutation authority.
 | --- | --- |
 | [`01-system-boundaries.md`](./01-system-boundaries.md) | Lane, trust, API, storage, and package boundaries |
 | [`02-schema-artifacts-and-bindings.md`](./02-schema-artifacts-and-bindings.md) | Artifact, physical installation, readiness, binding, and coordinated activation |
-| [`03-relational-schema-and-migrations.md`](./03-relational-schema-and-migrations.md) | Value-only relational schema and shared migration execution mechanics |
+| [`03-relational-schema-and-migrations.md`](./03-relational-schema-and-migrations.md) | Value-only relational schema and framework structural-migration coordination design |
 | [`04-transactions-and-commit-publication.md`](./04-transactions-and-commit-publication.md) | Trusted transaction hosts, opaque mutation receipts, commit/feed/outbox integration |
 | [`05-relations-links-and-references.md`](./05-relations-links-and-references.md) | Document relations, foreign keys, Module Links, adjacency, and cross-domain references |
 | [`06-medusa-adoption.md`](./06-medusa-adoption.md) | Fork-island, package-convergence, compiler, and adapter sequence |
@@ -117,12 +134,17 @@ Preflight records:
 | [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted and implemented; private repository operations, focused PGlite repository acceptance, ordinary-role PostgreSQL migration/catalog, control-session, admission/concurrency/rollback/recovery/interruption, seven native deadline receipts, supported cross-owner deadlock-absence evidence, and native identity-list/index behavior complete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 | [`preflight/03-postgres-active-work-quarantine.md`](./preflight/03-postgres-active-work-quarantine.md) | Accepted; owner correction and native acceptance implemented | Artifact-private authenticated PostgreSQL backend cancellation, tracked-work drain, original-client discard, and fail-closed cleanup semantics for `FSA-PG-DRAIN-01` |
 | [`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md) | Accepted; inert source island imported and verified, package promotion pending | Cloudflare-oriented fork as primary source, official Medusa as provenance baseline, independent verified island, reuse classification, and separately gated package promotion |
-| [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md) | Accepted sequencing; consumer audits and implementation pending | Consumer-informed shared core followed by Flarex Application preservation, Payload scalar and native-relation proofs, then Medusa package convergence |
+| [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md) | Accepted sequencing; consumer audits and relational value slice complete, later shared-core gates pending | Consumer-informed shared core followed by Flarex Application preservation, Payload scalar and native-relation proofs, then Medusa package convergence |
+| [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md) | Accepted exact source/capability audit; no promotion or runtime activation | Mature-DML authority, reproducible 65-input Currency semantic graph, exploratory broader graph notes, reuse classifications, retained evidence, and deferred Query/Link/workflow/lock/idempotency/event gates |
+| [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md) | Accepted exact `payload@3.88.0` audit; no dependency, adapter, or runtime activation | Adapter surface, request nesting, hook/transaction constraint, internal collections, first headless scalar profile, relation cutline, and migration/host boundary |
+| [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md) | Implemented privately; value evidence complete and no DDL/runtime activation | Exact first-slice relational value vocabulary, deterministic normalization, framework-artifact composition, Currency and synthetic fixtures, and closed downstream gates |
+| [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; checkpoint 1 private pure values and goldens implemented, while metadata DDL, repositories, target sessions, binding, and runtime remain closed | Cycle-free plan/installation identity, stable physical collision domain, bounded digest names, scope-isolated lowering, structural plan/ledger values, capability-evidence split, readiness/availability values, and later execution/database proof matrix |
 
 ## Current Architecture
 
-The existing repository contains reusable lower-level evidence but not yet a
-framework-neutral relational kernel:
+The existing repository contains the private relational value contract and
+reusable lower-level evidence, but not yet a framework-neutral relational
+lifecycle kernel:
 
 - scope resolution and physical placement are reusable authorities;
 - scoped execution is the best transaction-host seed but remains backed by
@@ -171,15 +193,24 @@ The smallest safe sequence is:
    complete at fork commit `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`;
    official Medusa remains historical provenance and comparison evidence, and
    no active package or runtime import exists.
-3. In parallel, complete the exact Medusa package/capability source map from
-   that island and the exact Payload release/adapter contract preflight. These
-   audits constrain shared primitives but authorize no package promotion,
-   adapter, runtime import, or write path.
-4. Admit the private canonical value-only `RelationalSchema` contract,
-   encoding, digest, provenance, and unsupported-capability rules against exact
-   source-audited fixtures. Perform no DDL and compile no live Medusa candidate.
-5. Add the separately preflighted framework installation, readiness,
-   availability, binding, and migration-coordinator owners.
+3. The exact Medusa package/capability source map from that island and the exact
+   Payload `3.88.0` release/adapter contract preflight are complete. They
+   constrain shared primitives but authorize no package promotion, adapter,
+   runtime import, or write path.
+4. The private canonical value-only `RelationalSchema` contract is complete,
+   including deterministic normalization, framework-artifact composition,
+   provenance, and unsupported-capability rules against exact source-audited
+   fixtures. It performs no DDL and compiles no live Medusa candidate.
+5. Implement the separately accepted installation/readiness/availability and
+   structural migration checkpoints in
+   [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md),
+   beginning with pure target-namespace/physical-layout/name-assignment/plan/
+   ledger/lifecycle values and stopping after fresh plus base-backed genuine-PostgreSQL
+   structural acceptance. Then separately preflight the Application projection,
+   `DataBindingSet`, activation, and serving owner. Before the synthetic system
+   transaction proof, also preflight one specifically named system slot or a
+   non-serving test-only selection capability; the initial binding set supplies
+   neither.
 6. Complete the mandatory transaction-owner preflight, then add its narrow
    owner-scoped relational transaction/store capability. Do not create a
    universal database or transaction API.
@@ -188,9 +219,11 @@ The smallest safe sequence is:
    generic relational change-fact family.
 8. Prove the framework-neutral lifecycle and transaction path on a synthetic
    reserved-relational schema through artifact, installation, readiness,
-   binding, migration, transaction-local mutation/read, authenticated receipt
-   preparation, fail-closed finalization rejection, and rollback in PGlite and
-   genuine PostgreSQL. Do not invent a generic synthetic change-fact family.
+   the separately admitted synthetic-`system` selection, migration,
+   transaction-local mutation/read, authenticated receipt preparation,
+   fail-closed finalization rejection, and rollback in PGlite and genuine
+   PostgreSQL. Do not invent a generic system binding or synthetic change-fact
+   family.
 9. Run the complete existing Flarex Application document, OCC, native-relation,
    commit, and read vertical to prove that shared-core work did not reroute or
    weaken Application authority.
@@ -227,15 +260,16 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite plus ordinary-role PostgreSQL acceptance complete; installation, readiness, availability, Application-reference, Payload-overlay, `DataBindingSet`, and later lifecycle codecs remain gated |
-| Medusa fork source island and package convergence | Inert source island admitted and verified at fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`; source maps, contract audit, every active package promotion, and all runtime/adapter activation remain pending |
-| Core-first three-lane execution sequence | Accepted; exact Medusa and Payload constraint audits are next |
-| Relational schema representation | Accepted target contract; value implementation pending exact consumer audits |
-| Framework migration coordinator | Accepted target contract; owner-specific preflight and implementation pending |
+| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite plus ordinary-role PostgreSQL acceptance complete; pure installation/readiness/availability values are implemented with goldens, while their repositories/execution and Application-reference, Payload-overlay, `DataBindingSet`, activation, and serving remain later gates |
+| Medusa fork source island and package convergence | Inert source island admitted and verified at fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`; exact package/capability audit accepted; the later promotion source map, every active package promotion, and all runtime/adapter activation remain pending |
+| Payload exact-release contract | `payload@3.88.0` and peeled release commit `fea6f8a47a50ff1330d8a5071b43e7dcffb97b22` accepted for the first headless compatibility profile; dependency, adapter, dashboard, host, and runtime work remain pending |
+| Core-first three-lane execution sequence | Accepted; both consumer audits, the private `RelationalSchema`, and the first pure target-namespace/physical-layout/name-assignment/plan/ledger/lifecycle value checkpoint are complete; additive coordinator metadata DDL and private repositories are next only after separate approval |
+| Relational schema representation | Implemented privately under `@flarex/persistence-postgres`; exact normalization/artifact evidence complete, with no package-root export, DDL, installation, adapter, or runtime caller |
+| Framework migration coordinator | Cycle-free physical-lane, plan, ledger, installation, readiness, and availability values implemented privately; no metadata DDL, repository, target session, lease orchestration, recovery runner, or execution exists |
 | Owner-scoped relational store and typed finalization | Not implemented; transaction-owner and commit-owner preflights required |
-| Synthetic reserved-relational lifecycle/transaction proof | Pending the shared-core implementation gates; must reject and roll back an unadmitted mutation fact family |
+| Synthetic reserved-relational lifecycle/transaction proof | Pending the shared-core and explicit synthetic-`system` selection gates; must not infer a generic system binding and must reject and roll back an unadmitted mutation fact family |
 | Flarex Application preservation proof | Current private `SV-R Core` baseline complete; post-core full regression pending |
-| Payload scalar/request-transaction proof | Pending exact Payload contract, shared-core, Application preservation, CMS transaction/commit, and write-policy gates |
+| Payload scalar/request-transaction proof | Exact Payload contract audit complete; pending remaining shared-core lifecycle, Application preservation, CMS transaction/commit, and write-policy gates |
 | Payload non-reactive one/many relation proof | Pending the scalar proof plus relation-bearing Application candidate/readiness/overlay rebinding; `R03-B` is not required for this non-reactive gate |
 | Medusa Currency/Product/Module Link promotion | Blocked on the preceding shared-core, Flarex Application, and Payload gates |
 | Trusted commerce transaction host | Pending preflight |
@@ -280,6 +314,13 @@ universal `@flarex/database` package.
 The artifact, installation, and binding identity preflight is accepted in
 [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md),
 and its first private artifact-value checkpoint is implemented.
+
+The relational installation and structural migration design is accepted in
+[`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md).
+It resolves physical identity, collision-domain fencing, scope isolation,
+coexisting structure evidence, recovery, and readiness/availability ownership,
+but adds no code, DDL, repository, binding, or runtime caller. Its first pure
+value checkpoint is the current bounded implementation gate.
 
 The repository and DDL contract is accepted in
 [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
@@ -421,6 +462,9 @@ additional implementation; hosted and production activation remain separate
 gates.
 
 This authority stops at the files and evidence named by that record.
-Installation, readiness, availability, Application-reference, Payload-overlay,
-and `DataBindingSet` codecs remain later separate preflights. No framework
+Installation, readiness, availability, and structural migration now have the
+accepted design-only boundary in
+[`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md)
+but remain unimplemented. Application-reference, Payload-overlay, and
+`DataBindingSet` codecs remain the following separate preflight. No framework
 adapter, runtime caller, public API, or production activation is included.

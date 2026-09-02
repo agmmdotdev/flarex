@@ -1,0 +1,311 @@
+{
+  "kind": "MedusaCapabilitySourceMap",
+  "status": "sourceAuditAcceptedRuntimeInactive",
+  "source": {
+    "repository": "https://github.com/agmmdotdev/medusa-fork.git",
+    "commit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
+    "packageBaseline": "2.13.4",
+    "root": "third_party/medusa/upstream",
+    "receipt": "third_party/medusa/SOURCE.json",
+    "license": "MIT"
+  },
+  "measurements": [
+    {
+      "id": "currencyServiceModel",
+      "evidenceStatus": "reproducibleAcceptedReceipt",
+      "command": "pnpm medusa:check:real-module-imports",
+      "inputCount": 65,
+      "workerBlockerCount": 0,
+      "categories": {
+        "currency": 3,
+        "matureCoreUtils": 61,
+        "dependencies": 1
+      }
+    },
+    {
+      "id": "currencyStaticManifest",
+      "evidenceStatus": "exploratoryUnreproducedSnapshot",
+      "observedInputCount": 76,
+      "observedCategories": {
+        "currency": 5,
+        "modulesSdk": 2,
+        "matureCoreUtils": 68,
+        "dependencies": 1
+      }
+    },
+    {
+      "id": "existingDrizzleMedusaAdapter",
+      "evidenceStatus": "exploratoryUnreproducedSnapshot",
+      "observedInputCount": 130,
+      "observedCategories": {
+        "drizzle": 11,
+        "portableDal": 4,
+        "matureCoreUtils": 6,
+        "dependencies": 109
+      },
+      "promotionDisposition": "rejectedAsUnchangedCurrencyClosure"
+    }
+  ],
+  "currency": {
+    "model": "third_party/medusa/upstream/packages/modules/currency/src/models/currency.ts",
+    "schemaEvidence": [
+      "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/entity-builder/create-big-number-properties.ts",
+      "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/entity-builder/create-default-properties.ts",
+      "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/entity-builder/define-property.ts"
+    ],
+    "service": "third_party/medusa/upstream/packages/modules/currency/src/services/currency-module-service.ts",
+    "staticManifest": "third_party/medusa/upstream/packages/modules/currency/src/static-manifest.ts",
+    "normalModuleEntry": "third_party/medusa/upstream/packages/modules/currency/src/index.ts",
+    "initialDataLoader": "third_party/medusa/upstream/packages/modules/currency/src/loaders/initial-data.ts",
+    "authoredFields": [
+      "code",
+      "symbol",
+      "symbol_native",
+      "name",
+      "decimal_digits",
+      "rounding"
+    ],
+    "derivedFields": [
+      "raw_rounding"
+    ],
+    "implicitFields": [
+      "created_at",
+      "updated_at",
+      "deleted_at"
+    ],
+    "implicitDefaults": {
+      "created_at": "databaseCurrentTimestamp",
+      "updated_at": "databaseCurrentTimestamp",
+      "deleted_at": null
+    },
+    "updateBehavior": {
+      "updated_at": "currentTimestampOnUpdate"
+    },
+    "implicitIndexes": [
+      {
+        "columns": [
+          "deleted_at"
+        ],
+        "kind": "btree",
+        "predicate": "deleted_atIsNull"
+      }
+    ],
+    "primaryKey": "code",
+    "searchableFields": [
+      "code",
+      "name"
+    ],
+    "retainedTests": [
+      "third_party/medusa/upstream/packages/modules/currency/src/__tests__/static-manifest.spec.ts",
+      "third_party/medusa/upstream/packages/modules/currency/integration-tests/__tests__/currency-module-service.spec.ts",
+      "third_party/medusa/upstream/scripts/test-runner/verify-currency-integration-shadow.mts",
+      "third_party/medusa/upstream/apps/medusa-cloudflare/scripts/check-workerd-currency.mjs",
+      "third_party/medusa/upstream/apps/medusa-cloudflare/src/currency-proof-do.ts"
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "matureDml",
+      "disposition": "admittedForSchemaNormalization",
+      "reuse": [
+        "unchanged",
+        "adapterTranslated"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/utils/src/dml/entity-builder.ts",
+        "third_party/medusa/upstream/packages/core/utils/src/dml/entity.ts"
+      ]
+    },
+    {
+      "id": "standaloneDml",
+      "disposition": "rejectedAsGrammarAuthority",
+      "reuse": [
+        "discarded"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/dml/src/model.ts"
+      ]
+    },
+    {
+      "id": "currencyGeneratedService",
+      "disposition": "admittedForLaterCurrencyClosure",
+      "reuse": [
+        "unchanged"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-service.ts",
+        "third_party/medusa/upstream/packages/modules/currency/src/services/currency-module-service.ts"
+      ]
+    },
+    {
+      "id": "matureRepository",
+      "disposition": "currencySubsetAdmittedAfterStoreGate",
+      "reuse": [
+        "unchanged",
+        "seamAdapted",
+        "adapterTranslated"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/types/src/dal/repository-service.ts",
+        "third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts"
+      ]
+    },
+    {
+      "id": "portableDal",
+      "disposition": "rejectedAsMatureAuthority",
+      "reuse": [
+        "discarded"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/dal/src/types.ts",
+        "third_party/medusa/upstream/packages/core/dal/src/memory-repository.ts"
+      ]
+    },
+    {
+      "id": "staticModulePreparation",
+      "disposition": "admittedForLaterCurrencyClosure",
+      "reuse": [
+        "unchanged",
+        "seamAdapted"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/modules-sdk/src/static-app.ts",
+        "third_party/medusa/upstream/packages/core/types/src/modules-sdk/index.ts"
+      ]
+    },
+    {
+      "id": "globalModuleState",
+      "disposition": "rejectedAsScopeAuthority",
+      "reuse": [
+        "discarded"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts",
+        "third_party/medusa/upstream/packages/core/modules-sdk/src/medusa-module.ts"
+      ]
+    },
+    {
+      "id": "transactionPropagation",
+      "disposition": "contractAdmittedRuntimeDeferred",
+      "reuse": [
+        "seamAdapted"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/decorators/inject-transaction-manager.ts",
+        "third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts"
+      ]
+    },
+    {
+      "id": "migrations",
+      "disposition": "deferred",
+      "reuse": [
+        "seamAdapted",
+        "adapterTranslated",
+        "discarded"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/modules-sdk/src/loaders/utils/load-migrations.ts",
+        "third_party/medusa/upstream/packages/database/drizzle/src/migrations-node.ts"
+      ]
+    },
+    {
+      "id": "query",
+      "disposition": "deferred",
+      "reuse": [
+        "unchanged",
+        "seamAdapted",
+        "adapterTranslated"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/modules-sdk/src/remote-query/portable-query-runtime.ts"
+      ]
+    },
+    {
+      "id": "currencyJoinerMetadata",
+      "disposition": "admittedAsConfigurationEvidence",
+      "reuse": [
+        "unchanged"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/portable-joiner-config-builder.ts",
+        "third_party/medusa/upstream/packages/modules/currency/src/static-manifest.ts"
+      ]
+    },
+    {
+      "id": "storedModuleLinks",
+      "disposition": "deferred",
+      "reuse": [
+        "seamAdapted",
+        "adapterTranslated"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/modules/link-modules/src/services/link-module-service.ts"
+      ]
+    },
+    {
+      "id": "workflows",
+      "disposition": "deferred",
+      "reuse": [
+        "unchanged",
+        "seamAdapted",
+        "adapterTranslated"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/workflows-sdk/src/medusa-workflow.ts",
+        "third_party/medusa/upstream/packages/core/orchestration/src/workflow/workflow-manager.ts"
+      ]
+    },
+    {
+      "id": "locks",
+      "disposition": "deferred",
+      "reuse": [
+        "seamAdapted",
+        "adapterTranslated",
+        "discarded"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/types/src/locking/index.ts",
+        "third_party/medusa/upstream/packages/modules/providers/locking-cloudflare/src/services/durable-object-lock.ts"
+      ]
+    },
+    {
+      "id": "idempotency",
+      "disposition": "deferredNoUniversalStore",
+      "reuse": [
+        "seamAdapted",
+        "adapterTranslated"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/types/src/workflows-sdk/service.ts",
+        "third_party/medusa/upstream/packages/core/types/src/shared-context.ts"
+      ]
+    },
+    {
+      "id": "events",
+      "disposition": "deferredUntilCommitOwnerAdmission",
+      "reuse": [
+        "unchanged",
+        "adapterTranslated",
+        "discarded"
+      ],
+      "sources": [
+        "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/decorators/emit-events.ts",
+        "third_party/medusa/upstream/packages/modules/event-bus-cloudflare/src/services/event-bus-cloudflare.ts"
+      ]
+    }
+  ],
+  "promotion": {
+    "authorized": false,
+    "nextBehaviorSlice": "frameworkInstallationReadinessBindingAndMigrationCoordinationPreflight",
+    "blockedBefore": [
+      "activeMedusaPackage",
+      "islandRuntimeImport",
+      "adapter",
+      "ddl",
+      "transaction",
+      "writePath",
+      "publicApi",
+      "productionActivation"
+    ]
+  }
+}

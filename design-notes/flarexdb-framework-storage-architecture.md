@@ -1,11 +1,13 @@
 # FlarexDB Framework Storage Architecture
 
 Status: accepted cross-domain architecture; the private owner-qualified
-artifact repository is implemented, while installation/binding, relational,
-migration, transaction-host, Payload-adapter, and Medusa-adapter work remains
-pending unless a focused roadmap gate states otherwise
+artifact repository and value-only `RelationalSchema` are implemented, and the
+relational installation/structural-migration authority is accepted in design
+only; installation execution, binding, transaction-host, Payload-adapter, and
+Medusa-adapter work remains pending unless a focused roadmap gate states
+otherwise
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 This note owns the durable boundary between the Flarex application data model,
 Payload CMS, Medusa commerce, and the shared FlarexDB mechanisms beneath them.
@@ -16,6 +18,11 @@ Execution order and implementation status belong to
 [`../roadmaps/flarexdb-framework-integration/README.md`](../roadmaps/flarexdb-framework-integration/README.md).
 The accepted artifact/install/binding identity decisions are recorded in
 [`../roadmaps/flarexdb-framework-integration/preflight/01-artifact-installation-and-binding-identity.md`](../roadmaps/flarexdb-framework-integration/preflight/01-artifact-installation-and-binding-identity.md).
+The implemented relational value contract and the accepted design-only
+installation/migration authority are recorded in
+[`../roadmaps/flarexdb-framework-integration/preflight/08-relational-schema-value-contract.md`](../roadmaps/flarexdb-framework-integration/preflight/08-relational-schema-value-contract.md)
+and
+[`../roadmaps/flarexdb-framework-integration/preflight/09-relational-installation-and-migration-coordination.md`](../roadmaps/flarexdb-framework-integration/preflight/09-relational-installation-and-migration-coordination.md).
 The Medusa primary-fork source hierarchy, inert island, provenance, and
 package-promotion boundary are recorded in
 [`../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md`](../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md).
@@ -257,12 +264,19 @@ Four migration families remain distinct:
 3. Payload lifecycle and data migrations.
 4. Medusa structural and semantic migrations.
 
-They share a migration host, not a migration language.
+They do not yet share a migration host or migration language. The accepted
+design-only coordinator first covers framework structural plans for a synthetic
+`system` artifact and may later cover Medusa structural plans after the exact
+adapter gate. Platform keeps the checked-in Drizzle runner, Application keeps
+its existing build/readiness owners, and Payload lifecycle/data plans remain
+Payload-owned.
 
-The shared host owns target resolution, role authorization, leases, fencing,
-step order, bounded progress, receipts, retry admission, readiness evidence,
-and recovery. Each domain planner owns the meaning of its plan and the allowed
-operations used to execute it.
+Target resolution, software-capability authorization, leases, fencing, step
+order, bounded progress, receipts, retry admission, readiness evidence, and
+recovery are possible reuse candidates only when a later family preflight proves
+identical semantics. Each domain planner retains the meaning of its plan and
+the allowed operations used to execute it; no common host is inferred from this
+architecture note.
 
 A migration plan records immutable identity, dependencies, preconditions,
 postconditions, progress boundaries, and receipt requirements. Structural work
@@ -270,8 +284,10 @@ follows expand, backfill, validate, and contract phases where needed. Contract
 work cannot remove structures still referenced by an active binding.
 
 Production runtime startup verifies the active digest and fails closed on a
-mismatch. It does not apply DDL. Local development may offer an explicitly
-selected auto-apply mode, but that mode is not production precedent.
+mismatch. It does not apply DDL. A later local-development tool may offer an
+explicitly selected operator command, but runtime startup, Worker construction,
+and adapter initialization never auto-apply, and local tooling is not
+production precedent.
 
 There is no general automatic down migration. Rollback is allowed only when a
 domain plan proves the reverse operation safe; otherwise recovery is a new
@@ -422,10 +438,12 @@ sessions, globals, locks, jobs, preferences, population, and Payload-compatible
 errors.
 
 Payload content-schema evolution compiles through the application document
-schema path. Payload lifecycle storage uses Payload-owned plans executed by the
-shared migration host. Payload migrations are not Medusa migrations, and an
-application schema diff cannot substitute for either framework's lifecycle
-semantics.
+schema path. Payload lifecycle storage keeps Payload-owned plans. Those plans
+may use common fenced execution mechanics only after a separate Payload
+migration-host preflight proves identical target, transaction, step, receipt,
+retry, and recovery semantics; no shared host exists for them today. Payload
+migrations are not Medusa migrations, and an application schema diff cannot
+substitute for either framework's lifecycle semantics.
 
 At the first additive gate, a Payload compiler has no direct publication or
 activation authority. Its generated content definitions must enter the existing

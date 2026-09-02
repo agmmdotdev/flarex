@@ -3,7 +3,7 @@
 Status: accepted adapter-boundary correction; no Flarex-backed Medusa adapter
 is implemented or production-authorized by this note
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 This note owns the intended mapping from Medusa's persistence, repository,
 module-link, transaction, workflow, and locking contracts onto FlarexDB. It
@@ -25,7 +25,14 @@ Use these documents with it:
   owns Medusa adapter execution order and status;
 - [`../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md`](../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md)
   owns the primary-fork source hierarchy, provenance, inert island, reuse
-  classification, and package-promotion gates; and
+  classification, and package-promotion gates;
+- [`../roadmaps/flarexdb-framework-integration/preflight/06-medusa-package-capability-source-map.md`](../roadmaps/flarexdb-framework-integration/preflight/06-medusa-package-capability-source-map.md)
+  owns the exact pinned-fork capability audit, the reproducibly measured
+  65-input Currency semantic graph, broader exploratory graph notes, retained
+  tests, and value-only schema inputs;
+- [`../roadmaps/flarexdb-framework-integration/preflight/09-relational-installation-and-migration-coordination.md`](../roadmaps/flarexdb-framework-integration/preflight/09-relational-installation-and-migration-coordination.md)
+  owns the accepted design-only physical lowering, stable migration collision
+  domain, structural readiness, and availability authority; and
 - code, migrations, and tests own exact implementation status.
 
 The Cloudflare-oriented `agmmdotdev/medusa-fork` snapshot admitted under that
@@ -112,10 +119,13 @@ The Medusa adapter owns normalization of the actual fork DML and resolved
 module and link set. It emits the value-only `RelationalSchema` separately from
 Medusa-owned semantic migration intent compiled into a domain `MigrationPlan`.
 Flarex validates, canonically encodes, digests, installs, and physically lowers
-the schema artifact, then executes the approved plan through the fenced
-migration host. It must not manually duplicate all Medusa table declarations in
-a second schema language. Both outputs record provenance and fail closed when a
-module uses an unsupported persistence capability.
+the schema artifact. Only after the Medusa structural runner/adapter gate may
+its admitted structural plan use the fenced framework coordinator. Medusa-owned
+data transformations and semantic migrations require their own later runner
+profile; they are not authorized by structural installation. The adapter must
+not manually duplicate all Medusa table declarations in a second schema
+language. Both outputs record provenance and fail closed when a module uses an
+unsupported persistence capability.
 
 Fresh Flarex installations use a baseline compiled from one admitted
 primary-fork snapshot, its recorded official-upstream provenance baseline, and
@@ -303,10 +313,12 @@ accepted order and current status are owned by
 [`Medusa Adoption`](../roadmaps/flarexdb-framework-integration/06-medusa-adoption.md)
 and its framework master roadmap. The accepted
 [`Medusa fork source-island preflight`](../roadmaps/flarexdb-framework-integration/preflight/04-medusa-fork-source-island-and-package-convergence.md)
-has admitted the inert source snapshot. The exact contract audit and final
-shared-schema admission remain pending. Package promotion remains a separate
-gate after the shared-core, Flarex Application, Payload scalar, and Payload
-native-relation proofs. The later order also requires commerce-row and typed
+has admitted the inert source snapshot. The exact package/capability audit is
+accepted in the focused source-map record, and the private value-only
+relational schema is implemented with no DDL or runtime caller. Package
+promotion remains a separate gate after the remaining shared-core, Flarex
+Application, Payload scalar, and Payload native-relation proofs. The later
+order also requires commerce-row and typed
 event-intent commit admission before Currency writes, and commerce-link commit
 admission before the first stored Module Link writes.
 

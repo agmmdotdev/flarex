@@ -1,9 +1,10 @@
 # FlarexDB Payload Relational Adapter
 
-Status: accepted adapter-boundary correction; native non-reactive relation
-prerequisites are complete, but no Payload adapter is implemented by this note
+Status: accepted adapter-boundary correction; exact `payload@3.88.0` source
+audit and native non-reactive relation prerequisites are complete, but no
+Payload adapter is implemented by this note
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-02
 
 This note defines how a future Payload database adapter and Payload-backed CMS
 surface consume the native FlarexDB relational system. The native database
@@ -17,6 +18,12 @@ commit-finalizer mechanics are owned by
 [`flarexdb-framework-storage-architecture.md`](./flarexdb-framework-storage-architecture.md).
 Payload implementation order and status are owned by
 [`../roadmaps/flarexdb-framework-integration/07-payload-adoption.md`](../roadmaps/flarexdb-framework-integration/07-payload-adoption.md).
+The exact pinned contract and first-profile constraints are owned by
+[`../roadmaps/flarexdb-framework-integration/preflight/07-payload-release-and-adapter-contract.md`](../roadmaps/flarexdb-framework-integration/preflight/07-payload-release-and-adapter-contract.md).
+The accepted design-only relational installation and structural migration
+authority is owned by
+[`../roadmaps/flarexdb-framework-integration/preflight/09-relational-installation-and-migration-coordination.md`](../roadmaps/flarexdb-framework-integration/preflight/09-relational-installation-and-migration-coordination.md);
+it does not make Payload content a relational-schema consumer.
 
 The executable low-level prerequisites remain in
 [`../roadmaps/flarexdb-foundation/04-payload-relational-contract.md`](../roadmaps/flarexdb-foundation/04-payload-relational-contract.md).
@@ -123,9 +130,10 @@ proof independently digests the pinned Payload configuration and stable policy
 ID, then uses a new table whose authenticated Application artifact already
 rejects ordinary app writes and records that digest. Only afterward does the
 content overlay bind the configuration digest to the finalized Application
-artifact, installation, and table identities. Payload writes remain unavailable
-until that paired overlay is active. An app-owned table may be presented
-read-only. Transferring an already app-writable table to CMS-managed authority
+artifact, exact active head/schema/readiness/placement evidence, and table
+identities. Application has no generic framework installation. Payload writes
+remain unavailable until that paired overlay is active. An app-owned table may
+be presented read-only. Transferring an already app-writable table to CMS-managed authority
 is deferred until the Application owner proves atomic capability revocation and
 overlay activation with no dual-writer interval. Merely adding labels, layouts,
 or admin widgets never transfers authority.
@@ -309,6 +317,13 @@ lane that converges on the same authoritative Postgres scope clock, commit
 feed, and outbox. Sharing the commit authority does not require sharing the
 user-code transaction protocol.
 
+Pinned Payload `3.88.0` runs collection/field hooks before the outer request
+commits and permits arbitrary callback, file, and remote work in that interval.
+The first Flarex profile therefore rejects user hooks, dynamic access callbacks,
+uploads, and remote effects. A fixed conformance-only nested callback may prove
+same-request reuse; general hook compatibility requires a later transaction and
+lifecycle preflight rather than an unbounded SQL transaction.
+
 Ordinary `ctx.db` reads may consume the table's allowed current projection, but
 they do not acquire Payload operation authority. Once drafts or versions are
 supported, the ordinary app-data view is the published/live projection unless
@@ -407,7 +422,7 @@ Payload-owned content collection
 
 Payload lifecycle/data migration
   -> Payload-owned semantic migration plan
-  -> privileged shared migration host
+  -> future fenced host only after a Payload migration-host preflight
   -> native row/relation/unique/commit invariants retained
 ```
 
@@ -446,11 +461,13 @@ relation meaning.
 
 Payload work has two distinct proofs:
 
-1. an adapter-core preflight pins the Payload version and inventories the exact
+1. the completed adapter-core preflight pins Payload `3.88.0` and inventories
+   the exact
    database-adapter methods, query shapes, schema/migration lifecycle,
    repositories, request transaction IDs, nested Local API behavior, and error
    mapping that the first release claims; it then proves a relation-free
-   collection CRUD/find/count/request-transaction matrix; and
+   content-collection CRUD/find/count/request-transaction matrix while retaining
+   the sanitized configuration's dormant auth and internal definitions; and
 2. only after native `SV-R Core`, a relation-mapping gate lowers the admitted Payload
    field shapes to native relation intent and composes bounded forward
    population and reverse joins over the proven native identity read plus
@@ -477,9 +494,9 @@ the framework-integration roadmap.
 The first private adapter claim is a relation-free scalar core:
 
 ```text
-collections only
-one Payload-configured scalar collection compiled through authenticated Application Analysis
-Payload content overlay references exact Application artifact/installation/table/policy evidence
+one exercised Payload-configured scalar content collection compiled through authenticated Application Analysis
+one explicit dormant auth collection required by sanitized Payload config
+Payload content overlay references exact Application artifact/head/schema/readiness/placement/table/policy evidence
 one CMS-managed write-authority mode
 Payload writes remain inert until the exact content overlay is active
 editable CMS-managed bindings write only through the Payload operation pipeline
@@ -487,11 +504,18 @@ ordinary ctx.db writer capability rejects CMS-managed bindings
 private command pipeline suitable for later dashboard and ctx.cms composition
 versions disabled
 drafts disabled
-non-auth
+auth operations disabled; sanitized config is not auth-free
 non-global
 top-level nonlocalized scalar fields
 relation-free adapter-core CRUD/find/count/request-transaction matrix proven
 no generated ctx.cms, dashboard route, or public compatibility claim
+always-present payload-preferences and payload-migrations plus the preferences
+  polymorphic relation inventoried but not treated as scalar dashboard/lifecycle parity
+document locking, jobs, folders, query presets, and optional internal surfaces
+  disabled
+dedicated fail-closed KV adapter prevents default payload-kv injection and
+  rejects all KV use
+user hooks, dynamic access callbacks, uploads, and remote effects disabled
 ```
 
 After that private scalar proof, the non-reactive relation slice may add:
@@ -505,11 +529,13 @@ reverse join only after native incoming adjacency is ready
 no join filter, sort, count projection, orderable join, or unbounded limit
 ```
 
-Dashboard, enabled Payload HTTP/Local API surfaces, and generated `ctx.cms` are
-separately activated product surfaces. When admitted, they must converge on the
-same Payload command pipeline and prove equivalent hooks, access, transaction,
-error, and write-authority behavior; their existence is not part of the private
-adapter-core claim.
+Dashboard, enabled Payload HTTP surfaces, broader Local API surfaces, and
+generated `ctx.cms` are separately activated product surfaces. When admitted,
+they must converge on the same Payload command pipeline and prove equivalent
+hooks, access, transaction, error, and write-authority behavior; their existence
+is not part of the private adapter-core claim. The dashboard additionally waits
+for dedicated preferences, auth, locking, polymorphic-relation, and lifecycle
+support; the first monomorphic content-relation slice is not sufficient.
 
 Later lifecycle islands add:
 
@@ -559,7 +585,8 @@ acceptance. Payload's own relevant relationship and database-adapter tests
 should be ported or invoked against the version binding where licensing and
 fixture boundaries permit.
 
-Current upstream reference evidence, rechecked on 2026-08-30:
+Current upstream reference evidence, rechecked against Payload `3.88.0` on
+2026-09-01:
 
 - [Payload Local API](https://payloadcms.com/docs/local-api/overview) records
   that local operations expose the REST/GraphQL operation family, accept
@@ -575,9 +602,9 @@ Current upstream reference evidence, rechecked on 2026-08-30:
   records the server-side validation/change/read/delete lifecycle that direct
   FlarexDB row writes cannot be assumed to execute.
 
-The adapter-core preflight must pin the exact Payload release and source again;
-these living documents are evidence for the policy boundary, not a substitute
-for version-specific conformance.
+The exact release pin and source audit are accepted in the focused preflight.
+Any release change must refresh that record and its runtime conformance; these
+living documentation pages do not silently float the compatibility target.
 
 ## Rejected Adapter Designs
 

@@ -2,10 +2,10 @@
 
 ## Status And Scope
 
-Status: accepted source-backed sequence with the inert fork source island
-implemented and verified; active package promotion and the Flarex-backed
-Medusa adapter remain unimplemented, gated by the core-first three-lane proof,
-and production-unauthorized
+Status: accepted source-backed sequence with the inert fork source island and
+exact package/capability audit complete; active package promotion and the
+Flarex-backed Medusa adapter remain unimplemented, gated by the core-first
+three-lane proof, and production-unauthorized
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,
@@ -32,6 +32,13 @@ adapter graph.
 owns the prerequisite order before any such package promotion. Source mapping
 and inert fixture extraction may proceed early; package convergence waits for
 the shared-core, Flarex Application, and Payload gates named there.
+
+[`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md)
+now owns the exact fork-pin capability audit, the reproducibly measured
+65-input Currency semantic graph, exploratory broader graph notes, reuse
+classifications, retained test inventory, and source consequences for the
+value-only relational schema. Its companion JSON is machine-readable audit
+evidence, not a promoted package manifest.
 
 The admitted island now pins fork commit
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f` as 8,496 exact tracked regular
@@ -77,9 +84,15 @@ a Flarex-backed production adapter:
 - Link uniqueness uses an application precheck that storage must close under
   concurrency.
 
-These findings must be regenerated from the final admitted fork pin. The fork
-continues to evolve, so this summary constrains the preflight but is not a
-substitute for its machine-verified package and capability source maps.
+The exact audit has now regenerated these findings at fork commit
+`48d5cc675e4e8bc821e22c20c88a751acc66fb5f`. The checked-in command
+reproducibly measures a 65-input real Currency model/service graph with zero
+checked Worker blockers. The observed 76-input static-manifest and 130-input
+eager Drizzle graphs remain exploratory snapshots without a frozen reproducible
+tool policy; their exact counts are not accepted receipts. Source evidence still
+rejects the eager Drizzle graph as an unchanged Currency closure. The first
+later promotion therefore separates Currency semantics/static bootstrap from a
+translated persistence seam.
 
 ## Ownership Boundary
 
@@ -167,21 +180,31 @@ migration requirements fail admission before serving traffic.
 
 ### Source maps and contract audit
 
-- Consolidate the actual mature DML parser, portable DML/DAL experiments, and
-  current Drizzle compiler inputs from the admitted island.
-- Inventory repository, transaction, custom-query, Query, Link, workflow, lock,
-  idempotency, event, and migration contracts.
-- Produce supported, deferred, and rejected capability matrices.
-- Freeze module-scoped preparation and dependency direction.
-- Classify every selected connected capability as unchanged, seam-adapted,
-  adapter-translated, or discarded, with provenance and retained tests.
-- Do not import the island from Flarex code merely to make the audit executable.
+- Completed at the exact admitted pin without importing the island into Flarex
+  code.
+- Mature DML remains the schema-normalization authority; standalone
+  `@medusajs/dml` is rejected as a relationship-capable replacement.
+- Repository, transaction, Query, Joiner/Link, migration, workflow, lock,
+  idempotency, and event capabilities are classified with exact sources.
+- Currency model/service/static inputs, initial data, legacy migrations, test
+  evidence, graph measurements, and package direction are frozen as audit
+  constraints.
+- The current process-global prepared-model/module registries are rejected as
+  Flarex scope authority.
 
 ### Schema admission
 
-- Admit the canonical value-only `RelationalSchema` contract, deterministic
-  encoding, digest, provenance, and unsupported-capability failures using the
-  source-audited capability matrix and exact representative fixtures.
+- Completed privately in
+  [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md):
+  the canonical value-only `RelationalSchema`, deterministic normalization,
+  framework-artifact digest/provenance composition, and unsupported-capability
+  failures use the source-audited capability matrix and exact representative
+  fixtures.
+- Accepted in design only in
+  [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md):
+  scope-isolated physical lowering, stable collision-domain migration
+  coordination, structural readiness, and availability. Every implementation
+  and the later binding checkpoint remain pending.
 - Keep live fork DML normalization and candidate compilation outside this step;
   those begin only after the connected source closure is promoted.
 - Generate no public application schema and expose no raw database handle.
@@ -191,10 +214,11 @@ migration requirements fail admission before serving traffic.
 Do not begin the Currency-connected foundational promotion until all of these
 are complete:
 
-- the exact Medusa source/capability map and exact Payload contract preflight;
-- value-only `RelationalSchema` admission;
-- framework installation, readiness, availability, binding, and migration-
-  coordinator mechanics;
+- the completed exact Medusa source/capability map and exact Payload contract
+  preflight;
+- completed value-only `RelationalSchema` admission;
+- completed framework installation, readiness, availability, and migration-
+  coordinator mechanics, followed by the separate binding checkpoint;
 - an owner-scoped relational transaction/store capability;
 - transaction-bound mutation receipts and typed common finalization under their
   separately accepted owner preflights;

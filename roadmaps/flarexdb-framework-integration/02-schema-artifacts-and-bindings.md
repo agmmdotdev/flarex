@@ -198,12 +198,14 @@ A scope-local selection containing:
 Runtime admission resolves and revalidates this binding before serving the
 lane.
 
-This installation-bearing shape initially applies to commerce, admitted system
-schemas, and any Payload lifecycle schema that owns physical structures. The
-existing Application lifecycle is represented by one read-only coherent
-head/schema/readiness/placement projection until a separately approved
-Application-owner migration. A content-only Payload integration instead uses a
-`PayloadContentOverlay` containing:
+This installation-bearing shape later applies to commerce and any Payload
+lifecycle schema that owns physical structures. An admitted system schema may
+reach installation/readiness/availability for an internal proof, but the
+initial `DataBindingSet` has no generic system slot; a future system binding
+requires its own named-slot preflight. The existing Application lifecycle is
+represented by one read-only coherent head/schema/readiness/placement
+projection until a separately approved Application-owner migration. A content-
+only Payload integration instead uses a `PayloadContentOverlay` containing:
 
 - its canonical configuration/provenance digest;
 - the exact referenced Application head, schema, readiness, and physical
@@ -319,6 +321,12 @@ Installation, readiness, availability, Application-reference,
 Payload-overlay, and `DataBindingSet` codecs remain later preflights. No current
 checkpoint may dual-bind, fall back, route production traffic, change the
 Application active head, or admit framework relational DDL.
+
+The relational installation/readiness/availability and structural migration
+authority is now accepted in design by
+[`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md).
+It implements nothing and deliberately leaves Application projection,
+`DataBindingSet`, activation, and serving for the following checkpoint.
 
 ## Exit Criteria
 

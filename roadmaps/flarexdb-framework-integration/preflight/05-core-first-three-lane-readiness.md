@@ -1,9 +1,11 @@
 # Core-First Three-Lane Readiness
 
-Status: accepted execution-sequencing preflight; consumer contract extraction
-and shared-core implementation pending
+Status: accepted execution sequence; consumer audits and the private value-only
+relational schema are complete; the installation/migration authority is
+accepted in design only, and all shared-core lifecycle implementation and
+binding gates remain pending
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 ## Decision
 
@@ -45,13 +47,17 @@ The repository already proves two separate foundations:
   identity reads, commit publication, and PGlite plus genuine PostgreSQL
   behavior for the admitted non-reactive profile.
 
-Those are real foundations, but they are not a framework-neutral relational
-kernel. The following remain absent:
+Those foundations now also include the private, production-inert
+`RelationalSchema` value contract recorded by
+[`08-relational-schema-value-contract.md`](./08-relational-schema-value-contract.md).
+The following later mechanisms remain absent:
 
-- `RelationalSchema`;
-- installation, readiness, availability, and binding repositories for
-  framework-owned relational installations;
-- a framework migration plan coordinator and durable execution ledger;
+- installation, readiness, and availability repositories for framework-owned
+  relational installations;
+- a framework structural migration-plan coordinator and durable execution
+  ledger;
+- the Application projection, `DataBindingSet`, binding/activation repository,
+  and serving admission;
 - an owner-scoped relational transaction/store capability;
 - transaction-bound relational mutation receipts and typed finalization;
 - Payload configuration/content overlays and adapter behavior; and
@@ -101,6 +107,14 @@ adapter-translated, or discarded.
 This audit may produce fixtures and source maps. It may not promote a root
 `@medusajs/*` package, import the island from Flarex, or create an adapter.
 
+Completed by
+[`06-medusa-package-capability-source-map.md`](./06-medusa-package-capability-source-map.md)
+against fork commit `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`.
+The accepted map makes mature DML the semantic source, rejects the standalone
+scalar-only DML experiment as grammar authority, separates the measured
+65-input Currency semantic graph from the exploratory static/Drizzle graph
+snapshots and leaves every promotion/runtime gate closed.
+
 ### Exact Payload contract preflight
 
 Pin one exact Payload release and source revision. Map the database-adapter
@@ -112,6 +126,14 @@ This audit may constrain shared transaction, migration, binding, and receipt
 contracts. It must not make Payload content a reserved relational schema, add a
 Payload dependency or adapter, or authorize a write path.
 
+Completed by
+[`07-payload-release-and-adapter-contract.md`](./07-payload-release-and-adapter-contract.md)
+for `payload@3.88.0` at peeled release commit
+`fea6f8a47a50ff1330d8a5071b43e7dcffb97b22`. The accepted first profile is a
+headless Local API scalar proof; arbitrary hooks, the authenticated dashboard,
+internal relational lifecycle, general queries, migrations, and Worker/hosted
+compatibility remain separately gated.
+
 Both audits must identify concrete consumers for every proposed shared
 capability. A feature appearing in either framework is not enough by itself to
 make the feature generic.
@@ -120,7 +142,7 @@ make the feature generic.
 
 ### Relational schema value
 
-The first behavior slice after the audits is the private value-only
+The first behavior slice after the audits is complete as the private value-only
 `RelationalSchema` contract:
 
 - owner-qualified stable identities;
@@ -132,19 +154,28 @@ The first behavior slice after the audits is the private value-only
 
 This slice performs no DDL, installs no schema, compiles no live Medusa
 candidate, exports no public DSL, and accepts no ORM object or raw SQL.
+The exact implementation and evidence receipt is
+[`08-relational-schema-value-contract.md`](./08-relational-schema-value-contract.md).
 
-### Installation, readiness, binding, and migration coordination
+### Installation, readiness, availability, and migration coordination
 
-After the value contract is proven, add the separately preflighted private
-installation, readiness, availability, binding, plan, lease, ledger, receipt,
-and recovery owners. Domain plans remain separate; only fenced execution and
-evidence mechanics are shared.
+The design-only authority gate is complete in
+[`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
+It freezes the private installation, readiness, availability, physical-layout,
+plan, collision-domain, lease, ledger, receipt, and recovery owners. Domain
+plans remain separate; only fenced execution and evidence mechanics are shared.
+No implementation is authorized by that record.
 
 The first execution proof uses a synthetic reserved-relational schema and must
 cover fresh install, deterministic plan, replay, interruption and exact resume,
 concurrent claimant fencing, lease loss, validation failure, readiness
-publication, activation refusal before readiness, activation after readiness,
-and retention of the previous installation.
+publication, availability refusal before readiness, availability transition
+after readiness, then a separately admitted base-backed additive candidate that
+retains the exact authenticated base structures.
+
+The proof stops before `DataBindingSet`, activation, or serving. Those belong to
+the following Application-projection and binding checkpoint; the initial
+binding set has no generic `system` slot.
 
 ### Transaction-owner admission
 
@@ -200,12 +231,15 @@ exact domain fact family under its own commit-owner preflight.
 ### Synthetic lifecycle and transaction proof
 
 Before a framework adapter exists, prove one synthetic reserved-relational
-vertical through artifact admission, installation, readiness, binding,
-owner-scoped transaction, typed store operation, transaction-local read,
-authenticated receipt preparation, fail-closed finalization rejection, and
-rollback. Separately prove successful read-only transaction settlement and the
-migration coordinator's committed lifecycle/readiness receipts. PGlite is the
-fast lane; genuine PostgreSQL is mandatory for DDL, locks, fencing,
+vertical through artifact admission, installation, readiness, an explicitly
+preflighted synthetic-`system` selection, owner-scoped transaction, typed store
+operation, transaction-local read, authenticated receipt preparation,
+fail-closed finalization rejection, and rollback. The selection preflight must
+choose either a specifically named system binding slot or a non-serving
+test-only accepting-transaction capability; the initial `DataBindingSet` does
+not supply one. Separately prove successful read-only transaction settlement
+and the migration coordinator's committed lifecycle/readiness receipts. PGlite
+is the fast lane; genuine PostgreSQL is mandatory for DDL, locks, fencing,
 concurrency, settlement, rollback, and constraint claims.
 
 Passing this gate proves only the shared reserved-relational mechanism. It does
@@ -328,13 +362,19 @@ Stop and open the owning preflight if a slice would:
 
 ## Next Authorized Slice
 
-The exact Medusa package/capability source map and exact Payload contract
-preflight are the next bounded source-analysis slices and may proceed in
-parallel. They are read-only with respect to active runtime/package graphs and
-may add only accepted design records, machine-readable maps, source-backed
-fixtures, and inert verification tooling.
+Both consumer constraint records and the private value-only
+`RelationalSchema` contract are complete. The installation/readiness/
+availability and structural migration-coordination design is also accepted in
+[`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
 
-After both constraint records are accepted, the first behavior implementation
-is the private value-only `RelationalSchema` contract. That slice stops before
-DDL, installation, binding, transaction/store code, package promotion, or any
-Payload or Medusa adapter.
+The next separately reviewable behavior slice is its checkpoint 1: pure
+target-namespace, physical-name/layout and assignment, fresh structural plan,
+plan-admission, ledger, installation, readiness, capability-evidence,
+availability-history, and per-installation availability-head value frames with
+golden tests. It adds no SQL, table declaration, migration file, repository,
+target transaction, binding, runtime caller, adapter, public API, or production
+path.
+
+Additive coordinator metadata DDL, target execution, PostgreSQL acceptance,
+Application projection/`DataBindingSet`, transaction/store, and commit owners
+remain later separately approved checkpoints.

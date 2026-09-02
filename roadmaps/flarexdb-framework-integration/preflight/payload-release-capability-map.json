@@ -1,0 +1,194 @@
+{
+  "kind": "PayloadReleaseCapabilityMap",
+  "status": "exactReleaseAuditAcceptedRuntimeInactive",
+  "release": {
+    "package": "payload",
+    "version": "3.88.0",
+    "stableTagAtAudit": "3.88.0",
+    "publishedAt": "2026-08-11T20:55:04.513Z",
+    "tarball": "https://registry.npmjs.org/payload/-/payload-3.88.0.tgz",
+    "shasum": "2a534efd3287f712282723bdfc83dc7679c9c823",
+    "integrity": "sha512-O7zuS80bvEGLte+7xZjwN05+ox5BCsGcQT2M6+CTote07JQOOvHJoiuoyQFw6cUElcFTWGMC5dy03w7J7sTYGg==",
+    "gitTagObject": "c54dea8f4010d9cb194780f2ee1e4b3ec697f9be",
+    "gitCommit": "fea6f8a47a50ff1330d8a5071b43e7dcffb97b22",
+    "license": "MIT",
+    "nodeEngines": "^18.20.2 || >=20.9.0",
+    "tarballToCommitEquivalenceClaimed": false
+  },
+  "adapterContract": {
+    "source": "packages/payload/src/database/types.ts",
+    "requiredFamilies": [
+      "collectionCrud",
+      "collectionQueries",
+      "globals",
+      "drafts",
+      "collectionVersions",
+      "globalVersions",
+      "jobs",
+      "transactions",
+      "migrations"
+    ],
+    "optionalLifecycle": [
+      "init",
+      "connect",
+      "destroy",
+      "generateSchema"
+    ],
+    "transactionId": [
+      "number",
+      "string"
+    ],
+    "admittedTransactionId": "ownedNonblankString",
+    "truthyRuntimeRequired": true,
+    "typedAdapterErrorUnion": false
+  },
+  "queryOperators": [
+    "equals",
+    "contains",
+    "not_equals",
+    "in",
+    "all",
+    "not_in",
+    "exists",
+    "greater_than",
+    "greater_than_equal",
+    "less_than",
+    "less_than_equal",
+    "like",
+    "not_like",
+    "within",
+    "intersects",
+    "near"
+  ],
+  "internalSurfaces": {
+    "requiredConfiguredCollections": [
+      "explicitDormantAuthCollection"
+    ],
+    "collections": {
+    "always": [
+      "payload-preferences",
+      "payload-migrations"
+    ],
+    "conditional": [
+      "payload-locked-documents",
+      "payload-jobs",
+      "payload-folders",
+      "payload-query-presets",
+      "payload-kv"
+    ]
+    },
+    "globals": {
+      "conditional": [
+        "payload-jobs-stats"
+      ]
+    }
+  },
+  "firstProfile": {
+    "host": "headlessLocalApi",
+    "exercisedCollection": "posts",
+    "requiredDormantAuthCollection": "users",
+    "sanitizedConfigurationIsAuthFree": false,
+    "kvPolicy": "explicitFailClosedNonDatabaseAdapter",
+    "supportedOperations": [
+      "create",
+      "find",
+      "findOne",
+      "count",
+      "updateOne",
+      "deleteOne"
+    ],
+    "supportedQuery": [
+      "id",
+      "equals",
+      "deterministicBoundedSort",
+      "limit",
+      "page",
+      "pagination"
+    ],
+    "supportedTransaction": [
+      "oneRequestScopedTransaction",
+      "conformanceOnlyNestedSameRequestOperation",
+      "outerOnlyCommit",
+      "rollbackOnNestedFailure",
+      "nonblankStringTransactionId",
+      "unknownSessionFailsClosed"
+    ],
+    "disabledConfiguration": [
+      "userHooks",
+      "dynamicAccessCallbacks",
+      "uploads",
+      "remoteEffects",
+      "authOperations",
+      "preferencesAndInternalOperations",
+      "kvOperations",
+      "globals",
+      "versions",
+      "drafts",
+      "jobs",
+      "folders",
+      "queryPresets",
+      "documentLocks",
+      "relations"
+    ],
+    "deferredOperations": [
+      "updateMany",
+      "deleteMany",
+      "upsert",
+      "findDistinct",
+      "queryDrafts",
+      "globals",
+      "versions",
+      "jobs",
+      "migrationCommands"
+    ],
+    "deferredSurfaces": [
+      "adminDashboard",
+      "rest",
+      "graphql",
+      "ctx.cms",
+      "cloudflareWorkerHost",
+      "hosted",
+      "production"
+    ]
+  },
+  "nextRelationProfile": {
+    "admittedShape": [
+      "topLevel",
+      "nonlocalized",
+      "monomorphic",
+      "one",
+      "many"
+    ],
+    "deferredShape": [
+      "polymorphic",
+      "reverseJoin",
+      "populationDepth",
+      "dynamicFilterOptions",
+      "localized",
+      "arrays",
+      "blocks",
+      "repeatedTargets"
+    ],
+    "duplicateTargets": "rejectedAsUnsupportedProfile"
+  },
+  "rejectedBehavior": [
+    "developerWritesToCmsOwnedTables",
+    "payloadDbCallsAsCmsCommands",
+    "unknownSessionAutocommitFallback",
+    "successfulUnsupportedMethodStubs",
+    "payloadCliMigrationAuthority",
+    "runtimeStartupDdlAuthority",
+    "fullAdapterParityFromTypeConformance"
+  ],
+  "packageDirection": {
+    "adapter": "@flarex/payload-adapter",
+    "peer": "payload@3.88.0",
+    "officialDrizzleDependency": false,
+    "dashboardPackageDeferred": "@payloadcms/next@3.88.0"
+  },
+  "activation": {
+    "authorized": false,
+    "nextBehaviorSlice": "frameworkInstallationReadinessBindingAndMigrationCoordinationPreflight",
+    "payloadContentUsesRelationalSchema": false
+  }
+}

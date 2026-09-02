@@ -1354,5 +1354,7 @@ repository identity, authenticated starter, deterministic control-session
 lifecycle, completed PGlite and genuine-PostgreSQL acceptance, and artifact-
 private PostgreSQL control-session adapter do not open any installation,
 framework-adapter, runtime, public, hosted, or production gate. Installation,
-readiness, availability, Application-reference, Payload-overlay, and
-`DataBindingSet` persistence require their own accepted preflight.
+readiness, and availability now have accepted design authority in
+[`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md)
+but remain unimplemented. Application-reference, Payload-overlay, and
+`DataBindingSet` persistence still require their following accepted preflight.

@@ -1,9 +1,10 @@
 # Medusa Fork Source Island And Incremental Package Convergence
 
 Status: accepted architecture preflight with the inert source island imported
-and verified; package promotion and Flarex-backed adapter implementation pending
+and verified and the exact capability audit complete; package promotion and
+Flarex-backed adapter implementation pending
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 ## Decision
 
@@ -304,9 +305,11 @@ or treating Cloudflare portability as proof of FlarexDB integration.
 An earlier read-only audit observed passing portable-entrypoint, real Currency,
 composed Worker, and runtime source-reach-in guards. The admitted clean-pin
 implementation receipt below now owns the exact reproducible results, including
-the selected Workerd/D1 and unchanged Currency lanes. The next source-map audit
-must regenerate any capability claim it uses rather than relying on the earlier
-directional snapshot.
+the selected Workerd/D1 and unchanged Currency lanes. The completed exact
+capability audit regenerates only the claims it accepts and records the 65-input
+Currency graph as reproducible while retaining broader graph counts as
+exploratory. Any later package-promotion source map must again freeze and
+reproduce every capability claim it carries forward.
 
 ## Provisional Promotion Sequence
 
@@ -367,7 +370,7 @@ Medusa fork track
   admitted source island -> source maps / fixtures -> promotion hold
 
 core and earlier-lane track
-  artifact repository -> RelationalSchema -> migration coordinator
+  artifact repository -> RelationalSchema [complete] -> migration coordinator
   -> transaction-owner/store -> commit-owner/receipts/finalizer
   -> synthetic lifecycle/transaction proof
   -> Flarex Application preservation
@@ -546,13 +549,20 @@ Stop for a new preflight rather than continuing when:
 
 ## Next Authorized Slice
 
-The source island is admitted and verified. The next bounded Medusa slice is the
-exact package/capability source map that constrains the value-only
-`RelationalSchema` implementation and the later shared mechanisms. It may add
-source maps, inert fixtures, and verification evidence only.
+The source island and exact package/capability audit are complete. The accepted
+map is
+[`06-medusa-package-capability-source-map.md`](./06-medusa-package-capability-source-map.md).
+The private value-only `RelationalSchema` contract is also complete in
+[`08-relational-schema-value-contract.md`](./08-relational-schema-value-contract.md).
+The design-only relational installation/readiness/availability and structural
+migration gate is accepted in
+[`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
+Its pure value checkpoint, later binding gate, and every package-promotion or
+runtime step remain ordered by
+[`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).
 
-It must stop before creating an active root `@medusajs/*` package or any Flarex
-adapter/core/runtime integration. Package promotion remains blocked until every
-prerequisite named by
+Medusa package work remains source-only. It must stop before creating an active
+root `@medusajs/*` package or any Flarex adapter/core/runtime integration.
+Package promotion remains blocked until every prerequisite named by
 [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md)
 passes.

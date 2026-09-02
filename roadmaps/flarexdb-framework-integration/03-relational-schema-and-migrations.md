@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-Status: accepted target contract; exact consumer audits and implementation
-pending
+Status: value-only relational schema and the first pure physical/coordination/
+lifecycle value checkpoint implemented privately and production-inert; every
+DDL, repository, target-session, binding, and runtime gate remains closed
 
 This plan owns the value-only relational schema boundary and the shared
 execution mechanics for framework-owned migration plans. It does not own DML,
@@ -23,26 +24,45 @@ planning. It contains owner-qualified definitions for:
 - physical relationship and pivot requirements; and
 - persistence capabilities required by repositories or lifecycle behavior.
 
-Every definition has stable identity, deterministic ordering, canonical
-encoding, and a digest. No DML closure, ORM entity, Drizzle object,
+Every definition has stable owner-qualified identity and deterministic ordering.
+The complete normalized value is the typed payload of the existing private
+framework artifact, whose canonical encoding and digest remain the sole
+artifact authority. No DML closure, ORM entity, Drizzle object,
 `ModuleJoinerConfig`, service instance, or raw SQL object crosses this boundary.
 
 The schema is internal. It is not a public developer relational DSL.
 
-The exact Medusa source-and-contract audit must complete from the primary-fork
-snapshot admitted by
-[`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md)
-before this model's implementable field and capability set is frozen. Official
-Medusa is provenance and comparison evidence, not the integration source that
-constrains this model. The accepted shape is a boundary, not authority to invent
-a speculative substitute for fork DML or repository behavior.
+The first value contract is implemented and recorded in
+[`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md).
+It admits only the exact first-slice value vocabulary and source-backed
+fixtures, performs no DDL, and creates no installation, migration, transaction,
+adapter, or runtime caller.
 
-The exact Payload release-and-adapter contract audit must also complete before
-shared migration, binding, transaction, or receipt capabilities that Payload
-would consume are frozen. That audit constrains only exact shared mechanisms.
-It does not make Payload content part of `RelationalSchema`: Payload content
-continues through the authenticated Application document schema, row, OCC, and
-native-relation path, with Payload-owned lifecycle plans remaining separate.
+The cycle-free installation, physical-lowering, collision-domain,
+coordinator, readiness, and availability design is accepted in
+[`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md).
+Its first pure-value checkpoint is implemented under the private
+`relationalSchema/physical`, `migrationCoordination`, and
+`frameworkSchema/installation` owners. The record still deliberately defers
+metadata DDL, repositories, target sessions, the Application projection,
+`DataBindingSet`, activation, and serving.
+
+The exact Medusa source-and-contract audit is complete at fork commit
+`48d5cc675e4e8bc821e22c20c88a751acc66fb5f` in
+[`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md).
+It makes mature DML the source grammar, records the Currency authored,
+derived, and implicit schema facts, and rejects the standalone scalar-only DML
+experiment and eager Drizzle graph as schema authority. Official Medusa remains
+provenance and comparison evidence.
+
+The exact Payload release-and-adapter contract audit is also complete for
+`payload@3.88.0` in
+[`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md).
+It constrains only exact shared migration, binding, transaction, receipt, and
+host mechanisms. Payload content does not become part of `RelationalSchema`:
+it continues through the authenticated Application document schema, row, OCC,
+and native-relation path, with Payload-owned lifecycle plans remaining
+separate.
 
 [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md)
 owns the consumer-informed proof order and the stop before Medusa package
@@ -75,17 +95,24 @@ Keep these plans distinct:
 | Payload | Payload adapter | versions, drafts, auth, locks, jobs, lifecycle data transformations |
 | Medusa | Medusa adapter | normalized tables, constraints, link tables, authored commerce backfills |
 
-They share execution fencing and evidence. They do not share one giant step
-union or compatibility classifier.
+They do not currently share one execution host. The accepted coordinator first
+owns framework structural plans for a synthetic `system` artifact and, only
+after its adapter gate, Medusa structural plans. Platform remains on the static
+Drizzle runner, Application keeps its existing build/readiness owners, and
+Payload lifecycle/data plans remain Payload-owned. A later family may reuse
+exact fencing or evidence mechanics only through its own preflight. No family
+shares one giant step union or compatibility classifier.
 
 ## Migration Plan And Ledger
 
 A domain-owned `MigrationPlan` is immutable and records:
 
-- semantic owner and target installation;
+- semantic owner, candidate artifact, exact physical locator,
+  host-authenticated canonical target namespace, and optional base
+  installation;
 - base and candidate artifact digests;
 - deterministic step identities and dependencies;
-- required execution role and capability profile;
+- required execution-capability profile;
 - preconditions and postconditions;
 - bounded progress and checkpoint policy;
 - validation commitments; and
@@ -93,11 +120,13 @@ A domain-owned `MigrationPlan` is immutable and records:
 
 The shared migration coordinator owns:
 
-- target and generation resolution;
+- exact target resolution and capability-profile authentication;
 - authorization;
-- lease claim, renewal, loss, and takeover keyed by physical locator, semantic
-  owner, installation identity, and artifact identity rather than by scope
-  clock alone;
+- lease claim, renewal, loss, and takeover keyed by one stable collision domain
+  comprising deployment, host-authenticated canonical physical-database
+  identity, exact schema name, semantic owner, lineage, and physical namespace
+  profile rather than by logical locator alias, candidate artifact,
+  installation, or scope clock;
 - dependency order;
 - attempt identity and checksums;
 - progress and immutable receipts;
@@ -109,20 +138,26 @@ The domain runner owns what each step means and exposes only approved
 operations. The first implementation must not execute arbitrary runtime SQL or
 developer callbacks.
 
-Because one physical installation may serve many scopes, migration claim and
-ledger identity are installation-scoped. Two scopes selecting the same target
-cannot run competing DDL merely because their scope generations differ.
+Because one physical installation may serve many scopes, structural claim and
+ledger identity are physical-lane-scoped. Different candidate artifacts for
+the same lane cannot run competing DDL. Scope-bound seed or lifecycle-data work
+uses a different later identity and cannot be hidden inside structural
+readiness.
 
 ## Deployment Flow
 
 ```text
 compile immutable candidate
-  -> compare with active artifact
+  -> compare with explicit base installation or fresh state
   -> create deterministic plan
   -> expand structures
   -> run bounded backfills
   -> validate constraints and semantic commitments
   -> publish installation readiness
+  -> publish or change installation availability
+
+later binding checkpoint:
+  authenticate readiness + availability
   -> activate through DataBindingSet
   -> contract only after old bindings are gone
 ```
@@ -149,6 +184,10 @@ Module tables and stored Module Links become ready and active as one coherent
 commerce generation. Per-module migration loading may contribute source intent,
 but it cannot partially activate the runtime schema.
 
+Currency's default dataset is scope-bound Medusa initialization evidence. It is
+not part of a locator-wide structural installation receipt and remains blocked
+until the Medusa data-migration and binding gates define its exact identity.
+
 ## Safety Rules
 
 - Scope and owner restrictions are physical, not optional query filters.
@@ -157,31 +196,38 @@ but it cannot partially activate the runtime schema.
 - Destructive contraction waits for binding retirement.
 - Failed, interrupted, or lease-lost work cannot publish readiness.
 - An idempotent replay returns the same receipt.
-- Migration and runtime roles are distinct.
+- Migration and runtime software capabilities are distinct. Database-enforced
+  PostgreSQL role separation remains a mandatory hosted/production preflight.
 - Backup/restore and operator recovery retain artifact and receipt provenance.
 - Down migration is not assumed; forward repair is the default.
 
 ## First Proof
 
-Before wiring any framework adapter or promoting an active Medusa package,
-prove the coordinator on a small synthetic reserved-relational schema:
+The value-only schema proof is complete. Before wiring any framework adapter or
+promoting an active Medusa package, separately preflight and prove the
+coordinator on a small synthetic reserved-relational schema:
 
 - fresh install;
 - interrupted step and exact resume;
 - concurrent claimant fencing;
 - validation failure;
 - readiness publication;
-- activation refusal before readiness;
-- activation after readiness; and
-- safe retention of the previous installation.
+- availability transition only after readiness; and
+- a separate base-backed additive candidate that safely retains the exact
+  authenticated base structures.
 
-This migration-coordinator proof stops there. Next complete the separately
-preflighted installation/binding, transaction-owner and owner-scoped store,
-commit-owner and receipt/finalizer mechanics, followed by the complete synthetic
-reserved-relational lifecycle/transaction proof. Then prove the full existing
-Flarex Application vertical, Payload scalar/request-transaction behavior, and
-Payload's relation-bearing candidate plus first non-reactive native one/many
-relation behavior in the order frozen by
+The design boundary and ordered implementation checkpoints are frozen by
+[`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md).
+The coordinator proof stops at authenticated readiness and availability. Next
+complete the Application-projection and `DataBindingSet` preflight, then a
+separate synthetic-`system` selection preflight because the initial binding set
+has no system slot. Only then complete the transaction-owner and owner-scoped
+store, commit-owner and receipt/finalizer mechanics, followed by the complete
+synthetic reserved-relational lifecycle/transaction proof. Then prove the full
+existing Flarex Application
+vertical, Payload scalar/request-transaction behavior, and Payload's relation-
+bearing candidate plus first non-reactive native one/many relation behavior in
+the order frozen by
 [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md).
 Only after those gates pass may the Medusa roadmap promote the connected
 Currency closure and compile a live Currency candidate.
@@ -191,8 +237,14 @@ Currency closure and compile a live Currency candidate.
 - Canonical schema digest is deterministic across processes.
 - Unsupported capabilities fail admission before DDL.
 - Structural planning is deterministic and owner-scoped.
+- Installation identity is derived after the plan digest with no digest cycle.
+- Different candidates for one physical lane share one collision-domain fence.
+- Physical names are bounded digest spellings and scope isolation is injected
+  into every applicable key, index, and foreign key.
 - The durable ledger survives restart and claimant loss.
 - Readiness cannot be forged by a domain runner.
+- Structural readiness does not claim residual query/store behavior, scope
+  data initialization, binding, activation, or serving.
 - Genuine PostgreSQL proves locks, DDL transaction assumptions, concurrency,
   and constraint behavior.
 - Existing platform and application migrations remain separately owned and

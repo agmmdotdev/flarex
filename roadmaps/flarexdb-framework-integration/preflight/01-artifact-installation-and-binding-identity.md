@@ -9,7 +9,11 @@ The current Application lifecycle, scope authority, catalog identity,
 persistence placement, and Effect ownership have been audited. This record
 freezes the additive architecture and exact artifact-envelope contract.
 Installation, readiness, availability, Application-bridge, and binding
-persistence codecs remain later preflights.
+persistence codecs remain unimplemented. The relational installation,
+physical-lowering, structural migration, readiness, and availability authority
+is now accepted in design by
+[`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md);
+Application projection and binding remain the following preflight.
 
 The completed checkpoint is limited to the owner-qualified artifact value
 model, canonical capture, digest policy, capture failures, and contract tests
@@ -53,8 +57,11 @@ references the exact Application projection, stable Application table IDs, and
 Application-owned write-policy evidence. Only a Payload lifecycle artifact
 that owns separate physical structures receives a framework installation.
 
-Medusa commerce schemas and later admitted system schemas use the complete
-artifact, installation, readiness, availability, and binding lifecycle.
+Medusa commerce schemas use the complete lifecycle after their later binding
+gate. Admitted system schemas may use artifact, installation, readiness, and
+availability for internal proofs, but the initial `DataBindingSet` has no
+generic system slot. Any system binding requires a separately named slot and
+semantics.
 
 ## Current Authority Audit
 
@@ -408,15 +415,28 @@ Every embedded `ScopePhysicalLocator` must be captured through the existing
 `captureScopePhysicalLocator` policy and stored as an owned frozen value.
 Caller mutation after capture cannot alter an identity or digest.
 
+The later relational installation preflight also requires one host-authenticated
+canonical target namespace because logical locators may alias one PostgreSQL
+database. Its persisted frame is comparison evidence only; the opaque target
+composition remains the authority that issues and revalidates it.
+
 ### Installation identity
 
 An artifact is desired state. An installation is proof that one exact physical
 target reached that state through one exact admitted plan.
 
 ```ts
+interface FrameworkSchemaTargetNamespace {
+  readonly deploymentId: string;
+  readonly physicalDatabaseIdentity: string;
+  readonly schemaName: string;
+  readonly targetNamespaceSha256: string;
+}
+
 interface FrameworkSchemaInstallationIdentity {
   readonly artifact: FrameworkSchemaArtifactIdentity;
   readonly physicalLocator: ScopePhysicalLocator;
+  readonly targetNamespace: FrameworkSchemaTargetNamespace;
   readonly migrationPlanSha256: string;
   readonly installationSha256: string;
 }
@@ -431,14 +451,20 @@ interface FrameworkSchemaInstallation {
 ```
 
 `installationSha256` is the digest of the exact artifact identity, physical
-locator, and migration-plan digest. The immutable installation receipt then
-commits to that identity, the observed installed structure, installed
-capabilities, and database-owned completion time. A different plan is a
-different installation proof even when it reaches the same structure.
+locator, authenticated target namespace, and migration-plan digest. The
+immutable installation receipt then commits to that identity, the observed
+installed structure, installed capabilities, and database-owned completion
+time. A different plan is a different installation proof even when it reaches
+the same structure.
 
 The future migration coordinator owns how a plan is produced and executed.
 This preflight reserves its digest in identity but does not define a migration
 language or authorize execution.
+
+The later relational installation preflight refines `installedCapabilities`
+into per-capability physical evidence plus residual query/store/lifecycle
+requirements. This interface remains identity vocabulary, not a claim that DDL
+alone proves full framework behavior.
 
 ### Readiness and availability
 
@@ -541,10 +567,15 @@ interface FrameworkSchemaBinding {
 ```
 
 The artifact, installation, and binding deployment, owner, lineage, and
-physical locator must agree exactly. The binding authority pins must match its
-containing `DataBindingSet`. Capabilities obey the strict chain
-`required ⊆ validated ⊆ installed ⊆ artifact-declared`; no receipt or
-binding may manufacture a capability absent from desired state.
+physical locator must agree exactly, and the installation's target namespace
+must match the opaque target selected by trusted scope authority. The binding
+authority pins must match its containing `DataBindingSet`. Physical capability
+evidence obeys the strict chain `required physical ⊆ validated physical ⊆
+installed physical ⊆ artifact-
+declared`; no receipt or binding may manufacture a physical claim absent from
+desired state. The later binding preflight must separately authenticate every
+residual adapter/query/store requirement rather than treating structural DDL
+as full compatibility.
 The binding contains no database handle, repository, callback, framework
 service, or structurally forgeable transaction capability.
 
@@ -973,9 +1004,9 @@ by the later repository/DDL preflight.
 
 ## Evidence Matrix
 
-### Next private contract checkpoint
+### Private artifact value checkpoint evidence
 
-The implementation cannot exit until focused tests prove:
+The completed private artifact value checkpoint's focused tests prove:
 
 - owner, lineage, codec, provenance, capabilities, dependencies, and payload
   all participate in the artifact digest;
@@ -1035,7 +1066,8 @@ Before their value contracts can be implemented, their frame preflights must
 freeze exact digest preimages, exclusions, brands, bounds, comparators, and
 canonical instant handling. Focused tests must then prove:
 
-- `required ⊆ validated ⊆ installed ⊆ artifact-declared`;
+- `required physical ⊆ validated physical ⊆ installed physical ⊆ artifact-
+  declared`, with residual adapter/query/store requirements kept separate;
 - every embedded physical locator is captured through
   `captureScopePhysicalLocator`, detached, and immune to caller mutation;
 - database times enter value frames only as owned `CanonicalIsoInstant` values;
@@ -1087,17 +1119,26 @@ This identity record does not itself claim those later receipts.
    admission, corruption rules, migration compatibility, private repository,
    control-session behavior, and focused PGlite plus genuine-PostgreSQL
    acceptance without an Application writer or runtime caller.
-3. **Consumer-informed relational constraint gate — next:** complete the exact
-   Medusa source/capability map and Payload contract preflight, then implement
-   the private value-only `RelationalSchema` as ordered by
-   [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).
-4. **Installation/readiness/availability frame and repository preflights:**
-   proceed only after the relational-schema and migration-coordinator
-   preflights constrain plan and structure evidence.
+3. **Consumer-informed relational constraint and value gate — complete:** the
+   exact Medusa and Payload audits plus the private value-only
+   `RelationalSchema` are complete as recorded by
+   [`08-relational-schema-value-contract.md`](./08-relational-schema-value-contract.md).
+4. **Installation/readiness/availability and migration-coordinator design —
+   complete; implementation pending:**
+    [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md)
+    freezes the cycle-free identity graph, alias-safe physical target identity,
+    physical lowering and name assignments, collision domain, plan, fencing,
+    ledger, recovery, capability-evidence, and database proof boundaries. Its
+    first pure value checkpoint remains separately authorized; no repository or
+    DDL exists.
 5. **Application projection and DataBindingSet frame/repository preflight:**
    freeze every remaining codec, add the Application-owned coherent bridge,
    then design target-local candidates/history/head and activation proof.
-6. **Framework adapter use:** only after the corresponding Medusa or Payload
+6. **Synthetic system selection preflight:** before the shared transaction
+   proof, choose either a separately named system slot with explicit semantics
+   or a non-serving test-only accepting-transaction capability. The initial
+   `DataBindingSet` supplies neither.
+7. **Framework adapter use:** only after the corresponding Medusa or Payload
    conformance gate explicitly authorizes a private consumer.
 
 Each checkpoint is separately reviewable and production-inert. A later item
@@ -1112,6 +1153,13 @@ distinguish desired artifacts from physical proof, current availability, and
 subordinate framework selection. The repository implementation and its focused
 PGlite plus genuine-PostgreSQL acceptance are owned by
 [`02-artifact-repository-and-ddl.md`](./02-artifact-repository-and-ddl.md).
-Work may proceed only through the consumer-informed constraint and value-only
-`RelationalSchema` sequence; all later lifecycle, adapter, runtime, public, and
-production gates remain closed until their own preflights pass.
+Work may proceed only through the installation/readiness/availability and
+migration-coordination checkpoints, followed by the separate binding order
+named by
+[`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).
+The next bounded implementation is only the pure target-namespace/physical-
+layout/name-assignment/plan/ledger and installation/readiness/availability value
+checkpoint from
+[`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
+All repository, DDL, binding, adapter, runtime, public, and production gates
+remain closed until their own preflights pass.

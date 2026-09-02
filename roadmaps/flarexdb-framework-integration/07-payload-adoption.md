@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-Status: accepted source-backed sequence; native non-reactive relation
-prerequisite complete, Payload adapter implementation not started
+Status: accepted source-backed sequence; exact `payload@3.88.0` contract audit
+and native non-reactive relation prerequisite complete, Payload adapter
+implementation not started
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation
@@ -17,10 +18,13 @@ resnapshot claims.
 There is currently no Payload dependency, adapter package, `ctx.cms` runtime,
 or production Payload path in the repository.
 
-The exact Payload contract preflight below may proceed now as source-backed
-constraint extraction. It authorizes no dependency, adapter package, runtime
-import, write-policy change, migration, or compatibility claim. The accepted
-cross-lane order is owned by
+The exact Payload contract preflight is accepted in
+[`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md).
+It pins `payload@3.88.0` and its peeled release commit, inventories the complete
+adapter surface and internal collections, and freezes the first headless Local
+API profile. It authorizes no dependency, adapter package, runtime import,
+write-policy change, migration, or compatibility claim. The accepted cross-
+lane order is owned by
 [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md).
 
 ## Ownership Boundary
@@ -80,7 +84,7 @@ Payload-owned content collection
 
 Payload lifecycle/data migration
   -> Payload-owned semantic migration plan
-  -> privileged shared migration host
+  -> future fenced host only after a Payload migration-host preflight
   -> native row/relation/unique/commit invariants retained
 ```
 
@@ -111,23 +115,33 @@ artifact provenance, not parallel version-named adapter packages.
 
 ### Exact Payload contract preflight
 
-- Pin one exact Payload release, source revision, package graph, and
-  provenance.
-- Inventory `BaseDatabaseAdapter`, query/result/error shapes, transactions,
-  migrations, internal collections, Local API nesting, hooks, access, and
-  enabled surfaces.
-- Produce supported, deferred, and rejected behavior matrices.
-- Freeze package dependency direction.
-- Create no adapter package or compatibility claim before acceptance.
+- Completed for `payload@3.88.0`, peeled release commit
+  `fea6f8a47a50ff1330d8a5071b43e7dcffb97b22`, with npm integrity recorded
+  separately from Git provenance.
+- The complete `BaseDatabaseAdapter`, query/result/error, request transaction,
+  migration, internal collection, relationship, package, and host constraints
+  are inventoried.
+- The first profile is headless Local API over one exercised scalar content
+  collection, with an explicit dormant auth collection required by sanitized
+  Payload configuration and a fail-closed non-database KV adapter. It rejects
+  arbitrary user hooks/access callbacks, uploads/remote effects, auth
+  operations, dashboard behavior, migrations, internal/KV access, and every
+  unadmitted adapter method.
+- Authenticated dashboard support waits for a dedicated preferences, auth,
+  locking, polymorphic-relation, and lifecycle gate because
+  `payload-preferences` is polymorphically relational to auth collections. The
+  first monomorphic content-relation slice is not sufficient.
 
 ### Shared-core and Application preservation prerequisites
 
 Before the first Payload adapter or writable collection is implemented:
 
-- complete the value-only relational schema, installation/readiness/binding,
-  migration-coordinator, owner-scoped transaction/store, receipt/finalizer, and
-  synthetic reserved-relational lifecycle/transaction proof gates required by
-  the core-first preflight;
+- retain the completed private value-only relational schema and accepted
+  installation/migration design, then complete the remaining pure lifecycle,
+  installation/readiness/availability, migration-coordinator, separate binding,
+  owner-scoped transaction/store, receipt/finalizer, and synthetic reserved-
+  relational lifecycle/transaction proof gates required by the core-first
+  preflight;
 - rerun the complete existing Flarex Application document, OCC, native-relation,
   commit, and read vertical without routing Application content through the
   reserved-relational store; and
@@ -202,8 +216,21 @@ authorize a change to application commit admission:
   a read-only CMS view or application-command-managed view while its admitted
   `ctx.db` lane/application-domain commands remain the write owner.
 - No table has two schema or ordinary write-policy owners in either fixture.
-- Keep versions, drafts, auth, globals, uploads, relations, and lifecycle
-  migrations disabled.
+- Keep versions, drafts, auth operations, user globals, uploads, content
+  relations, and lifecycle migrations disabled. Declare the required dormant
+  auth collection explicitly with `lockDocuments: false`; do not describe the
+  sanitized configuration as auth-free.
+- Explicitly disable document locking, jobs, folders, and query presets. Supply
+  a fail-closed KV adapter so the default database KV adapter and `payload-kv`
+  collection are not injected. Inventory the always-present
+  `payload-preferences` and `payload-migrations` collections plus the
+  preferences polymorphic relation. The bounded harness must prove that its
+  startup and admitted `posts` operations do not touch an unbound surface; any
+  internal, auth, migration, or KV access fails closed before data access.
+- "Relation-free" describes the user content fixture, not the full sanitized
+  configuration: the always-present preferences definition still contains its
+  internal polymorphic user relationship and must remain unusable until its
+  dedicated lifecycle gate.
 
 ### Runtime write-authority prerequisite
 
@@ -229,6 +256,9 @@ This gate must pass before the first CMS-managed write is accepted:
 - Do not use the Dynamic Worker logical journal for trusted Payload commands.
 - Use PGlite for the fast matrix and genuine PostgreSQL for rollback,
   uniqueness, transaction-local reads, and concurrency.
+- Use one fixed conformance-only nested callback to prove same-request reuse;
+  do not turn that proof into general user-hook support or hold the first
+  product transaction across arbitrary remote/file work.
 
 ### Relation-bearing Application candidate and overlay rebinding
 
@@ -272,6 +302,11 @@ Repeated relation targets remain disabled. A separate later gate must prove
 stable repeated-occurrence identity, ordering, mutation, OCC, and pinned Payload
 conformance before accepting a configuration that permits them.
 
+The `3.88.0` relationship validator does not itself establish duplicate-target
+rejection for `hasMany`. Duplicate rejection is therefore an explicit Flarex
+profile constraint and unsupported Payload input, not a claim of complete
+upstream parity.
+
 Run the claimed upstream relationship behavior plus PGlite and genuine
 PostgreSQL evidence. This step makes no subscription or reconnect claim.
 
@@ -280,7 +315,8 @@ PostgreSQL evidence. This step makes no subscription or reconnect claim.
 - Publish content changes only through the authenticated Application
   Analysis/publication chain as Application schema candidates.
 - Activate only after existing managed-schema readiness.
-- Execute Payload lifecycle/data plans through the fenced migration host.
+- Only after a separate Payload migration-host preflight, execute lifecycle/data
+  plans through any shared fenced mechanics that the proof admits.
 - Prove checksums, replay, interruption, retry, receipts, and recovery.
 - Permit hook bypass only through explicit migration/import/repair authority
   while retaining row, relation, uniqueness, scope, feed, and outbox rules.
