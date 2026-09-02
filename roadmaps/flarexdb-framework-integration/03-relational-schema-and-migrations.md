@@ -3,9 +3,10 @@
 ## Status And Scope
 
 Status: value-only relational schema, the first pure physical/coordination/
-lifecycle value checkpoint, and additive private coordinator metadata DDL
-implemented production-inert; stored restoration, repository, generated
-relational DDL, target-session, binding, and runtime gates remain closed
+lifecycle value checkpoint, additive private coordinator metadata DDL, and
+source-private topological restoration implemented production-inert;
+repository, generated relational DDL, target-session, binding, and runtime
+gates remain closed
 
 This plan owns the value-only relational schema boundary and the shared
 execution mechanics for framework-owned migration plans. It does not own DML,
@@ -47,8 +48,9 @@ Its first pure-value checkpoint is implemented under the private
 `frameworkSchema/installation` owners. The exact checkpoint-2 metadata,
 cold-rehydration, and private repository contract is accepted in
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
-Its additive private metadata storage and focused PGlite DDL/catalog evidence
-are implemented; stored restoration and private repositories remain pending.
+Its additive private metadata storage, focused PGlite DDL/catalog evidence, and
+source-private stored restoration are implemented; private repositories remain
+pending.
 Target sessions, generated relational DDL, the Application projection,
 `DataBindingSet`, activation, and serving also remain pending.
 

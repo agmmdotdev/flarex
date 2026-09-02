@@ -1,10 +1,10 @@
 # Relational Coordinator Metadata And Repositories Preflight
 
-Status: accepted checkpoint-2 storage contract; additive private metadata DDL
-and focused PGlite DDL/catalog evidence implemented; stored rehydration and
-private repository implementation remain pending; no target session, generated
-relational DDL, coordinator runtime, binding, adapter, or production activation
-is authorized
+Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
+focused PGlite DDL/catalog evidence, and source-private topological stored-value
+restoration implemented; private repository implementation remains pending; no
+target session, generated relational DDL, coordinator runtime, binding, adapter,
+or production activation is authorized
 
 Last reviewed: 2026-09-02
 
@@ -29,8 +29,8 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 4. add transaction-parameterized exact-write, exact-read, and CAS kernels; and
 5. complete PGlite storage/repository evidence and record the receipt.
 
-Slices 1 and 2 are complete. Source-private topological restoration is the next
-bounded slice.
+Slices 1 through 3 are complete. Transaction-parameterized private repository
+kernels are the next bounded slice.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -584,8 +584,35 @@ of one target, two collision domains, and one assignment across cold
 close/reopen.
 This is functional storage evidence, not genuine-PostgreSQL DDL acceptance.
 
-This receipt adds no stored-value restoration, repository kernel, live target,
-framework-owned target DDL, binding, or runtime caller.
+This DDL receipt adds no repository kernel, live target, framework-owned target
+DDL, binding, or runtime caller.
+
+### Source-private restoration implementation receipt
+
+Status on 2026-09-02: complete as a production-inert value-restoration slice.
+
+Stored target, collision, physical-name assignment, embedded physical layout,
+plan and ordered step/dependency sidecars, admission and ordered assignment
+sidecars, attempt, ordered receipt graph, terminal, installation, readiness,
+availability history/head, migration event chain, and collision head are now
+restored in dependency order. Every canonical row checks its selected byte
+length, format/version, digest, canonical bytes, complete normalized
+projections, and ordered sidecars before returning a detached frozen value.
+Database IDs remain only on source-private restoration handles.
+
+Fresh capture and restoration now register with the same module-owned authority
+graphs. Focused tests prove that newly reconstructed values are distinct object
+identities, reject altered bytes, reordered sidecars, and forged dependencies,
+same-cardinality plan-assignment and receipt-dependency substitution, and a
+non-increasing event chain, and are accepted by the existing downstream capture
+operations. The event proof includes exact predecessor tokens, a lease
+projection, and a readiness-published cross-domain subject. Package-boundary
+checks keep all restoration operations absent from the root and export map.
+
+This is in-process stored-row restoration evidence. Actual transaction reads,
+large-byte read gating at SQL, PGlite close/reopen reconstruction, immutable
+replay/conflict behavior, and head CAS remain owned by the pending repository
+and evidence slices. No live target authority is minted.
 
 ## Checkpoint-2 Evidence
 
@@ -634,8 +661,8 @@ Stop and open the owning checkpoint before:
 
 ## Exit Decision
 
-The exact target-local metadata and repository seam is frozen and its additive
-platform metadata catalog is implemented. The next bounded implementation slice
-is source-private topological stored-value restoration. Transaction kernels
-follow as a separately reviewable checkpoint-2 slice; the opaque target and
+The exact target-local metadata and repository seam is frozen; its additive
+platform metadata catalog and source-private topological restoration are
+implemented. The next bounded implementation slice is the separately
+reviewable transaction-parameterized repository kernels. The opaque target and
 coordinator remain checkpoint 3.

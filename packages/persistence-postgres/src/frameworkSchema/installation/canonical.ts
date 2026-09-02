@@ -28,6 +28,16 @@ import type {
 } from "../../migrationCoordination/identity";
 import type { RelationalPhysicalCapabilityEvidence } from
   "../../relationalSchema/physical/model";
+import {
+  capturedAuthorityForFrameworkSchemaAvailabilityHistory,
+  isCapturedFrameworkSchemaAvailabilityHistoryAuthority,
+  isCapturedFrameworkSchemaInstallationAuthority,
+  isCapturedFrameworkSchemaReadinessAuthority,
+  registerCapturedFrameworkSchemaAvailabilityHead,
+  registerCapturedFrameworkSchemaAvailabilityHistory,
+  registerCapturedFrameworkSchemaInstallation,
+  registerCapturedFrameworkSchemaReadiness,
+} from "./authority";
 import { FrameworkSchemaInstallationValueError } from "./errors";
 import {
   FRAMEWORK_SCHEMA_AVAILABILITY_HEAD_FORMAT,
@@ -74,25 +84,6 @@ const brandAvailabilityHistorySha256 =
 const brandAvailabilityHeadSha256 =
   Brand.nominal<FrameworkSchemaAvailabilityHeadSha256>();
 const brandPositiveInt64 = Brand.nominal<CanonicalPositiveInt64>();
-
-const capturedInstallations = new WeakSet<
-  CapturedFrameworkSchemaInstallationValue<
-    FrameworkSchemaInstallationFrame,
-    FrameworkSchemaInstallationReceiptSha256
-  >
->();
-const capturedReadiness = new WeakSet<
-  CapturedFrameworkSchemaInstallationValue<
-    FrameworkSchemaReadinessFrame,
-    FrameworkSchemaReadinessSha256
-  >
->();
-const capturedAvailabilityHistory = new WeakSet<
-  CapturedFrameworkSchemaInstallationValue<
-    FrameworkSchemaAvailabilityHistoryFrame,
-    FrameworkSchemaAvailabilityHistorySha256
-  >
->();
 
 export const captureFrameworkSchemaInstallation = Effect.fn(
   "FrameworkSchemaInstallation.capture",
@@ -148,7 +139,11 @@ export const captureFrameworkSchemaInstallation = Effect.fn(
     brandInstallationReceiptSha256,
     "captureInstallation",
   );
-  capturedInstallations.add(installation);
+  registerCapturedFrameworkSchemaInstallation(installation, {
+    plan: input.plan,
+    admission: input.admission,
+    terminal: input.terminal,
+  });
   return installation;
 });
 
@@ -164,7 +159,7 @@ export const captureFrameworkSchemaReadiness = Effect.fn(
   FrameworkSchemaInstallationValueError
 > {
   if (
-    !capturedInstallations.has(input.installation) ||
+    !isCapturedFrameworkSchemaInstallationAuthority(input.installation) ||
     !isSha256(input.validationSha256) ||
     input.validatedStructureSha256 !==
       input.installation.frame.installedStructureSha256 ||
@@ -208,7 +203,9 @@ export const captureFrameworkSchemaReadiness = Effect.fn(
     brandReadinessSha256,
     "captureReadiness",
   );
-  capturedReadiness.add(readiness);
+  registerCapturedFrameworkSchemaReadiness(readiness, {
+    installation: input.installation,
+  });
   return readiness;
 });
 
@@ -224,9 +221,11 @@ export const captureFrameworkSchemaAvailabilityHistory = Effect.fn(
   FrameworkSchemaInstallationValueError
 > {
   if (
-    !capturedReadiness.has(input.readiness) ||
+    !isCapturedFrameworkSchemaReadinessAuthority(input.readiness) ||
     (input.previous !== null &&
-      !capturedAvailabilityHistory.has(input.previous)) ||
+      !isCapturedFrameworkSchemaAvailabilityHistoryAuthority(
+        input.previous,
+      )) ||
     !isAvailabilityStatus(input.status) ||
     !isCanonicalIsoInstant(input.recordedAt)
   ) {
@@ -235,9 +234,13 @@ export const captureFrameworkSchemaAvailabilityHistory = Effect.fn(
     );
   }
   const previous = input.previous;
+  const previousAuthority = previous === null
+    ? undefined
+    : capturedAuthorityForFrameworkSchemaAvailabilityHistory(previous);
   if (
     previous !== null &&
     (
+      previousAuthority?.readiness !== input.readiness ||
       previous.frame.readinessSha256 !== input.readiness.sha256 ||
       previous.frame.installation.installationSha256 !==
         input.readiness.frame.installation.installationSha256 ||
@@ -285,7 +288,10 @@ export const captureFrameworkSchemaAvailabilityHistory = Effect.fn(
     "captureAvailability",
     MAX_FRAMEWORK_SCHEMA_AVAILABILITY_CANONICAL_BYTES,
   );
-  capturedAvailabilityHistory.add(history);
+  registerCapturedFrameworkSchemaAvailabilityHistory(history, {
+    readiness: input.readiness,
+    previous,
+  });
   return history;
 });
 
@@ -300,7 +306,9 @@ export const captureFrameworkSchemaAvailabilityHead = Effect.fn(
   FrameworkSchemaAvailabilityHead,
   FrameworkSchemaInstallationValueError
 > {
-  if (!capturedAvailabilityHistory.has(history)) {
+  const historyAuthority =
+    capturedAuthorityForFrameworkSchemaAvailabilityHistory(history);
+  if (historyAuthority === undefined) {
     return yield* Effect.fail(
       FrameworkSchemaInstallationValueError.invalidTransition(),
     );
@@ -314,12 +322,17 @@ export const captureFrameworkSchemaAvailabilityHead = Effect.fn(
     historySha256: history.sha256,
     status: history.frame.status,
   } satisfies FrameworkSchemaAvailabilityHeadFrame);
-  return yield* captureInstallationValue(
+  const head = yield* captureInstallationValue(
     frame,
     brandAvailabilityHeadSha256,
     "captureAvailability",
     MAX_FRAMEWORK_SCHEMA_AVAILABILITY_CANONICAL_BYTES,
   );
+  registerCapturedFrameworkSchemaAvailabilityHead(head, {
+    readiness: historyAuthority.readiness,
+    history,
+  });
+  return head;
 });
 
 export type StoredFrameworkSchemaInstallationValueKind =

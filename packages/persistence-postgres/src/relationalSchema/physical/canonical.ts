@@ -36,6 +36,10 @@ import {
   type RelationalTableIdentity,
 } from "../model";
 import { readCapturedRelationalSchemaArtifactSchema } from "../artifact";
+import {
+  hasCapturedRelationalPhysicalLayout,
+  registerCapturedRelationalPhysicalLayout,
+} from "./authority";
 import { RelationalPhysicalValueError } from "./errors";
 import {
   RELATIONAL_PHYSICAL_ISOLATION_PROFILE,
@@ -82,9 +86,6 @@ const brandNameSha256 = Brand.nominal<RelationalPhysicalNameSha256>();
 const brandAssignmentSha256 =
   Brand.nominal<RelationalPhysicalNameAssignmentSha256>();
 const brandLayoutSha256 = Brand.nominal<RelationalPhysicalLayoutSha256>();
-const capturedRelationalPhysicalLayouts = new WeakSet<
-  RelationalPhysicalLayout
->();
 
 export interface CaptureRelationalPhysicalLayoutInput {
   readonly artifact: FrameworkSchemaArtifact;
@@ -317,14 +318,14 @@ export const captureRelationalPhysicalLayout = Effect.fn(
     nameAssignments: Object.freeze(assignments),
     targetNamespace,
   });
-  capturedRelationalPhysicalLayouts.add(layout);
+  registerCapturedRelationalPhysicalLayout(layout);
   return layout;
 });
 
 export function isCapturedRelationalPhysicalLayout(
   value: RelationalPhysicalLayout,
 ): boolean {
-  return capturedRelationalPhysicalLayouts.has(value);
+  return hasCapturedRelationalPhysicalLayout(value);
 }
 
 export function encodeLowercaseBase32Hex(input: Uint8Array): string {

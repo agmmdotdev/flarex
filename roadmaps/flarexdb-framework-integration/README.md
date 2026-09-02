@@ -34,7 +34,8 @@ production-inert. The exact target-local coordinator metadata and private
 repository contract is accepted; its additive private metadata DDL and focused
 PGlite catalog/rollback plus representative root constraint, foreign-key,
 uniqueness, nullable-tuple rejection, and root-row cold-reopen evidence are
-implemented. Stored restoration/repositories, target sessions, generated
+implemented, together with source-private topological reconstruction into the
+shared runtime authority graphs. Repositories, target sessions, generated
 relational DDL, the later binding checkpoint, Payload/Medusa adapters, runtime
 wiring, and production work remain pending.
 
@@ -147,7 +148,7 @@ Preflight records:
 | [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md) | Accepted exact `payload@3.88.0` audit; no dependency, adapter, or runtime activation | Adapter surface, request nesting, hook/transaction constraint, internal collections, first headless scalar profile, relation cutline, and migration/host boundary |
 | [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md) | Implemented privately; value evidence complete and no DDL/runtime activation | Exact first-slice relational value vocabulary, deterministic normalization, framework-artifact composition, Currency and synthetic fixtures, and closed downstream gates |
 | [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; checkpoint 1 private pure values and checkpoint-2 additive metadata DDL implemented, while restoration, repositories, target sessions, binding, and runtime remain closed | Cycle-free plan/installation identity, stable physical collision domain, bounded digest names, scope-isolated lowering, structural plan/ledger values, capability-evidence split, readiness/availability values, and later execution/database proof matrix |
-| [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Accepted checkpoint-2 contract; additive private metadata DDL and focused PGlite catalog evidence implemented, later restoration/repository slices pending | Exact eighteen-table target-local catalog, canonical-byte authority, normalized constraint sidecars, timestamp mapping, topological cold rehydration, private transaction kernels, and PGlite evidence gate |
+| [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Accepted checkpoint-2 contract; additive private metadata DDL, focused PGlite catalog evidence, and source-private topological restoration implemented; repository slices pending | Exact eighteen-table target-local catalog, canonical-byte authority, normalized constraint sidecars, timestamp mapping, topological cold rehydration, private transaction kernels, and PGlite evidence gate |
 
 ## Current Architecture
 

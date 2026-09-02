@@ -23,6 +23,10 @@ import {
   FRAMEWORK_SCHEMA_INSTALLATION_VERSION,
   FRAMEWORK_SCHEMA_READINESS_FORMAT,
   FRAMEWORK_SCHEMA_READINESS_VERSION,
+  type FrameworkSchemaAvailabilityHeadFrame,
+  type FrameworkSchemaAvailabilityHistoryFrame,
+  type FrameworkSchemaInstallationFrame,
+  type FrameworkSchemaReadinessFrame,
 } from "./model";
 
 export type StoredInstallationFrameKind =
@@ -45,6 +49,30 @@ export function isStoredInstallationFrame(
     case "availabilityHead":
       return isAvailabilityHead(input);
   }
+}
+
+export function isStoredFrameworkSchemaInstallationFrame(
+  input: unknown,
+): input is FrameworkSchemaInstallationFrame {
+  return isInstallation(input);
+}
+
+export function isStoredFrameworkSchemaReadinessFrame(
+  input: unknown,
+): input is FrameworkSchemaReadinessFrame {
+  return isReadiness(input);
+}
+
+export function isStoredFrameworkSchemaAvailabilityHistoryFrame(
+  input: unknown,
+): input is FrameworkSchemaAvailabilityHistoryFrame {
+  return isAvailabilityHistory(input);
+}
+
+export function isStoredFrameworkSchemaAvailabilityHeadFrame(
+  input: unknown,
+): input is FrameworkSchemaAvailabilityHeadFrame {
+  return isAvailabilityHead(input);
 }
 
 export function isStoredInstallationIdentity(input: unknown): input is Readonly<{

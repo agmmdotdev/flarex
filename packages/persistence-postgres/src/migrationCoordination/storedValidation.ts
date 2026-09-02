@@ -28,10 +28,17 @@ import {
   FRAMEWORK_MIGRATION_PLAN_VERSION,
   FRAMEWORK_MIGRATION_STEP_RECEIPT_FORMAT,
   FRAMEWORK_MIGRATION_STEP_RECEIPT_VERSION,
+  type FrameworkMigrationAttemptStartFrame,
+  type FrameworkMigrationAttemptTerminalFrame,
+  type FrameworkMigrationCollisionHeadFrame,
+  type FrameworkMigrationPlanAdmissionFrame,
+  type FrameworkMigrationStepReceiptFrame,
+  type FreshRelationalMigrationPlanFrame,
 } from "./model";
 import {
   FRAMEWORK_SCHEMA_TARGET_NAMESPACE_FORMAT,
   FRAMEWORK_SCHEMA_TARGET_NAMESPACE_VERSION,
+  type FrameworkSchemaTargetNamespaceFrame,
 } from "./targetNamespace";
 
 const STEP_ID = /^step_[0-9a-f]{32}$/;
@@ -66,6 +73,48 @@ export function isStoredMigrationNonEventFrame(
     case "attemptTerminal":
       return isStoredAttemptTerminal(input);
   }
+}
+
+export function isStoredFrameworkSchemaTargetNamespaceFrame(
+  input: unknown,
+): input is FrameworkSchemaTargetNamespaceFrame {
+  return isStoredTargetNamespace(input);
+}
+
+export function isStoredFreshRelationalMigrationPlanFrame(
+  input: unknown,
+): input is FreshRelationalMigrationPlanFrame {
+  return isStoredMigrationPlan(input);
+}
+
+export function isStoredFrameworkMigrationPlanAdmissionFrame(
+  input: unknown,
+): input is FrameworkMigrationPlanAdmissionFrame {
+  return isStoredPlanAdmission(input);
+}
+
+export function isStoredFrameworkMigrationCollisionHeadFrame(
+  input: unknown,
+): input is FrameworkMigrationCollisionHeadFrame {
+  return isStoredCollisionHead(input);
+}
+
+export function isStoredFrameworkMigrationAttemptStartFrame(
+  input: unknown,
+): input is FrameworkMigrationAttemptStartFrame {
+  return isStoredAttemptStart(input);
+}
+
+export function isStoredFrameworkMigrationStepReceiptFrame(
+  input: unknown,
+): input is FrameworkMigrationStepReceiptFrame {
+  return isStoredStepReceipt(input);
+}
+
+export function isStoredFrameworkMigrationAttemptTerminalFrame(
+  input: unknown,
+): input is FrameworkMigrationAttemptTerminalFrame {
+  return isStoredAttemptTerminal(input);
 }
 
 export function isStoredTargetNamespace(input: unknown): input is Readonly<{

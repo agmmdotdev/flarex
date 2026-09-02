@@ -26,6 +26,20 @@ import {
   type RelationalPhysicalTable,
 } from "../relationalSchema/physical/model";
 import { FrameworkMigrationValueError } from "./errors";
+import {
+  capturedAuthorityForAttempt,
+  capturedAuthorityForStepReceipt,
+  capturedFrameworkMigrationTerminalAdmission,
+  capturedPlanForAdmission,
+  capturedPlanForStep,
+  isCapturedFrameworkMigrationAttemptTerminalAuthority,
+  isCapturedFreshRelationalMigrationPlanAuthority,
+  registerCapturedFrameworkMigrationAttemptStart,
+  registerCapturedFrameworkMigrationAttemptTerminal,
+  registerCapturedFrameworkMigrationPlanAdmission,
+  registerCapturedFrameworkMigrationStepReceipt,
+  registerCapturedFreshRelationalMigrationPlan,
+} from "./authority";
 import type {
   CanonicalNonNegativeInt64,
   FrameworkMigrationAttemptId,
@@ -198,67 +212,6 @@ const brandAttemptId = Brand.nominal<FrameworkMigrationAttemptId>();
 const brandLeaseOwnerId = Brand.nominal<FrameworkMigrationLeaseOwnerId>();
 const brandNonNegativeInt64 = Brand.nominal<CanonicalNonNegativeInt64>();
 
-const capturedPlans = new WeakSet<FreshRelationalMigrationPlan>();
-const capturedPlanSteps = new WeakMap<
-  FrameworkMigrationStep,
-  FreshRelationalMigrationPlan
->();
-const capturedAdmissions = new WeakSet<
-  CapturedFrameworkMigrationValue<
-    FrameworkMigrationPlanAdmissionFrame,
-    FrameworkMigrationPlanAdmissionSha256
-  >
->();
-const capturedAdmissionPlans = new WeakMap<
-  CapturedFrameworkMigrationValue<
-    FrameworkMigrationPlanAdmissionFrame,
-    FrameworkMigrationPlanAdmissionSha256
-  >,
-  FreshRelationalMigrationPlan
->();
-const capturedAttempts = new WeakMap<
-  CapturedFrameworkMigrationValue<
-    FrameworkMigrationAttemptStartFrame,
-    FrameworkMigrationAttemptStartSha256
-  >,
-  Readonly<{
-    readonly admission: CapturedFrameworkMigrationValue<
-      FrameworkMigrationPlanAdmissionFrame,
-      FrameworkMigrationPlanAdmissionSha256
-    >;
-    readonly plan: FreshRelationalMigrationPlan;
-  }>
->();
-const capturedTerminals = new WeakSet<
-  CapturedFrameworkMigrationValue<
-    FrameworkMigrationAttemptTerminalFrame,
-    FrameworkMigrationAttemptTerminalSha256
-  >
->();
-const capturedTerminalAdmissions = new WeakMap<
-  CapturedFrameworkMigrationValue<
-    FrameworkMigrationAttemptTerminalFrame,
-    FrameworkMigrationAttemptTerminalSha256
-  >,
-  CapturedFrameworkMigrationValue<
-    FrameworkMigrationPlanAdmissionFrame,
-    FrameworkMigrationPlanAdmissionSha256
-  >
->();
-const capturedStepReceipts = new WeakMap<
-  CapturedFrameworkMigrationValue<
-    FrameworkMigrationStepReceiptFrame,
-    FrameworkMigrationStepReceiptSha256
-  >,
-  Readonly<{
-    readonly attempt: CapturedFrameworkMigrationValue<
-      FrameworkMigrationAttemptStartFrame,
-      FrameworkMigrationAttemptStartSha256
-    >;
-    readonly step: FrameworkMigrationStep;
-  }>
->();
-
 export const captureFreshRelationalMigrationPlan = Effect.fn(
   "FrameworkMigrationPlan.captureFreshRelational",
 )(function* (
@@ -415,17 +368,14 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
     physicalLayout: layout,
     targetNamespace: layout.targetNamespace,
   });
-  for (const step of steps) {
-    capturedPlanSteps.set(step, plan);
-  }
-  capturedPlans.add(plan);
+  registerCapturedFreshRelationalMigrationPlan(plan);
   return plan;
 });
 
 export function isCapturedFreshRelationalMigrationPlan(
   value: FreshRelationalMigrationPlan,
 ): boolean {
-  return capturedPlans.has(value);
+  return isCapturedFreshRelationalMigrationPlanAuthority(value);
 }
 
 export const captureFrameworkMigrationPlanAdmission = Effect.fn(
@@ -440,7 +390,7 @@ export const captureFrameworkMigrationPlanAdmission = Effect.fn(
   FrameworkMigrationValueError
 > {
   if (
-    !capturedPlans.has(input.plan) ||
+    !isCapturedFreshRelationalMigrationPlanAuthority(input.plan) ||
     !isCanonicalIsoInstant(input.admittedAt) ||
     (input.previousPlanSha256 !== null &&
       !isSha256(input.previousPlanSha256)) ||
@@ -475,8 +425,7 @@ export const captureFrameworkMigrationPlanAdmission = Effect.fn(
     admittedAt: input.admittedAt,
   } satisfies FrameworkMigrationPlanAdmissionFrame);
   const captured = yield* captureLedgerValue(frame, brandAdmissionSha256);
-  capturedAdmissions.add(captured);
-  capturedAdmissionPlans.set(captured, input.plan);
+  registerCapturedFrameworkMigrationPlanAdmission(captured, input.plan);
   return captured;
 });
 
@@ -486,7 +435,7 @@ export function isCapturedFrameworkMigrationPlanAdmission(
     FrameworkMigrationPlanAdmissionSha256
   >,
 ): boolean {
-  return capturedAdmissions.has(value);
+  return capturedPlanForAdmission(value) !== undefined;
 }
 
 export interface CaptureFrameworkMigrationCollisionHeadInput {
@@ -517,7 +466,7 @@ export const captureFrameworkMigrationCollisionHead = Effect.fn(
   >,
   FrameworkMigrationValueError
 > {
-  if (!capturedAdmissions.has(input.admission)) {
+  if (capturedPlanForAdmission(input.admission) === undefined) {
     return yield* Effect.fail(FrameworkMigrationValueError.invalidInput(
       "captureLedgerValue",
     ));
@@ -581,7 +530,7 @@ export const captureFrameworkMigrationAttemptStart = Effect.fn(
   >,
   FrameworkMigrationValueError
 > {
-  const plan = capturedAdmissionPlans.get(input.admission);
+  const plan = capturedPlanForAdmission(input.admission);
   if (plan === undefined) {
     return yield* Effect.fail(FrameworkMigrationValueError.invalidInput(
       "captureLedgerValue",
@@ -607,10 +556,10 @@ export const captureFrameworkMigrationAttemptStart = Effect.fn(
     startedAt: yield* Effect.fromResult(canonicalInstant(input.startedAt)),
   } satisfies FrameworkMigrationAttemptStartFrame);
   const attempt = yield* captureLedgerValue(frame, brandAttemptStartSha256);
-  capturedAttempts.set(attempt, Object.freeze({
+  registerCapturedFrameworkMigrationAttemptStart(attempt, {
     admission: input.admission,
     plan,
-  }));
+  });
   return attempt;
 });
 
@@ -639,10 +588,10 @@ export const captureFrameworkMigrationStepReceipt = Effect.fn(
   >,
   FrameworkMigrationValueError
 > {
-  const attemptAuthority = capturedAttempts.get(input.attempt);
+  const attemptAuthority = capturedAuthorityForAttempt(input.attempt);
   if (
     attemptAuthority === undefined ||
-    capturedPlanSteps.get(input.step) !== attemptAuthority.plan ||
+    capturedPlanForStep(input.step) !== attemptAuthority.plan ||
     !Array.isArray(input.dependencyReceipts) ||
     !isSha256(input.observedPostconditionSha256) ||
     input.observedPostconditionSha256 !== input.step.postconditionSha256 ||
@@ -654,7 +603,7 @@ export const captureFrameworkMigrationStepReceipt = Effect.fn(
   }
   const authenticatedDependencies: FrameworkMigrationDependencyReceipt[] = [];
   for (const receipt of input.dependencyReceipts) {
-    const receiptAuthority = capturedStepReceipts.get(receipt);
+    const receiptAuthority = capturedAuthorityForStepReceipt(receipt);
     if (
       receiptAuthority === undefined ||
       receiptAuthority.attempt !== input.attempt
@@ -708,10 +657,10 @@ export const captureFrameworkMigrationStepReceipt = Effect.fn(
     completedAt: yield* Effect.fromResult(canonicalInstant(input.completedAt)),
   } satisfies FrameworkMigrationStepReceiptFrame);
   const receipt = yield* captureLedgerValue(frame, brandStepReceiptSha256);
-  capturedStepReceipts.set(receipt, Object.freeze({
+  registerCapturedFrameworkMigrationStepReceipt(receipt, {
     attempt: input.attempt,
     step: input.step,
-  }));
+  });
   return receipt;
 });
 
@@ -739,7 +688,7 @@ export const captureFrameworkMigrationAttemptTerminal = Effect.fn(
   >,
   FrameworkMigrationValueError
 > {
-  const attemptAuthority = capturedAttempts.get(input.attempt);
+  const attemptAuthority = capturedAuthorityForAttempt(input.attempt);
   if (attemptAuthority === undefined || !Array.isArray(input.stepReceipts)) {
     return yield* Effect.fail(FrameworkMigrationValueError.invalidInput(
       "captureLedgerValue",
@@ -762,7 +711,7 @@ export const captureFrameworkMigrationAttemptTerminal = Effect.fn(
     const receipt = input.stepReceipts[index];
     const receiptAuthority = receipt === undefined
       ? undefined
-      : capturedStepReceipts.get(receipt);
+      : capturedAuthorityForStepReceipt(receipt);
     if (
       receiptAuthority === undefined ||
       receiptAuthority.attempt !== input.attempt ||
@@ -786,8 +735,7 @@ export const captureFrameworkMigrationAttemptTerminal = Effect.fn(
     terminalAt: yield* Effect.fromResult(canonicalInstant(input.terminalAt)),
   } satisfies FrameworkMigrationAttemptTerminalFrame);
   const terminal = yield* captureLedgerValue(frame, brandTerminalSha256);
-  capturedTerminals.add(terminal);
-  capturedTerminalAdmissions.set(
+  registerCapturedFrameworkMigrationAttemptTerminal(
     terminal,
     attemptAuthority.admission,
   );
@@ -800,7 +748,7 @@ export function isCapturedFrameworkMigrationAttemptTerminal(
     FrameworkMigrationAttemptTerminalSha256
   >,
 ): boolean {
-  return capturedTerminals.has(value);
+  return isCapturedFrameworkMigrationAttemptTerminalAuthority(value);
 }
 
 export function capturedFrameworkMigrationTerminalMatchesAdmission(
@@ -813,7 +761,7 @@ export function capturedFrameworkMigrationTerminalMatchesAdmission(
     FrameworkMigrationPlanAdmissionSha256
   >,
 ): boolean {
-  return capturedTerminalAdmissions.get(value) === admission;
+  return capturedFrameworkMigrationTerminalAdmission(value) === admission;
 }
 
 export type CaptureFrameworkMigrationEventInput = FrameworkMigrationEventFrame;
@@ -1529,6 +1477,12 @@ function isStoredEventFrame(frame: JsonObject): boolean {
     default:
       return false;
   }
+}
+
+export function isStoredFrameworkMigrationEventFrame(
+  frame: JsonObject,
+): frame is FrameworkMigrationEventFrame {
+  return isStoredEventFrame(frame);
 }
 
 function isEventVariantValid(input: FrameworkMigrationEventFrame): boolean {
