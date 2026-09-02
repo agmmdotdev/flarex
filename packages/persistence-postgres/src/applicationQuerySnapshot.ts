@@ -14,6 +14,7 @@ import { and, eq } from "drizzle-orm";
 import {
   Data,
   Effect,
+  HashMap,
   Ref,
   Result,
   Schema,
@@ -264,10 +265,34 @@ export interface ApplicationQueryIndexPage {
   readonly isDone: boolean;
 }
 
+export type ApplicationQueryReadDependency =
+  | Readonly<{
+      readonly kind: "appRowPoint";
+      readonly documentId: AppDocumentIdV1;
+    }>
+  | Readonly<{
+      readonly kind: "appTable";
+      readonly tableId: CatalogTableId;
+    }>;
+
+export interface ApplicationQueryEvaluationSnapshotReceipt {
+  readonly metadata: ApplicationQuerySnapshotMetadata;
+  readonly dependencies: ReadonlyArray<ApplicationQueryReadDependency>;
+}
+
+export interface ApplicationQueryEvaluationSnapshotOptions {
+  readonly dependencyCapture: "evaluation";
+}
+
 export class ApplicationQuerySnapshotError extends Data.TaggedError(
   "ApplicationQuerySnapshotError",
 )<{
-  readonly operation: "open" | "revalidate" | "pointRead" | "indexRead";
+  readonly operation:
+    | "open"
+    | "revalidate"
+    | "pointRead"
+    | "indexRead"
+    | "finalizeEvaluation";
   readonly reason:
     | "invalidComposition"
     | "invalidInput"
@@ -377,8 +402,11 @@ interface State {
   readonly definitions: ReadonlyArray<LocatedAppIndexDefinitionV1>;
   readonly metadata: ApplicationQuerySnapshotMetadata;
   readonly usage: Ref.Ref<Usage>;
+  readonly dependencies: Ref.Ref<
+    HashMap.HashMap<string, ApplicationQueryReadDependency>
+  > | null;
   readonly readGate: Semaphore.Semaphore;
-  readonly closed: Ref.Ref<boolean>;
+  readonly phase: Ref.Ref<"open" | "finalized" | "closed">;
 }
 
 interface RelationState {
@@ -492,6 +520,7 @@ export const openApplicationQuerySnapshot = Effect.fn(
   functionPath: string,
   budget: ApplicationQueryBudget,
   context: ApplicationQuerySnapshotContext,
+  options?: ApplicationQueryEvaluationSnapshotOptions,
 ): Effect.fn.Return<
   OpenedApplicationQuerySnapshot,
   OpenApplicationQuerySnapshotError,
@@ -570,7 +599,12 @@ export const openApplicationQuerySnapshot = Effect.fn(
     documents: 0,
     semanticBytes: 0,
   }));
-  const closed = yield* Ref.make(false);
+  const dependencies = options?.dependencyCapture === "evaluation"
+    ? yield* Ref.make(
+      HashMap.empty<string, ApplicationQueryReadDependency>(),
+    )
+    : null;
+  const phase = yield* Ref.make<"open" | "finalized" | "closed">("open");
   const state = Object.freeze({
     scopeExecution,
     selection,
@@ -579,13 +613,14 @@ export const openApplicationQuerySnapshot = Effect.fn(
     definitions,
     metadata,
     usage,
+    dependencies,
     readGate: Semaphore.makeUnsafe(1),
-    closed,
+    phase,
   });
   const snapshot = yield* Effect.acquireRelease(
     Effect.sync(() => issue(state)),
     issued => Effect.gen(function* () {
-      yield* Ref.set(state.closed, true);
+      yield* Ref.set(state.phase, "closed");
       states.delete(issued);
     }),
   );
@@ -708,6 +743,45 @@ export const revalidateApplicationQuerySnapshot = Effect.fn(
   return snapshotMetadata(state.metadata);
 });
 
+export const finalizeApplicationQueryEvaluationSnapshot = Effect.fn(
+  "ApplicationQuerySnapshot.finalizeEvaluation",
+)(function* (
+  snapshot: ApplicationQuerySnapshot,
+): Effect.fn.Return<
+  ApplicationQueryEvaluationSnapshotReceipt,
+  UseApplicationQuerySnapshotError
+> {
+  const state = yield* Effect.fromResult(claim(snapshot, "finalizeEvaluation"));
+  return yield* state.readGate.withPermit(Effect.gen(function* () {
+    yield* requireOpen(state, "finalizeEvaluation");
+    if (state.dependencies === null) {
+      return yield* failure("finalizeEvaluation", "invalidComposition");
+    }
+    yield* runLocatedRead(
+      state.scopeExecution,
+      state.located,
+      "finalizeEvaluation",
+      revalidateScopedOperation,
+      Object.freeze({ state, operation: "finalizeEvaluation" as const }),
+    );
+    const dependencies = yield* Ref.get(state.dependencies);
+    const finalized = yield* Ref.modify(state.phase, phase =>
+      phase === "open"
+        ? [true, "finalized" as const]
+        : [false, phase] as const
+    );
+    if (!finalized) {
+      return yield* failure("finalizeEvaluation", "invalidComposition");
+    }
+    return Object.freeze({
+      metadata: snapshotMetadata(state.metadata),
+      dependencies: Object.freeze(HashMap.toValues(dependencies).map(
+        captureApplicationQueryReadDependency,
+      )),
+    });
+  }));
+});
+
 export const readApplicationQueryPoint = Effect.fn(
   "ApplicationQuerySnapshot.readPoint",
 )(function* (
@@ -739,12 +813,22 @@ export const readApplicationQueryPoint = Effect.fn(
         rowId: identity.rowId,
       }),
     );
-    if (result.kind === "missing") return Object.freeze({ kind: "missing" });
+    if (result.kind === "missing") {
+      yield* recordDependency(state, Object.freeze({
+        kind: "appRowPoint",
+        documentId,
+      }));
+      return Object.freeze({ kind: "missing" });
+    }
     yield* chargeDocument(state, "pointRead", result);
     const document = result.document.value;
     if (!isCanonicalFlarexRuntimeObjectV1(document)) {
       return yield* failure("pointRead", "resourceFailure");
     }
+    yield* recordDependency(state, Object.freeze({
+      kind: "appRowPoint",
+      documentId,
+    }));
     return Object.freeze({ kind: "present", document });
   }));
 });
@@ -872,14 +956,18 @@ function captureApplicationRelationQuerySyncReceipt(
   });
 }
 
-function readIndex(
+const readIndex = Effect.fn(
+  "ApplicationQuerySnapshot.readIndexInternal",
+)(function* (
   state: State,
   tableName: string,
   indexDescriptor: unknown,
   bounds: unknown,
   limit: number,
-): Effect.Effect<ApplicationQueryIndexPage, UseApplicationQuerySnapshotError> {
-  return Effect.gen(function* () {
+): Effect.fn.Return<
+  ApplicationQueryIndexPage,
+  UseApplicationQuerySnapshotError
+> {
   yield* requireOpen(state, "indexRead");
   const table = state.schema.tables.find(candidate => candidate.logicalName === tableName);
   if (
@@ -920,12 +1008,15 @@ function readIndex(
       limit,
     }),
   );
+  yield* recordDependency(state, Object.freeze({
+    kind: "appTable",
+    tableId: table.tableId,
+  }));
   return Object.freeze({
     documents: page.documents,
     isDone: page.positions.isDone,
   });
-  });
-}
+});
 
 function openInTransaction(
   tx: AppRowTransaction,
@@ -1552,9 +1643,46 @@ function requireOpen(
   state: State,
   operation: ApplicationQuerySnapshotError["operation"],
 ) {
-  return Ref.get(state.closed).pipe(Effect.flatMap(closed => closed
-    ? failure(operation, "invalidComposition")
-    : Effect.void));
+  return Ref.get(state.phase).pipe(Effect.flatMap(phase => phase === "open"
+    ? Effect.void
+    : failure(operation, "invalidComposition")));
+}
+
+function recordDependency(
+  state: State,
+  dependency: ApplicationQueryReadDependency,
+): Effect.Effect<void> {
+  if (state.dependencies === null) return Effect.void;
+  return Ref.update(
+    state.dependencies,
+    dependencies => HashMap.set(
+      dependencies,
+      applicationQueryReadDependencyKey(dependency),
+      dependency,
+    ),
+  );
+}
+
+function applicationQueryReadDependencyKey(
+  dependency: ApplicationQueryReadDependency,
+): string {
+  return dependency.kind === "appRowPoint"
+    ? `point:${dependency.documentId}`
+    : `table:${dependency.tableId}`;
+}
+
+function captureApplicationQueryReadDependency(
+  dependency: ApplicationQueryReadDependency,
+): ApplicationQueryReadDependency {
+  return dependency.kind === "appRowPoint"
+    ? Object.freeze({
+        kind: dependency.kind,
+        documentId: dependency.documentId,
+      })
+    : Object.freeze({
+        kind: dependency.kind,
+        tableId: dependency.tableId,
+      });
 }
 
 function requireRelationOpen(state: RelationState) {

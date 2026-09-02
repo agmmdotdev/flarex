@@ -21,6 +21,7 @@
     "./internal/application-runtime-target-v1": "./src/application-runtime-target-v1.ts",
     "./internal/application-runtime-cold-receipt-v1": "./src/application-runtime-cold-receipt-v1.ts",
     "./internal/application-worker-v1": "./src/application-worker-v1.ts",
+    "./internal/application-query-policy-v1": "./src/application-query-policy-v1.ts",
     "./internal/application-task-worker-v1": "./src/application-task-worker-v1.ts",
     "./internal/application-task-query-callback-v1": "./src/application-task-query-callback-v1.ts",
     "./internal/application-task-mutation-callback-v1": "./src/application-task-mutation-callback-v1.ts",

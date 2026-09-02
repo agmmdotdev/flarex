@@ -46,8 +46,9 @@ receipts passed. The accepted
 [`QSYNC-FX02-C1` preflight](./preflight/14-qsync-fx02-c-application-query-evidence.md)
 now freezes the separate application-query evidence operation, query/snapshot
 authority, dependency capture, package direction, proof matrix, and the
-durable-evaluation-material stop boundary. C1 is the next ordered medium slice;
-no C1 code has started.
+durable-evaluation-material stop boundary. C1 completed on 2026-09-02 as a
+private, production-inert producer vertical. C2 still requires its separate
+durable-evaluation-material and hosted-execution preflight.
 The accepted docs-only
 [`QSYNC01-D0` preflight](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
 now freezes that seam, its staged-read protocol, exact accounting authority,
@@ -230,7 +231,7 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-D` | Operation-scoped transition-plan seam with bounded fact inputs, explicit logical changes, exact counters, and equivalence to the aggregate reducers | Complete through D4; all nine operations are private and production-inert |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
 | `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Complete through C3; private, unrouted, production-inert, and independent of delivery selection |
-| `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | FX02-A and FX02-B exited; C1 evidence preflight accepted, implementation not started; remaining C and D work pending |
+| `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | FX02-A, FX02-B, and the private production-inert C1 producer-evidence vertical exited; C2 preflight and remaining C/D work pending |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
 
@@ -304,9 +305,10 @@ paths.
   evaluator, wake, checkpoint and publication boundaries without activating
   them.
 - [`preflight/14-qsync-fx02-c-application-query-evidence.md`](./preflight/14-qsync-fx02-c-application-query-evidence.md)
-  is the accepted C1 producer-evidence checkpoint. It freezes coherent query,
-  snapshot, authority, dependency and result capture while reserving durable
-  evaluation material and hosted evaluator composition for C2.
+  is the accepted and completed C1 producer-evidence checkpoint. It records
+  coherent query, snapshot, authority, dependency and result capture while
+  reserving durable evaluation material and hosted evaluator composition for
+  C2.
 
 ## Next Correctness Gate
 
@@ -314,14 +316,13 @@ FX02-A and FX02-B are exited. Their exact local, real-Postgres, Workerd and
 hosted controlled-restart evidence is recorded in
 [`preflight/13`](./preflight/13-qsync-fx02-postgres-host-composition.md).
 
-The next correctness gate is the approved medium `QSYNC-FX02-C1` application-
-query evidence vertical in
-[`preflight/14`](./preflight/14-qsync-fx02-c-application-query-evidence.md).
-It adds no route or production caller. C1 must preserve the public Query facade
-and worker wire while deriving one coherent query key, logical snapshot,
-authority, dependency set and canonical result from the existing application-
-query runtime. C2 remains unapproved because restart-safe reruns also need a
-separately frozen durable evaluation-material and hosted-execution contract.
+The private `QSYNC-FX02-C1` application-query evidence vertical in
+[`preflight/14`](./preflight/14-qsync-fx02-c-application-query-evidence.md) is
+complete. It adds no route or production caller and preserves the public Query
+facade and worker wire. The next correctness gate is the separate
+`QSYNC-FX02-C2` preflight for restart-safe durable evaluation material,
+registration atomicity, hosted execution topology, private wire contracts and
+lifecycle. C2 implementation remains unapproved until that record is accepted.
 
 The FX01 exit remains private, unrouted, and production-inert. It proves no
 runtime portability, production readiness, product parity, real

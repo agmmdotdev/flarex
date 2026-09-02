@@ -51,6 +51,7 @@
     "./internal/point-mutation-grant-preparation-v1": "./src/pointMutationGrantPreparation.ts",
     "./internal/point-mutation-transaction-grant-issuer-v1": "./src/transactionGrantIssuer.ts",
     "./internal/query-sync-source-v1": "./src/deploymentSync/QuerySyncSource.ts",
+    "./internal/query-sync-model-v1": "./src/deploymentSync/QuerySyncModel.ts",
     "./internal/system-test/application-revision-readiness-coordinator-v1": "./src/deployment/PrivateApplicationRevisionReadinessCoordinatorV1.ts",
     "./internal/system-test/application-revision-activation-coordinator-v1": "./src/deployment/PrivateApplicationRevisionActivationCoordinatorV1.ts",
     "./worker": "./src/worker.ts",

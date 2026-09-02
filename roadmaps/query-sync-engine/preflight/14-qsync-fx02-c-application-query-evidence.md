@@ -2,15 +2,17 @@
 
 ## Status
 
-**Preflight status:** accepted on 2026-09-01 for `QSYNC-FX02-C1` only.
+**Status:** accepted on 2026-09-01 and implemented on 2026-09-02 for
+`QSYNC-FX02-C1` only. The completed producer vertical remains private,
+unrouted, and production-inert.
 
 This record authorizes one medium, production-inert application-query evidence
 slice. It does not authorize query registration in `DeploymentSyncDO`, a
 hosted evaluator route, a durable query-material catalog, production routing,
 client delivery, or any public API.
 
-FX02-A and FX02-B are complete. FX02-C1 is the next ordered correctness gate.
-FX02-C as a whole remains incomplete until a later accepted checkpoint composes
+FX02-A, FX02-B, and FX02-C1 are complete. FX02-C as a whole remains incomplete
+until a later accepted checkpoint composes
 trusted registration, durable evaluation material, the executor/artifact-
 runtime boundary, and the existing portable evaluation coordinator.
 
@@ -319,6 +321,36 @@ The C2 decision must not assume that query-key digests are executable data.
 It also must not expose raw evaluation material through the portable
 `queryIdentity`, publication identity, logs, diagnostics or client delivery.
 
+## C1 Implementation Receipt
+
+Completed on 2026-09-02 in the implementation checkpoint containing this
+record:
+
+- `flarex-protocol` owns the canonical read-only `policy_query_v1` identity
+  policy and detached anonymous/user claim evidence;
+- `@flarex/persistence-postgres` enables dependency capture only for explicit
+  evaluation snapshots, deduplicates successful point and coarse table reads,
+  and atomically revalidates/finalizes an immutable receipt under the snapshot
+  read gate;
+- `@flarex/standard-application-invocation` exposes a separate private
+  selection-bound evaluation port while ordinary `runQuery()` retains its
+  original snapshot-open path, result contract and worker wire;
+- the producer validates that `sourcePackageSha256Hex` is exactly the selected
+  canonical Application Source Artifact root shared by the active basis and
+  manifest, and fails closed on disagreement; and
+- the completed receipt passes the existing backend Flarex-to-portable
+  evaluation projector without adding a route, durable material store or
+  production caller.
+
+Validation passed with 11 focused protocol tests, 10 Application query runtime
+tests, 24 existing backend projection tests, and all 41 PGlite Application
+readiness tests. `lint:core` passed. The worktree-wide diff lint had no C1
+finding; its two remaining diagnostics were in unrelated concurrent
+relational/migration work. Both required final reviewers reported no findings
+after the evaluation-only capture correction. This evidence is local/PGlite;
+it is not a real-Postgres, deployed Workerd, Cloudflare restart, or portability
+claim.
+
 ## Explicitly Not Authorized
 
 This checkpoint does not authorize:
@@ -350,7 +382,7 @@ Accepted on 2026-09-01 with these decisions:
 4. final authority/dependencies are detached only after worker completion and
    final snapshot revalidation;
 5. the current Flarex-to-portable evaluation projector is reused;
-6. C1 is the next medium implementation slice; and
+6. C1 is the completed private producer-evidence implementation slice; and
 7. durable evaluation material and hosted evaluator composition require the
    separate C2 preflight because the current digest-only query key cannot
    execute a restart-safe rerun.

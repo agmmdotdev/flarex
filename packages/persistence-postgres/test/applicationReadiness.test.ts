@@ -179,6 +179,7 @@ import {
   type CoherentActiveApplication,
 } from "../src/applicationActivation";
 import {
+  finalizeApplicationQueryEvaluationSnapshot,
   openApplicationQuerySnapshot as openApplicationQuerySnapshotEffect,
   readApplicationQueryIndex,
   readApplicationQueryPoint,
@@ -3162,6 +3163,16 @@ describe("Application activation", { timeout: 30_000 }, () => {
         opened.snapshot,
       );
       expect(revalidated).toEqual(opened.metadata);
+      const finalized = yield* Effect.result(
+        finalizeApplicationQueryEvaluationSnapshot(opened.snapshot),
+      );
+      expect(Result.isFailure(finalized)).toBe(true);
+      if (Result.isFailure(finalized)) {
+        expect(finalized.failure).toMatchObject({
+          operation: "finalizeEvaluation",
+          reason: "invalidComposition",
+        });
+      }
       return revalidated;
     })));
 
@@ -3412,6 +3423,107 @@ describe("Application activation", { timeout: 30_000 }, () => {
     }
   });
 
+  it("finalizes one immutable deduplicated Application query dependency receipt", async () => {
+    const fixture = await readinessFixture({
+      includeTable: true,
+      includeIndex: true,
+    });
+    const schemaVersionId = await prepareReadinessAuthorities(fixture);
+    await insertApplicationQueryRow(fixture, schemaVersionId);
+    await enablePhysicalBuilds(fixture, schemaVersionId);
+    await runEffect(fixture.repository.settle(fixture.input));
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const proof = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        queryBudget(),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+        { dependencyCapture: "evaluation" },
+      );
+      const presentId = decodeAppDocumentIdV1(
+        "1:11111111-1111-1111-1111-111111111111",
+      );
+      const missingId = decodeAppDocumentIdV1(
+        "1:00000000-0000-0000-0000-000000000001",
+      );
+      yield* readApplicationQueryPoint(opened.snapshot, "users", presentId);
+      yield* readApplicationQueryPoint(opened.snapshot, "users", missingId);
+      yield* readApplicationQueryPoint(opened.snapshot, "users", missingId);
+      yield* readApplicationQueryIndex(
+        opened.snapshot,
+        "users",
+        "by_name",
+        {},
+        10,
+      );
+      yield* readApplicationQueryIndex(
+        opened.snapshot,
+        "users",
+        "by_name",
+        {},
+        10,
+      );
+      const rejected = yield* Effect.result(readApplicationQueryPoint(
+        opened.snapshot,
+        "missing_table",
+        missingId,
+      ));
+      const receipt = yield* finalizeApplicationQueryEvaluationSnapshot(
+        opened.snapshot,
+      );
+      const readAfterFinalize = yield* Effect.result(
+        readApplicationQueryPoint(opened.snapshot, "users", missingId),
+      );
+      const finalizeAgain = yield* Effect.result(
+        finalizeApplicationQueryEvaluationSnapshot(opened.snapshot),
+      );
+      return { receipt, rejected, readAfterFinalize, finalizeAgain };
+    })));
+
+    expect(Result.isFailure(proof.rejected)).toBe(true);
+    expect(proof.receipt.dependencies).toHaveLength(3);
+    expect(proof.receipt.dependencies).toEqual(expect.arrayContaining([
+      { kind: "appRowPoint", documentId:
+        "1:11111111-1111-1111-1111-111111111111" },
+      { kind: "appRowPoint", documentId:
+        "1:00000000-0000-0000-0000-000000000001" },
+      { kind: "appTable", tableId: 1 },
+    ]));
+    expect(proof.receipt.metadata.snapshotToken.commitSeq).toBe(1n);
+    expect(Object.isFrozen(proof.receipt)).toBe(true);
+    expect(Object.isFrozen(proof.receipt.dependencies)).toBe(true);
+    expect(Result.isFailure(proof.readAfterFinalize)).toBe(true);
+    if (Result.isFailure(proof.readAfterFinalize)) {
+      expect(proof.readAfterFinalize.failure).toMatchObject({
+        operation: "pointRead",
+        reason: "invalidComposition",
+      });
+    }
+    expect(Result.isFailure(proof.finalizeAgain)).toBe(true);
+    if (Result.isFailure(proof.finalizeAgain)) {
+      expect(proof.finalizeAgain.failure).toMatchObject({
+        operation: "finalizeEvaluation",
+        reason: "invalidComposition",
+      });
+    }
+  });
+
   it("rejects a query snapshot after the Application active head moves", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
@@ -3438,6 +3550,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
           schema: fixture.schema,
           developerIndexes: queryDeveloperIndexes(fixture),
         },
+        { dependencyCapture: "evaluation" },
       );
       const nextRevisionId = yield* Effect.promise(() =>
         createAdditionalApplicationRevision(fixture)
@@ -3451,13 +3564,17 @@ describe("Application activation", { timeout: 30_000 }, () => {
         expectedActiveHead: first.expectedActiveHead,
       });
       return yield* Effect.result(
-        revalidateApplicationQuerySnapshot(opened.snapshot),
+        finalizeApplicationQueryEvaluationSnapshot(opened.snapshot),
       );
     })));
 
     expect(Result.isFailure(stale)).toBe(true);
     if (Result.isFailure(stale)) {
-      expect(stale.failure).toMatchObject({ reason: "concurrentHead" });
+      expect(stale.failure).toMatchObject({
+        _tag: "ApplicationActivationError",
+        operation: "validateSelection",
+        reason: "concurrentHead",
+      });
     }
   });
 

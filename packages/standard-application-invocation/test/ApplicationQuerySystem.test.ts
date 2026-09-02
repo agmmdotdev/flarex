@@ -10,6 +10,13 @@ import { ScopeExecutionLive } from
   "@flarex/persistence-postgres/internal/scope-execution";
 import { Effect, Result } from "effect";
 import {
+  ScopeSyncQueryModelSha256,
+  ScopeSyncQueryModelSha256Error,
+} from "flarex-protocol/internal/scope-sync-query-model-v1";
+import {
+  ScopeSyncQueryGenerationSequenceV1Schema,
+} from "flarex-protocol/internal/scope-sync-v1";
+import {
   canonicalizeApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import {
@@ -17,14 +24,20 @@ import {
 } from "flarex-protocol/internal/application-worker-v1";
 import { TransactionFunctionPathV1Schema } from
   "flarex-protocol/transaction-session";
+import { decodeAppDocumentIdV1 } from "flarex-protocol/app-document-id";
+import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { SOURCE_ARTIFACT_V2_ROLE_EXECUTION } from
   "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import { describe, expect, it, vi } from "vitest";
 import { ApplicationExecutionHostError } from
   "flarex-backend/internal/application-execution-host";
+import {
+  captureScopeSyncQueryEvaluationProjectionV1Result,
+} from "flarex-backend/internal/query-sync-model-v1";
 
 const operations = vi.hoisted(() => ({
   open: vi.fn(),
+  finalize: vi.fn(),
   revalidate: vi.fn(),
   readPoint: vi.fn(),
   readIndex: vi.fn(),
@@ -39,6 +52,7 @@ vi.mock(
   async importOriginal => ({
     ...await importOriginal<Readonly<Record<string, unknown>>>(),
     openApplicationQuerySnapshot: operations.open,
+    finalizeApplicationQueryEvaluationSnapshot: operations.finalize,
     revalidateApplicationQuerySnapshot: operations.revalidate,
     readApplicationQueryPoint: operations.readPoint,
     readApplicationQueryIndex: operations.readIndex,
@@ -47,6 +61,7 @@ vi.mock(
 
 import {
   makeApplicationSelectionQueryPort,
+  makeApplicationSelectionQueryEvaluationPort,
   makeApplicationQuerySystemLayer,
   invokeApplicationQuery,
   type ApplicationQuerySystemLive,
@@ -148,6 +163,254 @@ describe("Application query system", () => {
       live.snapshotBudget,
       live.snapshot,
     );
+    expect(operations.open.mock.calls[0]).toHaveLength(4);
+  });
+
+  it("produces one coherent private evaluation receipt and portable projection", async () => {
+    const manifest = applicationManifest();
+    const selection = Object.freeze({}) as ApplicationActiveSelection;
+    const basis = activeBasis(manifest);
+    const snapshot = Object.freeze({});
+    const metadata = Object.freeze({
+      basis,
+      function: Object.freeze({
+        ...manifest.functions[0]!,
+        kind: "query" as const,
+        visibility: "public" as const,
+        entrySha256: "a".repeat(64),
+      }),
+      tables: Object.freeze([]),
+      snapshotToken: Object.freeze({
+        scopeId: basis.authority.scopeId,
+        epoch: basis.authority.epoch,
+        commitSeq: 7n,
+      }),
+      budget: queryBudget(),
+    });
+    const pointDependency = Object.freeze({
+      kind: "appRowPoint" as const,
+      documentId: decodeAppDocumentIdV1(
+        "1:00000000-0000-0000-0000-000000000001",
+      ),
+    });
+    const tableDependency = Object.freeze({
+      kind: "appTable" as const,
+      tableId: decodeCatalogTableId(1),
+    });
+    operations.open.mockReturnValue(Effect.succeed({ snapshot, metadata }));
+    operations.revalidate.mockReturnValue(Effect.succeed(metadata));
+    operations.readPoint.mockReturnValue(Effect.succeed({ kind: "missing" }));
+    operations.readIndex.mockReturnValue(Effect.succeed({
+      documents: [],
+      isDone: true,
+    }));
+    operations.finalize.mockReturnValue(Effect.succeed(Object.freeze({
+      metadata,
+      dependencies: Object.freeze([tableDependency, pointDependency]),
+    })));
+    const live = {
+      snapshot: {} as ApplicationSelectionQueryLive["snapshot"],
+      snapshotBudget: queryBudget(),
+      source: { read: () => Effect.succeed({
+        sourceArtifact: manifest.sourceArtifact,
+        modules: Object.freeze([{
+          path: "_flarex/application.js",
+          roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+          sourceSha256: "c".repeat(64),
+          sourceByteLength: 65,
+          source: "export const get = query(() => ({ ok: true }));\n",
+        }]),
+      }) },
+      host: {
+        runTransaction: input => Effect.promise(async () => {
+          const readPoint = Reflect.get(
+            input.capability,
+            "readPointDocument",
+          );
+          const queryIndex = Reflect.get(input.capability, "queryIndexRange");
+          if (typeof readPoint !== "function" || typeof queryIndex !== "function") {
+            throw new Error("Expected Application query RPC capability.");
+          }
+          await Reflect.apply(readPoint, input.capability, [
+            "users",
+            pointDependency.documentId,
+          ]);
+          await Reflect.apply(queryIndex, input.capability, [
+            "users",
+            "by_name",
+            {},
+            10,
+          ]);
+          return { ok: true };
+        }),
+      },
+      executionContextFactory: () => ({
+        executionId: "evaluation-query",
+        executionTime: 1_800_000_000_000,
+        randomSeed: new Uint8Array(32).fill(7),
+      }),
+    } satisfies ApplicationSelectionQueryLive;
+    const port = await Effect.runPromise(
+      makeApplicationSelectionQueryEvaluationPort(live).pipe(
+        Effect.provide(ScopeExecutionLive),
+      ),
+    );
+
+    const receipt = await Effect.runPromise(Effect.scoped(port.evaluate(
+      selection,
+      "users:get",
+      { value: 1 },
+      {
+        kind: "user",
+        user: {
+          tokenIdentifier: "issuer|user-1",
+          subject: "user-1",
+          issuer: "https://issuer.example",
+          role: "cook",
+        },
+      },
+    ).pipe(
+      Effect.provideService(ScopeSyncQueryModelSha256, webCryptoSha256),
+    )));
+
+    expect(receipt.query.frame.identity).toMatchObject({
+      scopeUuid: "00000000-0000-4000-8000-000000000001",
+      epochUuid: "00000000-0000-4000-8000-000000000002",
+      activationSequence: 1n,
+      activeHeadSha256Hex: "cc".repeat(32),
+      sourcePackageSha256Hex: "11".repeat(32),
+      schemaVersionId: "application_schema",
+      policyVersion: "policy_query_v1",
+      componentPath: null,
+      functionPath: "users:get",
+    });
+    expect(receipt.query.frame.identity.argumentsSha256Hex).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+    expect(receipt.query.frame.identity.identityAccessPolicySha256Hex).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+    expect(receipt.authority.authority).toMatchObject({
+      scopeUuid: "00000000-0000-4000-8000-000000000001",
+      epochUuid: "00000000-0000-4000-8000-000000000002",
+      storageGeneration: "flarexdb_v1",
+      storageGenerationFence: 1n,
+      activationSequence: 1n,
+      activeHeadSha256Hex: "cc".repeat(32),
+    });
+    expect(receipt.snapshotCommitSeq).toBe(7n);
+    expect(receipt.dependencies.map(value => value.dependencyKey)).toEqual([
+      {
+        format: "flarex.scope-sync-dependency-key",
+        version: 1,
+        kind: "appRowPoint",
+        documentId: pointDependency.documentId,
+      },
+      {
+        format: "flarex.scope-sync-dependency-key",
+        version: 1,
+        kind: "appTable",
+        tableId: tableDependency.tableId,
+      },
+    ]);
+    expect(receipt.result.value).toEqual({ ok: true });
+    expect(operations.finalize).toHaveBeenCalledWith(snapshot);
+    expect(operations.open).toHaveBeenLastCalledWith(
+      selection,
+      "users:get",
+      live.snapshotBudget,
+      live.snapshot,
+      { dependencyCapture: "evaluation" },
+    );
+    const projected = captureScopeSyncQueryEvaluationProjectionV1Result({
+      ...receipt,
+      generation: ScopeSyncQueryGenerationSequenceV1Schema.make(1n),
+    });
+    expect(Result.isSuccess(projected)).toBe(true);
+    if (Result.isSuccess(projected)) {
+      expect(projected.success.evaluation).toMatchObject({
+        namespaceId: "00000000-0000-4000-8000-000000000001",
+        sourceEpoch: "00000000-0000-4000-8000-000000000002",
+        snapshotSequence: 7n,
+      });
+    }
+  });
+
+  it("refuses evaluation evidence when the selected source root is incoherent", async () => {
+    operations.finalize.mockClear();
+    const manifest = applicationManifest();
+    const selection = Object.freeze({}) as ApplicationActiveSelection;
+    const coherentBasis = activeBasis(manifest);
+    const basis = Object.freeze({
+      ...coherentBasis,
+      sourceArtifactRootSha256: new Uint8Array(32).fill(0x12),
+    });
+    const snapshot = Object.freeze({});
+    const metadata = Object.freeze({
+      basis,
+      function: Object.freeze({
+        ...manifest.functions[0]!,
+        kind: "query" as const,
+        visibility: "public" as const,
+        entrySha256: "a".repeat(64),
+      }),
+      tables: Object.freeze([]),
+      snapshotToken: Object.freeze({
+        scopeId: basis.authority.scopeId,
+        epoch: basis.authority.epoch,
+        commitSeq: 7n,
+      }),
+      budget: queryBudget(),
+    });
+    operations.open.mockReturnValue(Effect.succeed({ snapshot, metadata }));
+    operations.finalize.mockReturnValue(Effect.succeed(Object.freeze({
+      metadata,
+      dependencies: Object.freeze([]),
+    })));
+    const live = {
+      snapshot: {} as ApplicationSelectionQueryLive["snapshot"],
+      snapshotBudget: queryBudget(),
+      source: { read: () => Effect.succeed({
+        sourceArtifact: manifest.sourceArtifact,
+        modules: Object.freeze([{
+          path: "_flarex/application.js",
+          roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+          sourceSha256: "c".repeat(64),
+          sourceByteLength: 65,
+          source: "export const get = query(() => ({ ok: true }));\n",
+        }]),
+      }) },
+      host: { runTransaction: () => Effect.succeed({ ok: true }) },
+      executionContextFactory: () => ({
+        executionId: "evaluation-query-invalid-source",
+        executionTime: 1_800_000_000_000,
+        randomSeed: new Uint8Array(32).fill(8),
+      }),
+    } satisfies ApplicationSelectionQueryLive;
+    const port = await Effect.runPromise(
+      makeApplicationSelectionQueryEvaluationPort(live).pipe(
+        Effect.provide(ScopeExecutionLive),
+      ),
+    );
+
+    const result = await Effect.runPromise(Effect.result(Effect.scoped(
+      port.evaluate(
+        selection,
+        "users:get",
+        { value: 1 },
+        { kind: "anonymous" },
+      ).pipe(
+        Effect.provideService(ScopeSyncQueryModelSha256, webCryptoSha256),
+      ),
+    )));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationQueryCompositionError",
+        reason: "invalidSourceIdentity",
+      });
+    }
   });
 
   it("composes the active target, Source Artifact, snapshot capability, and fresh host request", async () => {
@@ -631,7 +894,7 @@ function activeBasis(manifest: ApplicationManifestV1) {
   return Object.freeze({
     authority: Object.freeze({
       deploymentId: "deployment-query",
-      scopeId: "scope_query",
+      scopeId: "scope_00000000-0000-4000-8000-000000000001",
       physicalLocator: Object.freeze({
         kind: "shared_database" as const,
         databaseKey: "primary",
@@ -639,7 +902,7 @@ function activeBasis(manifest: ApplicationManifestV1) {
       }),
       storageGeneration: "flarexdb_v1" as const,
       storageGenerationFence: 1n,
-      epoch: "epoch-query",
+      epoch: "epoch_00000000-0000-4000-8000-000000000002",
       lastCommitSeq: 7n,
       lastOutboxSeq: 0n,
     }),
@@ -675,3 +938,15 @@ function queryBudget() {
     maximumSemanticBytes: 1_048_576,
   });
 }
+
+const webCryptoSha256 = ScopeSyncQueryModelSha256.of({
+  digest: canonicalBytes => Effect.tryPromise({
+    try: async () => new Uint8Array(
+      await crypto.subtle.digest("SHA-256", canonicalBytes.slice()),
+    ),
+    catch: cause => new ScopeSyncQueryModelSha256Error({
+      operation: "digest",
+      cause,
+    }),
+  }),
+});

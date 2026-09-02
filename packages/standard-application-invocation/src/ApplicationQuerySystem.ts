@@ -17,6 +17,10 @@ import {
   type ApplicationTransactionWorkerRequestV1,
 } from "flarex-protocol/internal/application-worker-v1";
 import {
+  APPLICATION_QUERY_IDENTITY_ACCESS_POLICY_VERSION_V1,
+  canonicalizeApplicationQueryIdentityAccessPolicyV1,
+} from "flarex-protocol/internal/application-query-policy-v1";
+import {
   SchemaManifestAppTableNameSchema,
 } from "flarex-protocol/schema-manifest";
 import {
@@ -28,8 +32,40 @@ import {
   type ExecutionIdentity,
 } from "flarex-protocol/auth";
 import {
+  canonicalizeFlarexValueV1Effect,
   type CanonicalFlarexRuntimeValueV1,
+  type CanonicalFlarexValueV1,
+  type FlarexValueCodecV1Error,
 } from "flarex-protocol/value";
+import {
+  SCOPE_SYNC_APPLICATION_QUERY_MODEL_ID_V1,
+  SCOPE_SYNC_QUERY_AUTHORITY_FORMAT_V1,
+  ScopeSyncQueryModelSha256,
+  canonicalizeScopeSyncDependencyKeyV1Result,
+  canonicalizeScopeSyncQueryAuthorityV1,
+  canonicalizeScopeSyncQueryKeyV1,
+  type ScopeSyncDependencyKeyEvidenceV1,
+  type ScopeSyncQueryAuthorityEvidenceV1,
+  type ScopeSyncQueryKeyEvidenceV1,
+  type ScopeSyncQueryModelSha256Error,
+  type ScopeSyncQueryModelV1Error,
+} from "flarex-protocol/internal/scope-sync-query-model-v1";
+import {
+  SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
+  SCOPE_SYNC_CANONICAL_QUERY_FORMAT_V1,
+  SCOPE_SYNC_PROTOCOL_VERSION_V1,
+  compareScopeSyncDependencyKeysV1,
+} from "flarex-protocol/internal/scope-sync-v1";
+import {
+  projectScopeEpochUuidV1Result,
+  projectScopeIdUuidV1Result,
+  type CommitSeq,
+  type InvalidScopeAuthorityUuidProjectionV1Error,
+} from "flarex-protocol/storage-authority";
+import type {
+  TransactionGrantIdentityAccessPolicySha256HexV1,
+  TransactionGrantIdentityAccessPolicyV1Error,
+} from "flarex-protocol/transaction-grant";
 import {
   ApplicationExecutionHostError,
   type ApplicationExecutionHost,
@@ -41,13 +77,17 @@ import type { ApplicationAnalysisSourceReader } from
   "flarex-backend/internal/application-analysis-source-reader";
 import {
   openApplicationQuerySnapshot,
+  finalizeApplicationQueryEvaluationSnapshot,
   readApplicationQueryIndex,
   readApplicationQueryPoint,
   revalidateApplicationQuerySnapshot,
   type ApplicationQueryBudget,
+  type ApplicationQueryEvaluationSnapshotReceipt,
   type ApplicationQuerySnapshot,
   type ApplicationQuerySnapshotContext,
   type OpenApplicationQuerySnapshotError,
+  type OpenedApplicationQuerySnapshot,
+  type UseApplicationQuerySnapshotError,
 } from
   "@flarex/persistence-postgres/internal/application-query-snapshot";
 import type {
@@ -158,6 +198,27 @@ export interface ApplicationSelectionQueryPort<
   ) => Effect.Effect<QueryResult, QueryFailure, Scope.Scope>;
 }
 
+export interface ApplicationSelectionQueryEvaluationReceipt {
+  readonly query: ScopeSyncQueryKeyEvidenceV1;
+  readonly snapshotCommitSeq: CommitSeq;
+  readonly authority: ScopeSyncQueryAuthorityEvidenceV1;
+  readonly dependencies: ReadonlyArray<ScopeSyncDependencyKeyEvidenceV1>;
+  readonly result: CanonicalFlarexValueV1;
+}
+
+export interface ApplicationSelectionQueryEvaluationPort {
+  readonly evaluate: (
+    selection: ApplicationActiveSelection,
+    functionRef: string,
+    argumentsValue: CanonicalFlarexRuntimeValueV1,
+    identity: ExecutionIdentity,
+  ) => Effect.Effect<
+    ApplicationSelectionQueryEvaluationReceipt,
+    InvokeApplicationSelectionQueryEvaluationError,
+    Scope.Scope | ScopeSyncQueryModelSha256
+  >;
+}
+
 export class ApplicationQueryInputError extends Data.TaggedError(
   "ApplicationQueryInputError",
 )<{
@@ -171,6 +232,7 @@ export class ApplicationQueryCompositionError extends Data.TaggedError(
   readonly reason:
     | "invalidExecutionContext"
     | "invalidTarget"
+    | "invalidSourceIdentity"
     | "sourceReadFailed"
     | "workerDefinitionFailed";
   readonly cause?: unknown;
@@ -186,6 +248,15 @@ export type InvokeApplicationSelectionQueryError =
   | ApplicationQueryInputError
   | ApplicationQueryCompositionError
   | ApplicationExecutionHostError;
+
+export type InvokeApplicationSelectionQueryEvaluationError =
+  | InvokeApplicationSelectionQueryError
+  | UseApplicationQuerySnapshotError
+  | FlarexValueCodecV1Error
+  | TransactionGrantIdentityAccessPolicyV1Error
+  | InvalidScopeAuthorityUuidProjectionV1Error
+  | ScopeSyncQueryModelV1Error
+  | ScopeSyncQueryModelSha256Error;
 
 export interface ApplicationQuerySystemApi {
   readonly selectionQuery: ApplicationSelectionQueryPort<
@@ -259,6 +330,17 @@ export const makeApplicationSelectionQueryPort = Effect.fn(
   return Object.freeze({
     runQuery: makeSelectionInvoke(captured, policy, scopeExecution),
   }) satisfies ApplicationSelectionQueryPort<InvokeApplicationSelectionQueryError>;
+});
+
+export const makeApplicationSelectionQueryEvaluationPort = Effect.fn(
+  "ApplicationSelectionQueryEvaluationPort.make",
+)(function* (live: ApplicationSelectionQueryLive) {
+  const captured = captureSelectionLive(live);
+  const scopeExecution = yield* ScopeExecution;
+  const policy = yield* queryWorkerPolicy;
+  return Object.freeze({
+    evaluate: makeSelectionEvaluate(captured, policy, scopeExecution),
+  }) satisfies ApplicationSelectionQueryEvaluationPort;
 });
 
 function captureSelectionLive(
@@ -340,88 +422,307 @@ function makeSelectionInvoke(
     argumentsValue,
     identity,
   ) {
-    if (typeof functionRef !== "string" || functionRef.trim().length === 0) {
-      return yield* new ApplicationQueryInputError({ reason: "invalidFunction" });
-    }
-    const normalizedArguments = yield* normalizeApplicationQueryArgumentsV1Effect(
-      argumentsValue,
-    ).pipe(Effect.mapError(cause => new ApplicationQueryInputError({
-        reason: "invalidArguments",
-        cause,
-      })));
-    const auth = yield* decodeExecutionIdentityEffect(identity).pipe(
-      Effect.mapError(cause => new ApplicationQueryInputError({
-        reason: "invalidIdentity",
-        cause,
-      })),
-    );
-    const opened = yield* openApplicationQuerySnapshot(
-      selection,
+    const prepared = yield* prepareSelectionQueryInput(
       functionRef,
-      live.snapshotBudget,
-      live.snapshot,
-    ).pipe(Effect.provideService(ScopeExecution, scopeExecution));
-    const target = yield* Effect.fromResult(
-      canonicalizeApplicationRuntimeTargetV1(runtimeTarget(opened.metadata)).pipe(
-        Result.mapError(cause => new ApplicationQueryCompositionError({
-          reason: "invalidTarget",
-          cause,
-        })),
-      ),
+      argumentsValue,
+      identity,
     );
-    const source = yield* live.source.read(
-      target.target.sourceArtifactRootSha256,
-    ).pipe(Effect.mapError(cause => new ApplicationQueryCompositionError({
-      reason: "sourceReadFailed",
-      cause,
-    })));
-    const definition = yield* Effect.try({
-      try: () => makeApplicationWorkerDefinition({
-        source,
-        target: target.target,
-        manifest: opened.metadata.basis.manifest,
-        hostPolicy: policy.frame,
-        hostPolicySha256: policy.sha256,
-        compatibilityDate: opened.metadata.basis.compatibilityDate,
-      }),
-      catch: cause => new ApplicationQueryCompositionError({
-        reason: "workerDefinitionFailed",
-        cause,
-      }),
-    });
-    const execution = yield* Effect.try({
-      try: () => live.executionContextFactory(),
-      catch: cause => new ApplicationQueryCompositionError({
-        reason: "invalidExecutionContext",
-        cause,
-      }),
-    });
-    const request: ApplicationTransactionWorkerRequestV1 = {
-      format: APPLICATION_TRANSACTION_WORKER_REQUEST_FORMAT_V1,
-      version: APPLICATION_TRANSACTION_WORKER_REQUEST_VERSION_V1,
-      target: target.target,
-      auth,
-      arguments: normalizedArguments.value,
-      argumentSemanticBytes: normalizedArguments.semanticSizeBytes,
-      tables: opened.metadata.tables.map(table => Object.freeze({
-        tableId: table.tableId,
-        logicalName: SchemaManifestAppTableNameSchema.make(table.logicalName),
-      })),
-      context: {
-        mode: "query",
-        executionId: execution.executionId,
-        randomSeed: execution.randomSeed,
-        executionTime: execution.executionTime,
-        snapshotCommitSeq: opened.metadata.snapshotToken.commitSeq,
-      },
-    };
-    return yield* live.host.runTransaction({
-      definition,
-      request,
-      capability: new ApplicationQueryRpcCapability(opened.snapshot),
-    });
+    const executed = yield* executePreparedSelectionQuery(
+      live,
+      policy,
+      scopeExecution,
+      selection,
+      prepared,
+      false,
+    );
+    return executed.result;
   });
 }
+
+function makeSelectionEvaluate(
+  live: ApplicationSelectionQueryLive,
+  policy: QueryWorkerPolicy,
+  scopeExecution: ScopeExecutionApi,
+): ApplicationSelectionQueryEvaluationPort["evaluate"] {
+  return Effect.fn("ApplicationSelectionQueryEvaluationPort.evaluate")(
+    function* (selection, functionRef, argumentsValue, identity) {
+      const ownedIdentityInput = yield* Effect.try({
+        try: () => structuredClone(identity),
+        catch: cause => new ApplicationQueryInputError({
+          reason: "invalidIdentity",
+          cause,
+        }),
+      });
+      const prepared = yield* prepareSelectionQueryInput(
+        functionRef,
+        argumentsValue,
+        ownedIdentityInput,
+      );
+      const canonicalArguments = yield* canonicalizeFlarexValueV1Effect(
+        prepared.normalizedArguments.value,
+      );
+      const identityAccessPolicy = yield*
+        canonicalizeApplicationQueryIdentityAccessPolicyV1(prepared.auth);
+      const executed = yield* executePreparedSelectionQuery(
+        live,
+        policy,
+        scopeExecution,
+        selection,
+        prepared,
+        true,
+      );
+      const canonicalResult = yield* canonicalizeFlarexValueV1Effect(
+        executed.result,
+      );
+      const snapshotReceipt = yield*
+        finalizeApplicationQueryEvaluationSnapshot(executed.opened.snapshot);
+      return yield* assembleApplicationSelectionQueryEvaluationReceipt(
+        prepared,
+        canonicalArguments,
+        identityAccessPolicy.sha256Hex,
+        canonicalResult,
+        snapshotReceipt,
+      );
+    },
+  );
+}
+
+interface PreparedSelectionQueryInput {
+  readonly functionRef: string;
+  readonly normalizedArguments: Effect.Success<
+    ReturnType<typeof normalizeApplicationQueryArgumentsV1Effect>
+  >;
+  readonly auth: ExecutionIdentity;
+}
+
+const prepareSelectionQueryInput = Effect.fn(
+  "ApplicationSelectionQuery.prepareInput",
+)(function* (
+  functionRef: string,
+  argumentsValue: CanonicalFlarexRuntimeValueV1,
+  identity: ExecutionIdentity,
+): Effect.fn.Return<PreparedSelectionQueryInput, ApplicationQueryInputError> {
+  if (typeof functionRef !== "string" || functionRef.trim().length === 0) {
+    return yield* new ApplicationQueryInputError({ reason: "invalidFunction" });
+  }
+  const normalizedArguments = yield* normalizeApplicationQueryArgumentsV1Effect(
+    argumentsValue,
+  ).pipe(Effect.mapError(cause => new ApplicationQueryInputError({
+      reason: "invalidArguments",
+      cause,
+    })));
+  const auth = yield* decodeExecutionIdentityEffect(identity).pipe(
+    Effect.mapError(cause => new ApplicationQueryInputError({
+      reason: "invalidIdentity",
+      cause,
+    })),
+  );
+  return Object.freeze({ functionRef, normalizedArguments, auth });
+});
+
+interface ExecutedSelectionQuery {
+  readonly opened: OpenedApplicationQuerySnapshot;
+  readonly result: CanonicalFlarexRuntimeValueV1;
+}
+
+const executePreparedSelectionQuery = Effect.fn(
+  "ApplicationSelectionQuery.executePrepared",
+)(function* (
+  live: ApplicationSelectionQueryLive,
+  policy: QueryWorkerPolicy,
+  scopeExecution: ScopeExecutionApi,
+  selection: ApplicationActiveSelection,
+  prepared: PreparedSelectionQueryInput,
+  requireCoherentSourceIdentity: boolean,
+): Effect.fn.Return<
+  ExecutedSelectionQuery,
+  InvokeApplicationSelectionQueryError,
+  Scope.Scope
+> {
+  const openSnapshot = requireCoherentSourceIdentity
+    ? openApplicationQuerySnapshot(
+      selection,
+      prepared.functionRef,
+      live.snapshotBudget,
+      live.snapshot,
+      Object.freeze({ dependencyCapture: "evaluation" as const }),
+    )
+    : openApplicationQuerySnapshot(
+      selection,
+      prepared.functionRef,
+      live.snapshotBudget,
+      live.snapshot,
+    );
+  const opened = yield* openSnapshot.pipe(
+    Effect.provideService(ScopeExecution, scopeExecution),
+  );
+  if (requireCoherentSourceIdentity) {
+    yield* validateScopeSyncSourceIdentity(opened);
+  }
+  const target = yield* Effect.fromResult(
+    canonicalizeApplicationRuntimeTargetV1(runtimeTarget(opened.metadata)).pipe(
+      Result.mapError(cause => new ApplicationQueryCompositionError({
+        reason: "invalidTarget",
+        cause,
+      })),
+    ),
+  );
+  const source = yield* live.source.read(
+    target.target.sourceArtifactRootSha256,
+  ).pipe(Effect.mapError(cause => new ApplicationQueryCompositionError({
+    reason: "sourceReadFailed",
+    cause,
+  })));
+  const definition = yield* Effect.try({
+    try: () => makeApplicationWorkerDefinition({
+      source,
+      target: target.target,
+      manifest: opened.metadata.basis.manifest,
+      hostPolicy: policy.frame,
+      hostPolicySha256: policy.sha256,
+      compatibilityDate: opened.metadata.basis.compatibilityDate,
+    }),
+    catch: cause => new ApplicationQueryCompositionError({
+      reason: "workerDefinitionFailed",
+      cause,
+    }),
+  });
+  const execution = yield* Effect.try({
+    try: () => live.executionContextFactory(),
+    catch: cause => new ApplicationQueryCompositionError({
+      reason: "invalidExecutionContext",
+      cause,
+    }),
+  });
+  const request: ApplicationTransactionWorkerRequestV1 = {
+    format: APPLICATION_TRANSACTION_WORKER_REQUEST_FORMAT_V1,
+    version: APPLICATION_TRANSACTION_WORKER_REQUEST_VERSION_V1,
+    target: target.target,
+    auth: prepared.auth,
+    arguments: prepared.normalizedArguments.value,
+    argumentSemanticBytes: prepared.normalizedArguments.semanticSizeBytes,
+    tables: opened.metadata.tables.map(table => Object.freeze({
+      tableId: table.tableId,
+      logicalName: SchemaManifestAppTableNameSchema.make(table.logicalName),
+    })),
+    context: {
+      mode: "query",
+      executionId: execution.executionId,
+      randomSeed: execution.randomSeed,
+      executionTime: execution.executionTime,
+      snapshotCommitSeq: opened.metadata.snapshotToken.commitSeq,
+    },
+  };
+  const result = yield* live.host.runTransaction({
+    definition,
+    request,
+    capability: new ApplicationQueryRpcCapability(opened.snapshot),
+  });
+  return Object.freeze({ opened, result });
+});
+
+function validateScopeSyncSourceIdentity(
+  opened: OpenedApplicationQuerySnapshot,
+): Effect.Effect<void, ApplicationQueryCompositionError> {
+  const basis = opened.metadata.basis;
+  return encodeBytesToLowercaseHex(basis.sourceArtifactRootSha256) ===
+      basis.manifest.sourceArtifact.rootSha256
+    ? Effect.void
+    : new ApplicationQueryCompositionError({
+      reason: "invalidSourceIdentity",
+    });
+}
+
+const assembleApplicationSelectionQueryEvaluationReceipt = Effect.fn(
+  "ApplicationSelectionQueryEvaluation.assembleReceipt",
+)(function* (
+  prepared: PreparedSelectionQueryInput,
+  canonicalArguments: CanonicalFlarexValueV1,
+  identityAccessPolicySha256Hex:
+    TransactionGrantIdentityAccessPolicySha256HexV1,
+  canonicalResult: CanonicalFlarexValueV1,
+  snapshotReceipt: ApplicationQueryEvaluationSnapshotReceipt,
+): Effect.fn.Return<
+  ApplicationSelectionQueryEvaluationReceipt,
+  | ApplicationQueryCompositionError
+  | InvalidScopeAuthorityUuidProjectionV1Error
+  | ScopeSyncQueryModelV1Error
+  | ScopeSyncQueryModelSha256Error,
+  ScopeSyncQueryModelSha256
+> {
+  const metadata = snapshotReceipt.metadata;
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(
+    metadata.basis.authority.scopeId,
+  ));
+  const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(
+    metadata.basis.authority.epoch,
+  ));
+  const sourceArtifactRootSha256Hex = encodeBytesToLowercaseHex(
+    metadata.basis.sourceArtifactRootSha256,
+  );
+  // Scope-sync's source package identity is the canonical Application Source
+  // Artifact root: the manifest root and selected readiness basis must agree.
+  if (
+    sourceArtifactRootSha256Hex !==
+      metadata.basis.manifest.sourceArtifact.rootSha256
+  ) {
+    return yield* new ApplicationQueryCompositionError({
+      reason: "invalidSourceIdentity",
+    });
+  }
+  const activeHeadSha256Hex = encodeBytesToLowercaseHex(
+    metadata.basis.headSha256,
+  );
+  const query = yield* canonicalizeScopeSyncQueryKeyV1({
+    format: SCOPE_SYNC_CANONICAL_QUERY_FORMAT_V1,
+    version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+    scopeUuid: scope.scopeUuid,
+    epochUuid: epoch.epochUuid,
+    activationSequence: metadata.basis.activationSequence,
+    activeHeadSha256Hex,
+    sourcePackageSha256Hex: sourceArtifactRootSha256Hex,
+    schemaVersionId: metadata.basis.schemaVersionId,
+    policyVersion: APPLICATION_QUERY_IDENTITY_ACCESS_POLICY_VERSION_V1,
+    componentPath: null,
+    functionPath: prepared.functionRef,
+    argumentsSha256Hex: encodeBytesToLowercaseHex(canonicalArguments.sha256),
+    identityAccessPolicySha256Hex,
+  });
+  const authority = yield* canonicalizeScopeSyncQueryAuthorityV1({
+    format: SCOPE_SYNC_QUERY_AUTHORITY_FORMAT_V1,
+    version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+    scopeUuid: scope.scopeUuid,
+    syncModelId: SCOPE_SYNC_APPLICATION_QUERY_MODEL_ID_V1,
+    epochUuid: epoch.epochUuid,
+    storageGeneration: metadata.basis.authority.storageGeneration,
+    storageGenerationFence:
+      metadata.basis.authority.storageGenerationFence,
+    activationSequence: metadata.basis.activationSequence,
+    activeHeadSha256Hex,
+  });
+  const dependencyResults = snapshotReceipt.dependencies.map(dependency =>
+    canonicalizeScopeSyncDependencyKeyV1Result({
+      format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
+      version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+      ...dependency,
+    })
+  );
+  const dependencies = yield* Effect.fromResult(
+    Result.all(dependencyResults).pipe(Result.map(values => Object.freeze(
+      values.toSorted((left, right) => compareScopeSyncDependencyKeysV1(
+        left.dependencyKey,
+        right.dependencyKey,
+      )),
+    ))),
+  );
+  return Object.freeze({
+    query,
+    snapshotCommitSeq: metadata.snapshotToken.commitSeq,
+    authority,
+    dependencies,
+    result: canonicalResult,
+  });
+});
 
 function runtimeTarget(
   metadata: import("@flarex/persistence-postgres/internal/application-query-snapshot")
