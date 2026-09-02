@@ -25,6 +25,7 @@ import {
   verifyStoredFrameworkMigrationValue,
 } from "./canonical";
 import type { FrameworkMigrationValueError } from "./errors";
+import type { FrameworkMigrationPlanSha256 } from "./identity";
 import type {
   FrameworkMigrationCollisionCoordinate,
   FrameworkMigrationStep,
@@ -71,6 +72,11 @@ import { captureFrameworkSchemaTargetNamespace } from "./targetNamespace";
 type MigrationPlanRepositoryOperation = Extract<
   FrameworkMigrationRepositoryOperation,
   "ensurePlan" | "readPlan"
+>;
+
+type MigrationPlanAggregateRepositoryOperation = Extract<
+  FrameworkMigrationRepositoryOperation,
+  "ensurePlan" | "readPlan" | "ensureAdmission" | "readAdmission"
 >;
 
 const PLAN_SIDECAR_INSERT_BATCH_SIZE = 256;
@@ -202,13 +208,14 @@ export const ensureFreshRelationalMigrationPlanInTransactionEffect = Effect.fn(
     }
     return resolved.value;
   }
-  const assignments = yield* readPlanAssignments(
-    transaction,
-    storedCollision,
-    prepared.plan.frame.physicalLayout.nameAssignments,
-    "prerequisite",
-    operation,
-  );
+  const assignments = yield*
+    readFreshRelationalMigrationPlanAssignmentsForOperationInTransactionEffect(
+      transaction,
+      storedCollision,
+      prepared.plan.frame.physicalLayout.nameAssignments,
+      "prerequisite",
+      operation,
+    );
 
   const insertedRows = yield* runRepositoryStatement(
     operation,
@@ -331,7 +338,7 @@ export const resolveAuthenticatedFreshRelationalMigrationPlanOccupantEffect =
     occupant: Option.Option<RestoredFreshRelationalMigrationPlan>,
     collision: RestoredFrameworkMigrationCollisionDomain,
     expected: FreshRelationalMigrationPlan,
-    operation: MigrationPlanRepositoryOperation,
+    operation: MigrationPlanAggregateRepositoryOperation,
   ): Effect.fn.Return<
     Option.Option<RestoredFreshRelationalMigrationPlan>,
     FrameworkMigrationRepositoryError
@@ -353,6 +360,115 @@ export const resolveAuthenticatedFreshRelationalMigrationPlanOccupantEffect =
     }
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.immutableConflict(operation),
+    );
+  });
+
+/**
+ * Source-private transaction corroboration for a restored plan supplied as an
+ * aggregate prerequisite. The stored occupant is fully restored before replay
+ * classification so a digest collision cannot bypass sidecar validation.
+ */
+export const corroborateRestoredFreshRelationalMigrationPlanInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationPlanRepository.corroborateRestored",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    expectedRestoredPlan: RestoredFreshRelationalMigrationPlan,
+    operation: MigrationPlanAggregateRepositoryOperation,
+  ): Effect.fn.Return<
+    RestoredFreshRelationalMigrationPlan,
+    FrameworkMigrationRepositoryError
+  > {
+    if (!isRestoredFreshRelationalMigrationPlan(expectedRestoredPlan)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.referenceRefusal(operation),
+      );
+    }
+    const storedCollision = yield* requireStoredPlanCollision(
+      transaction,
+      expectedRestoredPlan.collision,
+      expectedRestoredPlan.plan,
+      operation,
+    );
+    const migrationPlanSha256Bytes = yield* decodeAuthenticatedSha256(
+      expectedRestoredPlan.plan.migrationPlanSha256,
+    );
+    const row = yield* loadPlanRootByDigest(
+      transaction,
+      migrationPlanSha256Bytes,
+      operation,
+    );
+    if (
+      Option.isNone(row) ||
+      row.value.planStorageId !== expectedRestoredPlan.storageId
+    ) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.referenceRefusal(operation),
+      );
+    }
+    const occupant = yield* restorePlanOccupant(
+      transaction,
+      row.value,
+      storedCollision,
+      operation,
+    );
+    const resolved = yield*
+      resolveAuthenticatedFreshRelationalMigrationPlanOccupantEffect(
+        Option.some(occupant),
+        storedCollision,
+        expectedRestoredPlan.plan,
+        operation,
+      );
+    if (Option.isNone(resolved)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return resolved.value;
+  });
+
+/**
+ * Source-private restoration for a plan referenced by stored aggregate state.
+ * Missing or mismatched parent rows are corruption, never ordinary absence.
+ */
+export const restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationPlanRepository.restoreStoredReference",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    preferredCollision: RestoredFrameworkMigrationCollisionDomain,
+    planStorageId: bigint,
+    planSha256: FrameworkMigrationPlanSha256,
+    operation: MigrationPlanAggregateRepositoryOperation,
+  ): Effect.fn.Return<
+    RestoredFreshRelationalMigrationPlan,
+    FrameworkMigrationRepositoryError
+  > {
+    if (!isRestoredFrameworkMigrationCollisionDomain(preferredCollision)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const migrationPlanSha256Bytes = yield* Effect.fromResult(
+      Encoding.decodeHex(planSha256),
+    ).pipe(Effect.mapError(() =>
+      FrameworkMigrationRepositoryError.storedCorruption(operation)
+    ));
+    const row = yield* loadPlanRootByDigest(
+      transaction,
+      migrationPlanSha256Bytes,
+      operation,
+    );
+    if (Option.isNone(row) || row.value.planStorageId !== planStorageId) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return yield* restorePlanOccupant(
+      transaction,
+      row.value,
+      preferredCollision,
+      operation,
     );
   });
 
@@ -457,7 +573,7 @@ const requireStoredPlanCollision = Effect.fn(
   transaction: FlarexMetadataTransaction,
   collision: RestoredFrameworkMigrationCollisionDomain,
   plan: FreshRelationalMigrationPlan,
-  operation: MigrationPlanRepositoryOperation,
+  operation: MigrationPlanAggregateRepositoryOperation,
 ): Effect.fn.Return<
   RestoredFrameworkMigrationCollisionDomain,
   FrameworkMigrationRepositoryError
@@ -485,95 +601,99 @@ const requireStoredPlanCollision = Effect.fn(
   return stored.value;
 });
 
-const readPlanAssignments = Effect.fn(
-  "FrameworkMigrationPlanRepository.readAssignments",
-)(function* (
-  transaction: FlarexMetadataTransaction,
-  collision: RestoredFrameworkMigrationCollisionDomain,
-  frames: readonly RelationalPhysicalNameAssignmentFrame[],
-  mode: "prerequisite" | "stored",
-  operation: MigrationPlanRepositoryOperation,
-): Effect.fn.Return<
-  readonly RestoredRelationalPhysicalNameAssignment[],
-  FrameworkMigrationRepositoryError
-> {
-  const expectations: Array<Readonly<{
-    readonly frame: RelationalPhysicalNameAssignmentFrame;
-    readonly assignmentSha256: string;
-    readonly canonicalJson: string;
-  }>> = [];
-  for (const frame of frames) {
-    const captured = yield* capturePrivateCanonicalValue(
-      frame,
-      MAX_RELATIONAL_PHYSICAL_ASSIGNMENT_CANONICAL_BYTES,
-      {
-        invalidInput: () => mode === "prerequisite"
-          ? FrameworkMigrationRepositoryError.referenceRefusal(operation)
-          : FrameworkMigrationRepositoryError.storedCorruption(operation),
-        hashFailure: cause =>
-          FrameworkMigrationRepositoryError.resourceFailure(operation, cause),
-      },
-    );
-    expectations.push(Object.freeze({
-      frame,
-      assignmentSha256: captured.sha256Hex,
-      canonicalJson: captured.canonicalJson,
-    }));
-  }
-  const occupants = yield*
-    readRelationalPhysicalNameAssignmentOccupantsBySpellingInTransactionEffect(
-      transaction,
-      collision,
-      expectations.map(value => value.frame.spelling),
-      mode,
-      operation,
-    );
-  const occupantsBySpelling = new Map<
-    string,
-    RestoredRelationalPhysicalNameAssignment
-  >();
-  for (const occupant of occupants) {
-    const spelling = occupant.assignment.frame.spelling;
-    if (occupantsBySpelling.has(spelling)) {
-      return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.storedCorruption(operation),
+export const readFreshRelationalMigrationPlanAssignmentsForOperationInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationPlanRepository.readAssignments",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    collision: RestoredFrameworkMigrationCollisionDomain,
+    frames: readonly RelationalPhysicalNameAssignmentFrame[],
+    mode: "prerequisite" | "stored",
+    operation: MigrationPlanAggregateRepositoryOperation,
+  ): Effect.fn.Return<
+    readonly RestoredRelationalPhysicalNameAssignment[],
+    FrameworkMigrationRepositoryError
+  > {
+    const expectations: Array<Readonly<{
+      readonly frame: RelationalPhysicalNameAssignmentFrame;
+      readonly assignmentSha256: string;
+      readonly canonicalJson: string;
+    }>> = [];
+    for (const frame of frames) {
+      const captured = yield* capturePrivateCanonicalValue(
+        frame,
+        MAX_RELATIONAL_PHYSICAL_ASSIGNMENT_CANONICAL_BYTES,
+        {
+          invalidInput: () => mode === "prerequisite"
+            ? FrameworkMigrationRepositoryError.referenceRefusal(operation)
+            : FrameworkMigrationRepositoryError.storedCorruption(operation),
+          hashFailure: cause =>
+            FrameworkMigrationRepositoryError.resourceFailure(
+              operation,
+              cause,
+            ),
+        },
       );
+      expectations.push(Object.freeze({
+        frame,
+        assignmentSha256: captured.sha256Hex,
+        canonicalJson: captured.canonicalJson,
+      }));
     }
-    occupantsBySpelling.set(spelling, occupant);
-  }
+    const occupants = yield*
+      readRelationalPhysicalNameAssignmentOccupantsBySpellingInTransactionEffect(
+        transaction,
+        collision,
+        expectations.map(value => value.frame.spelling),
+        mode,
+        operation,
+      );
+    const occupantsBySpelling = new Map<
+      string,
+      RestoredRelationalPhysicalNameAssignment
+    >();
+    for (const occupant of occupants) {
+      const spelling = occupant.assignment.frame.spelling;
+      if (occupantsBySpelling.has(spelling)) {
+        return yield* Effect.fail(
+          FrameworkMigrationRepositoryError.storedCorruption(operation),
+        );
+      }
+      occupantsBySpelling.set(spelling, occupant);
+    }
 
-  const restored: RestoredRelationalPhysicalNameAssignment[] = [];
-  for (const expected of expectations) {
-    const occupant = occupantsBySpelling.get(expected.frame.spelling);
-    if (occupant === undefined) {
-      return yield* Effect.fail(mode === "prerequisite"
-        ? FrameworkMigrationRepositoryError.referenceRefusal(operation)
-        : FrameworkMigrationRepositoryError.storedCorruption(operation));
+    const restored: RestoredRelationalPhysicalNameAssignment[] = [];
+    for (const expected of expectations) {
+      const occupant = occupantsBySpelling.get(expected.frame.spelling);
+      if (occupant === undefined) {
+        return yield* Effect.fail(mode === "prerequisite"
+          ? FrameworkMigrationRepositoryError.referenceRefusal(operation)
+          : FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      const exact = occupant.assignment.assignmentSha256 ===
+          expected.assignmentSha256 &&
+        occupant.assignment.canonicalJson === expected.canonicalJson &&
+        classifyRelationalPhysicalNameAssignmentReplay(
+          occupant.assignment.frame,
+          expected.frame,
+        ) === "exact";
+      if (!exact) {
+        return yield* Effect.fail(mode === "prerequisite"
+          ? FrameworkMigrationRepositoryError.physicalNameCollision(
+            operation,
+            expected.frame.spelling,
+          )
+          : FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      if (occupant.collision.storageId !== collision.storageId) {
+        return yield* Effect.fail(mode === "prerequisite"
+          ? FrameworkMigrationRepositoryError.referenceRefusal(operation)
+          : FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      restored.push(occupant);
     }
-    const exact = occupant.assignment.assignmentSha256 ===
-        expected.assignmentSha256 &&
-      occupant.assignment.canonicalJson === expected.canonicalJson &&
-      classifyRelationalPhysicalNameAssignmentReplay(
-        occupant.assignment.frame,
-        expected.frame,
-      ) === "exact";
-    if (!exact) {
-      return yield* Effect.fail(mode === "prerequisite"
-        ? FrameworkMigrationRepositoryError.physicalNameCollision(
-          operation,
-          expected.frame.spelling,
-        )
-        : FrameworkMigrationRepositoryError.storedCorruption(operation));
-    }
-    if (occupant.collision.storageId !== collision.storageId) {
-      return yield* Effect.fail(mode === "prerequisite"
-        ? FrameworkMigrationRepositoryError.referenceRefusal(operation)
-        : FrameworkMigrationRepositoryError.storedCorruption(operation));
-    }
-    restored.push(occupant);
-  }
-  return Object.freeze(restored);
-});
+    return Object.freeze(restored);
+  });
 
 const insertPlanSidecars = Effect.fn(
   "FrameworkMigrationPlanRepository.insertSidecars",
@@ -582,7 +702,7 @@ const insertPlanSidecars = Effect.fn(
   planStorageId: bigint,
   collisionStorageId: bigint,
   prepared: PreparedMigrationPlan,
-  operation: MigrationPlanRepositoryOperation,
+  operation: MigrationPlanAggregateRepositoryOperation,
 ): Effect.fn.Return<void, FrameworkMigrationRepositoryError> {
   for (
     let offset = 0;
@@ -632,7 +752,7 @@ const loadPlanRootByDigest = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   migrationPlanSha256: Uint8Array,
-  operation: MigrationPlanRepositoryOperation,
+  operation: MigrationPlanAggregateRepositoryOperation,
 ): Effect.fn.Return<
   Option.Option<MigrationPlanDriverRow>,
   FrameworkMigrationRepositoryError
@@ -655,7 +775,7 @@ const restorePlanOccupant = Effect.fn(
   transaction: FlarexMetadataTransaction,
   row: MigrationPlanDriverRow,
   preferredCollision: RestoredFrameworkMigrationCollisionDomain,
-  operation: MigrationPlanRepositoryOperation,
+  operation: MigrationPlanAggregateRepositoryOperation,
   preferred?: PreferredMigrationPlanDependencies,
 ): Effect.fn.Return<
   RestoredFreshRelationalMigrationPlan,
@@ -673,13 +793,14 @@ const restorePlanOccupant = Effect.fn(
       preferred.canonicalJson === decoded.canonicalJson &&
       preferred.collision.storageId === collision.storageId
     ? preferred.assignments
-    : yield* readPlanAssignments(
-      transaction,
-      collision,
-      decoded.frame.physicalLayout.nameAssignments,
-      "stored",
-      operation,
-    );
+    : yield*
+      readFreshRelationalMigrationPlanAssignmentsForOperationInTransactionEffect(
+        transaction,
+        collision,
+        decoded.frame.physicalLayout.nameAssignments,
+        "stored",
+        operation,
+      );
   const sidecars = yield* loadPlanSidecars(
     transaction,
     decoded.storageId,
@@ -700,7 +821,7 @@ const decodePlanRoot = Effect.fn(
   "FrameworkMigrationPlanRepository.decodeRoot",
 )(function* (
   row: MigrationPlanDriverRow,
-  operation: MigrationPlanRepositoryOperation,
+  operation: MigrationPlanAggregateRepositoryOperation,
 ): Effect.fn.Return<
   DecodedMigrationPlanRoot,
   FrameworkMigrationRepositoryError
@@ -743,7 +864,7 @@ const resolvePlanOccupantCollision = Effect.fn(
   row: MigrationPlanDriverRow,
   frame: FreshRelationalMigrationPlanFrame,
   preferred: RestoredFrameworkMigrationCollisionDomain,
-  operation: MigrationPlanRepositoryOperation,
+  operation: MigrationPlanAggregateRepositoryOperation,
 ): Effect.fn.Return<
   RestoredFrameworkMigrationCollisionDomain,
   FrameworkMigrationRepositoryError
@@ -798,7 +919,7 @@ const loadPlanSidecars = Effect.fn(
   transaction: FlarexMetadataTransaction,
   planStorageId: bigint,
   frame: FreshRelationalMigrationPlanFrame,
-  operation: MigrationPlanRepositoryOperation,
+  operation: MigrationPlanAggregateRepositoryOperation,
 ): Effect.fn.Return<
   Readonly<{
     readonly steps: readonly MigrationPlanStepDriverRow[];
@@ -854,7 +975,7 @@ const loadPlanSidecars = Effect.fn(
 });
 
 function runRepositoryStatement<Value>(
-  operation: MigrationPlanRepositoryOperation,
+  operation: MigrationPlanAggregateRepositoryOperation,
   statement: PromiseLike<Value>,
 ): Effect.Effect<Value, FrameworkMigrationRepositoryError> {
   return runDrizzleStatementEffect(
@@ -871,7 +992,7 @@ function decodeAuthenticatedSha256(value: string): Effect.Effect<Uint8Array> {
 }
 
 function mapStoredValueError(
-  operation: MigrationPlanRepositoryOperation,
+  operation: MigrationPlanAggregateRepositoryOperation,
   error: FrameworkMigrationValueError,
 ): FrameworkMigrationRepositoryError {
   return error.reason === "resourceFailure"
@@ -883,7 +1004,7 @@ function mapStoredValueError(
 }
 
 function mapStoredRepositoryError(
-  operation: MigrationPlanRepositoryOperation,
+  operation: MigrationPlanAggregateRepositoryOperation,
   error: FrameworkMigrationRepositoryError,
 ): FrameworkMigrationRepositoryError {
   return error.reason === "resourceFailure"

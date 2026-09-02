@@ -4,12 +4,13 @@ Status: accepted; checkpoint 1 private pure values and goldens implemented;
 checkpoint 2 exact metadata/repository contract accepted separately and its
 additive private metadata DDL, focused PGlite catalog evidence, stored
 restoration, target/collision repository family, physical-name assignment
-repository family, and migration-plan aggregate repository family implemented;
-later repositories remain pending; no target
+repository family, migration-plan aggregate repository family, and
+plan-admission aggregate repository family implemented; later repositories
+remain pending; no target
 session, generated relational DDL, runtime caller, binding, or activation is
 implemented
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 ## Decision
 
@@ -708,8 +709,12 @@ This record must prove by inspection that it contains:
 PGlite is the functional lane only. The additive metadata slice proves its
 migration, injected-fault rollback/retry, representative root invariants, and
 root-row preservation across close/reopen. Topological rehydration and the
-first target/collision, assignment, and plan aggregate repository families are
-complete. Later slices must cover fresh synthetic installation, interrupted
+first target/collision, assignment, plan aggregate, and plan-admission
+aggregate repository families are complete. The admission family takes
+explicit restored current and nullable previous-plan handles, fully
+reconstructs its stored dependency graph, and rejects corrupt or conflicting
+replay without healing. Later slices must cover fresh synthetic installation,
+interrupted
 progress,
 corrupt-ledger rejection, validation refusal, readiness, availability
 transitions, then a separately admitted base-backed additive candidate that
@@ -876,9 +881,9 @@ compatibility.
 The explicit checkpoint-1 approval has now been exercised and its private
 pure-value receipt is complete above. Checkpoint 2 is separately accepted, and
 its additive private metadata DDL, stored restoration, and first
-target/collision, physical-name assignment, and migration-plan aggregate
-repository families are complete; later repository kernels remain pending in
-that checkpoint. This
+target/collision, physical-name assignment, migration-plan aggregate, and
+plan-admission aggregate repository families are complete; later repository
+kernels remain pending in that checkpoint. This
 record still opens
 no generated relational DDL, target execution, binding, adapter, runtime,
 hosted, public, or production gate.

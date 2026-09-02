@@ -3,12 +3,13 @@
 Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
 focused PGlite DDL/catalog evidence, and source-private topological stored-value
 restoration implemented; the private target/collision, physical-name
-assignment, and migration-plan aggregate repository families are implemented,
-and the remaining repository families are pending; no target session, generated
+assignment, migration-plan aggregate, and plan-admission aggregate repository
+families are implemented, and the remaining repository families are pending;
+no target session, generated
 relational DDL, coordinator runtime, binding, adapter, or production activation
 is authorized
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 ## Decision
 
@@ -32,9 +33,9 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 5. complete PGlite storage/repository evidence and record the receipt.
 
 Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision,
-physical-name assignment, and migration-plan aggregate families are complete
-and the remaining transaction-parameterized private repository families are
-pending.
+physical-name assignment, migration-plan aggregate, and plan-admission
+aggregate families are complete and the remaining transaction-parameterized
+private repository families are pending.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -614,33 +615,34 @@ projection, and a readiness-published cross-domain subject. Package-boundary
 checks keep all restoration operations absent from the root and export map.
 
 This started as in-process stored-row restoration evidence. The implemented
-target, collision, assignment, and plan repository families now add actual
-transaction reads, length-first SQL byte gates, and immutable replay/conflict
-classification. Plan-aggregate reconstruction across PGlite close/reopen, the
-later repository families, and head CAS remain pending. No live target authority
-is minted.
+target, collision, assignment, plan, and plan-admission repository families now
+add actual transaction reads, length-first SQL byte gates, and immutable
+replay/conflict classification. Plan-aggregate reconstruction across PGlite
+close/reopen, the later repository families, and head CAS remain pending. No
+live target authority is minted.
 
 ### Resolved admission-restoration dependency defect
 
 Status: resolved by the separately approved stored-restoration correction; the
-plan-admission repository family is unblocked.
+plan-admission repository family is now implemented on that corrected boundary.
 
 Reproducible scenario: start with a valid captured plan admission, change only
 its artifact digest or the physical locator kind/database key to another
 individually valid value, then recanonicalize the admission bytes and digest.
 Keep its plan digest, collision coordinate, target namespace, assignment
 references, normalized root projections, and sidecars internally consistent.
-`restoreStoredFrameworkMigrationPlanAdmission` currently accepts that aggregate
-with an authentic restored plan because it checks the plan digest, collision,
-previous plan, counts, and assignment membership but does not compare the
-admission's complete artifact and physical-locator projections with the restored
-plan.
+Before the correction, `restoreStoredFrameworkMigrationPlanAdmission` accepted
+that aggregate with an authentic restored plan because it checked the plan
+digest, collision, previous plan, counts, and assignment membership but did not
+compare the admission's complete artifact and physical-locator projections with
+the restored plan.
 
-Expected behavior is a typed stored-restoration corruption failure before any
-admission authority is registered. Actual source behavior can register the
-mismatched admission as restored authority. The affected trust boundary is
-`migrationCoordination/storedRestoration.ts`; a repository-local duplicate check
-would leave cold restoration unsound and is not an acceptable workaround.
+The expected behavior was a typed stored-restoration corruption failure before
+any admission authority was registered. The prior source behavior could
+register the mismatched admission as restored authority. The affected trust
+boundary was `migrationCoordination/storedRestoration.ts`; a repository-local
+duplicate check would have left cold restoration unsound and was not an
+acceptable workaround.
 
 Disposition: the stored-restoration owner now compares the complete artifact
 identity and physical locator with the authenticated restored plan before
@@ -651,7 +653,7 @@ dependencies; each must fail as typed stored corruption. No admission SQL
 kernel, public API, target session, or runtime authority was opened by this
 correction.
 
-### Current target/collision, assignment, and plan repository boundary
+### Current target/collision, assignment, plan, and admission repository boundary
 
 The current production-inert repository families consist of source-private,
 transaction-parameterized Effects that ensure and exactly read target
@@ -698,10 +700,30 @@ sidecar chain before replay or immutable-conflict classification. Root bytes
 use the length-first SQL gate, and dependency reads order by source-step ordinal
 then dependency ordinal rather than lexical step ID.
 
-The remaining admission, attempt, receipt, terminal, event,
-collision-head, installation, readiness, and availability repository families
-remain pending. Admission is first and its stored-restoration dependency is now
-resolved. These kernels add no CAS, coordinator policy, or live target.
+Plan-admission operations accept explicit restored current-plan and nullable
+previous-plan handles. They corroborate those parents in the caller's
+transaction, authenticate the captured admission against the current plan, and
+reconstruct an existing occupant through its complete stored plan,
+previous-plan, physical-name assignment, and ordered admission-sidecar graph.
+An untargeted immutable insert writes sidecars only when the root is newly
+inserted. Exact replay returns the existing storage identity, a different
+authentic occupant is an immutable conflict, and missing or corrupt committed
+dependencies fail without implicit healing. Reads and writes retain the same
+canonical-byte bound and typed resource-failure boundary as the preceding
+families.
+
+Focused PGlite evidence covers source privacy, absent read, ensure/read/exact
+replay, separate-caller replay, deterministic zero-row immutable-insert reload,
+ordered assignments, optional previous-plan reconstruction, forged and cross-
+reference refusal, immutable conflict, caller-owned rollback, missing-sidecar
+corruption without healing, canonical corruption and byte limits, and foreign
+driver failure projection. This is functional repository evidence only; it
+makes no genuine-PostgreSQL locking, concurrency, public API, runtime, or
+production claim.
+
+The remaining attempt, receipt, terminal, event, collision-head, installation,
+readiness, and availability repository families remain pending. These kernels
+add no CAS, coordinator policy, or live target.
 
 ## Checkpoint-2 Evidence
 
@@ -752,8 +774,8 @@ Stop and open the owning checkpoint before:
 
 The exact target-local metadata and repository seam is frozen; its additive
 platform metadata catalog, source-private topological restoration, and private
-target/collision, physical-name assignment, and migration-plan aggregate
-repository families are implemented. The remaining transaction-parameterized
-repository families are the next checkpoint-2 work. The opaque target and
-coordinator remain
+target/collision, physical-name assignment, migration-plan aggregate, and
+plan-admission aggregate repository families are implemented. The remaining
+transaction-parameterized repository families are the next checkpoint-2 work.
+The opaque target and coordinator remain
 checkpoint 3.

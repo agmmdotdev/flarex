@@ -57,6 +57,8 @@ type PhysicalNameAssignmentRepositoryOperation = Extract<
   | "readPhysicalNameAssignment"
   | "ensurePlan"
   | "readPlan"
+  | "ensureAdmission"
+  | "readAdmission"
 >;
 
 const PHYSICAL_NAME_ASSIGNMENT_READ_BATCH_SIZE = 512;

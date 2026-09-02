@@ -8,7 +8,9 @@ export type FrameworkMigrationRepositoryOperation =
   | "ensurePhysicalNameAssignment"
   | "readPhysicalNameAssignment"
   | "ensurePlan"
-  | "readPlan";
+  | "readPlan"
+  | "ensureAdmission"
+  | "readAdmission";
 
 export type FrameworkMigrationRepositoryReason =
   | "immutableConflict"
