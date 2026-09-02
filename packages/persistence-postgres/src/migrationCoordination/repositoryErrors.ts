@@ -10,7 +10,9 @@ export type FrameworkMigrationRepositoryOperation =
   | "ensurePlan"
   | "readPlan"
   | "ensureAdmission"
-  | "readAdmission";
+  | "readAdmission"
+  | "ensureAttemptStart"
+  | "readAttemptStart";
 
 export type FrameworkMigrationRepositoryReason =
   | "immutableConflict"

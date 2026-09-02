@@ -76,7 +76,12 @@ type MigrationPlanRepositoryOperation = Extract<
 
 type MigrationPlanAggregateRepositoryOperation = Extract<
   FrameworkMigrationRepositoryOperation,
-  "ensurePlan" | "readPlan" | "ensureAdmission" | "readAdmission"
+  | "ensurePlan"
+  | "readPlan"
+  | "ensureAdmission"
+  | "readAdmission"
+  | "ensureAttemptStart"
+  | "readAttemptStart"
 >;
 
 const PLAN_SIDECAR_INSERT_BATCH_SIZE = 256;

@@ -3,9 +3,9 @@
 Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
 focused PGlite DDL/catalog evidence, and source-private topological stored-value
 restoration implemented; the private target/collision, physical-name
-assignment, migration-plan aggregate, and plan-admission aggregate repository
-families are implemented, and the remaining repository families are pending;
-no target session, generated
+assignment, migration-plan aggregate, plan-admission aggregate, and immutable
+attempt-start repository families are implemented, and the remaining
+repository families are pending; no target session, generated
 relational DDL, coordinator runtime, binding, adapter, or production activation
 is authorized
 
@@ -33,9 +33,9 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 5. complete PGlite storage/repository evidence and record the receipt.
 
 Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision,
-physical-name assignment, migration-plan aggregate, and plan-admission
-aggregate families are complete and the remaining transaction-parameterized
-private repository families are pending.
+physical-name assignment, migration-plan aggregate, plan-admission aggregate,
+and immutable attempt-start families are complete and the remaining
+transaction-parameterized private repository families are pending.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -615,11 +615,11 @@ projection, and a readiness-published cross-domain subject. Package-boundary
 checks keep all restoration operations absent from the root and export map.
 
 This started as in-process stored-row restoration evidence. The implemented
-target, collision, assignment, plan, and plan-admission repository families now
-add actual transaction reads, length-first SQL byte gates, and immutable
-replay/conflict classification. Plan-aggregate reconstruction across PGlite
-close/reopen, the later repository families, and head CAS remain pending. No
-live target authority is minted.
+target, collision, assignment, plan, plan-admission, and attempt-start
+repository families now add actual transaction reads, length-first SQL byte
+gates, and immutable replay/conflict classification. Plan-aggregate
+reconstruction across PGlite close/reopen, the later repository families, and
+head CAS remain pending. No live target authority is minted.
 
 ### Resolved admission-restoration dependency defect
 
@@ -653,7 +653,7 @@ dependencies; each must fail as typed stored corruption. No admission SQL
 kernel, public API, target session, or runtime authority was opened by this
 correction.
 
-### Current target/collision, assignment, plan, and admission repository boundary
+### Current target/collision, assignment, plan, admission, and attempt boundary
 
 The current production-inert repository families consist of source-private,
 transaction-parameterized Effects that ensure and exactly read target
@@ -721,7 +721,46 @@ driver failure projection. This is functional repository evidence only; it
 makes no genuine-PostgreSQL locking, concurrency, public API, runtime, or
 production claim.
 
-The remaining attempt, receipt, terminal, event, collision-head, installation,
+Attempt-start operations accept the exact restored admission, an explicit
+nullable restored predecessor, and the captured immutable start value. They
+corroborate the supplied parents in the caller's transaction, accept only the
+documented four-digit UTC-millisecond lease projection, and resolve both
+independent collision-local uniqueness axes: attempt ID first and fence lazily
+when the ID is absent. Attempt digest is authenticated evidence, not an
+identity key. Untargeted immutable insertion is followed by complete occupant
+restoration, so exact replay returns the existing storage identity while an
+authentic occupant on either axis is an immutable conflict.
+
+A stored occupant's predecessor may belong to another plan admission in the
+same collision lane. Cold reconstruction therefore follows predecessor storage
+IDs iteratively, detects repeated storage or attempt IDs, restores each row's
+actual admission and plan, and registers attempts oldest-to-newest. Repeated
+admissions are restored once per walk. After the supplied predecessor has been
+fully corroborated, occupant restoration anchors at that value rather than
+loading the same older history a second time.
+
+The accepted schema defines no predecessor-depth ceiling, and a restored
+checkpoint-2 handle has no live-database provenance that would permit skipping
+same-transaction corroboration. Every non-genesis ensure or read therefore
+performs one pointer walk proportional to the supplied predecessor lineage;
+creating a lineage of `N` attempts through these kernels alone has cumulative
+`O(N^2)` point-read cost. The production-inert kernel does not invent a limit or
+weaken authentication to conceal that cost. Before production activation,
+checkpoint 3 must explicitly own a bounded or materialized lineage anchor,
+retention policy, or an approved cycle-safe batched/recursive read. Checkpoint
+2 does not silently truncate authenticated history.
+
+Focused PGlite attempt evidence covers source privacy, genesis absence and
+exact replay, raw normalized projections, a three-attempt chain spanning two
+same-collision admissions, both ID and fence conflicts, forged, missing,
+wrong-predecessor and cross-collision refusal, changed lease projection and
+broken or cyclic predecessor corruption without healing, canonical corruption
+and the length-first byte gate, the four-digit lease subset, caller rollback,
+and exact
+foreign driver-cause projection. This remains functional PGlite evidence, not
+a genuine-PostgreSQL concurrency, locking, database-time, or production claim.
+
+The remaining step-receipt, terminal, event, collision-head, installation,
 readiness, and availability repository families remain pending. These kernels
 add no CAS, coordinator policy, or live target.
 
@@ -774,8 +813,8 @@ Stop and open the owning checkpoint before:
 
 The exact target-local metadata and repository seam is frozen; its additive
 platform metadata catalog, source-private topological restoration, and private
-target/collision, physical-name assignment, migration-plan aggregate, and
-plan-admission aggregate repository families are implemented. The remaining
-transaction-parameterized repository families are the next checkpoint-2 work.
-The opaque target and coordinator remain
+target/collision, physical-name assignment, migration-plan aggregate,
+plan-admission aggregate, and immutable attempt-start repository families are
+implemented. The remaining transaction-parameterized repository families are
+the next checkpoint-2 work. The opaque target and coordinator remain
 checkpoint 3.

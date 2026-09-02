@@ -44,9 +44,11 @@ import {
 } from "./schema";
 import {
   isRestoredFrameworkMigrationPlanAdmission,
+  isRestoredFrameworkMigrationCollisionDomain,
   isRestoredFreshRelationalMigrationPlan,
   restoreStoredFrameworkMigrationPlanAdmission,
   type RestoredFrameworkMigrationPlanAdmission,
+  type RestoredFrameworkMigrationCollisionDomain,
   type RestoredFreshRelationalMigrationPlan,
   type RestoredRelationalPhysicalNameAssignment,
   type StoredFrameworkMigrationAdmissionAssignmentRow,
@@ -63,7 +65,10 @@ type FrameworkMigrationPlanAdmission = CapturedFrameworkMigrationValue<
 
 type PlanAdmissionRepositoryOperation = Extract<
   FrameworkMigrationRepositoryOperation,
-  "ensureAdmission" | "readAdmission"
+  | "ensureAdmission"
+  | "readAdmission"
+  | "ensureAttemptStart"
+  | "readAttemptStart"
 >;
 
 const ADMISSION_SIDECAR_INSERT_BATCH_SIZE = 256;
@@ -383,6 +388,111 @@ export const resolveAuthenticatedFrameworkMigrationPlanAdmissionOccupantEffect =
     }
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.immutableConflict(operation),
+    );
+  });
+
+/**
+ * Source-private transaction corroboration for a restored admission supplied
+ * as an aggregate prerequisite. The stored aggregate is restored in full
+ * before replay classification.
+ */
+export const corroborateRestoredFrameworkMigrationPlanAdmissionInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationPlanAdmissionRepository.corroborateRestored",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    expectedRestoredAdmission: RestoredFrameworkMigrationPlanAdmission,
+    operation: PlanAdmissionRepositoryOperation,
+  ): Effect.fn.Return<
+    RestoredFrameworkMigrationPlanAdmission,
+    FrameworkMigrationRepositoryError
+  > {
+    if (!isRestoredFrameworkMigrationPlanAdmission(expectedRestoredAdmission)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.referenceRefusal(operation),
+      );
+    }
+    const admissionSha256Bytes = yield* decodeAuthenticatedSha256(
+      expectedRestoredAdmission.admission.sha256,
+    );
+    const row = yield* loadAdmissionRootByDigest(
+      transaction,
+      admissionSha256Bytes,
+      operation,
+    );
+    if (
+      Option.isNone(row) ||
+      row.value.admissionStorageId !== expectedRestoredAdmission.storageId
+    ) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.referenceRefusal(operation),
+      );
+    }
+    const occupant = yield* restoreAdmissionOccupant(
+      transaction,
+      row.value,
+      expectedRestoredAdmission.collision,
+      operation,
+    );
+    const resolved = yield*
+      resolveAuthenticatedFrameworkMigrationPlanAdmissionOccupantEffect(
+        Option.some(occupant),
+        expectedRestoredAdmission.plan,
+        expectedRestoredAdmission.admission,
+        operation,
+      );
+    if (Option.isNone(resolved)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return resolved.value;
+  });
+
+/**
+ * Source-private restoration for an admission referenced by stored aggregate
+ * state. Missing or mismatched parent rows are corruption, never absence.
+ */
+export const restoreStoredFrameworkMigrationPlanAdmissionReferenceInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationPlanAdmissionRepository.restoreStoredReference",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    preferredCollision: RestoredFrameworkMigrationCollisionDomain,
+    admissionStorageId: bigint,
+    admissionSha256: FrameworkMigrationPlanAdmissionSha256,
+    operation: PlanAdmissionRepositoryOperation,
+  ): Effect.fn.Return<
+    RestoredFrameworkMigrationPlanAdmission,
+    FrameworkMigrationRepositoryError
+  > {
+    if (!isRestoredFrameworkMigrationCollisionDomain(preferredCollision)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const admissionSha256Bytes = yield* Effect.fromResult(
+      Encoding.decodeHex(admissionSha256),
+    ).pipe(Effect.mapError(() =>
+      FrameworkMigrationRepositoryError.storedCorruption(operation)
+    ));
+    const row = yield* loadAdmissionRootByDigest(
+      transaction,
+      admissionSha256Bytes,
+      operation,
+    );
+    if (
+      Option.isNone(row) || row.value.admissionStorageId !== admissionStorageId
+    ) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return yield* restoreAdmissionOccupant(
+      transaction,
+      row.value,
+      preferredCollision,
+      operation,
     );
   });
 
