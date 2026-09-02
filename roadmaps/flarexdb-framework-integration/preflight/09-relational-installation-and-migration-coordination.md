@@ -2,9 +2,10 @@
 
 Status: accepted; checkpoint 1 private pure values and goldens implemented;
 checkpoint 2 exact metadata/repository contract accepted separately and its
-additive private metadata DDL plus focused PGlite catalog evidence implemented;
-stored restoration and repositories remain pending; no target session,
-generated relational DDL, runtime caller, binding, or activation is implemented
+additive private metadata DDL, focused PGlite catalog evidence, stored
+restoration, and first target/collision repository family implemented; later
+repositories remain pending; no target session, generated relational DDL,
+runtime caller, binding, or activation is implemented
 
 Last reviewed: 2026-09-02
 
@@ -870,7 +871,8 @@ compatibility.
 
 The explicit checkpoint-1 approval has now been exercised and its private
 pure-value receipt is complete above. Checkpoint 2 is separately accepted, and
-only its additive private metadata DDL slice is complete; stored restoration and
-repository kernels remain pending in that checkpoint. This record still opens
+its additive private metadata DDL, stored restoration, and first
+target/collision repository family are complete; later repository kernels
+remain pending in that checkpoint. This record still opens
 no generated relational DDL, target execution, binding, adapter, runtime,
 hosted, public, or production gate.

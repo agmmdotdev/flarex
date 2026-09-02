@@ -5,7 +5,8 @@
 Status: value-only relational schema, the first pure physical/coordination/
 lifecycle value checkpoint, additive private coordinator metadata DDL, and
 source-private topological restoration implemented production-inert;
-repository, generated relational DDL, target-session, binding, and runtime
+the private target/collision repository family is also implemented; remaining
+repositories, generated relational DDL, target-session, binding, and runtime
 gates remain closed
 
 This plan owns the value-only relational schema boundary and the shared
@@ -49,8 +50,8 @@ Its first pure-value checkpoint is implemented under the private
 cold-rehydration, and private repository contract is accepted in
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
 Its additive private metadata storage, focused PGlite DDL/catalog evidence, and
-source-private stored restoration are implemented; private repositories remain
-pending.
+source-private stored restoration are implemented. The private target/collision
+repository family is implemented; all later repository families remain pending.
 Target sessions, generated relational DDL, the Application projection,
 `DataBindingSet`, activation, and serving also remain pending.
 

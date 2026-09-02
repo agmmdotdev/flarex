@@ -2,9 +2,10 @@
 
 Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
 focused PGlite DDL/catalog evidence, and source-private topological stored-value
-restoration implemented; private repository implementation remains pending; no
-target session, generated relational DDL, coordinator runtime, binding, adapter,
-or production activation is authorized
+restoration implemented; the private target/collision repository family is
+implemented and the remaining repository families are pending; no target
+session, generated relational DDL, coordinator runtime, binding, adapter, or
+production activation is authorized
 
 Last reviewed: 2026-09-02
 
@@ -29,8 +30,9 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 4. add transaction-parameterized exact-write, exact-read, and CAS kernels; and
 5. complete PGlite storage/repository evidence and record the receipt.
 
-Slices 1 through 3 are complete. Transaction-parameterized private repository
-kernels are the next bounded slice.
+Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision
+family is complete and the remaining transaction-parameterized private
+repository families are pending.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -614,6 +616,32 @@ large-byte read gating at SQL, PGlite close/reopen reconstruction, immutable
 replay/conflict behavior, and head CAS remain owned by the pending repository
 and evidence slices. No live target authority is minted.
 
+### Current target/collision repository boundary
+
+The first production-inert repository family consists of source-private,
+transaction-parameterized Effects that ensure and exactly read target
+namespaces and their collision domains. They accept the existing
+`FlarexMetadataTransaction` capability directly and never open, commit, roll
+back, retry, lock, or retain a transaction. Immutable insertion uses
+`ON CONFLICT DO NOTHING` followed by a complete bounded read and stored-value
+restoration, so exact replay converges on the existing storage identity.
+
+Collision operations first corroborate the restored target against the same
+transaction, including its storage ID, before inserting or reading a child.
+This rejects forged handles, cross-target dependencies, and a parent absent
+from the current database without turning a foreign-key failure into reference
+policy. It does not prove live database-instance provenance: an identical
+target identity and storage ID in another database is indistinguishable until
+checkpoint 3 binds the restored namespace to the opaque live target. Target
+reads project byte length and use a SQL `CASE` gate so over-limit canonical
+bytes are not returned to the application decoder. Repository failures
+distinguish immutable conflict, reference refusal, stored corruption, and
+foreign resource failure.
+
+The remaining assignment, plan, admission, attempt, receipt, terminal, event,
+collision-head, installation, readiness, and availability repository families
+remain pending. These kernels add no CAS, coordinator policy, or live target.
+
 ## Checkpoint-2 Evidence
 
 PGlite is the functional lane for this checkpoint. Completion requires:
@@ -662,7 +690,7 @@ Stop and open the owning checkpoint before:
 ## Exit Decision
 
 The exact target-local metadata and repository seam is frozen; its additive
-platform metadata catalog and source-private topological restoration are
-implemented. The next bounded implementation slice is the separately
-reviewable transaction-parameterized repository kernels. The opaque target and
-coordinator remain checkpoint 3.
+platform metadata catalog, source-private topological restoration, and private
+target/collision repository family are implemented. The remaining
+transaction-parameterized repository families are the next checkpoint-2 work.
+The opaque target and coordinator remain checkpoint 3.
