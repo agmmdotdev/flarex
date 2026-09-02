@@ -2,9 +2,9 @@
 
 Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
 focused PGlite DDL/catalog evidence, and source-private topological stored-value
-restoration implemented; the private target/collision repository family is
-implemented together with the physical-name assignment family, and the
-remaining repository families are pending; no target session, generated
+restoration implemented; the private target/collision, physical-name
+assignment, and migration-plan aggregate repository families are implemented,
+and the remaining repository families are pending; no target session, generated
 relational DDL, coordinator runtime, binding, adapter, or production activation
 is authorized
 
@@ -31,9 +31,10 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 4. add transaction-parameterized exact-write, exact-read, and CAS kernels; and
 5. complete PGlite storage/repository evidence and record the receipt.
 
-Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision
-and physical-name assignment families are complete and the remaining
-transaction-parameterized private repository families are pending.
+Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision,
+physical-name assignment, and migration-plan aggregate families are complete
+and the remaining transaction-parameterized private repository families are
+pending.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -500,7 +501,7 @@ before any claim or DDL.
 
 ## Private Repository Kernel
 
-The pending checkpoint-2 repository slice will implement operation-specific
+The checkpoint-2 repository slice implements operation-specific
 named Effects over the package's existing `FlarexMetadataTransaction`
 capability. It must not redeclare a structural transaction interface or open,
 commit, roll back, retry, or retain a transaction.
@@ -612,12 +613,14 @@ operations. The event proof includes exact predecessor tokens, a lease
 projection, and a readiness-published cross-domain subject. Package-boundary
 checks keep all restoration operations absent from the root and export map.
 
-This is in-process stored-row restoration evidence. Actual transaction reads,
-large-byte read gating at SQL, PGlite close/reopen reconstruction, immutable
-replay/conflict behavior, and head CAS remain owned by the pending repository
-and evidence slices. No live target authority is minted.
+This started as in-process stored-row restoration evidence. The implemented
+target, collision, assignment, and plan repository families now add actual
+transaction reads, length-first SQL byte gates, and immutable replay/conflict
+classification. Plan-aggregate reconstruction across PGlite close/reopen, the
+later repository families, and head CAS remain pending. No live target authority
+is minted.
 
-### Current target/collision and assignment repository boundary
+### Current target/collision, assignment, and plan repository boundary
 
 The current production-inert repository families consist of source-private,
 transaction-parameterized Effects that ensure and exactly read target
@@ -651,7 +654,20 @@ occupant is restored against its actual stored target/collision chain before
 classification, and assignment bytes use the same length-first SQL gate as
 target bytes.
 
-The remaining plan, admission, attempt, receipt, terminal, event,
+Migration-plan operations persist one immutable aggregate root together with
+the complete ordered step and dependency sidecars. Before insertion they
+corroborate every referenced physical-name assignment through bounded reads;
+step and dependency insertion is also bounded so the 66,000-step contract does
+not become one unbounded bind set. An untargeted `ON CONFLICT DO NOTHING ...
+RETURNING` distinguishes a newly inserted root from an exact replay: only a new
+root receives sidecars, while an existing root is fully restored and
+authenticated and is never repaired or healed implicitly. Digest occupants are
+resolved through their actual stored target, collision, assignment, and
+sidecar chain before replay or immutable-conflict classification. Root bytes
+use the length-first SQL gate, and dependency reads order by source-step ordinal
+then dependency ordinal rather than lexical step ID.
+
+The remaining admission, attempt, receipt, terminal, event,
 collision-head, installation, readiness, and availability repository families
 remain pending. These kernels add no CAS, coordinator policy, or live target.
 
@@ -704,7 +720,8 @@ Stop and open the owning checkpoint before:
 
 The exact target-local metadata and repository seam is frozen; its additive
 platform metadata catalog, source-private topological restoration, and private
-target/collision plus physical-name assignment repository families are
-implemented. The remaining transaction-parameterized repository families are
-the next checkpoint-2 work. The opaque target and coordinator remain
+target/collision, physical-name assignment, and migration-plan aggregate
+repository families are implemented. The remaining transaction-parameterized
+repository families are the next checkpoint-2 work. The opaque target and
+coordinator remain
 checkpoint 3.

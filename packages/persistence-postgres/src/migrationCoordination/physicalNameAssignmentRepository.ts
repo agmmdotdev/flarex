@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
 import { detachDriverRows } from "../detachDriverRows";
@@ -25,6 +25,7 @@ import {
 } from "../relationalSchema/physical/model";
 import {
   isStoredRelationalPhysicalNameAssignmentFrame,
+  MAX_RELATIONAL_PHYSICAL_ASSIGNMENTS,
 } from "../relationalSchema/physical/storedValidation";
 import type { FrameworkMigrationValueError } from "./errors";
 import type {
@@ -52,8 +53,13 @@ import { captureFrameworkSchemaTargetNamespace } from "./targetNamespace";
 
 type PhysicalNameAssignmentRepositoryOperation = Extract<
   FrameworkMigrationRepositoryOperation,
-  "ensurePhysicalNameAssignment" | "readPhysicalNameAssignment"
+  | "ensurePhysicalNameAssignment"
+  | "readPhysicalNameAssignment"
+  | "ensurePlan"
+  | "readPlan"
 >;
+
+const PHYSICAL_NAME_ASSIGNMENT_READ_BATCH_SIZE = 512;
 
 interface PreparedPhysicalNameAssignment {
   readonly assignment: RelationalPhysicalNameAssignment;
@@ -470,7 +476,9 @@ export const restoreRelationalPhysicalNameAssignmentOccupantInTransactionEffect 
         transaction,
         targetValue,
         operation,
-      );
+      ).pipe(Effect.mapError(error =>
+        mapStoredRepositoryError(operation, error)
+      ));
     if (Option.isNone(target)) {
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.storedCorruption(operation),
@@ -488,7 +496,9 @@ export const restoreRelationalPhysicalNameAssignmentOccupantInTransactionEffect 
         target.value,
         coordinate,
         operation,
-      );
+      ).pipe(Effect.mapError(error =>
+        mapStoredRepositoryError(operation, error)
+      ));
     if (Option.isNone(actualCollision)) {
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.storedCorruption(operation),
@@ -498,6 +508,87 @@ export const restoreRelationalPhysicalNameAssignmentOccupantInTransactionEffect 
       row,
       actualCollision.value,
     ).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
+  });
+
+export const readRelationalPhysicalNameAssignmentOccupantsBySpellingInTransactionEffect =
+  Effect.fn(
+    "RelationalPhysicalNameAssignmentRepository.readOccupantsBySpelling",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    collision: RestoredFrameworkMigrationCollisionDomain,
+    spellings: readonly string[],
+    mode: "prerequisite" | "stored",
+    operation: PhysicalNameAssignmentRepositoryOperation,
+  ): Effect.fn.Return<
+    readonly RestoredRelationalPhysicalNameAssignment[],
+    FrameworkMigrationRepositoryError
+  > {
+    if (
+      !isRestoredFrameworkMigrationCollisionDomain(collision) ||
+      spellings.length > MAX_RELATIONAL_PHYSICAL_ASSIGNMENTS ||
+      new Set(spellings).size !== spellings.length
+    ) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.referenceRefusal(operation),
+      );
+    }
+
+    const target = collision.coordinate.targetNamespace;
+    const restored: RestoredRelationalPhysicalNameAssignment[] = [];
+    for (
+      let offset = 0;
+      offset < spellings.length;
+      offset += PHYSICAL_NAME_ASSIGNMENT_READ_BATCH_SIZE
+    ) {
+      const batch = spellings.slice(
+        offset,
+        offset + PHYSICAL_NAME_ASSIGNMENT_READ_BATCH_SIZE,
+      );
+      if (batch.length === 0) continue;
+      const query = transaction.select(assignmentReadSelection).from(
+        fxSystemRelationalPhysicalNameAssignments,
+      ).where(and(
+        eq(
+          fxSystemRelationalPhysicalNameAssignments.physicalDatabaseIdentity,
+          target.physicalDatabaseIdentity,
+        ),
+        eq(
+          fxSystemRelationalPhysicalNameAssignments.schemaName,
+          target.schemaName,
+        ),
+        inArray(
+          fxSystemRelationalPhysicalNameAssignments.spelling,
+          batch,
+        ),
+      )).limit(batch.length + 1);
+      const rows = yield* runRepositoryStatement(operation, query).pipe(
+        Effect.map(detachDriverRows),
+      );
+      if (rows.length > batch.length) {
+        return yield* Effect.fail(
+          FrameworkMigrationRepositoryError.storedCorruption(operation),
+        );
+      }
+      for (const row of rows) {
+        const occupant = yield*
+          restoreRelationalPhysicalNameAssignmentOccupantInTransactionEffect(
+            transaction,
+            row,
+            collision,
+            operation,
+          );
+        if (occupant.collision.storageId !== collision.storageId) {
+          return yield* Effect.fail(mode === "prerequisite"
+            ? FrameworkMigrationRepositoryError.physicalNameCollision(
+              operation,
+              occupant.assignment.frame.spelling,
+            )
+            : FrameworkMigrationRepositoryError.storedCorruption(operation));
+        }
+        restored.push(occupant);
+      }
+    }
+    return Object.freeze(restored);
   });
 
 function runRepositoryStatement<Value>(
@@ -546,6 +637,15 @@ function mapStoredValueError(
       operation,
       error.cause,
     )
+    : FrameworkMigrationRepositoryError.storedCorruption(operation);
+}
+
+function mapStoredRepositoryError(
+  operation: PhysicalNameAssignmentRepositoryOperation,
+  error: FrameworkMigrationRepositoryError,
+): FrameworkMigrationRepositoryError {
+  return error.reason === "resourceFailure"
+    ? error
     : FrameworkMigrationRepositoryError.storedCorruption(operation);
 }
 

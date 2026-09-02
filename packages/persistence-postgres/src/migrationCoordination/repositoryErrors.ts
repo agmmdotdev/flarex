@@ -6,7 +6,9 @@ export type FrameworkMigrationRepositoryOperation =
   | "ensureCollisionDomain"
   | "readCollisionDomain"
   | "ensurePhysicalNameAssignment"
-  | "readPhysicalNameAssignment";
+  | "readPhysicalNameAssignment"
+  | "ensurePlan"
+  | "readPlan";
 
 export type FrameworkMigrationRepositoryReason =
   | "immutableConflict"

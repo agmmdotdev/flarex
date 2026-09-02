@@ -35,8 +35,9 @@ repository contract is accepted; its additive private metadata DDL and focused
 PGlite catalog/rollback plus representative root constraint, foreign-key,
 uniqueness, nullable-tuple rejection, and root-row cold-reopen evidence are
 implemented, together with source-private topological reconstruction into the
-shared runtime authority graphs and the private target/collision plus
-physical-name assignment repository families. Remaining repositories,
+shared runtime authority graphs and the private target/collision,
+physical-name assignment, and migration-plan aggregate repository families.
+Remaining repositories,
 target sessions, generated relational DDL, the later binding checkpoint,
 Payload/Medusa adapters, runtime wiring, and production work remain pending.
 
@@ -148,8 +149,8 @@ Preflight records:
 | [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md) | Accepted exact source/capability audit; no promotion or runtime activation | Mature-DML authority, reproducible 65-input Currency semantic graph, exploratory broader graph notes, reuse classifications, retained evidence, and deferred Query/Link/workflow/lock/idempotency/event gates |
 | [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md) | Accepted exact `payload@3.88.0` audit; no dependency, adapter, or runtime activation | Adapter surface, request nesting, hook/transaction constraint, internal collections, first headless scalar profile, relation cutline, and migration/host boundary |
 | [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md) | Implemented privately; value evidence complete and no DDL/runtime activation | Exact first-slice relational value vocabulary, deterministic normalization, framework-artifact composition, Currency and synthetic fixtures, and closed downstream gates |
-| [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; checkpoint 1 private values plus checkpoint-2 metadata DDL, restoration, and target/collision plus physical-name assignment repository families implemented; later repositories, target sessions, binding, and runtime remain closed | Cycle-free plan/installation identity, stable physical collision domain, bounded digest names, scope-isolated lowering, structural plan/ledger values, capability-evidence split, readiness/availability values, and later execution/database proof matrix |
-| [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Accepted checkpoint-2 contract; additive private metadata DDL, focused PGlite catalog evidence, source-private restoration, and target/collision plus physical-name assignment repository families implemented; later repository families pending | Exact eighteen-table target-local catalog, canonical-byte authority, normalized constraint sidecars, timestamp mapping, topological cold rehydration, private transaction kernels, and PGlite evidence gate |
+| [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; checkpoint 1 private values plus checkpoint-2 metadata DDL, restoration, and target/collision, physical-name assignment, and migration-plan aggregate repository families implemented; later repositories, target sessions, binding, and runtime remain closed | Cycle-free plan/installation identity, stable physical collision domain, bounded digest names, scope-isolated lowering, structural plan/ledger values, capability-evidence split, readiness/availability values, and later execution/database proof matrix |
+| [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Accepted checkpoint-2 contract; additive private metadata DDL, focused PGlite catalog evidence, source-private restoration, and target/collision, physical-name assignment, and migration-plan aggregate repository families implemented; later repository families pending | Exact eighteen-table target-local catalog, canonical-byte authority, normalized constraint sidecars, timestamp mapping, topological cold rehydration, private transaction kernels, and PGlite evidence gate |
 
 ## Current Architecture
 
@@ -276,9 +277,9 @@ not authorize earlier owner changes implicitly.
 | Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite plus ordinary-role PostgreSQL acceptance complete; pure installation/readiness/availability values are implemented with goldens, while their repositories/execution and Application-reference, Payload-overlay, `DataBindingSet`, activation, and serving remain later gates |
 | Medusa fork source island and package convergence | Inert source island admitted and verified at fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`; exact package/capability audit accepted; the later promotion source map, every active package promotion, and all runtime/adapter activation remain pending |
 | Payload exact-release contract | `payload@3.88.0` and peeled release commit `fea6f8a47a50ff1330d8a5071b43e7dcffb97b22` accepted for the first headless compatibility profile; dependency, adapter, dashboard, host, and runtime work remain pending |
-| Core-first three-lane execution sequence | Accepted; both consumer audits, the private `RelationalSchema`, the first pure target-namespace/physical-layout/name-assignment/plan/ledger/lifecycle values, and additive coordinator metadata DDL are complete; topological restoration and private repositories are next within the accepted checkpoint-2 boundary |
+| Core-first three-lane execution sequence | Accepted; both consumer audits, the private `RelationalSchema`, the first pure target-namespace/physical-layout/name-assignment/plan/ledger/lifecycle values, additive coordinator metadata DDL, topological restoration, and the first target/collision, assignment, and plan repository families are complete; later checkpoint-2 repositories remain next |
 | Relational schema representation | Implemented privately under `@flarex/persistence-postgres`; exact normalization/artifact evidence complete, with no package-root export, DDL, installation, adapter, or runtime caller |
-| Framework migration coordinator | Cycle-free physical-lane, plan, ledger, installation, readiness, and availability values plus additive private metadata DDL implemented; no stored restoration, repository, target session, lease orchestration, recovery runner, or execution exists |
+| Framework migration coordinator | Cycle-free physical-lane, plan, ledger, installation, readiness, and availability values, additive private metadata DDL, stored restoration, and the target/collision, assignment, and plan repository families are implemented; no admission/attempt/receipt/head/install/readiness/availability repositories, target session, lease orchestration, recovery runner, or execution exists |
 | Owner-scoped relational store and typed finalization | Not implemented; transaction-owner and commit-owner preflights required |
 | Synthetic reserved-relational lifecycle/transaction proof | Pending the shared-core and explicit synthetic-`system` selection gates; must not infer a generic system binding and must reject and roll back an unadmitted mutation fact family |
 | Flarex Application preservation proof | Current private `SV-R Core` baseline complete; post-core full regression pending |
@@ -336,7 +337,10 @@ Its private pure-value checkpoint and additive coordinator metadata DDL are
 implemented. The exact checkpoint-2 storage/restoration/repository contract is
 accepted in
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md),
-with source-private topological restoration as the current bounded gate.
+with source-private topological restoration and the target/collision,
+physical-name assignment, and migration-plan aggregate repository families
+implemented. Later transaction-parameterized repository families remain the
+current bounded gate.
 
 The repository and DDL contract is accepted in
 [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
@@ -484,9 +488,9 @@ accepted boundary in
 and the exact checkpoint-2 contract in
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
 Their private pure values, additive metadata catalog, source-private stored
-restoration, and target/collision plus physical-name assignment repository
-families are implemented. Remaining repositories, target execution, and
-generated relational DDL remain pending.
+restoration, and target/collision, physical-name assignment, and migration-plan
+aggregate repository families are implemented. Remaining repositories, target
+execution, and generated relational DDL remain pending.
 Application-reference, Payload-overlay, and `DataBindingSet` codecs remain the
 following separate preflight. No framework adapter, runtime caller, public API,
 or production activation is included.
