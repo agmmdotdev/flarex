@@ -68,13 +68,8 @@ type StepReceiptRepositoryOperation = Extract<
   "ensureStepReceipt" | "readStepReceipt"
 >;
 
-type StepReceiptAggregateRepositoryOperation = Extract<
-  FrameworkMigrationRepositoryOperation,
-  | "ensureStepReceipt"
-  | "readStepReceipt"
-  | "ensureAttemptTerminal"
-  | "readAttemptTerminal"
->;
+type StepReceiptAggregateRepositoryOperation =
+  FrameworkMigrationRepositoryOperation;
 
 const RECEIPT_DEPENDENCY_INSERT_BATCH_SIZE = 256;
 

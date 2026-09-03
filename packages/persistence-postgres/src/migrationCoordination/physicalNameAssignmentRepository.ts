@@ -56,21 +56,8 @@ type PhysicalNameAssignmentOwnerRepositoryOperation = Extract<
   "ensurePhysicalNameAssignment" | "readPhysicalNameAssignment"
 >;
 
-type PhysicalNameAssignmentRepositoryOperation = Extract<
-  FrameworkMigrationRepositoryOperation,
-  | "ensurePhysicalNameAssignment"
-  | "readPhysicalNameAssignment"
-  | "ensurePlan"
-  | "readPlan"
-  | "ensureAdmission"
-  | "readAdmission"
-  | "ensureAttemptStart"
-  | "readAttemptStart"
-  | "ensureStepReceipt"
-  | "readStepReceipt"
-  | "ensureAttemptTerminal"
-  | "readAttemptTerminal"
->;
+type PhysicalNameAssignmentRepositoryOperation =
+  FrameworkMigrationRepositoryOperation;
 
 const PHYSICAL_NAME_ASSIGNMENT_READ_BATCH_SIZE = 512;
 

@@ -70,6 +70,9 @@ type AttemptTerminalRepositoryOperation = Extract<
   "ensureAttemptTerminal" | "readAttemptTerminal"
 >;
 
+type AttemptTerminalAggregateRepositoryOperation =
+  FrameworkMigrationRepositoryOperation;
+
 type FailedAttemptOutcome = Extract<
   FrameworkMigrationAttemptOutcome,
   { readonly kind: "failed" }
@@ -315,7 +318,7 @@ export const corroborateRestoredFrameworkMigrationAttemptTerminalInTransactionEf
   )(function* (
     transaction: FlarexMetadataTransaction,
     expected: RestoredFrameworkMigrationAttemptTerminal,
-    operation: AttemptTerminalRepositoryOperation,
+    operation: AttemptTerminalAggregateRepositoryOperation,
   ): Effect.fn.Return<
     RestoredFrameworkMigrationAttemptTerminal,
     FrameworkMigrationRepositoryError
@@ -366,6 +369,37 @@ export const corroborateRestoredFrameworkMigrationAttemptTerminalInTransactionEf
       );
     }
     return occupant.value;
+  });
+
+/** Source-private restoration of a committed terminal reference by storage ID. */
+export const restoreStoredFrameworkMigrationAttemptTerminalReferenceInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationAttemptTerminalRepository.restoreReference",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    preferredCollision: RestoredFrameworkMigrationCollisionDomain,
+    terminalStorageId: bigint,
+    operation: AttemptTerminalAggregateRepositoryOperation,
+  ): Effect.fn.Return<
+    RestoredFrameworkMigrationAttemptTerminal,
+    FrameworkMigrationRepositoryError
+  > {
+    const row = yield* loadAttemptTerminalRootByStorageId(
+      transaction,
+      terminalStorageId,
+      operation,
+    );
+    if (Option.isNone(row)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return (yield* restoreAttemptTerminalOccupant(
+      transaction,
+      row.value,
+      preferredCollision,
+      operation,
+    )).value;
   });
 
 const prepareExpectedAttemptTerminal = Effect.fn(
@@ -574,7 +608,7 @@ const restoreAttemptTerminalOccupant = Effect.fn(
   transaction: FlarexMetadataTransaction,
   row: FrameworkMigrationAttemptTerminalDriverRow,
   preferredCollision: RestoredFrameworkMigrationCollisionDomain,
-  operation: AttemptTerminalRepositoryOperation,
+  operation: AttemptTerminalAggregateRepositoryOperation,
 ): Effect.fn.Return<
   RestoredFrameworkMigrationAttemptTerminalOccupant,
   FrameworkMigrationRepositoryError
@@ -629,7 +663,7 @@ const decodeAttemptTerminalRoot = Effect.fn(
   "FrameworkMigrationAttemptTerminalRepository.decodeRoot",
 )(function* (
   row: FrameworkMigrationAttemptTerminalDriverRow,
-  operation: AttemptTerminalRepositoryOperation,
+  operation: AttemptTerminalAggregateRepositoryOperation,
 ): Effect.fn.Return<
   DecodedFrameworkMigrationAttemptTerminalRoot,
   FrameworkMigrationRepositoryError
@@ -712,7 +746,7 @@ const resolveAttemptTerminalOccupantCollision = Effect.fn(
   row: FrameworkMigrationAttemptTerminalDriverRow,
   frame: FrameworkMigrationAttemptTerminalFrame,
   preferred: RestoredFrameworkMigrationCollisionDomain,
-  operation: AttemptTerminalRepositoryOperation,
+  operation: AttemptTerminalAggregateRepositoryOperation,
 ): Effect.fn.Return<
   RestoredFrameworkMigrationCollisionDomain,
   FrameworkMigrationRepositoryError
@@ -767,7 +801,7 @@ const loadAttemptTerminalRootByStorageId = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   terminalStorageId: bigint,
-  operation: AttemptTerminalRepositoryOperation,
+  operation: AttemptTerminalAggregateRepositoryOperation,
 ): Effect.fn.Return<
   Option.Option<FrameworkMigrationAttemptTerminalDriverRow>,
   FrameworkMigrationRepositoryError
@@ -785,7 +819,7 @@ const loadAttemptTerminalRootByStorageId = Effect.fn(
 });
 
 function runRepositoryStatement<Value>(
-  operation: AttemptTerminalRepositoryOperation,
+  operation: AttemptTerminalAggregateRepositoryOperation,
   statement: PromiseLike<Value>,
 ): Effect.Effect<Value, FrameworkMigrationRepositoryError> {
   return runDrizzleStatementEffect(
@@ -802,7 +836,7 @@ function decodeAuthenticatedSha256(value: string): Effect.Effect<Uint8Array> {
 }
 
 function mapStoredValueError(
-  operation: AttemptTerminalRepositoryOperation,
+  operation: AttemptTerminalAggregateRepositoryOperation,
   error: FrameworkMigrationValueError,
 ): FrameworkMigrationRepositoryError {
   return error.reason === "resourceFailure"
@@ -814,7 +848,7 @@ function mapStoredValueError(
 }
 
 function mapStoredRepositoryError(
-  operation: AttemptTerminalRepositoryOperation,
+  operation: AttemptTerminalAggregateRepositoryOperation,
   error: FrameworkMigrationRepositoryError,
 ): FrameworkMigrationRepositoryError {
   return error.reason === "resourceFailure"

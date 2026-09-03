@@ -68,17 +68,7 @@ type PlanAdmissionOwnerRepositoryOperation = Extract<
   "ensureAdmission" | "readAdmission"
 >;
 
-type PlanAdmissionRepositoryOperation = Extract<
-  FrameworkMigrationRepositoryOperation,
-  | "ensureAdmission"
-  | "readAdmission"
-  | "ensureAttemptStart"
-  | "readAttemptStart"
-  | "ensureStepReceipt"
-  | "readStepReceipt"
-  | "ensureAttemptTerminal"
-  | "readAttemptTerminal"
->;
+type PlanAdmissionRepositoryOperation = FrameworkMigrationRepositoryOperation;
 
 const ADMISSION_SIDECAR_INSERT_BATCH_SIZE = 256;
 

@@ -62,15 +62,8 @@ type AttemptStartRepositoryOperation = Extract<
   "ensureAttemptStart" | "readAttemptStart"
 >;
 
-type AttemptStartAggregateRepositoryOperation = Extract<
-  FrameworkMigrationRepositoryOperation,
-  | "ensureAttemptStart"
-  | "readAttemptStart"
-  | "ensureStepReceipt"
-  | "readStepReceipt"
-  | "ensureAttemptTerminal"
-  | "readAttemptTerminal"
->;
+type AttemptStartAggregateRepositoryOperation =
+  FrameworkMigrationRepositoryOperation;
 
 interface PreparedFrameworkMigrationAttemptStart {
   readonly admission: RestoredFrameworkMigrationPlanAdmission;
