@@ -146,6 +146,13 @@ const restoredEventAuthorities = new WeakMap<
 const restoredCollisionHeads = new WeakSet<
   RestoredFrameworkMigrationCollisionHead
 >();
+const restoredCollisionHeadAuthorities = new WeakMap<
+  RestoredFrameworkMigrationCollisionHead,
+  Readonly<{
+    readonly currentAttempt: RestoredFrameworkMigrationAttemptStart | null;
+    readonly lastEvent: RestoredFrameworkMigrationEvent | null;
+  }>
+>();
 
 export interface RestoreStoredFrameworkMigrationEventInput {
   readonly row: StoredFrameworkMigrationEventRow;
@@ -312,6 +319,10 @@ export const restoreStoredFrameworkMigrationCollisionHead = Effect.fn(
     head,
   });
   restoredCollisionHeads.add(restored);
+  restoredCollisionHeadAuthorities.set(restored, Object.freeze({
+    currentAttempt: input.currentAttempt,
+    lastEvent: input.lastEvent,
+  }));
   return restored;
 });
 
@@ -319,6 +330,16 @@ export function isRestoredFrameworkMigrationCollisionHead(
   input: RestoredFrameworkMigrationCollisionHead,
 ): boolean {
   return restoredCollisionHeads.has(input);
+}
+
+/** Source-private dependencies needed to continue a restored collision lane. */
+export function restoredFrameworkMigrationCollisionHeadAuthority(
+  input: RestoredFrameworkMigrationCollisionHead,
+): Readonly<{
+  readonly currentAttempt: RestoredFrameworkMigrationAttemptStart | null;
+  readonly lastEvent: RestoredFrameworkMigrationEvent | null;
+}> | undefined {
+  return restoredCollisionHeadAuthorities.get(input);
 }
 
 const previousEventProjectionMatches = Effect.fn(

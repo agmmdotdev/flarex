@@ -22,12 +22,16 @@ export type FrameworkMigrationRepositoryOperation =
   | "ensureReadiness"
   | "readReadiness"
   | "appendEvent"
-  | "readEvent";
+  | "readEvent"
+  | "initializeCollisionHead"
+  | "readCollisionHead"
+  | "compareAndSwapCollisionHead";
 
 export type FrameworkMigrationRepositoryReason =
   | "immutableConflict"
   | "physicalNameCollision"
   | "referenceRefusal"
+  | "staleHead"
   | "storedCorruption"
   | "resourceFailure";
 
@@ -43,6 +47,7 @@ class FrameworkMigrationRepositoryExpectedError extends Data.TaggedError(
   readonly reason:
     | "immutableConflict"
     | "referenceRefusal"
+    | "staleHead"
     | "storedCorruption";
   readonly cause?: never;
   readonly spelling?: never;
@@ -100,6 +105,16 @@ export const FrameworkMigrationRepositoryError = Object.freeze({
       operation,
       reason: "referenceRefusal",
       message: "Framework migration metadata reference was refused",
+    });
+  },
+
+  staleHead(
+    operation: FrameworkMigrationRepositoryOperation,
+  ): FrameworkMigrationRepositoryError {
+    return new FrameworkMigrationRepositoryExpectedError({
+      operation,
+      reason: "staleHead",
+      message: "Framework migration metadata head is stale",
     });
   },
 
