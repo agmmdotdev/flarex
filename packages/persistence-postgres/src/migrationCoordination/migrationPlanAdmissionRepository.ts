@@ -516,6 +516,47 @@ export const restoreStoredFrameworkMigrationPlanAdmissionReferenceInTransactionE
     );
   });
 
+/** Source-private restoration of a committed admission digest reference. */
+export const restoreStoredFrameworkMigrationPlanAdmissionReferenceBySha256InTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationPlanAdmissionRepository.restoreReferenceBySha256",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    preferredCollision: RestoredFrameworkMigrationCollisionDomain,
+    admissionSha256: FrameworkMigrationPlanAdmissionSha256,
+    operation: PlanAdmissionRepositoryOperation,
+  ): Effect.fn.Return<
+    RestoredFrameworkMigrationPlanAdmission,
+    FrameworkMigrationRepositoryError
+  > {
+    if (!isRestoredFrameworkMigrationCollisionDomain(preferredCollision)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const admissionSha256Bytes = yield* Effect.fromResult(
+      Encoding.decodeHex(admissionSha256),
+    ).pipe(Effect.mapError(() =>
+      FrameworkMigrationRepositoryError.storedCorruption(operation)
+    ));
+    const row = yield* loadAdmissionRootByDigest(
+      transaction,
+      admissionSha256Bytes,
+      operation,
+    );
+    if (Option.isNone(row)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return yield* restoreAdmissionOccupant(
+      transaction,
+      row.value,
+      preferredCollision,
+      operation,
+    );
+  });
+
 const prepareExpectedAdmission = Effect.fn(
   "FrameworkMigrationPlanAdmissionRepository.prepareExpected",
 )(function* (

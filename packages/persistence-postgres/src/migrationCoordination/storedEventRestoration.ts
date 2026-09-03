@@ -136,6 +136,13 @@ export interface RestoredFrameworkMigrationCollisionHead {
 }
 
 const restoredEvents = new WeakSet<RestoredFrameworkMigrationEvent>();
+const restoredEventAuthorities = new WeakMap<
+  RestoredFrameworkMigrationEvent,
+  Readonly<{
+    readonly previous: RestoredFrameworkMigrationEvent | null;
+    readonly subject: RestoredFrameworkMigrationEventSubject;
+  }>
+>();
 const restoredCollisionHeads = new WeakSet<
   RestoredFrameworkMigrationCollisionHead
 >();
@@ -201,6 +208,10 @@ export const restoreStoredFrameworkMigrationEvent = Effect.fn(
     event,
   });
   restoredEvents.add(restored);
+  restoredEventAuthorities.set(restored, Object.freeze({
+    previous: input.previous,
+    subject: input.subject,
+  }));
   return restored;
 });
 
@@ -208,6 +219,16 @@ export function isRestoredFrameworkMigrationEvent(
   input: RestoredFrameworkMigrationEvent,
 ): boolean {
   return restoredEvents.has(input);
+}
+
+/** Source-private dependency authority retained for repository corroboration. */
+export function restoredFrameworkMigrationEventAuthority(
+  input: RestoredFrameworkMigrationEvent,
+): Readonly<{
+  readonly previous: RestoredFrameworkMigrationEvent | null;
+  readonly subject: RestoredFrameworkMigrationEventSubject;
+}> | undefined {
+  return restoredEventAuthorities.get(input);
 }
 
 export interface RestoreStoredFrameworkMigrationCollisionHeadInput {

@@ -402,6 +402,58 @@ export const restoreStoredFrameworkMigrationAttemptTerminalReferenceInTransactio
     )).value;
   });
 
+/** Source-private restoration of a committed terminal digest reference. */
+export const restoreStoredFrameworkMigrationAttemptTerminalReferenceBySha256InTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationAttemptTerminalRepository.restoreReferenceBySha256",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    preferredCollision: RestoredFrameworkMigrationCollisionDomain,
+    terminalSha256: FrameworkMigrationAttemptTerminalSha256,
+    operation: AttemptTerminalAggregateRepositoryOperation,
+  ): Effect.fn.Return<
+    RestoredFrameworkMigrationAttemptTerminal,
+    FrameworkMigrationRepositoryError
+  > {
+    if (!isRestoredFrameworkMigrationCollisionDomain(preferredCollision)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const terminalSha256Bytes = yield* Effect.fromResult(
+      Encoding.decodeHex(terminalSha256),
+    ).pipe(Effect.mapError(() =>
+      FrameworkMigrationRepositoryError.storedCorruption(operation)
+    ));
+    const rows = yield* runRepositoryStatement(
+      operation,
+      transaction.select(attemptTerminalReadSelection).from(
+        fxSystemFrameworkMigrationAttemptTerminals,
+      ).where(eq(
+        fxSystemFrameworkMigrationAttemptTerminals.attemptTerminalSha256,
+        terminalSha256Bytes,
+      )).limit(2),
+    ).pipe(Effect.map(detachDriverRows));
+    const row = rows[0];
+    if (row === undefined || rows.length !== 1) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const occupant = yield* restoreAttemptTerminalOccupant(
+      transaction,
+      row,
+      preferredCollision,
+      operation,
+    );
+    if (occupant.value.terminal.sha256 !== terminalSha256) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return occupant.value;
+  });
+
 const prepareExpectedAttemptTerminal = Effect.fn(
   "FrameworkMigrationAttemptTerminalRepository.prepareExpected",
 )(function* (

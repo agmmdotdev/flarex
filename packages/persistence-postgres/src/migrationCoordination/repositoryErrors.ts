@@ -20,7 +20,9 @@ export type FrameworkMigrationRepositoryOperation =
   | "ensureInstallation"
   | "readInstallation"
   | "ensureReadiness"
-  | "readReadiness";
+  | "readReadiness"
+  | "appendEvent"
+  | "readEvent";
 
 export type FrameworkMigrationRepositoryReason =
   | "immutableConflict"

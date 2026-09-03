@@ -406,6 +406,60 @@ export const corroborateRestoredFrameworkMigrationStepReceiptInTransactionEffect
     return occupant.value;
   });
 
+/** Source-private restoration of a committed receipt digest reference. */
+export const restoreStoredFrameworkMigrationStepReceiptReferenceBySha256InTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationStepReceiptRepository.restoreReferenceBySha256",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    preferredCollision: RestoredFrameworkMigrationCollisionDomain,
+    stepReceiptSha256: FrameworkMigrationStepReceiptSha256,
+    operation: StepReceiptAggregateRepositoryOperation,
+  ): Effect.fn.Return<
+    RestoredFrameworkMigrationStepReceipt,
+    FrameworkMigrationRepositoryError
+  > {
+    if (!isRestoredFrameworkMigrationCollisionDomain(preferredCollision)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const stepReceiptSha256Bytes = yield* Effect.fromResult(
+      Encoding.decodeHex(stepReceiptSha256),
+    ).pipe(Effect.mapError(() =>
+      FrameworkMigrationRepositoryError.storedCorruption(operation)
+    ));
+    const rows = yield* runRepositoryStatement(
+      operation,
+      transaction.select(receiptReadSelection).from(
+        fxSystemFrameworkMigrationStepReceipts,
+      ).where(eq(
+        fxSystemFrameworkMigrationStepReceipts.stepReceiptSha256,
+        stepReceiptSha256Bytes,
+      )).limit(2),
+    ).pipe(Effect.map(detachDriverRows));
+    const row = rows[0];
+    if (row === undefined || rows.length !== 1) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const occupant = yield* restoreReceiptDependencyClosure(
+      transaction,
+      row,
+      preferredCollision,
+      operation,
+      undefined,
+      makeReceiptRestorationContext(),
+    );
+    if (occupant.value.receipt.sha256 !== stepReceiptSha256) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return occupant.value;
+  });
+
 /**
  * Source-private restoration of the exact ordinal receipt prefix referenced by
  * an attempt-terminal row. The nullable tail pair is the prefix anchor; no

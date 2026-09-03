@@ -2,10 +2,14 @@ import type { FlarexMetadataTransaction } from
   "../src/metadataTransaction";
 import {
   captureFrameworkSchemaInstallation,
+  captureFrameworkSchemaReadiness,
 } from "../src/frameworkSchema/installation/canonical";
 import {
   ensureFrameworkSchemaInstallationInTransactionEffect,
 } from "../src/frameworkSchema/installation/installationRepository";
+import {
+  ensureFrameworkSchemaReadinessInTransactionEffect,
+} from "../src/frameworkSchema/installation/readinessRepository";
 import {
   captureFrameworkMigrationAttemptStart,
   captureFrameworkMigrationAttemptTerminal,
@@ -51,6 +55,7 @@ export const COORDINATOR_STARTED_AT = "2026-08-27T08:30:00.000Z";
 export const COORDINATOR_COMPLETED_AT = "2026-08-27T08:31:00.000Z";
 export const COORDINATOR_TERMINAL_AT = "2026-08-27T08:33:00.000Z";
 export const COORDINATOR_INSTALLED_AT = "2026-08-27T08:34:00.000Z";
+export const COORDINATOR_VALIDATED_AT = "2026-08-27T08:35:00.000Z";
 
 export async function createSuccessfulTerminalPlanValues() {
   const artifact = await syntheticSystemArtifact();
@@ -232,4 +237,46 @@ export async function storeSuccessfulInstallationGraphInTransaction(
     ),
   );
   return Object.freeze({ ...graph, installationValue, installation });
+}
+
+export async function storeSuccessfulReadinessGraphInTransaction(
+  transaction: FlarexMetadataTransaction,
+  values: Awaited<ReturnType<typeof createSuccessfulTerminalPlanValues>>,
+) {
+  const graph = await storeSuccessfulInstallationGraphInTransaction(
+    transaction,
+    values,
+  );
+  const capabilities =
+    graph.installation.installation.frame.installedPhysicalCapabilities;
+  const readinessValue = await runEffect(captureFrameworkSchemaReadiness({
+    installation: graph.installation.installation,
+    validationSha256: "33".repeat(32),
+    validatedStructureSha256:
+      graph.installation.installation.frame.installedStructureSha256,
+    validatedPhysicalCapabilities: capabilities,
+    residualRequirements: capabilities.map(capability => Object.freeze({
+      capability: capability.identity,
+      requirement: capability.residualRequirement,
+    })),
+    validatedAt: COORDINATOR_VALIDATED_AT,
+  }));
+  const readiness = await runEffect(
+    ensureFrameworkSchemaReadinessInTransactionEffect(
+      transaction,
+      graph.installation,
+      readinessValue,
+    ),
+  );
+  return Object.freeze({
+    ...graph,
+    collision: readiness.installation.collision,
+    plan: readiness.installation.plan,
+    admission: readiness.installation.admission,
+    attempt: readiness.installation.terminal.attempt,
+    terminal: readiness.installation.terminal,
+    installation: readiness.installation,
+    readinessValue,
+    readiness,
+  });
 }

@@ -4,9 +4,10 @@ Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
 focused PGlite DDL/catalog evidence, and source-private topological stored-value
 restoration implemented; the private target/collision, physical-name
 assignment, migration-plan aggregate, plan-admission aggregate, and immutable
-attempt-start, step-receipt aggregate, and attempt-terminal aggregate repository
-families and the immutable schema-installation and readiness repositories are implemented, and the later
-repository families are pending; no target session, generated
+attempt-start, step-receipt aggregate, attempt-terminal aggregate, and
+migration-event repository families and the immutable schema-installation and
+readiness repositories are implemented, and the later repository families are
+pending; no target session, generated
 relational DDL, coordinator runtime, binding, adapter, or production activation
 is authorized
 
@@ -36,8 +37,8 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision,
 physical-name assignment, migration-plan aggregate, plan-admission aggregate,
 immutable attempt-start, and immutable step-receipt families are complete;
-attempt-terminal, installation, and readiness are complete; event,
-mutable-head, and availability families remain pending.
+attempt-terminal, installation, readiness, and immutable event history are
+complete; mutable-head and availability families remain pending.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -623,8 +624,9 @@ and immutable replay/conflict classification. The source-private immutable
 step-receipt aggregate repository now provides the same boundary for receipt
 graphs, and the attempt-terminal, schema-installation, and readiness
 repositories extend it through successful installation and validation
-evidence. Later
-repository families and head CAS remain pending. No live target authority is
+evidence, and the immutable event repository authenticates the resulting
+cross-domain subjects and predecessor chain. Later mutable-head and
+availability repository families remain pending. No live target authority is
 minted.
 
 ### Resolved admission-restoration dependency defect
@@ -798,9 +800,9 @@ It does not prove genuine-PostgreSQL locking, concurrency, production-scale
 performance, or production readiness.
 
 This slice changes no DDL or Drizzle schema and creates no package-root export,
-public API, live target, coordinator runtime, lock, lease policy, CAS, event,
-installation, readiness, or availability behavior. The event, collision-head,
-and availability repository families remain pending.
+public API, live target, coordinator runtime, lock, lease policy, CAS,
+installation, readiness, or availability behavior. The collision-head and
+availability repository families remain pending.
 
 Receipt-closure memoization is deliberately local to one repository call. A
 linear plan of `N` steps executed only through these production-inert kernels
@@ -893,6 +895,46 @@ rollback, and exact driver-cause projection. This remains production-inert
 PGlite evidence and does not authorize readiness publication or claim genuine-
 PostgreSQL concurrency, locking, or production readiness.
 
+The immutable migration-event repository accepts one exact restored collision,
+an explicit nullable restored predecessor, the kind-specific restored subject,
+and one captured event. It corroborates every supplied dependency in the
+caller's transaction. Non-lease subjects restore their complete admission,
+attempt, receipt, terminal, installation, or readiness aggregate; lease events
+authenticate the referenced attempt ID and fence while retaining their own
+operational owner and expiry projection.
+
+The collision-local semantic identity `(collision_storage_id,
+event_sequence)` is resolved first. Only when it is absent is the independent
+global event digest consulted. Both paths restore the occupant through its
+actual stored collision, predecessor chain, and subject rather than accepting
+the caller's dependencies as substitutes. Predecessor restoration is iterative,
+rejects repeated storage IDs, sequences, and digests, and imposes no invented
+zero genesis or contiguous-sequence policy. Exact replay returns the committed
+storage identity; a different authentic occupant under either uniqueness axis
+is an immutable conflict.
+
+An untargeted immutable insert stores the exact predecessor tuple,
+kind-specific subject or lease projection, digest, and canonical bytes. Missing
+caller dependencies are refused, while malformed projections, broken or cyclic
+predecessors, changed canonical bytes, and over-limit stored bytes fail as
+stored corruption without repair. Focused PGlite evidence covers all seven
+event kinds, nonzero and gapped sequences, semantic-first lookup order, cold
+predecessor reconstruction, exact replay, conflict, corruption and the
+length-first byte gate, caller rollback, and exact foreign driver causes. This
+remains a production-inert history kernel; it does not implement head CAS,
+latest-event policy, genuine-PostgreSQL concurrency, or runtime publication.
+
+The supplied predecessor has no live-database provenance, so it is fully
+corroborated once per repository call. The expected-root reload then anchors to
+that already-corroborated predecessor instead of rebuilding the same chain a
+second time, while independently reauthenticating the root subject. Arbitrary
+digest conflicts and cold stored references still walk their actual complete
+chains. With no checkpoint-2 retention bound,
+constructing a lane of `N` events solely through these kernels can still incur
+cumulative `O(N^2)` predecessor work. Checkpoint 3 must own a transaction- or
+session-scoped authenticated cache, a materialized anchor, or an explicit
+retention policy before production activation.
+
 ## Checkpoint-2 Evidence
 
 PGlite is the functional lane for this checkpoint. Completion requires:
@@ -946,5 +988,6 @@ target/collision, physical-name assignment, migration-plan aggregate,
 plan-admission aggregate, and immutable attempt-start repository families are
 implemented, together with the immutable step-receipt and attempt-terminal
 aggregate repositories and the immutable schema-installation and readiness
-repositories. Event, mutable-head, and availability repositories remain later
-work. The opaque target and coordinator remain checkpoint 3.
+repositories, plus the immutable migration-event history repository. Mutable
+collision-head and availability repositories remain later work. The opaque
+target and coordinator remain checkpoint 3.

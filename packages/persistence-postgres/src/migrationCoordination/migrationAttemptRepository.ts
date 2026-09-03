@@ -403,6 +403,118 @@ export const restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEf
     return occupant.value;
   });
 
+/** Source-private restoration of an attempt-start digest reference. */
+export const restoreStoredFrameworkMigrationAttemptStartReferenceBySha256InTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationAttemptStartRepository.restoreReferenceBySha256",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    preferredCollision: RestoredFrameworkMigrationCollisionDomain,
+    attemptStartSha256: FrameworkMigrationAttemptStartSha256,
+    operation: AttemptStartAggregateRepositoryOperation,
+  ): Effect.fn.Return<
+    RestoredFrameworkMigrationAttemptStart,
+    FrameworkMigrationRepositoryError
+  > {
+    if (!isRestoredFrameworkMigrationCollisionDomain(preferredCollision)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const attemptStartSha256Bytes = yield* Effect.fromResult(
+      Encoding.decodeHex(attemptStartSha256),
+    ).pipe(Effect.mapError(() =>
+      FrameworkMigrationRepositoryError.storedCorruption(operation)
+    ));
+    const rows = yield* runRepositoryStatement(
+      operation,
+      transaction.select(attemptStartReadSelection).from(
+        fxSystemFrameworkMigrationAttemptStarts,
+      ).where(and(
+        eq(
+          fxSystemFrameworkMigrationAttemptStarts.collisionStorageId,
+          preferredCollision.storageId,
+        ),
+        eq(
+          fxSystemFrameworkMigrationAttemptStarts.attemptStartSha256,
+          attemptStartSha256Bytes,
+        ),
+      )).limit(2),
+    ).pipe(Effect.map(detachDriverRows));
+    const row = rows[0];
+    if (row === undefined || rows.length !== 1) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const occupant = yield* restoreAttemptStartLineage(
+      transaction,
+      row,
+      preferredCollision,
+      operation,
+    );
+    if (occupant.value.attempt.sha256 !== attemptStartSha256) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return occupant.value;
+  });
+
+/** Source-private restoration of a lease event's attempt identity. */
+export const restoreStoredFrameworkMigrationAttemptStartReferenceByIdentityInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationAttemptStartRepository.restoreReferenceByIdentity",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    preferredCollision: RestoredFrameworkMigrationCollisionDomain,
+    attemptId: string,
+    attemptFence: string,
+    operation: AttemptStartAggregateRepositoryOperation,
+  ): Effect.fn.Return<
+    RestoredFrameworkMigrationAttemptStart,
+    FrameworkMigrationRepositoryError
+  > {
+    if (!isRestoredFrameworkMigrationCollisionDomain(preferredCollision)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const rows = yield* runRepositoryStatement(
+      operation,
+      transaction.select(attemptStartReadSelection).from(
+        fxSystemFrameworkMigrationAttemptStarts,
+      ).where(and(
+        eq(
+          fxSystemFrameworkMigrationAttemptStarts.collisionStorageId,
+          preferredCollision.storageId,
+        ),
+        eq(fxSystemFrameworkMigrationAttemptStarts.attemptId, attemptId),
+      )).limit(2),
+    ).pipe(Effect.map(detachDriverRows));
+    const row = rows[0];
+    if (row === undefined || rows.length !== 1) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const occupant = yield* restoreAttemptStartLineage(
+      transaction,
+      row,
+      preferredCollision,
+      operation,
+    );
+    if (
+      occupant.value.attempt.frame.attemptId !== attemptId ||
+      occupant.value.attempt.frame.attemptFence !== attemptFence
+    ) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return occupant.value;
+  });
+
 const prepareExpectedAttemptStart = Effect.fn(
   "FrameworkMigrationAttemptStartRepository.prepareExpected",
 )(function* (
@@ -461,7 +573,7 @@ const prepareExpectedAttemptStart = Effect.fn(
       FrameworkMigrationRepositoryError.referenceRefusal(operation),
     );
   }
-  const leaseExpiresAt = operationalLeaseExpiryDate(
+  const leaseExpiresAt = operationalFrameworkMigrationLeaseExpiryDate(
     attempt.frame.leaseExpiresAt,
   );
   if (leaseExpiresAt === undefined) {
@@ -888,7 +1000,7 @@ const decodeAttemptStartRoot = Effect.fn(
     row.attemptId !== frame.attemptId ||
     attemptFence !== frame.attemptFence ||
     row.leaseOwnerId !== frame.leaseOwnerId ||
-    operationalLeaseExpiryDate(frame.leaseExpiresAt) === undefined
+    operationalFrameworkMigrationLeaseExpiryDate(frame.leaseExpiresAt) === undefined
   ) {
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
@@ -1049,7 +1161,7 @@ function sameTargetNamespace(
     left.schemaName === right.schemaName;
 }
 
-function operationalLeaseExpiryDate(
+export function operationalFrameworkMigrationLeaseExpiryDate(
   value: CanonicalIsoInstant,
 ): Date | undefined {
   if (!FOUR_DIGIT_UTC_MILLISECOND_INSTANT.test(value)) return undefined;
