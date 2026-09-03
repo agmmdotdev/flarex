@@ -1,6 +1,12 @@
 import type { FlarexMetadataTransaction } from
   "../src/metadataTransaction";
 import {
+  captureFrameworkSchemaInstallation,
+} from "../src/frameworkSchema/installation/canonical";
+import {
+  ensureFrameworkSchemaInstallationInTransactionEffect,
+} from "../src/frameworkSchema/installation/installationRepository";
+import {
   captureFrameworkMigrationAttemptStart,
   captureFrameworkMigrationAttemptTerminal,
   captureFrameworkMigrationPlanAdmission,
@@ -44,6 +50,7 @@ import {
 export const COORDINATOR_STARTED_AT = "2026-08-27T08:30:00.000Z";
 export const COORDINATOR_COMPLETED_AT = "2026-08-27T08:31:00.000Z";
 export const COORDINATOR_TERMINAL_AT = "2026-08-27T08:33:00.000Z";
+export const COORDINATOR_INSTALLED_AT = "2026-08-27T08:34:00.000Z";
 
 export async function createSuccessfulTerminalPlanValues() {
   const artifact = await syntheticSystemArtifact();
@@ -194,4 +201,35 @@ export async function storeSuccessfulTerminalGraphInTransaction(
     terminalValue,
     terminal,
   });
+}
+
+export async function storeSuccessfulInstallationGraphInTransaction(
+  transaction: FlarexMetadataTransaction,
+  values: Awaited<ReturnType<typeof createSuccessfulTerminalPlanValues>>,
+) {
+  const graph = await storeSuccessfulTerminalGraphInTransaction(
+    transaction,
+    values,
+  );
+  const installationValue = await runEffect(
+    captureFrameworkSchemaInstallation({
+      plan: graph.terminal.attempt.plan.plan,
+      admission: graph.terminal.attempt.admission.admission,
+      terminal: graph.terminal.terminal,
+      installedStructureSha256:
+        graph.terminal.attempt.plan.plan.physicalLayout.layoutSha256,
+      installedPhysicalCapabilities:
+        graph.terminal.attempt.plan.plan.physicalLayout.frame
+          .requiredPhysicalCapabilities,
+      installedAt: COORDINATOR_INSTALLED_AT,
+    }),
+  );
+  const installation = await runEffect(
+    ensureFrameworkSchemaInstallationInTransactionEffect(
+      transaction,
+      graph.terminal,
+      installationValue,
+    ),
+  );
+  return Object.freeze({ ...graph, installationValue, installation });
 }

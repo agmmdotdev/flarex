@@ -5,7 +5,7 @@ focused PGlite DDL/catalog evidence, and source-private topological stored-value
 restoration implemented; the private target/collision, physical-name
 assignment, migration-plan aggregate, plan-admission aggregate, and immutable
 attempt-start, step-receipt aggregate, and attempt-terminal aggregate repository
-families and the immutable schema-installation repository are implemented, and the later
+families and the immutable schema-installation and readiness repositories are implemented, and the later
 repository families are pending; no target session, generated
 relational DDL, coordinator runtime, binding, adapter, or production activation
 is authorized
@@ -36,8 +36,8 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision,
 physical-name assignment, migration-plan aggregate, plan-admission aggregate,
 immutable attempt-start, and immutable step-receipt families are complete;
-attempt-terminal and installation are complete; event, mutable-head,
-readiness, and availability families remain pending.
+attempt-terminal, installation, and readiness are complete; event,
+mutable-head, and availability families remain pending.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -621,8 +621,9 @@ target, collision, assignment, plan, plan-admission, and attempt-start
 repository families add actual transaction reads, length-first SQL byte gates,
 and immutable replay/conflict classification. The source-private immutable
 step-receipt aggregate repository now provides the same boundary for receipt
-graphs, and the attempt-terminal and schema-installation repositories extend it
-through successful installation evidence. Later
+graphs, and the attempt-terminal, schema-installation, and readiness
+repositories extend it through successful installation and validation
+evidence. Later
 repository families and head CAS remain pending. No live target authority is
 minted.
 
@@ -658,7 +659,7 @@ dependencies; each must fail as typed stored corruption. No admission SQL
 kernel, public API, target session, or runtime authority was opened by this
 correction.
 
-### Current target/collision, assignment, plan, admission, attempt, receipt, terminal, and installation boundary
+### Current target/collision, assignment, plan, admission, attempt, receipt, terminal, installation, and readiness boundary
 
 The current production-inert repository families consist of source-private,
 transaction-parameterized Effects that ensure and exactly read target
@@ -799,7 +800,7 @@ performance, or production readiness.
 This slice changes no DDL or Drizzle schema and creates no package-root export,
 public API, live target, coordinator runtime, lock, lease policy, CAS, event,
 installation, readiness, or availability behavior. The event, collision-head,
-readiness, and availability repository families remain pending.
+and availability repository families remain pending.
 
 Receipt-closure memoization is deliberately local to one repository call. A
 linear plan of `N` steps executed only through these production-inert kernels
@@ -867,6 +868,31 @@ projection. This remains production-inert PGlite evidence; it does not mint a
 live target or prove genuine-PostgreSQL concurrency, locking, or production
 readiness.
 
+The immutable schema-readiness repository accepts one exact restored
+installation and one captured readiness receipt. It corroborates the complete
+stored installation and successful-terminal lineage in the caller's
+transaction, then resolves the unique installation storage identity before
+consulting the independent global readiness digest. A conflict occupant is
+restored through its actual stored installation chain before classification.
+
+An untargeted immutable insert stores the exact installation identity and
+receipt, readiness and validation digests, validated structure, and canonical
+frame. Exact replay returns the committed storage identity; a second authentic
+readiness receipt for the same installation is an immutable conflict. Missing
+caller parents are refused, while malformed normalized projections, changed
+canonical bytes, and over-limit stored bytes fail as stored corruption without
+repair or mutation. The read path applies the four-megabyte SQL byte gate
+before transfer and preserves caller transaction ownership and exact foreign
+driver causes.
+
+Focused PGlite functional evidence covers source privacy, absence,
+ensure/read/exact and separately captured replay, exact normalized storage,
+one-receipt-per-installation conflict, missing-parent refusal, projection and
+canonical corruption without healing, the length-first byte gate, caller
+rollback, and exact driver-cause projection. This remains production-inert
+PGlite evidence and does not authorize readiness publication or claim genuine-
+PostgreSQL concurrency, locking, or production readiness.
+
 ## Checkpoint-2 Evidence
 
 PGlite is the functional lane for this checkpoint. Completion requires:
@@ -919,6 +945,6 @@ platform metadata catalog, source-private topological restoration, and private
 target/collision, physical-name assignment, migration-plan aggregate,
 plan-admission aggregate, and immutable attempt-start repository families are
 implemented, together with the immutable step-receipt and attempt-terminal
-aggregate repositories. Event, mutable-head, installation,
-readiness, and availability repositories remain later work. The opaque target
-and coordinator remain checkpoint 3.
+aggregate repositories and the immutable schema-installation and readiness
+repositories. Event, mutable-head, and availability repositories remain later
+work. The opaque target and coordinator remain checkpoint 3.
