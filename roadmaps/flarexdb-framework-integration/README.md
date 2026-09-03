@@ -36,9 +36,13 @@ transaction-parameterized repository families through terminal/event,
 collision-head, installation/readiness, and availability history/head. Its
 manifest-owned serial PGlite lane covers selected migration, canonical-value,
 catalog, restoration, repository, and file-backed complete-graph cold-reopen
-behavior. Target sessions, generated relational DDL, the later
+behavior. Production target resolution, generated relational DDL, the later
 binding checkpoint, Payload/Medusa adapters, genuine-PostgreSQL coordinator
-acceptance, runtime wiring, and production work remain pending.
+acceptance, runtime wiring, and production work remain pending. Checkpoint 3 is
+now decomposed into a source-private target/session plus PGlite functional
+adapter, a relational structural runner, and the fresh coordinator/repository
+helpers. Its first slice is complete as source-private PGlite-functional
+evidence only; the later two slices are not accepted.
 
 This domain owns the extraction and admission of shared FlarexDB mechanisms
 needed by Payload and Medusa, plus the ordered adapter conformance work that
@@ -103,7 +107,11 @@ Use these sources in order:
     owns the exact target-local metadata catalog, normalized sidecars,
     timestamp mapping, cold rehydration, private transaction kernels, and
     checkpoint-2 storage evidence.
-13. Current code, migrations, any source snapshot already admitted by its own
+13. [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md)
+    owns the three-slice checkpoint-3 decomposition, opaque target/session and
+    PGlite functional boundary, and the unresolved runner, coordinator,
+    genuine-PostgreSQL, host-resolver, and scaling gates.
+14. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -148,8 +156,9 @@ Preflight records:
 | [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md) | Accepted exact source/capability audit; no promotion or runtime activation | Mature-DML authority, reproducible 65-input Currency semantic graph, exploratory broader graph notes, reuse classifications, retained evidence, and deferred Query/Link/workflow/lock/idempotency/event gates |
 | [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md) | Accepted exact `payload@3.88.0` audit; no dependency, adapter, or runtime activation | Adapter surface, request nesting, hook/transaction constraint, internal collections, first headless scalar profile, relation cutline, and migration/host boundary |
 | [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md) | Implemented privately; value evidence complete and no DDL/runtime activation | Exact first-slice relational value vocabulary, deterministic normalization, framework-artifact composition, Currency and synthetic fixtures, and closed downstream gates |
-| [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; checkpoint 1 pure values and checkpoint 2 private metadata/restoration/repositories plus its manifest-owned serial PGlite gate complete; target session, generated relational DDL, genuine-PostgreSQL coordinator acceptance, binding, and runtime remain closed | Cycle-free plan/installation identity, stable physical collision domain, bounded digest names, scope-isolated lowering, structural plan/ledger values, capability-evidence split, readiness/availability values, and later execution/database proof matrix |
+| [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; checkpoints 1 and 2 plus the checkpoint-3 private target/session PGlite functional receipt are complete; generated relational DDL, fresh coordinator, genuine-PostgreSQL coordinator acceptance, binding, and runtime remain closed | Cycle-free plan/installation identity, stable physical collision domain, bounded digest names, scope-isolated lowering, structural plan/ledger values, capability-evidence split, readiness/availability values, and later execution/database proof matrix |
 | [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Complete checkpoint-2 contract; exact additive catalog, topological restoration, all thirteen source-private repository families, and manifest-owned serial PGlite functional gate implemented production-inert | Exact eighteen-table target-local catalog, canonical-byte authority, normalized constraint sidecars, timestamp mapping, complete-graph cold rehydration, private transaction kernels, and PGlite evidence gate |
+| [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md) | Accepted checkpoint-3 decomposition; source-private target/session plus PGlite functional adapter implemented with focused nine-test evidence, while runner and coordinator slices remain closed | Opaque target/session authority, PGlite functional-only limits, separate runner and fresh-coordinator slices, and mandatory PostgreSQL mutex, bounded-lineage, host-resolver, and runner-dispatch gates |
 
 ## Current Architecture
 
@@ -218,9 +227,13 @@ The smallest safe sequence is:
    [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md)
    and its exact checkpoint-2 storage contract in
    [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md),
-   including their manifest-owned serial PGlite functional gate. Next, separately
-   decide and implement the checkpoint-3 target session/PGlite coordinator,
-   then stop after fresh plus base-backed genuine-PostgreSQL structural
+   including their manifest-owned serial PGlite functional gate. Checkpoint 3
+   is separately decomposed in
+   [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md):
+   the opaque target/session plus PGlite functional adapter is now closed as a
+   private functional receipt; next separately accept the relational
+   structural runner and fresh coordinator.
+   Stop after fresh plus base-backed genuine-PostgreSQL structural
    acceptance. Then separately preflight the Application projection,
    `DataBindingSet`, activation, and serving owner. Before the synthetic system
    transaction proof, also preflight one specifically named system slot or a
@@ -278,9 +291,9 @@ not authorize earlier owner changes implicitly.
 | Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite plus ordinary-role PostgreSQL acceptance complete; installation/readiness/availability values and their source-private checkpoint-2 repositories have a dedicated serial PGlite gate, while live execution and Application-reference, Payload-overlay, `DataBindingSet`, activation, and serving remain later gates |
 | Medusa fork source island and package convergence | Inert source island admitted and verified at fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`; exact package/capability audit accepted; the later promotion source map, every active package promotion, and all runtime/adapter activation remain pending |
 | Payload exact-release contract | `payload@3.88.0` and peeled release commit `fea6f8a47a50ff1330d8a5071b43e7dcffb97b22` accepted for the first headless compatibility profile; dependency, adapter, dashboard, host, and runtime work remain pending |
-| Core-first three-lane execution sequence | Accepted; both consumer audits, private `RelationalSchema`, checkpoint-1 values, and the complete checkpoint-2 additive metadata, topological restoration, thirteen repository families, and serial PGlite gate are complete; checkpoint-3 target-session/coordinator work is the next separate decision |
+| Core-first three-lane execution sequence | Accepted; both consumer audits, private `RelationalSchema`, checkpoint-1 values, and the complete checkpoint-2 additive metadata, topological restoration, thirteen repository families, and serial PGlite gate are complete; checkpoint 3 is split into target/session, runner, and fresh-coordinator slices, with only the first complete as PGlite-functional evidence |
 | Relational schema representation | Implemented privately under `@flarex/persistence-postgres`; exact normalization/artifact evidence complete, with no package-root export, DDL, installation, adapter, or runtime caller |
-| Framework migration coordinator | Cycle-free physical-lane, plan, ledger, installation, readiness, and availability values, additive private metadata DDL, stored restoration, and all thirteen checkpoint-2 repository families have a private serial PGlite gate; no opaque target session, structural runner, operational lease orchestration, generated relational DDL, genuine-PostgreSQL coordinator proof, or production execution exists |
+| Framework migration coordinator | Cycle-free physical-lane, plan, ledger, installation, readiness, and availability values, additive private metadata DDL, stored restoration, and all thirteen checkpoint-2 repository families have a private serial PGlite gate; the source-private target/session plus PGlite functional adapter has focused nine-test evidence, while no accepted structural runner, operational lease orchestration, generated relational DDL, fresh coordinator, genuine-PostgreSQL coordinator proof, or production execution exists |
 | Owner-scoped relational store and typed finalization | Not implemented; transaction-owner and commit-owner preflights required |
 | Synthetic reserved-relational lifecycle/transaction proof | Pending the shared-core and explicit synthetic-`system` selection gates; must not infer a generic system binding and must reject and roll back an unadmitted mutation fact family |
 | Flarex Application preservation proof | Current private `SV-R Core` baseline complete; post-core full regression pending |
@@ -342,8 +355,11 @@ thirteen transaction-parameterized immutable/CAS repository families, and a
 manifest-owned serial PGlite gate. Its file-backed acceptance test
 closes and reopens the complete terminal/event/head/installation/readiness/
 availability graph without carrying a restored handle across the close.
-Checkpoint 3 remains the first owner of an opaque target session, generated
-relational DDL, and live coordinator policy.
+Checkpoint 3 is decomposed in
+[`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md).
+Its source-private opaque target/session plus PGlite functional adapter has a
+completed nine-test functional receipt; generated relational DDL and live
+coordinator policy remain later, separately accepted slices.
 
 The repository and DDL contract is accepted in
 [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
@@ -492,9 +508,11 @@ and the exact checkpoint-2 contract in
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
 Their private pure values, additive metadata catalog, source-private stored
 restoration, all thirteen transaction-parameterized repository families, and
-dedicated serial PGlite functional gate are implemented. Opaque
-target execution, generated relational DDL, checkpoint-3 coordinator policy,
-and genuine-PostgreSQL coordinator acceptance remain pending.
+dedicated serial PGlite functional gate are implemented. The source-private
+target/session plus PGlite functional adapter has completed its focused
+nine-test PGlite lane in the separately owning checkpoint-3 record. Generated
+relational DDL, checkpoint-3 coordinator policy, and genuine-PostgreSQL
+coordinator acceptance remain pending.
 Application-reference, Payload-overlay, and `DataBindingSet` codecs remain the
 following separate preflight. No framework adapter, runtime caller, public API,
 or production activation is included.

@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
+    "framework-coordinator-target-session-pglite": [
+      "test/frameworkCoordinatorTargetSession.test.ts"
+    ],
     "framework-coordinator-checkpoint2-pglite": [
       "test/privateCanonicalValue.test.ts",
       "test/relationalSchemaPhysical.test.ts",
@@ -45,6 +48,9 @@
     ],
     "framework-coordinator-checkpoint2-pglite": [
       "framework-coordinator-checkpoint2-pglite"
+    ],
+    "framework-coordinator-target-session-pglite": [
+      "framework-coordinator-target-session-pglite"
     ],
     "postgres": [
       "postgres-persistence",
@@ -92,6 +98,30 @@
     ]
   },
   "lanes": [
+    {
+      "id": "framework-coordinator-target-session-pglite",
+      "category": "pglite",
+      "proof": "The source-private migration target/session and PGlite functional-adapter receipt: target identity binding, callback-scoped transaction authority, ordinary and recovery request propagation, commit and rollback, and typed settlement failure classification. This does not prove external-interruption-to-decision recovery, physical PostgreSQL session exclusion, genuine PostgreSQL recovery or concurrency, production target resolution, the structural runner, the fresh coordinator, runtime activation, or production readiness.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-framework-coordinator-target-session-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-coordinator-target-session-pglite"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=30000"
+          ]
+        }
+      ]
+    },
     {
       "id": "fast-workspace",
       "category": "fast",

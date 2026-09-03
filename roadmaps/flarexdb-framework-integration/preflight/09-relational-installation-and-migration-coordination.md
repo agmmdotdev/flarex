@@ -2,11 +2,14 @@
 
 Status: accepted; checkpoint 1 private pure values and goldens and checkpoint 2
 private metadata, topological restoration, all thirteen repository families,
-and their serial PGlite functional gate are complete. No target session,
-generated relational DDL, coordinator runtime, genuine-PostgreSQL acceptance,
-binding, or activation is implemented
+and their serial PGlite functional gate are complete. Checkpoint 3 is now
+decomposed by
+[`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md);
+its source-private target/session plus PGlite functional adapter is complete as
+a private functional receipt. Generated relational DDL, coordinator runtime,
+genuine-PostgreSQL acceptance, binding, and activation remain unimplemented
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-04
 
 ## Decision
 
@@ -762,10 +765,14 @@ Each checkpoint requires a separate implementation approval:
    [`10-relational-coordinator-metadata-and-repositories.md`](./10-relational-coordinator-metadata-and-repositories.md).
    Implement its bounded slices through the checked-in Drizzle migration path.
    No relational target DDL yet.
-3. **Target session and PGlite coordinator:** implement the opaque target,
-   collision-domain claim, attempts, exact step receipts, structural runner,
-   recovery, validation, readiness, and availability for one synthetic
-   `system` artifact with no base.
+3. **Target session and PGlite coordinator:** follow the three separately
+   reviewable slices in
+   [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md):
+   opaque target/session plus PGlite functional adapter, relational structural
+   runner, then fresh coordinator/repository helpers. Together they eventually
+   cover collision-domain claim, attempts, exact step receipts, recovery,
+   validation, readiness, and availability for one synthetic `system` artifact
+   with no base.
 4. **Base-backed additive PGlite candidate:** require the exact authenticated
    base receipts and matching target/owner/lineage/profile, re-observe the base
    under the collision head, retain its compatible structures, and reject
@@ -847,10 +854,11 @@ the separately owning checkpoint-2 record. Its manifest-owned package lane
 serializes the selected migration, canonical-value, storage, restoration,
 repository, and file-backed complete-graph cold-reopen evidence.
 
-This closes only checkpoint 2. Checkpoint 3 remains the first owner of an
+This closes only checkpoint 2. Checkpoint 3 remains the first owner of the
 opaque live target, target transaction/session, structural runner, operational
 lease/fence policy, recovery, validation publication, and synthetic `system`
-coordination.
+coordination. Its bounded decomposition and current slice status are owned by
+[`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
 
 ## Non-Goals And Stop Conditions
 
@@ -896,6 +904,8 @@ The explicit checkpoint-1 and checkpoint-2 approvals have been exercised and
 their private implementation boundaries are complete above and in the
 separately owning checkpoint-2 record. All thirteen accepted repository
 families and the serial PGlite functional gate are implemented. Checkpoint 3
-remains a separate decision. This record still opens
-no generated relational DDL, target execution, binding, adapter, runtime,
+remains separately gated through
+[`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
+Beyond that separately accepted private target/session functional receipt,
+this record still opens no generated relational DDL, binding, adapter, runtime,
 genuine-PostgreSQL, hosted, public, or production gate.
