@@ -143,6 +143,7 @@
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --fileParallelism --maxWorkers=2",
+    "test:framework-coordinator-structural-runner:pglite": "node ../../scripts/run-test-lane.mjs framework-coordinator-structural-runner-pglite",
     "test:framework-coordinator-target-session:pglite": "node ../../scripts/run-test-lane.mjs framework-coordinator-target-session-pglite",
     "test:framework-coordinator-checkpoint2:pglite": "node ../../scripts/run-test-lane.mjs framework-coordinator-checkpoint2-pglite",
     "test:c07:pglite": "vitest run test/storedAttemptEvidence.test.ts test/pointCommitFinishingTransition.test.ts test/pointCommitAttemptReplacement.test.ts --no-file-parallelism",

@@ -164,6 +164,40 @@ describe("test lane manifest and runner", () => {
     );
   });
 
+  it("pins the framework structural-runner PGlite receipt", () => {
+    const manifest = loadTestLaneManifest();
+    const lane = resolveTestLaneSelection(
+      manifest,
+      "framework-coordinator-structural-runner-pglite",
+    )[0];
+    expect(lane?.steps).toHaveLength(1);
+    const step = lane?.steps[0];
+    if (step === undefined) {
+      throw new Error("Structural-runner PGlite receipt must retain one step");
+    }
+
+    expect(resolveTestLaneStepArguments(manifest, step)).toEqual([
+      "exec",
+      "vitest",
+      "run",
+      "test/frameworkCoordinatorRelationalStructuralRunner.test.ts",
+      "--no-file-parallelism",
+      "--maxWorkers=1",
+      "--testTimeout=180000",
+    ]);
+
+    const packageManifest = JSON.parse(
+      readFileSync("packages/persistence-postgres/package.json", "utf8"),
+    );
+    expect(
+      packageManifest.scripts?.[
+        "test:framework-coordinator-structural-runner:pglite"
+      ],
+    ).toBe(
+      "node ../../scripts/run-test-lane.mjs framework-coordinator-structural-runner-pglite",
+    );
+  });
+
   it("expands shared C08-B2 and O09-B files inside each original Vitest invocation", () => {
     const manifest = loadTestLaneManifest();
     const packageManifest = JSON.parse(

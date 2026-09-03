@@ -1,10 +1,10 @@
 # Target Session And Fresh Coordinator Preflight
 
 Status: accepted bounded decomposition of checkpoint 3 as of 2026-09-04. The
-first source-private target/session plus PGlite functional-adapter slice is
-complete as a private functional receipt. The relational structural runner and
-fresh coordinator remain later slices, and no checkpoint-3 coordinator is
-accepted yet.
+source-private target/session plus PGlite functional-adapter slice and the
+source-private relational structural-runner slice are complete as separate
+private functional receipts. Slice 3, the fresh coordinator and its repository
+helpers, remains pending, and no checkpoint-3 coordinator is accepted yet.
 
 Last reviewed: 2026-09-04
 
@@ -21,10 +21,11 @@ as three separately reviewable commits:
    transaction inside a bounded callback, and close it when that callback
    ends. PGlite is only the functional/test issuer for this seam.
 2. **Relational structural runner:** observe and execute the admitted
-   expansion-only structural operations through the target transaction. This
-   slice must settle the opaque runner-token registry boundary before it is
-   accepted; a direct codec switch in draft source is not an accepted
-   composition contract.
+   expansion-only structural operations through the target transaction. Issue
+   one source-private opaque token bound to the exact captured plan and target,
+   and resolve every step once through a fixed four-handler registry. Observe
+   and execute from the registered handler rather than switching on codec text
+   at either call boundary.
 3. **Fresh coordinator and repository helpers:** claim and advance the stable
    collision lane, restore all persisted authorities inside their owning
    transaction, execute and validate the fresh plan, and publish terminal,
@@ -125,6 +126,92 @@ The final lane receipt is nine of nine tests. Package typecheck and file-scoped
 Oxlint passed. This closes only slice 1. The result remains PGlite-functional
 evidence and does not promote any limit listed below.
 
+## Slice 2 Authority Boundary
+
+The structural runner has a separate authority chain inside the persistence
+package:
+
+```text
+authenticated target + exact captured fresh plan
+  -> frozen opaque plan/target-bound runner token
+  -> exact captured step identity + fixed registered handler
+  -> callback-active transaction for the token's exact target
+  -> bounded catalog observation or trusted structural statement
+```
+
+Issuance is the only operation-codec dispatch point. A module-local registry
+contains exactly four `(format, version)` handlers:
+
+- `flarex.relational-create-table` version 1 creates one table together with
+  its admitted columns, primary/unique keys, and integer-range checks;
+- `flarex.relational-create-index` version 1 creates one ordinary B-tree
+  index;
+- `flarex.relational-add-foreign-key` version 1 adds one exact scope-authority
+  or ordinary foreign key; and
+- `flarex.relational-validate-structure` version 1 performs validation-only
+  observation of the complete physical layout and emits no DDL.
+
+The frozen token reveals none of the target, plan, registry, registered steps,
+SQL, or transaction. Its module-local state retains the exact target and
+captured plan plus an identity-keyed map from each captured step to its fixed
+handler. A decoded or cloned token, an equal-but-distinct step, and a
+transaction for another target fail before raw SQL. Observation and execution
+therefore cannot use caller-selected codec text, SQL, callbacks, or physical
+identifiers as authority.
+
+For a structural step, observation returns only `absent` or `exact`. A
+same-name object with any different admitted catalog facet fails as
+`catalogMismatch`; it is never adopted. Execution refuses an already exact
+object as `unreceiptedStructure`, emits one statement only for an absent DDL
+step, and then requires the exact postcondition. The validation handler
+requires the whole candidate layout to be exact. Exact-numeric raw defaults
+use only the trusted encoder's canonical JSONB `{ value, precision }` value;
+they do not admit caller SQL.
+
+## Completed Slice 2 PGlite Functional Evidence
+
+The focused
+`packages/persistence-postgres/test/frameworkCoordinatorRelationalStructuralRunner.test.ts`
+lane passes all fifteen tests and proves:
+
+- one exact seven-step fresh synthetic plan in deterministic order: two table
+  steps, one ordinary index step, three foreign-key steps, and one final
+  validation-only step;
+- six transaction-bound expansion DDL statements followed by validation, with
+  the first six postconditions observed `absent` before execution and every
+  postcondition observed `exact` afterwards;
+- exact catalog comparison for tables, columns, defaults, primary and unique
+  keys, integer-range checks, B-tree ordering and options, foreign keys, and
+  the complete layout;
+- fail-closed rejection of wrong same-name tables, missing or changed defaults,
+  while accepting equivalent normalized integer-literal syntax; B-tree
+  direction, null placement, opclass, collation and `INCLUDE` drift;
+  unique-key `NULLS NOT DISTINCT`, foreign-key match drift, and a same-name
+  non-foreign-key constraint before any structural DDL;
+- target-transaction rollback of emitted DDL, plus rejection of exact
+  pre-existing unreceipted structure;
+- frozen/source-private token containment, forged-token rejection, and cloned-
+  step and cross-target rejection before raw SQL;
+- typed `resourceFailure` mapping for a synchronous raw-execution exception and
+  a malformed driver-result envelope;
+- validation evidence only from one complete aggregate-restored,
+  issuer-authenticated receipt chain, with cloned, mixed-attempt, and reordered
+  chains rejected as invalid authority; and
+- trusted exact-numeric raw-default encoding and exact observation without
+  widening the operation registry or accepting authored SQL, including
+  rejection of changed canonical value or precision.
+
+The reproducible manifest-owned lane is:
+
+```text
+pnpm --filter @flarex/persistence-postgres test:framework-coordinator-structural-runner:pglite
+```
+
+The final lane receipt is fifteen of fifteen tests. Package typecheck and
+file-scoped Oxlint passed. This closes only the private PGlite-functional
+structural-runner slice. It does not establish any genuine-PostgreSQL or
+coordinator claim below.
+
 ## Unresolved Checkpoint-3 Gates
 
 The remaining implementation must resolve these issues before the fresh
@@ -142,9 +229,11 @@ coordinator can be accepted:
 - **Production target identity:** a host-owned production target resolver and
   driver registry must derive canonical physical database identity and issue
   targets. Caller-supplied PGlite composition cannot become that authority.
-- **Runner dispatch:** the composition root must decide and authenticate an
-  opaque runner token. The current design does not yet accept direct switching
-  over artifact codec names inside the structural runner.
+- **Production runner resolution:** the private four-handler registry can bind
+  an authenticated plan/target token, but a later host composition root must
+  still decide which admitted runner profile may be issued for a production
+  target. Codec text, a decoded token, or caller composition cannot become
+  that selection authority.
 - **Coordinator state machine:** fresh claim, lease/fence ownership, bounded
   reread, stable `not_ready` outcomes, recovery, exact stored-plan rebinding,
   validation, and publication still require focused PGlite and genuine-
@@ -152,13 +241,16 @@ coordinator can be accepted:
 
 ## Explicitly Closed Boundaries
 
-This preflight and its first slice do not prove or authorize:
+This preflight and its first two bounded slices do not prove or authorize:
 
 - production target resolution or physical database identity;
 - genuine-PostgreSQL locking, collision exclusion, lock/statement timeout,
   cancellation, recovery-session separation, transaction settlement, or
   external-interruption-to-decision recovery;
-- generated relational DDL, the structural runner, or fresh coordinator;
+- a fresh coordinator or repository orchestration across the runner;
+- any structural operation outside the fixed create-table, create-index,
+  add-foreign-key, and validate-structure registry, including base-backed or
+  destructive migration;
 - production-scale lineage reconstruction or coordinator throughput;
 - base-backed planning, destructive change, rename, cast, data migration,
   seeds, nontransactional DDL, or concurrent index creation;
@@ -173,7 +265,8 @@ This preflight and its first slice do not prove or authorize:
 
 Checkpoint 3 now has a bounded ownership and review sequence. Slice 1 closes
 only the source-private target/session lifecycle and its PGlite functional
-adapter. The structural runner and fresh coordinator remain separate
-decisions, and genuine PostgreSQL plus the production host resolver and scaling
-gates remain mandatory before any coordinator, adapter, runtime, hosted, or
-production claim.
+adapter. Slice 2 closes only the source-private plan/target-bound structural
+runner and its PGlite functional evidence. Slice 3, the fresh coordinator and
+repository helpers, remains pending. Genuine PostgreSQL plus the production
+host resolver and scaling gates remain mandatory before any coordinator,
+adapter, runtime, hosted, or production claim.

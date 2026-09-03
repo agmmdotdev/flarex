@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
+    "framework-coordinator-structural-runner-pglite": [
+      "test/frameworkCoordinatorRelationalStructuralRunner.test.ts"
+    ],
     "framework-coordinator-target-session-pglite": [
       "test/frameworkCoordinatorTargetSession.test.ts"
     ],
@@ -48,6 +51,9 @@
     ],
     "framework-coordinator-checkpoint2-pglite": [
       "framework-coordinator-checkpoint2-pglite"
+    ],
+    "framework-coordinator-structural-runner-pglite": [
+      "framework-coordinator-structural-runner-pglite"
     ],
     "framework-coordinator-target-session-pglite": [
       "framework-coordinator-target-session-pglite"
@@ -98,6 +104,30 @@
     ]
   },
   "lanes": [
+    {
+      "id": "framework-coordinator-structural-runner-pglite",
+      "category": "pglite",
+      "proof": "The source-private relational structural-runner functional receipt: authenticated plan-bound runner authority, exact seven-step fresh structural plan dispatch, six transaction-bound expansion DDL operations, validation-only exact-layout observation, rollback, unreceipted-structure rejection, catalog mismatch and same-name wrong-kind constraint rejection before DDL, malformed driver-result resource classification, coherent issuer-authenticated receipt-chain validation, cross-target and cloned-step rejection before SQL, and trusted exact-numeric raw-default encoding and observation. This does not prove the fresh coordinator, PostgreSQL concurrency or locks, production target or runner resolution, base-backed or destructive migration, framework adapters, runtime activation, or production readiness.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-framework-coordinator-structural-runner-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-coordinator-structural-runner-pglite"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
     {
       "id": "framework-coordinator-target-session-pglite",
       "category": "pglite",

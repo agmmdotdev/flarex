@@ -5,9 +5,10 @@ private metadata, topological restoration, all thirteen repository families,
 and their serial PGlite functional gate are complete. Checkpoint 3 is now
 decomposed by
 [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md);
-its source-private target/session plus PGlite functional adapter is complete as
-a private functional receipt. Generated relational DDL, coordinator runtime,
-genuine-PostgreSQL acceptance, binding, and activation remain unimplemented
+its source-private target/session adapter and plan/target-bound relational
+structural runner are complete as separate private PGlite functional receipts.
+Slice 3 fresh coordination, base-backed execution, genuine-PostgreSQL
+acceptance, binding, and activation remain unimplemented.
 
 Last reviewed: 2026-09-04
 
@@ -703,7 +704,7 @@ This record must prove by inspection that it contains:
 - Caller detachment, recursive freezing, aggregate bounds, and corrupt stored
   frame rejection.
 
-### Remaining PGlite coordinator evidence
+### PGlite runner evidence and remaining coordinator gate
 
 PGlite is the functional lane only. The additive metadata slice proves its
 migration, injected-fault rollback/retry, representative root invariants, and
@@ -712,15 +713,30 @@ first target/collision, assignment, plan aggregate, and plan-admission
 aggregate repository families are complete. The admission family takes
 explicit restored current and nullable previous-plan handles, fully
 reconstructs its stored dependency graph, and rejects corrupt or conflicting
-replay without healing. Later slices must cover fresh synthetic installation,
-interrupted
-progress,
-corrupt-ledger rejection, validation refusal, readiness, availability
-transitions, then a separately admitted base-backed additive candidate that
-retains the base structures. Unrelated catalog objects remain outside the
-candidate projection; unregistered objects that conflict with a requested
-assignment are rejected rather than adopted. PGlite makes no lock, concurrency,
-lease-contention, PostgreSQL-catalog-plan, or production claim.
+replay without healing. The completed target/session slice separately proves
+callback-scoped opaque target authority and functional PGlite transaction
+lifecycle.
+
+The separately named structural-runner lane proves one exact seven-step fresh
+plan: six transaction-bound DDL steps comprising two tables, one ordinary
+B-tree index, and three foreign keys, followed by one validation-only complete-
+layout step. Its fixed private registry has only
+create-table, create-index, add-foreign-key, and validate-structure handlers.
+Its fifteen-test receipt covers exact catalog observation, catalog-drift and
+unreceipted-structure rejection, same-name wrong-kind constraint refusal before
+DDL, DDL rollback, exact-numeric raw-default encoding, malformed driver-result
+classification, coherent issuer-authenticated receipt-chain validation, and
+forged-token, cloned-step, cross-target, and raw-execution-failure behavior. It
+does not itself coordinate or publish a fresh installation.
+
+The remaining fresh-coordinator slice must still cover fresh synthetic
+installation, interrupted progress, corrupt-ledger rejection, validation
+refusal, readiness, and availability transitions. A later separately admitted
+base-backed additive candidate must retain the base structures. Unrelated
+catalog objects remain outside the candidate projection; unregistered objects
+that conflict with a requested assignment are rejected rather than adopted.
+PGlite makes no lock, concurrency, lease-contention, genuine-PostgreSQL
+catalog, or production claim.
 
 ### Future genuine PostgreSQL evidence
 
@@ -769,10 +785,14 @@ Each checkpoint requires a separate implementation approval:
    reviewable slices in
    [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md):
    opaque target/session plus PGlite functional adapter, relational structural
-   runner, then fresh coordinator/repository helpers. Together they eventually
-   cover collision-domain claim, attempts, exact step receipts, recovery,
-   validation, readiness, and availability for one synthetic `system` artifact
-   with no base.
+   runner, then fresh coordinator/repository helpers. The runner uses one
+   source-private exact plan/target-bound token and a fixed four-handler
+   registry; its focused PGlite lane is complete as a distinct functional
+   receipt from the coordinator. The first two slices are complete and the
+   third, fresh coordinator slice remains pending. Together the three slices
+   eventually cover collision-domain claim, attempts, exact step receipts,
+   recovery, validation, readiness, and availability for one synthetic
+   `system` artifact with no base.
 4. **Base-backed additive PGlite candidate:** require the exact authenticated
    base receipts and matching target/owner/lineage/profile, re-observe the base
    under the collision head, retain its compatible structures, and reject
@@ -838,9 +858,10 @@ checkpoint-2 storage contract was accepted and is now complete in
 its additive metadata DDL, stored restoration, all thirteen private repository
 families, exact catalog and constraint evidence, previous-head upgrade, atomic
 rollback/retry, and complete-graph file-backed cold rehydration are covered by
-the manifest-owned serial PGlite gate. It still does not authorize a
+the manifest-owned serial PGlite gate. Checkpoint 2 itself did not authorize a
 relational SQL/DDL runner, opaque target session, lease orchestration, binding,
-adapter, runtime caller, genuine-PostgreSQL claim, or production activation.
+adapter, runtime caller, genuine-PostgreSQL claim, or production activation;
+checkpoint 3 owns its separately reviewed private successors.
 
 ### Checkpoint 2 implemented boundary
 
@@ -859,6 +880,8 @@ opaque live target, target transaction/session, structural runner, operational
 lease/fence policy, recovery, validation publication, and synthetic `system`
 coordination. Its bounded decomposition and current slice status are owned by
 [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
+Its target/session and structural-runner slices are complete; its fresh-
+coordinator slice remains pending.
 
 ## Non-Goals And Stop Conditions
 
@@ -867,8 +890,9 @@ accepted checkpoint-2 successor above is the only authority for its exact
 metadata DDL and repository slices. Stop and open the owning gate before:
 
 - adding any migration file, table declaration, or repository outside the
-  exact checkpoint-2 successor contract, or adding a DDL runner, service,
-  Layer, export, route, runtime caller, or production binding;
+  exact checkpoint-2 successor contract; widening or adding another structural
+  runner beyond checkpoint 3's fixed private four-handler registry; or adding
+  a service, Layer, export, route, runtime caller, or production binding;
 - splitting the common control/target platform migration tree;
 - implementing `DataBindingSet`, Application projection, activation, serving,
   or a system binding slot;
@@ -903,9 +927,11 @@ compatibility.
 The explicit checkpoint-1 and checkpoint-2 approvals have been exercised and
 their private implementation boundaries are complete above and in the
 separately owning checkpoint-2 record. All thirteen accepted repository
-families and the serial PGlite functional gate are implemented. Checkpoint 3
-remains separately gated through
+families and the serial PGlite functional gate are implemented. Checkpoint 3's
+source-private target/session and structural-runner slices have separate
+PGlite-functional receipts through
 [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
-Beyond that separately accepted private target/session functional receipt,
-this record still opens no generated relational DDL, binding, adapter, runtime,
+Slice 3, the fresh coordinator and repository helpers, remains pending. Beyond
+the fixed four-handler fresh structural profile, this record opens no base-
+backed or additional generated relational DDL, binding, adapter, runtime,
 genuine-PostgreSQL, hosted, public, or production gate.
