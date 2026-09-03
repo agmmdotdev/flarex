@@ -84,6 +84,8 @@ type MigrationPlanAggregateRepositoryOperation = Extract<
   | "readAttemptStart"
   | "ensureStepReceipt"
   | "readStepReceipt"
+  | "ensureAttemptTerminal"
+  | "readAttemptTerminal"
 >;
 
 const PLAN_SIDECAR_INSERT_BATCH_SIZE = 256;
@@ -338,9 +340,9 @@ export const readFreshRelationalMigrationPlanInTransactionEffect = Effect.fn(
 });
 
 /** Source-private collision-policy seam for an authenticated digest occupant. */
-export const resolveAuthenticatedFreshRelationalMigrationPlanOccupantEffect =
+const resolveAuthenticatedFreshRelationalMigrationPlanOccupantForOperationEffect =
   Effect.fn(
-    "FrameworkMigrationPlanRepository.resolveOccupant",
+    "FrameworkMigrationPlanRepository.resolveOccupantForOperation",
   )(function* (
     occupant: Option.Option<RestoredFreshRelationalMigrationPlan>,
     collision: RestoredFrameworkMigrationCollisionDomain,
@@ -368,6 +370,27 @@ export const resolveAuthenticatedFreshRelationalMigrationPlanOccupantEffect =
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.immutableConflict(operation),
     );
+  });
+
+export const resolveAuthenticatedFreshRelationalMigrationPlanOccupantEffect =
+  Effect.fn(
+    "FrameworkMigrationPlanRepository.resolveOccupant",
+  )(function* (
+    occupant: Option.Option<RestoredFreshRelationalMigrationPlan>,
+    collision: RestoredFrameworkMigrationCollisionDomain,
+    expected: FreshRelationalMigrationPlan,
+    operation: MigrationPlanRepositoryOperation,
+  ): Effect.fn.Return<
+    Option.Option<RestoredFreshRelationalMigrationPlan>,
+    FrameworkMigrationRepositoryError
+  > {
+    return yield*
+      resolveAuthenticatedFreshRelationalMigrationPlanOccupantForOperationEffect(
+        occupant,
+        collision,
+        expected,
+        operation,
+      );
   });
 
 /**
@@ -420,7 +443,7 @@ export const corroborateRestoredFreshRelationalMigrationPlanInTransactionEffect 
       operation,
     );
     const resolved = yield*
-      resolveAuthenticatedFreshRelationalMigrationPlanOccupantEffect(
+      resolveAuthenticatedFreshRelationalMigrationPlanOccupantForOperationEffect(
         Option.some(occupant),
         storedCollision,
         expectedRestoredPlan.plan,

@@ -44,6 +44,12 @@ export interface CapturedMigrationStepReceiptAuthority {
   readonly step: FrameworkMigrationStep;
 }
 
+export interface CapturedMigrationAttemptTerminalAuthority {
+  readonly admission: PlanAdmission;
+  readonly attempt: MigrationAttempt;
+  readonly stepReceipts: readonly StepReceipt[];
+}
+
 const capturedPlans = new WeakSet<FreshRelationalMigrationPlan>();
 const capturedPlanSteps = new WeakMap<
   FrameworkMigrationStep,
@@ -58,7 +64,10 @@ const capturedStepReceipts = new WeakMap<
   StepReceipt,
   CapturedMigrationStepReceiptAuthority
 >();
-const capturedTerminals = new WeakMap<AttemptTerminal, PlanAdmission>();
+const capturedTerminals = new WeakMap<
+  AttemptTerminal,
+  CapturedMigrationAttemptTerminalAuthority
+>();
 
 export function registerCapturedFreshRelationalMigrationPlan(
   plan: FreshRelationalMigrationPlan,
@@ -122,9 +131,13 @@ export function capturedAuthorityForStepReceipt(
 
 export function registerCapturedFrameworkMigrationAttemptTerminal(
   terminal: AttemptTerminal,
-  admission: PlanAdmission,
+  authority: CapturedMigrationAttemptTerminalAuthority,
 ): void {
-  capturedTerminals.set(terminal, admission);
+  capturedTerminals.set(terminal, Object.freeze({
+    admission: authority.admission,
+    attempt: authority.attempt,
+    stepReceipts: Object.freeze([...authority.stepReceipts]),
+  }));
 }
 
 export function isCapturedFrameworkMigrationAttemptTerminalAuthority(
@@ -136,5 +149,11 @@ export function isCapturedFrameworkMigrationAttemptTerminalAuthority(
 export function capturedFrameworkMigrationTerminalAdmission(
   terminal: AttemptTerminal,
 ): PlanAdmission | undefined {
+  return capturedTerminals.get(terminal)?.admission;
+}
+
+export function capturedAuthorityForAttemptTerminal(
+  terminal: AttemptTerminal,
+): CapturedMigrationAttemptTerminalAuthority | undefined {
   return capturedTerminals.get(terminal);
 }

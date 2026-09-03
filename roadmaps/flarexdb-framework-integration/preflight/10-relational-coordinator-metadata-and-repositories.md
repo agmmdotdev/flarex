@@ -4,8 +4,8 @@ Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
 focused PGlite DDL/catalog evidence, and source-private topological stored-value
 restoration implemented; the private target/collision, physical-name
 assignment, migration-plan aggregate, plan-admission aggregate, and immutable
-attempt-start and step-receipt aggregate repository families are implemented,
-and the later
+attempt-start, step-receipt aggregate, and attempt-terminal aggregate repository
+families are implemented, and the later
 repository families are pending; no target session, generated
 relational DDL, coordinator runtime, binding, adapter, or production activation
 is authorized
@@ -36,7 +36,7 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision,
 physical-name assignment, migration-plan aggregate, plan-admission aggregate,
 immutable attempt-start, and immutable step-receipt families are complete;
-terminal, event, mutable-head,
+attempt-terminal is complete; event, mutable-head,
 installation, readiness, and availability families remain pending.
 
 No slice may construct a live coordinator or widen the public package surface.
@@ -657,7 +657,7 @@ dependencies; each must fail as typed stored corruption. No admission SQL
 kernel, public API, target session, or runtime authority was opened by this
 correction.
 
-### Current target/collision, assignment, plan, admission, attempt, and receipt boundary
+### Current target/collision, assignment, plan, admission, attempt, receipt, and terminal boundary
 
 The current production-inert repository families consist of source-private,
 transaction-parameterized Effects that ensure and exactly read target
@@ -775,10 +775,10 @@ is authenticated evidence, not a replacement semantic identity.
 
 An existing occupant is reconstructed from its actual stored attempt and
 complete transitive dependency-receipt closure. Reconstruction is iterative and
-topological rather than recursive, memoizes each receipt reached during the walk,
-dependency reached during the walk, and rejects cycles, missing dependencies,
-wrong attempts, and non-topological evidence as stored corruption or reference
-refusal at the owning boundary. Root canonical bytes pass the same SQL
+topological rather than recursive, memoizes each receipt reached during the
+walk, and rejects cycles, missing dependencies, wrong attempts, and
+non-topological evidence as stored corruption or reference refusal at the
+owning boundary. Root canonical bytes pass the same SQL
 length-first gate before transfer and canonical authentication as the earlier
 repository families.
 
@@ -810,6 +810,35 @@ Checkpoint 3 must own a transaction/session-scoped authenticated cache,
 materialized closure anchor, or another bounded database proof before
 production activation; this checkpoint does not claim production-scale receipt
 execution.
+
+The immutable attempt-terminal repository accepts one exact restored attempt,
+the captured terminal value, and the complete restored ordinal receipt prefix
+named by that terminal. It corroborates the attempt and prefix in the caller's
+transaction before insertion. Independently restored receipt handles are
+accepted only when their storage identity, attempt lineage, canonical digest,
+canonical bytes, and plan ordinal agree; process-local object identity is not a
+database identity. A restored terminal retains that exact prefix as private
+aggregate authority, and downstream corroboration compares every receipt's
+storage identity, attempt lineage, digest, and canonical bytes against the
+current transaction rather than trusting only the terminal's tail digest.
+
+The semantic identity `(attempt_storage_id)` is resolved before the global
+terminal digest, and both lookups restore the occupant through its actual
+collision, plan, admission, attempt, and receipt-prefix graph. A fresh insert
+stores the exact nullable tail pair and normalized outcome projection. Exact
+replay returns the committed storage identity; any different authentic terminal
+under either uniqueness axis is an immutable conflict. Missing, reordered,
+foreign, or corrupt prefix evidence is refused or reported as stored corruption
+without adding, replacing, or healing receipt rows or dependency sidecars.
+
+Focused PGlite functional evidence covers source privacy, successful full-plan
+completion, failed and decision-uncertain empty or partial prefixes, absence,
+ensure/read/exact replay, semantic-first lookup order, forged and cross-attempt
+reference refusal, downstream full-prefix corroboration, immutable conflict,
+projection and prefix corruption without healing, the canonical length-first
+gate, caller rollback, and exact foreign driver-cause projection. It does not
+prove genuine-PostgreSQL locking,
+concurrency, production-scale prefix reconstruction, or production readiness.
 
 ## Checkpoint-2 Evidence
 
@@ -862,7 +891,7 @@ The exact target-local metadata and repository seam is frozen; its additive
 platform metadata catalog, source-private topological restoration, and private
 target/collision, physical-name assignment, migration-plan aggregate,
 plan-admission aggregate, and immutable attempt-start repository families are
-implemented, together with the immutable step-receipt aggregate repository.
-Terminal, event, mutable-head, installation,
+implemented, together with the immutable step-receipt and attempt-terminal
+aggregate repositories. Event, mutable-head, installation,
 readiness, and availability repositories remain later work. The opaque target
 and coordinator remain checkpoint 3.

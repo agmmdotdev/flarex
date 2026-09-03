@@ -63,6 +63,11 @@ type FrameworkMigrationPlanAdmission = CapturedFrameworkMigrationValue<
   FrameworkMigrationPlanAdmissionSha256
 >;
 
+type PlanAdmissionOwnerRepositoryOperation = Extract<
+  FrameworkMigrationRepositoryOperation,
+  "ensureAdmission" | "readAdmission"
+>;
+
 type PlanAdmissionRepositoryOperation = Extract<
   FrameworkMigrationRepositoryOperation,
   | "ensureAdmission"
@@ -71,6 +76,8 @@ type PlanAdmissionRepositoryOperation = Extract<
   | "readAttemptStart"
   | "ensureStepReceipt"
   | "readStepReceipt"
+  | "ensureAttemptTerminal"
+  | "readAttemptTerminal"
 >;
 
 const ADMISSION_SIDECAR_INSERT_BATCH_SIZE = 256;
@@ -350,9 +357,9 @@ export const readFrameworkMigrationPlanAdmissionInTransactionEffect =
   });
 
 /** Source-private collision-policy seam for an authenticated admission. */
-export const resolveAuthenticatedFrameworkMigrationPlanAdmissionOccupantEffect =
+const resolveAuthenticatedFrameworkMigrationPlanAdmissionOccupantForOperationEffect =
   Effect.fn(
-    "FrameworkMigrationPlanAdmissionRepository.resolveOccupant",
+    "FrameworkMigrationPlanAdmissionRepository.resolveOccupantForOperation",
   )(function* (
     occupant: Option.Option<RestoredFrameworkMigrationPlanAdmission>,
     expectedPlan: RestoredFreshRelationalMigrationPlan,
@@ -391,6 +398,27 @@ export const resolveAuthenticatedFrameworkMigrationPlanAdmissionOccupantEffect =
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.immutableConflict(operation),
     );
+  });
+
+export const resolveAuthenticatedFrameworkMigrationPlanAdmissionOccupantEffect =
+  Effect.fn(
+    "FrameworkMigrationPlanAdmissionRepository.resolveOccupant",
+  )(function* (
+    occupant: Option.Option<RestoredFrameworkMigrationPlanAdmission>,
+    expectedPlan: RestoredFreshRelationalMigrationPlan,
+    expectedAdmission: FrameworkMigrationPlanAdmission,
+    operation: PlanAdmissionOwnerRepositoryOperation,
+  ): Effect.fn.Return<
+    Option.Option<RestoredFrameworkMigrationPlanAdmission>,
+    FrameworkMigrationRepositoryError
+  > {
+    return yield*
+      resolveAuthenticatedFrameworkMigrationPlanAdmissionOccupantForOperationEffect(
+        occupant,
+        expectedPlan,
+        expectedAdmission,
+        operation,
+      );
   });
 
 /**
@@ -437,7 +465,7 @@ export const corroborateRestoredFrameworkMigrationPlanAdmissionInTransactionEffe
       operation,
     );
     const resolved = yield*
-      resolveAuthenticatedFrameworkMigrationPlanAdmissionOccupantEffect(
+      resolveAuthenticatedFrameworkMigrationPlanAdmissionOccupantForOperationEffect(
         Option.some(occupant),
         expectedRestoredAdmission.plan,
         expectedRestoredAdmission.admission,

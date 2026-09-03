@@ -51,6 +51,11 @@ import {
 } from "./targetCollisionRepository";
 import { captureFrameworkSchemaTargetNamespace } from "./targetNamespace";
 
+type PhysicalNameAssignmentOwnerRepositoryOperation = Extract<
+  FrameworkMigrationRepositoryOperation,
+  "ensurePhysicalNameAssignment" | "readPhysicalNameAssignment"
+>;
+
 type PhysicalNameAssignmentRepositoryOperation = Extract<
   FrameworkMigrationRepositoryOperation,
   | "ensurePhysicalNameAssignment"
@@ -63,6 +68,8 @@ type PhysicalNameAssignmentRepositoryOperation = Extract<
   | "readAttemptStart"
   | "ensureStepReceipt"
   | "readStepReceipt"
+  | "ensureAttemptTerminal"
+  | "readAttemptTerminal"
 >;
 
 const PHYSICAL_NAME_ASSIGNMENT_READ_BATCH_SIZE = 512;
@@ -303,7 +310,7 @@ const resolveExpectedAssignment = Effect.fn(
   FrameworkMigrationRepositoryError
 > {
   return yield*
-    resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsEffect(
+    resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsForOperationEffect(
       collision,
       expected,
       operation,
@@ -330,9 +337,9 @@ const resolveExpectedAssignment = Effect.fn(
  * conflicts authoritative without requiring a realizable SHA-256 collision
  * fixture.
  */
-export const resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsEffect =
+const resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsForOperationEffect =
   Effect.fn(
-    "RelationalPhysicalNameAssignmentRepository.resolveOccupants",
+    "RelationalPhysicalNameAssignmentRepository.resolveOccupantsForOperation",
   )(function* (
     collision: RestoredFrameworkMigrationCollisionDomain,
     expected: RelationalPhysicalNameAssignment,
@@ -363,6 +370,27 @@ export const resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsEffect
         expected.frame.spelling,
       ),
     );
+  });
+
+export const resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsEffect =
+  Effect.fn(
+    "RelationalPhysicalNameAssignmentRepository.resolveOccupants",
+  )(function* (
+    collision: RestoredFrameworkMigrationCollisionDomain,
+    expected: RelationalPhysicalNameAssignment,
+    operation: PhysicalNameAssignmentOwnerRepositoryOperation,
+    lookups: PhysicalNameAssignmentOccupantLookups,
+  ): Effect.fn.Return<
+    Option.Option<RestoredRelationalPhysicalNameAssignment>,
+    FrameworkMigrationRepositoryError
+  > {
+    return yield*
+      resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsForOperationEffect(
+        collision,
+        expected,
+        operation,
+        lookups,
+      );
   });
 
 const loadAssignmentByDigest = Effect.fn(

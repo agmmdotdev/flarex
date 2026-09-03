@@ -325,6 +325,10 @@ const restoredStepReceipts = new WeakSet<
 const restoredTerminals = new WeakSet<
   RestoredFrameworkMigrationAttemptTerminal
 >();
+const restoredTerminalStepReceipts = new WeakMap<
+  RestoredFrameworkMigrationAttemptTerminal,
+  readonly RestoredFrameworkMigrationStepReceipt[]
+>();
 
 const brandAssignmentSha256 =
   Brand.nominal<RelationalPhysicalNameAssignmentSha256>();
@@ -1130,7 +1134,7 @@ export const restoreStoredFrameworkMigrationAttemptTerminal = Effect.fn(
       receipt === undefined ||
       step === undefined ||
       !restoredStepReceipts.has(receipt) ||
-      receipt.attempt !== input.attempt ||
+      !sameRestoredAttemptStart(receipt.attempt, input.attempt) ||
       receipt.receipt.frame.stepId !== step.stepId
     ) {
       return yield* corrupt();
@@ -1160,7 +1164,11 @@ export const restoreStoredFrameworkMigrationAttemptTerminal = Effect.fn(
   });
   registerCapturedFrameworkMigrationAttemptTerminal(
     terminal,
-    input.admission.admission,
+    {
+      admission: input.admission.admission,
+      attempt: input.attempt.attempt,
+      stepReceipts: input.stepReceipts.map(receipt => receipt.receipt),
+    },
   );
   const restored = Object.freeze({
     storageId,
@@ -1168,6 +1176,10 @@ export const restoreStoredFrameworkMigrationAttemptTerminal = Effect.fn(
     terminal,
   });
   restoredTerminals.add(restored);
+  restoredTerminalStepReceipts.set(
+    restored,
+    Object.freeze([...input.stepReceipts]),
+  );
   return restored;
 });
 
@@ -1175,6 +1187,12 @@ export function isRestoredFrameworkMigrationAttemptTerminal(
   input: RestoredFrameworkMigrationAttemptTerminal,
 ): boolean {
   return restoredTerminals.has(input);
+}
+
+export function restoredFrameworkMigrationAttemptTerminalStepReceipts(
+  input: RestoredFrameworkMigrationAttemptTerminal,
+): readonly RestoredFrameworkMigrationStepReceipt[] | undefined {
+  return restoredTerminalStepReceipts.get(input);
 }
 
 const decodeMigrationCanonical = Effect.fn(
@@ -1379,6 +1397,18 @@ function sameCollision(
   return sameTargetFrame(left.targetNamespace, right.targetNamespace) &&
     left.owner === right.owner && left.lineageId === right.lineageId &&
     left.physicalNamespaceProfile === right.physicalNamespaceProfile;
+}
+
+function sameRestoredAttemptStart(
+  left: RestoredFrameworkMigrationAttemptStart,
+  right: RestoredFrameworkMigrationAttemptStart,
+): boolean {
+  return left.storageId === right.storageId &&
+    left.collision.storageId === right.collision.storageId &&
+    left.plan.storageId === right.plan.storageId &&
+    left.admission.storageId === right.admission.storageId &&
+    left.attempt.sha256 === right.attempt.sha256 &&
+    left.attempt.canonicalJson === right.attempt.canonicalJson;
 }
 
 function mapPhysicalRestorationError(

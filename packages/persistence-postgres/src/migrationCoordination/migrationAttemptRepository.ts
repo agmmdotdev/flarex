@@ -68,6 +68,8 @@ type AttemptStartAggregateRepositoryOperation = Extract<
   | "readAttemptStart"
   | "ensureStepReceipt"
   | "readStepReceipt"
+  | "ensureAttemptTerminal"
+  | "readAttemptTerminal"
 >;
 
 interface PreparedFrameworkMigrationAttemptStart {

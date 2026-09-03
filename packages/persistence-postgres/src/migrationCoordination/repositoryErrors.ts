@@ -14,7 +14,9 @@ export type FrameworkMigrationRepositoryOperation =
   | "ensureAttemptStart"
   | "readAttemptStart"
   | "ensureStepReceipt"
-  | "readStepReceipt";
+  | "readStepReceipt"
+  | "ensureAttemptTerminal"
+  | "readAttemptTerminal";
 
 export type FrameworkMigrationRepositoryReason =
   | "immutableConflict"

@@ -737,7 +737,11 @@ export const captureFrameworkMigrationAttemptTerminal = Effect.fn(
   const terminal = yield* captureLedgerValue(frame, brandTerminalSha256);
   registerCapturedFrameworkMigrationAttemptTerminal(
     terminal,
-    attemptAuthority.admission,
+    {
+      admission: attemptAuthority.admission,
+      attempt: input.attempt,
+      stepReceipts: input.stepReceipts,
+    },
   );
   return terminal;
 });
