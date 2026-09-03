@@ -27,7 +27,10 @@ export type FrameworkMigrationRepositoryOperation =
   | "readCollisionHead"
   | "compareAndSwapCollisionHead"
   | "appendAvailabilityHistory"
-  | "readAvailabilityHistory";
+  | "readAvailabilityHistory"
+  | "initializeAvailabilityHead"
+  | "readAvailabilityHead"
+  | "compareAndSwapAvailabilityHead";
 
 export type FrameworkMigrationRepositoryReason =
   | "immutableConflict"
