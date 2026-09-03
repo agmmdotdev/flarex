@@ -1,16 +1,11 @@
 # Relational Coordinator Metadata And Repositories Preflight
 
-Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
-focused PGlite DDL/catalog evidence, and source-private topological stored-value
-restoration implemented; the private target/collision, physical-name
-assignment, migration-plan aggregate, plan-admission aggregate, immutable
-attempt-start, step-receipt aggregate, attempt-terminal aggregate, migration-
-event, mutable collision-head, schema-installation, schema-readiness,
-schema-availability-history, and mutable availability-head repository families
-are implemented; the complete checkpoint-2 PGlite acceptance receipt remains
-pending; no target session, generated
-relational DDL, coordinator runtime, binding, adapter, or production activation
-is authorized
+Status: accepted and complete checkpoint-2 storage contract as of 2026-09-03;
+additive private metadata DDL, source-private topological restoration, all
+thirteen transaction-parameterized repository families, and the complete
+serial PGlite functional gate are implemented. No target session,
+generated relational DDL, coordinator runtime, binding, adapter, genuine-
+PostgreSQL acceptance, or production activation is authorized
 
 Last reviewed: 2026-09-03
 
@@ -33,10 +28,11 @@ Checkpoint 2 is intentionally divided into complete bounded slices:
 2. add the private Drizzle declarations and one additive platform migration;
 3. add source-private topological stored-value restoration;
 4. add transaction-parameterized exact-write, exact-read, and CAS kernels; and
-5. complete PGlite storage/repository evidence and record the receipt.
+5. complete the consolidated PGlite storage/repository evidence gate.
 
-Slices 1 through 4 are complete. Slice 5, the complete checkpoint-2 PGlite
-storage and repository acceptance receipt, remains pending.
+Slices 1 through 5 are complete. Checkpoint 2 is closed as a source-private,
+production-inert PGlite storage and repository proof. The opaque target and
+coordinator remain the separately gated checkpoint 3.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -661,7 +657,7 @@ dependencies; each must fail as typed stored corruption. No admission SQL
 kernel, public API, target session, or runtime authority was opened by this
 correction.
 
-### Current target/collision, assignment, plan, admission, attempt, receipt, terminal, installation, and readiness boundary
+### Current checkpoint-2 repository boundary
 
 The current production-inert repository families consist of source-private,
 transaction-parameterized Effects that ensure and exactly read target
@@ -799,10 +795,11 @@ healing, the canonical length-first gate, and foreign driver-cause projection.
 It does not prove genuine-PostgreSQL locking, concurrency, production-scale
 performance, or production readiness.
 
-This slice changes no DDL or Drizzle schema and creates no package-root export,
-public API, live target, coordinator runtime, lock, lease policy, CAS,
-installation, readiness, or availability behavior. The collision-head and
-availability repository families remain pending.
+The step-receipt slice itself changed no DDL or Drizzle schema and created no
+package-root export, public API, live target, coordinator runtime, lock, or
+lease policy. Later bounded slices under this same contract added terminal,
+event, collision-head CAS, installation, readiness, availability-history, and
+availability-head CAS storage without widening those closed boundaries.
 
 Receipt-closure memoization is deliberately local to one repository call. A
 linear plan of `N` steps executed only through these production-inert kernels
@@ -1027,9 +1024,51 @@ rollback, and exact foreign driver-cause projection. This does not prove
 genuine-PostgreSQL concurrent-CAS behavior, locking, operational contention,
 production readiness, or checkpoint-3 availability policy.
 
+### Completed checkpoint-2 PGlite functional gate
+
+Checkpoint 2 is complete as a source-private, production-inert functional
+storage and repository capability.
+
+The reproducible package command is:
+
+```text
+pnpm --filter @flarex/persistence-postgres test:framework-coordinator-checkpoint2:pglite
+```
+
+The manifest-owned lane uses one worker with file parallelism disabled. It
+contains separate fail-closed selections for fresh/idempotent migration and
+0079-to-0080 atomic upgrade plus one explicit group for the canonical-value,
+storage, restoration, repository, and file-backed cold-reopen matrix. A
+companion runner test pins the package alias, both migration-title filters, and
+the exact group membership.
+
+The evidence covers fresh and idempotent installation, the 0079 upgrade with
+old state retained and eighteen new tables empty, injected final-statement
+rollback of all new tables, sequences, and migration receipt followed by
+successful retry, and the exact table/column/sequence/collation/constraint/FK/
+index catalog. Representative raw DML proves database constraint enforcement;
+the source-private repositories separately prove typed reference refusal and
+stale-CAS behavior before or at their owned boundary.
+
+All thirteen repository families prove exact write/read/replay, bounded
+canonical-byte authentication, projection and sidecar validation, corruption
+rejection without healing, caller-owned rollback, and exact foreign driver-
+cause preservation. The dedicated file-backed test writes the complete
+terminal, readiness-published event, collision-head, installation, readiness,
+availability-history, and availability-head graph, closes PGlite, reopens the
+same data directory, recaptures only deterministic lookup values, and
+topologically reauthenticates the graph without carrying a restored handle
+across the close. Package-boundary tests keep every declaration, codec,
+authority accessor, and repository kernel source-private.
+
+This gate is PGlite-functional evidence only. It makes no genuine-
+PostgreSQL concurrency, lock, lease, timeout, cancellation, uncertain-
+settlement, generated-target-DDL, runtime, hosted, or production claim.
+
 ## Checkpoint-2 Evidence
 
-PGlite is the functional lane for this checkpoint. Completion requires:
+PGlite is the functional lane for this checkpoint. The implemented evidence
+matrix covers:
 
 - fresh migration plus idempotent second migration and exact table inventory;
 - upgrade from the immediately preceding migration with representative old
@@ -1039,9 +1078,10 @@ PGlite is the functional lane for this checkpoint. Completion requires:
 - exact columns, identity sequences, collations, PKs, unique keys, checks,
   foreign-key column order/actions, and index inventory;
 - database rejection for malformed digest/length/format/version, invalid enum,
-  invalid range, incoherent nullable tuple, physical-name collision,
-  cross-collision/cross-plan/cross-attempt reference, duplicate immutable
-  receipt, missing history predecessor, and stale CAS;
+  invalid range, incoherent nullable tuple, and physical-name collision, plus
+  typed repository rejection for cross-collision/cross-plan/cross-attempt
+  references, duplicate immutable receipts, missing history predecessors, and
+  stale CAS;
 - exact write/read/replay for every canonical aggregate;
 - extra/missing/reordered sidecar and corrupted-byte rejection;
 - cold close/reopen and topological rehydration; and
@@ -1082,5 +1122,7 @@ implemented, together with the immutable step-receipt and attempt-terminal
 aggregate repositories and the immutable schema-installation and readiness
 repositories, plus the immutable migration-event and schema-availability
 histories and the mutable collision-head and availability-head repositories.
-The complete checkpoint-2 PGlite acceptance receipt remains before exit. The
-opaque target and coordinator remain checkpoint 3.
+The complete PGlite functional gate above closes checkpoint 2. The opaque
+target and coordinator remain checkpoint 3 and require their own decision;
+this exit opens no generated relational DDL, binding, runtime, public, hosted,
+genuine-PostgreSQL, or production surface.

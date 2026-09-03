@@ -1,14 +1,10 @@
 # Relational Installation And Migration Coordination Preflight
 
-Status: accepted; checkpoint 1 private pure values and goldens implemented;
-checkpoint 2 exact metadata/repository contract accepted separately and its
-additive private metadata DDL, focused PGlite catalog evidence, stored
-restoration, target/collision repository family, physical-name assignment
-repository family, migration-plan aggregate repository family, and
-plan-admission aggregate repository family implemented; later repositories
-remain pending; no target
-session, generated relational DDL, runtime caller, binding, or activation is
-implemented
+Status: accepted; checkpoint 1 private pure values and goldens and checkpoint 2
+private metadata, topological restoration, all thirteen repository families,
+and their serial PGlite functional gate are complete. No target session,
+generated relational DDL, coordinator runtime, genuine-PostgreSQL acceptance,
+binding, or activation is implemented
 
 Last reviewed: 2026-09-03
 
@@ -830,14 +826,31 @@ root export or package export-map entry. Focused proof lives in
 `frameworkSchemaInstallationValues.test.ts`.
 
 This checkpoint-1 receipt did not itself authorize checkpoint 2. The separate
-checkpoint-2 storage contract is now accepted in
+checkpoint-2 storage contract was accepted and is now complete in
 [`10-relational-coordinator-metadata-and-repositories.md`](./10-relational-coordinator-metadata-and-repositories.md);
-its first additive metadata DDL slice is now complete with focused PGlite
-catalog, previous-head upgrade, atomic rollback/retry, representative root
-constraint/foreign-key/uniqueness rejection, nullable discriminated-tuple
-rejection, and root-row cold-reopen evidence. It still does not authorize a
+its additive metadata DDL, stored restoration, all thirteen private repository
+families, exact catalog and constraint evidence, previous-head upgrade, atomic
+rollback/retry, and complete-graph file-backed cold rehydration are covered by
+the manifest-owned serial PGlite gate. It still does not authorize a
 relational SQL/DDL runner, opaque target session, lease orchestration, binding,
-adapter, runtime caller, or production activation.
+adapter, runtime caller, genuine-PostgreSQL claim, or production activation.
+
+### Checkpoint 2 implemented boundary
+
+Checkpoint 2 is complete as a source-private, production-inert PGlite storage
+and repository capability.
+
+The exact eighteen-table catalog, normalized sidecars, canonical-byte
+authentication, transaction-parameterized immutable/CAS kernels, corruption
+and no-healing rules, and topological restoration contract are implemented by
+the separately owning checkpoint-2 record. Its manifest-owned package lane
+serializes the selected migration, canonical-value, storage, restoration,
+repository, and file-backed complete-graph cold-reopen evidence.
+
+This closes only checkpoint 2. Checkpoint 3 remains the first owner of an
+opaque live target, target transaction/session, structural runner, operational
+lease/fence policy, recovery, validation publication, and synthetic `system`
+coordination.
 
 ## Non-Goals And Stop Conditions
 
@@ -871,19 +884,18 @@ metadata DDL and repository slices. Stop and open the owning gate before:
 ## Exit Decision
 
 The installation and structural migration authority has passed its private pure
-value checkpoint and additive metadata-DDL slice. The plan/installation digest
+value checkpoint and complete checkpoint-2 metadata/repository PGlite gate. The
+plan/installation digest
 cycle is removed, different candidates share one stable DDL collision domain,
 semantic IDs no longer leak into PostgreSQL identifiers, scope isolation is a
 physical invariant, coexisting additive candidates have an exact observed-
 projection meaning, and physical evidence cannot masquerade as runtime
 compatibility.
 
-The explicit checkpoint-1 approval has now been exercised and its private
-pure-value receipt is complete above. Checkpoint 2 is separately accepted, and
-its additive private metadata DDL, stored restoration, and first
-target/collision, physical-name assignment, migration-plan aggregate, and
-plan-admission aggregate repository families are complete; later repository
-kernels remain pending in that checkpoint. This
-record still opens
+The explicit checkpoint-1 and checkpoint-2 approvals have been exercised and
+their private implementation boundaries are complete above and in the
+separately owning checkpoint-2 record. All thirteen accepted repository
+families and the serial PGlite functional gate are implemented. Checkpoint 3
+remains a separate decision. This record still opens
 no generated relational DDL, target execution, binding, adapter, runtime,
-hosted, public, or production gate.
+genuine-PostgreSQL, hosted, public, or production gate.

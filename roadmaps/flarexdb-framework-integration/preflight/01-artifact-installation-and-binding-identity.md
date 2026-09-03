@@ -8,12 +8,15 @@ control-session, and PGlite plus genuine-PostgreSQL acceptance are also complete
 The current Application lifecycle, scope authority, catalog identity,
 persistence placement, and Effect ownership have been audited. This record
 freezes the additive architecture and exact artifact-envelope contract.
-Installation, readiness, availability, Application-bridge, and binding
-persistence codecs remain unimplemented. The relational installation,
-physical-lowering, structural migration, readiness, and availability authority
-is now accepted in design by
-[`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md);
-Application projection and binding remain the following preflight.
+The separately owned relational installation, physical-lowering, structural-
+migration, readiness, and availability checkpoints 1 and 2 are now complete
+through their production-inert serial PGlite storage/repository gate in
+[`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md)
+and
+[`10-relational-coordinator-metadata-and-repositories.md`](./10-relational-coordinator-metadata-and-repositories.md).
+Their live coordinator and genuine-PostgreSQL gates remain pending, while the
+Application bridge and binding persistence contracts remain the following
+separate preflight.
 
 The completed checkpoint is limited to the owner-qualified artifact value
 model, canonical capture, digest policy, capture failures, and contract tests
@@ -1123,14 +1126,16 @@ This identity record does not itself claim those later receipts.
    exact Medusa and Payload audits plus the private value-only
    `RelationalSchema` are complete as recorded by
    [`08-relational-schema-value-contract.md`](./08-relational-schema-value-contract.md).
-4. **Installation/readiness/availability and migration-coordinator design —
-   complete; implementation pending:**
+4. **Installation/readiness/availability and migration-coordinator values plus
+   private storage/repositories — complete through checkpoint 2:**
     [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md)
     freezes the cycle-free identity graph, alias-safe physical target identity,
     physical lowering and name assignments, collision domain, plan, fencing,
-    ledger, recovery, capability-evidence, and database proof boundaries. Its
-    first pure value checkpoint remains separately authorized; no repository or
-    DDL exists.
+    ledger, recovery, capability-evidence, and database proof boundaries.
+    [`10-relational-coordinator-metadata-and-repositories.md`](./10-relational-coordinator-metadata-and-repositories.md)
+    owns the completed exact private metadata, restoration, thirteen repository
+    families, and serial PGlite evidence gate. Checkpoint 3 remains the first
+    live target/coordinator gate.
 5. **Application projection and DataBindingSet frame/repository preflight:**
    freeze every remaining codec, add the Application-owned coherent bridge,
    then design target-local candidates/history/head and activation proof.
@@ -1153,13 +1158,12 @@ distinguish desired artifacts from physical proof, current availability, and
 subordinate framework selection. The repository implementation and its focused
 PGlite plus genuine-PostgreSQL acceptance are owned by
 [`02-artifact-repository-and-ddl.md`](./02-artifact-repository-and-ddl.md).
-Work may proceed only through the installation/readiness/availability and
-migration-coordination checkpoints, followed by the separate binding order
-named by
+Work may proceed only through the remaining separately gated live coordinator,
+base-backed, and genuine-PostgreSQL checkpoints, followed by the separate
+binding order named by
 [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).
-The next bounded implementation is only the pure target-namespace/physical-
-layout/name-assignment/plan/ledger and installation/readiness/availability value
-checkpoint from
+The next bounded implementation decision is checkpoint 3's opaque target
+session and fresh synthetic-`system` PGlite coordinator from
 [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
-All repository, DDL, binding, adapter, runtime, public, and production gates
-remain closed until their own preflights pass.
+Generated relational DDL, binding, adapter, public, genuine-PostgreSQL,
+hosted, and production gates remain closed until their own checkpoints pass.

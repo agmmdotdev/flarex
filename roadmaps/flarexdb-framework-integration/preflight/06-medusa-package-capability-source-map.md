@@ -1,11 +1,12 @@
 # Medusa Package And Capability Source Map
 
 Status: accepted source audit for the pinned inert fork; private relational
-value admission complete, while installation, package promotion, adapter
-implementation, runtime imports, writes, and production activation remain
-unauthorized
+value admission and framework-neutral coordinator checkpoints 1 and 2 are
+complete, while a live Medusa installation/candidate, package promotion,
+adapter implementation, runtime imports, writes, and production activation
+remain unauthorized
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 ## Decision
 

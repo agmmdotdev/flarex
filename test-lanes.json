@@ -1,6 +1,28 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
+    "framework-coordinator-checkpoint2-pglite": [
+      "test/privateCanonicalValue.test.ts",
+      "test/relationalSchemaPhysical.test.ts",
+      "test/migrationCoordinationValues.test.ts",
+      "test/frameworkSchemaInstallationValues.test.ts",
+      "test/frameworkCoordinatorMetadataStorage.test.ts",
+      "test/frameworkCoordinatorStoredRestoration.test.ts",
+      "test/frameworkCoordinatorColdReopen.test.ts",
+      "test/frameworkCoordinatorTargetCollisionRepository.test.ts",
+      "test/frameworkCoordinatorPhysicalNameAssignmentRepository.test.ts",
+      "test/frameworkCoordinatorMigrationPlanRepository.test.ts",
+      "test/frameworkCoordinatorMigrationPlanAdmissionRepository.test.ts",
+      "test/frameworkCoordinatorMigrationAttemptRepository.test.ts",
+      "test/frameworkCoordinatorMigrationStepReceiptRepository.test.ts",
+      "test/frameworkCoordinatorMigrationAttemptTerminalRepository.test.ts",
+      "test/frameworkCoordinatorSchemaInstallationRepository.test.ts",
+      "test/frameworkCoordinatorSchemaReadinessRepository.test.ts",
+      "test/frameworkCoordinatorMigrationEventRepository.test.ts",
+      "test/frameworkCoordinatorMigrationCollisionHeadRepository.test.ts",
+      "test/frameworkCoordinatorSchemaAvailabilityHistoryRepository.test.ts",
+      "test/frameworkCoordinatorSchemaAvailabilityHeadRepository.test.ts"
+    ],
     "c08-b2-o09-b-pglite": [
       "test/appUniqueKeys.test.ts",
       "test/storedAttemptEvidence.test.ts"
@@ -20,6 +42,9 @@
     ],
     "integration": [
       "integration-root"
+    ],
+    "framework-coordinator-checkpoint2-pglite": [
+      "framework-coordinator-checkpoint2-pglite"
     ],
     "postgres": [
       "postgres-persistence",
@@ -123,6 +148,60 @@
           "command": "pnpm",
           "args": [
             "test:pglite"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-coordinator-checkpoint2-pglite",
+      "category": "pglite",
+      "proof": "The complete source-private checkpoint-2 functional receipt: selected fresh/idempotent and 0079-to-0080 atomic-upgrade PGlite migration evidence, exact coordinator catalog and cold restoration, and every canonical-value and transaction-parameterized repository family. This does not prove genuine PostgreSQL locking, concurrency, runtime activation, or production readiness.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-framework-coordinator-fresh-migration-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/pglite.migrations.test.ts",
+            "--testNamePattern=runs.Drizzle.Kit.migrations.idempotently",
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        },
+        {
+          "id": "persistence-framework-coordinator-upgrade-migration-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/pglite.migrations.test.ts",
+            "--testNamePattern=adds.framework.coordinator.metadata.atomically.after.0079",
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        },
+        {
+          "id": "persistence-framework-coordinator-values-repositories-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-coordinator-checkpoint2-pglite"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
           ]
         }
       ]

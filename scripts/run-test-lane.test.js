@@ -77,6 +77,93 @@ describe("test lane manifest and runner", () => {
       .toBe("node ../../scripts/run-test-lane.mjs dte05-e2c1-pglite");
   });
 
+  it("pins the complete framework-coordinator checkpoint-2 PGlite receipt", () => {
+    const manifest = loadTestLaneManifest();
+    const lane = resolveTestLaneSelection(
+      manifest,
+      "framework-coordinator-checkpoint2-pglite",
+    )[0];
+    expect(lane.steps).toHaveLength(3);
+    const [freshMigration, upgradeMigration, valuesAndRepositories] =
+      lane.steps;
+    if (
+      freshMigration === undefined || upgradeMigration === undefined ||
+      valuesAndRepositories === undefined
+    ) {
+      throw new Error("Checkpoint-2 PGlite receipt must retain three steps");
+    }
+
+    expect(resolveTestLaneStepArguments(manifest, freshMigration)).toEqual([
+      "exec",
+      "vitest",
+      "run",
+      "test/pglite.migrations.test.ts",
+      "--testNamePattern=runs.Drizzle.Kit.migrations.idempotently",
+      "--no-file-parallelism",
+      "--maxWorkers=1",
+      "--testTimeout=180000",
+    ]);
+    expect(resolveTestLaneStepArguments(manifest, upgradeMigration)).toEqual([
+      "exec",
+      "vitest",
+      "run",
+      "test/pglite.migrations.test.ts",
+      "--testNamePattern=adds.framework.coordinator.metadata.atomically.after.0079",
+      "--no-file-parallelism",
+      "--maxWorkers=1",
+      "--testTimeout=180000",
+    ]);
+    expect(
+      resolveTestLaneStepArguments(manifest, valuesAndRepositories),
+    ).toEqual([
+      "exec",
+      "vitest",
+      "run",
+      "test/privateCanonicalValue.test.ts",
+      "test/relationalSchemaPhysical.test.ts",
+      "test/migrationCoordinationValues.test.ts",
+      "test/frameworkSchemaInstallationValues.test.ts",
+      "test/frameworkCoordinatorMetadataStorage.test.ts",
+      "test/frameworkCoordinatorStoredRestoration.test.ts",
+      "test/frameworkCoordinatorColdReopen.test.ts",
+      "test/frameworkCoordinatorTargetCollisionRepository.test.ts",
+      "test/frameworkCoordinatorPhysicalNameAssignmentRepository.test.ts",
+      "test/frameworkCoordinatorMigrationPlanRepository.test.ts",
+      "test/frameworkCoordinatorMigrationPlanAdmissionRepository.test.ts",
+      "test/frameworkCoordinatorMigrationAttemptRepository.test.ts",
+      "test/frameworkCoordinatorMigrationStepReceiptRepository.test.ts",
+      "test/frameworkCoordinatorMigrationAttemptTerminalRepository.test.ts",
+      "test/frameworkCoordinatorSchemaInstallationRepository.test.ts",
+      "test/frameworkCoordinatorSchemaReadinessRepository.test.ts",
+      "test/frameworkCoordinatorMigrationEventRepository.test.ts",
+      "test/frameworkCoordinatorMigrationCollisionHeadRepository.test.ts",
+      "test/frameworkCoordinatorSchemaAvailabilityHistoryRepository.test.ts",
+      "test/frameworkCoordinatorSchemaAvailabilityHeadRepository.test.ts",
+      "--no-file-parallelism",
+      "--maxWorkers=1",
+      "--testTimeout=180000",
+    ]);
+
+    const migrationSource = readFileSync(
+      "packages/persistence-postgres/test/pglite.migrations.test.ts",
+      "utf8",
+    );
+    expect(migrationSource).toContain(
+      'it("runs Drizzle Kit migrations idempotently"',
+    );
+    expect(migrationSource).toContain(
+      'it("adds framework coordinator metadata atomically after 0079"',
+    );
+    const packageManifest = JSON.parse(
+      readFileSync("packages/persistence-postgres/package.json", "utf8"),
+    );
+    expect(
+      packageManifest.scripts?.["test:framework-coordinator-checkpoint2:pglite"],
+    ).toBe(
+      "node ../../scripts/run-test-lane.mjs framework-coordinator-checkpoint2-pglite",
+    );
+  });
+
   it("expands shared C08-B2 and O09-B files inside each original Vitest invocation", () => {
     const manifest = loadTestLaneManifest();
     const packageManifest = JSON.parse(

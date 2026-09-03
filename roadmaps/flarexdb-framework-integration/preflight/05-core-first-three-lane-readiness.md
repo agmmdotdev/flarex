@@ -1,11 +1,12 @@
 # Core-First Three-Lane Readiness
 
-Status: accepted execution sequence; consumer audits and the private value-only
-relational schema are complete; the installation/migration authority is
-accepted in design only, and all shared-core lifecycle implementation and
-binding gates remain pending
+Status: accepted execution sequence; consumer audits, the private value-only
+relational schema, and the production-inert installation/migration checkpoints
+1 and 2 are complete through their serial PGlite storage/repository gate. Live
+coordinator, genuine-PostgreSQL, transaction, binding, adapter,
+and production gates remain pending
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 ## Decision
 
@@ -48,14 +49,20 @@ The repository already proves two separate foundations:
   behavior for the admitted non-reactive profile.
 
 Those foundations now also include the private, production-inert
-`RelationalSchema` value contract recorded by
-[`08-relational-schema-value-contract.md`](./08-relational-schema-value-contract.md).
-The following later mechanisms remain absent:
+`RelationalSchema` value contract and checkpoints 1 and 2 of the relational
+installation/migration authority recorded by
+[`08-relational-schema-value-contract.md`](./08-relational-schema-value-contract.md),
+[`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md),
+and
+[`10-relational-coordinator-metadata-and-repositories.md`](./10-relational-coordinator-metadata-and-repositories.md).
+The latter supplies exact private metadata, topological restoration, all
+thirteen transaction-parameterized repository families, and a dedicated serial
+PGlite gate, but no live coordinator. The following later mechanisms remain
+absent:
 
-- installation, readiness, and availability repositories for framework-owned
-  relational installations;
-- a framework structural migration-plan coordinator and durable execution
-  ledger;
+- an opaque target session and live framework structural migration-plan
+  coordinator that executes the durably stored plan/ledger values;
+- base-backed and genuine-PostgreSQL coordinator acceptance;
 - the Application projection, `DataBindingSet`, binding/activation repository,
   and serving admission;
 - an owner-scoped relational transaction/store capability;
@@ -360,21 +367,20 @@ Stop and open the owning preflight if a slice would:
   an incidental framework step; or
 - expose public, hosted, or production behavior.
 
-## Next Authorized Slice
+## Next Gated Slice
 
-Both consumer constraint records and the private value-only
-`RelationalSchema` contract are complete. The installation/readiness/
-availability and structural migration-coordination design is also accepted in
+Both consumer constraint records, the private value-only `RelationalSchema`,
+and installation/migration checkpoints 1 and 2 are complete. The complete
+design and checkpoint ordering are recorded in
 [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
 
-The next separately reviewable behavior slice is its checkpoint 1: pure
-target-namespace, physical-name/layout and assignment, fresh structural plan,
-plan-admission, ledger, installation, readiness, capability-evidence,
-availability-history, and per-installation availability-head value frames with
-golden tests. It adds no SQL, table declaration, migration file, repository,
-target transaction, binding, runtime caller, adapter, public API, or production
-path.
+The next separately reviewable behavior slice is checkpoint 3: an opaque target
+session and PGlite coordinator for one fresh synthetic `system` artifact. It is
+the first gate allowed to own the target transaction, structural runner,
+operational claim/lease/fence policy, recovery, validation, readiness
+publication, and availability publication. That is a material authority and
+runtime change and requires its own explicit decision before implementation.
 
-Additive coordinator metadata DDL, target execution, PostgreSQL acceptance,
-Application projection/`DataBindingSet`, transaction/store, and commit owners
-remain later separately approved checkpoints.
+Base-backed target execution, genuine-PostgreSQL acceptance, Application
+projection/`DataBindingSet`, transaction/store, and commit owners remain later
+separately approved checkpoints.

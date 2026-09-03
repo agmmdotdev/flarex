@@ -2,14 +2,12 @@
 
 ## Status And Scope
 
-Status: value-only relational schema, the first pure physical/coordination/
-lifecycle value checkpoint, additive private coordinator metadata DDL, and
-source-private topological restoration implemented production-inert;
-the private target/collision, physical-name assignment, migration-plan
-aggregate, plan-admission aggregate, and immutable attempt-start repository
-families are also implemented, together with the source-private immutable
-step-receipt aggregate; remaining repositories, generated
-relational DDL, target-session, binding, and runtime gates remain closed
+Status: value-only relational schema and checkpoints 1 and 2 of the private
+physical/coordination/lifecycle program are complete and production-inert. The
+additive coordinator metadata DDL, source-private topological restoration, all
+thirteen repository families, and their manifest-owned serial PGlite evidence
+lane are implemented; generated relational DDL, target-session/coordinator runtime,
+genuine-PostgreSQL acceptance, binding, and activation gates remain closed
 
 This plan owns the value-only relational schema boundary and the shared
 execution mechanics for framework-owned migration plans. It does not own DML,
@@ -51,18 +49,15 @@ Its first pure-value checkpoint is implemented under the private
 `frameworkSchema/installation` owners. The exact checkpoint-2 metadata,
 cold-rehydration, and private repository contract is accepted in
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
-Its additive private metadata storage, focused PGlite DDL/catalog evidence, and
-source-private stored restoration are implemented. The private target/collision,
-physical-name assignment, migration-plan aggregate, and plan-admission
-aggregate and immutable attempt-start repository families are implemented. The
-source-private immutable step-receipt aggregate is also implemented:
-it takes a restored attempt plus explicit dependency-receipt handles, resolves
-semantic identity before lazily consulting global digest identity, restores
-the dependency closure iteratively in topological order with memoization, and
-writes ordered sidecars only with a fresh root without healing committed
-aggregates. Terminal, event, mutable-head, installation, readiness, and
-availability repository families remain pending. Target sessions,
-generated relational DDL,
+Its additive private metadata storage, exact PGlite DDL/catalog evidence,
+source-private stored restoration, and all thirteen transaction-parameterized
+repository families are implemented. They cover target/collision,
+physical-name assignment, migration plan/admission, attempt, step-receipt,
+terminal, event, collision-head, installation, readiness, availability-history,
+and availability-head aggregates. The manifest-owned serial lane passes
+the selected migration, canonical-value, storage, restoration, repository, and
+file-backed complete-graph cold-reopen matrix. Target sessions, generated
+relational DDL,
 the Application projection,
 `DataBindingSet`, activation, and serving also remain pending.
 
@@ -222,9 +217,10 @@ until the Medusa data-migration and binding gates define its exact identity.
 
 ## First Proof
 
-The value-only schema proof is complete. Before wiring any framework adapter or
-promoting an active Medusa package, separately preflight and prove the
-coordinator on a small synthetic reserved-relational schema:
+The value-only schema proof and private checkpoint-2 storage/repository PGlite
+proof are complete. Before wiring any framework adapter or promoting an active
+Medusa package, checkpoint 3 and its successors must separately implement and
+prove the live coordinator on a small synthetic reserved-relational schema:
 
 - fresh install;
 - interrupted step and exact resume;
@@ -237,9 +233,12 @@ coordinator on a small synthetic reserved-relational schema:
 
 The design boundary and ordered implementation checkpoints are frozen by
 [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md).
-The exact checkpoint-2 storage/repository boundary is frozen by
+The exact checkpoint-2 storage/repository boundary and functional evidence
+matrix are frozen by
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
-The coordinator proof stops at authenticated readiness and availability. Next
+Checkpoint 3 remains the first live target-session/PGlite coordinator gate,
+followed by the base-backed and genuine-PostgreSQL gates. Only after that
+coordinator proof reaches authenticated readiness and availability should work
 complete the Application-projection and `DataBindingSet` preflight, then a
 separate synthetic-`system` selection preflight because the initial binding set
 has no system slot. Only then complete the transaction-owner and owner-scoped

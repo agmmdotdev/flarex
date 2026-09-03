@@ -28,23 +28,17 @@ the PGlite and genuine-PostgreSQL lanes complete the private repository
 checkpoint. Later lifecycle codecs remain gated.
 
 The exact Medusa package/capability map and Payload `3.88.0` adapter-contract
-audit are accepted, and the private value-only relational schema plus the first
-physical/lifecycle/migration value checkpoint are implemented and
-production-inert. The exact target-local coordinator metadata and private
-repository contract is accepted; its additive private metadata DDL and focused
-PGlite catalog/rollback plus representative root constraint, foreign-key,
-uniqueness, nullable-tuple rejection, and root-row cold-reopen evidence are
-implemented, together with source-private topological reconstruction into the
-shared runtime authority graphs and the private target/collision,
-physical-name assignment, migration-plan aggregate, and plan-admission
-aggregate and immutable attempt-start repository families. The source-private
-immutable step-receipt aggregate is also implemented: it accepts a
-restored attempt plus explicit dependency-receipt handles, resolves semantic
-identity before a lazy global-digest conflict lookup, reconstructs dependency
-closure iteratively in topological order with memoization, and writes ordered
-sidecars only for a fresh root without healing. Remaining repositories,
-target sessions, generated relational DDL, the later binding checkpoint,
-Payload/Medusa adapters, runtime wiring, and production work remain pending.
+audit are accepted, and the private value-only relational schema plus
+coordinator checkpoints 1 and 2 are implemented and production-inert. The
+checkpoint-2 owner now contains the exact additive eighteen-table metadata
+catalog, source-private topological restoration, and all thirteen
+transaction-parameterized repository families through terminal/event,
+collision-head, installation/readiness, and availability history/head. Its
+manifest-owned serial PGlite lane covers selected migration, canonical-value,
+catalog, restoration, repository, and file-backed complete-graph cold-reopen
+behavior. Target sessions, generated relational DDL, the later
+binding checkpoint, Payload/Medusa adapters, genuine-PostgreSQL coordinator
+acceptance, runtime wiring, and production work remain pending.
 
 This domain owns the extraction and admission of shared FlarexDB mechanisms
 needed by Payload and Medusa, plus the ordered adapter conformance work that
@@ -154,8 +148,8 @@ Preflight records:
 | [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md) | Accepted exact source/capability audit; no promotion or runtime activation | Mature-DML authority, reproducible 65-input Currency semantic graph, exploratory broader graph notes, reuse classifications, retained evidence, and deferred Query/Link/workflow/lock/idempotency/event gates |
 | [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md) | Accepted exact `payload@3.88.0` audit; no dependency, adapter, or runtime activation | Adapter surface, request nesting, hook/transaction constraint, internal collections, first headless scalar profile, relation cutline, and migration/host boundary |
 | [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md) | Implemented privately; value evidence complete and no DDL/runtime activation | Exact first-slice relational value vocabulary, deterministic normalization, framework-artifact composition, Currency and synthetic fixtures, and closed downstream gates |
-| [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; checkpoint 1 private values plus checkpoint-2 metadata DDL, restoration, and target/collision, physical-name assignment, migration-plan aggregate, plan-admission aggregate, immutable attempt-start, and immutable step-receipt repository families implemented; later repositories, target sessions, binding, and runtime remain closed | Cycle-free plan/installation identity, stable physical collision domain, bounded digest names, scope-isolated lowering, structural plan/ledger values, capability-evidence split, readiness/availability values, and later execution/database proof matrix |
-| [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Accepted checkpoint-2 contract; additive private metadata DDL, focused PGlite catalog evidence, source-private restoration, and target/collision, physical-name assignment, migration-plan aggregate, plan-admission aggregate, immutable attempt-start, and immutable step-receipt repository families implemented; later repository families remain pending | Exact eighteen-table target-local catalog, canonical-byte authority, normalized constraint sidecars, timestamp mapping, topological cold rehydration, private transaction kernels, and PGlite evidence gate |
+| [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; checkpoint 1 pure values and checkpoint 2 private metadata/restoration/repositories plus its manifest-owned serial PGlite gate complete; target session, generated relational DDL, genuine-PostgreSQL coordinator acceptance, binding, and runtime remain closed | Cycle-free plan/installation identity, stable physical collision domain, bounded digest names, scope-isolated lowering, structural plan/ledger values, capability-evidence split, readiness/availability values, and later execution/database proof matrix |
+| [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Complete checkpoint-2 contract; exact additive catalog, topological restoration, all thirteen source-private repository families, and manifest-owned serial PGlite functional gate implemented production-inert | Exact eighteen-table target-local catalog, canonical-byte authority, normalized constraint sidecars, timestamp mapping, complete-graph cold rehydration, private transaction kernels, and PGlite evidence gate |
 
 ## Current Architecture
 
@@ -218,14 +212,16 @@ The smallest safe sequence is:
    including deterministic normalization, framework-artifact composition,
    provenance, and unsupported-capability rules against exact source-audited
    fixtures. It performs no DDL and compiles no live Medusa candidate.
-5. Implement the separately accepted installation/readiness/availability and
-   structural migration checkpoints in
+5. The pure-value and private storage/repository checkpoints of the separately
+   accepted installation/readiness/availability and structural migration
+   program are complete in
    [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md)
    and its exact checkpoint-2 storage contract in
    [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md),
-   beginning with pure target-namespace/physical-layout/name-assignment/plan/
-   ledger/lifecycle values and stopping after fresh plus base-backed genuine-PostgreSQL
-   structural acceptance. Then separately preflight the Application projection,
+   including their manifest-owned serial PGlite functional gate. Next, separately
+   decide and implement the checkpoint-3 target session/PGlite coordinator,
+   then stop after fresh plus base-backed genuine-PostgreSQL structural
+   acceptance. Then separately preflight the Application projection,
    `DataBindingSet`, activation, and serving owner. Before the synthetic system
    transaction proof, also preflight one specifically named system slot or a
    non-serving test-only selection capability; the initial binding set supplies
@@ -279,12 +275,12 @@ not authorize earlier owner changes implicitly.
 | Outcome | Status |
 | --- | --- |
 | Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite plus ordinary-role PostgreSQL acceptance complete; pure installation/readiness/availability values are implemented with goldens, while their repositories/execution and Application-reference, Payload-overlay, `DataBindingSet`, activation, and serving remain later gates |
+| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite plus ordinary-role PostgreSQL acceptance complete; installation/readiness/availability values and their source-private checkpoint-2 repositories have a dedicated serial PGlite gate, while live execution and Application-reference, Payload-overlay, `DataBindingSet`, activation, and serving remain later gates |
 | Medusa fork source island and package convergence | Inert source island admitted and verified at fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`; exact package/capability audit accepted; the later promotion source map, every active package promotion, and all runtime/adapter activation remain pending |
 | Payload exact-release contract | `payload@3.88.0` and peeled release commit `fea6f8a47a50ff1330d8a5071b43e7dcffb97b22` accepted for the first headless compatibility profile; dependency, adapter, dashboard, host, and runtime work remain pending |
-| Core-first three-lane execution sequence | Accepted; both consumer audits, the private `RelationalSchema`, the first pure target-namespace/physical-layout/name-assignment/plan/ledger/lifecycle values, additive coordinator metadata DDL, topological restoration, and the target/collision, assignment, plan, plan-admission, attempt-start, and immutable step-receipt repository families are complete; later checkpoint-2 repositories remain next |
+| Core-first three-lane execution sequence | Accepted; both consumer audits, private `RelationalSchema`, checkpoint-1 values, and the complete checkpoint-2 additive metadata, topological restoration, thirteen repository families, and serial PGlite gate are complete; checkpoint-3 target-session/coordinator work is the next separate decision |
 | Relational schema representation | Implemented privately under `@flarex/persistence-postgres`; exact normalization/artifact evidence complete, with no package-root export, DDL, installation, adapter, or runtime caller |
-| Framework migration coordinator | Cycle-free physical-lane, plan, ledger, installation, readiness, and availability values, additive private metadata DDL, stored restoration, and the target/collision, assignment, plan, plan-admission, attempt-start, and immutable step-receipt repository families are implemented; no terminal/event/head/install/readiness/availability repositories, target session, lease orchestration, recovery runner, or execution exists |
+| Framework migration coordinator | Cycle-free physical-lane, plan, ledger, installation, readiness, and availability values, additive private metadata DDL, stored restoration, and all thirteen checkpoint-2 repository families have a private serial PGlite gate; no opaque target session, structural runner, operational lease orchestration, generated relational DDL, genuine-PostgreSQL coordinator proof, or production execution exists |
 | Owner-scoped relational store and typed finalization | Not implemented; transaction-owner and commit-owner preflights required |
 | Synthetic reserved-relational lifecycle/transaction proof | Pending the shared-core and explicit synthetic-`system` selection gates; must not infer a generic system binding and must reject and roll back an unadmitted mutation fact family |
 | Flarex Application preservation proof | Current private `SV-R Core` baseline complete; post-core full regression pending |
@@ -338,20 +334,16 @@ The relational installation and structural migration design is accepted in
 [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md).
 It resolves physical identity, collision-domain fencing, scope isolation,
 coexisting structure evidence, recovery, and readiness/availability ownership.
-Its private pure-value checkpoint and additive coordinator metadata DDL are
-implemented. The exact checkpoint-2 storage/restoration/repository contract is
-accepted in
+Its private pure-value checkpoint and exact checkpoint-2 storage/restoration/
+repository contract are complete in
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md),
-with source-private topological restoration and the target/collision,
-physical-name assignment, migration-plan aggregate, and plan-admission
-aggregate and immutable attempt-start repository families implemented. The
-source-private immutable step-receipt aggregate is also implemented.
-It takes the restored attempt and explicit direct dependency handles, resolves
-semantic identity before lazily consulting global digest identity, reconstructs
-stored dependency closure iteratively and topologically with memoization, and
-writes ordered sidecars only for a freshly inserted root. Replays and conflicts
-never heal a partial aggregate. Later transaction-parameterized repository
-families remain closed.
+with the exact additive catalog, source-private topological restoration, all
+thirteen transaction-parameterized immutable/CAS repository families, and a
+manifest-owned serial PGlite gate. Its file-backed acceptance test
+closes and reopens the complete terminal/event/head/installation/readiness/
+availability graph without carrying a restored handle across the close.
+Checkpoint 3 remains the first owner of an opaque target session, generated
+relational DDL, and live coordinator policy.
 
 The repository and DDL contract is accepted in
 [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
@@ -499,11 +491,10 @@ accepted boundary in
 and the exact checkpoint-2 contract in
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
 Their private pure values, additive metadata catalog, source-private stored
-restoration, and target/collision, physical-name assignment, migration-plan
-aggregate, plan-admission aggregate, and immutable attempt-start repository
-families are implemented, together with the source-private immutable
-step-receipt aggregate. Remaining repositories, target execution, and
-generated relational DDL remain pending.
+restoration, all thirteen transaction-parameterized repository families, and
+dedicated serial PGlite functional gate are implemented. Opaque
+target execution, generated relational DDL, checkpoint-3 coordinator policy,
+and genuine-PostgreSQL coordinator acceptance remain pending.
 Application-reference, Payload-overlay, and `DataBindingSet` codecs remain the
 following separate preflight. No framework adapter, runtime caller, public API,
 or production activation is included.
