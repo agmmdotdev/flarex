@@ -3,11 +3,11 @@
 Status: accepted checkpoint-2 storage contract; additive private metadata DDL,
 focused PGlite DDL/catalog evidence, and source-private topological stored-value
 restoration implemented; the private target/collision, physical-name
-assignment, migration-plan aggregate, plan-admission aggregate, and immutable
+assignment, migration-plan aggregate, plan-admission aggregate, immutable
 attempt-start, step-receipt aggregate, attempt-terminal aggregate, migration-
-event, and mutable collision-head repository families and the immutable schema-
-installation and readiness repositories are implemented; the availability
-families are pending; no target session, generated
+event, mutable collision-head, schema-installation, schema-readiness, and
+immutable schema-availability-history repository families are implemented; the
+mutable availability head is pending; no target session, generated
 relational DDL, coordinator runtime, binding, adapter, or production activation
 is authorized
 
@@ -38,8 +38,8 @@ Slices 1 through 3 are complete. Slice 4 is in progress: its target/collision,
 physical-name assignment, migration-plan aggregate, plan-admission aggregate,
 immutable attempt-start, immutable step-receipt, attempt-terminal,
 installation, readiness, immutable event-history, and mutable collision-head
-families are complete; availability history and its mutable head remain
-pending.
+families and immutable availability-history family are complete; its mutable
+head remains pending.
 
 No slice may construct a live coordinator or widen the public package surface.
 
@@ -626,10 +626,11 @@ step-receipt aggregate repository now provides the same boundary for receipt
 graphs, and the attempt-terminal, schema-installation, and readiness
 repositories extend it through successful installation and validation
 evidence, the immutable event repository authenticates the resulting cross-
-domain subjects and predecessor chain, and the collision-head repository adds
-exact initialization, read, and CAS over that authenticated graph. The
-availability repository families remain pending. No live target authority is
-minted.
+domain subjects and predecessor chain, the collision-head repository adds
+exact initialization, read, and CAS over that authenticated graph, and the
+availability-history repository authenticates the installation-local
+transition chain. The mutable availability head remains pending. No live target
+authority is minted.
 
 ### Resolved admission-restoration dependency defect
 
@@ -970,6 +971,38 @@ foreign driver-cause projection. This does not prove genuine-PostgreSQL
 concurrent-CAS behavior, locking, operational lease contention, production
 readiness, or checkpoint-3 coordinator policy.
 
+The immutable schema-availability-history repository accepts one exact restored
+readiness receipt, an explicit nullable restored predecessor, and one captured
+availability transition. It fully corroborates the readiness and predecessor
+chain in the caller's transaction before insertion. The installation-local
+semantic identity `(installation_storage_id, availability_sequence)` is
+resolved first; only when it is absent is the independent installation-scoped
+history digest consulted. An authentic non-exact occupant under either key is
+an immutable conflict.
+
+Restoration walks the actual stored predecessor chain iteratively, oldest to
+newest, and rejects repeated storage IDs, sequences, or digests, missing
+predecessors, inconsistent readiness/installation lineage, and mismatched
+sequence/digest/status tokens. The expected-root reload may anchor to the
+already-corroborated immediate predecessor, but cold references and downstream
+corroboration authenticate the complete chain. Exact replay returns the
+committed storage identity; malformed normalized projections, changed
+canonical bytes, and over-limit stored bytes fail as stored corruption without
+repair or mutation.
+
+Focused PGlite evidence covers source privacy, absence, a three-transition
+append/read/replay chain, separately recaptured replay, normalized raw storage,
+sequence-first lazy-digest resolution, immutable conflict, forged dependency
+refusal, cold reference restoration, downstream corroboration, broken and
+cyclic chains, projection and canonical corruption without healing, the
+length-first one-megabyte byte gate, caller rollback, and exact foreign driver
+causes. This production-inert history kernel does not implement the mutable
+availability head, latest-transition policy, retention, genuine-PostgreSQL
+concurrency, or runtime publication. With no checkpoint-2 retention bound,
+constructing a history of `N` transitions solely through these kernels can
+still incur cumulative `O(N^2)` predecessor work; checkpoint 3 must own any
+authenticated cache, materialized anchor, or retention policy.
+
 ## Checkpoint-2 Evidence
 
 PGlite is the functional lane for this checkpoint. Completion requires:
@@ -1023,6 +1056,6 @@ target/collision, physical-name assignment, migration-plan aggregate,
 plan-admission aggregate, and immutable attempt-start repository families are
 implemented, together with the immutable step-receipt and attempt-terminal
 aggregate repositories and the immutable schema-installation and readiness
-repositories, plus the immutable migration-event history and mutable collision-
-head repositories. Availability history and its mutable head remain later
-work. The opaque target and coordinator remain checkpoint 3.
+repositories, plus the immutable migration-event and schema-availability
+histories and mutable collision-head repository. The mutable availability head
+remains later work. The opaque target and coordinator remain checkpoint 3.

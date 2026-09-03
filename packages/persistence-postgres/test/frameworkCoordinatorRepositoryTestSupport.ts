@@ -1,9 +1,13 @@
 import type { FlarexMetadataTransaction } from
   "../src/metadataTransaction";
 import {
+  captureFrameworkSchemaAvailabilityHistory,
   captureFrameworkSchemaInstallation,
   captureFrameworkSchemaReadiness,
 } from "../src/frameworkSchema/installation/canonical";
+import {
+  appendFrameworkSchemaAvailabilityHistoryInTransactionEffect,
+} from "../src/frameworkSchema/installation/availabilityHistoryRepository";
 import {
   ensureFrameworkSchemaInstallationInTransactionEffect,
 } from "../src/frameworkSchema/installation/installationRepository";
@@ -56,6 +60,7 @@ export const COORDINATOR_COMPLETED_AT = "2026-08-27T08:31:00.000Z";
 export const COORDINATOR_TERMINAL_AT = "2026-08-27T08:33:00.000Z";
 export const COORDINATOR_INSTALLED_AT = "2026-08-27T08:34:00.000Z";
 export const COORDINATOR_VALIDATED_AT = "2026-08-27T08:35:00.000Z";
+export const COORDINATOR_AVAILABLE_AT = "2026-08-27T08:36:00.000Z";
 
 export async function createSuccessfulTerminalPlanValues() {
   const artifact = await syntheticSystemArtifact();
@@ -278,5 +283,36 @@ export async function storeSuccessfulReadinessGraphInTransaction(
     installation: readiness.installation,
     readinessValue,
     readiness,
+  });
+}
+
+export async function storeSuccessfulAvailabilityHistoryGraphInTransaction(
+  transaction: FlarexMetadataTransaction,
+  values: Awaited<ReturnType<typeof createSuccessfulTerminalPlanValues>>,
+) {
+  const graph = await storeSuccessfulReadinessGraphInTransaction(
+    transaction,
+    values,
+  );
+  const availabilityHistoryValue = await runEffect(
+    captureFrameworkSchemaAvailabilityHistory({
+      readiness: graph.readiness.readiness,
+      previous: null,
+      status: "ready",
+      reasonSha256: null,
+      recordedAt: COORDINATOR_AVAILABLE_AT,
+    }),
+  );
+  const availabilityHistory = await runEffect(
+    appendFrameworkSchemaAvailabilityHistoryInTransactionEffect(
+      transaction,
+      graph.readiness,
+      null,
+      availabilityHistoryValue,
+    ),
+  );
+  return Object.freeze({
+    availabilityHistoryValue,
+    availabilityHistory,
   });
 }

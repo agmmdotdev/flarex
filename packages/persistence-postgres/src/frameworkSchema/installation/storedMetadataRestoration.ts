@@ -166,6 +166,12 @@ const restoredReadiness = new WeakSet<RestoredFrameworkSchemaReadiness>();
 const restoredAvailabilityHistory = new WeakSet<
   RestoredFrameworkSchemaAvailabilityHistory
 >();
+const restoredAvailabilityHistoryAuthorities = new WeakMap<
+  RestoredFrameworkSchemaAvailabilityHistory,
+  Readonly<{
+    readonly previous: RestoredFrameworkSchemaAvailabilityHistory | null;
+  }>
+>();
 const restoredAvailabilityHeads = new WeakSet<
   RestoredFrameworkSchemaAvailabilityHead
 >();
@@ -417,6 +423,9 @@ export const restoreStoredFrameworkSchemaAvailabilityHistoryMetadata =
         history,
       });
       restoredAvailabilityHistory.add(restored);
+      restoredAvailabilityHistoryAuthorities.set(restored, Object.freeze({
+        previous: input.previous,
+      }));
       return restored;
     },
   );
@@ -425,6 +434,15 @@ export function isRestoredFrameworkSchemaAvailabilityHistory(
   input: RestoredFrameworkSchemaAvailabilityHistory,
 ): boolean {
   return restoredAvailabilityHistory.has(input);
+}
+
+/** Source-private predecessor needed to continue restored availability. */
+export function restoredFrameworkSchemaAvailabilityHistoryAuthority(
+  input: RestoredFrameworkSchemaAvailabilityHistory,
+): Readonly<{
+  readonly previous: RestoredFrameworkSchemaAvailabilityHistory | null;
+}> | undefined {
+  return restoredAvailabilityHistoryAuthorities.get(input);
 }
 
 export interface RestoreStoredFrameworkSchemaAvailabilityHeadMetadataInput {
