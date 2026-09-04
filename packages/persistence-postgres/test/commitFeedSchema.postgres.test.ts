@@ -249,7 +249,7 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
             is_nullable: "NO",
             relation_tables: 1,
             fk_target_schema: schema.rows[0]?.schema_name,
-            receipts: 78,
+            receipts: 81,
           }]);
         } finally {
           await Promise.all([previous.close(), current?.close()]);

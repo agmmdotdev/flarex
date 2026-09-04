@@ -176,7 +176,7 @@ describe("Application activation migration - PGlite", () => {
       });
       await persistence.migrate();
       expect(await cutoverInventory(persistence)).toEqual({
-        receipts: 76,
+        receipts: 81,
         currentTables: 2,
         legacyTables: 0,
         currentForeignKeys: 4,

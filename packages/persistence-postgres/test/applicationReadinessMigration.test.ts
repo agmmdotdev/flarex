@@ -78,7 +78,7 @@ describe("Application readiness migration - PGlite", () => {
       await persistence.migrate();
       expect(await inventory(persistence)).toEqual({
         deployments: 0,
-        receipts: 60,
+        receipts: 81,
         tables: 4,
       });
       const constraints = await persistence.query<{ count: number }>(`

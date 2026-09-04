@@ -318,7 +318,7 @@ describe("S08 commit/change-feed schema", () => {
         column_default: "0",
         is_nullable: "NO",
         relation_children: "0",
-        receipts: "78",
+        receipts: "81",
       }]);
     } finally {
       try {
