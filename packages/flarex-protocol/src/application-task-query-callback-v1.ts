@@ -1,4 +1,5 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Result } from "effect";
 
 import {
@@ -97,7 +98,7 @@ export function decodeApplicationTaskQueryCallbackRequestV1(
     return Result.fail(failure("request", "invalid_shape"));
   }
   const functionPath = record.functionPath;
-  if (typeof functionPath !== "string" || functionPath.trim().length === 0 ||
+  if (!isNonBlankString(functionPath) ||
     UTF8.encode(functionPath).byteLength >
       MAX_APPLICATION_TASK_QUERY_FUNCTION_PATH_BYTES_V1 ||
     !isSemanticSize(

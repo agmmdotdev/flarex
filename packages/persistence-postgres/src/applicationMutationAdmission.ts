@@ -7,6 +7,7 @@ import {
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import { Data, Effect, Result } from "effect";
 import {
@@ -161,7 +162,7 @@ const selectApplicationMutationAdmissionForVisibility = Effect.fn(
   SelectApplicationMutationAdmissionError
 > {
   if (
-    typeof functionPath !== "string" || functionPath.trim().length === 0
+    !isNonBlankString(functionPath)
   ) return yield* failure("invalidFunction");
   const claimed = yield* Effect.fromResult(
     claimApplicationExecutableActiveSelection(selection),

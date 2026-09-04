@@ -12,6 +12,7 @@ import {
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from
   "@flarex/utils/bytes";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Effect, Result, Schema } from "effect";
 import {
   ExecutionIdentitySchema,
@@ -118,7 +119,7 @@ export function makeApplicationTaskQueryAuthority<QueryFailure>(
       const runQuery: ApplicationTaskQuerySession["runQuery"] = Effect.fn(
         "ApplicationTaskQuerySession.runQuery",
       )(function* (functionPath, argumentsValue) {
-        if (functionPath.trim().length === 0) {
+        if (!isNonBlankString(functionPath)) {
           return yield* queryError("invalidInput");
         }
         const active = yield* activation.readActive().pipe(

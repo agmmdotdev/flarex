@@ -110,6 +110,7 @@ import {
 } from "effect";
 import { RpcTarget } from "cloudflare:workers";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { isNonBlankString } from "@flarex/utils/strings";
 
 const QUERY_POLICY_ENCODING_BUDGET = Object.freeze({
   maximumOrigins: 1,
@@ -384,7 +385,7 @@ function makeInvoke(
     args,
     identity = ANONYMOUS_IDENTITY,
   ) {
-    if (typeof functionRef !== "string" || functionRef.trim().length === 0) {
+    if (!isNonBlankString(functionRef)) {
       return yield* new ApplicationQueryInputError({ reason: "invalidFunction" });
     }
     const normalizedArguments = yield* normalizeApplicationQueryArgumentsV1Effect(
@@ -502,7 +503,7 @@ const prepareSelectionQueryInput = Effect.fn(
   argumentsValue: CanonicalFlarexRuntimeValueV1,
   identity: ExecutionIdentity,
 ): Effect.fn.Return<PreparedSelectionQueryInput, ApplicationQueryInputError> {
-  if (typeof functionRef !== "string" || functionRef.trim().length === 0) {
+  if (!isNonBlankString(functionRef)) {
     return yield* new ApplicationQueryInputError({ reason: "invalidFunction" });
   }
   const normalizedArguments = yield* normalizeApplicationQueryArgumentsV1Effect(

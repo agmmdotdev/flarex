@@ -7,6 +7,7 @@ import {
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import { Data, Effect, Result } from "effect";
 import {
@@ -101,7 +102,7 @@ export const selectApplicationActionAdmission = Effect.fn(
   ApplicationActionAdmission,
   SelectApplicationActionAdmissionError
 > {
-  if (typeof functionPath !== "string" || functionPath.trim().length === 0) {
+  if (!isNonBlankString(functionPath)) {
     return yield* failure("invalidFunction");
   }
   const basis = yield* Effect.fromResult(
