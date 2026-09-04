@@ -513,6 +513,37 @@ export const restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTrans
   });
 
 /**
+ * Source-private coordinator read of the complete committed ordinal prefix for
+ * an authenticated attempt.
+ */
+export const readFrameworkMigrationStepReceiptPrefixInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationStepReceiptRepository.readAttemptPrefix",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    attempt: RestoredFrameworkMigrationAttemptStart,
+  ): Effect.fn.Return<
+    readonly RestoredFrameworkMigrationStepReceipt[],
+    FrameworkMigrationRepositoryError
+  > {
+    const operation = "readStepReceipt" as const;
+    yield*
+      corroborateRestoredFrameworkMigrationAttemptStartInTransactionEffect(
+        transaction,
+        attempt,
+        operation,
+      );
+    // Corroboration proves the complete stored value. Preserve the caller's
+    // exact issued attempt identity when reissuing its dependency receipts.
+    return yield* restoreCompleteStoredAttemptReceiptPrefix(
+      transaction,
+      attempt,
+      undefined,
+      operation,
+    );
+  });
+
+/**
  * Source-private caller-prefix corroboration for attempt-terminal writes. The
  * attempt must already have been corroborated in the caller transaction.
  */

@@ -21,6 +21,7 @@ import {
   fxSystemFrameworkSchemaTargetNamespaces,
 } from "./schema";
 import {
+  isRestoredFrameworkMigrationCollisionDomain,
   isRestoredFrameworkSchemaTargetNamespace,
   restoreStoredFrameworkMigrationCollisionDomain,
   restoreStoredFrameworkSchemaTargetNamespace,
@@ -205,6 +206,49 @@ export const readFrameworkMigrationCollisionDomainInTransactionEffect =
       );
   });
 
+/**
+ * Source-private coordinator mutex for the stable collision-domain row. This
+ * serializes first-head creation as well as later lane mutations; locking an
+ * absent mutable-head row cannot provide that guarantee.
+ */
+export const lockFrameworkMigrationCollisionDomainInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationCollisionRepository.lock",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    collision: RestoredFrameworkMigrationCollisionDomain,
+  ): Effect.fn.Return<
+    RestoredFrameworkMigrationCollisionDomain,
+    FrameworkMigrationRepositoryError
+  > {
+    const operation = "readCollisionDomain" as const;
+    if (!isRestoredFrameworkMigrationCollisionDomain(collision)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.referenceRefusal(operation),
+      );
+    }
+    const targetNamespace = yield* requireStoredTargetNamespace(
+      transaction,
+      collision.targetNamespace,
+      operation,
+    );
+    const stored = yield* loadExactCollisionDomain(
+      transaction,
+      targetNamespace,
+      collision.coordinate,
+      operation,
+      true,
+    );
+    if (
+      Option.isNone(stored) || stored.value.storageId !== collision.storageId
+    ) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.referenceRefusal(operation),
+      );
+    }
+    return stored.value;
+  });
+
 export const readFrameworkMigrationCollisionDomainForOperationInTransactionEffect =
   Effect.fn(
     "FrameworkMigrationCollisionRepository.readForOperation",
@@ -342,6 +386,7 @@ const loadExactCollisionDomain = Effect.fn(
   targetNamespace: RestoredFrameworkSchemaTargetNamespace,
   coordinate: FrameworkMigrationCollisionCoordinate,
   operation: FrameworkMigrationRepositoryOperation,
+  forUpdate = false,
 ): Effect.fn.Return<
   Option.Option<RestoredFrameworkMigrationCollisionDomain>,
   FrameworkMigrationRepositoryError
@@ -363,7 +408,10 @@ const loadExactCollisionDomain = Effect.fn(
       coordinate.physicalNamespaceProfile,
     ),
   )).limit(1);
-  const rows = yield* runRepositoryStatement(operation, query).pipe(
+  const rows = yield* runRepositoryStatement(
+    operation,
+    forUpdate ? query.for("update") : query,
+  ).pipe(
     Effect.map(detachDriverRows),
   );
   const row = rows[0];

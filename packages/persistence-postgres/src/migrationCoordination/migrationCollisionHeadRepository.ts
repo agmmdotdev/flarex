@@ -235,6 +235,41 @@ export const readFrameworkMigrationCollisionHeadInTransactionEffect = Effect.fn(
   );
 });
 
+/**
+ * Source-private coordinator read that serializes one collision lane before
+ * inspecting its fence, lease, or progress.
+ */
+export const readFrameworkMigrationCollisionHeadForUpdateInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationCollisionHeadRepository.readForUpdate",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    collision: RestoredFrameworkMigrationCollisionDomain,
+  ): Effect.fn.Return<
+    Option.Option<RestoredFrameworkMigrationCollisionHead>,
+    FrameworkMigrationRepositoryError
+  > {
+    const operation = "readCollisionHead" as const;
+    const storedCollision = yield* corroborateCollision(
+      transaction,
+      collision,
+      operation,
+    );
+    const row = yield* loadCollisionHeadRoot(
+      transaction,
+      storedCollision.storageId,
+      operation,
+      true,
+    );
+    if (Option.isNone(row)) return Option.none();
+    return Option.some(yield* restoreCollisionHeadOccupant(
+      transaction,
+      row.value,
+      storedCollision,
+      operation,
+    ));
+  });
+
 export const compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect =
   Effect.fn("FrameworkMigrationCollisionHeadRepository.compareAndSwap")(
     function* (
@@ -945,18 +980,20 @@ const loadCollisionHeadRoot = Effect.fn(
   transaction: FlarexMetadataTransaction,
   collisionStorageId: bigint,
   operation: FrameworkMigrationRepositoryOperation,
+  forUpdate = false,
 ): Effect.fn.Return<
   Option.Option<FrameworkMigrationCollisionHeadDriverRow>,
   FrameworkMigrationRepositoryError
 > {
+  const query = transaction.select(collisionHeadReadSelection).from(
+    fxSystemFrameworkMigrationCollisionHeads,
+  ).where(eq(
+    fxSystemFrameworkMigrationCollisionHeads.collisionStorageId,
+    collisionStorageId,
+  )).limit(1);
   const rows = yield* runRepositoryStatement(
     operation,
-    transaction.select(collisionHeadReadSelection).from(
-      fxSystemFrameworkMigrationCollisionHeads,
-    ).where(eq(
-      fxSystemFrameworkMigrationCollisionHeads.collisionStorageId,
-      collisionStorageId,
-    )).limit(1),
+    forUpdate ? query.for("update") : query,
   ).pipe(Effect.map(detachDriverRows));
   return rows[0] === undefined ? Option.none() : Option.some(rows[0]);
 });

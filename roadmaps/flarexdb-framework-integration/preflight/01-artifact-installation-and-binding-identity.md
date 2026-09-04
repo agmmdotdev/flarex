@@ -14,7 +14,10 @@ through their production-inert serial PGlite storage/repository gate in
 [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md)
 and
 [`10-relational-coordinator-metadata-and-repositories.md`](./10-relational-coordinator-metadata-and-repositories.md).
-Their live coordinator and genuine-PostgreSQL gates remain pending, while the
+Their fresh coordinator has private PGlite functional evidence in
+[`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
+Base-backed, genuine-PostgreSQL, scale, and production-resolution gates remain
+open, while the
 Application bridge and binding persistence contracts remain the following
 separate preflight.
 
@@ -1134,8 +1137,9 @@ This identity record does not itself claim those later receipts.
     ledger, recovery, capability-evidence, and database proof boundaries.
     [`10-relational-coordinator-metadata-and-repositories.md`](./10-relational-coordinator-metadata-and-repositories.md)
     owns the completed exact private metadata, restoration, thirteen repository
-    families, and serial PGlite evidence gate. Checkpoint 3 remains the first
-    live target/coordinator gate.
+    families, and serial PGlite evidence gate. Checkpoint 3's private target,
+    runner, and fresh coordinator have PGlite functional evidence; its
+    PostgreSQL, scale, and production-resolution gates remain open.
 5. **Application projection and DataBindingSet frame/repository preflight:**
    freeze every remaining codec, add the Application-owned coherent bridge,
    then design target-local candidates/history/head and activation proof.
@@ -1158,12 +1162,12 @@ distinguish desired artifacts from physical proof, current availability, and
 subordinate framework selection. The repository implementation and its focused
 PGlite plus genuine-PostgreSQL acceptance are owned by
 [`02-artifact-repository-and-ddl.md`](./02-artifact-repository-and-ddl.md).
-Work may proceed only through the remaining separately gated live coordinator,
-base-backed, and genuine-PostgreSQL checkpoints, followed by the separate
+Work may proceed only through the remaining separately gated base-backed,
+genuine-PostgreSQL, scale, and production-resolution work, followed by the separate
 binding order named by
 [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).
-The next bounded implementation decision is checkpoint 3's opaque target
-session and fresh synthetic-`system` PGlite coordinator from
-[`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
-Generated relational DDL, binding, adapter, public, genuine-PostgreSQL,
+Checkpoint 3's opaque target, structural runner, and fresh synthetic-`system`
+coordinator have private PGlite functional evidence in
+[`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
+Additional generated relational DDL, binding, adapter, public, genuine-PostgreSQL,
 hosted, and production gates remain closed until their own checkpoints pass.

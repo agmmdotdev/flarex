@@ -1,10 +1,12 @@
 # Target Session And Fresh Coordinator Preflight
 
-Status: accepted bounded decomposition of checkpoint 3 as of 2026-09-04. The
-source-private target/session plus PGlite functional-adapter slice and the
-source-private relational structural-runner slice are complete as separate
-private functional receipts. Slice 3, the fresh coordinator and its repository
-helpers, remains pending, and no checkpoint-3 coordinator is accepted yet.
+Status: accepted bounded decomposition of checkpoint 3 as of 2026-09-04. All
+three source-private slices for the no-base synthetic profile are implemented
+as separate PGlite-functional evidence: target/session, relational structural
+runner, and fresh coordinator plus its repository helpers. This does not
+complete checkpoint 3. Genuine-PostgreSQL coordination and settlement,
+bounded-lineage scale, base-backed execution, production resolution, runtime,
+activation, and public API gates remain open.
 
 Last reviewed: 2026-09-04
 
@@ -30,8 +32,9 @@ as three separately reviewable commits:
    collision lane, restore all persisted authorities inside their owning
    transaction, execute and validate the fresh plan, and publish terminal,
    installation, readiness, event, and availability evidence. This slice is
-   not accepted until its state machine, recovery, concurrency, and scaling
-   gates below are resolved.
+   accepted only as source-private PGlite-functional evidence for the no-base
+   synthetic profile. It does not resolve the genuine-PostgreSQL concurrency,
+   settlement, or scaling gates below.
 
 Completion of an earlier slice does not authorize a later slice. All three
 remain source-private and production-inert. None may add a package-root export,
@@ -212,15 +215,55 @@ file-scoped Oxlint passed. This closes only the private PGlite-functional
 structural-runner slice. It does not establish any genuine-PostgreSQL or
 coordinator claim below.
 
-## Unresolved Checkpoint-3 Gates
+## Slice 3 Authority And PGlite Functional Boundary
 
-The remaining implementation must resolve these issues before the fresh
-coordinator can be accepted:
+The fresh coordinator composes the first two source-private capabilities with
+the exact stored coordinator authority. It rereads the exact admitted artifact
+before opening target state, reissues relational lowering authority only after
+the stored artifact reproduces its canonical bytes and digest, and captures
+the no-base plan. Each execution transaction issues a plan/target-bound runner
+token from its exact restored plan. A returned claim is an
+opaque, source-private capability bound to that target, plan, attempt, lease
+owner, and fence.
 
-- **First-writer serialization:** `SELECT ... FOR UPDATE` on an absent mutable
-  head locks no row. Fresh admission and initial head creation therefore need
-  a stable genuine-PostgreSQL mutex, such as locking the already-present
-  collision-domain row, before any concurrency claim.
+Lease takeover authenticates the predecessor's complete committed prefix and
+re-observes each structural postcondition under the locked collision head. It
+atomically issues dependency-coherent successor receipts with the new claim;
+it neither replays completed DDL nor adopts structure without predecessor
+receipt evidence. Missing or changed predecessor structure rolls back the
+takeover. This prefix work remains subject to the bounded-lineage scale gate.
+
+Each admitted turn restores and corroborates the stored collision head,
+attempt, receipt prefix, and event history inside the owning transaction. A
+step checks database time, lease ownership, fence, and dependency receipts,
+executes at most one registered structural operation, and commits its exact
+receipt, event, and advanced head atomically. A decision-uncertain transaction
+is resolved through a distinct authenticated logical recovery session by
+rereading durable state; the coordinator does not blindly replay the original
+transaction.
+
+Finalization independently re-observes the complete physical layout before it
+publishes terminal, installation, readiness, availability history/head, event,
+and collision-head evidence. Exact ready replay returns the authenticated
+stored result without creating another attempt. Validation drift or corrupt
+stored evidence fails closed without publishing readiness or availability.
+
+The PGlite-functional boundary covers bounded interruption and exact resume,
+stable busy results, serial lease expiry/takeover and stale-fence rejection,
+logical committed-versus-rolled-back decision recovery, final structural
+refusal, and exact readiness replay. These are state-machine and persistence
+semantics only. A fresh logical recovery identity is not proof of a distinct
+physical PostgreSQL connection, and serial lease tests are not lock or
+concurrent-exclusion evidence.
+
+## Remaining Checkpoint-3 Gates
+
+The implemented PGlite-functional profile does not resolve these issues:
+
+- **First-writer serialization:** the implementation locks the stable collision
+  row before admission and initial head creation because `SELECT ... FOR UPDATE`
+  on an absent mutable head locks no row. Real PostgreSQL must still prove
+  that mutex excludes competing first writers before any concurrency claim.
 - **Bounded lineage corroboration:** receipt prefixes, migration-event chains,
   and availability-history chains can accumulate `O(N^2)` database reads when
   rebuilt independently. A transaction/session-authenticated cache,
@@ -234,20 +277,21 @@ coordinator can be accepted:
   still decide which admitted runner profile may be issued for a production
   target. Codec text, a decoded token, or caller composition cannot become
   that selection authority.
-- **Coordinator state machine:** fresh claim, lease/fence ownership, bounded
-  reread, stable `not_ready` outcomes, recovery, exact stored-plan rebinding,
-  validation, and publication still require focused PGlite and genuine-
-  PostgreSQL acceptance. Draft code is not a coordinator receipt.
+- **Genuine-PostgreSQL coordinator acceptance:** real PostgreSQL must still
+  prove first-writer exclusion, `FOR UPDATE` behavior, concurrent claims,
+  lease contention, lock and statement timeouts, cancellation, external
+  interruption, transaction settlement, and recovery on a distinct physical
+  session for both fresh and later base-backed profiles.
 
 ## Explicitly Closed Boundaries
 
-This preflight and its first two bounded slices do not prove or authorize:
+This preflight and its three bounded PGlite-functional slices do not prove or
+authorize:
 
 - production target resolution or physical database identity;
 - genuine-PostgreSQL locking, collision exclusion, lock/statement timeout,
   cancellation, recovery-session separation, transaction settlement, or
   external-interruption-to-decision recovery;
-- a fresh coordinator or repository orchestration across the runner;
 - any structural operation outside the fixed create-table, create-index,
   add-foreign-key, and validate-structure registry, including base-backed or
   destructive migration;
@@ -263,10 +307,10 @@ This preflight and its first two bounded slices do not prove or authorize:
 
 ## Exit Decision
 
-Checkpoint 3 now has a bounded ownership and review sequence. Slice 1 closes
-only the source-private target/session lifecycle and its PGlite functional
-adapter. Slice 2 closes only the source-private plan/target-bound structural
-runner and its PGlite functional evidence. Slice 3, the fresh coordinator and
-repository helpers, remains pending. Genuine PostgreSQL plus the production
-host resolver and scaling gates remain mandatory before any coordinator,
-adapter, runtime, hosted, or production claim.
+Checkpoint 3 now has three implemented source-private slices for the no-base
+synthetic PGlite-functional profile: target/session lifecycle, plan/target-
+bound structural execution, and fresh coordinator plus repository
+orchestration. Checkpoint 3 itself remains open. Genuine PostgreSQL,
+base-backed execution, bounded-lineage scale, and the production target/runner
+resolver remain mandatory before any adapter, runtime, hosted, public, or
+production claim.

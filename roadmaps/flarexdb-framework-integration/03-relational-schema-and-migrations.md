@@ -6,8 +6,10 @@ Status: value-only relational schema and checkpoints 1 and 2 of the private
 physical/coordination/lifecycle program are complete and production-inert. The
 additive coordinator metadata DDL, source-private topological restoration, all
 thirteen repository families, and their manifest-owned serial PGlite evidence
-lane are implemented; generated relational DDL, target-session/coordinator runtime,
-genuine-PostgreSQL acceptance, binding, and activation gates remain closed
+lane are implemented. Checkpoint 3's private target/session, structural runner,
+and fresh coordinator have PGlite functional evidence. Base-backed execution,
+genuine-PostgreSQL acceptance, scale, production resolution, binding, and
+activation remain open.
 
 This plan owns the value-only relational schema boundary and the shared
 execution mechanics for framework-owned migration plans. It does not own DML,
@@ -220,7 +222,9 @@ until the Medusa data-migration and binding gates define its exact identity.
 The value-only schema proof and private checkpoint-2 storage/repository PGlite
 proof are complete. Before wiring any framework adapter or promoting an active
 Medusa package, checkpoint 3 and its successors must separately implement and
-prove the live coordinator on a small synthetic reserved-relational schema:
+prove the coordinator on a small synthetic reserved-relational schema. The
+private PGlite fresh profile covers the serial behaviors below; concurrency
+and base-backed acceptance remain open:
 
 - fresh install;
 - interrupted step and exact resume;
@@ -236,8 +240,10 @@ The design boundary and ordered implementation checkpoints are frozen by
 The exact checkpoint-2 storage/repository boundary and functional evidence
 matrix are frozen by
 [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
-Checkpoint 3 remains the first live target-session/PGlite coordinator gate,
-followed by the base-backed and genuine-PostgreSQL gates. Only after that
+Checkpoint 3's private target/session, structural runner, and fresh coordinator
+have PGlite functional evidence in
+[`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md).
+Base-backed, genuine-PostgreSQL, scale, and production-resolution gates remain. Only after that
 coordinator proof reaches authenticated readiness and availability should work
 complete the Application-projection and `DataBindingSet` preflight, then a
 separate synthetic-`system` selection preflight because the initial binding set

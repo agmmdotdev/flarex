@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
+    "framework-coordinator-fresh-pglite": [
+      "test/frameworkCoordinatorFreshCoordinator.test.ts"
+    ],
     "framework-coordinator-structural-runner-pglite": [
       "test/frameworkCoordinatorRelationalStructuralRunner.test.ts"
     ],
@@ -51,6 +54,9 @@
     ],
     "framework-coordinator-checkpoint2-pglite": [
       "framework-coordinator-checkpoint2-pglite"
+    ],
+    "framework-coordinator-fresh-pglite": [
+      "framework-coordinator-fresh-pglite"
     ],
     "framework-coordinator-structural-runner-pglite": [
       "framework-coordinator-structural-runner-pglite"
@@ -104,6 +110,30 @@
     ]
   },
   "lanes": [
+    {
+      "id": "framework-coordinator-fresh-pglite",
+      "category": "pglite",
+      "proof": "The source-private fresh framework-migration coordinator functional receipt: exact artifact admission before target work, stable collision-root serialization, fresh seven-step migration, interrupted progress and same-attempt resume, live-lease busy disposition, database-time lease takeover with stale-claim refusal, decision-uncertain step settlement recovery, corrupt-ledger and catalog-drift refusal, atomic terminal/installation/readiness/availability publication, and exact ready replay. This does not prove genuine PostgreSQL locking, concurrency, timeout, cancellation, physical recovery-session separation, or settlement behavior; base-backed or destructive migration; production target or runner resolution; framework adapters; runtime or public activation; or production readiness.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-framework-coordinator-fresh-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-coordinator-fresh-pglite"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
     {
       "id": "framework-coordinator-structural-runner-pglite",
       "category": "pglite",

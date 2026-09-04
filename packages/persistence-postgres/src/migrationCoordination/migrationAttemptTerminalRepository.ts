@@ -271,6 +271,32 @@ export const readFrameworkMigrationAttemptTerminalInTransactionEffect =
     );
   });
 
+/** Source-private coordinator lookup for the terminal owned by one attempt. */
+export const readFrameworkMigrationAttemptTerminalByAttemptInTransactionEffect =
+  Effect.fn(
+    "FrameworkMigrationAttemptTerminalRepository.readByAttempt",
+  )(function* (
+    transaction: FlarexMetadataTransaction,
+    attempt: RestoredFrameworkMigrationAttemptStart,
+  ): Effect.fn.Return<
+    Option.Option<RestoredFrameworkMigrationAttemptTerminal>,
+    FrameworkMigrationRepositoryError
+  > {
+    const operation = "readAttemptTerminal" as const;
+    const storedAttempt = yield*
+      corroborateRestoredFrameworkMigrationAttemptStartInTransactionEffect(
+        transaction,
+        attempt,
+        operation,
+      );
+    const occupant = yield* loadAttemptTerminalOccupantByAttempt(
+      transaction,
+      storedAttempt,
+      operation,
+    );
+    return Option.map(occupant, value => value.value);
+  });
+
 /** Source-private semantic-first collision policy for attempt terminals. */
 export const resolveAuthenticatedFrameworkMigrationAttemptTerminalOccupantsEffect =
   Effect.fn(

@@ -2,9 +2,10 @@
 
 Status: accepted execution sequence; consumer audits, the private value-only
 relational schema, and the production-inert installation/migration checkpoints
-1 and 2 are complete through their serial PGlite storage/repository gate. Live
-coordinator, genuine-PostgreSQL, transaction, binding, adapter,
-and production gates remain pending
+1 and 2 are complete through their serial PGlite storage/repository gate.
+Checkpoint 3's private target/session, structural runner, and fresh coordinator
+have PGlite functional evidence. Base-backed, genuine-PostgreSQL, scale,
+production resolution, transaction, binding, adapter, and production remain open.
 
 Last reviewed: 2026-09-03
 
@@ -57,11 +58,12 @@ and
 [`10-relational-coordinator-metadata-and-repositories.md`](./10-relational-coordinator-metadata-and-repositories.md).
 The latter supplies exact private metadata, topological restoration, all
 thirteen transaction-parameterized repository families, and a dedicated serial
-PGlite gate, but no live coordinator. The following later mechanisms remain
-absent:
+PGlite gate. The separately owning
+[`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md)
+now supplies private target/session, structural-runner, and fresh-coordinator
+PGlite evidence. The following mechanisms remain absent:
 
-- an opaque target session and live framework structural migration-plan
-  coordinator that executes the durably stored plan/ledger values;
+- production target/runner resolution and bounded-lineage scale proof;
 - base-backed and genuine-PostgreSQL coordinator acceptance;
 - the Application projection, `DataBindingSet`, binding/activation repository,
   and serving admission;
@@ -374,12 +376,13 @@ and installation/migration checkpoints 1 and 2 are complete. The complete
 design and checkpoint ordering are recorded in
 [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
 
-The next separately reviewable behavior slice is checkpoint 3: an opaque target
-session and PGlite coordinator for one fresh synthetic `system` artifact. It is
-the first gate allowed to own the target transaction, structural runner,
-operational claim/lease/fence policy, recovery, validation, readiness
-publication, and availability publication. That is a material authority and
-runtime change and requires its own explicit decision before implementation.
+Checkpoint 3's private target/session, structural runner, and fresh synthetic
+`system` coordinator have PGlite functional evidence. They own target
+transactions, database-time claim/lease/fence policy, recovery, independent
+validation, and atomic readiness/availability publication for the no-base
+profile. PostgreSQL coordination and settlement, scale, and production
+resolution remain open in
+[`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
 
 Base-backed target execution, genuine-PostgreSQL acceptance, Application
 projection/`DataBindingSet`, transaction/store, and commit owners remain later
