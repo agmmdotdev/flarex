@@ -34,6 +34,7 @@ import {
   type SourcePackage,
 } from "./sourcePackage.ts";
 import { errorMessageFromUnknown } from "./errorMessage.ts";
+import { resolveFlarexDirs } from "./flarexPaths.ts";
 
 export type FlarexGenerateOptions = {
   root: string;
@@ -644,8 +645,11 @@ export async function dryRunFlarexCodegen(
     throw new Error("Dry-run codegen requires --generated-dir to be relative to the Flarex app directory.");
   }
 
-  const appDir = path.resolve(options.root, appDirOption);
-  const generatedDir = path.resolve(appDir, generatedDirOption);
+  const { appDir, generatedDir } = resolveFlarexDirs({
+    root: options.root,
+    appDir: appDirOption,
+    generatedDir: generatedDirOption,
+  });
   const tempRoot = await mkdtemp(path.join(tmpdir(), "flarex-codegen-dry-run-"));
   try {
     const tempAppDir = path.join(tempRoot, "flarex");
@@ -723,8 +727,7 @@ function deployAbandonReason(error: unknown): string {
 export async function initialCodegen(
   options: FlarexGenerateOptions,
 ): Promise<FlarexGenerationContext> {
-  const appDir = path.resolve(options.root, options.appDir ?? "flarex");
-  const generatedDir = path.resolve(appDir, options.generatedDir ?? "_generated");
+  const { appDir, generatedDir } = resolveFlarexDirs(options);
   const functionsDir = path.join(appDir, "functions");
   const functionModules = await listFunctionModules(functionsDir);
   const moduleNames = functionModules.map(module => module.moduleName);

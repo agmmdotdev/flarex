@@ -31,6 +31,7 @@ import {
   type FlarexGeneratedOutputTypecheckOption,
 } from "./generatedTypecheck.ts";
 import { errorMessageFromUnknown } from "./errorMessage.ts";
+import { resolveFlarexDirs } from "./flarexPaths.ts";
 import { LocalMiniflareExecutionArtifactMaterializer } from "./runtimeMaterializer.ts";
 import {
   decodeDevInvokeBody,
@@ -560,12 +561,7 @@ async function bundleWorker(entry: string): Promise<string> {
 }
 
 function generatedWorkerEntry(options: FlarexGenerateOptions): string {
-  return resolve(
-    options.root,
-    options.appDir ?? "flarex",
-    options.generatedDir ?? "_generated",
-    "worker.ts",
-  );
+  return join(resolveFlarexDirs(options).generatedDir, "worker.ts");
 }
 
 function defaultBackendEntry(): string {

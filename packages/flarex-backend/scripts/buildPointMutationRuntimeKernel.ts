@@ -1,10 +1,10 @@
-import { readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   buildRuntimeKernelTwice,
   renderRuntimeKernelModule,
+  writeOrCheckGeneratedFile,
   type RuntimeKernelBuildReceipt,
 } from "./runtimeKernelBuilder";
 
@@ -44,7 +44,13 @@ export async function updatePointMutationRuntimeKernel(): Promise<
   RuntimeKernelBuildReceipt
 > {
   const receipt = await buildKernel();
-  await writeFile(GENERATED_PATH, render(receipt), "utf8");
+  await writeOrCheckGeneratedFile(
+    GENERATED_PATH,
+    render(receipt),
+    "update",
+    "Generated point-mutation runtime kernel is stale; run " +
+      "`pnpm point-mutation-runtime-kernel:update` in packages/flarex-backend.",
+  );
   return receipt;
 }
 
@@ -52,13 +58,13 @@ export async function checkPointMutationRuntimeKernel(): Promise<
   RuntimeKernelBuildReceipt
 > {
   const receipt = await buildKernel();
-  const current = await readFile(GENERATED_PATH, "utf8");
-  if (current !== render(receipt)) {
-    throw new Error(
-      "Generated point-mutation runtime kernel is stale; run " +
-        "`pnpm point-mutation-runtime-kernel:update` in packages/flarex-backend.",
-    );
-  }
+  await writeOrCheckGeneratedFile(
+    GENERATED_PATH,
+    render(receipt),
+    "check",
+    "Generated point-mutation runtime kernel is stale; run " +
+      "`pnpm point-mutation-runtime-kernel:update` in packages/flarex-backend.",
+  );
   return receipt;
 }
 

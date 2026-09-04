@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "vite";
+
+import { writeOrCheckGeneratedFile } from "./runtimeKernelBuilder";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ENTRY = path.join(
@@ -28,12 +29,12 @@ if (
     throw new Error("Usage: buildEdgeActionRuntimeKernel.ts <update|check>");
   }
   const receipt = await buildTwice();
-  if (mode === "update") await writeFile(GENERATED, render(receipt), "utf8");
-  else if (await readFile(GENERATED, "utf8") !== render(receipt)) {
-    throw new Error(
-      "Generated edge-action runtime kernel is stale; run edge-action-runtime-kernel:update.",
-    );
-  }
+  await writeOrCheckGeneratedFile(
+    GENERATED,
+    render(receipt),
+    mode,
+    "Generated edge-action runtime kernel is stale; run edge-action-runtime-kernel:update.",
+  );
   console.log(`Verified edge-action runtime kernel ${receipt.sha256}.`);
 }
 

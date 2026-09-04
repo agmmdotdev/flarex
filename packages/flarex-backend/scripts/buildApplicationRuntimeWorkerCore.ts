@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "vite";
+
+import { writeOrCheckGeneratedFile } from "./runtimeKernelBuilder";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ENTRY_PATH = path.join(
@@ -37,11 +38,12 @@ if (
   }
   const receipt = await buildTwice();
   const rendered = renderGenerated(receipt);
-  if (mode === "update") {
-    await writeFile(GENERATED_PATH, rendered, "utf8");
-  } else if (await readFile(GENERATED_PATH, "utf8") !== rendered) {
-    throw new Error("Generated Application Runtime Worker core is stale.");
-  }
+  await writeOrCheckGeneratedFile(
+    GENERATED_PATH,
+    rendered,
+    mode,
+    "Generated Application Runtime Worker core is stale.",
+  );
   console.log(
     `Verified Application Runtime Worker core ${receipt.sha256} ` +
       `(${receipt.sourceBytes} bytes) from two byte-identical builds.`,

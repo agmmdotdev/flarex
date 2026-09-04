@@ -10,6 +10,7 @@ import {
   type FlarexGeneratedOutputTypecheckOption,
 } from "./generatedTypecheck.ts";
 import { errorMessageFromUnknown } from "./errorMessage.ts";
+import { resolveFlarexDirs } from "./flarexPaths.ts";
 
 export type FlarexPluginOptions = Omit<FlarexGenerateOptions, "root"> & {
   dev?:
@@ -78,8 +79,11 @@ export function flarex(options: FlarexPluginOptions = {}): Plugin {
           }
         });
       }
-      const appDir = path.resolve(root, options.appDir ?? "flarex");
-      const generatedDir = path.resolve(appDir, options.generatedDir ?? "_generated");
+      const { appDir, generatedDir } = resolveFlarexDirs({
+        root,
+        appDir: options.appDir,
+        generatedDir: options.generatedDir,
+      });
       server.watcher.add(`${appDir}/**/*.ts`);
       server.watcher.on("change", async file => {
         const changedPath = path.resolve(file);

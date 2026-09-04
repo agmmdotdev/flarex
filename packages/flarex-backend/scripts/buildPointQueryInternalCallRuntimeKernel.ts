@@ -1,10 +1,10 @@
-import { readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   buildRuntimeKernelTwice,
   renderRuntimeKernelModule,
+  writeOrCheckGeneratedFile,
 } from "./runtimeKernelBuilder";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -32,13 +32,13 @@ if (process.argv[1] !== undefined &&
     sourceExport: "POINT_QUERY_INTERNAL_CALL_RUNTIME_KERNEL_SOURCE_V1",
     sha256Export: "POINT_QUERY_INTERNAL_CALL_RUNTIME_KERNEL_SHA256_V1",
   });
-  if (mode === "update") await writeFile(GENERATED, rendered, "utf8");
-  else if (await readFile(GENERATED, "utf8") !== rendered) {
-    throw new Error(
-      "Generated internal-call point-query runtime kernel is stale; run " +
-        "point-query-internal-call-runtime-kernel:update.",
-    );
-  }
+  await writeOrCheckGeneratedFile(
+    GENERATED,
+    rendered,
+    mode,
+    "Generated internal-call point-query runtime kernel is stale; run " +
+      "point-query-internal-call-runtime-kernel:update.",
+  );
   console.log(
     `Verified internal-call point-query runtime kernel ${receipt.sha256} ` +
       `(${receipt.sourceBytes} bytes).`,

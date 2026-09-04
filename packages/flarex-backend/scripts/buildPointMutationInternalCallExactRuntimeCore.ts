@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transformWithOxc } from "vite";
+
+import { writeOrCheckGeneratedFile } from "./runtimeKernelBuilder";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CORE = path.join(
@@ -19,13 +21,12 @@ if (process.argv[1] !== undefined &&
     throw new Error("Usage: buildPointMutationInternalCallExactRuntimeCore.ts <update|check>");
   }
   const receipt = await buildTwice();
-  if (mode === "update") await writeFile(GENERATED, render(receipt), "utf8");
-  else {
-    const current = await readFile(GENERATED, "utf8");
-    if (current !== render(receipt)) throw new Error(
-      "Generated exact point-mutation internal-call runtime core is stale; run point-mutation-internal-call-exact-runtime-core:update.",
-    );
-  }
+  await writeOrCheckGeneratedFile(
+    GENERATED,
+    render(receipt),
+    mode,
+    "Generated exact point-mutation internal-call runtime core is stale; run point-mutation-internal-call-exact-runtime-core:update.",
+  );
   console.log(`Verified exact point-mutation internal-call runtime core ${receipt.sha256}.`);
 }
 

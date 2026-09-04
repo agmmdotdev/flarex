@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 import { build } from "vite";
 
 export const MAX_EXACT_RUNTIME_KERNEL_BYTES = 4 * 1024 * 1024;
@@ -25,6 +26,29 @@ export async function buildRuntimeKernelTwice(
     throw new Error(`${options.label} builds are not byte-for-byte stable.`);
   }
   return first;
+}
+
+export type GeneratedArtifactMode = "update" | "check";
+
+/**
+ * Publishes a rendered generated artifact or verifies it is current.
+ *
+ * Byte-read and fatal decode mechanics stay with this host owner; each
+ * script retains its generated path, stale message, and verification log.
+ */
+export async function writeOrCheckGeneratedFile(
+  generatedPath: string,
+  rendered: string,
+  mode: GeneratedArtifactMode,
+  staleMessage: string,
+): Promise<void> {
+  if (mode === "update") {
+    await writeFile(generatedPath, rendered, "utf8");
+    return;
+  }
+  if ((await readFile(generatedPath, "utf8")) !== rendered) {
+    throw new Error(staleMessage);
+  }
 }
 
 export function renderRuntimeKernelModule(input: {

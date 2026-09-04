@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { errorMessageFromUnknown } from "./errorMessage.ts";
+import { resolveFlarexDirs } from "./flarexPaths.ts";
 import type { FlarexGenerateOptions } from "./generate.ts";
 
 const execFileAsync = promisify(execFile);
@@ -126,8 +127,7 @@ async function generatedTypecheckConfigPath(
 function generatedOutputTsconfig(
   options: FlarexGeneratedOutputTypecheckOptions,
 ): GeneratedOutputTsconfig {
-  const appDir = path.resolve(options.root, options.appDir ?? "flarex");
-  const generatedDir = path.resolve(appDir, options.generatedDir ?? "_generated");
+  const { appDir, generatedDir } = resolveFlarexDirs(options);
   const pathBase = path.resolve(options.cwd ?? options.root);
   const typeRoots = options.compilerOptions?.typeRoots === undefined
     ? defaultTypeRoots(pathBase)

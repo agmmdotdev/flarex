@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transformWithOxc } from "vite";
+
+import { writeOrCheckGeneratedFile } from "./runtimeKernelBuilder";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CORE = path.join(
@@ -27,12 +29,12 @@ if (
     throw new Error("Usage: buildEdgeActionExactRuntimeCore.ts <update|check>");
   }
   const receipt = await buildTwice();
-  if (mode === "update") await writeFile(GENERATED, render(receipt), "utf8");
-  else if (await readFile(GENERATED, "utf8") !== render(receipt)) {
-    throw new Error(
-      "Generated edge-action exact runtime core is stale; run edge-action-exact-runtime-core:update.",
-    );
-  }
+  await writeOrCheckGeneratedFile(
+    GENERATED,
+    render(receipt),
+    mode,
+    "Generated edge-action exact runtime core is stale; run edge-action-exact-runtime-core:update.",
+  );
   console.log(`Verified edge-action exact runtime core ${receipt.sha256}.`);
 }
 
