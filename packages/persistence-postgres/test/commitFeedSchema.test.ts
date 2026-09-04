@@ -611,32 +611,14 @@ async function writeJournalThrough0028(
   currentJournal: string,
   targetJournal: string,
 ): Promise<void> {
-  const parsed = JSON.parse(await readFile(currentJournal, "utf8")) as {
-    entries?: Array<{ idx?: number }>;
-  };
-  if (!Array.isArray(parsed.entries)) {
-    throw new Error("Current Drizzle journal is missing its entries array.");
-  }
-  parsed.entries = parsed.entries.filter(
-    (entry) => typeof entry.idx === "number" && entry.idx < 29,
-  );
-  await writeFile(targetJournal, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  return writeJournalBeforeIndex(currentJournal, targetJournal, 29);
 }
 
 async function writeJournalThrough0029(
   currentJournal: string,
   targetJournal: string,
 ): Promise<void> {
-  const parsed = JSON.parse(await readFile(currentJournal, "utf8")) as {
-    entries?: Array<{ idx?: number }>;
-  };
-  if (!Array.isArray(parsed.entries)) {
-    throw new Error("Current Drizzle journal is missing its entries array.");
-  }
-  parsed.entries = parsed.entries.filter(
-    (entry) => typeof entry.idx === "number" && entry.idx < 30,
-  );
-  await writeFile(targetJournal, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  return writeJournalBeforeIndex(currentJournal, targetJournal, 30);
 }
 
 async function writeJournalBeforeIndex(

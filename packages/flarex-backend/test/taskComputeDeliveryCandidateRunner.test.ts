@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex as hex } from "@flarex/utils/bytes";
 import {
   TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1,
   TaskComputeDispatchRejectedError,
@@ -747,12 +748,6 @@ function runtimeObject(
 
 function digest(seed: number): Uint8Array {
   return new Uint8Array(32).fill(seed);
-}
-
-function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
-    "",
-  );
 }
 
 function success<Success, Failure>(

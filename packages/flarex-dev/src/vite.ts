@@ -10,7 +10,7 @@ import {
   type FlarexGeneratedOutputTypecheckOption,
 } from "./generatedTypecheck.ts";
 import { errorMessageFromUnknown } from "./errorMessage.ts";
-import { resolveFlarexDirs } from "./flarexPaths.ts";
+import { isPathWithinDir, resolveFlarexDirs } from "./flarexPaths.ts";
 
 export type FlarexPluginOptions = Omit<FlarexGenerateOptions, "root"> & {
   dev?:
@@ -87,7 +87,7 @@ export function flarex(options: FlarexPluginOptions = {}): Plugin {
       server.watcher.add(`${appDir}/**/*.ts`);
       server.watcher.on("change", async file => {
         const changedPath = path.resolve(file);
-        if (isWithinPath(appDir, changedPath) && !isWithinPath(generatedDir, changedPath)) {
+        if (isPathWithinDir(appDir, changedPath) && !isPathWithinDir(generatedDir, changedPath)) {
           if (devRuntime) {
             if (reloadTimer) clearTimeout(reloadTimer);
             reloadTimer = setTimeout(() => {
@@ -114,11 +114,6 @@ export function flarex(options: FlarexPluginOptions = {}): Plugin {
       });
     },
   };
-}
-
-function isWithinPath(parent: string, child: string): boolean {
-  const relative = path.relative(parent, child);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 async function generateAndMaybeTypecheck(

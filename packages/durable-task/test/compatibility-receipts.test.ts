@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   decideCompleteAttemptV1,
   decideHandleLeaseExpiryV1,
@@ -55,7 +56,7 @@ interface CompatibilitySuiteV1 {
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return isNonArrayRecord(value);
 }
 
 function isWritableRecord(value: unknown): value is Record<string, unknown> {

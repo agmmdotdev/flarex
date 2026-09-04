@@ -1,5 +1,5 @@
 import { mkdir, rm } from "node:fs/promises";
-import { isAbsolute, join, parse, relative, resolve } from "node:path";
+import { join, parse, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { Miniflare } from "miniflare";
@@ -31,7 +31,7 @@ import {
   type FlarexGeneratedOutputTypecheckOption,
 } from "./generatedTypecheck.ts";
 import { errorMessageFromUnknown } from "./errorMessage.ts";
-import { resolveFlarexDirs } from "./flarexPaths.ts";
+import { isPathWithinDir, resolveFlarexDirs } from "./flarexPaths.ts";
 import { LocalMiniflareExecutionArtifactMaterializer } from "./runtimeMaterializer.ts";
 import {
   decodeDevInvokeBody,
@@ -79,9 +79,7 @@ export function resolveResettableFlarexDevPersistDir(
   const relativePersistDir = relative(root, persistDir);
   const normalizedRelativePersistDir = relativePersistDir.replaceAll("\\", "/");
   const isInsideRoot =
-    relativePersistDir.length > 0 &&
-    !relativePersistDir.startsWith("..") &&
-    !isAbsolute(relativePersistDir);
+    relativePersistDir.length > 0 && isPathWithinDir(root, persistDir);
   const isUnderFlarexDir = normalizedRelativePersistDir.startsWith(".flarex/");
   if (
     !isInsideRoot ||

@@ -42,3 +42,16 @@ export function resolveFlarexDirs(
     generatedDir: resolveFlarexGeneratedDir(appDir, options.generatedDir),
   };
 }
+
+/**
+ * Returns whether a child path is the parent directory itself or lies under
+ * it. The check fails closed: any relative path starting with ".." is
+ * rejected, including literal in-directory names such as "..foo".
+ * Callers retain any additional policy such as same-directory exclusion,
+ * project-scoped prefixes, or filesystem-root rejection.
+ */
+export function isPathWithinDir(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative));
+}

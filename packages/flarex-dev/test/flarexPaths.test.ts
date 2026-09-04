@@ -1,6 +1,7 @@
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  isPathWithinDir,
   resolveFlarexAppDir,
   resolveFlarexDirs,
   resolveFlarexGeneratedDir,
@@ -37,5 +38,24 @@ describe("resolveFlarexDirs", () => {
     expect(resolveFlarexGeneratedDir(appDir, "/abs/out")).toBe(
       resolve("/abs/out"),
     );
+  });
+});
+
+describe("isPathWithinDir", () => {
+  it("accepts the directory itself and nested paths", () => {
+    expect(isPathWithinDir("/proj/app", "/proj/app")).toBe(true);
+    expect(isPathWithinDir("/proj/app", "/proj/app/functions/f.ts")).toBe(
+      true,
+    );
+  });
+
+  it("rejects siblings, parents, and absolute escapes", () => {
+    expect(isPathWithinDir("/proj/app", "/proj/other")).toBe(false);
+    expect(isPathWithinDir("/proj/app", "/proj")).toBe(false);
+    expect(isPathWithinDir("/proj/app", "/abs/out")).toBe(false);
+  });
+
+  it("rejects normalized escapes that traverse through the parent", () => {
+    expect(isPathWithinDir("/proj/app", "/proj/app/../other")).toBe(false);
   });
 });

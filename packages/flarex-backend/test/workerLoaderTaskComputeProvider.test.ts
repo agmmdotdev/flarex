@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex as hex } from "@flarex/utils/bytes";
 import {
   TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1,
   TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
@@ -1064,10 +1065,6 @@ function owned<Value extends object>(value: Value, dispose = () => {}): Value {
     value: dispose,
   });
   return value;
-}
-
-function hex(bytes: Uint8Array): string {
-  return [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function success<Success, Failure>(result: Result.Result<Success, Failure>): Success {
