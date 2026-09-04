@@ -1,7 +1,7 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import {
+  makeDrizzleCopyFixture,
+  writeJournalThrough,
+} from "./migrationFixtureSupport";
 
 const FIRST_MIGRATION_NAME = "0068_lumpy_pyro.sql";
 
@@ -15,18 +15,16 @@ export interface MigrationQueryPort {
 export async function makePhysicalDefinitionRetirementMigrationFixture(
   label: string,
 ) {
-  const root = await mkdtemp(resolve(tmpdir(), `flarex-m05-b3-${label}-`));
-  const migrationsFolder = resolve(root, "drizzle");
-  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-  const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
-  const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
-  await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+  const fixture = await makeDrizzleCopyFixture(
+    "flarex-m05-b3",
+    label,
+    FIRST_MIGRATION_NAME,
+  );
   return Object.freeze({
-    migrationsFolder,
-    currentJournal,
-    temporaryJournal,
-    cleanup: () => rm(root, { recursive: true, force: true }),
+    migrationsFolder: fixture.migrationsFolder,
+    currentJournal: fixture.currentJournal,
+    temporaryJournal: fixture.temporaryJournal,
+    cleanup: fixture.cleanup,
   });
 }
 
@@ -35,13 +33,7 @@ export async function writePhysicalDefinitionRetirementJournalThrough(
   target: string,
   maximumIndex: 67 | 68,
 ) {
-  const journal = JSON.parse(await readFile(source, "utf8")) as {
-    entries: ReadonlyArray<Readonly<{ idx: number }>>;
-  };
-  await writeFile(target, `${JSON.stringify({
-    ...journal,
-    entries: journal.entries.filter(entry => entry.idx <= maximumIndex),
-  }, null, 2)}\n`, "utf8");
+  return writeJournalThrough(source, target, maximumIndex);
 }
 
 export async function seedApplicationTaskRunBeforeRetirementMigration(
