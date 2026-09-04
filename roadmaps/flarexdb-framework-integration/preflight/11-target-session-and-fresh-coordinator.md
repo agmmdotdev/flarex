@@ -3,9 +3,10 @@
 Status: accepted bounded decomposition of checkpoint 3 as of 2026-09-04. All
 three source-private slices for the no-base synthetic profile are implemented
 as separate PGlite-functional evidence: target/session, relational structural
-runner, and fresh coordinator plus its repository helpers. This does not
-complete checkpoint 3. Genuine-PostgreSQL coordination and settlement,
-bounded-lineage scale, base-backed execution, production resolution, runtime,
+runner, and fresh coordinator plus its repository helpers. The bounded native
+PostgreSQL fresh profile now has independent contention and settlement evidence.
+This does not complete checkpoint 3. Bounded-lineage scale, base-backed
+execution, other native transports, production resolution, runtime,
 activation, and public API gates remain open.
 
 Last reviewed: 2026-09-05
@@ -21,7 +22,7 @@ as three separately reviewable commits:
    physical locator behind source-private authority. Mint a fresh logical
    session identity for each ordinary or recovery transaction, keep the raw
    transaction inside a bounded callback, and close it when that callback
-   ends. PGlite is only the functional/test issuer for this seam.
+   ends. The PGlite adapter supplies functional evidence for this seam.
 2. **Relational structural runner:** observe and execute the admitted
    expansion-only structural operations through the target transaction. Issue
    one source-private opaque token bound to the exact captured plan and target,
@@ -31,10 +32,10 @@ as three separately reviewable commits:
 3. **Fresh coordinator and repository helpers:** claim and advance the stable
    collision lane, restore all persisted authorities inside their owning
    transaction, execute and validate the fresh plan, and publish terminal,
-   installation, readiness, event, and availability evidence. This slice is
-   accepted only as source-private PGlite-functional evidence for the no-base
-   synthetic profile. It does not resolve the genuine-PostgreSQL concurrency,
-   settlement, or scaling gates below.
+   installation, readiness, event, and availability evidence. The PGlite
+   functional proof and the later bounded native proof remain independent.
+   [Native implementation evidence](#native-implementation-evidence) defines
+   the admitted fresh profile; upgrade and scaling gates remain open.
 
 Completion of an earlier slice does not authorize a later slice. All three
 remain source-private and production-inert. None may add a package-root export,
@@ -258,12 +259,8 @@ concurrent-exclusion evidence.
 
 ## Remaining Checkpoint-3 Gates
 
-The implemented PGlite-functional profile does not resolve these issues:
+The implemented private fresh profile does not resolve these issues:
 
-- **First-writer serialization:** the implementation locks the stable collision
-  row before admission and initial head creation because `SELECT ... FOR UPDATE`
-  on an absent mutable head locks no row. Real PostgreSQL must still prove
-  that mutex excludes competing first writers before any concurrency claim.
 - **Bounded lineage corroboration:** receipt prefixes, migration-event chains,
   and availability-history chains can accumulate `O(N^2)` database reads when
   rebuilt independently. A transaction/session-authenticated cache,
@@ -271,23 +268,91 @@ The implemented PGlite-functional profile does not resolve these issues:
   before scale or production activation.
 - **Production target identity:** a host-owned production target resolver and
   driver registry must derive canonical physical database identity and issue
-  targets. Caller-supplied PGlite composition cannot become that authority.
+  targets. Caller-supplied test composition cannot become that authority.
 - **Production runner resolution:** the private four-handler registry can bind
   an authenticated plan/target token, but a later host composition root must
   still decide which admitted runner profile may be issued for a production
   target. Codec text, a decoded token, or caller composition cannot become
   that selection authority.
-- **Genuine-PostgreSQL coordinator acceptance:** real PostgreSQL must still
-  prove first-writer exclusion, `FOR UPDATE` behavior, concurrent claims,
-  lease contention, lock and statement timeouts, cancellation, external
-  interruption, transaction settlement, and recovery on a distinct physical
-  session for both fresh and later base-backed profiles.
+- **Base-backed PostgreSQL acceptance:** the later upgrade profile must prove
+  its own contention, interruption, settlement and recovery. Fresh installation
+  evidence does not transfer automatically to base-backed execution.
+- **Other native transports:** hosted poolers, TLS cancellation and production
+  driver composition remain outside the direct non-TLS PostgreSQL test profile.
 
-## Proposed First Implementation Capability
+## Native Implementation Evidence
 
-**Native PostgreSQL fresh installation and recovery** is the recommended next
-coherent capability. It is proposed for approval; this documentation update
-does not authorize code, database changes, or production selection.
+The approved native fresh-installation proof exposed a catalog wire-type
+portability defect: PostgreSQL returns `pg_attribute.attname` arrays as
+`name[]`, which node-postgres leaves as an encoded string, while the structural
+runner requires a decoded text array. The native synthetic installation failed
+before readiness with `column_names is not a text array`; PGlite had accepted
+the same query. The affected owner is the private structural runner catalog
+projection, within this native integration capability. The three name-array
+projections now cast their elements to `text` at the SQL boundary, preserving
+strict decoded-array validation and exact structural comparison. Native
+installation/recovery and the existing PGlite structural lane cover the fix.
+
+Native concurrent first-writer acceptance also exposed an over-strong collision
+mutex: preparation held the immutable root `FOR UPDATE` while waiting for its
+head, whereas a claim held the head and needed a foreign-key `KEY SHARE` lock
+on that root while inserting an event. PostgreSQL detected the resulting cycle.
+The private collision repository owns this in-scope correction: serialize
+preparations with `FOR NO KEY UPDATE`, which still excludes another preparation
+and key-changing/deleting writers but permits event foreign-key checks. An
+independent-connection regression holds the head, queues preparation, then
+inserts a referencing row without deadlock before releasing the head.
+
+The source-private native adapter, `migrationCoordination/postgresTarget.ts`,
+owns bounded callback-pool acquisition, transaction settlement, and cleanup;
+its connection and transport modules own tracked SQL, the closed work fence,
+authenticated BackendKeyData cancellation, drain and exact-client destruction.
+Artifact control-session identities and repository authority remain separate.
+Logical recovery identities map to actual checked-out clients, and an uncertain
+client is excluded from durable decision reconstruction.
+
+The native correctness lane covers ordinary-role fresh installation and replay,
+concurrent first-head creation behind independent-connection barriers, live
+claims, independent collision domains, lease takeover and stale fencing. It
+also covers atomic DDL/receipt/event/head rollback, corrupt-ledger and catalog
+refusal, acquisition expiry and late release, lock/statement/whole-transaction
+deadlines, active-query cancellation, cleanup failure, blocked COMMIT settlement,
+and interruption after acknowledged COMMIT. Separate OS-process tests reconstruct
+partial progress and pre-/post-COMMIT response loss from durable state.
+
+### Admitted Work Profile
+
+The shared coordinator, on both PGlite and PostgreSQL, admits at most **eleven
+plan steps** and at most **sixteen step calls per run**. Larger plans fail before target acquisition or metadata
+publication. These are execution-profile limits; the pure plan/value format
+retains its independent capacity. Defaults are a 120-second coordinator run,
+5-second acquisition, 60-second transaction, 5-second cleanup, and 8,192 SQL
+statements per transaction. The coordinator run budget may be configured up to
+300 seconds. Statement and lock deadlines remain bounded by the transaction
+budget. A timeout never establishes non-commit; a later run must reconstruct
+durable progress or readiness.
+
+Native work measurements cover seven-, nine- and eleven-step fixtures and
+separate acquisition, preparation/claim, each step, reconstruction, takeover and
+finalization. Deliberate lease waits are outside the operation measurements.
+Repeated graph authentication still performs substantial database work.
+A fifteen-step experiment exceeded its five-minute acceptance budget amid
+test-catalog churn; that run does not isolate the source of the delay or
+establish a larger-plan bound. Fifteen-step plans are not admitted by this
+execution profile. Larger-plan and long-lineage work
+requires a separately reviewed bounded corroboration strategy rather than
+increasing timeouts or extrapolating the small-profile result. This limitation
+does not close the general lineage or throughput gate.
+
+`test:framework-coordinator-fresh:postgres` is the manifest-owned serial native
+lane. The target/session, structural-runner and fresh-coordinator PGlite lanes
+remain independent regression evidence.
+
+## Approved First Implementation Capability
+
+**Native PostgreSQL fresh installation and recovery** was approved as one
+coherent capability and is implemented for the bounded profile above. This
+authorization does not extend to production selection or the excluded owners.
 
 ### Outcome And Reason For This Order
 
@@ -391,13 +456,11 @@ PGlite claim.
 
 ## Explicitly Closed Boundaries
 
-This preflight and its three bounded PGlite-functional slices do not prove or
+This preflight and its bounded private PGlite/native slices do not prove or
 authorize:
 
 - production target resolution or physical database identity;
-- genuine-PostgreSQL locking, collision exclusion, lock/statement timeout,
-  cancellation, recovery-session separation, transaction settlement, or
-  external-interruption-to-decision recovery;
+- native guarantees beyond the admitted direct non-TLS fresh profile;
 - any structural operation outside the fixed create-table, create-index,
   add-foreign-key, and validate-structure registry, including base-backed or
   destructive migration;
@@ -413,10 +476,8 @@ authorize:
 
 ## Exit Decision
 
-Checkpoint 3 now has three implemented source-private slices for the no-base
-synthetic PGlite-functional profile: target/session lifecycle, plan/target-
-bound structural execution, and fresh coordinator plus repository
-orchestration. Checkpoint 3 itself remains open. Genuine PostgreSQL,
-base-backed execution, bounded-lineage scale, and the production target/runner
-resolver remain mandatory before any adapter, runtime, hosted, public, or
+Checkpoint 3 has the source-private target/session, structural runner and fresh
+coordinator, with independent PGlite and bounded native PostgreSQL evidence.
+Checkpoint 3 itself remains open. Base-backed execution, bounded-lineage scale,
+and the production target/runner resolver remain mandatory before any adapter, runtime, hosted, public, or
 production claim.

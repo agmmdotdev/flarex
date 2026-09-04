@@ -198,6 +198,25 @@ describe("test lane manifest and runner", () => {
     );
   });
 
+  it("pins the native fresh coordinator receipt and database prerequisite", () => {
+    const manifest = loadTestLaneManifest();
+    const lane = resolveTestLaneSelection(manifest, "framework-coordinator-fresh-postgres")[0];
+    expect(lane?.prerequisites).toEqual([{ name: "FLAREX_POSTGRES_DATABASE_URL" }]);
+    expect(lane?.steps).toHaveLength(1);
+    const step = lane?.steps[0];
+    if (step === undefined) throw new Error("Native coordinator lane is missing");
+    expect(resolveTestLaneStepArguments(manifest, step)).toEqual([
+      "exec", "vitest", "run", "test/frameworkCoordinatorPostgresTarget.test.ts",
+      "test/frameworkCoordinatorFreshCoordinator.postgres.test.ts",
+      "test/frameworkCoordinatorNativeWork.postgres.test.ts",
+      "test/frameworkCoordinatorRestart.postgres.test.ts",
+      "--no-file-parallelism", "--maxWorkers=1", "--testTimeout=300000", "--reporter=verbose", "--bail=1",
+    ]);
+    const packageManifest = JSON.parse(readFileSync("packages/persistence-postgres/package.json", "utf8"));
+    expect(packageManifest.scripts?.["test:framework-coordinator-fresh:postgres"])
+      .toBe("node ../../scripts/run-test-lane.mjs framework-coordinator-fresh-postgres");
+  });
+
   it("pins the fresh framework-coordinator PGlite receipt", () => {
     const manifest = loadTestLaneManifest();
     const lane = resolveTestLaneSelection(

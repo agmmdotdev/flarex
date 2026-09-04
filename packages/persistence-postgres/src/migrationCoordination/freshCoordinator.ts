@@ -198,6 +198,7 @@ export interface RunFreshFrameworkMigrationCoordinatorInput {
   readonly lockTimeoutMilliseconds: number;
   readonly statementTimeoutMilliseconds: number;
   readonly maximumStepsPerRun?: number;
+  readonly runTimeoutMilliseconds?: number;
 }
 
 export interface FrameworkMigrationReadyResult {
@@ -310,20 +311,37 @@ const STRUCTURE_MISMATCH_RESULT = Object.freeze({
 
 export const runFreshFrameworkMigrationCoordinatorEffect = Effect.fn(
   "FreshFrameworkMigrationCoordinator.run",
+)((input: RunFreshFrameworkMigrationCoordinatorInput): Effect.Effect<
+  FreshFrameworkMigrationCoordinatorResult, FrameworkMigrationCoordinatorFailure
+> => Effect.suspend(() => {
+  const timeout = input.runTimeoutMilliseconds ?? 120_000;
+  if (!Number.isSafeInteger(timeout) || timeout <= 0 || timeout > 300_000) {
+    return Effect.fail(coordinatorError("prepare", "invalidInput", "Invalid fresh coordinator run budget"));
+  }
+  // Interruption is not evidence of non-commit. The target owns settlement and
+  // cleanup; a later run reconstructs the exact durable prefix or readiness.
+  return Effect.raceFirst(runFreshCoordinatorWithinBudgetEffect(input),
+    Effect.sleep(timeout).pipe(Effect.andThen(Effect.fail(coordinatorError(
+      "prepare", "resourceFailure", "Fresh coordinator run deadline expired; resume from durable state",
+    )))));
+}));
+
+const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
+  "FreshFrameworkMigrationCoordinator.runWithinBudget",
 )(function* (
   input: RunFreshFrameworkMigrationCoordinatorInput,
 ): Effect.fn.Return<
   FreshFrameworkMigrationCoordinatorResult,
   FrameworkMigrationCoordinatorFailure
 > {
-  const maximumSteps = input.maximumStepsPerRun ?? Number.MAX_SAFE_INTEGER;
+  const maximumSteps = input.maximumStepsPerRun ?? 16;
   if (
     !isIdentityText(input.attemptId) ||
     !isIdentityText(input.leaseOwnerId) ||
     !isPositiveBoundedInteger(input.leaseDurationMilliseconds) ||
     !isPositiveBoundedInteger(input.lockTimeoutMilliseconds) ||
     !isPositiveBoundedInteger(input.statementTimeoutMilliseconds) ||
-    !Number.isSafeInteger(maximumSteps) || maximumSteps < 0
+    !Number.isSafeInteger(maximumSteps) || maximumSteps < 0 || maximumSteps > 16
   ) {
     return yield* Effect.fail(coordinatorError(
       "prepare",
@@ -361,6 +379,10 @@ export const runFreshFrameworkMigrationCoordinatorEffect = Effect.fn(
     artifact,
     physicalLayout,
   });
+  if (plan.frame.steps.length > 11) {
+    return yield* Effect.fail(coordinatorError("prepare", "invalidInput",
+      "Fresh coordinator execution supports at most 11 plan steps"));
+  }
   const structuralRunner = yield*
     issueRelationalStructuralRunnerTokenEffect(input.target, plan);
   yield* preflightRelationalStructuralPlanEffect(structuralRunner);

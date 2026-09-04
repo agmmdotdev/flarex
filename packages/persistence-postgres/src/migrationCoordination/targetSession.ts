@@ -83,7 +83,7 @@ export class FrameworkMigrationTargetCompositionError extends Data.TaggedError(
 export class FrameworkMigrationSessionResourceIssue extends Data.TaggedError(
   "FrameworkMigrationSessionResourceIssue",
 )<{
-  readonly phase: "beginOrConfigure" | "rollbackOrCleanup";
+  readonly phase: "acquire" | "beginOrConfigure" | "work" | "rollbackOrCleanup";
   readonly cause: unknown;
 }> {}
 

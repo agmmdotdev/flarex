@@ -1,6 +1,12 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
+    "framework-coordinator-fresh-postgres": [
+      "test/frameworkCoordinatorPostgresTarget.test.ts",
+      "test/frameworkCoordinatorFreshCoordinator.postgres.test.ts",
+      "test/frameworkCoordinatorNativeWork.postgres.test.ts",
+      "test/frameworkCoordinatorRestart.postgres.test.ts"
+    ],
     "framework-coordinator-fresh-pglite": [
       "test/frameworkCoordinatorFreshCoordinator.test.ts"
     ],
@@ -54,6 +60,9 @@
     ],
     "framework-coordinator-checkpoint2-pglite": [
       "framework-coordinator-checkpoint2-pglite"
+    ],
+    "framework-coordinator-fresh-postgres": [
+      "framework-coordinator-fresh-postgres"
     ],
     "framework-coordinator-fresh-pglite": [
       "framework-coordinator-fresh-pglite"
@@ -110,6 +119,19 @@
     ]
   },
   "lanes": [
+    {
+      "id": "framework-coordinator-fresh-postgres",
+      "category": "postgres",
+      "proof": "Source-private fresh relational installation on an ordinary-role PostgreSQL database: physical session lifecycle, transaction and statement budgets, concurrency, stale fencing, atomic DDL/progress, distinct-backend commit recovery, process restart, corruption refusal, and measured bounded-plan work. The tested native transport is direct non-TLS PostgreSQL. This does not establish base-backed upgrades, general lineage scale, hosted pooling/TLS cancellation, framework adapters, production identity resolution, or runtime activation.",
+      "prerequisites": [{ "name": "FLAREX_POSTGRES_DATABASE_URL" }],
+      "steps": [{
+        "id": "persistence-framework-coordinator-fresh-postgres",
+        "cwd": "packages/persistence-postgres",
+        "command": "pnpm",
+        "args": ["exec", "vitest", "run", { "testFileGroup": "framework-coordinator-fresh-postgres" },
+          "--no-file-parallelism", "--maxWorkers=1", "--testTimeout=300000", "--reporter=verbose", "--bail=1"]
+      }]
+    },
     {
       "id": "framework-coordinator-fresh-pglite",
       "category": "pglite",

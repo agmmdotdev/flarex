@@ -386,7 +386,7 @@ const loadExactCollisionDomain = Effect.fn(
   targetNamespace: RestoredFrameworkSchemaTargetNamespace,
   coordinate: FrameworkMigrationCollisionCoordinate,
   operation: FrameworkMigrationRepositoryOperation,
-  forUpdate = false,
+  lockForCoordination = false,
 ): Effect.fn.Return<
   Option.Option<RestoredFrameworkMigrationCollisionDomain>,
   FrameworkMigrationRepositoryError
@@ -410,7 +410,9 @@ const loadExactCollisionDomain = Effect.fn(
   )).limit(1);
   const rows = yield* runRepositoryStatement(
     operation,
-    forUpdate ? query.for("update") : query,
+    // The immutable root is a mutex, not a key-update target. KEY SHARE from
+    // event foreign keys must remain compatible while a head owner advances.
+    lockForCoordination ? query.for("no key update") : query,
   ).pipe(
     Effect.map(detachDriverRows),
   );

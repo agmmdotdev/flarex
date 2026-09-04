@@ -6,8 +6,8 @@ Status: active accepted roadmap domain. The private framework-artifact
 repository has completed its focused PGlite and ordinary-role PostgreSQL
 acceptance. Relational values, coordinator metadata/repositories, and all
 three fresh-install execution slices are implemented privately; coordinator
-execution is proven only in the no-base PGlite profile. Native coordinator
-acceptance, bounded-lineage scale, upgrades, serving bindings, framework data
+execution has independent no-base PGlite and bounded native PostgreSQL evidence.
+Bounded-lineage scale, upgrades, serving bindings, framework data
 transactions, adapters, and production activation remain open.
 
 The [current gate matrix](#current-gate-status) is the cross-lane status index.
@@ -80,8 +80,8 @@ Use these sources in order:
 13. [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md)
     owns the three-slice checkpoint-3 decomposition, opaque target/session and
     PGlite functional boundary, the private plan/target-bound structural-runner
-    registry, fresh coordinator with PGlite functional evidence, and unresolved
-    genuine-PostgreSQL, host-resolver, and scaling gates.
+    registry, fresh coordinator with PGlite and bounded native PostgreSQL
+    evidence, and unresolved upgrade, other-transport, host-resolver and scaling gates.
 14. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
@@ -127,9 +127,9 @@ Preflight records:
 | [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md) | Accepted exact source/capability audit; no promotion or runtime activation | Mature-DML authority, reproducible 65-input Currency semantic graph, exploratory broader graph notes, reuse classifications, retained evidence, and deferred Query/Link/workflow/lock/idempotency/event gates |
 | [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md) | Accepted exact `payload@3.88.0` audit; no dependency, adapter, or runtime activation | Adapter surface, request nesting, hook/transaction constraint, internal collections, first headless scalar profile, relation cutline, and migration/host boundary |
 | [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md) | Implemented privately; value evidence complete and no DDL/runtime activation | Exact first-slice relational value vocabulary, deterministic normalization, framework-artifact composition, Currency and synthetic fixtures, and closed downstream gates |
-| [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; checkpoints 1 and 2 plus checkpoint 3's private target/session and structural-runner PGlite functional receipts are complete; fresh coordination has private PGlite evidence; base-backed execution, genuine-PostgreSQL acceptance, binding, and runtime remain pending | Cycle-free plan/installation identity, stable physical collision domain, bounded digest names, scope-isolated lowering, structural plan/ledger values, capability-evidence split, readiness/availability values, and later execution/database proof matrix |
+| [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; value/storage checkpoints and private PGlite plus bounded native fresh execution evidence complete; base-backed execution, scale, binding and runtime remain pending | Cycle-free identities, collision domain, physical lowering, structural plan/ledger values, readiness/availability and upgrade/database proof matrix |
 | [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Complete checkpoint-2 contract; exact additive catalog, topological restoration, all thirteen source-private repository families, and manifest-owned serial PGlite functional gate implemented production-inert | Exact eighteen-table target-local catalog, canonical-byte authority, normalized constraint sidecars, timestamp mapping, complete-graph cold rehydration, private transaction kernels, and PGlite evidence gate |
-| [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md) | Accepted checkpoint-3 decomposition; source-private target/session has focused nine-test evidence and the plan/target-bound structural runner has focused fifteen-test evidence, and fresh coordination has private PGlite functional evidence | Opaque target/session authority, fixed private four-handler runner registry, PGlite functional-only limits, and mandatory PostgreSQL mutex, bounded-lineage, host-resolver, and production-runner-resolution gates |
+| [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md) | Private no-base PGlite and bounded native PostgreSQL execution, contention, cancellation, settlement and process-restart evidence | Opaque authority, fixed four-handler registry, eleven-step execution profile, remaining lineage/upgrade/host-resolution gates |
 
 ## Current Architecture
 
@@ -259,12 +259,12 @@ proofs. Ordinary implementation details do not create additional approval
 gates; materially different owners or authority boundaries still require their
 own preflight. Later steps do not authorize earlier owner changes implicitly.
 
-The proposed immediate capability is
-[native PostgreSQL fresh installation and recovery](./preflight/11-target-session-and-fresh-coordinator.md#proposed-first-implementation-capability).
-It brings forward the fresh-profile part of native acceptance before extending
-the coordinator to a base-backed candidate. This ordering refinement and its
-implementation remain proposed; full fresh-plus-base-backed acceptance is
-still required before binding work.
+The approved [native PostgreSQL fresh installation and recovery](./preflight/11-target-session-and-fresh-coordinator.md#native-implementation-evidence)
+capability is implemented for a bounded, private profile. It brings forward
+fresh acceptance before a base-backed candidate. The shared coordinator admits
+at most eleven plan steps on both drivers; larger plans and long lineage need
+bounded corroboration before that limit can grow. Full fresh-plus-base-backed
+acceptance is still required before binding work.
 
 ## Current Gate Status
 
@@ -273,8 +273,8 @@ still required before binding work.
 | Architecture and consumer constraints | Accepted ownership and core-first order; exact Medusa fork and Payload `3.88.0` audits complete | Source audit does not prove either adapter |
 | Framework artifact repository | Private admission/read/list, authenticated control sessions, PGlite and ordinary-role PostgreSQL acceptance complete | Does not execute framework target plans |
 | Relational and lifecycle values | Private canonical schema, physical layout, plan, installation/readiness/availability values complete | No public DSL or live framework compiler |
-| Coordinator metadata/repositories | Eighteen-table catalog, thirteen repository families, stored restoration and serial PGlite gate complete | Native coordinator catalog/transaction acceptance remains open |
-| Fresh coordinator execution | Target/session, fixed structural runner, claim/lease/fence, recovery and readiness publication implemented in the private no-base PGlite profile | Native connections, concurrency, cancellation, settlement and bounded-lineage scale unproven |
+| Coordinator metadata/repositories | Eighteen-table catalog, thirteen repository families, stored restoration, PGlite gate and native fresh transaction evidence complete | Base-backed native graph and general lineage work remain open |
+| Fresh coordinator execution | Private no-base PGlite and ordinary-role native PostgreSQL profile; physical sessions, concurrency, cancellation, uncertain settlement, OS-process restart and exact readiness replay | Eleven-step execution limit; larger plans, general lineage scale, hosted/TLS transports and production resolution unproven |
 | Base-backed structural upgrade | Accepted design | Execution and PGlite/PostgreSQL proofs pending |
 | Serving bindings | Accepted identity and ownership boundaries | Application projection, Payload overlay, `DataBindingSet`, activation/recovery and serving unimplemented |
 | Relational data transaction/store and finalization | Accepted target boundaries | Transaction-owner and commit-owner decisions and implementation pending; no generic relational fact family |
@@ -297,8 +297,6 @@ Currency prerequisites. Exact consumer coverage is owned by
 The following recommendations are proposals, not accepted replacement
 contracts or implementation authorization:
 
-- [Native fresh-install execution and recovery](./preflight/11-target-session-and-fresh-coordinator.md#proposed-first-implementation-capability)
-  before broadening the structural profile, with measured work bounds.
 - [Payload standalone read admission](./preflight/07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract),
   distinct from nested transaction reuse and invalid-token refusal.
 - [Transaction lock-order reconciliation](./04-transactions-and-commit-publication.md#proposed-lock-order-reconciliation)
@@ -351,14 +349,15 @@ owners:
 - [Coordinator metadata and repositories](./preflight/10-relational-coordinator-metadata-and-repositories.md)
   owns the exact catalog, restoration and transaction-parameterized kernels.
 - [Target/session, structural runner and fresh coordinator](./preflight/11-target-session-and-fresh-coordinator.md)
-  owns implemented no-base PGlite behavior and remaining native, scale and
-  production-resolution boundaries.
+  owns implemented no-base PGlite and bounded native behavior, its eleven-step
+  execution limit, and remaining upgrade, scale and production-resolution boundaries.
 - [The installation/migration umbrella](./preflight/09-relational-installation-and-migration-coordination.md)
   retains full fresh-plus-base-backed acceptance before the later binding
   checkpoint.
 
-The proposed immediate outcome is a fresh installation that is safe under
-native PostgreSQL contention, interruption and uncertain settlement. It stays
-source-private and does not broaden the structural profile. Completing it does
-not activate bindings, framework stores, common data finalization, adapters,
-SDKs, runtime routes or production traffic.
+Fresh installation now has private native contention, interruption and uncertain
+settlement evidence within the admitted work profile. Its measured reconstruction
+cost makes bounded immutable-graph corroboration the next shared-core design
+question before larger plans or upgrades. This evidence does not activate
+bindings, framework stores, common data finalization, adapters, SDKs, runtime
+routes or production traffic.

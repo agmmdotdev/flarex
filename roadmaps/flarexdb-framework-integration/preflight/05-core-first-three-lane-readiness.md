@@ -409,15 +409,17 @@ Checkpoint 3's private target/session, structural runner, and fresh synthetic
 `system` coordinator have PGlite functional evidence. They own target
 transactions, database-time claim/lease/fence policy, recovery, independent
 validation, and atomic readiness/availability publication for the no-base
-profile. PostgreSQL coordination and settlement, scale, and production
-resolution remain open in
+profile. Independent bounded PostgreSQL coordination and settlement evidence
+now exists; larger-plan and lineage scale, upgrades, and production resolution
+remain open in
 [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
 
-The recommended first implementation capability is
-[native PostgreSQL fresh installation and recovery](./11-target-session-and-fresh-coordinator.md#proposed-first-implementation-capability).
-It is a proposed ordering refinement that proves the current no-base profile
-on real connections before broadening to a base-backed candidate. It does not
-authorize implementation or claim completion of the whole coordinator gate.
+The approved [native PostgreSQL fresh installation and recovery](./11-target-session-and-fresh-coordinator.md#native-implementation-evidence)
+capability proves the bounded no-base profile on real connections. The shared
+coordinator admits at most eleven plan steps on both PGlite and PostgreSQL.
+The larger-plan experiment exceeded its work budget, so bounded corroboration
+is the next shared-core design question before broadening to upgrades. The
+whole coordinator gate remains open.
 
 After that fresh proof, complete bounded-lineage requirements and the
 base-backed PGlite/native profile, then the separately owned Application

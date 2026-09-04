@@ -2,8 +2,9 @@
 
 Status: accepted cross-domain architecture. The private artifact repository,
 relational/lifecycle values, coordinator metadata/repositories and no-base
-PGlite execution are implemented. Native coordinator acceptance, upgrades,
-bindings, framework transaction/store hosts and adapters remain open; the
+PGlite execution and bounded native PostgreSQL fresh installation/recovery are
+implemented. Broader scale, upgrades, bindings, framework transaction/store
+hosts and adapters remain open; the
 roadmap's current capability matrix owns detailed implementation status.
 
 Last reviewed: 2026-09-05
@@ -16,7 +17,7 @@ API owned by any one lane.
 Execution order and implementation status belong to
 [the current capability matrix](../roadmaps/flarexdb-framework-integration/README.md#current-gate-status).
 The roadmap separately records
-[proposed read, lock-order, binding-recovery and native-execution decisions](../roadmaps/flarexdb-framework-integration/README.md#proposed-decisions-before-their-owning-capabilities).
+[proposed read, lock-order and binding-recovery decisions](../roadmaps/flarexdb-framework-integration/README.md#proposed-decisions-before-their-owning-capabilities).
 Those proposals do not replace this accepted architecture or authorize code.
 The accepted artifact/install/binding identity decisions are recorded in
 [`../roadmaps/flarexdb-framework-integration/preflight/01-artifact-installation-and-binding-identity.md`](../roadmaps/flarexdb-framework-integration/preflight/01-artifact-installation-and-binding-identity.md).

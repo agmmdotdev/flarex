@@ -895,7 +895,7 @@ const observeTable = Effect.fn(
       constraint_row.conparentid::text as parent_constraint_oid,
       constraint_row.conindid::text as backing_index_oid,
       array(
-        select source_column.attname
+        select source_column.attname::text
         from unnest(constraint_row.conkey)
           with ordinality as key_column(attnum, ordinality)
         join pg_attribute as source_column
@@ -1121,7 +1121,7 @@ const observeForeignKey = Effect.fn(
         order by equality_operator.ordinality
       ) as foreign_foreign_equality_operators,
       array(
-        select source_column.attname
+        select source_column.attname::text
         from unnest(constraint_row.conkey)
           with ordinality as key_column(attnum, ordinality)
         join pg_attribute as source_column
@@ -1130,7 +1130,7 @@ const observeForeignKey = Effect.fn(
         order by key_column.ordinality
       ) as source_columns,
       array(
-        select target_column.attname
+        select target_column.attname::text
         from unnest(constraint_row.confkey)
           with ordinality as key_column(attnum, ordinality)
         join pg_attribute as target_column
