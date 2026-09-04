@@ -1,3 +1,4 @@
+import { isNonBlankString } from "@flarex/utils/strings";
 import { Result, Schema } from "effect";
 import {
   AppRowIdHexV1Schema,
@@ -27,7 +28,7 @@ const StrictParseOptions = { onExcessProperty: "error" } as const;
 
 const NonBlankStringSchema = Schema.String.check(
   Schema.makeFilter((value) =>
-    value.trim().length > 0 ? undefined : "Expected a nonblank string"
+    isNonBlankString(value) ? undefined : "Expected a nonblank string"
   ),
 );
 

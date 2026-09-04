@@ -1,5 +1,7 @@
 import { Result } from "effect";
 
+import { isCanonicalArrayIndex } from "./canonical-array-index";
+
 export type ExactOwnDataIssue =
   | Readonly<{
       readonly reason: "invalidOwnData";
@@ -220,12 +222,6 @@ function withAncestor(
   const next = new Set(ancestors);
   next.add(value);
   return next;
-}
-
-function isCanonicalArrayIndex(key: string, length: number): boolean {
-  const index = Number(key);
-  return Number.isSafeInteger(index) && index >= 0 && index < length &&
-    String(index) === key;
 }
 
 function issue(path: string, cause?: unknown): ExactOwnDataIssue {

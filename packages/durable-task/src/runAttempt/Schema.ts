@@ -1,5 +1,6 @@
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // upstream/packages/core/src/v3/schemas/schemas.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { Encoding, Result, Schema, SchemaTransformation } from "effect";
 import { ApplicationTaskRuntimeTargetSha256V1Schema } from
   "../runCreation/ApplicationTaskRuntimeTarget.js";
@@ -2249,7 +2250,7 @@ const leaseExpiryCommandDecoder = Schema.decodeUnknownResult(HandleLeaseExpiryCo
 const inspectionCommandDecoder = Schema.decodeUnknownResult(InspectCurrentAttemptCommandV1Schema, STRICT_PARSE_OPTIONS);
 
 function isUnknownRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return isNonArrayRecord(value);
 }
 
 function commandIssue(

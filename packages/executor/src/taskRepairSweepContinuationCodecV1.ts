@@ -7,6 +7,7 @@ import {
   TASK_REPAIR_SCHEDULER_CONTINUATION_CODEC_V1,
 } from "@flarex/persistence-postgres/internal/task-repair-scheduler-model-v1";
 import { Data, Result, Schema } from "effect";
+import { isNonBlankString } from "@flarex/utils/strings";
 import {
   ReplacementScopeIdV1Schema,
   ScopeIdSchema,
@@ -40,7 +41,7 @@ export class TaskRepairSweepContinuationCodecV1Error extends Data.TaggedError(
 
 const NonBlankStringSchema = Schema.String.check(
   Schema.makeFilter((value) =>
-    value.trim().length > 0 ? undefined : "Expected a nonblank string"
+    isNonBlankString(value) ? undefined : "Expected a nonblank string"
   ),
 );
 

@@ -3,6 +3,7 @@ import {
   encodeBytesToLowercaseHex,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { Result, Schema } from "effect";
 
 import {
@@ -830,7 +831,7 @@ function receiptIssue(
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return isNonArrayRecord(value);
 }
 
 function invalid(

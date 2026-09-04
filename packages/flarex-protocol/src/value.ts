@@ -2,6 +2,7 @@ import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
   copyBytesToArrayBuffer,
+  isUint8Array,
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
@@ -1053,7 +1054,7 @@ function evidenceBytes(
   reason: "invalidSha256" | "invalidCanonicalBytes",
   detail: string,
 ): Uint8Array {
-  if (!(value instanceof Uint8Array)) {
+  if (!isUint8Array(value)) {
     throw new FlarexValueEvidenceV1Error({
       issue: { reason, detail },
     });

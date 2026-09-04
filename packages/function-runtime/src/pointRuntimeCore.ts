@@ -1,3 +1,4 @@
+import { isLowercaseUuidText } from "@flarex/utils/strings";
 import {
   isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexRuntimeValueV1,
@@ -66,8 +67,7 @@ function isAppDocumentIdForTable(value: string, tableId: number): boolean {
   return separator > 0 &&
     separator === value.lastIndexOf(":") &&
     value.slice(0, separator) === String(tableId) &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-      .test(value.slice(separator + 1));
+    isLowercaseUuidText(value.slice(separator + 1));
 }
 
 function rejectUnhandledAdmissionReason(reason: never): never {

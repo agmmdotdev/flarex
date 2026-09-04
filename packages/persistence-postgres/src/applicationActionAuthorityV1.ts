@@ -7,7 +7,7 @@ import {
   isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
-import { isNonBlankString } from "@flarex/utils/strings";
+import { isLowercaseUuidText, isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect, Result } from "effect";
 import {
@@ -2159,7 +2159,7 @@ function requireText(value: unknown, operation: string, field: string) {
 }
 
 function requireUuid(value: unknown, operation: string, field: string) {
-  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)
+  return typeof value === "string" && isLowercaseUuidText(value)
     ? Effect.succeed(value)
     : inputError(operation, field);
 }

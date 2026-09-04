@@ -8,6 +8,7 @@ import {
   type TaskComputeDeliveryOperation,
 } from "@flarex/persistence-postgres/internal/task-compute-delivery-discovery";
 import { bytesEqual, isUint8Array } from "@flarex/utils/bytes";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Effect, Result, Schema } from "effect";
 import {
   encodeCanonicalJson,
@@ -114,7 +115,7 @@ export class TaskComputeDeliveryConnectedContinuationCodecV1Error<
   }> {}
 
 const NonBlankStringSchema = Schema.String.check(Schema.makeFilter((value) =>
-  value.trim().length > 0 ? undefined : "Expected a nonblank string"
+  isNonBlankString(value) ? undefined : "Expected a nonblank string"
 ));
 const PageChargeSchema = Schema.Int.check(Schema.isBetween({
   minimum: 0,

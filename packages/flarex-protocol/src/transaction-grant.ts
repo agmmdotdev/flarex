@@ -7,6 +7,7 @@ import {
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
 import { isNonBlankString } from "@flarex/utils/strings";
+import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
 import { Data, Effect, Encoding, Result, Schema } from "effect";
 
 import type { Json, JsonObject } from "./json";
@@ -1092,13 +1093,7 @@ function validateBoundedGrantText(value: string): string | undefined {
 
 function isCanonicalTransactionGrantTimestampV1(value: string): boolean {
   if (!CANONICAL_TIMESTAMP_PATTERN.test(value)) return false;
-  const milliseconds = Date.parse(value);
-  if (!Number.isFinite(milliseconds)) return false;
-  try {
-    return new Date(milliseconds).toISOString() === value;
-  } catch {
-    return false;
-  }
+  return isCanonicalIsoInstant(value);
 }
 
 function decodeSchemaOrProtocolError<
