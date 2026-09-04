@@ -256,10 +256,7 @@ async function applicationExecutionAuthority() {
     "SHA-256",
     copyBytesToArrayBuffer(canonicalTarget.canonicalBytes),
   ));
-  const runtimeTargetSha256 = Array.from(
-    digest,
-    byte => byte.toString(16).padStart(2, "0"),
-  ).join("");
+  const runtimeTargetSha256 = encodeBytesToLowercaseHex(digest);
   return Effect.runPromise(canonicalizeApplicationMutationExecutionAuthorityV1({
     format: "flarex.application-mutation-execution-authority",
     version: 1,

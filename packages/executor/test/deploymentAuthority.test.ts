@@ -18,6 +18,7 @@ import {
   createFlarexExecutor,
   withReadyDeploymentAuthority,
 } from "../src";
+import { uuidSequence } from "./uuidSequence";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -332,17 +333,5 @@ function sourcePackage(): ArtifactSourcePackage {
     ],
     functions: [],
     execution: "_flarex/execution.js",
-  };
-}
-
-function uuidSequence(...values: readonly string[]): () => string {
-  let index = 0;
-  return () => {
-    const value = values[index];
-    index += 1;
-    if (value === undefined) {
-      throw new Error("UUID sequence exhausted.");
-    }
-    return value;
   };
 }

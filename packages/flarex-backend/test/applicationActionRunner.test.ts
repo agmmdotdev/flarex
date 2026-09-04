@@ -2,6 +2,7 @@ import {
   canonicalizeApplicationManifestV1,
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
+import { encodeBytesToLowercaseHex as hex } from "@flarex/utils/bytes";
 import { Deferred, Effect, Exit, Fiber, Result } from "effect";
 import {
   canonicalizeApplicationActionExecutionAuthorityV1,
@@ -501,10 +502,6 @@ function policyBudget() {
 async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
   const owned = new Uint8Array(bytes);
   return new Uint8Array(await crypto.subtle.digest("SHA-256", owned));
-}
-
-function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 type Run = (request: unknown, capability: unknown) => PromiseLike<unknown>;

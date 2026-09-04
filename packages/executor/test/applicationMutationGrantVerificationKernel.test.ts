@@ -1,4 +1,7 @@
-import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import {
+  copyBytesToArrayBuffer,
+  encodeBytesToLowercaseHex as hex,
+} from "@flarex/utils/bytes";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -376,8 +379,4 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     copyBytesToArrayBuffer(bytes),
   ));
   return hex(digest);
-}
-
-function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
 }

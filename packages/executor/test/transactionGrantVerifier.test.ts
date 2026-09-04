@@ -100,6 +100,7 @@ import {
   runEffect,
   runEffectFailure,
 } from "./effectTestRuntime";
+import { uuidSequence } from "./uuidSequence";
 
 const TEST_PRIVATE_KEY_PKCS8_BASE64 =
   "MC4CAQAwBQYDK2VwBCIEICpBSuNq0N9DHmrl/kDt7u4bsHa9Um6KjyBQ98WSfc+J";
@@ -1486,16 +1487,4 @@ function flipBase64UrlCharacter(value: string): string {
   const first = value[0];
   if (first === undefined) throw new Error("Expected a nonempty signature.");
   return `${first === "A" ? "B" : "A"}${value.slice(1)}`;
-}
-
-function uuidSequence(...values: readonly string[]): () => string {
-  let index = 0;
-  return () => {
-    const value = values[index];
-    index += 1;
-    if (value === undefined) {
-      throw new Error("UUID test sequence exhausted.");
-    }
-    return value;
-  };
 }
