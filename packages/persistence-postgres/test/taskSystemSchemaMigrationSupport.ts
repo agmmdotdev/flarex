@@ -280,7 +280,18 @@ export async function assertTaskSystemSchemaContractV1(
 
   await expectConstraintRejection(
     persistence,
-    `insert into fx_system_durable_task_run_v1
+    `insert into fx_system_durable_task_run_v1 (
+       scope_id, run_id, task_definition_revision_id, created_at_ms,
+       input_codec, input_store, input_value_codec, input_object_key,
+       input_byte_length, input_sha256, input_retention,
+       creation_authority_codec_version, creation_authority_byte_length,
+       creation_authority_sha256, creation_authority_bytes,
+       aggregate_codec_version, aggregate_byte_length, aggregate_json,
+       run_version, phase, due_kind, due_at_ms, current_attempt_id,
+       execution_fence_basis, current_lease_version,
+       current_lease_expires_at_ms, cancellation_generation,
+       requested_effect_sequence
+     )
        select '${SCOPE_B}',
          'run_70000000-0000-4000-8000-000000000006',
          task_definition_revision_id,
