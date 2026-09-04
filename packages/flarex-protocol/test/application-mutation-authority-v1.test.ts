@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -31,7 +32,7 @@ describe("ApplicationMutationExecutionAuthorityV1", () => {
     });
     expect(new TextDecoder().decode(canonical.canonicalBytes))
       .toMatchInlineSnapshot(`"{"activationSequence":"17","activeHeadSha256":"7777777777777777777777777777777777777777777777777777777777777777","format":"flarex.application-mutation-execution-authority","runtimeTarget":{"analysisId":"analysis-17","candidateId":"candidate-17","executionModulePath":"_flarex/application.js","format":"flarex.application-runtime-target","function":{"args":{"type":"object","value":{"id":{"fieldType":{"tableName":"recipes","type":"id"},"optional":false}}},"entrySha256":"6666666666666666666666666666666666666666666666666666666666666666","exportName":"update","kind":"mutation","moduleName":"recipes","partition":null,"path":"recipes:update","returns":{"type":"null"},"visibility":"public"},"functionCatalogSha256":"4444444444444444444444444444444444444444444444444444444444444444","manifestSha256":"2222222222222222222222222222222222222222222222222222222222222222","publicationSha256":"5555555555555555555555555555555555555555555555555555555555555555","revisionId":"revision-17","schemaSha256":"3333333333333333333333333333333333333333333333333333333333333333","scopeId":"scope-cooking","sourceArtifactRootSha256":"1111111111111111111111111111111111111111111111111111111111111111","version":1},"runtimeTargetSha256":"8f2adc43a66db4bd8361e87b0a183fab36aac84a7a2bb941b5f84ff2652c3717","schemaVersionId":"schema-v17","version":1}"`);
-    expect(hex(canonical.sha256)).toMatchInlineSnapshot(`"a3aa8205a0619985bc48cd5b5664f9ca70a5b2cdca8748772b4784b69f803eaa"`);
+    expect(encodeBytesToLowercaseHex(canonical.sha256)).toMatchInlineSnapshot(`"a3aa8205a0619985bc48cd5b5664f9ca70a5b2cdca8748772b4784b69f803eaa"`);
     expect(canonical.canonicalBytes).not.toBe(canonical.canonicalBytes);
     expect(canonical.sha256).not.toBe(canonical.sha256);
   });
@@ -163,9 +164,5 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const owned = new Uint8Array(bytes.byteLength);
   owned.set(bytes);
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", owned));
-  return hex(digest);
-}
-
-function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  return encodeBytesToLowercaseHex(digest);
 }

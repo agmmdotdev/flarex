@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { webcrypto } from "node:crypto";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
@@ -33,7 +34,7 @@ describe("Declarative V2 C3 completion and static finalization", () => {
     );
     const expectedCompletion = completionOracle(completion);
     expect(encodedCompletion.canonicalBytes).toEqual(expectedCompletion);
-    expect(hex(await sha256(expectedCompletion))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(expectedCompletion))).toBe(
       "9621463185cc1b984a1ccc74b7f0191bcbba99a105add678257182aa70a3d821",
     );
     expect(Result.getOrThrow(
@@ -49,7 +50,7 @@ describe("Declarative V2 C3 completion and static finalization", () => {
     );
     const expectedStatic = staticFinalizationOracle(staticFrame);
     expect(encodedStatic.canonicalBytes).toEqual(expectedStatic);
-    expect(hex(await sha256(expectedStatic))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(expectedStatic))).toBe(
       "1bf529054996cfdee619f6bc0a9917c840939607e81efdd100d538cb57edfabe",
     );
     expect(Result.getOrThrow(
@@ -114,10 +115,10 @@ describe("Declarative V2 C3 completion and static finalization", () => {
     expect(new TextDecoder().decode(
       encoded.deploymentCodegenAnalysisCanonicalBytes,
     )).toBe(codegenText);
-    expect(hex(await sha256(
+    expect(encodeBytesToLowercaseHex(await sha256(
       encoded.deploymentAnalysisCanonicalBytes,
     ))).toBe("7cec7168efc65bad8a02e0bfdd9da5539ce422a1abe0026343120fec2b280de0");
-    expect(hex(await sha256(
+    expect(encodeBytesToLowercaseHex(await sha256(
       encoded.deploymentCodegenAnalysisCanonicalBytes,
     ))).toBe("07a4b90100d0a7d6e5b8aa7c4f13f647c7ea459607616732ec94752edcc7b73a");
     const decoded = Result.getOrThrow(
@@ -844,8 +845,4 @@ async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(
     await webcrypto.subtle.digest("SHA-256", bytes.slice().buffer),
   );
-}
-
-function hex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
 }

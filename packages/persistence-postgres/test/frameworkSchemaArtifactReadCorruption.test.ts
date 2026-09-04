@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { PGlite } from "@electric-sql/pglite";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
@@ -72,9 +73,9 @@ describe("private framework schema artifact point-read corruption - PGlite", () 
         payload: { tables: ["drifted"] },
       });
       const canonicalDriftEvidence = requireCapturedEvidence(canonicalDrift);
-      const canonicalDriftHex = Buffer.from(
+      const canonicalDriftHex = encodeBytesToLowercaseHex(
         canonicalDriftEvidence.canonicalBytes,
-      ).toString("hex");
+      );
       const driftDigest = graph.parent.identity.artifactSha256 ===
           "00".repeat(32)
         ? "ff".repeat(32)

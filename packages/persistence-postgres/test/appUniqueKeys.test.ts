@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -344,7 +345,7 @@ describe("S11 app unique-key storage", () => {
       [collisionConstraintId],
     );
     expect(stored.rows).toHaveLength(1);
-    expect(Buffer.from(stored.rows[0]!.row_id).toString("hex")).toBe(rowA);
+    expect(encodeBytesToLowercaseHex(stored.rows[0]!.row_id)).toBe(rowA);
   });
 
   it("rejects a unique mutation that skips authoritative row lineage", async () => {

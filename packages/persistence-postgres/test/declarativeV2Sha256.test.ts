@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { webcrypto } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
@@ -24,7 +25,7 @@ describe("Declarative V2 persistence SHA-256 adapter", () => {
     const result = await runEffect(digest(visible, {
       maximumInputBytes: 3,
     }));
-    expect(Buffer.from(result).toString("hex")).toBe(
+    expect(encodeBytesToLowercaseHex(result)).toBe(
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
     );
     expect(calls).toBe(1);

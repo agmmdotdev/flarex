@@ -9,6 +9,7 @@ import {
   createPostgresPersistence,
   type PostgresFlarexPersistence,
 } from "@flarex/persistence-postgres/postgres";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 import { Pool, type PoolConfig } from "pg";
 import { expect, onTestFinished } from "vitest";
@@ -115,7 +116,7 @@ export async function withTemporaryPostgresPersistence(
   if (postgresUrl === null) {
     throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
   }
-  const suffix = randomBytes(12).toString("hex");
+  const suffix = encodeBytesToLowercaseHex(randomBytes(12));
   const schemaName = `flarex_system_test_${suffix}`;
   const migrationsSchema = `flarex_system_test_migrations_${suffix}`;
   const adminPool = new Pool({ connectionString: postgresUrl });
@@ -173,7 +174,7 @@ export async function withTemporarySplitPostgresPersistence<A>(
   if (postgresUrl === null) {
     throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
   }
-  const suffix = randomBytes(12).toString("hex");
+  const suffix = encodeBytesToLowercaseHex(randomBytes(12));
   const controlSchema = `flarex_system_test_control_${suffix}`;
   const targetSchema = `flarex_system_test_target_${suffix}`;
   const migrationsSchema = `flarex_system_test_migrations_${suffix}`;
@@ -243,7 +244,7 @@ export async function withTemporaryPostgresSchema(
   if (postgresUrl === null) {
     throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
   }
-  const suffix = randomBytes(12).toString("hex");
+  const suffix = encodeBytesToLowercaseHex(randomBytes(12));
   const schemaName = `flarex_system_test_migration_${suffix}`;
   const migrationsSchema = `flarex_system_test_receipts_${suffix}`;
   const adminPool = new Pool({ connectionString: postgresUrl });

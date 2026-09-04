@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { webcrypto } from "node:crypto";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
@@ -23,7 +24,7 @@ describe("Declarative V2 verifier derivations", () => {
       ),
     ).toBe(domain);
     expect(exact.usage.frameBytes).toBe(exact.bytes.byteLength);
-    expect(hex(await sha256(exact.bytes))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(exact.bytes))).toBe(
       "7b8312f9aa7f7eb45dc8feaca374e7b25e699d99a2ef4132a20d9d277a4a345f",
     );
 
@@ -116,7 +117,7 @@ describe("Declarative V2 verifier derivations", () => {
       ),
     ).toBe(domain);
     expect(manifest.usage.frameBytes).toBe(manifest.bytes.byteLength);
-    expect(hex(await sha256(manifest.bytes))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(manifest.bytes))).toBe(
       "b8ae586d8f14da8d77a21454a8b0827419b30db8349ce3ab5dc57c9420d0b169",
     );
     expect(
@@ -258,7 +259,7 @@ describe("Declarative V2 verifier derivations", () => {
       digest(0x44),
     );
     expect(v2.bytes).toEqual(expected);
-    expect(hex(await sha256(expected))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(expected))).toBe(
       "8d2294b17dbd2c2cf6fbb02b128aee045d04478c258080c3d605ae48ec7aeb1a",
     );
     expect(Result.isFailure(
@@ -352,10 +353,6 @@ async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
 
 function digest(byte: number): Uint8Array {
   return new Uint8Array(32).fill(byte);
-}
-
-function hex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
 }
 
 function u32(value: number): Uint8Array {

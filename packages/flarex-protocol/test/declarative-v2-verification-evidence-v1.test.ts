@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { webcrypto } from "node:crypto";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
@@ -26,13 +27,13 @@ describe("Declarative V2 verification evidence V1", () => {
         evidence: [],
       }, { maximumFrameBytes: 120 }),
     );
-    expect(hex(encoded.canonicalBytes)).toBe(goldenHex);
+    expect(encodeBytesToLowercaseHex(encoded.canonicalBytes)).toBe(goldenHex);
     expect(encoded.canonicalBytes.byteLength).toBe(120);
     const sha256 = new Uint8Array(await webcrypto.subtle.digest(
       "SHA-256",
       encoded.canonicalBytes.slice().buffer,
     ));
-    expect(hex(sha256)).toBe(
+    expect(encodeBytesToLowercaseHex(sha256)).toBe(
       "1ad5b6eeb08312e69419326884c574d226cca06c4eb44e25272d4f05ca8e6b6d",
     );
     expect(
@@ -268,10 +269,4 @@ function base() {
 
 function digest(byte: number): Uint8Array {
   return new Uint8Array(32).fill(byte);
-}
-
-function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, byte =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
 }

@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { webcrypto } from "node:crypto";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
@@ -51,7 +52,7 @@ describe("Declarative V2 verifier Budget/Progress V2", () => {
       ),
     );
     expect(encoded.canonicalBytes).toEqual(expected);
-    expect(hex(await sha256(expected))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(expected))).toBe(
       "a2cad26e067b7c7df1175ba16aef3f5c58b03799f4766629ac976db4ad0b2898",
     );
     expect(Result.getOrThrow(
@@ -158,7 +159,7 @@ describe("Declarative V2 verifier Budget/Progress V2", () => {
       digest(10),
     );
     expect(reservation.canonicalBytes).toEqual(expectedReservation);
-    expect(hex(await sha256(expectedReservation))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(expectedReservation))).toBe(
       "3e88ee2756098c3e498b6755dd038a2f18408a1e2de490e4dc68557fd2d05ca3",
     );
 
@@ -179,7 +180,7 @@ describe("Declarative V2 verifier Budget/Progress V2", () => {
       digest(14),
     );
     expect(output.canonicalBytes).toEqual(expectedOutput);
-    expect(hex(await sha256(expectedOutput))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(expectedOutput))).toBe(
       "5c18284515047ee22da29b8309b367483482eb477e849a6f9fd56dca2eebddf6",
     );
 
@@ -197,7 +198,7 @@ describe("Declarative V2 verifier Budget/Progress V2", () => {
       digest(19),
     );
     expect(receipt.canonicalBytes).toEqual(expectedReceipt);
-    expect(hex(await sha256(expectedReceipt))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(expectedReceipt))).toBe(
       "342e9053db2a4e7b9fa63a6e587c0092ca0b61612946ee682572982d46973e92",
     );
 
@@ -259,7 +260,7 @@ describe("Declarative V2 verifier Budget/Progress V2", () => {
       digest(23),
     );
     expect(encoded.canonicalBytes).toEqual(expected);
-    expect(hex(await sha256(expected))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(expected))).toBe(
       "209a63640c5bf05b9f31112d955b9d06c395d63e0b67c7001c2404d84c4043e8",
     );
     const first = Result.getOrThrow(
@@ -2105,8 +2106,4 @@ async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(
     await webcrypto.subtle.digest("SHA-256", bytes.slice().buffer),
   );
-}
-
-function hex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
 }

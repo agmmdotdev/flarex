@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -122,6 +123,6 @@ async function insertCapturedArtifact(
     "flarex.framework-schema-artifact",
     1,
     evidence.canonicalBytes.byteLength,
-    Buffer.from(evidence.canonicalBytes).toString("hex"),
+    encodeBytesToLowercaseHex(evidence.canonicalBytes),
   ]);
 }

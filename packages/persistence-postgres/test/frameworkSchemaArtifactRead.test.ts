@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { PGlite } from "@electric-sql/pglite";
 import { Cause, Effect, Exit, Result } from "effect";
 import {
@@ -649,7 +650,7 @@ async function insertCapturedArtifact(
     "flarex.framework-schema-artifact",
     1,
     evidence.canonicalBytes.byteLength,
-    Buffer.from(evidence.canonicalBytes).toString("hex"),
+    encodeBytesToLowercaseHex(evidence.canonicalBytes),
   ]);
   const artifactStorageId = inserted.rows[0]?.storage_id;
   if (artifactStorageId === undefined) {

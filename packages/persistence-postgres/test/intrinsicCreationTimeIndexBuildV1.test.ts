@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { eq } from "drizzle-orm";
 import { Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
@@ -139,7 +140,7 @@ describe("C08-I1 intrinsic creation-time index build and maintenance", () => {
     expect(remaining.at(-1)?.lifecycle).toBe("enabled");
 
     const rows = await currentIndexRows(fixture.persistence);
-    expect(rows.map(row => Buffer.from(row.row_id).toString("hex"))).toEqual([
+    expect(rows.map(row => encodeBytesToLowercaseHex(row.row_id))).toEqual([
       "05".repeat(16),
       "10".repeat(16),
     ]);

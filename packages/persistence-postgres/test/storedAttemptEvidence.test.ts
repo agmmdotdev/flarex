@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Random, Result, Schema } from "effect";
 import {
@@ -4279,7 +4280,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ].sort();
     expect(changes.map(({ changeOrdinal, rowId }) => ({
       changeOrdinal,
-      rowIdHex: Buffer.from(rowId).toString("hex"),
+      rowIdHex: encodeBytesToLowercaseHex(rowId),
     }))).toEqual(expectedRowIds.map((rowIdHex, changeOrdinal) => ({
       changeOrdinal,
       rowIdHex,

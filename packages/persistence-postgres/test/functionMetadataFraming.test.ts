@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
@@ -79,18 +80,18 @@ describe("Function Metadata V1 SHA-256 preimage framing", () => {
       }, LARGE_BUDGET),
     );
 
-    expect(hex(path)).toBe(
+    expect(encodeBytesToLowercaseHex(path)).toBe(
       "666c617265782e70616d2e66756e6374696f6e2d6d657461646174612e706174682e763100" +
         "0000000000000019226d6f645c75303030305c7564383030f09f98803a72756e22",
     );
-    expect(hex(row)).toBe(
+    expect(encodeBytesToLowercaseHex(row)).toBe(
       "666c617265782e70616d2e66756e6374696f6e2d6d657461646174612e726f772e763100" +
         "00000000000000030001ff",
     );
-    expect(hex(empty)).toBe(
+    expect(encodeBytesToLowercaseHex(empty)).toBe(
       "666c617265782e70616d2e66756e6374696f6e2d6d657461646174612e636861696e2d736565642e763100",
     );
-    expect(hex(step.canonicalBytes)).toBe(
+    expect(encodeBytesToLowercaseHex(step.canonicalBytes)).toBe(
       "666c617265782e70616d2e66756e6374696f6e2d6d657461646174612e636861696e2d7374" +
         "65702e763100285c6deca25c6de4b70c2215cd8df13680fb9a96ebf528157df4eec173a308" +
         "9f000000000000000035dbd3650bd271449e3632a30dc93f0a93ea732e8bef19b61ff8a41a" +
@@ -99,7 +100,7 @@ describe("Function Metadata V1 SHA-256 preimage framing", () => {
     );
     expect(step.nextOrdinal).toBe(1n);
     expect(step.nextCanonicalRowBytesTotal).toBe(3n);
-    expect(hex(publication)).toBe(
+    expect(encodeBytesToLowercaseHex(publication)).toBe(
       "666c617265782e70616d2e7061636b6167652d7075626c69636174696f6e2d6b65792e763100" +
         "000000000000000a22706b672d6d61696e2201000000000000002b2261727469666163745f" +
         "3031323334353637383961626364656630313233343536373839616263646566220001020304" +
@@ -107,27 +108,27 @@ describe("Function Metadata V1 SHA-256 preimage framing", () => {
         "6368656d612d76312200000001000000000000007b202122232425262728292a2b2c2d2e2f" +
         "303132333435363738393a3b3c3d3e3f00000001",
     );
-    expect(hex(completed)).toBe(
+    expect(encodeBytesToLowercaseHex(completed)).toBe(
       "666c617265782e70616d2e7061636b6167652d636f6d706c6574652e763100f372c4f1b4df" +
         "f258f477107199cc5ade7b054c49d5c8a283fca71bba4c0122470000000000000002000000" +
         "00000001c8285c6deca25c6de4b70c2215cd8df13680fb9a96ebf528157df4eec173a3089f",
     );
-    expect(hex(await sha256(path))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(path))).toBe(
       "35dbd3650bd271449e3632a30dc93f0a93ea732e8bef19b61ff8a41ae6c1e9be",
     );
-    expect(hex(await sha256(row))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(row))).toBe(
       "314a443ee2cabcfeecba032f6109ef177ee289f6c5dd397f6f9e9843bf164c74",
     );
-    expect(hex(await sha256(empty))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(empty))).toBe(
       "285c6deca25c6de4b70c2215cd8df13680fb9a96ebf528157df4eec173a3089f",
     );
-    expect(hex(await sha256(step.canonicalBytes))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(step.canonicalBytes))).toBe(
       "973498b24c27b8ed11396fcddf2374befb2dbcc72a3924700db48c98c57cbeca",
     );
-    expect(hex(await sha256(publication))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(publication))).toBe(
       "f372c4f1b4dff258f477107199cc5ade7b054c49d5c8a283fca71bba4c012247",
     );
-    expect(hex(await sha256(completed))).toBe(
+    expect(encodeBytesToLowercaseHex(await sha256(completed))).toBe(
       "5e0d1a4f9321f6db9708d449d69989e433ca7f581272243a9c883d096a2f8c1e",
     );
 
@@ -201,7 +202,7 @@ describe("Function Metadata V1 SHA-256 preimage framing", () => {
       (sum, item) => sum + item.canonicalBytes.byteLength,
       0,
     )));
-    expect(hex(chain)).toBe(
+    expect(encodeBytesToLowercaseHex(chain)).toBe(
       "57042cdecdd33f99525fc0f4e0a3a969b34e684e7c1810d330eb1da1d68e3ac0",
     );
 
@@ -234,7 +235,7 @@ describe("Function Metadata V1 SHA-256 preimage framing", () => {
     const separatorLength = new TextEncoder().encode(
       "flarex.pam.package-complete.v1\0",
     ).byteLength;
-    expect(hex(completed.slice(separatorLength + 32, separatorLength + 48)))
+    expect(encodeBytesToLowercaseHex(completed.slice(separatorLength + 32, separatorLength + 48)))
       .toBe("00000000000000007fffffffffffffff");
 
     const publication = success(
@@ -245,8 +246,8 @@ describe("Function Metadata V1 SHA-256 preimage framing", () => {
         functionMetadataCodecVersion: 0xa0b0_c0d0,
       }, LARGE_BUDGET),
     );
-    expect(hex(publication)).toContain("010203047fffffffffffffff");
-    expect(hex(publication).endsWith("a0b0c0d0")).toBe(true);
+    expect(encodeBytesToLowercaseHex(publication)).toContain("010203047fffffffffffffff");
+    expect(encodeBytesToLowercaseHex(publication).endsWith("a0b0c0d0")).toBe(true);
   });
 
   it("rejects invalid digest lengths, counters, codec versions, and overflow", () => {
@@ -454,10 +455,6 @@ function expectFailure<E extends FunctionMetadataFramingV1Error>(
 async function sha256(input: Uint8Array): Promise<Uint8Array> {
   const owned = new Uint8Array(input);
   return new Uint8Array(await crypto.subtle.digest("SHA-256", owned));
-}
-
-function hex(input: Uint8Array): string {
-  return Buffer.from(input).toString("hex");
 }
 
 function bytesFromRange(start: number, length: number): Uint8Array {

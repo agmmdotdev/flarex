@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Cause, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import {
@@ -68,7 +69,7 @@ describe("PAM-A0b0-H Function Metadata V1 SHA-256 adapter", () => {
       new TextEncoder().encode("abc"),
       { maximumInputBytes: 3 },
     ));
-    expect(hex(digest)).toBe(
+    expect(encodeBytesToLowercaseHex(digest)).toBe(
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
     );
     expect(Object.getPrototypeOf(digest)).toBe(Uint8Array.prototype);
@@ -149,7 +150,7 @@ describe("PAM-A0b0-H Function Metadata V1 SHA-256 adapter", () => {
         "5e0d1a4f9321f6db9708d449d69989e433ca7f581272243a9c883d096a2f8c1e",
       ],
     ] as const) {
-      expect(hex(await adapterSha256(frame))).toBe(expected);
+      expect(encodeBytesToLowercaseHex(await adapterSha256(frame))).toBe(expected);
     }
   });
 
@@ -242,7 +243,7 @@ describe("PAM-A0b0-H Function Metadata V1 SHA-256 adapter", () => {
     const digest = await runEffect(hashFunctionMetadataSha256V1(input, {
       maximumInputBytes: 3,
     }));
-    expect(hex(digest)).toBe(
+    expect(encodeBytesToLowercaseHex(digest)).toBe(
       "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
     );
     expect(speciesVisited).toBe(false);
@@ -254,8 +255,8 @@ describe("PAM-A0b0-H Function Metadata V1 SHA-256 adapter", () => {
       maximumInputBytes: 3,
     });
     beforeRun.fill(2);
-    expect(hex(await runEffect(lazy))).toBe(
-      hex(await nativeSha256(new Uint8Array([2, 2, 2]))),
+    expect(encodeBytesToLowercaseHex(await runEffect(lazy))).toBe(
+      encodeBytesToLowercaseHex(await nativeSha256(new Uint8Array([2, 2, 2]))),
     );
 
     let started!: () => void;
@@ -274,8 +275,8 @@ describe("PAM-A0b0-H Function Metadata V1 SHA-256 adapter", () => {
     await startedPromise;
     afterStart.fill(9);
     settle(await crypto.subtle.digest("SHA-256", captured));
-    expect(hex(await pending)).toBe(
-      hex(await nativeSha256(new Uint8Array([3, 4, 5]))),
+    expect(encodeBytesToLowercaseHex(await pending)).toBe(
+      encodeBytesToLowercaseHex(await nativeSha256(new Uint8Array([3, 4, 5]))),
     );
   });
 
@@ -292,7 +293,7 @@ describe("PAM-A0b0-H Function Metadata V1 SHA-256 adapter", () => {
       },
     };
     vi.stubGlobal("crypto", { subtle });
-    expect(hex(await runEffect(hashFunctionMetadataSha256V1(
+    expect(encodeBytesToLowercaseHex(await runEffect(hashFunctionMetadataSha256V1(
       new Uint8Array([1]),
       { maximumInputBytes: 1 },
     )))).toBe("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a");
@@ -551,10 +552,6 @@ function framingSuccess<A>(
 ): A {
   if (Result.isFailure(result)) throw result.failure;
   return result.success;
-}
-
-function hex(input: Uint8Array): string {
-  return Buffer.from(input).toString("hex");
 }
 
 function bytesFromRange(start: number, length: number): Uint8Array {

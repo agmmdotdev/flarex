@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { createHash } from "node:crypto";
 
 import { Result } from "effect";
@@ -11,7 +12,6 @@ import {
 } from "../src/application-revision-activation-request-v1";
 
 const digest = (fill: number) => new Uint8Array(32).fill(fill);
-const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
 
 const first = Object.freeze({
   action: "activate" as const,
@@ -44,9 +44,9 @@ describe("application revision activation request V1", () => {
     const replacementEncoded = Result.getOrThrow(
       encodeApplicationRevisionActivationRequestV1(replacement),
     );
-    expect(hex(createHash("sha256").update(firstEncoded.canonicalBytes).digest()))
+    expect(encodeBytesToLowercaseHex(createHash("sha256").update(firstEncoded.canonicalBytes).digest()))
       .toBe("f4128704437ba6ec9b152784ede0a2db3f19151fe2d65f567fc557ea3f1ff6da");
-    expect(hex(createHash("sha256").update(replacementEncoded.canonicalBytes).digest()))
+    expect(encodeBytesToLowercaseHex(createHash("sha256").update(replacementEncoded.canonicalBytes).digest()))
       .toBe("23a09c4f33cac4f0cb0b07f7788069fe55d72c912cc79f49bdb522a0f94d0756");
     expect(Result.getOrThrow(
       decodeApplicationRevisionActivationRequestV1(firstEncoded.canonicalBytes),
@@ -113,7 +113,7 @@ describe("application revision activation request V1", () => {
     const base = Result.getOrThrow(
       encodeApplicationRevisionActivationRequestV1(replacement),
     ).canonicalBytes;
-    const baseDigest = hex(createHash("sha256").update(base).digest());
+    const baseDigest = encodeBytesToLowercaseHex(createHash("sha256").update(base).digest());
     const variants = [
       { ...replacement, scopeId: `${replacement.scopeId}_changed` },
       { ...replacement, revisionId: `${replacement.revisionId}_changed` },
@@ -139,7 +139,7 @@ describe("application revision activation request V1", () => {
       const bytes = Result.getOrThrow(
         encodeApplicationRevisionActivationRequestV1(variant),
       ).canonicalBytes;
-      expect(hex(createHash("sha256").update(bytes).digest())).not.toBe(
+      expect(encodeBytesToLowercaseHex(createHash("sha256").update(bytes).digest())).not.toBe(
         baseDigest,
       );
     }

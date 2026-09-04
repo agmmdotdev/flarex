@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { createHash } from "node:crypto";
 
 import { Result } from "effect";
@@ -156,8 +157,8 @@ describe("Application Task mutation callback V1", () => {
       }),
     );
 
-    expect(hex(firstAttempt.canonicalBytes)).toBe(hex(replayAttempt.canonicalBytes));
-    expect(hex(firstAttempt.canonicalBytes)).not.toBe(hex(nextOrdinal.canonicalBytes));
+    expect(encodeBytesToLowercaseHex(firstAttempt.canonicalBytes)).toBe(encodeBytesToLowercaseHex(replayAttempt.canonicalBytes));
+    expect(encodeBytesToLowercaseHex(firstAttempt.canonicalBytes)).not.toBe(encodeBytesToLowercaseHex(nextOrdinal.canonicalBytes));
     expect(Result.isFailure(encodeApplicationTaskMutationStableKeyPreimageV1({
       scopeId: "scope-1",
       runId: "run-1",
@@ -188,18 +189,18 @@ describe("Application Task mutation callback V1", () => {
       }),
     );
 
-    expect(hex(stable.canonicalBytes)).toBe(
+    expect(encodeBytesToLowercaseHex(stable.canonicalBytes)).toBe(
       "666c617265782e73797374656d2f6170706c69636174696f6e2d7461736b2d" +
         "6d75746174696f6e2d737461626c652d6b65792f7631000000000773636f7065" +
         "2d310000000572756e2d310000000000000007",
     );
-    expect(hex(stableDigest)).toBe(
+    expect(encodeBytesToLowercaseHex(stableDigest)).toBe(
       "e61b4721a41180bc45fe104c14caf0d2d369b90f1e47105407c4f8ca10463bf1",
     );
     expect(stableRequestKey).toBe(
       "task-mutation:v1:e61b4721a41180bc45fe104c14caf0d2d369b90f1e47105407c4f8ca10463bf1",
     );
-    expect(hex(request.canonicalBytes)).toBe(
+    expect(encodeBytesToLowercaseHex(request.canonicalBytes)).toBe(
       "666c617265782e73797374656d2f6170706c69636174696f6e2d7461736b2d" +
         "6d75746174696f6e2d726571756573742f763100000000517461736b2d6d7574" +
         "6174696f6e3a76313a653631623437323161343131383062633435666531303463" +
@@ -209,7 +210,7 @@ describe("Application Task mutation callback V1", () => {
         "0202020202020202020202020202020202020202020202020202030303030303" +
         "0303030303030303030303030303030303030303030303030303",
     );
-    expect(hex(sha256(request.canonicalBytes))).toBe(
+    expect(encodeBytesToLowercaseHex(sha256(request.canonicalBytes))).toBe(
       "2454a698363c5aaf759b175e15c73ea74a35d6cdcb00a620e222d12803628e60",
     );
   });
@@ -262,8 +263,8 @@ describe("Application Task mutation callback V1", () => {
       const changedIdentity = Result.getOrThrow(
         encodeApplicationTaskMutationRequestIdentityPreimageV1(changed),
       );
-      expect(hex(sha256(changedIdentity.canonicalBytes))).not.toBe(
-        hex(sha256(original.canonicalBytes)),
+      expect(encodeBytesToLowercaseHex(sha256(changedIdentity.canonicalBytes))).not.toBe(
+        encodeBytesToLowercaseHex(sha256(original.canonicalBytes)),
       );
       expect(changedIdentity.frame.stableRequestKey).toBe(stableRequestKey);
     }
@@ -282,13 +283,13 @@ describe("Application Task mutation callback V1", () => {
         identityAccessPolicySha256: identityPolicy,
       }),
     );
-    const before = hex(identity.canonicalBytes);
+    const before = encodeBytesToLowercaseHex(identity.canonicalBytes);
 
     runtimeTarget.fill(9);
     argumentsDigest.fill(9);
     identityPolicy.fill(9);
 
-    expect(hex(identity.canonicalBytes)).toBe(before);
+    expect(encodeBytesToLowercaseHex(identity.canonicalBytes)).toBe(before);
     expect([...identity.frame.applicationTaskRuntimeTargetSha256]).toEqual(
       [...digest(1)],
     );
@@ -335,8 +336,4 @@ function digest(fill: number): Uint8Array {
 
 function sha256(bytes: Uint8Array): Uint8Array {
   return new Uint8Array(createHash("sha256").update(bytes).digest());
-}
-
-function hex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
 }

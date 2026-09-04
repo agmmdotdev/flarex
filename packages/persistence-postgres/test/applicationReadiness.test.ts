@@ -36,7 +36,10 @@ import {
   hashCanonicalTaskCatalogV1,
   makeStandardApplicationTaskSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import {
+  copyBytesToArrayBuffer,
+  encodeBytesToLowercaseHex,
+} from "@flarex/utils/bytes";
 import { makeGrantRetentionPolicyV1Result } from
   "flarex-protocol/grant-retention-policy";
 import {
@@ -2211,7 +2214,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       format: "flarex.application-mutation-execution-authority",
       version: 1,
       activationSequence: active.basis.activationSequence.toString(),
-      activeHeadSha256: hex(active.basis.headSha256),
+      activeHeadSha256: encodeBytesToLowercaseHex(active.basis.headSha256),
       schemaVersionId: active.basis.schemaVersionId,
       runtimeTarget: {
         revisionId: fixture.input.revisionId,
@@ -2273,7 +2276,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       format: "flarex.application-action-execution-authority",
       version: 1,
       activationSequence: active.basis.activationSequence.toString(),
-      activeHeadSha256: hex(active.basis.headSha256),
+      activeHeadSha256: encodeBytesToLowercaseHex(active.basis.headSha256),
       schemaVersionId: active.basis.schemaVersionId,
       runtimeTarget: {
         revisionId: fixture.input.revisionId,
@@ -4132,13 +4135,13 @@ async function applicationMutationActivationInput(
     revisionId: active.basis.revisionId,
     candidateId: active.basis.candidateId,
     analysisId: active.basis.analysisId,
-    sourceArtifactRootSha256: hex(active.basis.sourceArtifactRootSha256),
-    manifestSha256: hex(active.basis.manifestSha256),
-    schemaSha256: hex(active.basis.applicationSchemaSha256),
-    functionCatalogSha256: hex(active.basis.functionCatalogSha256),
-    publicationSha256: hex(active.basis.publicationSha256),
+    sourceArtifactRootSha256: encodeBytesToLowercaseHex(active.basis.sourceArtifactRootSha256),
+    manifestSha256: encodeBytesToLowercaseHex(active.basis.manifestSha256),
+    schemaSha256: encodeBytesToLowercaseHex(active.basis.applicationSchemaSha256),
+    functionCatalogSha256: encodeBytesToLowercaseHex(active.basis.functionCatalogSha256),
+    publicationSha256: encodeBytesToLowercaseHex(active.basis.publicationSha256),
     executionModulePath: active.basis.manifest.sourceArtifact.executionModulePath,
-    function: { ...fn, entrySha256: hex(storedFunction.entrySha256) },
+    function: { ...fn, entrySha256: encodeBytesToLowercaseHex(storedFunction.entrySha256) },
   }));
   const executionAuthority = await runEffect(
     canonicalizeApplicationMutationExecutionAuthorityV1({
@@ -4147,7 +4150,7 @@ async function applicationMutationActivationInput(
       runtimeTarget: runtimeTarget.target,
       runtimeTargetSha256: await sha256Hex(runtimeTarget.canonicalBytes),
       activationSequence: active.basis.activationSequence.toString(),
-      activeHeadSha256: hex(active.basis.headSha256),
+      activeHeadSha256: encodeBytesToLowercaseHex(active.basis.headSha256),
       schemaVersionId: active.basis.schemaVersionId,
     }),
   );
@@ -4190,9 +4193,9 @@ async function applicationMutationActivationInput(
     policyVersion,
     identityAccessPolicy: policy,
     validatedArgsValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
-    validatedArgsSha256: hex(validatedArgsSha256),
+    validatedArgsSha256: encodeBytesToLowercaseHex(validatedArgsSha256),
     requestKey,
-    requestSha256: hex(requestSha256),
+    requestSha256: encodeBytesToLowercaseHex(requestSha256),
     issuedAt: TransactionGrantTimestampV1Schema.make(
       new Date(trustedNowEpochMilliseconds - 60_000).toISOString(),
     ),
@@ -4272,10 +4275,6 @@ async function applicationMutationActivationInput(
       requestSha256,
     }),
   });
-}
-
-function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function hexBytes(value: string): Uint8Array {

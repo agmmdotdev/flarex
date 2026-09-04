@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { TestClock } from "effect/testing";
@@ -323,13 +324,13 @@ describePostgres(
           ]);
           expect(stored.rows).toEqual([{
             canonicalByteLength: winnerEvidence.canonicalBytes.byteLength,
-            canonicalBytesHex: Buffer.from(
+            canonicalBytesHex: encodeBytesToLowercaseHex(
               winnerEvidence.canonicalBytes,
-            ).toString("hex"),
+            ),
             admittedAtFinite: true,
           }]);
           expect(stored.rows[0]?.canonicalBytesHex).not.toBe(
-            Buffer.from(loserEvidence.canonicalBytes).toString("hex"),
+            encodeBytesToLowercaseHex(loserEvidence.canonicalBytes),
           );
           expect(await countArtifactRows(persistence, winner)).toBe(1);
           expect(await countDependencyRows(persistence, winner)).toBe(0);
@@ -466,9 +467,9 @@ describePostgres(
             owner: artifact.identity.owner,
             lineageId: artifact.identity.lineageId,
             artifactSha256: artifact.identity.artifactSha256,
-            canonicalBytesHex: Buffer.from(
+            canonicalBytesHex: encodeBytesToLowercaseHex(
               requireCapturedEvidence(artifact).canonicalBytes,
-            ).toString("hex"),
+            ),
           })).sort(compareStoredArtifactCoordinates);
           expect(stored.rows).toEqual(expectedStored);
           expect(await countAllDependencyRows(persistence)).toBe(0);
@@ -1940,9 +1941,9 @@ async function expectPostgresArtifactPostResolutionReconstructionDeadline():
         persistence,
         winner,
       );
-      expect(stored).toBe(Buffer.from(
+      expect(stored).toBe(encodeBytesToLowercaseHex(
         winnerEvidence.canonicalBytes,
-      ).toString("hex"));
+      ));
     } finally {
       vi.unstubAllGlobals();
       observedPool.close();

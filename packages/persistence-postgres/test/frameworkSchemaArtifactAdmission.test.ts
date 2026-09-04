@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { PGlite } from "@electric-sql/pglite";
 import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import {
@@ -845,7 +846,7 @@ async function insertCapturedArtifact(
     "flarex.framework-schema-artifact",
     1,
     evidence.canonicalBytes.byteLength,
-    Buffer.from(evidence.canonicalBytes).toString("hex"),
+    encodeBytesToLowercaseHex(evidence.canonicalBytes),
   ]);
 }
 
