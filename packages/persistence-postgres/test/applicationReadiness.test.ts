@@ -4695,7 +4695,7 @@ function uuidSequence(...sequences: ReadonlyArray<number>): () => string {
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await sha256Bytes(bytes);
-  return Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+  return encodeBytesToLowercaseHex(digest);
 }
 
 async function sha256Bytes(bytes: Uint8Array): Promise<Uint8Array> {

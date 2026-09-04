@@ -6,7 +6,7 @@ import {
   type TaskDefinitionSha256V1,
   type TaskRuntimeObjectReferenceV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { copyBytes } from "@flarex/utils/bytes";
+import { copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect } from "effect";
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
@@ -41,7 +41,7 @@ describe("TaskRuntimeObjectStore with Miniflare R2", () => {
       role: "task_runtime_projection",
       objectKey: taskRuntimeObjectKeyV1(
         "task_runtime_projection",
-        toHex(digest),
+        encodeBytesToLowercaseHex(digest),
       ),
       byteLength: BigInt(bytes.byteLength),
       sha256: copyBytes(digest) as TaskDefinitionSha256V1,
@@ -76,8 +76,4 @@ function copyReference(
     ...reference,
     sha256: copyBytes(reference.sha256) as TaskDefinitionSha256V1,
   });
-}
-
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
 }

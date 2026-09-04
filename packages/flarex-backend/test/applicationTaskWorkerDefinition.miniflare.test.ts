@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Miniflare } from "miniflare";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
@@ -495,7 +496,7 @@ describe("Application task Worker definition", () => {
     release();
     const definition = await pending;
     expect(definition.runtimeTargetSha256Hex)
-      .toBe(Buffer.from(fixture.runtimeTargetSha256).toString("hex"));
+      .toBe(encodeBytesToLowercaseHex(fixture.runtimeTargetSha256));
     expect(definition.limits.cpuMs).toBe(10_000);
   });
 

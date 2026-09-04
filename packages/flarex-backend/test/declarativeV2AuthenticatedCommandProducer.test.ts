@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { createHash } from "node:crypto";
 import {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
@@ -1011,12 +1012,13 @@ describe("authenticated Declarative V2 command producer", () => {
       .not.toEqual(new Uint8Array(32));
     expect(result.candidate.deploymentCodegenAnalysisSha256)
       .not.toEqual(result.candidate.deploymentAnalysisSha256);
-    expect(Buffer.from(result.candidate.deploymentAnalysisSha256)
-      .toString("hex")).toBe(
+    expect(encodeBytesToLowercaseHex(result.candidate.deploymentAnalysisSha256)
+      ).toBe(
         "b4d003cb2646b6a251fa7557cec6c7fbb8ee62ea0887351dcc0737955786d449",
       );
-    expect(Buffer.from(result.candidate.deploymentCodegenAnalysisSha256)
-      .toString("hex")).toBe(
+    expect(encodeBytesToLowercaseHex(
+      result.candidate.deploymentCodegenAnalysisSha256,
+    )).toBe(
         "36ab1fe5455d5059e6ff8e03b662a1d8e1f6b315623a6a38f01185ea1567b2c0",
       );
     expect(result.command).toMatchObject({

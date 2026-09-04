@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
@@ -679,7 +680,7 @@ function runtimeReference(
   return {
     storeIdentity: TASK_RUNTIME_OBJECT_STORE_V1,
     role,
-    objectKey: taskRuntimeObjectKeyV1(role, Buffer.from(sha256Value).toString("hex")),
+    objectKey: taskRuntimeObjectKeyV1(role, encodeBytesToLowercaseHex(sha256Value)),
     byteLength: BigInt(bytes.byteLength),
     sha256: sha256Value,
   };

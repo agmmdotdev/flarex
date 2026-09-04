@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { webcrypto } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { Cause, Data, Effect, Exit, Result } from "effect";
@@ -555,9 +556,9 @@ describe("Semantic Artifact V1 private inert core", () => {
       },
     ));
     expect(exact.usage).toEqual(evidence.usage);
-    const originalAttemptIdentity = Buffer.from(
+    const originalAttemptIdentity = encodeBytesToLowercaseHex(
       exact.semanticAttemptIdentitySha256,
-    ).toString("hex");
+    );
     exact.semanticAttemptIdentitySha256[0] ^= 0xff;
     const aliasRequest = new Request("https://private.test/read-alias");
     const aliasProof = await Effect.runPromise(
@@ -575,9 +576,9 @@ describe("Semantic Artifact V1 private inert core", () => {
         admission: evidence.usage,
       },
     ));
-    expect(Buffer.from(
+    expect(encodeBytesToLowercaseHex(
       aliasIsolated.semanticAttemptIdentitySha256,
-    ).toString("hex")).toBe(originalAttemptIdentity);
+    )).toBe(originalAttemptIdentity);
     const reopenRequest = new Request(
       "https://private.test/read-finalized-reopen",
     );
@@ -806,7 +807,7 @@ describe("Semantic Artifact V1 private inert core", () => {
         commandId: "finalize-cold",
         admission: budgets,
       }));
-      roots.push(Buffer.from(finalized.completedRootSha256!).toString("hex"));
+      roots.push(encodeBytesToLowercaseHex(finalized.completedRootSha256!));
     }
     expect(roots[0]).toBe(roots[1]);
   });

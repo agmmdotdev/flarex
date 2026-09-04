@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect, Exit, Fiber, Result } from "effect";
 import {
   encodeApplicationActionInvocationRequestV1,
@@ -1389,7 +1390,7 @@ function requireCapturedDigest(
 ) {
   if (
     actual === undefined ||
-    Buffer.from(actual).toString("hex") !== Buffer.from(expected).toString("hex")
+    encodeBytesToLowercaseHex(actual) !== encodeBytesToLowercaseHex(expected)
   ) throw new Error(`AAV-A1 did not capture the validated ${label} digest.`);
 }
 

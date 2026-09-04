@@ -10,7 +10,7 @@ import {
   type TaskRuntimeObjectReferenceV1,
   type TaskRuntimeObjectRoleV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { copyBytes } from "@flarex/utils/bytes";
+import { copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Cause, Effect, Exit, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { runInNewContext } from "node:vm";
@@ -229,7 +229,7 @@ function makeFixtureWithDigest(
   const reference: TaskRuntimeObjectReferenceV1 = Object.freeze({
     storeIdentity: TASK_RUNTIME_OBJECT_STORE_V1,
     role,
-    objectKey: taskRuntimeObjectKeyV1(role, toHex(digest)),
+    objectKey: taskRuntimeObjectKeyV1(role, encodeBytesToLowercaseHex(digest)),
     byteLength: BigInt(bytes.byteLength),
     sha256: copyBytes(digest) as TaskDefinitionSha256V1,
   });
@@ -274,10 +274,6 @@ async function expectFailureTag(
       ...(reason === undefined ? {} : { reason }),
     });
   }
-}
-
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 class MemoryBucket implements TaskRuntimeObjectStoreBucket {

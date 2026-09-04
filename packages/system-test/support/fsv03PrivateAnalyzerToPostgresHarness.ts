@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import {
   installedPrivateAnalyzerReleaseTupleV1,
 } from "@flarex/analysis/internal/system-test/private-analyzer-release-v1";
@@ -1310,10 +1311,10 @@ async function selectInactiveRevision(
     version: 1,
     deploymentId: registered.deploymentId,
     scopeId: decodeReplacementScopeIdV1(registered.scopeId),
-    packageId: `package_${hex(row.package_sha256)}`,
+    packageId: `package_${encodeBytesToLowercaseHex(row.package_sha256)}`,
     artifactRuntime: "dynamic-worker",
-    artifactId: `artifact_${hex(row.package_sha256).slice(0, 32)}`,
-    sourcePackageHash: hex(row.package_sha256),
+    artifactId: `artifact_${encodeBytesToLowercaseHex(row.package_sha256).slice(0, 32)}`,
+    sourcePackageHash: encodeBytesToLowercaseHex(row.package_sha256),
     schemaVersionId: registered.schemaVersionId,
     functions,
     schemaManifest,
@@ -2118,10 +2119,6 @@ function bytesFromHex(value: string): Uint8Array {
     bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
   }
   return bytes;
-}
-
-function hex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
 }
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
