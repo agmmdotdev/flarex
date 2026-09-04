@@ -1,13 +1,12 @@
 # FlarexDB Framework Storage Architecture
 
-Status: accepted cross-domain architecture; the private owner-qualified
-artifact repository and value-only `RelationalSchema` are implemented, and the
-relational installation/structural-migration authority is accepted in design
-only; installation execution, binding, transaction-host, Payload-adapter, and
-Medusa-adapter work remains pending unless a focused roadmap gate states
-otherwise
+Status: accepted cross-domain architecture. The private artifact repository,
+relational/lifecycle values, coordinator metadata/repositories and no-base
+PGlite execution are implemented. Native coordinator acceptance, upgrades,
+bindings, framework transaction/store hosts and adapters remain open; the
+roadmap's current capability matrix owns detailed implementation status.
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-05
 
 This note owns the durable boundary between the Flarex application data model,
 Payload CMS, Medusa commerce, and the shared FlarexDB mechanisms beneath them.
@@ -15,11 +14,14 @@ It does not replace the schema language, query behavior, lifecycle, or public
 API owned by any one lane.
 
 Execution order and implementation status belong to
-[`../roadmaps/flarexdb-framework-integration/README.md`](../roadmaps/flarexdb-framework-integration/README.md).
+[the current capability matrix](../roadmaps/flarexdb-framework-integration/README.md#current-gate-status).
+The roadmap separately records
+[proposed read, lock-order, binding-recovery and native-execution decisions](../roadmaps/flarexdb-framework-integration/README.md#proposed-decisions-before-their-owning-capabilities).
+Those proposals do not replace this accepted architecture or authorize code.
 The accepted artifact/install/binding identity decisions are recorded in
 [`../roadmaps/flarexdb-framework-integration/preflight/01-artifact-installation-and-binding-identity.md`](../roadmaps/flarexdb-framework-integration/preflight/01-artifact-installation-and-binding-identity.md).
-The implemented relational value contract and the accepted design-only
-installation/migration authority are recorded in
+The relational value contract and installation/migration authority, including
+their private implementation boundaries, are recorded in
 [`../roadmaps/flarexdb-framework-integration/preflight/08-relational-schema-value-contract.md`](../roadmaps/flarexdb-framework-integration/preflight/08-relational-schema-value-contract.md)
 and
 [`../roadmaps/flarexdb-framework-integration/preflight/09-relational-installation-and-migration-coordination.md`](../roadmaps/flarexdb-framework-integration/preflight/09-relational-installation-and-migration-coordination.md).
@@ -265,7 +267,7 @@ Four migration families remain distinct:
 4. Medusa structural and semantic migrations.
 
 They do not yet share a migration host or migration language. The accepted
-design-only coordinator first covers framework structural plans for a synthetic
+coordinator first covers framework structural plans for a synthetic
 `system` artifact and may later cover Medusa structural plans after the exact
 adapter gate. Platform keeps the checked-in Drizzle runner, Application keeps
 its existing build/readiness owners, and Payload lifecycle/data plans remain

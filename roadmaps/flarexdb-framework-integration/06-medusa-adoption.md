@@ -200,11 +200,16 @@ migration requirements fail admission before serving traffic.
   framework-artifact digest/provenance composition, and unsupported-capability
   failures use the source-audited capability matrix and exact representative
   fixtures.
-- Accepted in design only in
+- Owned by
   [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md):
   scope-isolated physical lowering, stable collision-domain migration
-  coordination, structural readiness, and availability. Every implementation
-  and the later binding checkpoint remain pending.
+  coordination, structural readiness, and availability. Private values and
+  metadata/repositories are implemented; the target/session, runner and fresh
+  coordinator have no-base PGlite-functional evidence. Native acceptance,
+  scale, base-backed execution and the later binding checkpoint remain open.
+  Use the [master capability matrix](./README.md#current-gate-status) for
+  cross-lane status; these mechanisms do not establish a live Medusa compiler
+  or repository adapter.
 - Keep live fork DML normalization and candidate compilation outside this step;
   those begin only after the connected source closure is promoted.
 - Generate no public application schema and expose no raw database handle.

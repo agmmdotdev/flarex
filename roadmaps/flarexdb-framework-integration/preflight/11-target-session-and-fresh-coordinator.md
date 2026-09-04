@@ -8,7 +8,7 @@ complete checkpoint 3. Genuine-PostgreSQL coordination and settlement,
 bounded-lineage scale, base-backed execution, production resolution, runtime,
 activation, and public API gates remain open.
 
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 ## Decision
 
@@ -282,6 +282,112 @@ The implemented PGlite-functional profile does not resolve these issues:
   lease contention, lock and statement timeouts, cancellation, external
   interruption, transaction settlement, and recovery on a distinct physical
   session for both fresh and later base-backed profiles.
+
+## Proposed First Implementation Capability
+
+**Native PostgreSQL fresh installation and recovery** is the recommended next
+coherent capability. It is proposed for approval; this documentation update
+does not authorize code, database changes, or production selection.
+
+### Outcome And Reason For This Order
+
+Run the existing no-base synthetic `system` plan through a source-private
+native PostgreSQL target/session adapter and the existing coordinator. A fresh
+install must reach one authenticated installation/readiness/availability
+result, and competing claims, interruption, crash or lost response must either
+recover that exact durable result or return an explicit unresolved/refused
+outcome without speculative DDL replay.
+
+This brings forward the fresh-profile portion of native acceptance before the
+base-backed candidate in
+[the umbrella sequence](./09-relational-installation-and-migration-coordination.md#ordered-implementation-checkpoints).
+It tests the driver and coordinator together before adding upgrade semantics.
+The later base-backed PGlite and native proofs remain necessary; this capability
+does not close the whole coordinator checkpoint.
+
+### Implementation Boundary And Reuse
+
+Keep the existing plan/value codecs, fixed four-handler registry, metadata
+catalog, repository authority, and PGlite adapter. Adapt the private
+`FrameworkMigrationSessionDriver` seam for native acquisition, bounded
+transaction execution and cleanup; any additional acquisition, whole-attempt
+or cleanup budget belongs to this private lifecycle contract. Preserve typed
+callback failure, confirmed rollback, cleanup failure and decision uncertainty.
+
+Use a source-private test composition over a harness-owned known database and
+locator. It must bind the driver and native connections to that exact target;
+it is not a production physical-identity resolver or a new public issuer.
+Recovery must exclude the actual uncertain backend, cancel and drain active
+work before reuse or return, discard that backend when required, and use a
+distinct physical connection. A fresh logical token alone is insufficient.
+
+Inspect and classify these existing owners before implementing the native seam:
+
+| Owner | Disposition |
+| --- | --- |
+| `migrationCoordination/targetSession.ts` | Keep authority/lifetime semantics; adapt only the private native lifecycle contract where required |
+| `migrationCoordination/pgliteTarget.ts` | Keep as functional/test adapter; do not copy deferred interruption as native cancellation policy |
+| `migrationCoordination/freshCoordinator.ts` and its repository helpers | Keep state-machine authority; fix only native-profile integration defects within the approved capability |
+| `frameworkSchema/artifact/postgresControlSession.ts` and its native tests | Port applicable acquisition, cancellation/drain and settlement mechanics behind the target seam; artifact-specific identities and repository authority stay with their owner |
+| Platform migrations, Application execution, commit/feed/outbox and production host resolvers | Keep unchanged; a required change to these owners needs its own preflight |
+
+The artifact adapter uses artifact-specific session contracts and schema
+composition. Its existing native tests are reference evidence, not proof of
+the target adapter. Do not create a universal PostgreSQL session package merely
+to share spelling; extraction is justified only by identical lifetime and
+failure semantics. No legacy data migration, dual path or compatibility bridge
+is required by this new private native test capability.
+
+### Required Acceptance
+
+- Run the existing structural profile and complete coordinator catalog on
+  ordinary-role PostgreSQL; verify exact catalog postconditions and one durable
+  readiness result on initial execution and replay.
+- Use independent connections and deterministic barriers to prove first-head
+  serialization, competing claims, database-time lease takeover, stale-fence
+  rejection and independent collision domains proceeding without false
+  blocking. Serial calls or sleeps alone do not prove exclusion.
+- Roll back DDL and its receipt/event/head changes together on failure. Reject
+  corrupt ledgers and mismatched structure without adopting unreceipted DDL or
+  publishing readiness.
+- Exercise acquisition expiry, lock/statement timeout, active-SQL cancellation,
+  external interruption and cleanup failure. Prove that late acquisitions are
+  released and the caller does not return while abandoned backend work can
+  still publish unseen state.
+- Inject pre-/post-commit response loss at step and finalization boundaries.
+  Prove durable decision lookup using a distinct physical recovery connection;
+  do not translate an interrupted Effect exit into evidence of non-commit.
+- Reconstruct from durable state after a process restart during partial
+  progress and after a committed result whose response was lost. This is
+  separate from same-process token reuse.
+- Measure statement counts and elapsed time by acquisition, claim, step,
+  reconstruction, takeover and finalization on increasing bounded plan sizes.
+  Record fixture size and deliberate waits separately. Freeze explicit work
+  budgets for the claimed native profile and bound work per call; do not infer
+  production scale from a passing seven-step fixture. General lineage scaling
+  remains open if the measurements do not establish it.
+- Preserve the existing target/session, structural-runner and fresh-coordinator
+  PGlite lanes. Add a manifest-owned serial native lane, run the affected
+  package typecheck/lint, and perform the repository's required implementation
+  reviews. Missing native database access leaves native acceptance incomplete.
+
+The test/code anchors are under `packages/persistence-postgres/src/` at the
+owners above, plus `test/frameworkCoordinatorTargetSession.test.ts`,
+`test/frameworkCoordinatorRelationalStructuralRunner.test.ts`,
+`test/frameworkCoordinatorFreshCoordinator.test.ts`, and
+`test/frameworkSchemaArtifactControlSession.postgres.test.ts`. PostgreSQL's
+[explicit-locking contract](https://www.postgresql.org/docs/18/explicit-locking.html)
+governs row-lock and deadlock expectations.
+
+### Completion And Exclusions
+
+Completion closes only native execution, contention and recovery for the
+declared fresh profile. Base-backed upgrades, additional structural codecs,
+destructive/data migrations, general scale, production target/runner
+resolution, bindings, framework data stores/finalization, Payload/Medusa
+adapters and hosted/public activation stay outside the capability. A failed
+native proof must remain a failed or open gate rather than widening the
+PGlite claim.
 
 ## Explicitly Closed Boundaries
 

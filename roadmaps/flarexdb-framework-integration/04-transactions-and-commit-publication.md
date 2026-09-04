@@ -48,6 +48,12 @@ The transaction handle is a scoped value/factory rather than a singleton
 Effect Context service. The host and live persistence Layer own acquisition,
 release, interruption, and connection lifecycle.
 
+For the CMS host, standalone reads and reads nested in a mutation require
+distinct admission rules. Resolve the proposed
+[Payload read contract](./preflight/07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract)
+before implementing the first scalar profile; a missing transaction token on
+a standalone read is not evidence of an expired or forged mutation session.
+
 ## Relational Operations
 
 The private relational store must support the mechanics needed by real
@@ -86,6 +92,10 @@ Receipts cannot be mixed between independently opened transactions or replayed
 under another scope.
 
 ## Commit Finalization
+
+This is the target publication sequence. The lock-acquisition point requires
+the transaction-owner reconciliation below; this diagram does not authorize
+moving the existing scope-clock lock.
 
 ```text
 resolve and pin active binding
@@ -142,6 +152,34 @@ second commit/feed/outbox authority.
 - A trusted Medusa or Payload command may coordinate narrowly admitted
   cross-owner operations only after a separate atomicity contract proves one
   transaction owner and one finalizer.
+
+## Proposed Lock-Order Reconciliation
+
+Status: identified integration decision; the replacement acquisition order is
+not yet accepted or implemented.
+
+The current
+`packages/persistence-postgres/src/scopeExecution/ScopeExecution.ts`
+locks the scope clock before invoking the registered operation, while
+`ScopedTransaction.ts` retains an Application-shaped `AppRowTransaction`.
+The target sequence above performs lane work before the final-publication
+lock. These are different contracts; the current host is a reuse candidate,
+not an already neutral framework transaction host.
+
+Recommendation: retain current Application behavior and explicitly freeze the
+complete order for binding/generation checks, scope-clock publication, row,
+unique-key, relation and framework locks in the transaction-owner capability.
+Compare every participating path that can touch the same resources, including
+activation and migration where applicable. If later publication locking is
+chosen, make its owner change and dependency/generation revalidation part of
+that capability rather than an incidental extraction.
+
+Acceptance must include concurrent relevant holder orders, transaction-local
+reads, stale-binding refusal, rollback, cancellation and settlement in genuine
+PostgreSQL. Test the claimed shared-resource combinations; do not invent a
+cross-lane atomic transaction to exercise them. No existing deadlock is claimed
+by this design mismatch alone, and no lock movement or generic host extraction
+is authorized by this proposal.
 
 ## Current Risks
 

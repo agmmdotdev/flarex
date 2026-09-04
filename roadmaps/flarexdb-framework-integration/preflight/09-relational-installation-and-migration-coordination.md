@@ -10,7 +10,7 @@ have private PGlite functional evidence. Base-backed execution,
 genuine-PostgreSQL acceptance, scale, production resolution, binding,
 and activation remain open.
 
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 ## Decision
 
@@ -793,6 +793,11 @@ Each checkpoint requires a separate implementation approval:
    evidence. Together they cover collision-domain claim, attempts, exact step receipts,
    recovery, validation, readiness, and availability for one synthetic
    `system` artifact with no base.
+   Proposed next capability:
+   [native PostgreSQL fresh installation and recovery](./11-target-session-and-fresh-coordinator.md#proposed-first-implementation-capability).
+   This brings forward only the fresh-profile part of step 5 before extending
+   the plan in step 4. The ordering refinement and native implementation need
+   capability approval; step 5 still owns complete fresh-plus-base acceptance.
 4. **Base-backed additive PGlite candidate:** require the exact authenticated
    base receipts and matching target/owner/lineage/profile, re-observe the base
    under the collision head, retain its compatible structures, and reject

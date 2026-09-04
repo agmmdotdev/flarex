@@ -7,7 +7,7 @@ Checkpoint 3's private target/session, structural runner, and fresh coordinator
 have PGlite functional evidence. Base-backed, genuine-PostgreSQL, scale,
 production resolution, transaction, binding, adapter, and production remain open.
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-05
 
 ## Decision
 
@@ -35,6 +35,33 @@ The proof order is:
 migration, relation, or query API. It means implementing exact shared
 mechanisms once while leaving each semantic language and lifecycle with its
 owner.
+
+## Consumer Proof Of Shared Mechanisms
+
+The objective is a shared Flarex foundation proven by both frameworks. The
+current status index is the
+[master capability matrix](../README.md#current-gate-status); the proof order
+above remains unchanged. Payload dashboard, general hooks, uploads and broader
+lifecycle parity are not prerequisites for Currency promotion.
+
+For every proposed shared mechanism, name its actual consumers, identical
+invariant, lifetime, failure behavior and executable proof. Synthetic fixtures
+prove mechanisms before adapter work; actual framework operations must later
+prove that the same contracts fit their consumers. A single-consumer mechanism
+may remain private without being promoted to a generic package.
+
+| Mechanism | Consumer proof |
+| --- | --- |
+| Application content, native relations and write-policy admission | Existing Application regression plus Payload Local API scalar and relation operations, with ordinary Application writes denied for CMS-managed tables |
+| Scope/binding checks, nested transaction ownership and settlement | Payload request operations and actual Medusa repository/service calls through their separate hosts; invalid scope/owner/token and rollback proofs for each |
+| Reserved relational installation and store | Synthetic structural/data proof followed by actual Currency service/repository conformance; Payload content does not exercise `RelationalSchema` |
+| Commit publication | Each admitted lane contributes only authenticated typed receipts to its common finalizer; one commit/fact/outbox outcome and no publication after rollback |
+
+The synthetic relational proof retains its existing unadmitted-fact rejection
+and rollback boundary. A successful synthetic installation does not authorize
+a generic data fact merely to fill the final row of this matrix. Successful
+data publication is proven through the admitted Application/Payload and later
+commerce families.
 
 ## Current Proven Baseline
 
@@ -168,12 +195,14 @@ The exact implementation and evidence receipt is
 
 ### Installation, readiness, availability, and migration coordination
 
-The design-only authority gate is complete in
+The authority design and its private value/repository implementation are owned by
 [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
 It freezes the private installation, readiness, availability, physical-layout,
 plan, collision-domain, lease, ledger, receipt, and recovery owners. Domain
 plans remain separate; only fenced execution and evidence mechanics are shared.
-No implementation is authorized by that record.
+Its source-private fresh target/session, runner and coordinator now have
+PGlite-functional evidence under the separately accepted checkpoint-3 owner.
+Native acceptance, bounded-lineage scale and base-backed execution remain open.
 
 The first execution proof uses a synthetic reserved-relational schema and must
 cover fresh install, deterministic plan, replay, interruption and exact resume,
@@ -384,6 +413,18 @@ profile. PostgreSQL coordination and settlement, scale, and production
 resolution remain open in
 [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
 
-Base-backed target execution, genuine-PostgreSQL acceptance, Application
-projection/`DataBindingSet`, transaction/store, and commit owners remain later
-separately approved checkpoints.
+The recommended first implementation capability is
+[native PostgreSQL fresh installation and recovery](./11-target-session-and-fresh-coordinator.md#proposed-first-implementation-capability).
+It is a proposed ordering refinement that proves the current no-base profile
+on real connections before broadening to a base-backed candidate. It does not
+authorize implementation or claim completion of the whole coordinator gate.
+
+After that fresh proof, complete bounded-lineage requirements and the
+base-backed PGlite/native profile, then the separately owned Application
+projection/`DataBindingSet`, transaction/store and commit capabilities. Before
+data implementation, resolve the proposed
+[CMS read contract](./07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract),
+[lock order](../04-transactions-and-commit-publication.md#proposed-lock-order-reconciliation)
+and [binding recovery](../02-schema-artifacts-and-bindings.md#proposed-binding-recovery-contract).
+Each capability should deliver an executable outcome with its failure proofs;
+ordinary implementation details do not require serial prerequisite-doc gates.

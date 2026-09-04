@@ -161,6 +161,11 @@ commit-owner preflights from
 - define the CMS request transaction host, nested Local API reuse, scope and
   binding revalidation, timeout, interruption, rollback, settlement, and exact
   finalization boundary;
+- resolve the proposed
+  [standalone read contract](./preflight/07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract):
+  a missing ID on standalone find/count is distinct from a presented invalid
+  token; freeze snapshot/isolation and paginated count consistency, and prove
+  nested reads reuse the mutation's transaction-local state;
 - compose authenticated Application row and later relation capabilities without
   exposing the current `AppRowTransaction`, a raw database handle, or the
   reserved-relational transaction host;
@@ -172,6 +177,11 @@ commit-owner preflights from
 
 This gate must be accepted before implementing nested rollback, transaction-
 local reads, or the exactly-one commit/change/outbox claim.
+
+The shared-core implementation status is maintained in the
+[master capability matrix](./README.md#current-gate-status). The headless scalar
+and native relation proofs remain the Payload prerequisites for Medusa;
+dashboard, general hooks and broader lifecycle support are later capabilities.
 
 ### Application write-policy admission preflight
 

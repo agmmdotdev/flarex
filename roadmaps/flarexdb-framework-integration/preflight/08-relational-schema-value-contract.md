@@ -129,19 +129,22 @@ This checkpoint does not authorize:
 - a Payload or Medusa adapter, developer relational API, public API, runtime
   route, hosted path, or production binding.
 
-## Next Authorized Gate
+## Remaining Integration Gates
 
-The design-only reconciliation is complete in
+The installation/migration authority is owned by
 [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
 It freezes the cycle-free plan/installation identity graph, stable physical
 collision domain, scope-isolated PostgreSQL lowering, migration authority,
 ledger/fencing/recovery model, readiness/availability cutline, and database
 evidence split while deferring binding and activation.
 
-Its first separately reviewable implementation checkpoint is pure physical-
-layout, plan, installation, readiness, capability-evidence, and availability
-values with golden tests. It authorizes no SQL, DDL, repository, target
-transaction, migration execution, binding, adapter, or runtime behavior.
+Its physical-layout, plan, installation, readiness, capability-evidence and
+availability values are implemented, followed by private metadata/repositories
+and no-base PGlite target/session, runner and coordinator execution. These are
+successor capabilities; this value-contract record itself grants no DDL or
+runtime authority. The [master capability matrix](../README.md#current-gate-status)
+owns current cross-lane status, including the pending native, scale, upgrade
+and binding boundaries.
 
 Transaction/store and commit/finalization owners remain later mandatory
 preflights. Medusa package promotion and both framework adapters remain blocked

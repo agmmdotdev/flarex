@@ -2,48 +2,17 @@
 
 ## Status And Scope
 
-Status: active accepted roadmap domain. The private artifact-value, additive
-DDL, runtime-authenticated admission-preparation, stored-reconstruction, and
-repository-construction sub-checkpoints, runtime-authenticated control-session
-starter, deterministic control-session lifecycle, and an artifact-private
-PostgreSQL control-session adapter are implemented, together with the exact
-private point-read, locked-admission, and bounded identity-list operations with
-completed focused PGlite evidence. Focused ordinary-role PostgreSQL 18
-evidence now proves the native migration/catalog, control-session probe, point
-read, exact-admission convergence, deployment-row blocking, collision
-contention, both
-dependency-lock orders, cross-deployment non-blocking, owner/lineage coordinate
-isolation, post-write rollback, and driver-edge pre-/post-`COMMIT` settlement
-recovery after discarding the uncertain native backend and using a distinct
-recovery backend, plus advisory-lock-backed callback-SQL and server-blocked-
-`COMMIT` interruption settlement, native queued-acquisition expiry, server lock
-and statement timeouts, and detached and post-resolution reconstruction
-deadlines, plus both supported cross-owner deployment-lock holder orders with
-the existing Application schema-version artifact writer. The separately
-accepted `FSA-PG-DRAIN-01` correction now cancels and drains active native
-SQL and recovery work before returning. Native bounded-list ordering,
-pagination, and initial/resumed natural-index behavior complete the genuine-
-PostgreSQL acceptance enumerated for the private artifact repository. Together
-the PGlite and genuine-PostgreSQL lanes complete the private repository
-checkpoint. Later lifecycle codecs remain gated.
+Status: active accepted roadmap domain. The private framework-artifact
+repository has completed its focused PGlite and ordinary-role PostgreSQL
+acceptance. Relational values, coordinator metadata/repositories, and all
+three fresh-install execution slices are implemented privately; coordinator
+execution is proven only in the no-base PGlite profile. Native coordinator
+acceptance, bounded-lineage scale, upgrades, serving bindings, framework data
+transactions, adapters, and production activation remain open.
 
-The exact Medusa package/capability map and Payload `3.88.0` adapter-contract
-audit are accepted, and the private value-only relational schema plus
-coordinator checkpoints 1 and 2 are implemented and production-inert. The
-checkpoint-2 owner now contains the exact additive eighteen-table metadata
-catalog, source-private topological restoration, and all thirteen
-transaction-parameterized repository families through terminal/event,
-collision-head, installation/readiness, and availability history/head. Its
-manifest-owned serial PGlite lane covers selected migration, canonical-value,
-catalog, restoration, repository, and file-backed complete-graph cold-reopen
-behavior. Production target resolution, base-backed relational DDL, the later
-binding checkpoint, Payload/Medusa adapters, genuine-PostgreSQL coordinator
-acceptance, runtime wiring, and production work remain pending. Checkpoint 3 is
-now decomposed into a source-private target/session plus PGlite functional
-adapter, a relational structural runner, and the fresh coordinator/repository
-helpers. All three have private PGlite functional evidence for the no-base
-profile. PostgreSQL coordination, settlement, bounded-lineage scale, and
-production resolution remain open.
+The [current gate matrix](#current-gate-status) is the cross-lane status index.
+Focused owners define exact contracts and evidence; lane documents link here
+rather than maintaining another detailed implementation-status inventory.
 
 This domain owns the extraction and admission of shared FlarexDB mechanisms
 needed by Payload and Medusa, plus the ordered adapter conformance work that
@@ -164,24 +133,27 @@ Preflight records:
 
 ## Current Architecture
 
-The existing repository contains the private relational value contract and
-reusable lower-level evidence, but not yet a framework-neutral relational
-lifecycle kernel:
+The repository contains a private fresh-install lifecycle through artifact,
+physical plan, target/session, structural execution and readiness publication.
+It does not yet contain an integrated framework data/serving path:
 
 - scope resolution and physical placement are reusable authorities;
 - scoped execution is the best transaction-host seed but remains backed by
   application-row operations;
-- schema artifacts, readiness, and activation demonstrate useful mechanics but
-  currently identify and validate application schema state;
+- the Application schema/readiness/activation owners remain separate from the
+  new framework artifact and installation/readiness owners; coordinated serving
+  bindings are still pending;
 - native relation storage and OCC use application-row and document-occurrence
   semantics;
 - commit feed and wake-outbox infrastructure is reusable in shape, while its
   current fact families are application-specific; and
-- the checked-in migration runner owns static Flarex platform migrations, not
-  managed framework schema evolution.
+- the checked-in migration runner owns static Flarex platform migrations;
+  generated framework structures use the separately owned private coordinator,
+  currently proven only for the fresh PGlite profile.
 
 The `payload` and `medusa` catalog namespaces reserve stable vocabulary. They
-do not prove an adapter, migration engine, runtime caller, or production path.
+do not prove an adapter, framework migration compatibility, runtime caller or
+production path.
 
 ## Invariants And Trust Boundaries
 
@@ -282,33 +254,58 @@ The smallest safe sequence is:
 17. Run full conformance, scale, recovery, hosted, and operator gates before
     any production activation.
 
-Steps may be split into smaller implementation checkpoints, but later steps do
-not authorize earlier owner changes implicitly.
+Use coherent implementation capabilities with explicit outcomes and failure
+proofs. Ordinary implementation details do not create additional approval
+gates; materially different owners or authority boundaries still require their
+own preflight. Later steps do not authorize earlier owner changes implicitly.
+
+The proposed immediate capability is
+[native PostgreSQL fresh installation and recovery](./preflight/11-target-session-and-fresh-coordinator.md#proposed-first-implementation-capability).
+It brings forward the fresh-profile part of native acceptance before extending
+the coordinator to a base-backed candidate. This ordering refinement and its
+implementation remain proposed; full fresh-plus-base-backed acceptance is
+still required before binding work.
 
 ## Current Gate Status
 
-| Outcome | Status |
-| --- | --- |
-| Cross-domain architecture and ownership | Accepted in design; no implementation authority inferred |
-| Framework-neutral artifact/install/binding model | Private artifact repository operations and focused PGlite plus ordinary-role PostgreSQL acceptance complete; installation/readiness/availability values and their source-private checkpoint-2 repositories have a dedicated serial PGlite gate, while live execution and Application-reference, Payload-overlay, `DataBindingSet`, activation, and serving remain later gates |
-| Medusa fork source island and package convergence | Inert source island admitted and verified at fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`; exact package/capability audit accepted; the later promotion source map, every active package promotion, and all runtime/adapter activation remain pending |
-| Payload exact-release contract | `payload@3.88.0` and peeled release commit `fea6f8a47a50ff1330d8a5071b43e7dcffb97b22` accepted for the first headless compatibility profile; dependency, adapter, dashboard, host, and runtime work remain pending |
-| Core-first three-lane execution sequence | Accepted; both consumer audits, private `RelationalSchema`, checkpoint-1 values, and the complete checkpoint-2 additive metadata, topological restoration, thirteen repository families, and serial PGlite gate are complete; checkpoint 3 is split into target/session, runner, and fresh-coordinator slices, with all three implemented with private PGlite functional evidence |
-| Relational schema representation | Implemented privately under `@flarex/persistence-postgres`; exact normalization/artifact evidence complete, with no package-root export, DDL, installation, adapter, or runtime caller |
-| Framework migration coordinator | Cycle-free physical-lane, plan, ledger, installation, readiness, and availability values, additive private metadata DDL, stored restoration, and all thirteen checkpoint-2 repository families have a private serial PGlite gate; the source-private target/session has focused nine-test evidence and the fixed-registry structural runner has focused fifteen-test evidence for the exact fresh seven-step/six-DDL-plus-validation profile; fresh coordination and database-time lease orchestration have private PGlite evidence; base-backed execution, genuine-PostgreSQL proof, bounded-lineage scale, and production execution remain open |
-| Owner-scoped relational store and typed finalization | Not implemented; transaction-owner and commit-owner preflights required |
-| Synthetic reserved-relational lifecycle/transaction proof | Pending the shared-core and explicit synthetic-`system` selection gates; must not infer a generic system binding and must reject and roll back an unadmitted mutation fact family |
-| Flarex Application preservation proof | Current private `SV-R Core` baseline complete; post-core full regression pending |
-| Payload scalar/request-transaction proof | Exact Payload contract audit complete; pending remaining shared-core lifecycle, Application preservation, CMS transaction/commit, and write-policy gates |
-| Payload non-reactive one/many relation proof | Pending the scalar proof plus relation-bearing Application candidate/readiness/overlay rebinding; `R03-B` is not required for this non-reactive gate |
-| Medusa Currency/Product/Module Link promotion | Blocked on the preceding shared-core, Flarex Application, and Payload gates |
-| Trusted commerce transaction host | Pending preflight |
-| Typed commerce commit participation | Pending separate commit-owner preflight |
-| Flarex-backed Medusa adapter | Not implemented |
-| Flarex-backed Payload adapter | Not implemented |
-| Cross-domain reference runtime | Deferred |
-| Public `ctx.cms` / `ctx.commerce` | Not authorized |
-| Production activation | Not authorized |
+| Capability | Implemented/proven boundary | Remaining boundary |
+| --- | --- | --- |
+| Architecture and consumer constraints | Accepted ownership and core-first order; exact Medusa fork and Payload `3.88.0` audits complete | Source audit does not prove either adapter |
+| Framework artifact repository | Private admission/read/list, authenticated control sessions, PGlite and ordinary-role PostgreSQL acceptance complete | Does not execute framework target plans |
+| Relational and lifecycle values | Private canonical schema, physical layout, plan, installation/readiness/availability values complete | No public DSL or live framework compiler |
+| Coordinator metadata/repositories | Eighteen-table catalog, thirteen repository families, stored restoration and serial PGlite gate complete | Native coordinator catalog/transaction acceptance remains open |
+| Fresh coordinator execution | Target/session, fixed structural runner, claim/lease/fence, recovery and readiness publication implemented in the private no-base PGlite profile | Native connections, concurrency, cancellation, settlement and bounded-lineage scale unproven |
+| Base-backed structural upgrade | Accepted design | Execution and PGlite/PostgreSQL proofs pending |
+| Serving bindings | Accepted identity and ownership boundaries | Application projection, Payload overlay, `DataBindingSet`, activation/recovery and serving unimplemented |
+| Relational data transaction/store and finalization | Accepted target boundaries | Transaction-owner and commit-owner decisions and implementation pending; no generic relational fact family |
+| Synthetic relational data proof | Defined fail-closed receipt/rollback target | Explicit system selection plus store/transaction prerequisites pending; installation readiness is not this proof |
+| Application preservation | Existing private `SV-R Core` baseline complete | Post-core document/OCC/relation/commit regression pending |
+| Payload scalar and non-reactive relation proofs | Pinned contract and native relation prerequisite available | Adapter, CMS read/request transaction, write-policy admission, scalar proof and relation candidate/rebinding pending |
+| Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
+| Cross-domain references | Authority profiles defined | Runtime deferred |
+| Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
+
+## Proposed Decisions Before Their Owning Capabilities
+
+The core-first objective is a shared foundation proven by both real framework
+operation paths. Preserve Application, Payload scalar/request transaction,
+Payload native relations, then Medusa Currency as the consumer proof order.
+Broader Payload dashboard, hook, upload and lifecycle parity are not added as
+Currency prerequisites. Exact consumer coverage is owned by
+[the three-lane plan](./preflight/05-core-first-three-lane-readiness.md#consumer-proof-of-shared-mechanisms).
+
+The following recommendations are proposals, not accepted replacement
+contracts or implementation authorization:
+
+- [Native fresh-install execution and recovery](./preflight/11-target-session-and-fresh-coordinator.md#proposed-first-implementation-capability)
+  before broadening the structural profile, with measured work bounds.
+- [Payload standalone read admission](./preflight/07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract),
+  distinct from nested transaction reuse and invalid-token refusal.
+- [Transaction lock-order reconciliation](./04-transactions-and-commit-publication.md#proposed-lock-order-reconciliation)
+  before the Application-shaped execution host becomes shared machinery.
+- [Binding interruption recovery](./02-schema-artifacts-and-bindings.md#proposed-binding-recovery-contract),
+  with an explicit availability expectation while exact overlay rebinding is
+  incomplete.
 
 ## Package Direction
 
@@ -341,186 +338,27 @@ universal `@flarex/database` package.
 
 ## Current Correctness Gate
 
-The artifact, installation, and binding identity preflight is accepted in
-[`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md),
-and its first private artifact-value checkpoint is implemented.
+The [capability matrix](#current-gate-status) owns the cross-lane summary.
+Detailed correctness contracts and limitations remain with their focused
+owners:
 
-The relational installation and structural migration design is accepted in
-[`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md).
-It resolves physical identity, collision-domain fencing, scope isolation,
-coexisting structure evidence, recovery, and readiness/availability ownership.
-Its private pure-value checkpoint and exact checkpoint-2 storage/restoration/
-repository contract are complete in
-[`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md),
-with the exact additive catalog, source-private topological restoration, all
-thirteen transaction-parameterized immutable/CAS repository families, and a
-manifest-owned serial PGlite gate. Its file-backed acceptance test
-closes and reopens the complete terminal/event/head/installation/readiness/
-availability graph without carrying a restored handle across the close.
-Checkpoint 3 is decomposed in
-[`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md).
-Its source-private opaque target/session plus PGlite functional adapter has a
-completed nine-test functional receipt. Its source-private plan/target-bound
-structural runner has a separate fifteen-test PGlite receipt for the exact
-seven-step, six-DDL-plus-validation fresh profile. The fresh coordinator now
-composes these with exact stored-plan rebinding, lease/fence checks, uncertainty
-recovery, independent validation, and atomic publication. Base-backed execution,
-genuine PostgreSQL, scale, and production resolution remain separately gated.
+- [Artifact repository and DDL](./preflight/02-artifact-repository-and-ddl.md)
+  owns the completed private admission/read/list, ordinary-role PostgreSQL,
+  collision, ordering and settlement acceptance.
+- [Active-work quarantine](./preflight/03-postgres-active-work-quarantine.md)
+  owns authenticated cancellation, tracked-work drain, discard and fail-closed
+  cleanup. Its artifact-private proof is not native coordinator evidence.
+- [Coordinator metadata and repositories](./preflight/10-relational-coordinator-metadata-and-repositories.md)
+  owns the exact catalog, restoration and transaction-parameterized kernels.
+- [Target/session, structural runner and fresh coordinator](./preflight/11-target-session-and-fresh-coordinator.md)
+  owns implemented no-base PGlite behavior and remaining native, scale and
+  production-resolution boundaries.
+- [The installation/migration umbrella](./preflight/09-relational-installation-and-migration-coordination.md)
+  retains full fresh-plus-base-backed acceptance before the later binding
+  checkpoint.
 
-The repository and DDL contract is accepted in
-[`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md).
-Its additive tables, PGlite DDL evidence, runtime-authenticated admission
-preparation, operation-neutral stored reconstruction, and control-bound
-repository construction are implemented privately, together with the
-authenticated session starter, deterministic control-session lifecycle,
-private PostgreSQL control-session adapter, and deterministic fake-pool
-evidence, plus the exact private point-read, locked-admission, and bounded
-identity-list operations and completed focused PGlite evidence. PGlite now
-proves independent target-side cross-deployment/owner foreign keys and distinct
-same-lineage rejection, constraint-valid ordinal corruption rejected by exact
-admission replay and full point read, the persisted loader/read corruption
-matrix including the canonical-byte and 257-edge bounds, and interruption
-deferral through commit and release. Query-unreachable stored
-row shapes remain covered by the pure defensive codec instead of a fake loader.
-The owner-codec item is deliberately inapplicable because no owner adapter or
-callback exists in this checkpoint; future owner codecs require a separate
-adapter preflight and must finish before common capture/preparation.
-
-The ordinary-role PostgreSQL 18 acceptance enumerated by that preflight is
-complete. It includes
-focused migration/catalog, control-session, point-read, exact-admission
-convergence, and deployment-lock evidence, plus collision contention, ordered
-dependency races, cross-deployment non-blocking, owner/lineage coordinate
-isolation, and post-write rollback. It also proves that driver-edge faults
-immediately before and after
-native `COMMIT` quarantine and remove the uncertain backend, recover on one
-distinct backend, return `created` before `COMMIT` or `existing` after
-acknowledgement, preserve one parent and one dependency edge, and replay as
-`existing`. This is not evidence for a TCP partition, server crash, lost
-acknowledgement in transit, or interruption while PostgreSQL is executing a
-statement. Separate advisory-lock-backed tests prove that an interruption while
-a dependency-edge insert is blocked remains pending until the statement drains,
-then rolls back the already-inserted parent and releases the healthy backend
-before re-emitting exactly one interrupt. They also prove through
-`pg_stat_activity` and `pg_blocking_pids` that an interruption while the initial
-backend is executing native `COMMIT` remains pending through settlement, then
-waits through quarantine and exactly one distinct-backend recovery after a
-test-only post-acknowledgement driver fault. That synthetic fault, not the
-interruption, creates uncertainty and causes recovery. The durable parent and
-edge remain single and replay as `existing`. This proves neither query or
-`COMMIT` cancellation nor a TCP partition, socket reset, server crash or
-failover, backend termination, lost acknowledgement in transit, or a combined
-`decisionUncertain`/interruption failure. Those cases remain outside this
-accepted native evidence.
-
-Five additional native deadline receipts now separate timeout authority and
-session lifetime precisely: a saturated one-connection pool expires queued
-acquisition and destroys its late backend; PostgreSQL's real clock returns
-`55P03` for the deployment lock and `57014` for dependency-edge insertion while
-the Effect clock stays frozen; detached optimistic reconstruction expires only
-after its healthy read backend has been released; and post-resolution
-reconstruction expires while its idle read backend is still owned, so that
-backend is removed. All paths retain exact atomic rows and prove clean replay or
-collision behavior. They do not claim driver query cancellation.
-
-Two additional native scenarios prove the supported deployment-first sequence
-against the existing Application schema-version artifact writer. A targeted
-trigger blocks the first writer only after it owns the deployment row, and
-`pg_stat_activity` plus `pg_blocking_pids()` prove the second writer is queued
-on its own `deployments ... FOR UPDATE`, producing the acyclic graph external
-barrier -> holder -> deployment waiter. The lane runs with the dependency-
-bearing framework admission first and with the Application writer first. Both
-first attempts return `created`, both exact replays return `existing`, and the
-single Application row, framework dependency, parent, and edge remain exact.
-This is not a universal deadlock-freedom or retry-policy claim and does not
-authorize composite transactions.
-
-The same lane exposed `FSA-PG-DRAIN-01`: after a host deadline expired during a
-genuinely advisory-lock-blocked INSERT, admission returned and the pool emitted
-`remove`, but `pg_stat_activity` still showed that PID active until the blocker
-was released. A recovery-work reproduction removed the initial uncertain
-backend but returned its final `decisionUncertain` while the distinct recovery
-backend was still active on the blocked INSERT. The accepted contract requires
-tracked SQL to reject and drain before return. The separately accepted
-[`preflight/03-postgres-active-work-quarantine.md`](./preflight/03-postgres-active-work-quarantine.md)
-now corrects that owner: a bounded PID-plus-secret PostgreSQL CancelRequest
-stops the exact backend's active work, tracked work drains, and the original
-client transport is destroyed and observed closed before return. Both native
-tests run without skips; the initial active case also proves a one-connection
-control pool needs no reserved pool slot.
-
-Native identity-list evidence now runs the exact private operation through the
-real artifact control-session adapter. It proves fixed-length `bytea` ordering,
-exclusive existing, gap, and terminal cursors, deployment/owner/lineage
-isolation, the exact `100/101` lookahead boundary, and an exact-100 terminal
-page. The exact driver-issued initial and resumed identity-only statements use
-`fx_framework_artifact_identity_unique` in forward single-loop 101-row index
-scans with sequential scans left enabled, no explicit sort, no sequential scan,
-and no post-index filter. This is local native list/index evidence, not snapshot
-pagination, hosted behavior, or production-scale performance evidence.
-
-The implemented sub-boundary contains only:
-
-- an additive private control registry plus dependency sidecar;
-- database-only compact storage identities while retaining the full natural
-  artifact identity as the domain key;
-- private Drizzle migration declarations and PGlite DDL evidence;
-- capture-issued artifact authenticity plus detached evidence behind an opaque
-  prepared-admission capability;
-- fail-closed stored parent, canonical-frame, and dependency reconstruction
-  through the same capture owner;
-- a strict four-field identity decoder, neutral size-gated parent/dependency
-  loader, and exact private point read that releases its session before common
-  reconstruction and keeps one absolute deadline through hashing;
-- private transaction-owning admission with optimistic full reconstruction,
-  deployment-row locking, compact exact-replay comparison, one bounded
-  dependency-resolution join, atomic parent/edge insertion, and admission-owned
-  collision/corruption projection outside the lock;
-- strict bounded identity discovery with required `1..100` limits, explicit
-  nullable exclusive digest cursors, `limit + 1` byte-order pagination, exact
-  coordinate isolation, frozen identity-only pages, and no canonical or
-  dependency transfer;
-- a frozen opaque repository identity bound to its exact control database,
-  runtime-authenticated session starter, and validated fixed timeout policy;
-- an absolute Effect-clock deadline model, deterministic settlement and one-
-  recovery lifecycle, and mandatory post-settlement resolution;
-- driver-callback session capabilities plus repository-issued scoped control-
-  transaction tokens that authenticate the exact issuing starter and
-  repository only during their exact callback lifetimes;
-- an artifact-private PostgreSQL control-session adapter with Effect-clock
-  acquisition/work deadlines, Promise-like SQL settlement/rejection tracking,
-  deadline-bounded callback draining, exact commit/rollback-command validation,
-  explicit transaction initialization, healthy release versus discard or
-  quarantine, stable physical session identity, excluded-session recovery
-  acquisition, and a bounded post-destroy drain; and
-- deterministic fake-pool evidence for ordering and draining, late-acquisition
-  discard, expired-work cleanup, construction/release/quarantine failures,
-  native and foreign-promise SQL rejection, mixed rejection/timeout evidence,
-  invalid commit/rollback command tags, cross-starter rejection, enclosing-
-  clock preservation, distinct recovery, and complete interruption/deadline/
-  finalizer `Cause` preservation.
-
-The private artifact repository checkpoint is complete locally, including
-focused PGlite, genuine-PostgreSQL, native identity-list/index, and
-`FSA-PG-DRAIN-01` evidence. The accepted repository record authorizes no
-additional implementation; hosted and production activation remain separate
-gates.
-
-This authority stops at the files and evidence named by that record.
-Installation, readiness, availability, and structural migration have their
-accepted boundary in
-[`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md)
-and the exact checkpoint-2 contract in
-[`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md).
-Their private pure values, additive metadata catalog, source-private stored
-restoration, all thirteen transaction-parameterized repository families, and
-dedicated serial PGlite functional gate are implemented. The source-private
-target/session plus PGlite functional adapter has completed its focused
-nine-test PGlite lane in the separately owning checkpoint-3 record. The
-source-private, target-and-plan-bound relational structural runner and its
-closed expansion DDL are complete. Fresh coordination has private PGlite functional evidence.
-Base-backed execution, genuine-PostgreSQL acceptance, bounded-lineage scale,
-and production resolution remain pending.
-Application-reference, Payload-overlay, and `DataBindingSet` codecs remain the
-following separate preflight. No framework adapter, runtime caller, public API,
-or production activation is included.
+The proposed immediate outcome is a fresh installation that is safe under
+native PostgreSQL contention, interruption and uncertain settlement. It stays
+source-private and does not broaden the structural profile. Completing it does
+not activate bindings, framework stores, common data finalization, adapters,
+SDKs, runtime routes or production traffic.

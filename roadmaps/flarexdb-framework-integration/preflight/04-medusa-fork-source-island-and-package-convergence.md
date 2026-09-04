@@ -547,18 +547,20 @@ Stop for a new preflight rather than continuing when:
   tenancy authority without its owning gate; or
 - the work would activate a public, hosted, or production path.
 
-## Next Authorized Slice
+## Remaining Integration Gates
 
 The source island and exact package/capability audit are complete. The accepted
 map is
 [`06-medusa-package-capability-source-map.md`](./06-medusa-package-capability-source-map.md).
 The private value-only `RelationalSchema` contract is also complete in
 [`08-relational-schema-value-contract.md`](./08-relational-schema-value-contract.md).
-The design-only relational installation/readiness/availability and structural
-migration gate is accepted in
+Relational installation/readiness/availability and structural migration are
+owned by
 [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
-Its pure value checkpoint, later binding gate, and every package-promotion or
-runtime step remain ordered by
+Its private values, metadata/repositories and fresh PGlite execution are
+implemented. The [master capability matrix](../README.md#current-gate-status)
+owns current cross-lane status. Native acceptance, upgrades, binding,
+transaction and consumer proofs remain ordered by
 [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).
 
 Medusa package work remains source-only. It must stop before creating an active

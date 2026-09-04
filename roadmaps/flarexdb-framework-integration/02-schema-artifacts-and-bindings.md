@@ -301,6 +301,34 @@ ordinary domain API.
 - Replacement and retirement preserve the current application's existing
   lifecycle invariants until a separate owner change is approved.
 
+## Proposed Binding Recovery Contract
+
+Status: operational design recommendation for the later binding capability;
+no new activation owner, recovery API or availability guarantee is accepted.
+
+The accepted exact-head rule has a deliberate consequence: if Application head
+A becomes B before B's framework overlay is activated, the old overlay must
+refuse serving even when its content tables remain compatible. The Application
+head and framework overlay are separate activation owners, so their initial
+two-step composition does not promise uninterrupted availability.
+
+Recommendation: the binding capability should prepare the exact candidate
+overlay, revalidate current head/generation/readiness/availability at
+activation, and expose a bounded trusted recovery operation that can observe
+the interrupted state and resume only the matching overlay. It must report
+whether serving is unavailable and why, with an explicit availability
+expectation for this first profile. A third head or withdrawn installation
+requires reevaluation; it cannot be normalized into successful recovery of B.
+
+Prove process restart after Application activation but before overlay
+activation, competing overlay activations, repeated recovery, installation
+withdrawal and supported rollback. Re-selecting an older Application revision
+still has its exact current activation identity; do not reuse a historical
+overlay by revision ID alone. No recovery may silently serve a stale overlay,
+activate a partial binding set, change the Application head or run DDL. A
+future zero-gap combined switch requires the separately owned activation
+migration already named above.
+
 ## Preflight Decision
 
 The mandatory identity preflight is accepted in

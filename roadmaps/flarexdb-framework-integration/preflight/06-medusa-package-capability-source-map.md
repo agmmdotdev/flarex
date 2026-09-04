@@ -264,14 +264,15 @@ Stop for a new bounded preflight if work would:
 - activate an adapter, write path, route, public API, hosted path, or production
   binding.
 
-## Next Authorized Slice
+## Remaining Integration Gates
 
 This audit, the exact Payload contract audit, and the private value-only
-`RelationalSchema` contract are complete. The design-only relational
-installation/readiness/availability and structural migration gate is also
-accepted in
+`RelationalSchema` contract are complete. Relational installation/readiness/
+availability and structural migration are owned by
 [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
-Its first pure value checkpoint remains ahead of every DDL, target execution,
-binding, transaction, package-promotion, and Medusa adapter/runtime gate in the
+Private values, metadata/repositories and no-base PGlite coordinator execution
+are implemented. The [master capability matrix](../README.md#current-gate-status)
+owns current cross-lane status. Native acceptance, upgrades, binding,
+transaction, package-promotion and Medusa adapter/runtime gates remain in the
 order described by
 [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).

@@ -4,7 +4,7 @@ Status: accepted exact-release source audit; no Payload dependency, adapter,
 runtime, write path, dashboard, public API, hosted path, or production
 activation is authorized
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-05
 
 ## Decision
 
@@ -121,8 +121,11 @@ Sources:
   rollback without work.
 - A presented but unknown/expired transaction ID fails closed. Do not copy the
   official Drizzle helper's missing-session autocommit fallback.
-- A missing, blank, zero, or otherwise unadmitted transaction ID fails before
-  data access. It cannot be normalized into a new transaction or autocommit.
+- A mutation reaching the adapter without its admitted transaction ID fails
+  before data access; it cannot obtain an autocommit fallback. A presented
+  blank, zero, unknown, expired or otherwise invalid ID fails for reads and
+  writes. Standalone reads with no presented ID have the unresolved admission
+  contract below and must not be conflated with invalid-token recovery.
 - Only the outer Payload operation may finalize the Flarex commit/change/outbox
   publication; nested operations reuse its transaction and contribute receipts.
 - Payload deliberately suppresses rollback failures so the original operation
@@ -140,6 +143,40 @@ may prove same-request transaction reuse; it does not authorize general hook
 support. Full hook compatibility requires a later transaction/lifecycle
 preflight that reconciles Payload's observable ordering with Flarex timeout,
 interruption, settlement, and no-unbounded-transaction rules.
+
+### Proposed standalone read contract
+
+Status: source-backed contract gap with a recommended resolution; the CMS
+transaction-owner capability must accept the exact read policy before adapter
+implementation.
+
+The pinned
+[collection find operation](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/payload/src/collections/operations/find.ts)
+and
+[count operation](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/payload/src/collections/operations/count.ts)
+can call the database adapter without initializing `req.transactionID`.
+Mutation initialization does not cover these ordinary read entrypoints. The
+former blanket rejection of every missing ID would reject admitted standalone
+reads unless an outer host explicitly acquired their authority.
+
+Recommended cases:
+
+| Entry | Proposed admission |
+| --- | --- |
+| Standalone read with no presented transaction ID | The trusted CMS read host acquires bounded scope-, owner- and binding-pinned Application read authority; it is not mutation-session recovery |
+| Read inside an admitted mutation | Reuse that exact request transaction and its transaction-local writes; never open an unrelated read connection |
+| Presented invalid or expired ID | Reject before data access; never reinterpret the call as standalone or create a replacement transaction |
+| Mutation without an admitted ID | Reject before data access; no fallback or implicit adapter-owned write transaction |
+
+The owning capability must decide the read isolation/snapshot policy, including
+whether paginated rows and their total count observe the same snapshot, and
+the exact acquire/release boundary. It must preserve Payload's result envelope,
+outer-only mutation finalization and Application read authority. Standalone
+reads allocate no write commit or outbox event. Test standalone find/count,
+nested read-your-writes, nested rollback, stale bindings and invalid/pending
+transaction tokens through actual Payload operations, not only adapter calls.
+This proposal neither selects an existing Application snapshot API unchanged
+nor introduces a generic relational read host for Payload content.
 
 ## Query And Result Contract
 
@@ -363,15 +400,20 @@ Stop for a new preflight if implementation would:
 - enable ordinary `ctx.db` writes to a CMS-managed table; or
 - activate a dashboard, public `ctx.cms`, hosted route, or production binding.
 
-## Next Authorized Slice
+## Remaining Integration Gates
 
 This audit, the exact Medusa source/capability audit, and the private value-only
 `RelationalSchema` contract are complete. Payload content does not compile into
 that contract, as recorded by
 [`08-relational-schema-value-contract.md`](./08-relational-schema-value-contract.md).
-The design-only relational installation/readiness/availability and structural
-migration gate is also accepted in
+Relational installation/readiness/availability and structural migration are
+owned by
 [`09-relational-installation-and-migration-coordination.md`](./09-relational-installation-and-migration-coordination.md).
-Its pure value checkpoint and every later binding, transaction, receipt, and
-host gate remain ahead of Payload implementation while Application remains
-Payload content's schema and row authority.
+Its private values and metadata/repositories are implemented, and the fresh
+target/session, runner and coordinator have PGlite-functional evidence.
+Use the [master capability matrix](../README.md#current-gate-status) for current
+status and [the three-lane sequence](./05-core-first-three-lane-readiness.md)
+for remaining native lifecycle, binding, transaction, receipt and consumer
+gates. Application remains Payload content's schema and row authority. The
+proposed read policy above is resolved within the CMS host capability, without
+opening adapter, dashboard or runtime activation in this source audit.
