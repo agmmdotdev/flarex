@@ -198,6 +198,40 @@ describe("test lane manifest and runner", () => {
     );
   });
 
+  it("pins the fresh framework-coordinator PGlite receipt", () => {
+    const manifest = loadTestLaneManifest();
+    const lane = resolveTestLaneSelection(
+      manifest,
+      "framework-coordinator-fresh-pglite",
+    )[0];
+    expect(lane?.steps).toHaveLength(1);
+    const step = lane?.steps[0];
+    if (step === undefined) {
+      throw new Error("Fresh-coordinator PGlite receipt must retain one step");
+    }
+
+    expect(resolveTestLaneStepArguments(manifest, step)).toEqual([
+      "exec",
+      "vitest",
+      "run",
+      "test/frameworkCoordinatorFreshCoordinator.test.ts",
+      "--no-file-parallelism",
+      "--maxWorkers=1",
+      "--testTimeout=180000",
+    ]);
+
+    const packageManifest = JSON.parse(
+      readFileSync("packages/persistence-postgres/package.json", "utf8"),
+    );
+    expect(
+      packageManifest.scripts?.[
+        "test:framework-coordinator-fresh:pglite"
+      ],
+    ).toBe(
+      "node ../../scripts/run-test-lane.mjs framework-coordinator-fresh-pglite",
+    );
+  });
+
   it("expands shared C08-B2 and O09-B files inside each original Vitest invocation", () => {
     const manifest = loadTestLaneManifest();
     const packageManifest = JSON.parse(

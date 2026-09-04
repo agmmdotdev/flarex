@@ -31,6 +31,7 @@ import {
 import {
   ensureFrameworkMigrationStepReceiptInTransactionEffect,
   readFrameworkMigrationStepReceiptInTransactionEffect,
+  readFrameworkMigrationStepReceiptPrefixInTransactionEffect,
   resolveAuthenticatedFrameworkMigrationStepReceiptOccupantsEffect,
 } from "../src/migrationCoordination/migrationStepReceiptRepository";
 import type { FrameworkMigrationRepositoryError } from
@@ -71,6 +72,32 @@ type ReceiptValue = Awaited<
 >[number];
 
 describe("framework coordinator migration-step receipt repository", () => {
+  it("corroborates prefix attempts against the current store despite colliding IDs", async () => {
+    const source = await createMigratedPGlitePersistence();
+    const target = await createMigratedPGlitePersistence();
+    const values = await freshPlanRepositoryValues();
+    const sourceAttempt = await source.drizzle.transaction(transaction =>
+      ensureStoredAttempt(transaction, values, "source-attempt", "1", null)
+    );
+    const targetAttempt = await target.drizzle.transaction(transaction =>
+      ensureStoredAttempt(transaction, values, "target-attempt", "1", null)
+    );
+    expect(sourceAttempt.storageId).toBe(targetAttempt.storageId);
+    const failure = await target.drizzle.transaction(transaction =>
+      runEffectFailure(readFrameworkMigrationStepReceiptPrefixInTransactionEffect(
+        transaction,
+        sourceAttempt,
+      ))
+    );
+    expect(failure.reason).toBe("referenceRefusal");
+    expect(await target.drizzle.transaction(transaction =>
+      runEffect(readFrameworkMigrationStepReceiptPrefixInTransactionEffect(
+        transaction,
+        targetAttempt,
+      ))
+    )).toEqual([]);
+  }, PGLITE_TEST_TIMEOUT);
+
   it("keeps transaction kernels source-private", async () => {
     expect(
       "ensureFrameworkMigrationStepReceiptInTransactionEffect" in
