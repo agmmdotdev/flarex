@@ -88,7 +88,7 @@ describe("private framework migration target sessions", () => {
     expect(exportedPaths).not.toContain(
       "./src/migrationCoordination/pgliteTarget.ts",
     );
-  });
+  }, PGLITE_TEST_TIMEOUT);
 
   it("captures an opaque target snapshot and rejects a conflicting database identity", async () => {
     const persistence = await createMigratedPGlitePersistence();

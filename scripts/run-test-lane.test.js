@@ -96,21 +96,17 @@ describe("test lane manifest and runner", () => {
     expect(resolveTestLaneStepArguments(manifest, freshMigration)).toEqual([
       "exec",
       "vitest",
-      "run",
+      "run", "--config=vitest.framework.config.ts",
       "test/pglite.migrations.test.ts",
       "--testNamePattern=runs.Drizzle.Kit.migrations.idempotently",
-      "--no-file-parallelism",
-      "--maxWorkers=1",
       "--testTimeout=180000",
     ]);
     expect(resolveTestLaneStepArguments(manifest, upgradeMigration)).toEqual([
       "exec",
       "vitest",
-      "run",
+      "run", "--config=vitest.framework.config.ts",
       "test/pglite.migrations.test.ts",
       "--testNamePattern=adds.framework.coordinator.metadata.atomically.after.0079",
-      "--no-file-parallelism",
-      "--maxWorkers=1",
       "--testTimeout=180000",
     ]);
     expect(
@@ -118,7 +114,7 @@ describe("test lane manifest and runner", () => {
     ).toEqual([
       "exec",
       "vitest",
-      "run",
+      "run", "--config=vitest.framework.config.ts",
       "test/frameworkCoordinatorGraphReadPass.test.ts",
       "test/privateCanonicalValue.test.ts",
       "test/relationalSchemaPhysical.test.ts",
@@ -140,8 +136,6 @@ describe("test lane manifest and runner", () => {
       "test/frameworkCoordinatorMigrationCollisionHeadRepository.test.ts",
       "test/frameworkCoordinatorSchemaAvailabilityHistoryRepository.test.ts",
       "test/frameworkCoordinatorSchemaAvailabilityHeadRepository.test.ts",
-      "--no-file-parallelism",
-      "--maxWorkers=1",
       "--testTimeout=180000",
     ]);
 
@@ -165,6 +159,32 @@ describe("test lane manifest and runner", () => {
     );
   });
 
+  it.each(["pglite", "postgres"])("retains the complete %s proof inventory in the combined scheduler", driver => {
+    const manifest = loadTestLaneManifest();
+    const groups = driver === "pglite"
+      ? ["framework-coordinator-checkpoint2-pglite", "framework-coordinator-structural-runner-pglite",
+        "framework-coordinator-target-session-pglite", "framework-coordinator-fresh-pglite", "framework-coordinator-additive-pglite"]
+      : ["framework-coordinator-fresh-postgres", "framework-coordinator-additive-postgres"];
+    const helper = driver === "pglite" ? "test/frameworkTestWorkers.test.ts" : "test/postgresFileScopedFixture.postgres.test.ts";
+    const expected = [...new Set([...groups.flatMap(group => manifest.testFileGroups[group] ?? []), helper])];
+    const id = `framework-coordinator-${driver}`;
+    expect(manifest.testFileGroups[id]).toEqual(expected);
+    const lane = resolveTestLaneSelection(manifest, id)[0];
+    expect(lane?.prerequisites).toEqual(driver === "postgres" ? [{ name: "FLAREX_POSTGRES_DATABASE_URL" }] : []);
+    const steps = lane?.steps;
+    if (steps === undefined) throw new Error("Missing combined lane");
+    expect(steps).toHaveLength(driver === "pglite" ? 3 : 1);
+    if (driver === "pglite") {
+      expect(steps.slice(0, 2)).toEqual(resolveTestLaneSelection(manifest, "framework-coordinator-checkpoint2-pglite")[0]?.steps.slice(0, 2));
+    }
+    const acceptance = steps.at(-1);
+    if (acceptance === undefined) throw new Error("Missing combined acceptance");
+    const args = resolveTestLaneStepArguments(manifest, acceptance);
+    expect(args).toContain(`--config=vitest.framework${driver === "postgres" ? ".postgres" : ""}.config.ts`);
+    expect(args).toContain(driver === "postgres" ? "--testTimeout=300000" : "--testTimeout=180000");
+    expect(args.filter(arg => arg.endsWith(".test.ts"))).toEqual(expected);
+  });
+
   it("pins the framework structural-runner PGlite receipt", () => {
     const manifest = loadTestLaneManifest();
     const lane = resolveTestLaneSelection(
@@ -180,10 +200,8 @@ describe("test lane manifest and runner", () => {
     expect(resolveTestLaneStepArguments(manifest, step)).toEqual([
       "exec",
       "vitest",
-      "run",
+      "run", "--config=vitest.framework.config.ts",
       "test/frameworkCoordinatorRelationalStructuralRunner.test.ts",
-      "--no-file-parallelism",
-      "--maxWorkers=1",
       "--testTimeout=180000",
     ]);
 
@@ -207,11 +225,11 @@ describe("test lane manifest and runner", () => {
     const step = lane?.steps[0];
     if (step === undefined) throw new Error("Native coordinator lane is missing");
     expect(resolveTestLaneStepArguments(manifest, step)).toEqual([
-      "exec", "vitest", "run", "test/frameworkCoordinatorPostgresTarget.test.ts",
+      "exec", "vitest", "run", "--config=vitest.framework.postgres.config.ts", "test/frameworkCoordinatorPostgresTarget.test.ts",
       "test/frameworkCoordinatorFreshCoordinator.postgres.test.ts",
       "test/frameworkCoordinatorNativeWork.postgres.test.ts",
       "test/frameworkCoordinatorRestart.postgres.test.ts",
-      "--no-file-parallelism", "--maxWorkers=1", "--testTimeout=300000", "--reporter=verbose", "--bail=1",
+      "--testTimeout=300000", "--reporter=verbose", "--bail=1",
     ]);
     const packageManifest = JSON.parse(readFileSync("packages/persistence-postgres/package.json", "utf8"));
     expect(packageManifest.scripts?.["test:framework-coordinator-fresh:postgres"])
@@ -233,10 +251,8 @@ describe("test lane manifest and runner", () => {
     expect(resolveTestLaneStepArguments(manifest, step)).toEqual([
       "exec",
       "vitest",
-      "run",
+      "run", "--config=vitest.framework.config.ts",
       "test/frameworkCoordinatorFreshCoordinator.test.ts",
-      "--no-file-parallelism",
-      "--maxWorkers=1",
       "--testTimeout=180000",
     ]);
 

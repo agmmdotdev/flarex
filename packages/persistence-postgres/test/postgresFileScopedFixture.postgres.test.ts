@@ -27,7 +27,7 @@ describePostgres("file-scoped Postgres test fixture", () => {
         persistence.getDeploymentMetadata("fixture_truncate"),
       ).resolves.toBeNull();
     });
-  });
+  }, 5_000);
 
   it("rebuilds the schemas after a callback failure", async () => {
     const callbackFailure = new Error("injected fixture callback failure");
@@ -50,5 +50,5 @@ describePostgres("file-scoped Postgres test fixture", () => {
         persistence.getDeploymentMetadata("fixture_rebuild"),
       ).resolves.toBeNull();
     });
-  });
+  }, 5_000);
 });

@@ -1,4 +1,4 @@
-import { setTimeout as delay } from "node:timers/promises";
+import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 import { describe, expect, it } from "vitest";
 import { executeNextFrameworkMigrationStepEffect, finalizeFrameworkMigrationClaimEffect,
   readFrameworkMigrationClaimProgressEffect, runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
@@ -23,14 +23,14 @@ native("native fresh migration work budget", () => {
     };
     await withNativeCoordinator(async fixture => {
       const pending = await measure("prepareAndClaim", () => runEffect(runFreshFrameworkMigrationCoordinatorEffect({
-        // Keep the claim live through the first measured transaction even on
-        // a slow host; lease expiry is induced only after reconstruction.
-        ...fixture.input, maximumStepsPerRun: 0, leaseDurationMilliseconds: 60_000,
+        // This is a real lease; wait only for its remaining database time
+        // after the first measured transaction and reconstruction.
+        ...fixture.input, maximumStepsPerRun: 0, leaseDurationMilliseconds: 15_000,
       })));
       if (pending.kind !== "pending") throw new Error("Expected claim");
       await measure("firstStep", () => runEffect(executeNextFrameworkMigrationStepEffect(pending.claim)));
       await measure("reconstruction", () => runEffect(readFrameworkMigrationClaimProgressEffect(pending.claim)));
-      await delay(60_100);
+      await waitForFrameworkLeaseExpiry(fixture.persistence, fixture.input.attemptId);
       const takeover = await measure("takeover", () => runEffect(runFreshFrameworkMigrationCoordinatorEffect({
         ...fixture.input, attemptId: "attempt-b", leaseOwnerId: "worker-b", maximumStepsPerRun: 0,
       })));

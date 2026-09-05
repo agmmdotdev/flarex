@@ -15,7 +15,7 @@ import { restoreStoredFrameworkMigrationEventReferenceInTransactionEffect } from
 import { withFrameworkGraphReadPass } from "../src/migrationCoordination/graphReadPass";
 import { withAdditiveMigrationGraphLimits } from "../src/migrationCoordination/additiveLimits";
 import { changeBaseAvailability } from "./frameworkCoordinatorAdditiveAvailabilityTestSupport";
-import { setTimeout as delay } from "node:timers/promises";
+import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 
 const int64 = Brand.nominal<CanonicalNonNegativeInt64>();
 const bytes = (value: string) => Result.getOrThrow(Encoding.decodeHex(value));
@@ -32,10 +32,10 @@ describe("additive cold graph limits", () => {
     const fixture = await createAdditiveFixture();
     const request = { ...fixture.input, maximumStepsPerRun: 1, leaseDurationMilliseconds: 10_000 };
     expect(await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(request))).toMatchObject({ kind: "pending", completedStepCount: 1 });
-    await delay(10_100);
+    await waitForFrameworkLeaseExpiry(fixture.persistence, request.attemptId);
     expect(await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...request, maximumStepsPerRun: 0,
       attemptId: "second", leaseOwnerId: "second-worker" }))).toMatchObject({ kind: "pending", completedStepCount: 1 });
-    await delay(10_100);
+    await waitForFrameworkLeaseExpiry(fixture.persistence, "second");
     expect(await runEffectFailure(runAdditiveFrameworkMigrationCoordinatorEffect({ ...request, attemptId: "third", leaseOwnerId: "third-worker" })))
       .toMatchObject({ reason: "invalidInput", message: "Additive attempt budget is exhausted" });
     expect((await fixture.persistence.query("select * from fx_system_framework_migration_attempt_start")).rows).toHaveLength(3);

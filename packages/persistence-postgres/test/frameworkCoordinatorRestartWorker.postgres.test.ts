@@ -20,7 +20,7 @@ worker("native framework restart worker", () => {
       connectionString === undefined || !/^[a-z0-9_]+$/.test(schema) || !/^[a-z0-9_]+$/.test(physical)) throw new Error("Invalid restart fixture coordinates");
     const persistence = await createPostgresPersistence({
       connectionString,
-      poolConfig: { options: `-c search_path=${schema}` },
+      poolConfig: { options: `-c search_path=${schema}`, application_name: schema },
     });
     let armed = false;
     const fixture = await createNativeCoordinatorFixture(persistence, physical, { observe: event => {

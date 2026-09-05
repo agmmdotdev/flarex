@@ -41,6 +41,37 @@ Passing one lane proves only that lane's declared boundary. It must never be
 reported as whole-repository, real-Postgres, hosted Cloudflare, registry, or
 simulation evidence unless those exact boundaries ran and passed.
 
+## Framework Database Acceptance Runtime
+
+The user-approved test optimization covers the framework coordinator PGlite
+and PostgreSQL lanes. The measured serial baseline spends substantial time on
+fixed lease sleeps and serial independent files. Optimize fixture scheduling
+and waiting first; production coordinator semantics, statement/transaction
+ceilings, assertions, migration checks and recovery cases remain unchanged.
+
+Use at most two isolated workers when available memory and CPU permit, with a
+serial fallback and an explicit serial override. Keep cases within each file
+serial. Native activity barriers must identify their own fixture connections
+before files can overlap. Wait on the stored lease's remaining database time
+instead of sleeping a full lease again after completed work. The work-profile
+fixtures may use a shorter real lease; expiry, takeover and stale fencing must
+still run through the real database and production coordinator.
+
+Keep the complete acceptance selectors intact. Compare the same executed test
+counts and assertions before and after, record elapsed evidence outside the
+living roadmap, and retain a low-memory path. Faster scheduling is not authority
+to skip native correctness, alter persistence behavior or promote new runtimes.
+
+Use `pnpm --filter @flarex/persistence-postgres test:framework-coordinator:pglite`
+and `test:framework-coordinator:postgres` for complete framework acceptance.
+These combine the existing file groups into one bounded worker pool per driver;
+PGlite still runs both migration checks first. The focused selectors remain for
+changes confined to one owner. `FLAREX_TEST_WORKERS=1` keeps the same coverage
+serial. Explicit driver configs choose memory policy independently of database
+credentials; PostgreSQL prerequisites still fail closed in the manifest runner.
+Run these driver commands sequentially; each supplies its own bounded parallel
+worker pool and selects its memory budget at startup.
+
 ## Current Sources Of Truth
 
 Use these sources in order when they disagree:

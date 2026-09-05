@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -105,11 +106,12 @@ native("native fresh framework migration coordinator", () => {
         for each row execute function "${fixture.physicalSchema}".block_first_head()`);
       try {
         const first = runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun: 0, lockTimeoutMilliseconds: 10_000 }));
-        await waitForNative(fixture, "select count(*)::int as count from pg_stat_activity where wait_event = 'advisory'", 1);
+        await waitForNative(fixture, "select count(*)::int as count from pg_stat_activity where wait_event = 'advisory' and application_name=current_setting('application_name')", 1);
         const second = runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input,
           attemptId: "attempt-b", leaseOwnerId: "worker-b", maximumStepsPerRun: 0, lockTimeoutMilliseconds: 10_000 }));
         await waitForNative(fixture, `select count(*)::int as count from pg_stat_activity
-          where wait_event_type = 'Lock' and wait_event <> 'advisory' and datname = current_database()`, 1);
+          where wait_event_type = 'Lock' and wait_event <> 'advisory' and datname = current_database()
+            and application_name=current_setting('application_name')`, 1);
         await blocker.query("select pg_advisory_unlock(7314501)");
         const results = await Promise.all([first, second]);
         expect(results.map(result => result.kind).sort()).toEqual(["busy", "pending"]);
@@ -165,7 +167,8 @@ native("native fresh framework migration coordinator", () => {
           attemptId: "attempt-b", leaseOwnerId: "worker-b", maximumStepsPerRun: 0, lockTimeoutMilliseconds: 10_000 }));
         await waitForNative(fixture, `select count(*)::int as count from pg_stat_activity
           where wait_event_type = 'Lock' and query ilike '%fx_system_framework_migration_collision_domain%'
-            and query ilike '%for no key update%' and datname = current_database()`, 2);
+            and query ilike '%for no key update%' and datname = current_database()
+            and application_name=current_setting('application_name')`, 2);
         expect(await countNativeRows(fixture, "fx_system_framework_migration_collision_head")).toBe(0);
         await blocker.query("commit");
         expect((await Promise.all([first, second])).map(result => result.kind).sort()).toEqual(["busy", "pending"]);
@@ -179,7 +182,7 @@ native("native fresh framework migration coordinator", () => {
       const pending = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input,
         maximumStepsPerRun: 2, leaseDurationMilliseconds: 10_000 }));
       if (pending.kind !== "pending") throw new Error("Expected claim");
-      await delay(10_100);
+      await waitForFrameworkLeaseExpiry(fixture.persistence, fixture.input.attemptId);
       expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input,
         attemptId: "attempt-b", leaseOwnerId: "worker-b" }))).toMatchObject({ kind: "ready" });
       expect(await runEffectFailure(executeNextFrameworkMigrationStepEffect(pending.claim))).toMatchObject({ reason: "staleFence" });
@@ -202,7 +205,8 @@ native("native fresh framework migration coordinator", () => {
       try {
         await waitForNative(fixture, `select count(*)::int as count from pg_stat_activity
           where wait_event_type = 'Lock' and query ilike '%fx_system_framework_migration_collision_head%'
-            and query ilike '%for update%' and datname = current_database()`, 1);
+            and query ilike '%for update%' and datname = current_database()
+            and application_name=current_setting('application_name')`, 1);
         // The FK asks for KEY SHARE on exactly the root held by preparation.
         // FOR UPDATE here creates root -> head -> root deadlock; NO KEY UPDATE
         // retains the preparation mutex while permitting this immutable FK.

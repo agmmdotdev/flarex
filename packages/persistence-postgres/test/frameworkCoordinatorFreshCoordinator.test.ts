@@ -24,6 +24,7 @@ import {
   syntheticSystemArtifact,
 } from "./frameworkMigrationValueFixtures";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
+import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 
 const TEST_TIMEOUT = 180_000;
 
@@ -191,7 +192,7 @@ describe("private fresh framework migration coordinator", () => {
     expect(first.kind).toBe("pending");
     if (first.kind !== "pending") throw new Error("Expected first claim");
     expect(first.completedStepCount).toBe(3);
-    await new Promise(resolve => setTimeout(resolve, 10_250));
+    await waitForFrameworkLeaseExpiry(fixture.persistence, fixture.input.attemptId);
 
     const takeover = await runEffect(
       runFreshFrameworkMigrationCoordinatorEffect({

@@ -145,7 +145,7 @@ native("native additive framework migration coordinator", () => {
 async function waitForLock(fixture: NativeCoordinatorFixture, predicate: string) {
   const deadline = performance.now() + 10_000;
   while (performance.now() < deadline) {
-    const found = await fixture.persistence.query("select 1 from pg_stat_activity where datname=current_database() and " + predicate);
+    const found = await fixture.persistence.query("select 1 from pg_stat_activity where datname=current_database() and application_name=current_setting('application_name') and " + predicate);
     if (found.rows.length > 0) return;
     await delay(10);
   }

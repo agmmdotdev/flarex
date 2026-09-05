@@ -518,6 +518,7 @@ async function createFileScopedPostgresFixture(): Promise<FileScopedPostgresFixt
       migrationsSchema,
       poolConfig: {
         options: `-c search_path=${schemaName}`,
+        application_name: schemaName,
       },
     });
     await persistence.migrate();

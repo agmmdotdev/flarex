@@ -1,4 +1,4 @@
-import { setTimeout as delay } from "node:timers/promises";
+import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 import { describe, expect, it } from "vitest";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { withNativeCoordinator } from "./frameworkCoordinatorPostgresFixture";
@@ -39,11 +39,11 @@ native("native additive restart and bounded work", () => {
     await withNativeCoordinator(async fixture => {
       const input = await measure("base", () => prepareUpgrade(fixture));
       const first = await measure("admission", () => runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...input,
-        maximumStepsPerRun: 0, leaseDurationMilliseconds: 60_000 })));
+        maximumStepsPerRun: 0, leaseDurationMilliseconds: 15_000 })));
       if (first.kind !== "pending") throw new Error("Expected first claim");
       await measure("verifyBase", () => runEffect(executeNextFrameworkMigrationStepEffect(first.claim)));
       await measure("reconstruction", () => runEffect(readFrameworkMigrationClaimProgressEffect(first.claim)));
-      await delay(60_100);
+      await waitForFrameworkLeaseExpiry(fixture.persistence, input.attemptId);
       const takeover = await measure("takeover", () => runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...input,
         maximumStepsPerRun: 0, attemptId: "takeover-attempt", leaseOwnerId: "takeover-worker" })));
       if (takeover.kind !== "pending") throw new Error("Expected takeover");

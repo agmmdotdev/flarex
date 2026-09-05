@@ -55,6 +55,45 @@
     "framework-coordinator-additive-postgres": [
       "test/frameworkCoordinatorAdditive.postgres.test.ts",
       "test/frameworkCoordinatorAdditiveRecovery.postgres.test.ts"
+    ],
+    "framework-coordinator-pglite": [
+      "test/frameworkCoordinatorGraphReadPass.test.ts",
+      "test/privateCanonicalValue.test.ts",
+      "test/relationalSchemaPhysical.test.ts",
+      "test/migrationCoordinationValues.test.ts",
+      "test/frameworkSchemaInstallationValues.test.ts",
+      "test/frameworkCoordinatorMetadataStorage.test.ts",
+      "test/frameworkCoordinatorStoredRestoration.test.ts",
+      "test/frameworkCoordinatorColdReopen.test.ts",
+      "test/frameworkCoordinatorTargetCollisionRepository.test.ts",
+      "test/frameworkCoordinatorPhysicalNameAssignmentRepository.test.ts",
+      "test/frameworkCoordinatorMigrationPlanRepository.test.ts",
+      "test/frameworkCoordinatorMigrationPlanAdmissionRepository.test.ts",
+      "test/frameworkCoordinatorMigrationAttemptRepository.test.ts",
+      "test/frameworkCoordinatorMigrationStepReceiptRepository.test.ts",
+      "test/frameworkCoordinatorMigrationAttemptTerminalRepository.test.ts",
+      "test/frameworkCoordinatorSchemaInstallationRepository.test.ts",
+      "test/frameworkCoordinatorSchemaReadinessRepository.test.ts",
+      "test/frameworkCoordinatorMigrationEventRepository.test.ts",
+      "test/frameworkCoordinatorMigrationCollisionHeadRepository.test.ts",
+      "test/frameworkCoordinatorSchemaAvailabilityHistoryRepository.test.ts",
+      "test/frameworkCoordinatorSchemaAvailabilityHeadRepository.test.ts",
+      "test/frameworkCoordinatorRelationalStructuralRunner.test.ts",
+      "test/frameworkCoordinatorTargetSession.test.ts",
+      "test/frameworkCoordinatorFreshCoordinator.test.ts",
+      "test/frameworkCoordinatorAdditive.test.ts",
+      "test/frameworkCoordinatorAdditiveLimits.test.ts",
+      "test/frameworkCoordinatorAdditiveMetadata.test.ts",
+      "test/frameworkTestWorkers.test.ts"
+    ],
+    "framework-coordinator-postgres": [
+      "test/frameworkCoordinatorPostgresTarget.test.ts",
+      "test/frameworkCoordinatorFreshCoordinator.postgres.test.ts",
+      "test/frameworkCoordinatorNativeWork.postgres.test.ts",
+      "test/frameworkCoordinatorRestart.postgres.test.ts",
+      "test/frameworkCoordinatorAdditive.postgres.test.ts",
+      "test/frameworkCoordinatorAdditiveRecovery.postgres.test.ts",
+      "test/postgresFileScopedFixture.postgres.test.ts"
     ]
   },
   "selectors": {
@@ -132,6 +171,12 @@
     ],
     "framework-coordinator-additive-postgres": [
       "framework-coordinator-additive-postgres"
+    ],
+    "framework-coordinator-pglite": [
+      "framework-coordinator-pglite"
+    ],
+    "framework-coordinator-postgres": [
+      "framework-coordinator-postgres"
     ]
   },
   "lanes": [
@@ -153,11 +198,10 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.framework.postgres.config.ts",
             {
               "testFileGroup": "framework-coordinator-fresh-postgres"
             },
-            "--no-file-parallelism",
-            "--maxWorkers=1",
             "--testTimeout=300000",
             "--reporter=verbose",
             "--bail=1"
@@ -179,11 +223,10 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.framework.config.ts",
             {
               "testFileGroup": "framework-coordinator-fresh-pglite"
             },
-            "--no-file-parallelism",
-            "--maxWorkers=1",
             "--testTimeout=180000"
           ]
         }
@@ -203,11 +246,10 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.framework.config.ts",
             {
               "testFileGroup": "framework-coordinator-structural-runner-pglite"
             },
-            "--no-file-parallelism",
-            "--maxWorkers=1",
             "--testTimeout=180000"
           ]
         }
@@ -227,11 +269,10 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.framework.config.ts",
             {
               "testFileGroup": "framework-coordinator-target-session-pglite"
             },
-            "--no-file-parallelism",
-            "--maxWorkers=1",
             "--testTimeout=30000"
           ]
         }
@@ -311,10 +352,9 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.framework.config.ts",
             "test/pglite.migrations.test.ts",
             "--testNamePattern=runs.Drizzle.Kit.migrations.idempotently",
-            "--no-file-parallelism",
-            "--maxWorkers=1",
             "--testTimeout=180000"
           ]
         },
@@ -326,10 +366,9 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.framework.config.ts",
             "test/pglite.migrations.test.ts",
             "--testNamePattern=adds.framework.coordinator.metadata.atomically.after.0079",
-            "--no-file-parallelism",
-            "--maxWorkers=1",
             "--testTimeout=180000"
           ]
         },
@@ -341,11 +380,10 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.framework.config.ts",
             {
               "testFileGroup": "framework-coordinator-checkpoint2-pglite"
             },
-            "--no-file-parallelism",
-            "--maxWorkers=1",
             "--testTimeout=180000"
           ]
         }
@@ -707,11 +745,10 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.framework.config.ts",
             {
               "testFileGroup": "framework-coordinator-additive-pglite"
             },
-            "--no-file-parallelism",
-            "--maxWorkers=1",
             "--testTimeout=180000"
           ]
         }
@@ -735,11 +772,92 @@
             "exec",
             "vitest",
             "run",
+            "--config=vitest.framework.postgres.config.ts",
             {
               "testFileGroup": "framework-coordinator-additive-postgres"
             },
-            "--no-file-parallelism",
-            "--maxWorkers=1",
+            "--testTimeout=300000",
+            "--reporter=verbose",
+            "--bail=1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-coordinator-pglite",
+      "category": "pglite",
+      "proof": "Combined bounded framework coordinator pglite acceptance: the exact existing value/repository, migration, target/session, structural, fresh and additive test inventory plus test-harness policy checks. Existing profile boundaries and per-test timeouts remain in force; this combines scheduling without broadening readiness or production claims.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-framework-coordinator-fresh-migration-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "--config=vitest.framework.config.ts",
+            "test/pglite.migrations.test.ts",
+            "--testNamePattern=runs.Drizzle.Kit.migrations.idempotently",
+            "--testTimeout=180000"
+          ]
+        },
+        {
+          "id": "persistence-framework-coordinator-upgrade-migration-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "--config=vitest.framework.config.ts",
+            "test/pglite.migrations.test.ts",
+            "--testNamePattern=adds.framework.coordinator.metadata.atomically.after.0079",
+            "--testTimeout=180000"
+          ]
+        },
+        {
+          "id": "persistence-framework-coordinator-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "--config=vitest.framework.config.ts",
+            {
+              "testFileGroup": "framework-coordinator-pglite"
+            },
+            "--testTimeout=180000",
+            "--reporter=verbose",
+            "--bail=1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-coordinator-postgres",
+      "category": "postgres",
+      "proof": "Combined bounded framework coordinator postgres acceptance: the exact existing fresh and additive native test inventory plus test-harness policy checks. Existing profile boundaries and per-test timeouts remain in force; this combines scheduling without broadening readiness or production claims.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-coordinator-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "--config=vitest.framework.postgres.config.ts",
+            {
+              "testFileGroup": "framework-coordinator-postgres"
+            },
             "--testTimeout=300000",
             "--reporter=verbose",
             "--bail=1"

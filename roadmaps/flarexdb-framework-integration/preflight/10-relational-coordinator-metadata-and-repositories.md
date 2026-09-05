@@ -14,6 +14,11 @@ extends this eighteen-table baseline with one private plan-base sidecar and
 version-2 plan/admission constraints. It owns that successor migration and its
 acceptance; this document retains the original checkpoint-2 boundary.
 
+The original serial acceptance receipt below is historical. Current scheduling
+uses the bounded worker policy and combined/focused selectors owned by the
+[testing strategy](../../11-testing-and-simulation-strategy.md#framework-database-acceptance-runtime).
+The exact migration and repository proof inventory remains unchanged.
+
 ## Decision
 
 Implement checkpoint 2 from
