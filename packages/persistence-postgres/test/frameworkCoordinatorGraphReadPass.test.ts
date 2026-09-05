@@ -32,6 +32,8 @@ describe("immutable graph read pass", () => {
       await other.drizzle.transaction(async otherTx => {
         await runEffect(withFrameworkGraphReadPass(Effect.gen(function* () {
           expect(yield* memo(read, tx, authority, 1n)).toBe(1);
+          expect(yield* memo.peek(tx, authority, 1n)).toEqual(Option.some(1));
+          expect(yield* memo.peek(otherTx, authority, 1n)).toEqual(Option.none());
           expect(yield* memo(read, tx, authority, 1n)).toBe(1);
           // Equal spelling is not object authority or equal runtime type.
           expect(yield* memo(read, tx, {}, 1n)).toBe(2);
@@ -43,6 +45,7 @@ describe("immutable graph read pass", () => {
         expect(await runEffect(withFrameworkGraphReadPass(memo(read, tx, authority, 1n), tx))).toBe(6);
         expect(await runEffect(memo(read, tx, authority, 1n))).toBe(7);
       });
+      expect(await runEffect(memo.peek(tx, authority, 1n))).toEqual(Option.none());
     });
   }, 30_000);
 

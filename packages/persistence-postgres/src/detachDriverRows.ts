@@ -83,7 +83,6 @@ function assertPlainDriverValue(value: unknown, seen: WeakSet<object>): void {
   if (typeof value !== "object") {
     throw new TypeError("Driver rows contain an unsupported value.");
   }
-  if (isIntrinsicDate(value)) return;
   if (isUint8Array(value)) {
     assertCloneDetachesUint8Array(value);
     return;
@@ -98,6 +97,10 @@ function assertPlainDriverValue(value: unknown, seen: WeakSet<object>): void {
     assertPlainArrayProperties(value, seen, "Driver row arrays");
     return;
   }
+
+  // Arrays and byte views cannot be Dates. Avoid a throwing Date brand probe
+  // for every byte column before checking the remaining object kinds.
+  if (isIntrinsicDate(value)) return;
 
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
@@ -159,30 +162,30 @@ const TYPED_ARRAY_BUFFER_GETTER = Object.getOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
   "buffer",
 )?.get;
-const SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER =
-  typeof SharedArrayBuffer === "undefined"
-    ? undefined
-    : Object.getOwnPropertyDescriptor(
-        SharedArrayBuffer.prototype,
-        "byteLength",
-      )?.get;
+const ARRAY_BUFFER_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  "byteLength",
+)?.get;
 
 function assertCloneDetachesUint8Array(value: Uint8Array): void {
   if (TYPED_ARRAY_BUFFER_GETTER === undefined) {
     throw new TypeError("Uint8Array intrinsic buffer access is unavailable.");
   }
   const buffer: unknown = TYPED_ARRAY_BUFFER_GETTER.call(value);
-  if (isIntrinsicSharedArrayBuffer(buffer)) {
+  // The intrinsic typed-array buffer getter returns either ArrayBuffer or
+  // SharedArrayBuffer. Probe the ordinary (hot) case without an exception;
+  // this remains intrinsic across realms and ignores caller-owned properties.
+  if (!isIntrinsicArrayBuffer(buffer)) {
     throw new TypeError(
       "Driver row bytes must not use SharedArrayBuffer storage.",
     );
   }
 }
 
-function isIntrinsicSharedArrayBuffer(value: unknown): boolean {
-  if (SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER === undefined) return false;
+function isIntrinsicArrayBuffer(value: unknown): boolean {
+  if (ARRAY_BUFFER_BYTE_LENGTH_GETTER === undefined) return false;
   try {
-    SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER.call(value);
+    ARRAY_BUFFER_BYTE_LENGTH_GETTER.call(value);
     return true;
   } catch {
     return false;

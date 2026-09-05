@@ -1,3 +1,4 @@
+import { frameworkWorkMeasurement } from "./frameworkWorkMeasurement";
 import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 import { describe, expect, it } from "vitest";
 import { executeNextFrameworkMigrationStepEffect, finalizeFrameworkMigrationClaimEffect,
@@ -9,18 +10,8 @@ import { postgresUrl } from "./postgresHelpers";
 const native = postgresUrl === null ? describe.skip : describe;
 native("native fresh migration work budget", () => {
   it.each([0, 1, 2, 4])("records acquisition, claim, step, reconstruction, takeover and finalize work with %i extra tables", async extra => {
-    let statements = 0;
-    let transactionStatements = 0;
-    let maximumTransactionStatements = 0;
-    let acquisitionMilliseconds = 0;
-    const measurements: { phase: string; statements: number; milliseconds: number }[] = [];
-    const measure = async <Value>(phase: string, work: () => Promise<Value>) => {
-      const before = statements;
-      const start = performance.now();
-      const value = await work();
-      measurements.push({ phase, statements: statements - before, milliseconds: Math.round(performance.now() - start) });
-      return value;
-    };
+    const work = frameworkWorkMeasurement();
+    const { measure, measurements } = work;
     await withNativeCoordinator(async fixture => {
       const pending = await measure("prepareAndClaim", () => runEffect(runFreshFrameworkMigrationCoordinatorEffect({
         // This is a real lease; wait only for its remaining database time
@@ -44,22 +35,21 @@ native("native fresh migration work budget", () => {
       expect(complete).toBe(true);
       expect(await measure("finalize", () => runEffect(finalizeFrameworkMigrationClaimEffect(takeover.claim))))
         .toMatchObject({ kind: "ready" });
+      const { maximumTransactionStatements, totalStatements: statements, acquisitionMilliseconds } = work.totals();
       expect(maximumTransactionStatements).toBeLessThanOrEqual(8_192);
       expect(statements).toBeLessThanOrEqual(50_000);
       const priorStatements = new Map([[7, 9_848], [9, 12_563], [11, 16_786]]).get(pending.requiredStepCount);
       if (priorStatements !== undefined) expect(statements).toBeLessThan(priorStatements * 0.7);
+      // Seven-step pre-optimization profile: 5,910 statements, 1,918 in finalization.
+      if (pending.requiredStepCount === 7) {
+        expect(statements).toBeLessThan(5_500);
+        expect(measurements.find(item => item.phase === "finalize")?.statements).toBeLessThan(1_600);
+      }
       expect(measurements.every(item => item.milliseconds < 60_000)).toBe(true);
       console.log(JSON.stringify({ profile: "native-fresh", planSteps: pending.requiredStepCount,
         acquisitionMilliseconds: Math.round(acquisitionMilliseconds), maximumTransactionStatements,
         totalStatements: statements, measurements }));
-    }, { observe: event => {
-      if (event.phase === "acquire") acquisitionMilliseconds += event.elapsedMilliseconds ?? 0;
-      if (event.phase === "begin" && event.edge === "before") transactionStatements = 0;
-      if (event.phase === "work" && event.edge === "before") { statements += 1; transactionStatements += 1; }
-      if (event.phase === "release" && event.edge === "before") {
-        maximumTransactionStatements = Math.max(maximumTransactionStatements, transactionStatements);
-      }
-    } }, extra);
+    }, { observe: work.observe }, extra);
   }, 300_000);
 
   it("refuses a call above the execution step limit and enforces its whole-run deadline", async () => {

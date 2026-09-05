@@ -1,3 +1,4 @@
+import { frameworkWorkMeasurement } from "./frameworkWorkMeasurement";
 import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 import { describe, expect, it } from "vitest";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -28,14 +29,8 @@ native("native additive restart and bounded work", () => {
   }, 300_000);
 
   it("measures admission, every step, takeover and finalization inside unchanged transaction budgets", async () => {
-    let statements = 0, transactionStatements = 0, maximumTransactionStatements = 0;
-    const measurements: { phase: string; statements: number; milliseconds: number }[] = [];
-    const measure = async <Value>(phase: string, work: () => Promise<Value>) => {
-      const before = statements, start = performance.now();
-      const result = await work();
-      measurements.push({ phase, statements: statements - before, milliseconds: Math.round(performance.now() - start) });
-      return result;
-    };
+    const work = frameworkWorkMeasurement();
+    const { measure, measurements } = work;
     await withNativeCoordinator(async fixture => {
       const input = await measure("base", () => prepareUpgrade(fixture));
       const first = await measure("admission", () => runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...input,
@@ -50,13 +45,12 @@ native("native additive restart and bounded work", () => {
       expect(await runEffectFailure(executeNextFrameworkMigrationStepEffect(first.claim))).toMatchObject({ reason: "staleFence" });
       for (let step = 1; step < 6; step++) await measure(`step-${step}`, () => runEffect(executeNextFrameworkMigrationStepEffect(takeover.claim)));
       expect(await measure("finalize", () => runEffect(finalizeFrameworkMigrationClaimEffect(takeover.claim)))).toMatchObject({ kind: "ready" });
+      const { maximumTransactionStatements } = work.totals();
       expect(maximumTransactionStatements).toBeLessThanOrEqual(8_192);
+      // The same base/takeover profile previously needed 3,746 finalization statements.
+      expect(measurements.find(item => item.phase === "finalize")?.statements).toBeLessThan(3_000);
       expect(measurements.filter(m => m.phase !== "base").every(m => m.milliseconds < 60_000)).toBe(true);
       console.log(JSON.stringify({ profile: "native-additive", baseSteps: 7, candidateSteps: 6, maximumTransactionStatements, measurements }));
-    }, { observe: event => {
-      if (event.phase === "begin" && event.edge === "before") transactionStatements = 0;
-      if (event.phase === "work" && event.edge === "before") { statements++; transactionStatements++; }
-      if (event.phase === "release" && event.edge === "before") maximumTransactionStatements = Math.max(maximumTransactionStatements, transactionStatements);
-    } });
+    }, { observe: work.observe });
   }, 300_000);
 });

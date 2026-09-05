@@ -344,6 +344,25 @@ entries independently of the coordinator's statement and time limits;
 exhausting retention capacity continues ordinary validated reads. This reuse
 does not change storage formats, schemas, drivers or production resolution.
 
+The pass also retains successfully verified receipt dependency nodes and exact
+terminal prefixes. Node identity includes the issued attempt object, storage
+ID, digest, operation and traversal policy; prefix identity additionally
+distinguishes an empty terminal anchor, an exact tail and an unanchored complete
+prefix. Local traversal stacks and cycle/duplicate detection are not shared.
+Every retained node has passed the existing full stored-value and sidecar
+restoration. New reads after a pass closes must detect changed roots or
+sidecars, including within the same transaction.
+
+Performance investigation separates fixture preparation, deliberate waits,
+coordinator phase time, process CPU and successful SQL transport/row-delivery
+time. Native work tests share observation mechanics while retaining their
+scenario and correctness assertions. CPU profiles require serial tests in a
+single worker; SQL elapsed time is not server CPU time. The portable driver-row
+snapshot helper remains responsible for rejecting shared-backed bytes and
+accessor/custom-record input before cloning, without throwing brand probes on
+ordinary byte buffers. No shared mutable database or transaction-wide cache is
+introduced by these optimizations.
+
 A transaction-wide cache and durable closure anchors were considered and
 deferred: they would require write invalidation or new persisted authority.
 PostgreSQL [Read Committed](https://www.postgresql.org/docs/18/transaction-iso.html#XACT-READ-COMMITTED)

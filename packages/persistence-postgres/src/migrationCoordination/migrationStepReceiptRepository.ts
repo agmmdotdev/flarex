@@ -616,6 +616,10 @@ interface AttemptReceiptPrefixTail {
   readonly sha256: string;
 }
 
+const readCompleteReceiptPrefix = makeFrameworkGraphReferenceRead<
+  readonly RestoredFrameworkMigrationStepReceipt[]
+>();
+
 const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.restoreCompleteAttemptPrefix",
 )(function* (
@@ -732,7 +736,9 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
     restored.push(occupant.value);
   }
   return Object.freeze(restored);
-}, withFrameworkGraphReadPass);
+}, withFrameworkGraphReadPass, (read, transaction, attempt, tail, operation) =>
+  readCompleteReceiptPrefix(read, transaction, attempt, tail === null,
+    tail?.storageId, tail?.sha256, operation));
 
 const prepareExpectedStepReceipt = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.prepareExpected",
@@ -989,6 +995,14 @@ const loadReceiptOccupant = Effect.fn(
   ));
 });
 
+// Each fully verified node can be reached through several event subjects and
+// terminal prefixes in the same read-only pass. Retain successes under the
+// exact issued attempt, storage ID and digest; local traversal/cycle state is
+// never shared or retained after failure.
+const readVerifiedReceiptNode = makeFrameworkGraphReferenceRead<
+  RestoredFrameworkMigrationStepReceiptOccupant
+>();
+
 const restoreReceiptDependencyClosure = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.restoreDependencyClosure",
 )(function* (
@@ -1047,7 +1061,9 @@ const restoreReceiptDependencyClosure = Effect.fn(
     );
   }
 
-  const cachedRoot = context.restoredByStorageId.get(rootDecoded.storageId);
+  const sharedRoot = yield* readVerifiedReceiptNode.peek(transaction, attempt,
+    rootDecoded.storageId, rootDecoded.stepReceiptSha256, operation);
+  const cachedRoot = context.restoredByStorageId.get(rootDecoded.storageId) ?? Option.getOrUndefined(sharedRoot);
   if (cachedRoot !== undefined) {
     if (!restoredAttemptExactlyMatches(cachedRoot.value.attempt, attempt)) {
       return yield* Effect.fail(
@@ -1117,8 +1133,9 @@ const restoreReceiptDependencyClosure = Effect.fn(
       }
       pending.seenDependencyStorageIds.add(dependencyStorageId);
       pending.dependencyStorageIds.push(dependencyStorageId);
-      const restoredDependency =
-        context.restoredByStorageId.get(dependencyStorageId);
+      const sharedDependency = yield* readVerifiedReceiptNode.peek(transaction, attempt,
+        dependencyStorageId, reference.stepReceiptSha256, operation);
+      const restoredDependency = context.restoredByStorageId.get(dependencyStorageId) ?? Option.getOrUndefined(sharedDependency);
       if (restoredDependency !== undefined) {
         if (!restoredAttemptExactlyMatches(
           restoredDependency.value.attempt,
@@ -1131,6 +1148,7 @@ const restoreReceiptDependencyClosure = Effect.fn(
             FrameworkMigrationRepositoryError.storedCorruption(operation),
           );
         }
+        context.restoredByStorageId.set(dependencyStorageId, restoredDependency);
         continue;
       }
       const dependencyRoot = yield* loadReceiptRootByStorageIdWithContext(
@@ -1197,6 +1215,8 @@ const restoreReceiptDependencyClosure = Effect.fn(
       value: restored,
       dependencyReceipts: Object.freeze(dependencies),
     });
+    yield* readVerifiedReceiptNode(Effect.succeed(occupant), transaction, attempt,
+      pending.decoded.storageId, restored.receipt.sha256, operation);
     context.restoredByStorageId.set(pending.decoded.storageId, occupant);
     visiting.delete(pending.decoded.storageId);
     stack.pop();

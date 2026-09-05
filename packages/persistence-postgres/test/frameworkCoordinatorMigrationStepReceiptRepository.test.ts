@@ -3,12 +3,13 @@ import {
   type UnknownRecord,
 } from "@flarex/utils/records";
 import { and, asc, eq } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Encoding, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import * as persistenceRoot from "../src";
 
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
+import { withFrameworkGraphReadPass } from "../src/migrationCoordination/graphReadPass";
 import {
   MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
   captureFrameworkMigrationAttemptStart,
@@ -32,6 +33,7 @@ import {
   ensureFrameworkMigrationStepReceiptInTransactionEffect,
   readFrameworkMigrationStepReceiptInTransactionEffect,
   readFrameworkMigrationStepReceiptPrefixInTransactionEffect,
+  restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTransactionEffect,
   resolveAuthenticatedFrameworkMigrationStepReceiptOccupantsEffect,
 } from "../src/migrationCoordination/migrationStepReceiptRepository";
 import type { FrameworkMigrationRepositoryError } from
@@ -72,6 +74,35 @@ type ReceiptValue = Awaited<
 >[number];
 
 describe("framework coordinator migration-step receipt repository", () => {
+  it("reuses a verified prefix only for its exact tail and rechecks sidecars after the pass", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const stored = await storedReceiptFixture(persistence);
+    const tail = requiredLast(stored.receipts);
+    await persistence.drizzle.transaction(async transaction => {
+      const read = (id: bigint | null, digest: string | null) =>
+        restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTransactionEffect(
+          transaction, stored.attempt, id,
+          digest === null ? null : Result.getOrThrow(Encoding.decodeHex(digest)), "readStepReceipt");
+      await runEffect(withFrameworkGraphReadPass(Effect.gen(function* () {
+        const first = yield* read(tail.storageId, tail.receipt.sha256);
+        expect(yield* read(tail.storageId, tail.receipt.sha256)).toBe(first);
+        for (const invalid of [read(null, null), read(tail.storageId + 1n, tail.receipt.sha256),
+          read(tail.storageId, "0".repeat(64))]) {
+          const result = yield* Effect.result(invalid);
+          expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+        }
+      }), transaction));
+      const removed = await transaction.delete(fxSystemFrameworkMigrationStepReceiptDependencies)
+        .where(and(eq(fxSystemFrameworkMigrationStepReceiptDependencies.receiptStorageId, tail.storageId),
+          eq(fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal, 0))).returning();
+      expect(removed).toHaveLength(1);
+      expect(await runEffectFailure(read(tail.storageId, tail.receipt.sha256)))
+        .toMatchObject({ reason: "storedCorruption" });
+      await transaction.insert(fxSystemFrameworkMigrationStepReceiptDependencies).values(removed);
+      expect(await runEffect(read(tail.storageId, tail.receipt.sha256))).toHaveLength(stored.receipts.length);
+    });
+  }, PGLITE_TEST_TIMEOUT);
+
   it("corroborates prefix attempts against the current store despite colliding IDs", async () => {
     const source = await createMigratedPGlitePersistence();
     const target = await createMigratedPGlitePersistence();

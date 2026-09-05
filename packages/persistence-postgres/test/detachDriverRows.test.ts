@@ -180,6 +180,30 @@ describe("detachDriverRows", () => {
     );
   });
 
+  it("detaches cross-realm ordinary bytes and ignores spoofed buffer properties", () => {
+    const candidate: unknown = runInNewContext("new Uint8Array([1, 2, 3])");
+    if (!isUint8Array(candidate)) throw new Error("Expected byte view");
+    Object.defineProperty(candidate, "buffer", { get: () => {
+      throw new Error("Must use the intrinsic buffer getter");
+    } });
+    expect(detachDriverRows([{ bytes: candidate }])[0]?.bytes).toEqual(new Uint8Array([1, 2, 3]));
+
+    const shared = new Uint8Array(new SharedArrayBuffer(3));
+    Object.defineProperty(shared, "buffer", { value: new ArrayBuffer(3) });
+    expect(() => detachDriverRows([{ bytes: shared }])).toThrow("SharedArrayBuffer storage");
+  });
+
+  it("preserves intrinsic Dates with changed prototypes and rejects Date impostors", () => {
+    const date = new Date(123);
+    Object.setPrototypeOf(date, null);
+    expect(detachDriverRows([{ date }])[0]?.date.getTime()).toBe(123);
+    const invalid = detachDriverRows([{ date: new Date(NaN) }])[0]?.date;
+    expect(invalid?.getTime()).toBeNaN();
+    const impostor = {};
+    Object.setPrototypeOf(impostor, Date.prototype);
+    expect(() => detachDriverRows([{ impostor }])).toThrow("plain records");
+  });
+
   it("preserves the platform structured-clone failure", () => {
     const rows = [{ uncloneable: () => undefined }];
     const detachedUnknown = detachUnknownDriverRows([{ value: 1 }]);

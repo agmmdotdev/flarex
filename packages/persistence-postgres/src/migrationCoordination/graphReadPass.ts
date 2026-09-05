@@ -59,15 +59,19 @@ interface ReferenceNode<Value> {
  * outside a live pass. Object arguments use identity, including preferred
  * restored authority; primitive references keep their exact runtime types.
  * Only successes are retained, after the original full restoration succeeds. */
-type FrameworkGraphReferenceRead<Value> = (
+type FrameworkGraphReferenceRead<Value> = ((
   read: Effect.Effect<Value, FrameworkMigrationRepositoryError>,
   transaction: FlarexMetadataTransaction,
   ...references: readonly unknown[]
-) => Effect.Effect<Value, FrameworkMigrationRepositoryError>;
+) => Effect.Effect<Value, FrameworkMigrationRepositoryError>) & {
+  /** Looks up only a previously successful restoration; never grants authority. */
+  readonly peek: (transaction: FlarexMetadataTransaction,
+    ...references: readonly unknown[]) => Effect.Effect<Option.Option<Value>>;
+};
 
 export function makeFrameworkGraphReferenceRead<Value>(): FrameworkGraphReferenceRead<Value> {
   const roots = new WeakMap<GraphReadPass, ReferenceNode<Value>>();
-  return Effect.fn("FrameworkMigrationGraphReadPass.reference")(
+  const readReference = Effect.fn("FrameworkMigrationGraphReadPass.reference")(
     function* (
       read: Effect.Effect<Value, FrameworkMigrationRepositoryError>,
       transaction: FlarexMetadataTransaction,
@@ -99,6 +103,22 @@ export function makeFrameworkGraphReferenceRead<Value>(): FrameworkGraphReferenc
       return value;
     },
   );
+  const peek = Effect.fn("FrameworkMigrationGraphReadPass.peek")(
+    function* (transaction: FlarexMetadataTransaction,
+      ...references: readonly unknown[]): Effect.fn.Return<Option.Option<Value>> {
+      const pass = yield* currentPass;
+      const state = pass === undefined ? undefined : states.get(pass);
+      if (pass === undefined || state === undefined || !state.active || state.transaction !== transaction) {
+        return Option.none();
+      }
+      let found = roots.get(pass);
+      for (const reference of [yield* additiveMigrationGraphLimits, ...references]) {
+        found = found?.children.get(reference);
+      }
+      return found?.value ?? Option.none();
+    },
+  );
+  return Object.assign(readReference, { peek });
 }
 
 function referenceNode<Value>(): ReferenceNode<Value> {
