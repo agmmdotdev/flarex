@@ -8,8 +8,9 @@ acceptance. Relational values, coordinator metadata/repositories, and all
 three fresh-install execution slices are implemented privately. Fresh
 installation and one fresh-base-to-additive-successor upgrade have independent
 PGlite and ordinary-role PostgreSQL acceptance. General lineage scale and
-upgrades beyond that bounded profile remain open, as do serving bindings,
-framework data transactions, adapters, and production activation.
+upgrades beyond that bounded profile remain open. Private binding admission and
+synthetic scalar transactions/store are implemented; serving bindings,
+framework publication, adapters, and production activation remain gated.
 
 The [current gate matrix](#current-gate-status) is the cross-lane status index.
 Focused owners define exact contracts and evidence; lane documents link here
@@ -93,9 +94,9 @@ Use these sources in order:
     owns the accepted execution profiles, pinned framework lifecycle findings,
     outer transaction ownership, and deferred cross-domain command proof.
 17. [`preflight/15-scalar-relational-transaction-and-store.md`](./preflight/15-scalar-relational-transaction-and-store.md)
-    proposes the concrete private scalar store, borrowed transaction lifetime,
-    cancellation/cleanup and fail-closed settlement contract; approval is pending.
-17. Current code, migrations, any source snapshot already admitted by its own
+    owns the implemented private scalar store, borrowed transaction lifetime,
+    cancellation/cleanup and fail-closed settlement contract.
+18. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -145,8 +146,8 @@ Preflight records:
 | [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md) | Private no-base PGlite and bounded native PostgreSQL execution, contention, cancellation, settlement and process-restart evidence | Opaque authority, four fresh operation handlers, bounded read-only graph reuse, fifteen-step execution profile, remaining general scale and host-resolution gates |
 | [`preflight/12-base-backed-additive-upgrade.md`](./preflight/12-base-backed-additive-upgrade.md) | Implemented privately with PGlite and ordinary-role PostgreSQL acceptance | One fresh base to one additive successor, explicit base verification, versioned plan/admission contracts, bounded lineage and combined PGlite/native acceptance |
 | [`preflight/13-application-projection-and-data-bindings.md`](./preflight/13-application-projection-and-data-bindings.md) | Private Application-only and synthetic Medusa binding implementation and acceptance complete | Application-owned coherent projection, exact named bindings, residual profile authentication, atomic selection, transaction-local admission, restart recovery and non-serving synthetic selection |
-| [`preflight/14-transaction-execution-profiles.md`](./preflight/14-transaction-execution-profiles.md) | Accepted architecture direction; concrete implementation contracts and proofs pending | Shared transaction ownership, separate Application/framework/workflow execution profiles, nested failure and event boundaries, and explicitly gated cross-domain atomic commands |
-| [`preflight/15-scalar-relational-transaction-and-store.md`](./preflight/15-scalar-relational-transaction-and-store.md) | Concrete transaction-owner proposal; approval and implementation pending | Private synthetic scalar operations, exact owner/table authority, pending-write reads, rollback-only nesting, cancellation with cleanup, read-only settlement and mutation rollback before receipt-family admission |
+| [`preflight/14-transaction-execution-profiles.md`](./preflight/14-transaction-execution-profiles.md) | Accepted architecture direction; scalar transaction contract implemented, commit-family and cross-domain proofs pending | Shared transaction ownership, separate Application/framework/workflow execution profiles, nested failure and event boundaries, and explicitly gated cross-domain atomic commands |
+| [`preflight/15-scalar-relational-transaction-and-store.md`](./preflight/15-scalar-relational-transaction-and-store.md) | Implemented privately with focused PGlite and ordinary-role PostgreSQL coverage | Private synthetic scalar operations, exact owner/table authority, pending-write reads, rollback-only nesting, cancellation with cleanup, read-only settlement and mutation rollback before receipt-family admission |
 
 ## Current Architecture
 
@@ -236,10 +237,10 @@ The smallest safe sequence is:
    activation/admission and recovery with a separate non-serving synthetic
    selection. Application-only and owner-correct synthetic Medusa commerce
    evidence pass; Payload profiles and production bindings remain gated.
-6. Use the accepted
+6. The accepted
    [execution-profile preflight](./preflight/14-transaction-execution-profiles.md)
-   and approve the concrete [scalar transaction/store contract](./preflight/15-scalar-relational-transaction-and-store.md),
-   then implement its private synthetic capability. Preserve
+   and implemented [scalar transaction/store contract](./preflight/15-scalar-relational-transaction-and-store.md)
+   supply the private synthetic transaction capability. Preserve
    outer ownership, fail-closed borrowed sessions, framework lifecycle semantics,
    and current Application lock ordering. Do not create a universal database
    or transaction API.
@@ -314,8 +315,9 @@ has private Application-only and synthetic Medusa acceptance.
 | Fresh coordinator execution | Private no-base PGlite and ordinary-role native PostgreSQL profile; bounded read-only graph reuse, physical sessions, concurrency, cancellation, uncertain settlement, OS-process restart and exact readiness replay | Fifteen-step execution limit; larger plans, general lineage scale, hosted/TLS transports and production resolution unproven |
 | Base-backed structural upgrade | Private fresh A to additive B and exact replay, retained objects/rows, locked base availability, recovery and PGlite/PostgreSQL acceptance | One-hop synthetic system profile only; general upgrades and production selection remain gated |
 | Serving bindings | Private Application projection, exact binding ledger, activation/admission/recovery and synthetic Medusa evidence complete | Payload content/lifecycle profile issuers, real adapters, multi-physical-lane admission and production serving remain gated |
-| Relational data transaction/store and finalization | Accepted target boundaries | Transaction-owner and commit-owner decisions and implementation pending; no generic relational fact family |
-| Synthetic relational data proof | Separate non-serving selection and expiry/forgery refusal implemented | Store/transaction and typed finalization prerequisites remain; selection and installation readiness do not prove data writes |
+| Relational data transaction/store | Private scalar profile implemented on PGlite and ordinary-role PostgreSQL | Read-only settlement and mutation rollback only; no Payload or Medusa store admission |
+| Relational receipts and finalization | Accepted target boundary | Commit-owner contract and authenticated receipt/finalization rejection proof next; no generic relational fact family |
+| Synthetic relational data proof | Separate non-serving selection, scalar operations, pending reads, rollback-only nesting and read-only settlement implemented | Authenticated receipts and finalization rejection remain; mutation attempts cannot publish |
 | Application preservation | Existing private `SV-R Core` baseline complete | Post-core document/OCC/relation/commit regression pending |
 | Payload scalar and non-reactive relation proofs | Pinned contract and native relation prerequisite available | Adapter, CMS read/request transaction, write-policy admission, scalar proof and relation candidate/rebinding pending |
 | Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
@@ -401,7 +403,8 @@ implements one fresh-base-to-successor upgrade with exact base authority,
 retained structures and bounded lineage, with independent PGlite/native acceptance.
 The [Application projection and `DataBindingSet` preflight](./preflight/13-application-projection-and-data-bindings.md)
 implements private selection/admission/recovery for Application-only and
-synthetic Medusa evidence. The accepted transaction execution profiles now
-guide the next owner-scoped transaction/store capability; typed finalization
-remains separately owned. Framework adapters, SDKs, runtime routes and
+synthetic Medusa evidence. The private synthetic scalar transaction/store now
+proves owned scalar data, pending-write reads, nested rollback, bounded cleanup
+and read-only settlement. Authenticated receipt preparation and finalization
+rejection are next under the commit owner. Framework adapters, SDKs, runtime routes and
 production traffic remain gated.

@@ -93,7 +93,7 @@ PGlite and bounded native PostgreSQL evidence. The
 independent base-backed acceptance. The following mechanisms remain absent:
 
 - production target/runner resolution and general lineage scale proof;
-- an owner-scoped relational transaction/store capability;
+- framework operation profiles beyond the private synthetic scalar transaction/store;
 - transaction-bound relational mutation receipts and typed finalization;
 - Payload configuration/content overlays and adapter behavior; and
 - promoted Medusa packages or a Flarex-backed Medusa adapter.
@@ -222,18 +222,16 @@ binding set has no generic `system` slot.
 
 ### Transaction-owner admission
 
-Before transaction/store implementation, complete the mandatory transaction-
-owner preflight from
-[`../04-transactions-and-commit-publication.md`](../04-transactions-and-commit-publication.md).
-It must freeze the exact semantic owner and table capability, transaction
-acquisition and lifetime, scope/generation/installation/binding revalidation,
-isolation, nesting or savepoint policy, timeout, interruption, lock order,
-settlement, and recovery boundary. This sequencing preflight does not authorize
-that owner change.
+The accepted [scalar transaction/store contract](./15-scalar-relational-transaction-and-store.md)
+closes transaction-owner admission for the private synthetic system profile:
+exact table capability, acquisition/lifetime, scope and installation revalidation,
+READ COMMITTED, rollback-only nesting, timeouts, interruption, scope-first lock
+order and bounded settlement. Framework profile extensions retain their own
+compatibility and authority gates.
 
 ### Owner-scoped relational transaction and store
 
-Add a narrow private transaction host pinned to scope, placement, generation,
+The implemented private scalar transaction host is pinned to scope, placement, generation,
 schema digest, installation, binding, and owner capability. It exposes only
 typed operations admitted for one owner. It does not expose Drizzle, a `pg`
 client, raw SQL, physical locators, the commit allocator, or an unrestricted
@@ -429,11 +427,13 @@ and its own lineage/work limits, with PGlite and ordinary-role PostgreSQL
 acceptance. The private [binding capability](./13-application-projection-and-data-bindings.md)
 now supplies selection, admission and recovery; consumer serving remains gated.
 
-The next concrete proposal is the [scalar relational transaction/store](./15-scalar-relational-transaction-and-store.md),
+The private [scalar relational transaction/store](./15-scalar-relational-transaction-and-store.md) is implemented,
 constrained by the accepted [execution profiles](./14-transaction-execution-profiles.md).
-It resolves the proposed initial lock order and defines the new cancellation
-and rollback-only lifecycle for approval before implementation. Receipt families
-and finalization follow under their commit owner. The proposed
+It preserves scope-first admission and proves cancellation, rollback-only nesting,
+scalar operations and read-only settlement on PGlite and ordinary-role PostgreSQL.
+Mutation attempts still require rollback. The next capability is authenticated
+receipt preparation and finalization rejection under the commit-owner contract;
+no synthetic fact family is admitted. The proposed
 [CMS read contract](./07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract)
 remains a requirement before the Payload host; it does not authorize routing
 Payload content through the synthetic reserved-relational store.

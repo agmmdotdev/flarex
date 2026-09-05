@@ -3,8 +3,9 @@
 ## Status And Scope
 
 Status: accepted architecture direction and source-backed preflight;
-transaction/store, commit-family, and cross-domain command implementation
-contracts and proofs remain pending.
+the private scalar transaction/store is implemented under
+[its concrete contract](./15-scalar-relational-transaction-and-store.md).
+Commit-family and cross-domain command contracts and proofs remain pending.
 
 This decision makes shared Application, Payload, and Medusa transaction
 ownership concrete without replacing their execution semantics. It refines
@@ -124,9 +125,10 @@ of one uncommitted transaction.
 
 ## Sequence And Acceptance
 
-1. Complete the existing binding capability. Use this preflight to constrain
-   the next coherent transaction/store capability, with exact ownership,
-   admitted operation set, lock order, failure and settlement contracts.
+1. Private binding admission and the scalar transaction/store capability are
+   implemented, with exact ownership, admitted operations, scope-first locking,
+   rollback-only failure handling and bounded settlement. Their focused contracts
+   retain the framework and production gates.
 2. Complete typed commit-family admission under the commit owner. Preserve the
    synthetic shared-core proof and existing Application regression gate, then
    the ordered Payload scalar/native-relation and Medusa Currency lane proofs.

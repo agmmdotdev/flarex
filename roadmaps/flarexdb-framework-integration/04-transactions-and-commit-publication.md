@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-Status: accepted target boundary; transaction-owner and commit-owner preflights
-remain mandatory before implementation
+Status: accepted target boundary; private scalar transaction/store implemented.
+Receipt families and finalization require their separate commit-owner contract.
 
 This plan owns the framework-facing transaction-host shape and the safe
 participation of accepted framework mutations in the existing Flarex scope
@@ -13,15 +13,15 @@ It does not authorize changes to application OCC, point-commit compilation,
 scope-clock locking, commit ordering, or feed storage.
 
 The accepted [execution-profile preflight](./preflight/14-transaction-execution-profiles.md)
-records the pinned framework evidence and shared ownership direction. Concrete
-transaction-owner and commit-owner implementation contracts remain required;
+records the pinned framework evidence and shared ownership direction. The
+commit-owner implementation contract remains required;
 the preflight does not claim the current Application-shaped host is neutral.
 
-The proposed [scalar transaction/store contract](./preflight/15-scalar-relational-transaction-and-store.md)
-defines the next private synthetic capability: authenticated owner/table access,
+The implemented [scalar transaction/store contract](./preflight/15-scalar-relational-transaction-and-store.md)
+supplies a private synthetic capability: authenticated owner/table access,
 pending-write reads, rollback-only nesting, cancellation with completed cleanup,
-read-only settlement and mandatory rollback of mutation attempts. Its lifecycle
-contract is pending approval; receipt families and typed finalization retain
+read-only settlement and mandatory rollback of mutation attempts. Focused PGlite
+and ordinary-role PostgreSQL cover this profile; receipt families and typed finalization retain
 their separate commit-owner gate.
 
 ## Transaction Hosts
@@ -202,8 +202,10 @@ does not promise atomic or exactly-once effects in an external service.
 
 ## Proposed Lock-Order Reconciliation
 
-Status: identified integration decision; the replacement acquisition order is
-not yet accepted or implemented.
+Status: the private scalar profile accepts and implements scope-clock FOR UPDATE
+before installation availability FOR SHARE and scalar rows. Application retains
+its current order. Moving publication locking later remains unaccepted; the
+target finalization sequence above must not be read as authority to move it.
 
 The current
 `packages/persistence-postgres/src/scopeExecution/ScopeExecution.ts`

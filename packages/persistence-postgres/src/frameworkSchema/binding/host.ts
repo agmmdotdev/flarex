@@ -1,5 +1,4 @@
 import { Effect, Option, Result } from "effect";
-import type { JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import {
@@ -30,14 +29,12 @@ import {
   captureBindingValue,
   isDataBindingActivationRequest,
   isDataBindingSetFrame,
-  isSyntheticBindingReference,
   sameBindingValue,
 } from "./canonical";
 import type {
   DataBindingActivationRequest,
   DataBindingActivationFrame,
   DataBindingHeadToken,
-  InstallationBindingReference,
 } from "./model";
 import {
   readBindingCandidate,
@@ -47,7 +44,8 @@ import {
   writeBindingActivation,
   type StoredBindingValue,
 } from "./repository";
-import { lockBindingInstallation, verifyBindingLanes } from "./evidence";
+import { verifyBindingLanes } from "./evidence";
+import { admitSyntheticBindingInTransaction, captureSyntheticBindingReference } from "./syntheticAdmission";
 import {
   withAdmittedDataBinding,
   readAdmittedDataBinding,
@@ -56,7 +54,6 @@ import {
   type SyntheticTestSelection,
 } from "./selection";
 import type { DataBindingTestProfiles } from "./profiles";
-import { isExactPrivateValueRecord } from "../privateStoredValueShape";
 import { scopePhysicalLocatorsEqual } from "../../scopePhysicalLocator";
 import type { ApplicationBindingReference, DataBindingSetFrame } from "./model";
 
@@ -411,22 +408,13 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
     ) {
       if (!syntheticEnabled)
         return yield* Effect.fail(bindingError("invalidAuthority"));
-      const captured = yield* captureBindingValue(
-        {
-          format: "flarex.synthetic-test-selection",
-          version: 1,
-          reference: referenceInput,
-        },
-        isSyntheticFrame,
-      );
-      const reference = captured.frame.reference;
+      const reference = yield* captureSyntheticBindingReference(referenceInput);
       if (reference.installation.artifact.owner !== "system")
         return yield* Effect.fail(bindingError("invalidAuthority"));
       const located = yield* resolve();
       return yield* run(located, (tx, authority) =>
         Effect.gen(function* () {
-          yield* lockScope(tx, authority);
-          yield* lockBindingInstallation(tx, reference, snapshot);
+          yield* admitSyntheticBindingInTransaction(tx, authority, snapshot, reference);
           return yield* withSyntheticTestSelection(
             tx,
             target,
@@ -447,20 +435,6 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
     withSynthetic,
   });
 });
-
-function isSyntheticFrame(input: unknown): input is Readonly<{
-  format: "flarex.synthetic-test-selection";
-  version: 1;
-  reference: InstallationBindingReference;
-}> &
-  JsonObject {
-  return (
-    isExactPrivateValueRecord(input, ["format", "version", "reference"]) &&
-    input.format === "flarex.synthetic-test-selection" &&
-    input.version === 1 &&
-    isSyntheticBindingReference(input.reference)
-  );
-}
 
 export function dataBindingActivationRequest(
   scopeId: string,

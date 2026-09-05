@@ -236,7 +236,9 @@
     "test:framework-coordinator:pglite": "node ../../scripts/run-test-lane.mjs framework-coordinator-pglite",
     "test:framework-coordinator:postgres": "node ../../scripts/run-test-lane.mjs framework-coordinator-postgres",
     "test:framework-bindings:pglite": "node ../../scripts/run-test-lane.mjs framework-bindings-pglite",
-    "test:framework-bindings:postgres": "node ../../scripts/run-test-lane.mjs framework-bindings-postgres"
+    "test:framework-bindings:postgres": "node ../../scripts/run-test-lane.mjs framework-bindings-postgres",
+    "test:framework-scalar-store:pglite": "node ../../scripts/run-test-lane.mjs framework-scalar-store-pglite",
+    "test:framework-scalar-store:postgres": "node ../../scripts/run-test-lane.mjs framework-scalar-store-postgres"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",

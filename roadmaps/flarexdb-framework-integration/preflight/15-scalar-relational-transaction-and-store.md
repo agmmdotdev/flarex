@@ -2,11 +2,11 @@
 
 ## Status And Outcome
 
-Status: proposed concrete transaction-owner implementation contract; approval
-pending. The accepted direction remains
+Status: accepted and implemented privately, with focused PGlite and ordinary-role
+PostgreSQL coverage. The accepted direction remains
 [shared transaction ownership](./14-transaction-execution-profiles.md).
 
-Deliver one private synthetic reserved-relational transaction from authenticated
+The implementation supplies one private synthetic reserved-relational transaction from authenticated
 installation selection through scalar store operations, pending-write reads,
 nested reuse and physical rollback. Also prove successful read-only settlement.
 This closes the transaction/store portion of the synthetic shared-core gate.
@@ -46,8 +46,9 @@ family and cannot bypass common publication.
 
 ## Authority And Composition
 
-Create the source-private `src/relationalTransaction/` owner, separating its
-model/errors, lifetime, scalar store and composition entry point. Use explicit
+The source-private `src/relationalTransaction/` owner separates
+model/errors, owned data capture, physical session, lifetime, scalar store and
+host composition. It uses explicit
 factory instances for dynamically repeated hosts and transactions, rather than
 a singleton transaction Context service.
 
@@ -64,6 +65,12 @@ generation/fence/epoch, installation/readiness/availability digests, owner,
 table allowlist and limits. A registry installed by trusted composition admits
 only fixed test commands; command invocation accepts data, not caller-authored
 callbacks. The fixed commands may exercise nested calls through the same host.
+
+Command input and output are bounded owned JSON data; a void output is allowed.
+Descriptor-based capture rejects accessors and unsupported objects, detaches
+nested values, preserves special property names, and bounds depth at 64. It
+does not measure one caller-owned view and encode another. Command input types
+are invariant across registration. Live capabilities are not command results.
 
 Every store call authenticates a live transaction and its exact table token.
 Reject forged, copied, foreign-host, cross-transaction, cross-scope, closed and
@@ -100,7 +107,8 @@ is admitted. These remain explicit operation-profile extensions driven by the
 later Currency and link consumers, not silently unsupported branches of a
 universal query language.
 
-Initial ceilings: 64 store calls per command, 32 rows per page, 256 returned rows
+Initial ceilings: 64 combined command/store calls, nested command depth 8,
+32 rows per page, 256 returned rows
 per command, 16 columns per table, 64 KiB per encoded row and 1 MiB total captured
 input/output. Count failed calls and nested calls against the same budget.
 Reject unsupported schemas before issuing any store capability. Enforce output
@@ -160,6 +168,16 @@ settle. If its active work cannot be safely bounded, fail profile admission
 rather than advertise a hard cancellation guarantee. The deadline is a trigger
 for cleanup, not permission to return while cleanup continues invisibly.
 
+The native session composes only the existing artifact control driver's initial
+physical transaction operation, preserving tracked work, cancellation, drain,
+quarantine and settlement classification without artifact or recovery authority.
+Cleanup has a separate two-second budget. The test PGlite adapter owns one
+serialized worker instance: a one-second statement watchdog terminates and
+quarantines that exact worker when SQL cannot settle, and waits for termination
+before reporting cleanup failure. Installed PGlite does not enforce the native
+statement timeout; an ordinary in-process PGlite handle is not admitted as a
+hard-deadline session. Normal cancellation retains the lease through rollback.
+
 Successful read-only work may settle normally. Set a non-clearable mutation
 attempt marker before issuing any data-changing statement, including one that
 ultimately affects zero rows. With this profile, a marked transaction always
@@ -183,7 +201,7 @@ write-outcome recovery remain in the commit-owner capability.
 | Binding synthetic acceptance | Port its exact validation into one binding-owned internal operation; retain the current facade and refusal behavior. |
 | Installed layout and scalar/constraint definitions | Keep and consume through authenticated restoration; no second schema model or physical-name issuer. |
 | Located PostgreSQL settlement classification and safe connection release | Keep; reuse only through the lifetime contract above. |
-| Artifact active-work cancellation/quarantine | Reference and extract only proven identical resource mechanics if needed; no transfer of artifact or DDL authority. |
+| Artifact active-work cancellation/quarantine | Reuse the existing initial physical transaction driver; no transfer of artifact, recovery or DDL authority. |
 | Framework adapters, receipts and common finalizer | Deferred to their existing owners; no placeholder runtime implementations. |
 
 There is no identified shipped data or public contract requiring a compatibility
@@ -214,8 +232,7 @@ package typecheck with bounded compiler memory, core/diff lint, both standing
 reviewers and the exact staged diff gate. Report measured focused-lane costs
 and any unavailable native proof honestly.
 
-After approval, implement and validate this whole capability with its durable
-roadmap updates in one coherent checkpoint. Then complete the commit-owner
+The private transaction/store capability is implemented. Next complete the commit-owner
 contract and authenticated receipt/finalization rejection proof. Successful
 Application/Payload publication and later real Currency conformance retain
 their existing order. Do not open further document-only gates for ordinary
