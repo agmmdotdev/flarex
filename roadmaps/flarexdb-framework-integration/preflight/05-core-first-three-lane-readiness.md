@@ -253,8 +253,10 @@ authorize a new fact family.
 
 ### Mutation receipts and typed finalization
 
-Every admitted write operation returns a transaction-bound receipt. Only the
-common finalizer may validate receipts, allocate commit order, publish typed
+Every admitted write operation produces a transaction-bound receipt. The
+[private receipt proposal](./16-mutation-receipts-and-finalization-admission.md)
+keeps complete collection inside the host and retains ordinary command results.
+Only the common finalizer may validate receipts, allocate commit order, publish typed
 facts, persist admitted event intents, and write the common outbox wake.
 
 Receipt-family and finalizer changes require their separate transaction-owner
@@ -432,7 +434,9 @@ constrained by the accepted [execution profiles](./14-transaction-execution-prof
 It preserves scope-first admission and proves cancellation, rollback-only nesting,
 scalar operations and read-only settlement on PGlite and ordinary-role PostgreSQL.
 Mutation attempts still require rollback. The next capability is authenticated
-receipt preparation and finalization rejection under the commit-owner contract;
+receipt preparation and finalization rejection under the concrete
+[commit-owner proposal](./16-mutation-receipts-and-finalization-admission.md).
+Its issuer, complete collector and single-use outer admission await approval;
 no synthetic fact family is admitted. The proposed
 [CMS read contract](./07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract)
 remains a requirement before the Payload host; it does not authorize routing

@@ -232,8 +232,9 @@ package typecheck with bounded compiler memory, core/diff lint, both standing
 reviewers and the exact staged diff gate. Report measured focused-lane costs
 and any unavailable native proof honestly.
 
-The private transaction/store capability is implemented. Next complete the commit-owner
-contract and authenticated receipt/finalization rejection proof. Successful
+The private transaction/store capability is implemented. The concrete
+[commit-owner proposal](./16-mutation-receipts-and-finalization-admission.md)
+specifies the next authenticated receipt/finalization rejection proof. Successful
 Application/Payload publication and later real Currency conformance retain
 their existing order. Do not open further document-only gates for ordinary
 implementation details within this contract.

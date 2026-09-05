@@ -96,7 +96,10 @@ Use these sources in order:
 17. [`preflight/15-scalar-relational-transaction-and-store.md`](./preflight/15-scalar-relational-transaction-and-store.md)
     owns the implemented private scalar store, borrowed transaction lifetime,
     cancellation/cleanup and fail-closed settlement contract.
-18. Current code, migrations, any source snapshot already admitted by its own
+18. [`preflight/16-mutation-receipts-and-finalization-admission.md`](./preflight/16-mutation-receipts-and-finalization-admission.md)
+    proposes the concrete private receipt issuer, complete collection,
+    single-use outer admission and unadmitted-family rejection capability.
+19. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -148,6 +151,7 @@ Preflight records:
 | [`preflight/13-application-projection-and-data-bindings.md`](./preflight/13-application-projection-and-data-bindings.md) | Private Application-only and synthetic Medusa binding implementation and acceptance complete | Application-owned coherent projection, exact named bindings, residual profile authentication, atomic selection, transaction-local admission, restart recovery and non-serving synthetic selection |
 | [`preflight/14-transaction-execution-profiles.md`](./preflight/14-transaction-execution-profiles.md) | Accepted architecture direction; scalar transaction contract implemented, commit-family and cross-domain proofs pending | Shared transaction ownership, separate Application/framework/workflow execution profiles, nested failure and event boundaries, and explicitly gated cross-domain atomic commands |
 | [`preflight/15-scalar-relational-transaction-and-store.md`](./preflight/15-scalar-relational-transaction-and-store.md) | Implemented privately with focused PGlite and ordinary-role PostgreSQL coverage | Private synthetic scalar operations, exact owner/table authority, pending-write reads, rollback-only nesting, cancellation with cleanup, read-only settlement and mutation rollback before receipt-family admission |
+| [`preflight/16-mutation-receipts-and-finalization-admission.md`](./preflight/16-mutation-receipts-and-finalization-admission.md) | Concrete commit-owner proposal; implementation approval pending | SQL-issued private receipts, complete bounded collection, one outer admission, and synthetic rejection without a new fact family or Application publisher changes |
 
 ## Current Architecture
 
@@ -244,9 +248,10 @@ The smallest safe sequence is:
    outer ownership, fail-closed borrowed sessions, framework lifecycle semantics,
    and current Application lock ordering. Do not create a universal database
    or transaction API.
-7. Complete the mandatory commit-owner preflight, then add its transaction-
-   bound mutation receipts and typed finalization mechanics without inventing a
-   generic relational change-fact family.
+7. Approve the concrete [receipt/admission contract](./preflight/16-mutation-receipts-and-finalization-admission.md),
+   then implement its SQL-issued receipts, complete collection and outer
+   finalization rejection. No generic relational change-fact family or successful
+   framework publication is admitted by this capability.
 8. Prove the framework-neutral lifecycle and transaction path on a synthetic
    reserved-relational schema through artifact, installation, readiness,
    the separately admitted synthetic-`system` selection, migration,
@@ -316,7 +321,7 @@ has private Application-only and synthetic Medusa acceptance.
 | Base-backed structural upgrade | Private fresh A to additive B and exact replay, retained objects/rows, locked base availability, recovery and PGlite/PostgreSQL acceptance | One-hop synthetic system profile only; general upgrades and production selection remain gated |
 | Serving bindings | Private Application projection, exact binding ledger, activation/admission/recovery and synthetic Medusa evidence complete | Payload content/lifecycle profile issuers, real adapters, multi-physical-lane admission and production serving remain gated |
 | Relational data transaction/store | Private scalar profile implemented on PGlite and ordinary-role PostgreSQL | Read-only settlement and mutation rollback only; no Payload or Medusa store admission |
-| Relational receipts and finalization | Accepted target boundary | Commit-owner contract and authenticated receipt/finalization rejection proof next; no generic relational fact family |
+| Relational receipts and finalization | Concrete private receipt/admission contract proposed | Approval and issuer/collection/rejection implementation pending; no generic relational fact family |
 | Synthetic relational data proof | Separate non-serving selection, scalar operations, pending reads, rollback-only nesting and read-only settlement implemented | Authenticated receipts and finalization rejection remain; mutation attempts cannot publish |
 | Application preservation | Existing private `SV-R Core` baseline complete | Post-core document/OCC/relation/commit regression pending |
 | Payload scalar and non-reactive relation proofs | Pinned contract and native relation prerequisite available | Adapter, CMS read/request transaction, write-policy admission, scalar proof and relation candidate/rebinding pending |
@@ -405,6 +410,7 @@ The [Application projection and `DataBindingSet` preflight](./preflight/13-appli
 implements private selection/admission/recovery for Application-only and
 synthetic Medusa evidence. The private synthetic scalar transaction/store now
 proves owned scalar data, pending-write reads, nested rollback, bounded cleanup
-and read-only settlement. Authenticated receipt preparation and finalization
-rejection are next under the commit owner. Framework adapters, SDKs, runtime routes and
+and read-only settlement. The [receipt/admission proposal](./preflight/16-mutation-receipts-and-finalization-admission.md)
+defines the next commit-owner capability: authentic SQL evidence, complete
+collection and outer rejection. Framework adapters, SDKs, runtime routes and
 production traffic remain gated.

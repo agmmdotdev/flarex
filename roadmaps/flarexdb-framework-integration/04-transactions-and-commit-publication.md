@@ -24,6 +24,12 @@ read-only settlement and mandatory rollback of mutation attempts. Focused PGlite
 and ordinary-role PostgreSQL cover this profile; receipt families and typed finalization retain
 their separate commit-owner gate.
 
+The concrete [receipt/admission proposal](./preflight/16-mutation-receipts-and-finalization-admission.md)
+defines that next capability: checked SQL issues private receipts, the host owns
+the complete set, and one outer admission authenticates it before rejecting the
+unadmitted synthetic family. Approval is pending. This does not extract the
+Application publisher or permit a successful relational data commit.
+
 ## Transaction Hosts
 
 Use separate high-level hosts:
@@ -98,13 +104,16 @@ finalization.
 
 ## Mutation Receipts
 
-Successful stores return opaque transaction-bound mutation receipts rather
-than letting adapters author feed records. A receipt proves:
+The target contract has stores produce opaque transaction-bound mutation
+receipts rather than letting adapters author feed records. In the proposed
+private capability the host collects them automatically while commands retain
+ordinary store results; commands cannot omit contributions. A receipt proves:
 
 - issuing transaction;
 - scope, owner, generation, and epoch;
 - changed stable table or relation identities;
-- accepted before/after identity needed by the family publisher; and
+- the checked operation and affected identity, plus any before/after evidence
+  separately required by an admitted family publisher; and
 - that the relevant database invariant was enforced.
 
 Receipts cannot be mixed between independently opened transactions or replayed
