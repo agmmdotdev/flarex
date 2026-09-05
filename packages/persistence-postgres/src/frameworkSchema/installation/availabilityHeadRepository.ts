@@ -1,4 +1,5 @@
 import { withFrameworkGraphReadPass } from "../../migrationCoordination/graphReadPass";
+import { additiveMigrationGraphLimits } from "../../migrationCoordination/additiveLimits";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -186,6 +187,26 @@ export const readFrameworkSchemaAvailabilityHeadInTransactionEffect = Effect.fn(
     storedInstallation,
     operation,
   );
+});
+
+/** Hold the mutable availability row until the caller's accepting transaction settles. */
+export const lockFrameworkSchemaAvailabilityHeadInTransactionEffect = Effect.fn(
+  "FrameworkSchemaAvailabilityHeadRepository.lockForAcceptance",
+)(function* (transaction: FlarexMetadataTransaction, installation: RestoredFrameworkSchemaInstallation) {
+  const stored = yield* corroborateRestoredFrameworkSchemaInstallationInTransactionEffect(transaction, installation, "readAvailabilityHead");
+  const locked = yield* runRepositoryStatement("readAvailabilityHead", transaction.select({
+    storageId: fxSystemFrameworkSchemaAvailabilityHeads.installationStorageId,
+    sequence: fxSystemFrameworkSchemaAvailabilityHeads.availabilitySequence,
+  }).from(fxSystemFrameworkSchemaAvailabilityHeads).where(eq(
+    fxSystemFrameworkSchemaAvailabilityHeads.installationStorageId, stored.storageId,
+  )).for("share"));
+  if (locked.length === 0) return Option.none();
+  // Apply the accepting reader's budget before aggregate restoration can project
+  // a missing/over-budget predecessor as corruption. This grants no authority.
+  if ((yield* additiveMigrationGraphLimits) && locked.some(row => row.sequence > 8n)) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal("readAvailabilityHead"));
+  }
+  return yield* loadRestoredAvailabilityHead(transaction, stored, "readAvailabilityHead");
 });
 
 export const compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect =

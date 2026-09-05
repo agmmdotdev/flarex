@@ -94,6 +94,15 @@
       "test/frameworkCoordinatorAdditive.postgres.test.ts",
       "test/frameworkCoordinatorAdditiveRecovery.postgres.test.ts",
       "test/postgresFileScopedFixture.postgres.test.ts"
+    ],
+    "framework-bindings-pglite": [
+      "test/frameworkDataBindingValues.test.ts",
+      "test/frameworkSyntheticMedusaProfile.test.ts",
+      "test/migrationCoordinationValues.test.ts",
+      "test/frameworkDataBindings.test.ts"
+    ],
+    "framework-bindings-postgres": [
+      "test/frameworkDataBindings.postgres.test.ts"
     ]
   },
   "selectors": {
@@ -177,6 +186,12 @@
     ],
     "framework-coordinator-postgres": [
       "framework-coordinator-postgres"
+    ],
+    "framework-bindings-pglite": [
+      "framework-bindings-pglite"
+    ],
+    "framework-bindings-postgres": [
+      "framework-bindings-postgres"
     ]
   },
   "lanes": [
@@ -857,6 +872,58 @@
             "--config=vitest.framework.postgres.config.ts",
             {
               "testFileGroup": "framework-coordinator-postgres"
+            },
+            "--testTimeout=300000",
+            "--reporter=verbose",
+            "--bail=1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-bindings-pglite",
+      "category": "pglite",
+      "proof": "Private Application projection and binding selection, admission, recovery and synthetic authority; canonical and owner-profile contracts plus shared deterministic lifecycle.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-framework-bindings-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "--config=vitest.framework.config.ts",
+            {
+              "testFileGroup": "framework-bindings-pglite"
+            },
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-bindings-postgres",
+      "category": "postgres",
+      "proof": "Private Application projection and binding selection, admission, recovery and synthetic authority; ordinary-role concurrency, real COMMIT response loss and OS-process restoration.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-bindings-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "--config=vitest.framework.postgres.config.ts",
+            {
+              "testFileGroup": "framework-bindings-postgres"
             },
             "--testTimeout=300000",
             "--reporter=verbose",

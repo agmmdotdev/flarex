@@ -246,6 +246,9 @@ const COMPATIBILITY_DATE = "2026-08-25";
 const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
+import { readApplicationBindingProjectionInTransaction } from "../src/applicationBindingProjection";
+import { isApplicationBindingReference } from "../src/frameworkSchema/binding/canonical";
+
 let fixtureOrdinal = 0;
 
 describe("Application relation readiness fold", { timeout: 60_000 }, () => {
@@ -256,6 +259,13 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
 
   it("journals and seals an exact relation read from the ready fold", async () => {
     const ready = await readyExactRelationReadFixture();
+    const projection = await ready.fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+      const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, ready.fixture.authority.scopeId);
+      return yield* readApplicationBindingProjectionInTransaction(ready.active.selection, tx, clock);
+    })));
+    expect(isApplicationBindingReference(projection)).toBe(true);
+    if (!("relationCount" in ready.active.basis)) throw new Error("Expected relation readiness fixture");
+    expect(projection.readiness).toMatchObject({ kind: "relation", relationCount: ready.active.basis.relationCount });
     const {
       fixture,
       readiness,

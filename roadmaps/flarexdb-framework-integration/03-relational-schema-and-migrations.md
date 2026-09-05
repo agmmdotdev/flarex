@@ -58,10 +58,12 @@ physical-name assignment, migration plan/admission, attempt, step-receipt,
 terminal, event, collision-head, installation, readiness, availability-history,
 and availability-head aggregates. The manifest-owned serial lane passes
 the selected migration, canonical-value, storage, restoration, repository, and
-file-backed complete-graph cold-reopen matrix. Target sessions, generated
-relational DDL,
-the Application projection,
-`DataBindingSet`, activation, and serving also remain pending.
+file-backed complete-graph cold-reopen matrix. Private target sessions and
+bounded fresh/additive structural execution are implemented. The
+[Application projection and bindings](./preflight/13-application-projection-and-data-bindings.md)
+now have private Application-only and synthetic Medusa acceptance; Payload
+profiles, real adapters, framework data writes and production serving remain
+gated.
 
 The exact Medusa source-and-contract audit is complete at fork commit
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f` in

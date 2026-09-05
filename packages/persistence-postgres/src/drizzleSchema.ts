@@ -143,3 +143,5 @@ export {
   fxSystemRelationalPhysicalNameAssignments,
 } from "./migrationCoordination/schema";
 export { fxSystemFrameworkMigrationPlanBases } from "./migrationCoordination/baseSchema";
+export { fxSystemDataBindingCandidates, fxSystemDataBindingPhysicalLanes,
+  fxSystemDataBindingActivations, fxSystemDataBindingHeads } from "./frameworkSchema/binding/schema";

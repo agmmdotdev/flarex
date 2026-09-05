@@ -212,7 +212,7 @@ function isStoredMigrationPlan(input: unknown): boolean {
     input.format !== FRAMEWORK_MIGRATION_PLAN_FORMAT ||
     (input.version !== 1 && input.version !== 2) ||
     !isStoredArtifactIdentity(input.artifact) ||
-    input.artifact.owner !== "system" ||
+    (input.version === 2 && input.artifact.owner !== "system") ||
     !isStoredPhysicalLocator(input.physicalLocator) ||
     !isStoredTargetNamespace(input.targetNamespace) ||
     !isStoredCollisionCoordinate(input.collision) ||
@@ -711,12 +711,12 @@ function isStoredPlanAdmission(input: unknown): boolean {
     isStoredCollisionCoordinate(input.collision) &&
     isPrivateValueSha256(input.planSha256) &&
     isStoredArtifactIdentity(input.artifact) &&
-    input.artifact.owner === "system" &&
     isStoredPhysicalLocator(input.physicalLocator) &&
     isStoredTargetNamespace(input.targetNamespace) &&
     (input.version === 1 ? input.baseInstallation === null &&
-      input.admissionProfile === "synthetic-system-fresh"
-      : isStoredMigrationBaseInstallation(input.baseInstallation) &&
+      input.admissionProfile === (input.artifact.owner === "medusa"
+        ? "synthetic-medusa-fresh" : "synthetic-system-fresh")
+      : input.artifact.owner === "system" && isStoredMigrationBaseInstallation(input.baseInstallation) &&
         input.admissionProfile === "synthetic-system-additive" &&
         input.previousPlanSha256 === input.baseInstallation.identity.migrationPlanSha256) &&
     isNameAssignmentReferenceSet(input.nameAssignments) &&

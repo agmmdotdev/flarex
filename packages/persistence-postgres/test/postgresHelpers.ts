@@ -456,12 +456,12 @@ export async function withTemporaryPostgresPersistencePair(
       createPostgresPersistence({
         connectionString,
         migrationsSchema: controlMigrationsSchema,
-        poolConfig: { options: `-c search_path=${controlSchema}` },
+        poolConfig: { options: `-c search_path=${controlSchema}`, application_name: controlSchema },
       }),
       createPostgresPersistence({
         connectionString,
         migrationsSchema: targetMigrationsSchema,
-        poolConfig: { options: `-c search_path=${targetSchema}` },
+        poolConfig: { options: `-c search_path=${targetSchema}`, application_name: targetSchema },
       }),
     ]);
     await Promise.all([control.migrate(), target.migrate()]);

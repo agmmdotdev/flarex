@@ -259,6 +259,8 @@ export interface ApplicationRelationActivationRepository<
 interface LegacySelectionState {
   readonly kind: "legacy";
   readonly basis: ApplicationActiveSelectionBasis;
+  readonly readinessRepository: unknown;
+  readonly readiness: ApplicationReadinessResult;
 }
 
 interface RelationSelectionState {
@@ -286,6 +288,16 @@ const activationRepositoryStates = new WeakMap<
   object,
   ApplicationActivationRepositoryState
 >();
+
+/** Private identity check for read-only binding composition, including both readiness contracts. */
+export interface ApplicationBindingSelectionReader<Failure> {
+  readonly readActive: () => Effect.Effect<CoherentActiveApplication | CoherentActiveRelationApplication, Failure>;
+}
+
+export function hasApplicationBindingComposition<Failure>(repository: ApplicationBindingSelectionReader<Failure>,
+  authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>): boolean {
+  return activationRepositoryStates.get(repository)?.authority === authority;
+}
 
 export function hasApplicationActivationPlanningComposition(
   repository: ApplicationActivationRepository<unknown, unknown>,
@@ -594,7 +606,7 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
           readiness,
         ),
       );
-      return issueLegacyActiveSelection(state);
+      return issueLegacyActiveSelection(state, captured.readiness, readiness);
     },
   );
 
@@ -773,7 +785,7 @@ function makeCompositeApplicationActivationRepository<
             readiness,
           ),
         );
-        return issueLegacyActiveSelection(state);
+        return issueLegacyActiveSelection(state, captured.readiness, readiness);
       }
       const readiness = yield* loadRelationReadyForActiveRead(
         captured.relationReadiness,
@@ -852,13 +864,15 @@ const loadRelationReadyForActiveRead = Effect.fn(
 function issueLegacyActiveSelection(state: Readonly<{
   readonly expectedActiveHead: ApplicationActiveCasToken;
   readonly basis: ApplicationActiveSelectionBasis;
-}>): CoherentActiveApplication {
+}>, readinessRepository: unknown, readiness: ApplicationReadinessResult): CoherentActiveApplication {
   // SAFETY: the selection is an inert identity token; all authority remains
   // in the module-local WeakMap keyed by this object identity.
   const selection = Object.freeze({}) as ApplicationActiveSelection;
   selectionStates.set(selection, Object.freeze({
     kind: "legacy",
     basis: copySelectionBasis(state.basis),
+    readinessRepository,
+    readiness,
   }));
   return Object.freeze({
     selection,
@@ -893,6 +907,35 @@ function issueRelationActiveSelection(
     basis: copyRelationSelectionSnapshot(state.basis),
   });
 }
+
+/** Read-only composition for framework binding; legacy execution keeps its existing validation path. */
+export const validateApplicationBindingBasisInTransaction = Effect.fn(
+  "ApplicationActivation.validateBindingBasisInTransaction",
+)(function* (selection: ApplicationActiveSelection, tx: AppRowTransaction, currentClock: ScopeClockRecord) {
+  const state = selectionStates.get(selection);
+  if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+    if (state.kind === "relation") {
+      // Binding admission locks the Application head before restoring its readiness dependencies.
+      const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock.scopeId);
+      if (active === null || !relationHeadMatchesBasis(active.head, state.basis)) {
+        return yield* activationFailure("validateSelection", "concurrentHead", state.basis.revisionId);
+      }
+      const basis = yield* validateApplicationRelationActiveSelectionInTransaction(selection, tx, currentClock);
+    return Object.freeze({ kind: "relation" as const, basis });
+  }
+  if (!clockMatches(state.basis.authority, currentClock)) {
+    return yield* activationFailure("validateSelection", "scopeAuthority", state.basis.revisionId);
+  }
+  const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock.scopeId);
+  const validated = yield* validateStoredApplicationReadinessForActivationInTransaction(
+    state.readinessRepository, state.readiness, tx, currentClock,
+  );
+  if (active === null || !headMatchesBasis(active.head, state.basis)
+    || !headMatchesValidatedReadiness(active.head, { kind: "legacy", basis: validated.basis })) {
+    return yield* activationFailure("validateSelection", "concurrentHead", state.basis.revisionId);
+  }
+  return Object.freeze({ kind: "legacy" as const, basis: copySelectionBasis(state.basis) });
+});
 
 export const validateApplicationActiveSelectionInTransaction = Effect.fn(
   "ApplicationActivation.validateSelectionInTransaction",

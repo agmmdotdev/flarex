@@ -51,6 +51,47 @@ import {
   MAX_FRAMEWORK_SCHEMA_INSTALLATION_CANONICAL_BYTES,
 } from "./canonical";
 import type { FrameworkSchemaInstallationValueError } from "./errors";
+import type { FrameworkSchemaInstallationIdentity } from "./model";
+import { captureFrameworkSchemaTargetNamespace } from "../../migrationCoordination/targetNamespace";
+import { readFrameworkSchemaTargetNamespaceInTransactionEffect, readFrameworkMigrationCollisionDomainInTransactionEffect } from "../../migrationCoordination/targetCollisionRepository";
+import { RELATIONAL_PHYSICAL_NAMESPACE_PROFILE } from "../../relationalSchema/physical/model";
+import { isStoredInstallationIdentity } from "./storedValidation";
+
+/** Cold read from exact natural identity; no caller-supplied restored graph is authority. */
+export const readFrameworkSchemaInstallationByIdentityInTransactionEffect = Effect.fn(
+  "FrameworkSchemaInstallationRepository.readByIdentity",
+)(function* (transaction: FlarexMetadataTransaction, identity: FrameworkSchemaInstallationIdentity) {
+  const operation = "readInstallation" as const;
+  if (!isStoredInstallationIdentity(identity) || (identity.artifact.owner !== "medusa" && identity.artifact.owner !== "system")) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+  }
+  const namespace = yield* captureFrameworkSchemaTargetNamespace({ deploymentId: identity.targetNamespace.deploymentId,
+    physicalDatabaseIdentity: identity.targetNamespace.physicalDatabaseIdentity, schemaName: identity.targetNamespace.schemaName });
+  const storedNamespace = yield* readFrameworkSchemaTargetNamespaceInTransactionEffect(transaction, namespace);
+  if (Option.isNone(storedNamespace)) return Option.none();
+  const collision = yield* readFrameworkMigrationCollisionDomainInTransactionEffect(transaction, storedNamespace.value, {
+    targetNamespace: namespace.frame, owner: identity.artifact.owner, lineageId: identity.artifact.lineageId,
+    physicalNamespaceProfile: RELATIONAL_PHYSICAL_NAMESPACE_PROFILE,
+  });
+  if (Option.isNone(collision)) return Option.none();
+  const digest = yield* decodeAuthenticatedSha256(identity.installationSha256);
+  const rows = yield* runRepositoryStatement(operation, transaction.select(installationReadSelection)
+    .from(fxSystemFrameworkSchemaInstallations).where(eq(fxSystemFrameworkSchemaInstallations.installationSha256, digest)).limit(1));
+  const row = rows[0];
+  if (row === undefined) return Option.none();
+  const restored = yield* restoreInstallationOccupant(transaction, row, collision.value, operation);
+  // The canonical receipt owns the identity; equality of the lookup digest alone is insufficient.
+  const expected = yield* capturePrivateCanonicalValue(identity, MAX_FRAMEWORK_SCHEMA_INSTALLATION_CANONICAL_BYTES, {
+    invalidInput: () => FrameworkMigrationRepositoryError.referenceRefusal(operation),
+    hashFailure: cause => FrameworkMigrationRepositoryError.resourceFailure(operation, cause),
+  });
+  const actual = yield* capturePrivateCanonicalValue(restored.installation.frame.identity, MAX_FRAMEWORK_SCHEMA_INSTALLATION_CANONICAL_BYTES, {
+    invalidInput: () => FrameworkMigrationRepositoryError.storedCorruption(operation),
+    hashFailure: cause => FrameworkMigrationRepositoryError.resourceFailure(operation, cause),
+  });
+  if (actual.canonicalJson !== expected.canonicalJson) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+  return Option.some(restored);
+}, withFrameworkGraphReadPass);
 
 type FrameworkSchemaInstallation = CapturedFrameworkSchemaInstallationValue<
   FrameworkSchemaInstallationFrame,

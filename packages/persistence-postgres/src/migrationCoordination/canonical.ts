@@ -224,7 +224,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
   if (
     copyCapturedFrameworkSchemaArtifactEvidence(input.artifact) === undefined ||
     !isCapturedRelationalPhysicalLayout(input.physicalLayout) ||
-    input.artifact.identity.owner !== "system" ||
+    (input.artifact.identity.owner !== "system" && input.artifact.identity.owner !== "medusa") ||
     input.artifact.dependencies.length !== 0 ||
     input.artifact.provenance.kind !== "synthetic" ||
     !sameArtifactIdentity(
@@ -238,7 +238,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
   }
 
   const layout = input.physicalLayout;
-  const collision = collisionCoordinate(layout);
+  const collision = collisionCoordinate(layout, input.artifact.identity.owner);
   const steps: FrameworkMigrationStep[] = [];
   const tableSteps = new Map<string, FrameworkMigrationStepReference>();
 
@@ -424,7 +424,8 @@ export const captureFrameworkMigrationPlanAdmission = Effect.fn(
     previousPlanSha256: input.previousPlanSha256,
     ...(input.plan.frame.version === 1
       ? { version: 1, baseInstallation: null,
-          admissionProfile: "synthetic-system-fresh" } as const
+          admissionProfile: input.plan.frame.artifact.owner === "medusa"
+            ? "synthetic-medusa-fresh" : "synthetic-system-fresh" } as const
       : { version: 2, baseInstallation: input.plan.frame.baseInstallation,
           admissionProfile: "synthetic-system-additive" } as const),
     admittedAt: input.admittedAt,
@@ -1053,10 +1054,11 @@ const validateStoredOperationProjection = Effect.fn(
 
 function collisionCoordinate(
   layout: RelationalPhysicalLayout,
+  owner: FrameworkMigrationCollisionCoordinate["owner"],
 ): FrameworkMigrationCollisionCoordinate {
   return Object.freeze({
     targetNamespace: layout.targetNamespace.frame,
-    owner: "system",
+    owner,
     lineageId: layout.frame.artifact.lineageId,
     physicalNamespaceProfile: RELATIONAL_PHYSICAL_NAMESPACE_PROFILE,
   });

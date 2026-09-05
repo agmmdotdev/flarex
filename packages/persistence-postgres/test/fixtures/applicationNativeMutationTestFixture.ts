@@ -1,3 +1,5 @@
+import type { TrustedScopeAuthorityResolutionPorts } from "../../src/scopeAuthorityResolution";
+import type { LocatedReadCommittedAttemptTargetV1 } from "../../src/transactionSessionAttemptKernel";
 import { webcrypto } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
@@ -170,6 +172,7 @@ export interface ApplicationNativeMutationAnalysis {
 }
 
 export interface ApplicationNativeMutationFixtureOptions {
+  readonly physicalLocator?: SplitScopePhysicalLocator;
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
   readonly includeTask?: boolean;
@@ -406,7 +409,7 @@ async function createApplicationNativeMutationFixture<
   const { control, target } = lane;
   const deploymentId = "deployment_application_native_mutation";
   const provisioned = await lane.provision({
-      placementPlanner: { plan: () => LOCATOR },
+      placementPlanner: { plan: () => options.physicalLocator ?? LOCATOR },
       targetResolver: {
         resolve: async locator =>
           lane.locateClock(locator),
@@ -549,75 +552,8 @@ async function createApplicationNativeMutationFixture<
     scopeSessionTargets: authorityPorts.scopeClockTargets,
     applicationControlDb: control.drizzle,
   });
-  const candidateValidation = createAppSchemaCandidateValidationPort({
-    controlDb: control.drizzle,
-    authority: authorityPorts,
-  });
-  const candidateSchemaWriteGuard = createAppSchemaCandidateWriteGuardPort({
-    candidateValidation,
-    pointCommitAuthority: sessionAuthority,
-  });
-  const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
-    control.drizzle,
-  );
-  const uniqueConstraintEligibility =
-    createAppUniqueConstraintSetEligibilityPortV1({
-      controlDb: control.drizzle,
-      authority: authorityPorts,
-    }, uniqueConstraints);
-  const pointCommit = createPointCommitPublisherPortV1({
-    scopeMetadata: control,
-    provisioningReceipts: authorityPorts.provisioningReceipts,
-    scopeSessionTargets: {
-      resolve: async () => {
-        throw new Error("Readiness must not open a mutation session.");
-      },
-    },
-  }, { uniqueConstraints, uniqueConstraintEligibility });
-  const schema = makeApplicationSchemaAuthorityPublisher({
-    db: control.drizzle,
-    runTransaction: run => control.drizzle.transaction(run),
-  });
-  const readiness = makeApplicationReadinessRepository(Object.freeze({
-    controlDb: control.drizzle,
-    authority: authorityPorts,
-    schema,
-    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
-    candidateValidation: createAppSchemaCandidateReadinessPort(
-      candidateValidation,
-    ),
-    pointCommit,
-    physicalDefinitionLifecycle: createPhysicalDefinitionLifecyclePort({
-      controlDb: control.drizzle,
-      authority: authorityPorts,
-    }),
-    cold: {
-      runtimeHostIdentity: options.runtimeHostIdentity,
-      compatibilityDate: options.compatibilityDate,
-      materialize: (input: {
-        readonly target: CanonicalApplicationRuntimeTargetV1["target"];
-        readonly manifest: ApplicationManifestV1;
-      }) => Effect.promise(async () => {
-        const canonicalTarget = Result.getOrThrow(
-          canonicalizeApplicationRuntimeTargetV1(input.target),
-        );
-        return Result.getOrThrow(canonicalizeApplicationRuntimeColdReceiptV1({
-          format: "flarex.application-runtime-cold-receipt",
-          version: 1,
-          status: "resolved",
-          runtimeHostIdentity: options.runtimeHostIdentity,
-          compatibilityDate: options.compatibilityDate,
-          sourceArtifactRootSha256: input.target.sourceArtifactRootSha256,
-          manifestSha256: input.target.manifestSha256,
-          publicationSha256: input.target.publicationSha256,
-          runtimeTargetSha256: await sha256Hex(canonicalTarget.canonicalBytes),
-          functionPath: input.target.function.path,
-          functionKind: input.target.function.kind,
-          visibility: input.target.function.visibility,
-        }));
-      }),
-    },
-  }));
+  const { candidateValidation, candidateSchemaWriteGuard, uniqueConstraintEligibility, schema, readiness } =
+    composeApplicationNativeMutationReadiness(options, control, authorityPorts, sessionAuthority);
   const publishManagedSchemaCandidate = async (
     manifest: ApplicationManifestV1,
   ): Promise<ApplicationSchemaAuthority> => {
@@ -1466,4 +1402,83 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     bytes.slice().buffer,
   ));
   return Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** Reuses the exact readiness composition for initial setup and process-restart proof. */
+export function composeApplicationNativeMutationReadiness(
+  options: Pick<ApplicationNativeMutationFixtureOptions, "runtimeHostIdentity" | "compatibilityDate">,
+  control: ApplicationNativeMutationPersistence,
+  authorityPorts: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
+  sessionAuthority: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>["sessionAuthority"],
+) {
+  const candidateValidation = createAppSchemaCandidateValidationPort({
+    controlDb: control.drizzle,
+    authority: authorityPorts,
+  });
+  const candidateSchemaWriteGuard = createAppSchemaCandidateWriteGuardPort({
+    candidateValidation,
+    pointCommitAuthority: sessionAuthority,
+  });
+  const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
+    control.drizzle,
+  );
+  const uniqueConstraintEligibility =
+    createAppUniqueConstraintSetEligibilityPortV1({
+      controlDb: control.drizzle,
+      authority: authorityPorts,
+    }, uniqueConstraints);
+  const pointCommit = createPointCommitPublisherPortV1({
+    scopeMetadata: control,
+    provisioningReceipts: authorityPorts.provisioningReceipts,
+    scopeSessionTargets: {
+      resolve: async () => {
+        throw new Error("Readiness must not open a mutation session.");
+      },
+    },
+  }, { uniqueConstraints, uniqueConstraintEligibility });
+  const schema = makeApplicationSchemaAuthorityPublisher({
+    db: control.drizzle,
+    runTransaction: run => control.drizzle.transaction(run),
+  });
+  const readiness = makeApplicationReadinessRepository(Object.freeze({
+    controlDb: control.drizzle,
+    authority: authorityPorts,
+    schema,
+    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
+    candidateValidation: createAppSchemaCandidateReadinessPort(
+      candidateValidation,
+    ),
+    pointCommit,
+    physicalDefinitionLifecycle: createPhysicalDefinitionLifecyclePort({
+      controlDb: control.drizzle,
+      authority: authorityPorts,
+    }),
+    cold: {
+      runtimeHostIdentity: options.runtimeHostIdentity,
+      compatibilityDate: options.compatibilityDate,
+      materialize: (input: {
+        readonly target: CanonicalApplicationRuntimeTargetV1["target"];
+        readonly manifest: ApplicationManifestV1;
+      }) => Effect.promise(async () => {
+        const canonicalTarget = Result.getOrThrow(
+          canonicalizeApplicationRuntimeTargetV1(input.target),
+        );
+        return Result.getOrThrow(canonicalizeApplicationRuntimeColdReceiptV1({
+          format: "flarex.application-runtime-cold-receipt",
+          version: 1,
+          status: "resolved",
+          runtimeHostIdentity: options.runtimeHostIdentity,
+          compatibilityDate: options.compatibilityDate,
+          sourceArtifactRootSha256: input.target.sourceArtifactRootSha256,
+          manifestSha256: input.target.manifestSha256,
+          publicationSha256: input.target.publicationSha256,
+          runtimeTargetSha256: await sha256Hex(canonicalTarget.canonicalBytes),
+          functionPath: input.target.function.path,
+          functionKind: input.target.function.kind,
+          visibility: input.target.function.visibility,
+        }));
+      }),
+    },
+  }));
+  return { candidateValidation, candidateSchemaWriteGuard, uniqueConstraintEligibility, schema, readiness };
 }

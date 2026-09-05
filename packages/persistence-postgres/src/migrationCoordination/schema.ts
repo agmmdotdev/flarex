@@ -650,7 +650,7 @@ export const fxSystemFrameworkMigrationPlanAdmissions = pgTable(
             and ${table.previousPlanSha256} is not null
             and ${digestHasExactLength(table.previousPlanSha256)})
         )
-        and ((${table.frameVersion} = 1 and ${table.admissionProfile} = 'synthetic-system-fresh')
+        and ((${table.frameVersion} = 1 and ${table.admissionProfile} in ('synthetic-system-fresh', 'synthetic-medusa-fresh'))
           or (${table.frameVersion} = 2 and ${table.admissionProfile} = 'synthetic-system-additive'
             and ${table.previousPlanStorageId} is not null))
         and ${table.assignmentCount} between 0 and ${sql.raw(

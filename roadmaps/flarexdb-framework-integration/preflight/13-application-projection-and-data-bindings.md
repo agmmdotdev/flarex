@@ -1,10 +1,9 @@
 # Application Projection And Data Bindings Preflight
 
-Status: preflight complete; recommended implementation contract for the next
-coherent private capability. The Application selector and named-lane boundaries
-below retain the accepted architecture. The concrete repository, admission,
-recovery and test-selection design is proposed here; it is not implemented or
-evidence of framework serving readiness.
+Status: private implementation complete for Application-only binding and
+owner-correct synthetic Medusa commerce evidence. The Application selector
+retains authority. Payload content/lifecycle profiles, real framework adapters,
+relational data writes and production serving remain gated.
 
 ## Outcome And Boundary
 
@@ -60,7 +59,7 @@ evidence; merely checking digest lengths or joining matching IDs is insufficient
 The durable reference contains:
 
 - deployment and scope identity, physical locator, storage generation and fence,
-  and the authorization epoch;
+  the opaque storage epoch, and the separate authorization-revocation epoch;
 - exact Application activation sequence, head digest and activation digest;
 - revision identity, schema-version identity, Application schema digest,
   schema-manifest digest and readiness digest; and
@@ -258,11 +257,53 @@ prove binding mechanics, not Payload/Medusa conformance or production readiness.
 
 ## Completion Evidence And Execution
 
+The approved migration prerequisite adds `synthetic-medusa-fresh` alongside
+`synthetic-system-fresh`. Fresh plans retain their artifact owner in collision
+coordinates and authenticate the matching admission profile on restoration.
+Both profiles require synthetic provenance; source-snapshot artifacts still
+refuse planning. Additive migration remains system-only. Existing system
+installations cannot be relabeled as commerce.
+
+The Application-owned entry point is `src/applicationBindingProjection.ts`.
+`src/frameworkSchema/binding/host.ts` composes preparation, CAS activation,
+current admission and exact-request recovery through the existing located
+read-committed runner. Migration `0082_data_binding_selection` adds the separate
+target-local ledger; `0083_synthetic_medusa_admission` extends only the private
+fresh admission constraint. No package-root or public subpath is added.
+
+The only physical serving slot currently exercised is commerce with explicit
+test-only profiles and owner-correct synthetic artifacts. Populated Payload
+content/lifecycle slots refuse admission until their own profile issuers exist.
+Consequently, simultaneous multi-physical-lane admission is a later Payload
+gate, not evidence supplied by this implementation. Canonical lane traversal is
+retained, and no unsupported owner is substituted to manufacture that proof.
+Native scope-isolation evidence proves another scope-clock operation can finish
+on the same database while binding admission holds its own scope lock; it does
+not claim concurrent same-scope operations or framework mutation throughput.
+
+Focused commands are `test:framework-bindings:pglite` and
+`test:framework-bindings:postgres` in `@flarex/persistence-postgres`, backed by
+the existing test-lane manifest. Shared deterministic scenarios reuse one
+Application fixture per driver. The native lane adds observed lock barriers,
+real forwarded-COMMIT acknowledgement loss, and separate crashing/recovery OS
+processes which rebuild Application, target and profile authorities from stored
+evidence. Neither runtime tokens nor an already constructed host cross the
+process boundary.
+
+Binding installation reads explicitly apply the existing bounded immutable-graph
+policy even for fresh installations. At most eight linked availability-history
+nodes are admitted; a ninth returns the installation owner's non-transient
+reference refusal. Tests cover cold admission at the limit, refusal beyond it,
+and historical receipt recovery with current admission refused. Ordinary
+migration readers retain their existing policy. Existing binding candidates
+must already contain every normalized lane reference; repeated preparation
+refuses missing sidecars as corruption and never repairs them implicitly.
+
 | Lane | Required proof |
 | --- | --- |
 | Pure contracts | Strict canonical decoding, exact identity, slot/owner mismatch, unknown profile, missing residual coverage, limits and digest-cycle avoidance; copied/forged/expired authority rejected. |
 | PGlite | Prepare/activate/admit/replay; optional-lane absence; atomic all-slot rollback; scope and placement refusal; corrupt/missing evidence; changed Application/availability; historical receipt versus current selection; cold restoration; test-only selection isolation. |
-| Ordinary-role PostgreSQL | Additive metadata migration/constraints; competing first and replacement activations; Application switch versus binding acceptance; availability withdrawal versus acceptance with locks held; scope-fence races; canonical multiple-installation lock order; independent-scope progress; lost COMMIT and process-restart recovery. |
+| Ordinary-role PostgreSQL | Additive metadata migration/constraints; competing first and replacement activations; Application switch versus binding acceptance; availability withdrawal versus acceptance with locks held; scope-fence races; independent scope-clock progress; lost COMMIT and process-restart recovery. Multi-physical-lane lock-order acceptance remains with the gated Payload profile. |
 | Application regression | Both admitted readiness variants retain exact schema/head evidence; ordinary Application activation and relevant document/OCC/native-relation/commit behavior remain unchanged. |
 | Cost and lifecycle | Share fixture setup only within its proven isolation/lifetime; reuse fully authenticated immutable graph nodes only inside one owned read pass; lock and re-read mutable heads on every accepting transaction. Record focused SQL/phase cost and assert bounded restoration. |
 

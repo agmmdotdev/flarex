@@ -269,6 +269,13 @@ export function frameworkMigrationTargetSnapshot(
     });
 }
 
+/** Private composition evidence only; this does not grant migration or data access. */
+export function hasFrameworkMigrationTargetDatabase(
+  target: FrameworkMigrationTarget, database: FlarexMetadataDatabase,
+): boolean {
+  return targetStates.get(target)?.database === database;
+}
+
 export const runFrameworkMigrationTargetTransactionEffect = Effect.fn(
   "FrameworkMigrationTarget.runTransaction",
 )(function* <Value, Failure>(
