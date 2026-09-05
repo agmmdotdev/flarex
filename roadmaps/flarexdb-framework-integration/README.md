@@ -92,6 +92,9 @@ Use these sources in order:
 16. [`preflight/14-transaction-execution-profiles.md`](./preflight/14-transaction-execution-profiles.md)
     owns the accepted execution profiles, pinned framework lifecycle findings,
     outer transaction ownership, and deferred cross-domain command proof.
+17. [`preflight/15-scalar-relational-transaction-and-store.md`](./preflight/15-scalar-relational-transaction-and-store.md)
+    proposes the concrete private scalar store, borrowed transaction lifetime,
+    cancellation/cleanup and fail-closed settlement contract; approval is pending.
 17. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
@@ -143,6 +146,7 @@ Preflight records:
 | [`preflight/12-base-backed-additive-upgrade.md`](./preflight/12-base-backed-additive-upgrade.md) | Implemented privately with PGlite and ordinary-role PostgreSQL acceptance | One fresh base to one additive successor, explicit base verification, versioned plan/admission contracts, bounded lineage and combined PGlite/native acceptance |
 | [`preflight/13-application-projection-and-data-bindings.md`](./preflight/13-application-projection-and-data-bindings.md) | Private Application-only and synthetic Medusa binding implementation and acceptance complete | Application-owned coherent projection, exact named bindings, residual profile authentication, atomic selection, transaction-local admission, restart recovery and non-serving synthetic selection |
 | [`preflight/14-transaction-execution-profiles.md`](./preflight/14-transaction-execution-profiles.md) | Accepted architecture direction; concrete implementation contracts and proofs pending | Shared transaction ownership, separate Application/framework/workflow execution profiles, nested failure and event boundaries, and explicitly gated cross-domain atomic commands |
+| [`preflight/15-scalar-relational-transaction-and-store.md`](./preflight/15-scalar-relational-transaction-and-store.md) | Concrete transaction-owner proposal; approval and implementation pending | Private synthetic scalar operations, exact owner/table authority, pending-write reads, rollback-only nesting, cancellation with cleanup, read-only settlement and mutation rollback before receipt-family admission |
 
 ## Current Architecture
 
@@ -234,8 +238,8 @@ The smallest safe sequence is:
    evidence pass; Payload profiles and production bindings remain gated.
 6. Use the accepted
    [execution-profile preflight](./preflight/14-transaction-execution-profiles.md)
-   to complete the concrete transaction-owner implementation contract, then
-   add its narrow owner-scoped relational transaction/store capability. Preserve
+   and approve the concrete [scalar transaction/store contract](./preflight/15-scalar-relational-transaction-and-store.md),
+   then implement its private synthetic capability. Preserve
    outer ownership, fail-closed borrowed sessions, framework lifecycle semantics,
    and current Application lock ordering. Do not create a universal database
    or transaction API.

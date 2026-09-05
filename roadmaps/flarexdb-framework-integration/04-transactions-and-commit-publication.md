@@ -17,6 +17,13 @@ records the pinned framework evidence and shared ownership direction. Concrete
 transaction-owner and commit-owner implementation contracts remain required;
 the preflight does not claim the current Application-shaped host is neutral.
 
+The proposed [scalar transaction/store contract](./preflight/15-scalar-relational-transaction-and-store.md)
+defines the next private synthetic capability: authenticated owner/table access,
+pending-write reads, rollback-only nesting, cancellation with completed cleanup,
+read-only settlement and mandatory rollback of mutation attempts. Its lifecycle
+contract is pending approval; receipt families and typed finalization retain
+their separate commit-owner gate.
+
 ## Transaction Hosts
 
 Use separate high-level hosts:

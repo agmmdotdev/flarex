@@ -93,12 +93,15 @@ PGlite and bounded native PostgreSQL evidence. The
 independent base-backed acceptance. The following mechanisms remain absent:
 
 - production target/runner resolution and general lineage scale proof;
-- the Application projection, `DataBindingSet`, binding/activation repository,
-  and serving admission;
 - an owner-scoped relational transaction/store capability;
 - transaction-bound relational mutation receipts and typed finalization;
 - Payload configuration/content overlays and adapter behavior; and
 - promoted Medusa packages or a Flarex-backed Medusa adapter.
+
+The [Application projection and binding capability](./13-application-projection-and-data-bindings.md)
+is implemented privately for Application-only and synthetic Medusa evidence,
+with a separate non-serving synthetic-system selection. Payload profile issuers,
+real adapters and production serving remain gated.
 
 The existing scoped-execution host is a useful seed, but its hidden transaction
 is still Application-row-shaped. The current Application relation system is
@@ -423,13 +426,16 @@ Bounded read-only graph reuse reduces repeated immutable-reference reads and
 supports that larger fresh profile. The [approved additive capability](./12-base-backed-additive-upgrade.md)
 implements a bounded fresh-base-to-successor upgrade with exact base authority
 and its own lineage/work limits, with PGlite and ordinary-role PostgreSQL
-acceptance. The later binding, transaction and consumer boundaries remain gated.
+acceptance. The private [binding capability](./13-application-projection-and-data-bindings.md)
+now supplies selection, admission and recovery; consumer serving remains gated.
 
-The next capability is the separately owned Application projection and
-`DataBindingSet` preflight, followed by transaction/store and commit capabilities. Before
-data implementation, resolve the proposed
-[CMS read contract](./07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract),
-[lock order](../04-transactions-and-commit-publication.md#proposed-lock-order-reconciliation)
-and [binding recovery](../02-schema-artifacts-and-bindings.md#proposed-binding-recovery-contract).
+The next concrete proposal is the [scalar relational transaction/store](./15-scalar-relational-transaction-and-store.md),
+constrained by the accepted [execution profiles](./14-transaction-execution-profiles.md).
+It resolves the proposed initial lock order and defines the new cancellation
+and rollback-only lifecycle for approval before implementation. Receipt families
+and finalization follow under their commit owner. The proposed
+[CMS read contract](./07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract)
+remains a requirement before the Payload host; it does not authorize routing
+Payload content through the synthetic reserved-relational store.
 Each capability should deliver an executable outcome with its failure proofs;
 ordinary implementation details do not require serial prerequisite-doc gates.
