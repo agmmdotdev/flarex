@@ -5,6 +5,7 @@ import { sql, type SQL } from "drizzle-orm";
 
 import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
+import { hasRelationalOperationCodec } from "./operation";
 import {
   capturePrivateCanonicalValue,
 } from "../frameworkSchema/privateCanonicalValue";
@@ -28,7 +29,7 @@ import { isCapturedFreshRelationalMigrationPlan } from "./canonical";
 import type { FrameworkSchemaValidationSha256 } from "./identity";
 import type {
   FrameworkMigrationStep,
-  FreshRelationalMigrationPlan,
+  RelationalMigrationPlan,
 } from "./model";
 import {
   isRestoredFrameworkMigrationAttemptStart,
@@ -126,7 +127,7 @@ interface RegisteredStructuralStep {
 
 interface RelationalStructuralRunnerState {
   readonly target: FrameworkMigrationTarget;
-  readonly plan: FreshRelationalMigrationPlan;
+  readonly plan: RelationalMigrationPlan;
   readonly steps: ReadonlyMap<FrameworkMigrationStep, RegisteredStructuralStep>;
 }
 
@@ -147,6 +148,19 @@ const tokenStates = new WeakMap<
  */
 const registeredStepFactories: ReadonlyMap<string, RegisteredStepFactory> =
   new Map<string, RegisteredStepFactory>([
+    [codecRegistryKey("flarex.relational-verify-base-structure", 1), (layout, step) => {
+      const operation = step.operation;
+      if (!hasRelationalOperationCodec(operation, "flarex.relational-verify-base-structure")) {
+        return Result.fail(invalidAuthorityError("preflight", "layout", null));
+      }
+      // The captured plan owns this immutable projection; target repositories
+      // independently corroborate it against the installed base before advancement.
+      const baseLayout = Object.freeze({ frame: operation.physicalLayout });
+      return Result.succeed(Object.freeze({ objectKind: "layout",
+        objectName: operation.expectedLayoutSha256, validation: true,
+        observe: transaction => observeLayout(transaction, baseLayout), buildDdl: null,
+      } satisfies RegisteredStructuralStep));
+    }],
     [
       codecRegistryKey("flarex.relational-create-table", 1),
       (layout, step) => Result.map(tableOperationResult(step), table =>
@@ -221,7 +235,7 @@ export const issueRelationalStructuralRunnerTokenEffect = Effect.fn(
   "RelationalStructuralRunner.issueToken",
 )(function* (
   target: FrameworkMigrationTarget,
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): Effect.fn.Return<
   RelationalStructuralRunnerToken,
   RelationalStructuralRunnerError
@@ -275,6 +289,19 @@ export const preflightRelationalStructuralPlanEffect = Effect.fn(
 ): Effect.fn.Return<void, RelationalStructuralRunnerError> {
   yield* runnerStateEffect(token, "preflight");
 });
+
+export const observeRelationalMigrationBaseEffect = Effect.fn("RelationalStructuralRunner.observeBase")(
+  function* (transaction: FlarexMetadataTransaction, plan: RelationalMigrationPlan): Effect.fn.Return<
+    RelationalStructuralObservation, RelationalStructuralRunnerError
+  > {
+    const operation = plan.frame.steps[0]?.operation;
+    if (!isCapturedFreshRelationalMigrationPlan(plan) || plan.frame.version !== 2 ||
+      operation === undefined || !hasRelationalOperationCodec(operation, "flarex.relational-verify-base-structure")) {
+      return yield* Effect.fail(invalidAuthorityError("observe", "plan", null));
+    }
+    return yield* observeLayout(transaction, { frame: operation.physicalLayout });
+  },
+);
 
 export const observeRelationalStructuralStepEffect = Effect.fn(
   "RelationalStructuralRunner.observeStep",
@@ -463,7 +490,7 @@ const registeredStepEffect = Effect.fn(
 
 function authenticateTargetPlan(
   target: FrameworkMigrationTarget,
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
   operation: RelationalStructuralRunnerError["operation"],
 ): Effect.Effect<void, RelationalStructuralRunnerError> {
   const snapshot = frameworkMigrationTargetSnapshot(target);
@@ -493,7 +520,7 @@ function authenticateTargetPlan(
 }
 
 function isExactPlanStep(
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
   step: FrameworkMigrationStep,
 ): boolean {
   return capturedPlanForStep(step) === plan &&
@@ -504,7 +531,7 @@ function isExactPlanStep(
 }
 
 function captureValidationReceiptEvidenceResult(
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
   receipts: readonly RestoredFrameworkMigrationStepReceipt[],
 ): Result.Result<
   Readonly<{
@@ -635,7 +662,7 @@ const observeLayout = Effect.fn(
   "RelationalStructuralRunner.observeLayout",
 )(function* (
   transaction: FlarexMetadataTransaction,
-  layout: RelationalPhysicalLayout,
+  layout: Pick<RelationalPhysicalLayout, "frame">,
 ): Effect.fn.Return<
   RelationalStructuralObservation,
   RelationalStructuralRunnerError
@@ -664,7 +691,7 @@ const observeTable = Effect.fn(
   "RelationalStructuralRunner.observeTable",
 )(function* (
   transaction: FlarexMetadataTransaction,
-  layout: RelationalPhysicalLayout,
+  layout: Pick<RelationalPhysicalLayout, "frame">,
   table: RelationalPhysicalTableProjection,
 ): Effect.fn.Return<
   RelationalStructuralObservation,
@@ -979,7 +1006,7 @@ const observeIndex = Effect.fn(
   "RelationalStructuralRunner.observeIndex",
 )(function* (
   transaction: FlarexMetadataTransaction,
-  layout: RelationalPhysicalLayout,
+  layout: Pick<RelationalPhysicalLayout, "frame">,
   index: RelationalPhysicalIndex,
 ): Effect.fn.Return<
   RelationalStructuralObservation,
@@ -1067,7 +1094,7 @@ const observeForeignKey = Effect.fn(
   "RelationalStructuralRunner.observeForeignKey",
 )(function* (
   transaction: FlarexMetadataTransaction,
-  layout: RelationalPhysicalLayout,
+  layout: Pick<RelationalPhysicalLayout, "frame">,
   foreignKey: RelationalPhysicalForeignKey,
 ): Effect.fn.Return<
   RelationalStructuralObservation,
@@ -1313,7 +1340,7 @@ const referencedKeyMatches = Effect.fn(
   "RelationalStructuralRunner.matchReferencedKey",
 )(function* (
   transaction: FlarexMetadataTransaction,
-  layout: RelationalPhysicalLayout,
+  layout: Pick<RelationalPhysicalLayout, "frame">,
   foreignKey: RelationalPhysicalForeignKey,
   referencedIndexOid: string,
   context: CatalogContext,
@@ -1341,7 +1368,7 @@ const referencedKeyMatches = Effect.fn(
 });
 
 function referencedKeyCandidates(
-  layout: RelationalPhysicalLayout,
+  layout: Pick<RelationalPhysicalLayout, "frame">,
   foreignKey: RelationalPhysicalForeignKey,
 ): readonly ExpectedReferencedKey[] {
   if (foreignKey.kind === "scopeAuthorityForeignKey") {
@@ -1752,7 +1779,7 @@ function checkConstraintMatchesResult(
 const buildTableDdl = Effect.fn(
   "RelationalStructuralRunner.buildTableDdl",
 )(function* (
-  layout: RelationalPhysicalLayout,
+  layout: Pick<RelationalPhysicalLayout, "frame">,
   table: RelationalPhysicalTableProjection,
 ): Effect.fn.Return<string, RelationalStructuralRunnerError> {
   const schemaName = yield* Effect.fromResult(quoteIdentifierResult(
@@ -1817,7 +1844,7 @@ const buildTableDdl = Effect.fn(
 const buildIndexDdl = Effect.fn(
   "RelationalStructuralRunner.buildIndexDdl",
 )(function* (
-  layout: RelationalPhysicalLayout,
+  layout: Pick<RelationalPhysicalLayout, "frame">,
   index: RelationalPhysicalIndex,
 ): Effect.fn.Return<string, RelationalStructuralRunnerError> {
   const table = tableForIdentity(layout, index.table);
@@ -1871,7 +1898,7 @@ const buildIndexDdl = Effect.fn(
 const buildForeignKeyDdl = Effect.fn(
   "RelationalStructuralRunner.buildForeignKeyDdl",
 )(function* (
-  layout: RelationalPhysicalLayout,
+  layout: Pick<RelationalPhysicalLayout, "frame">,
   foreignKey: RelationalPhysicalForeignKey,
 ): Effect.fn.Return<string, RelationalStructuralRunnerError> {
   const sourceIdentity = foreignKey.kind === "scopeAuthorityForeignKey"
@@ -2581,7 +2608,7 @@ function splitTopLevelAnd(value: string): readonly string[] {
 }
 
 function tableForIdentity(
-  layout: RelationalPhysicalLayout,
+  layout: Pick<RelationalPhysicalLayout, "frame">,
   identity: RelationalTableIdentity,
 ): RelationalPhysicalTable | undefined {
   return layout.frame.tables.find(table =>

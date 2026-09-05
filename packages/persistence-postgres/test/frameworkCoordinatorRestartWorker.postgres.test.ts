@@ -1,6 +1,8 @@
+import { isStoredMigrationBaseInstallation } from "../src/migrationCoordination/storedValidation";
+import { admitCandidate } from "./frameworkCoordinatorAdditivePostgresTestSupport";
 import { describe, expect, it } from "vitest";
 import { executeNextFrameworkMigrationStepEffect, finalizeFrameworkMigrationClaimEffect,
-  runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
+  runFreshFrameworkMigrationCoordinatorEffect, runAdditiveFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
 import { createPostgresPersistence } from "../src/postgres";
 import { runEffect } from "./effectTestRuntime";
 import { createNativeCoordinatorFixture } from "./frameworkCoordinatorPostgresFixture";
@@ -29,12 +31,20 @@ worker("native framework restart worker", () => {
       }
     } });
     try {
+      const baseJson = process.env.FLAREX_FRAMEWORK_ADDITIVE_BASE;
+      const base: unknown = baseJson === undefined ? undefined : JSON.parse(baseJson);
+      if (base !== undefined && !isStoredMigrationBaseInstallation(base)) throw new Error("Invalid restart base reference");
+      const candidate = base === undefined ? undefined : await admitCandidate(fixture, "addon");
+      const run = (maximumStepsPerRun = 16) => base !== undefined && candidate !== undefined
+        ? runAdditiveFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun,
+          artifactIdentity: candidate.artifact.identity, baseInstallation: base,
+          attemptId: "candidate-attempt", leaseOwnerId: "candidate-worker" })
+        : runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun });
       if (mode === "resume") {
-        expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ kind: "ready" });
+        expect(await runEffect(run())).toMatchObject({ kind: "ready" });
         return;
       }
-      const pending = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input,
-        maximumStepsPerRun: mode === "partial" ? 2 : mode === "after-finalize" ? 7 : 0 }));
+      const pending = await runEffect(run(mode === "partial" ? 2 : mode === "after-finalize" ? (base === undefined ? 7 : 6) : 0));
       if (pending.kind !== "pending") throw new Error("Expected worker claim");
       if (mode === "partial") process.exit(73);
       armed = true;

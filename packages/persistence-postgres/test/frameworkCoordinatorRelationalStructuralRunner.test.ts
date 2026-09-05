@@ -18,7 +18,7 @@ import {
 } from "../src/migrationCoordination/migrationStepReceiptRepository";
 import type {
   FrameworkMigrationStep,
-  FreshRelationalMigrationPlan,
+  RelationalMigrationPlan,
 } from "../src/migrationCoordination/model";
 import {
   captureRelationalStructuralValidationSha256Effect,
@@ -918,7 +918,7 @@ async function createSyntheticRunnerFixture() {
   });
 }
 
-async function captureSyntheticPlan(): Promise<FreshRelationalMigrationPlan> {
+async function captureSyntheticPlan(): Promise<RelationalMigrationPlan> {
   const artifact = await syntheticSystemArtifact();
   const physicalLayout = await runEffect(captureRelationalPhysicalLayout({
     artifact: artifact.artifact,
@@ -933,7 +933,7 @@ async function captureSyntheticPlan(): Promise<FreshRelationalMigrationPlan> {
 
 async function establishTargetNamespace(
   database: Parameters<typeof executeSql>[0],
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): Promise<void> {
   const schemaName = plan.frame.targetNamespace.schemaName;
   await executeSql(database, `CREATE SCHEMA ${identifier(schemaName)}`);
@@ -948,7 +948,7 @@ async function establishTargetNamespace(
 
 function makePGliteTarget(
   database: Parameters<typeof executeSql>[0],
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): Promise<FrameworkMigrationTarget> {
   return runEffect(makePGliteFrameworkMigrationTargetEffect({
     persistence: { drizzle: database },
@@ -962,7 +962,7 @@ function makePGliteTarget(
 function makeTarget(
   database: Parameters<typeof executeSql>[0],
   driver: FrameworkMigrationSessionDriver,
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): Promise<FrameworkMigrationTarget> {
   return runEffect(makeFrameworkMigrationTargetEffect({
     database,
@@ -1061,13 +1061,13 @@ async function dropConstraint(
 }
 
 function requireTableSteps(
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): readonly FrameworkMigrationStep[] {
   return requireTableStepsByCount(plan, 2);
 }
 
 function requireTableStepsByCount(
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
   expectedCount: number,
 ): readonly FrameworkMigrationStep[] {
   const steps = plan.frame.steps.filter(step => "table" in step.operation);
@@ -1078,7 +1078,7 @@ function requireTableStepsByCount(
 }
 
 function requireIndexStep(
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): FrameworkMigrationStep {
   const step = plan.frame.steps.find(candidate =>
     "index" in candidate.operation
@@ -1090,7 +1090,7 @@ function requireIndexStep(
 }
 
 function requireOrdinaryForeignKeyStep(
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): FrameworkMigrationStep {
   const step = plan.frame.steps.find(candidate =>
     "foreignKey" in candidate.operation &&

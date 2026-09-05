@@ -5,9 +5,10 @@ three source-private slices for the no-base synthetic profile are implemented
 as separate PGlite-functional evidence: target/session, relational structural
 runner, and fresh coordinator plus its repository helpers. The bounded native
 PostgreSQL fresh profile now has independent contention and settlement evidence.
-This does not complete checkpoint 3. Bounded-lineage scale, base-backed
-execution, other native transports, production resolution, runtime,
-activation, and public API gates remain open.
+The separate [one-hop additive profile](./12-base-backed-additive-upgrade.md)
+now owns bounded base-backed execution and its PGlite/native acceptance.
+General lineage scale, other native transports, production resolution, runtime,
+activation and public API gates remain open.
 
 Last reviewed: 2026-09-05
 
@@ -26,7 +27,7 @@ as three separately reviewable commits:
 2. **Relational structural runner:** observe and execute the admitted
    expansion-only structural operations through the target transaction. Issue
    one source-private opaque token bound to the exact captured plan and target,
-   and resolve every step once through a fixed four-handler registry. Observe
+   and resolve every fresh step once through four fixed operation handlers. Observe
    and execute from the registered handler rather than switching on codec text
    at either call boundary.
 3. **Fresh coordinator and repository helpers:** claim and advance the stable
@@ -270,16 +271,16 @@ The implemented private fresh profile does not resolve these issues:
 - **Production target identity:** a host-owned production target resolver and
   driver registry must derive canonical physical database identity and issue
   targets. Caller-supplied test composition cannot become that authority.
-- **Production runner resolution:** the private four-handler registry can bind
+- **Production runner resolution:** the private fixed-handler registry can bind
   an authenticated plan/target token, but a later host composition root must
   still decide which admitted runner profile may be issued for a production
   target. Codec text, a decoded token, or caller composition cannot become
   that selection authority.
-- **Base-backed PostgreSQL acceptance:** the later upgrade profile must prove
-  its own contention, interruption, settlement and recovery. Fresh installation
-  evidence does not transfer automatically to base-backed execution. The
-  [bounded additive preflight](./12-base-backed-additive-upgrade.md) recommends
-  the next complete capability; implementation approval is pending.
+- **Broader upgrade profiles:** the
+  [additive contract](./12-base-backed-additive-upgrade.md) owns the implemented
+  one-hop successor and its independent contention, interruption, settlement
+  and recovery evidence. Fresh evidence does not establish these guarantees,
+  and neither profile admits general or destructive upgrades.
 - **Other native transports:** hosted poolers, TLS cancellation and production
   driver composition remain outside the direct non-TLS PostgreSQL test profile.
 
@@ -401,12 +402,13 @@ This brings forward the fresh-profile portion of native acceptance before the
 base-backed candidate in
 [the umbrella sequence](./09-relational-installation-and-migration-coordination.md#ordered-implementation-checkpoints).
 It tests the driver and coordinator together before adding upgrade semantics.
-The later base-backed PGlite and native proofs remain necessary; this capability
-does not close the whole coordinator checkpoint.
+The separate base-backed PGlite and native proofs are owned by
+[the additive capability](./12-base-backed-additive-upgrade.md); this fresh
+capability does not establish those guarantees by itself.
 
 ### Implementation Boundary And Reuse
 
-Keep the existing plan/value codecs, fixed four-handler registry, metadata
+Keep the existing plan/value codecs, fixed fresh-operation handlers, metadata
 catalog, repository authority, and PGlite adapter. Adapt the private
 `FrameworkMigrationSessionDriver` seam for native acquisition, bounded
 transaction execution and cleanup; any additional acquisition, whole-attempt

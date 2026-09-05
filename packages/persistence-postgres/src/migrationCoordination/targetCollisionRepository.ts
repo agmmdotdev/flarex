@@ -10,7 +10,7 @@ import {
 import type { FrameworkMigrationValueError } from "./errors";
 import type {
   FrameworkMigrationCollisionCoordinate,
-  FreshRelationalMigrationPlan,
+  RelationalMigrationPlan,
 } from "./model";
 import {
   FrameworkMigrationRepositoryError,
@@ -133,7 +133,7 @@ export const ensureFrameworkMigrationCollisionDomainInTransactionEffect =
   )(function* (
     transaction: FlarexMetadataTransaction,
     targetNamespace: RestoredFrameworkSchemaTargetNamespace,
-    plan: FreshRelationalMigrationPlan,
+    plan: RelationalMigrationPlan,
   ): Effect.fn.Return<
     RestoredFrameworkMigrationCollisionDomain,
     FrameworkMigrationRepositoryError

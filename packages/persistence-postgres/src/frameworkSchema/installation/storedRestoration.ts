@@ -17,7 +17,7 @@ import type {
   CapturedFrameworkMigrationValue,
   FrameworkMigrationAttemptTerminalFrame,
   FrameworkMigrationPlanAdmissionFrame,
-  FreshRelationalMigrationPlan,
+  RelationalMigrationPlan,
 } from "../../migrationCoordination/model";
 import {
   capturedAuthorityForFrameworkSchemaAvailabilityHistory,
@@ -79,7 +79,7 @@ export interface RestoreStoredFrameworkSchemaInstallationInput {
   readonly installationReceiptSha256:
     FrameworkSchemaInstallationReceiptSha256;
   readonly canonicalJson: string;
-  readonly plan: FreshRelationalMigrationPlan;
+  readonly plan: RelationalMigrationPlan;
   readonly admission: PlanAdmission;
   readonly terminal: AttemptTerminal;
 }

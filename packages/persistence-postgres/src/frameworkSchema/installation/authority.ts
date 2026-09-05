@@ -9,7 +9,7 @@ import type {
   CapturedFrameworkMigrationValue,
   FrameworkMigrationAttemptTerminalFrame,
   FrameworkMigrationPlanAdmissionFrame,
-  FreshRelationalMigrationPlan,
+  RelationalMigrationPlan,
 } from "../../migrationCoordination/model";
 import type {
   CapturedFrameworkSchemaInstallationValue,
@@ -45,7 +45,7 @@ type AttemptTerminal = CapturedFrameworkMigrationValue<
 >;
 
 export interface CapturedFrameworkSchemaInstallationAuthority {
-  readonly plan: FreshRelationalMigrationPlan;
+  readonly plan: RelationalMigrationPlan;
   readonly admission: PlanAdmission;
   readonly terminal: AttemptTerminal;
 }

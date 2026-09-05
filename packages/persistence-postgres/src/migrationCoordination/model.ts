@@ -6,6 +6,7 @@ import type { FrameworkSchemaArtifactIdentity } from
 import type { FrameworkSchemaArtifact } from
   "../frameworkSchema/artifact/model";
 import type { ScopePhysicalLocator } from "../scopeMetadataTypes";
+import type { FrameworkSchemaInstallationIdentity } from "../frameworkSchema/installation/model";
 import type {
   RelationalPhysicalForeignKey,
   RelationalPhysicalIndex,
@@ -75,6 +76,14 @@ export type FrameworkMigrationCollisionCoordinate = Readonly<{
 export type RelationalStructuralOperation =
   | (Readonly<{
       readonly codec: Readonly<{
+        readonly format: "flarex.relational-verify-base-structure";
+        readonly version: 1;
+      }> & JsonObject;
+      readonly physicalLayout: RelationalPhysicalLayoutFrame;
+      readonly expectedLayoutSha256: RelationalPhysicalLayoutSha256;
+    }> & JsonObject)
+  | (Readonly<{
+      readonly codec: Readonly<{
         readonly format: "flarex.relational-create-table";
         readonly version: 1;
       }> & JsonObject;
@@ -134,21 +143,40 @@ export type FrameworkMigrationStep = Readonly<{
   readonly operation: RelationalStructuralOperation;
 }> & JsonObject;
 
-export type FreshRelationalMigrationPlanFrame = Readonly<{
+export type FrameworkMigrationBaseInstallation = Readonly<{
+  readonly identity: FrameworkSchemaInstallationIdentity;
+  readonly installationReceiptSha256: FrameworkSchemaInstallationReceiptSha256;
+  readonly readinessSha256: FrameworkSchemaReadinessSha256;
+  readonly physicalLayoutSha256: RelationalPhysicalLayoutSha256;
+}> & JsonObject;
+
+type MigrationPlanFields = Readonly<{
   readonly format: typeof FRAMEWORK_MIGRATION_PLAN_FORMAT;
-  readonly version: typeof FRAMEWORK_MIGRATION_PLAN_VERSION;
   readonly artifact: Readonly<FrameworkSchemaArtifactIdentity> & JsonObject;
   readonly physicalLocator: Readonly<ScopePhysicalLocator> & JsonObject;
   readonly targetNamespace: FrameworkSchemaTargetNamespaceFrame;
   readonly collision: FrameworkMigrationCollisionCoordinate;
-  readonly baseInstallation: null;
   readonly physicalLayout: RelationalPhysicalLayoutFrame;
   readonly physicalLayoutSha256: RelationalPhysicalLayoutSha256;
   readonly steps: readonly FrameworkMigrationStep[];
 }> & JsonObject;
 
-export interface FreshRelationalMigrationPlan {
-  readonly frame: FreshRelationalMigrationPlanFrame;
+export type FreshRelationalMigrationPlanFrame = MigrationPlanFields & Readonly<{
+  readonly version: 1;
+  readonly baseInstallation: null;
+}>;
+
+export type AdditiveRelationalMigrationPlanFrame = MigrationPlanFields & Readonly<{
+  readonly version: 2;
+  readonly baseInstallation: FrameworkMigrationBaseInstallation;
+}>;
+
+export type RelationalMigrationPlanFrame =
+  | FreshRelationalMigrationPlanFrame
+  | AdditiveRelationalMigrationPlanFrame;
+
+export interface RelationalMigrationPlan {
+  readonly frame: RelationalMigrationPlanFrame;
   readonly migrationPlanSha256: FrameworkMigrationPlanSha256;
   readonly requiredStepSetSha256: string;
   readonly canonicalJson: string;
@@ -156,23 +184,36 @@ export interface FreshRelationalMigrationPlan {
   readonly targetNamespace: FrameworkSchemaTargetNamespace;
 }
 
-export type FrameworkMigrationPlanAdmissionFrame = Readonly<{
+export interface FreshRelationalMigrationPlan extends RelationalMigrationPlan {
+  readonly frame: FreshRelationalMigrationPlanFrame;
+}
+
+export interface AdditiveRelationalMigrationPlan extends RelationalMigrationPlan {
+  readonly frame: AdditiveRelationalMigrationPlanFrame;
+}
+
+type MigrationAdmissionFields = Readonly<{
   readonly format: typeof FRAMEWORK_MIGRATION_PLAN_ADMISSION_FORMAT;
-  readonly version: typeof FRAMEWORK_MIGRATION_PLAN_ADMISSION_VERSION;
   readonly collision: FrameworkMigrationCollisionCoordinate;
   readonly planSha256: FrameworkMigrationPlanSha256;
   readonly artifact: Readonly<FrameworkSchemaArtifactIdentity> & JsonObject;
   readonly physicalLocator: Readonly<ScopePhysicalLocator> & JsonObject;
   readonly targetNamespace: FrameworkSchemaTargetNamespaceFrame;
-  readonly baseInstallation: null;
   readonly nameAssignments: readonly Readonly<{
     readonly spelling: string;
     readonly assignmentSha256: RelationalPhysicalNameAssignmentSha256;
   } & JsonObject>[];
   readonly previousPlanSha256: FrameworkMigrationPlanSha256 | null;
-  readonly admissionProfile: "synthetic-system-fresh";
   readonly admittedAt: CanonicalIsoInstant;
 }> & JsonObject;
+
+export type FrameworkMigrationPlanAdmissionFrame = MigrationAdmissionFields & (
+  | Readonly<{ readonly version: 1; readonly baseInstallation: null;
+      readonly admissionProfile: "synthetic-system-fresh" }>
+  | Readonly<{ readonly version: 2;
+      readonly baseInstallation: FrameworkMigrationBaseInstallation;
+      readonly admissionProfile: "synthetic-system-additive" }>
+);
 
 export type FrameworkMigrationCurrentAttempt = Readonly<{
   readonly attemptId: FrameworkMigrationAttemptId;
@@ -323,7 +364,7 @@ export interface CaptureFreshRelationalMigrationPlanInput {
 }
 
 export interface CaptureFrameworkMigrationPlanAdmissionInput {
-  readonly plan: FreshRelationalMigrationPlan;
+  readonly plan: RelationalMigrationPlan;
   readonly nameAssignments: readonly RelationalPhysicalNameAssignment[];
   readonly previousPlanSha256: FrameworkMigrationPlanSha256 | null;
   readonly admittedAt: unknown;

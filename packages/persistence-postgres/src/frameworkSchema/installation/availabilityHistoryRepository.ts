@@ -1,3 +1,4 @@
+import { additiveMigrationGraphLimits, withFrameworkCollisionGraphLimits } from "../../migrationCoordination/additiveLimits";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../migrationCoordination/graphReadPass";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
@@ -651,6 +652,10 @@ const restoreAvailabilityHistoryChain = Effect.fn(
     );
   }
   const rootDecoded = yield* decodeAvailabilityHistoryRoot(root, operation);
+  const bounded = yield* additiveMigrationGraphLimits;
+  if (bounded && BigInt(rootDecoded.frame.availabilitySequence) > 8n) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+  }
   const rows: FrameworkSchemaAvailabilityHistoryDriverRow[] = [];
   const decodedRows: DecodedFrameworkSchemaAvailabilityHistoryRoot[] = [];
   const seenStorageIds = new Set<bigint>();
@@ -695,6 +700,7 @@ const restoreAvailabilityHistoryChain = Effect.fn(
       break;
     }
     if (decoded.previousHistoryStorageId === null) break;
+    if (bounded && rows.length >= 8) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
     const previous = yield* loadAvailabilityHistoryRootByStorageId(
       transaction,
       decoded.previousHistoryStorageId,
@@ -738,7 +744,8 @@ const restoreAvailabilityHistoryChain = Effect.fn(
     );
   }
   return rootOccupant;
-}, withFrameworkGraphReadPass);
+}, withFrameworkGraphReadPass, (read, transaction, _root, readiness, operation, _previous?: RestoredFrameworkSchemaAvailabilityHistory | null) =>
+  withFrameworkCollisionGraphLimits(read, transaction, readiness.installation.collision.storageId, operation));
 
 const decodeAvailabilityHistoryRoot = Effect.fn(
   "FrameworkSchemaAvailabilityHistoryRepository.decodeRoot",

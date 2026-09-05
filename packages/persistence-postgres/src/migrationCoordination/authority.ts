@@ -11,7 +11,7 @@ import type {
   FrameworkMigrationPlanAdmissionFrame,
   FrameworkMigrationStep,
   FrameworkMigrationStepReceiptFrame,
-  FreshRelationalMigrationPlan,
+  RelationalMigrationPlan,
 } from "./model";
 
 type PlanAdmission = CapturedFrameworkMigrationValue<
@@ -36,7 +36,7 @@ type AttemptTerminal = CapturedFrameworkMigrationValue<
 
 export interface CapturedMigrationAttemptAuthority {
   readonly admission: PlanAdmission;
-  readonly plan: FreshRelationalMigrationPlan;
+  readonly plan: RelationalMigrationPlan;
 }
 
 export interface CapturedMigrationStepReceiptAuthority {
@@ -50,12 +50,12 @@ export interface CapturedMigrationAttemptTerminalAuthority {
   readonly stepReceipts: readonly StepReceipt[];
 }
 
-const capturedPlans = new WeakSet<FreshRelationalMigrationPlan>();
+const capturedPlans = new WeakSet<RelationalMigrationPlan>();
 const capturedPlanSteps = new WeakMap<
   FrameworkMigrationStep,
-  FreshRelationalMigrationPlan
+  RelationalMigrationPlan
 >();
-const capturedAdmissions = new WeakMap<PlanAdmission, FreshRelationalMigrationPlan>();
+const capturedAdmissions = new WeakMap<PlanAdmission, RelationalMigrationPlan>();
 const capturedAttempts = new WeakMap<
   MigrationAttempt,
   CapturedMigrationAttemptAuthority
@@ -70,7 +70,7 @@ const capturedTerminals = new WeakMap<
 >();
 
 export function registerCapturedFreshRelationalMigrationPlan(
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): void {
   for (const step of plan.frame.steps) {
     capturedPlanSteps.set(step, plan);
@@ -79,27 +79,27 @@ export function registerCapturedFreshRelationalMigrationPlan(
 }
 
 export function isCapturedFreshRelationalMigrationPlanAuthority(
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): boolean {
   return capturedPlans.has(plan);
 }
 
 export function capturedPlanForStep(
   step: FrameworkMigrationStep,
-): FreshRelationalMigrationPlan | undefined {
+): RelationalMigrationPlan | undefined {
   return capturedPlanSteps.get(step);
 }
 
 export function registerCapturedFrameworkMigrationPlanAdmission(
   admission: PlanAdmission,
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): void {
   capturedAdmissions.set(admission, plan);
 }
 
 export function capturedPlanForAdmission(
   admission: PlanAdmission,
-): FreshRelationalMigrationPlan | undefined {
+): RelationalMigrationPlan | undefined {
   return capturedAdmissions.get(admission);
 }
 

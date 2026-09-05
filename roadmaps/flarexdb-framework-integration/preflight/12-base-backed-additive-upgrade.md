@@ -1,8 +1,9 @@
 # Bounded Base-Backed Additive Upgrade Preflight
 
-Status: researched recommendation; implementation is not yet approved. This
-document specifies one coherent capability covering values, metadata, execution
-and PGlite/native recovery. It does not admit an upgrade profile by itself.
+Status: implemented privately with PGlite and ordinary-role PostgreSQL
+acceptance. This document owns the one-hop additive profile, its persisted
+contracts, work limits and recovery evidence. Production selection and
+framework adapters remain separate gates.
 
 ## Outcome And Scope
 
@@ -22,21 +23,20 @@ hosted transports and production routing stay outside this capability.
 The owner is the private persistence migration coordinator and its installation
 repositories. [The umbrella](./09-relational-installation-and-migration-coordination.md#ordered-implementation-checkpoints)
 owns sequence; [the fresh profile](./11-target-session-and-fresh-coordinator.md)
-remains implemented and independently bounded. This recommendation covers the
+remains implemented and independently bounded. This accepted capability covers the
 bounded base-backed candidate and its native acceptance together, before the
 later binding preflight.
 
-## Current Evidence And Design Challenge
+## Accepted Design And Ownership
 
-| Current seam | Consequence for an upgrade |
+| Owned seam | Implemented contract |
 | --- | --- |
-| `migrationCoordination/model.ts` and `canonical.ts` require a null base and `synthetic-system-fresh` admission | A base needs a real canonical contract, not an optional unverified caller object. |
-| `storedValidation.ts` reproduces a create step for every candidate table/index/foreign key | A delta cannot pass by merely filtering fresh steps; cold restoration must reproduce the additive plan. |
-| `freshCoordinator.ts` preparation requires the existing head's exact plan | A successor needs an explicit admission/head transition; retries of the same successor must be distinguished from a new competing candidate. |
-| `relationalStructuralRunner.ts` rejects exact pre-existing DDL postconditions without current receipts | Retained base objects need authenticated observation evidence. Keep this rejection for newly requested objects. |
-| `schema.ts` constrains the admission profile and four operation formats | The new profile and base evidence require owned metadata changes and migration tests. |
-| Installation/readiness repositories restore immutable evidence; availability has a separate mutable head | A successful historical installation is insufficient when its current availability is no longer admissible. |
-| Read-only graph reuse retains at most 512 references per pass | That bounds reuse, not predecessor traversal or cross-pass work. The upgrade needs explicit lineage limits. |
+| Plan and admission canonical values | Fresh version-1 bytes remain exact; additive version 2 requires the full base installation/readiness/layout reference. |
+| Normalized metadata | The private plan-base table pins candidate, collision, base plan, installation receipt and readiness with composite foreign keys. |
+| Cold restoration | The decoder reproduces the retained layout and exact additive step set, then authenticates the base graph; decoded bytes alone confer no authority. |
+| Structural runner | Explicit base verification observes retained objects and receives its own receipt. Exact new objects without candidate receipts remain refused. |
+| Shared coordinator | Admission moves a successful fresh head to its exact successor; retries resume B, and competing C or stale A cannot replace it. |
+| Availability | Each advancing transaction locks A's current availability head and re-observes its retained catalog. Historical readiness alone is insufficient. |
 
 The [accepted framework architecture](../../../design-notes/flarexdb-framework-storage-architecture.md)
 keeps physical migration separate from activation and domain data mutation.
@@ -52,7 +52,7 @@ receipts into B; resetting the collision head; and replacing the shared core
 with framework-specific migration runners. Each loses either provenance,
 fencing, exact structural comparison or a shared ownership boundary.
 
-## Recommended Contracts And Storage
+## Canonical Contracts And Storage
 
 Keep fresh plan/admission version-1 bytes, digests and decoding unchanged.
 Introduce version 2 of those two persisted frame contracts for the additive
@@ -173,14 +173,15 @@ COMMIT response resolves via a distinct authenticated recovery session and
 durable evidence. Never infer rollback, delete committed additions, or replay
 DDL speculatively. Partial B state remains recorded and owned by B on refusal.
 
-## Proposed Admission And Work Limits
+## Admission And Work Limits
 
-Start with a fresh base of at most seven plan steps, one additive successor of
+The private execution profile admits a fresh base of at most seven plan steps, one additive successor of
 at most eight steps including base verification and final validation, and at
 most two attempts per plan. Permit at most two plan admissions, 128 migration
 events across the collision lineage and eight availability-history nodes per
-installation. These are proposed execution-profile ceilings to measure, not
-scalability claims. The existing fresh fifteen-step profile is unchanged.
+installation. These are bounded execution-profile ceilings, not general
+scalability claims. The exact one-table profile currently emits six steps; the
+eight-step envelope does not admit extra indexes, tables or operation kinds. The existing fresh fifteen-step profile is unchanged.
 
 Enforce traversal budgets before following excess links, including cold
 restoration; do not restore an unbounded graph and only then count it. Preserve
@@ -231,4 +232,29 @@ partitioned checks rather than a passing monolithic command.
 Classify existing fresh kernels and drivers as **keep/reuse**, fresh APIs as
 **keep**, and fresh-only decoder/admission policies as **extend explicitly**.
 There is no legacy executor removal, framework package promotion or temporary
-storage bridge in this recommendation.
+storage bridge in this capability.
+
+## Current Boundary And Next Capability
+
+The private shared coordinator now executes fresh A -> additive B -> exact B
+replay, preserving retained rows and catalog identities. The six-step successor
+has separate base-verification evidence, an immutable normalized base reference,
+and current availability checks held under row lock. Cold restoration enforces
+the admitted graph limits before following excess links; read-pass reuse keeps
+the active limit policy in its cache identity.
+
+PGlite covers canonical compatibility, catalog migration and rollback, malformed
+or missing evidence, structural refusals, reconstruction and boundary limits.
+Direct ordinary-role PostgreSQL covers physical preservation, competing claims,
+availability locking, foreign-key contention, process restart, lease takeover,
+stale fences and lost COMMIT responses. Native advancement fits the unchanged
+transaction and statement ceilings for the admitted profile. These proofs do
+not establish general lineage scale or hosted transport behavior.
+
+The next capability is the separately owned Application projection and
+`DataBindingSet` preflight in the
+[umbrella sequence](./09-relational-installation-and-migration-coordination.md#deferred-binding-boundary).
+It must join exact installation evidence with authenticated residual
+adapter/query/store profiles while preserving the Application selector and
+framework domain mutation authority. Binding implementation, transaction/store
+work and the Payload/Medusa consumer proofs remain later approvals.

@@ -1,10 +1,16 @@
+import { withAdditiveMigrationGraphLimits } from "./additiveLimits";
+import { isStoredMigrationBaseInstallation } from "./storedValidation";
 import {
   canonicalIsoInstantFromDate,
   type CanonicalIsoInstant,
 } from "@flarex/time/iso-instant";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Brand, Data, Effect, Option } from "effect";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { captureAdditiveRelationalMigrationPlan } from "./additivePlan";
+import { authenticateFrameworkMigrationBaseEffect } from "./baseRepository";
+import { fxSystemFrameworkSchemaAvailabilityHeads } from "../frameworkSchema/installation/schema";
+import { fxSystemFrameworkMigrationAttemptStarts } from "./schema";
 
 import { databaseTimestampFromUnknown } from "../databaseTimestamp";
 import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
@@ -94,7 +100,8 @@ import {
 } from "./migrationStepReceiptRepository";
 import type {
   FrameworkMigrationStep,
-  FreshRelationalMigrationPlan,
+  RelationalMigrationPlan,
+  FrameworkMigrationBaseInstallation,
 } from "./model";
 import {
   ensureRelationalPhysicalNameAssignmentInTransactionEffect,
@@ -105,6 +112,7 @@ import {
   issueRelationalStructuralRunnerTokenEffect,
   observeRelationalStructuralStepEffect,
   preflightRelationalStructuralPlanEffect,
+  observeRelationalMigrationBaseEffect,
   type RelationalStructuralRunnerError,
   type RelationalStructuralRunnerToken,
 } from "./relationalStructuralRunner";
@@ -201,6 +209,10 @@ export interface RunFreshFrameworkMigrationCoordinatorInput {
   readonly runTimeoutMilliseconds?: number;
 }
 
+export interface RunAdditiveFrameworkMigrationCoordinatorInput extends RunFreshFrameworkMigrationCoordinatorInput {
+  readonly baseInstallation: FrameworkMigrationBaseInstallation;
+}
+
 export interface FrameworkMigrationReadyResult {
   readonly kind: "ready";
   readonly replayed: boolean;
@@ -236,7 +248,7 @@ export type FreshFrameworkMigrationCoordinatorResult =
 interface FrameworkMigrationClaimState {
   readonly target: FrameworkMigrationTarget;
   readonly collision: RestoredFrameworkMigrationCollisionDomain;
-  readonly plan: FreshRelationalMigrationPlan;
+  readonly plan: RelationalMigrationPlan;
   readonly attemptId: string;
   readonly attemptFence: string;
   readonly leaseOwnerId: string;
@@ -255,7 +267,7 @@ interface PreparedCoordinatorGraph {
 interface LockedClaimState {
   readonly head: RestoredFrameworkMigrationCollisionHead;
   readonly attempt: RestoredFrameworkMigrationAttemptStart;
-  readonly plan: FreshRelationalMigrationPlan;
+  readonly plan: RelationalMigrationPlan;
   readonly structuralRunner: RelationalStructuralRunnerToken;
   readonly receipts: readonly RestoredFrameworkMigrationStepReceipt[];
   readonly databaseNow: CanonicalIsoInstant;
@@ -313,14 +325,32 @@ export const runFreshFrameworkMigrationCoordinatorEffect = Effect.fn(
   "FreshFrameworkMigrationCoordinator.run",
 )((input: RunFreshFrameworkMigrationCoordinatorInput): Effect.Effect<
   FreshFrameworkMigrationCoordinatorResult, FrameworkMigrationCoordinatorFailure
-> => Effect.suspend(() => {
+> => runCoordinatorEffect(input));
+
+export const runAdditiveFrameworkMigrationCoordinatorEffect = Effect.fn("AdditiveFrameworkMigrationCoordinator.run")(
+  (input: RunAdditiveFrameworkMigrationCoordinatorInput): Effect.Effect<
+    FreshFrameworkMigrationCoordinatorResult, FrameworkMigrationCoordinatorFailure
+  > => Effect.suspend(() => isStoredMigrationBaseInstallation(input.baseInstallation)
+    ? withAdditiveMigrationGraphLimits(runCoordinatorEffect(input, Object.freeze({ ...input.baseInstallation,
+      identity: Object.freeze({ ...input.baseInstallation.identity,
+        artifact: Object.freeze({ ...input.baseInstallation.identity.artifact }),
+        physicalLocator: Object.freeze({ ...input.baseInstallation.identity.physicalLocator }),
+        targetNamespace: Object.freeze({ ...input.baseInstallation.identity.targetNamespace }),
+      }),
+    })))
+    : Effect.fail(coordinatorError("prepare", "invalidInput", "Additive migration requires an exact base reference"))),
+);
+
+const runCoordinatorEffect = Effect.fn("FrameworkMigrationCoordinator.run")((input: RunFreshFrameworkMigrationCoordinatorInput,
+  base?: FrameworkMigrationBaseInstallation): Effect.Effect<FreshFrameworkMigrationCoordinatorResult,
+    FrameworkMigrationCoordinatorFailure> => Effect.suspend(() => {
   const timeout = input.runTimeoutMilliseconds ?? 120_000;
   if (!Number.isSafeInteger(timeout) || timeout <= 0 || timeout > 300_000) {
     return Effect.fail(coordinatorError("prepare", "invalidInput", "Invalid fresh coordinator run budget"));
   }
   // Interruption is not evidence of non-commit. The target owns settlement and
   // cleanup; a later run reconstructs the exact durable prefix or readiness.
-  return Effect.raceFirst(runFreshCoordinatorWithinBudgetEffect(input),
+  return Effect.raceFirst(runFreshCoordinatorWithinBudgetEffect(input, base),
     Effect.sleep(timeout).pipe(Effect.andThen(Effect.fail(coordinatorError(
       "prepare", "resourceFailure", "Fresh coordinator run deadline expired; resume from durable state",
     )))));
@@ -330,6 +360,7 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
   "FreshFrameworkMigrationCoordinator.runWithinBudget",
 )(function* (
   input: RunFreshFrameworkMigrationCoordinatorInput,
+  base?: FrameworkMigrationBaseInstallation,
 ): Effect.fn.Return<
   FreshFrameworkMigrationCoordinatorResult,
   FrameworkMigrationCoordinatorFailure
@@ -375,10 +406,25 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
     physicalLocator: snapshot.physicalLocator,
     targetNamespace: snapshot.namespace,
   });
-  const plan = yield* captureFreshRelationalMigrationPlan({
+  let plan: RelationalMigrationPlan = yield* captureFreshRelationalMigrationPlan({
     artifact,
     physicalLayout,
   });
+  if (base !== undefined) {
+    const candidate = plan;
+    const readiness = yield* runFrameworkMigrationTargetTransactionEffect(input.target, ordinaryRequest(input),
+      transaction => withFrameworkMigrationRawTransactionEffect(transaction, input.target, raw => Effect.gen(function* () {
+        const target = yield* ensureFrameworkSchemaTargetNamespaceInTransactionEffect(raw, candidate.targetNamespace);
+        const collision = yield* ensureFrameworkMigrationCollisionDomainInTransactionEffect(raw, target, candidate);
+        return yield* authenticateFrameworkMigrationBaseEffect(raw, collision, base, "readPlan");
+      })));
+    if (readiness.installation.plan.plan.frame.steps.length > 7) {
+      return yield* Effect.fail(coordinatorError("prepare", "invalidInput", "Additive base exceeds seven steps"));
+    }
+    plan = yield* captureAdditiveRelationalMigrationPlan({ artifact, physicalLayout,
+      baseInstallation: readiness.installation.installation, baseReadiness: readiness.readiness });
+    if (plan.frame.steps.length > 8) return yield* Effect.fail(coordinatorError("prepare", "invalidInput", "Additive plan exceeds eight steps"));
+  }
   if (plan.frame.steps.length > 15) {
     return yield* Effect.fail(coordinatorError("prepare", "invalidInput",
       "Fresh coordinator execution supports at most 15 plan steps"));
@@ -436,7 +482,7 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
 
 function prepareCoordinatorGraphEffect(
   input: RunFreshFrameworkMigrationCoordinatorInput,
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): Effect.Effect<PreparedCoordinatorGraph, FrameworkMigrationCoordinatorFailure> {
   return runFrameworkMigrationTargetTransactionEffect(
     input.target,
@@ -451,7 +497,7 @@ function prepareCoordinatorGraphEffect(
 
 function prepareCoordinatorGraphWithRecoveryEffect(
   input: RunFreshFrameworkMigrationCoordinatorInput,
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): Effect.Effect<
   PreparedCoordinatorGraph,
   FrameworkMigrationCoordinatorFailure
@@ -474,7 +520,7 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
   "FreshFrameworkMigrationCoordinator.prepareGraph",
 )(function* (
   transaction: FlarexMetadataTransaction,
-  planValue: FreshRelationalMigrationPlan,
+  planValue: RelationalMigrationPlan,
 ): Effect.fn.Return<PreparedCoordinatorGraph, FrameworkMigrationCoordinatorFailure> {
   const target = yield* ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
     transaction,
@@ -508,7 +554,7 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
       transaction,
       collision,
     );
-  if (Option.isSome(existingHead)) {
+  if (Option.isSome(existingHead) && existingHead.value.plan.plan.migrationPlanSha256 === planValue.migrationPlanSha256) {
     yield* requireExactPlan(existingHead.value.plan.plan, planValue, "prepare");
     return Object.freeze({
       collision: existingHead.value.collision,
@@ -517,26 +563,45 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
       head: existingHead.value,
     });
   }
+  if (planValue.frame.version === 1 && Option.isSome(existingHead)) {
+    return yield* Effect.fail(coordinatorError("prepare", "planConflict", "Fresh plan conflicts with the current head"));
+  }
+  if (planValue.frame.version === 2) {
+    if (Option.isNone(existingHead) || existingHead.value.plan.plan.frame.version !== 1 ||
+      existingHead.value.plan.plan.migrationPlanSha256 !== planValue.frame.baseInstallation.identity.migrationPlanSha256) {
+      return yield* Effect.fail(coordinatorError("prepare", "planConflict", "Additive base is not the current successful fresh head"));
+    }
+    yield* requireAdmissibleBase(transaction, collision, planValue);
+    if (Option.isNone(yield* readyFromLockedHead(transaction, existingHead.value, true))) {
+      return yield* Effect.fail(coordinatorError("prepare", "planConflict", "Additive base has no current readiness publication"));
+    }
+    if (BigInt(existingHead.value.head.frame.lastEvent?.sequence ?? "0") + BigInt(planValue.frame.steps.length + 8) > 128n) {
+      return yield* Effect.fail(coordinatorError("prepare", "invalidInput", "Additive event budget cannot accommodate the successor"));
+    }
+  }
+  const previousHead = Option.getOrNull(existingHead);
+  const previousEvent = previousHead === null ? null : restoredFrameworkMigrationCollisionHeadAuthority(previousHead)?.lastEvent;
+  if (previousEvent === undefined) return yield* Effect.fail(corruption("prepare", "Missing predecessor event authority"));
   const clock = yield* readDatabaseClock(transaction, 1);
   const admissionValue = yield* captureFrameworkMigrationPlanAdmission({
     plan: plan.plan,
     nameAssignments: plan.plan.physicalLayout.nameAssignments,
-    previousPlanSha256: null,
+    previousPlanSha256: previousHead?.plan.plan.migrationPlanSha256 ?? null,
     admittedAt: clock.databaseNow,
   });
   const admission = yield*
     ensureFrameworkMigrationPlanAdmissionInTransactionEffect(
       transaction,
       plan,
-      null,
+      previousHead?.plan ?? null,
       admissionValue,
     );
   const eventValue = yield* captureFrameworkMigrationEvent({
     format: FRAMEWORK_MIGRATION_EVENT_FORMAT,
     version: FRAMEWORK_MIGRATION_EVENT_VERSION,
     collision: collision.coordinate,
-    sequence: brandNonNegativeInt64("1"),
-    previousEvent: null,
+    sequence: previousEvent === null ? brandNonNegativeInt64("1") : nextInt64(previousEvent.event.frame.sequence),
+    previousEvent: previousEvent === null ? null : eventToken(previousEvent),
     recordedAt: clock.databaseNow,
     kind: "planAdmitted",
     admissionSha256: admission.admission.sha256,
@@ -544,19 +609,21 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
   const event = yield* appendFrameworkMigrationEventInTransactionEffect(
     transaction,
     collision,
-    null,
+    previousEvent,
     Object.freeze({ kind: "planAdmitted", admission }),
     eventValue,
   );
   const headValue = yield* captureFrameworkMigrationCollisionHead({
     admission: admission.admission,
-    headRevision: "1",
-    attemptFence: "0",
+    headRevision: previousHead === null ? "1" : nextInt64(previousHead.head.frame.headRevision),
+    attemptFence: previousHead?.head.frame.attemptFence ?? "0",
     currentAttempt: null,
     lastEvent: eventToken(event),
     updatedAt: clock.databaseNow,
   });
-  const head = yield* initializeFrameworkMigrationCollisionHeadInTransactionEffect(
+  const head = previousHead !== null
+    ? yield* compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect(transaction, previousHead, admission, null, event, headValue)
+    : yield* initializeFrameworkMigrationCollisionHeadInTransactionEffect(
     transaction,
     collision,
     admission,
@@ -575,7 +642,7 @@ type ClaimCoordinatorAttemptResult =
 function claimCoordinatorAttemptEffect(
   input: RunFreshFrameworkMigrationCoordinatorInput,
   graph: PreparedCoordinatorGraph,
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
 ): Effect.Effect<ClaimCoordinatorAttemptResult, FrameworkMigrationCoordinatorFailure> {
   const run = (
     request: FrameworkMigrationTransactionRequest,
@@ -600,7 +667,7 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
 )(function* (
   input: RunFreshFrameworkMigrationCoordinatorInput,
   graph: PreparedCoordinatorGraph,
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
   transaction: FrameworkMigrationTransaction,
 ): Effect.fn.Return<ClaimCoordinatorAttemptResult, FrameworkMigrationCoordinatorFailure> {
   return yield* withFrameworkMigrationRawTransactionEffect(
@@ -622,6 +689,7 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
       yield* requireExactPlan(currentHead.plan.plan, graph.plan.plan, "claim");
       const ready = yield* readyFromLockedHead(raw, currentHead, true);
       if (Option.isSome(ready)) return ready.value;
+      yield* requireAdmissibleBase(raw, currentHead.collision, currentHead.plan.plan);
       const clock = yield* readDatabaseClock(
         raw,
         input.leaseDurationMilliseconds,
@@ -663,6 +731,7 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
             leaseExpiresAt: currentProjection.leaseExpiresAt,
           });
         }
+        yield* reserveAdditiveClaim(raw, currentHead);
         const receipts = yield*
           readFrameworkMigrationStepReceiptPrefixInTransactionEffect(
             raw,
@@ -727,6 +796,7 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
           "Collision head current-attempt projection is inconsistent",
         ));
       }
+      if (previousAttempt === null) yield* reserveAdditiveClaim(raw, currentHead);
       const attemptFence = nextInt64(currentHead.head.frame.attemptFence);
       const attemptValue = yield* captureFrameworkMigrationAttemptStart({
         admission: currentHead.admission.admission,
@@ -892,7 +962,7 @@ export const executeNextFrameworkMigrationStepEffect = Effect.fn(
   ExecuteNextFrameworkMigrationStepResult,
   FrameworkMigrationCoordinatorFailure
 > {
-  return yield* executeNextStepInternal(claim, true);
+  return yield* withClaimGraphLimits(executeNextStepInternal(claim, true), claim);
 });
 
 function executeNextStepInternal(
@@ -1155,6 +1225,7 @@ function recoverStepDecisionEffect(
         if (Option.isNone(observation)) return STRUCTURE_MISMATCH_RESULT;
         if (recoveredStep.operation.codec.format !==
             "flarex.relational-validate-structure" &&
+            recoveredStep.operation.codec.format !== "flarex.relational-verify-base-structure" &&
             observation.value === "exact") {
           return yield* Effect.fail(corruption(
             "recover",
@@ -1202,7 +1273,7 @@ export const readFrameworkMigrationClaimProgressEffect = Effect.fn(
       ),
     ),
   );
-});
+}, withClaimGraphLimits);
 
 export function finalizeFrameworkMigrationClaimEffect(
   claim: FrameworkMigrationClaim,
@@ -1210,7 +1281,7 @@ export function finalizeFrameworkMigrationClaimEffect(
   FrameworkMigrationReadyResult | FrameworkMigrationNotReadyResult,
   FrameworkMigrationCoordinatorFailure
 > {
-  return finalizeClaimInternal(claim, true);
+  return withClaimGraphLimits(finalizeClaimInternal(claim, true), claim);
 }
 
 function finalizeClaimInternal(
@@ -1279,6 +1350,7 @@ const finalizeInTransaction = Effect.fn(
   const existingReady = yield* readyFromLockedHead(raw, initialHead.value, true);
   if (Option.isSome(existingReady)) return existingReady.value;
   const locked = yield* validateLockedClaimHead(raw, state, initialHead.value);
+  yield* reserveAdditiveEvents(locked.head, 4);
   if (locked.receipts.length !== state.plan.frame.steps.length) {
     return yield* Effect.fail(coordinatorError(
       "finalize",
@@ -1624,6 +1696,29 @@ const loadLockedClaimState = Effect.fn(
   );
 });
 
+const requireAdmissibleBase = Effect.fn("FrameworkMigrationCoordinator.requireBase")(
+  function* (raw: FlarexMetadataTransaction, collision: RestoredFrameworkMigrationCollisionDomain,
+    plan: RelationalMigrationPlan): Effect.fn.Return<void, FrameworkMigrationCoordinatorFailure> {
+    if (plan.frame.version === 1) return;
+    const base = yield* authenticateFrameworkMigrationBaseEffect(raw, collision, plan.frame.baseInstallation, "readPlan");
+    const locked = yield* runDrizzleStatementEffect(raw.select({
+      status: fxSystemFrameworkSchemaAvailabilityHeads.status,
+      sequence: fxSystemFrameworkSchemaAvailabilityHeads.availabilitySequence,
+    }).from(fxSystemFrameworkSchemaAvailabilityHeads).where(eq(
+      fxSystemFrameworkSchemaAvailabilityHeads.installationStorageId, base.installation.storageId,
+    )).for("update"), cause => coordinatorError("step", "resourceFailure", "Base availability lock failed", cause));
+    if (locked.length !== 1 || locked[0]?.status !== "ready" || locked[0].sequence > 8n) {
+      return yield* Effect.fail(coordinatorError("step", "planConflict", "Base availability is not admissible"));
+    }
+    const availability = yield* readFrameworkSchemaAvailabilityHeadInTransactionEffect(raw, base.installation);
+    if (Option.isNone(availability) || availability.value.head.frame.status !== "ready" ||
+      availability.value.head.frame.readinessSha256 !== base.readiness.sha256 ||
+      (yield* observeRelationalMigrationBaseEffect(raw, plan)) !== "exact") {
+      return yield* Effect.fail(coordinatorError("step", "planConflict", "Base evidence or retained structure changed"));
+    }
+  },
+);
+
 const validateLockedClaimHead = Effect.fn(
   "FreshFrameworkMigrationCoordinator.validateLockedClaim",
 )(function* (
@@ -1633,6 +1728,8 @@ const validateLockedClaimHead = Effect.fn(
   requireUnexpiredLease = true,
 ): Effect.fn.Return<LockedClaimState, FrameworkMigrationCoordinatorFailure> {
   yield* requireExactPlan(head.plan.plan, state.plan, "step");
+  yield* requireAdmissibleBase(raw, head.collision, head.plan.plan);
+  yield* reserveAdditiveEvents(head, 2);
   const authority = restoredFrameworkMigrationCollisionHeadAuthority(head);
   const projection = head.head.frame.currentAttempt;
   const attempt = authority?.currentAttempt;
@@ -1765,6 +1862,7 @@ const appendEvent = Effect.fn(
   subject: RestoredFrameworkMigrationEventSubject,
   variant: FrameworkMigrationEventVariant,
 ): Effect.fn.Return<RestoredFrameworkMigrationEvent, FrameworkMigrationCoordinatorFailure> {
+  yield* reserveAdditiveEvents(head, 1);
   const authority = restoredFrameworkMigrationCollisionHeadAuthority(head);
   if (authority === undefined) {
     return yield* Effect.fail(corruption(
@@ -1914,7 +2012,7 @@ const readDatabaseClock = Effect.fn(
 function makeClaim(
   input: RunFreshFrameworkMigrationCoordinatorInput,
   collision: RestoredFrameworkMigrationCollisionDomain,
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
   attemptFence: string,
 ): FrameworkMigrationClaim {
   const claim = Object.freeze({
@@ -1935,8 +2033,8 @@ function makeClaim(
 }
 
 function requireExactPlan(
-  actual: FreshRelationalMigrationPlan,
-  expected: FreshRelationalMigrationPlan,
+  actual: RelationalMigrationPlan,
+  expected: RelationalMigrationPlan,
   operation: FrameworkMigrationCoordinatorError["operation"],
 ): Effect.Effect<void, FrameworkMigrationCoordinatorError> {
   return actual.migrationPlanSha256 === expected.migrationPlanSha256 &&
@@ -2033,3 +2131,25 @@ function isIdentityText(value: string): boolean {
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+function withClaimGraphLimits<Value, Failure>(effect: Effect.Effect<Value, Failure>, claim: FrameworkMigrationClaim): Effect.Effect<Value, Failure> {
+  return claimStates.get(claim)?.plan.frame.version === 2 ? withAdditiveMigrationGraphLimits(effect) : effect;
+}
+
+function reserveAdditiveEvents(head: RestoredFrameworkMigrationCollisionHead, count: number): Effect.Effect<void, FrameworkMigrationCoordinatorError> {
+  return head.plan.plan.frame.version === 2 && BigInt(head.head.frame.lastEvent?.sequence ?? "0") + BigInt(count) > 128n
+    ? Effect.fail(coordinatorError("step", "invalidInput", "Additive event budget is exhausted")) : Effect.void;
+}
+
+const reserveAdditiveClaim = Effect.fn("FrameworkMigrationCoordinator.reserveClaim")(
+  function* (raw: FlarexMetadataTransaction, head: RestoredFrameworkMigrationCollisionHead): Effect.fn.Return<
+    void, FrameworkMigrationCoordinatorError
+  > {
+    if (head.plan.plan.frame.version === 1) return;
+    yield* reserveAdditiveEvents(head, head.plan.plan.frame.steps.length + 3);
+    const attempts = yield* runDrizzleStatementEffect(raw.select({ id: fxSystemFrameworkMigrationAttemptStarts.attemptStorageId })
+      .from(fxSystemFrameworkMigrationAttemptStarts).where(eq(fxSystemFrameworkMigrationAttemptStarts.planStorageId,
+        head.plan.storageId)).limit(2), cause => coordinatorError("claim", "resourceFailure", "Attempt budget read failed", cause));
+    if (attempts.length >= 2) return yield* Effect.fail(coordinatorError("claim", "invalidInput", "Additive attempt budget is exhausted"));
+  },
+);

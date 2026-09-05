@@ -7,15 +7,16 @@ decomposed by
 [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md);
 its source-private target/session, structural runner, and fresh coordinator
 have private PGlite functional evidence and bounded native PostgreSQL fresh
-installation/recovery evidence. Base-backed execution and its native acceptance,
-scale, production resolution, binding,
-and activation remain open.
+installation/recovery evidence. The separately owned
+[one-hop additive profile](./12-base-backed-additive-upgrade.md) also has
+PGlite and native acceptance within its explicit graph/work limits. General
+lineage scale, production resolution, binding and activation remain open.
 
 Last reviewed: 2026-09-05
 
 ## Decision
 
-The next shared-core owner is a private, target-local relational installation
+The shared-core owner is a private, target-local relational installation
 and structural migration domain. It consumes one already-admitted
 `FrameworkSchemaArtifact` whose payload is an exact normalized
 `RelationalSchema`, lowers that desired value into a deterministic PostgreSQL
@@ -733,8 +734,8 @@ does not itself coordinate or publish a fresh installation.
 The fresh-coordinator lane covers fresh installation, bounded interruption
 and exact resume, busy disposition, serial lease takeover and stale-fence
 rejection, uncertain transaction recovery, corrupt-ledger refusal, independent
-validation, atomic readiness/availability publication, and replay. A later separately admitted
-base-backed additive candidate must retain the base structures. Unrelated
+validation, atomic readiness/availability publication, and replay. The separately
+admitted additive profile retains the authenticated base structures. Unrelated
 catalog objects remain outside the candidate projection; unregistered objects
 that conflict with a requested assignment are rejected rather than adopted.
 PGlite makes no lock, concurrency, lease-contention, genuine-PostgreSQL
@@ -790,8 +791,8 @@ acceptance needed to finish it; it need not be repeated for each checkpoint:
    [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md):
    opaque target/session plus PGlite functional adapter, relational structural
    runner, then fresh coordinator/repository helpers. The runner uses one
-   source-private exact plan/target-bound token and a fixed four-handler
-   registry; its focused PGlite lane is complete as a distinct functional
+   source-private exact plan/target-bound token and four fixed fresh-operation
+   handlers; its focused PGlite lane is complete as a distinct functional
    receipt from the coordinator. All three slices have private PGlite functional
    evidence. Together they cover collision-domain claim, attempts, exact step receipts,
    recovery, validation, readiness, and availability for one synthetic
@@ -801,19 +802,21 @@ acceptance needed to finish it; it need not be repeated for each checkpoint:
    Its fifteen-step execution limit applies to both drivers. Bounded read-only
    graph reuse reduces repeated immutable-reference work within each pass;
    larger plans and long lineage still need their own measured bound. Step 5
-   still owns complete fresh-plus-base acceptance.
+   owns fresh-plus-base acceptance within the separately admitted profiles.
 4. **Base-backed additive PGlite candidate:** require the exact authenticated
    base receipts and matching target/owner/lineage/profile, re-observe the base
    under the collision head, retain its compatible structures, and reject
    mismatch, quarantine, unregistered conflict, or destructive change.
    [The bounded additive preflight](./12-base-backed-additive-upgrade.md)
-   recommends one fresh-base-to-successor capability including its native
-   acceptance from step 5. Its new base contract and limits remain proposed
-   until implementation approval; they do not widen the current fresh profile.
+   owns the implemented fresh-base-to-successor capability including its native
+   acceptance from step 5. Its explicit verification handler extends the shared
+   registry; the separate fresh profile keeps its existing limits.
 5. **Genuine PostgreSQL acceptance:** prove every DDL, contention, lease,
    timeout, interruption, uncertainty, recovery, catalog, and scope-isolation
    claim for both the fresh and base-backed profiles before the coordinator
-   checkpoint completes.
+   checkpoint completes. This acceptance is complete for the bounded private
+   fresh and one-hop additive profiles; general lineage scale, other transports
+   and production resolution remain independently gated.
 6. **Application projection and binding preflight:** only then freeze and
    implement `DataBindingSet`, activation, and serving admission.
 7. **Synthetic system selection preflight:** choose and prove one explicitly
@@ -894,18 +897,20 @@ lease/fence policy, recovery, validation publication, and synthetic `system`
 coordination. Its bounded decomposition and current slice status are owned by
 [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
 Its target/session, structural-runner, and fresh-coordinator slices have
-private PGlite functional evidence. PostgreSQL, scale, and production-resolution
-gates remain open.
+private PGlite functional evidence. Their later bounded native acceptance is
+owned by records 11 and 12; general scale and production resolution remain open.
 
 ## Non-Goals And Stop Conditions
 
 This umbrella preflight performs no code or database change by itself. The
-accepted checkpoint-2 successor above is the only authority for its exact
-metadata DDL and repository slices. Stop and open the owning gate before:
+accepted checkpoint-2 successor owns its exact metadata DDL and repository
+slices; records 11 and 12 own fresh execution and the bounded additive
+extension respectively. Stop and open the owning gate before:
 
 - adding any migration file, table declaration, or repository outside the
-  exact checkpoint-2 successor contract; widening or adding another structural
-  runner beyond checkpoint 3's fixed private four-handler registry; or adding
+  accepted checkpoint-2 and additive contracts; widening or adding another
+  structural runner beyond the four fresh handlers and explicit additive base
+  verification handler; or adding
   a service, Layer, export, route, runtime caller, or production binding;
 - splitting the common control/target platform migration tree;
 - implementing `DataBindingSet`, Application projection, activation, serving,
@@ -946,7 +951,11 @@ source-private target/session, structural-runner, and fresh-coordinator slices h
 PGlite-functional receipts through
 [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
 Fresh coordination includes exact repository orchestration and atomic
-installation/readiness/availability publication for the no-base profile. Beyond
-the fixed four-handler fresh structural profile, this record opens no base-
-backed or additional generated relational DDL, binding, adapter, runtime,
-genuine-PostgreSQL, hosted, public, or production gate.
+installation/readiness/availability publication for the no-base profile. The
+separately approved [additive capability](./12-base-backed-additive-upgrade.md)
+extends that core with exact retained-base verification and a bounded one-hop
+successor. Both profiles have independent ordinary-role PostgreSQL acceptance.
+This completes the private structural installation/upgrade capability within
+their admitted limits. The next owner is the Application projection and binding
+preflight; additional DDL profiles, general scale, adapters, hosted/public APIs
+and production selection remain gated.

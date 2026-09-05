@@ -1,3 +1,4 @@
+import { additiveMigrationGraphLimits, withFrameworkCollisionGraphLimits } from "./additiveLimits";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
@@ -764,6 +765,10 @@ const restoreEventChain = Effect.fn(
     );
   }
   const rootDecoded = yield* decodeEventRoot(root, operation);
+  const bounded = yield* additiveMigrationGraphLimits;
+  if (bounded && BigInt(rootDecoded.frame.sequence) > 128n) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+  }
   const collisionPreference = preferredPrevious !== undefined &&
       preferredPrevious !== null &&
       isRestoredFrameworkMigrationEvent(preferredPrevious)
@@ -816,6 +821,7 @@ const restoreEventChain = Effect.fn(
       break;
     }
     if (decoded.previousEventStorageId === null) break;
+    if (bounded && rows.length >= 128) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
     const previous = yield* loadEventRootByStorageId(
       transaction,
       decoded.previousEventStorageId,
@@ -867,7 +873,8 @@ const restoreEventChain = Effect.fn(
     );
   }
   return rootOccupant;
-}, withFrameworkGraphReadPass);
+}, withFrameworkGraphReadPass, (read, transaction, root, _preferredCollision, operation, _previous?: RestoredFrameworkMigrationEvent | null) =>
+  withFrameworkCollisionGraphLimits(read, transaction, root.collisionStorageId, operation));
 
 const restoreStoredEventSubject = Effect.fn(
   "FrameworkMigrationEventRepository.restoreSubject",

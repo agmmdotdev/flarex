@@ -88,10 +88,11 @@ thirteen transaction-parameterized repository families, and a dedicated serial
 PGlite gate. The separately owning
 [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md)
 now supplies private target/session, structural-runner, and fresh-coordinator
-PGlite evidence. The following mechanisms remain absent:
+PGlite and bounded native PostgreSQL evidence. The
+[one-hop additive profile](./12-base-backed-additive-upgrade.md) supplies
+independent base-backed acceptance. The following mechanisms remain absent:
 
-- production target/runner resolution and bounded-lineage scale proof;
-- base-backed and genuine-PostgreSQL coordinator acceptance;
+- production target/runner resolution and general lineage scale proof;
 - the Application projection, `DataBindingSet`, binding/activation repository,
   and serving admission;
 - an owner-scoped relational transaction/store capability;
@@ -202,7 +203,8 @@ plan, collision-domain, lease, ledger, receipt, and recovery owners. Domain
 plans remain separate; only fenced execution and evidence mechanics are shared.
 Its source-private fresh target/session, runner and coordinator now have
 PGlite-functional evidence under the separately accepted checkpoint-3 owner.
-Native acceptance, bounded-lineage scale and base-backed execution remain open.
+Bounded fresh and one-hop additive profiles now have native acceptance.
+General lineage scale and production target resolution remain open.
 
 The first execution proof uses a synthetic reserved-relational schema and must
 cover fresh install, deterministic plan, replay, interruption and exact resume,
@@ -410,7 +412,7 @@ Checkpoint 3's private target/session, structural runner, and fresh synthetic
 transactions, database-time claim/lease/fence policy, recovery, independent
 validation, and atomic readiness/availability publication for the no-base
 profile. Independent bounded PostgreSQL coordination and settlement evidence
-now exists; larger-plan and lineage scale, upgrades, and production resolution
+now exists; larger-plan and general lineage scale and production resolution
 remain open in
 [`11-target-session-and-fresh-coordinator.md`](./11-target-session-and-fresh-coordinator.md).
 
@@ -418,14 +420,13 @@ The approved [native PostgreSQL fresh installation and recovery](./11-target-ses
 capability proves the bounded no-base profile on real connections. The shared
 coordinator admits at most fifteen plan steps on both PGlite and PostgreSQL.
 Bounded read-only graph reuse reduces repeated immutable-reference reads and
-supports that larger fresh profile. The [next shared-core preflight](./12-base-backed-additive-upgrade.md)
-recommends a bounded base-backed additive upgrade with exact base authority
-and its own measured lineage/work bound. Implementation approval is pending;
-the whole coordinator gate remains open.
+supports that larger fresh profile. The [approved additive capability](./12-base-backed-additive-upgrade.md)
+implements a bounded fresh-base-to-successor upgrade with exact base authority
+and its own lineage/work limits, with PGlite and ordinary-role PostgreSQL
+acceptance. The later binding, transaction and consumer boundaries remain gated.
 
-After that fresh proof, complete bounded-lineage requirements and the
-base-backed PGlite/native profile, then the separately owned Application
-projection/`DataBindingSet`, transaction/store and commit capabilities. Before
+The next capability is the separately owned Application projection and
+`DataBindingSet` preflight, followed by transaction/store and commit capabilities. Before
 data implementation, resolve the proposed
 [CMS read contract](./07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract),
 [lock order](../04-transactions-and-commit-publication.md#proposed-lock-order-reconciliation)

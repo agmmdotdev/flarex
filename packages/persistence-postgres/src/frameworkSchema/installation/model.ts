@@ -6,7 +6,7 @@ import type {
   CapturedFrameworkMigrationValue,
   FrameworkMigrationAttemptTerminalFrame,
   FrameworkMigrationPlanAdmissionFrame,
-  FreshRelationalMigrationPlan,
+  RelationalMigrationPlan,
 } from "../../migrationCoordination/model";
 import type {
   CanonicalPositiveInt64,
@@ -135,7 +135,7 @@ export interface CapturedFrameworkSchemaInstallationValue<
 }
 
 export interface CaptureFrameworkSchemaInstallationInput {
-  readonly plan: FreshRelationalMigrationPlan;
+  readonly plan: RelationalMigrationPlan;
   readonly admission: CapturedFrameworkMigrationValue<
     FrameworkMigrationPlanAdmissionFrame,
     FrameworkMigrationPlanAdmissionSha256

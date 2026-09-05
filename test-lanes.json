@@ -46,6 +46,15 @@
     "c08-b2-o09-b-postgres": [
       "test/appUniqueKeys.postgres.test.ts",
       "test/pointCommitTransaction.postgres.test.ts"
+    ],
+    "framework-coordinator-additive-pglite": [
+      "test/frameworkCoordinatorAdditive.test.ts",
+      "test/frameworkCoordinatorAdditiveLimits.test.ts",
+      "test/frameworkCoordinatorAdditiveMetadata.test.ts"
+    ],
+    "framework-coordinator-additive-postgres": [
+      "test/frameworkCoordinatorAdditive.postgres.test.ts",
+      "test/frameworkCoordinatorAdditiveRecovery.postgres.test.ts"
     ]
   },
   "selectors": {
@@ -117,6 +126,12 @@
       "postgres-system",
       "h04-workerd-postgres",
       "h05-hosted"
+    ],
+    "framework-coordinator-additive-pglite": [
+      "framework-coordinator-additive-pglite"
+    ],
+    "framework-coordinator-additive-postgres": [
+      "framework-coordinator-additive-postgres"
     ]
   },
   "lanes": [
@@ -124,14 +139,31 @@
       "id": "framework-coordinator-fresh-postgres",
       "category": "postgres",
       "proof": "Source-private fresh relational installation on an ordinary-role PostgreSQL database: physical session lifecycle, transaction and statement budgets, concurrency, stale fencing, atomic DDL/progress, distinct-backend commit recovery, process restart, corruption refusal, and measured bounded-plan work. The tested native transport is direct non-TLS PostgreSQL. This does not establish base-backed upgrades, general lineage scale, hosted pooling/TLS cancellation, framework adapters, production identity resolution, or runtime activation.",
-      "prerequisites": [{ "name": "FLAREX_POSTGRES_DATABASE_URL" }],
-      "steps": [{
-        "id": "persistence-framework-coordinator-fresh-postgres",
-        "cwd": "packages/persistence-postgres",
-        "command": "pnpm",
-        "args": ["exec", "vitest", "run", { "testFileGroup": "framework-coordinator-fresh-postgres" },
-          "--no-file-parallelism", "--maxWorkers=1", "--testTimeout=300000", "--reporter=verbose", "--bail=1"]
-      }]
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-coordinator-fresh-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-coordinator-fresh-postgres"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=300000",
+            "--reporter=verbose",
+            "--bail=1"
+          ]
+        }
+      ]
     },
     {
       "id": "framework-coordinator-fresh-pglite",
@@ -657,6 +689,60 @@
           "command": "pnpm",
           "args": [
             "test:service-binding:hosted:postgres"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-coordinator-additive-pglite",
+      "category": "pglite",
+      "proof": "Private one-hop additive system upgrade preserves the authenticated fresh base and proves successor recovery, availability and bounded work.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-framework-coordinator-additive-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-coordinator-additive-pglite"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-coordinator-additive-postgres",
+      "category": "postgres",
+      "proof": "Private one-hop additive system upgrade preserves the authenticated fresh base and proves successor recovery, availability and bounded work.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-coordinator-additive-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-coordinator-additive-postgres"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=300000",
+            "--reporter=verbose",
+            "--bail=1"
           ]
         }
       ]

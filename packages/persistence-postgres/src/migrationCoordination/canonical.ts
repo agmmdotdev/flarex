@@ -90,8 +90,9 @@ import {
   type FrameworkMigrationStep,
   type FrameworkMigrationStepReceiptFrame,
   type FrameworkMigrationStepReference,
+  type RelationalMigrationPlan,
   type FreshRelationalMigrationPlan,
-  type FreshRelationalMigrationPlanFrame,
+  type RelationalMigrationPlanFrame,
   type RelationalStructuralOperation,
 } from "./model";
 import {
@@ -252,7 +253,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
       table: projection,
       expectedTableSha256: projectionSha256,
     } satisfies RelationalStructuralOperation);
-    const step = yield* captureStep(
+    const step = yield* captureRelationalMigrationStep(
       steps.length,
       Object.freeze([]),
       operation,
@@ -278,7 +279,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
         index,
         expectedIndexSha256: projectionSha256,
       } satisfies RelationalStructuralOperation);
-      steps.push(yield* captureStep(
+      steps.push(yield* captureRelationalMigrationStep(
         steps.length,
         Object.freeze([tableDependency]),
         operation,
@@ -302,7 +303,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
       foreignKey,
       expectedForeignKeySha256: projectionSha256,
     } satisfies RelationalStructuralOperation);
-    steps.push(yield* captureStep(
+    steps.push(yield* captureRelationalMigrationStep(
       steps.length,
       dependencies,
       operation,
@@ -317,7 +318,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
     }),
     expectedLayoutSha256: layout.layoutSha256,
   } satisfies RelationalStructuralOperation);
-  steps.push(yield* captureStep(
+  steps.push(yield* captureRelationalMigrationStep(
     steps.length,
     validationDependencies,
     validationOperation,
@@ -354,7 +355,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
     physicalLayout: layout.frame,
     physicalLayoutSha256: layout.layoutSha256,
     steps: Object.freeze(steps),
-  } satisfies FreshRelationalMigrationPlanFrame);
+  } satisfies RelationalMigrationPlanFrame);
   const captured = yield* capturePrivateCanonicalValue(
     frame,
     MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES,
@@ -373,7 +374,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
 });
 
 export function isCapturedFreshRelationalMigrationPlan(
-  value: FreshRelationalMigrationPlan,
+  value: RelationalMigrationPlan,
 ): boolean {
   return isCapturedFreshRelationalMigrationPlanAuthority(value);
 }
@@ -394,6 +395,8 @@ export const captureFrameworkMigrationPlanAdmission = Effect.fn(
     !isCanonicalIsoInstant(input.admittedAt) ||
     (input.previousPlanSha256 !== null &&
       !isSha256(input.previousPlanSha256)) ||
+    (input.plan.frame.version === 2 && input.previousPlanSha256 !==
+      input.plan.frame.baseInstallation.identity.migrationPlanSha256) ||
     !sameAssignments(
       input.nameAssignments,
       input.plan.physicalLayout.nameAssignments,
@@ -405,13 +408,11 @@ export const captureFrameworkMigrationPlanAdmission = Effect.fn(
   }
   const frame = Object.freeze({
     format: FRAMEWORK_MIGRATION_PLAN_ADMISSION_FORMAT,
-    version: FRAMEWORK_MIGRATION_PLAN_ADMISSION_VERSION,
     collision: input.plan.frame.collision,
     planSha256: input.plan.migrationPlanSha256,
     artifact: input.plan.frame.artifact,
     physicalLocator: input.plan.frame.physicalLocator,
     targetNamespace: input.plan.frame.targetNamespace,
-    baseInstallation: null,
     nameAssignments: Object.freeze(
       input.plan.physicalLayout.nameAssignments.map(assignment =>
       Object.freeze({
@@ -421,7 +422,11 @@ export const captureFrameworkMigrationPlanAdmission = Effect.fn(
       ),
     ),
     previousPlanSha256: input.previousPlanSha256,
-    admissionProfile: "synthetic-system-fresh",
+    ...(input.plan.frame.version === 1
+      ? { version: 1, baseInstallation: null,
+          admissionProfile: "synthetic-system-fresh" } as const
+      : { version: 2, baseInstallation: input.plan.frame.baseInstallation,
+          admissionProfile: "synthetic-system-additive" } as const),
     admittedAt: input.admittedAt,
   } satisfies FrameworkMigrationPlanAdmissionFrame);
   const captured = yield* captureLedgerValue(frame, brandAdmissionSha256);
@@ -856,8 +861,8 @@ export const captureFrameworkMigrationEvent = Effect.fn(
 });
 
 export function classifyFrameworkMigrationPlanReplay(
-  left: FreshRelationalMigrationPlan,
-  right: FreshRelationalMigrationPlan,
+  left: RelationalMigrationPlan,
+  right: RelationalMigrationPlan,
 ): "exact" | "differentPlan" | "digestCollision" {
   if (left.migrationPlanSha256 !== right.migrationPlanSha256) {
     return "differentPlan";
@@ -893,7 +898,8 @@ export const verifyStoredFrameworkMigrationValue = Effect.fn(
     canonicalBytes: input.canonicalBytes,
     sha256Hex: input.sha256Hex,
     expectedFormat: contract.format,
-    expectedVersion: contract.version,
+    expectedVersion: input.kind === "plan" || input.kind === "planAdmission"
+      ? [1, 2] : contract.version,
     maximumCanonicalBytes: contract.maximumBytes,
     expectedKeys: contract.keys,
     validateFrame: candidate => input.kind === "event"
@@ -1004,6 +1010,12 @@ const validateStoredOperationProjection = Effect.fn(
   const format = operation.codec.format;
   if (format === "flarex.relational-validate-structure") {
     return operation.expectedLayoutSha256 === physicalLayoutSha256;
+  }
+  if (format === "flarex.relational-verify-base-structure") {
+    if (!isJsonObjectFromUnknown(operation.physicalLayout)) return false;
+    const base = yield* capturePrivateCanonicalValue(operation.physicalLayout,
+      MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES, storedMigrationHashPolicy());
+    return base.sha256Hex === operation.expectedLayoutSha256;
   }
   const projectionKind = format === "flarex.relational-create-table"
     ? "table"
@@ -1137,6 +1149,7 @@ function structuralOperationPolicy(
         projectionSha256,
       }));
     }
+    case "flarex.relational-verify-base-structure":
     case "flarex.relational-validate-structure": {
       const projectionSha256 = operation.expectedLayoutSha256;
       if (!isSha256(projectionSha256)) return invalidStructuralOperation();
@@ -1157,7 +1170,7 @@ function invalidStructuralOperation(): Result.Result<
   return Result.fail(FrameworkMigrationValueError.invalidInput("capturePlan"));
 }
 
-const captureStep = Effect.fn("FrameworkMigrationStep.capture")(
+export const captureRelationalMigrationStep = Effect.fn("FrameworkMigrationStep.capture")(
   function* (
     ordinal: number,
     dependencies: readonly FrameworkMigrationStepReference[],
@@ -1375,7 +1388,7 @@ function copyArtifactIdentity(
 }
 
 function copyLocator(
-  locator: FreshRelationalMigrationPlanFrame["physicalLocator"],
+  locator: RelationalMigrationPlanFrame["physicalLocator"],
 ) {
   return Object.freeze({
     kind: locator.kind,

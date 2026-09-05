@@ -2,11 +2,25 @@ import { Effect, Exit, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../src/migrationCoordination/graphReadPass";
+import { additiveMigrationGraphLimits, withAdditiveMigrationGraphLimits } from "../src/migrationCoordination/additiveLimits";
 import { FrameworkMigrationRepositoryError } from "../src/migrationCoordination/repositoryErrors";
 import { runEffect } from "./effectTestRuntime";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 
 describe("immutable graph read pass", () => {
+  it("does not reuse unrestricted evidence under additive traversal limits", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const memo = makeFrameworkGraphReferenceRead<number>();
+    const read = Effect.gen(function* () {
+      if (yield* additiveMigrationGraphLimits) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal("readPlan"));
+      return 129;
+    });
+    await persistence.drizzle.transaction(tx => runEffect(withFrameworkGraphReadPass(Effect.gen(function* () {
+      expect(yield* memo(read, tx, "over-limit-reference")).toBe(129);
+      expect(Exit.isFailure(yield* Effect.exit(withAdditiveMigrationGraphLimits(memo(read, tx, "over-limit-reference"))))).toBe(true);
+      expect(yield* memo(read, tx, "over-limit-reference")).toBe(129);
+    }), tx)));
+  }, 30_000);
   it("reuses exact references only within one pass and transaction", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const other = await createMigratedPGlitePersistence();

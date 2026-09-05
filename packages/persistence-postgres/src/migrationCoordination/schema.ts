@@ -357,7 +357,7 @@ export const fxSystemFrameworkMigrationPlans = pgTable(
       .$type<typeof FRAMEWORK_MIGRATION_PLAN_FORMAT>()
       .notNull(),
     frameVersion: integer("frame_version")
-      .$type<typeof FRAMEWORK_MIGRATION_PLAN_VERSION>()
+      .$type<1 | 2>()
       .notNull(),
     canonicalByteLength: integer("canonical_byte_length").notNull(),
     canonicalBytes: bytea("canonical_bytes").notNull(),
@@ -408,9 +408,7 @@ export const fxSystemFrameworkMigrationPlans = pgTable(
     check(
       "fx_framework_migration_plan_frame_check",
       sql`${table.frameFormat} = ${sql.raw(`'${FRAMEWORK_MIGRATION_PLAN_FORMAT}'`)}
-        and ${table.frameVersion} = ${sql.raw(
-          String(FRAMEWORK_MIGRATION_PLAN_VERSION),
-        )}
+        and ${table.frameVersion} in (1, 2)
         and ${canonicalBytesMatch(
           table.canonicalByteLength,
           table.canonicalBytes,
@@ -493,7 +491,7 @@ export const fxSystemFrameworkMigrationPlanSteps = pgTable(
           'flarex.relational-create-table',
           'flarex.relational-create-index',
           'flarex.relational-add-foreign-key',
-          'flarex.relational-validate-structure'
+          'flarex.relational-validate-structure', 'flarex.relational-verify-base-structure'
         )
         and ${table.operationVersion} = 1
         and ${table.dependencyCount} between 0 and ${sql.raw(
@@ -590,7 +588,7 @@ export const fxSystemFrameworkMigrationPlanAdmissions = pgTable(
       .$type<typeof FRAMEWORK_MIGRATION_PLAN_ADMISSION_FORMAT>()
       .notNull(),
     frameVersion: integer("frame_version")
-      .$type<typeof FRAMEWORK_MIGRATION_PLAN_ADMISSION_VERSION>()
+      .$type<1 | 2>()
       .notNull(),
     canonicalByteLength: integer("canonical_byte_length").notNull(),
     canonicalBytes: bytea("canonical_bytes").notNull(),
@@ -652,7 +650,9 @@ export const fxSystemFrameworkMigrationPlanAdmissions = pgTable(
             and ${table.previousPlanSha256} is not null
             and ${digestHasExactLength(table.previousPlanSha256)})
         )
-        and ${table.admissionProfile} = 'synthetic-system-fresh'
+        and ((${table.frameVersion} = 1 and ${table.admissionProfile} = 'synthetic-system-fresh')
+          or (${table.frameVersion} = 2 and ${table.admissionProfile} = 'synthetic-system-additive'
+            and ${table.previousPlanStorageId} is not null))
         and ${table.assignmentCount} between 0 and ${sql.raw(
           String(MAX_RELATIONAL_PHYSICAL_ASSIGNMENTS),
         )}`,
@@ -662,9 +662,7 @@ export const fxSystemFrameworkMigrationPlanAdmissions = pgTable(
       sql`${table.frameFormat} = ${sql.raw(
         `'${FRAMEWORK_MIGRATION_PLAN_ADMISSION_FORMAT}'`,
       )}
-        and ${table.frameVersion} = ${sql.raw(
-          String(FRAMEWORK_MIGRATION_PLAN_ADMISSION_VERSION),
-        )}
+        and ${table.frameVersion} in (1, 2)
         and ${canonicalBytesMatch(
           table.canonicalByteLength,
           table.canonicalBytes,

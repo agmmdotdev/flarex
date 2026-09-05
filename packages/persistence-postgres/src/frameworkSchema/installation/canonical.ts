@@ -418,7 +418,7 @@ const validateStoredInstallationIdentity = Effect.fn(
 });
 
 function captureInstallationIdentity(
-  plan: import("../../migrationCoordination/model").FreshRelationalMigrationPlan,
+  plan: import("../../migrationCoordination/model").RelationalMigrationPlan,
 ): Effect.Effect<
   FrameworkSchemaInstallationIdentity,
   FrameworkSchemaInstallationValueError

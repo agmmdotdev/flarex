@@ -108,6 +108,10 @@ export const fxSystemFrameworkSchemaInstallations = pgTable(
     unique("fx_framework_installation_identity_unique").on(
       table.installationSha256,
     ),
+    unique("fx_framework_installation_base_context_unique").on(
+      table.installationStorageId, table.collisionStorageId, table.planStorageId,
+      table.installedStructureSha256,
+    ),
     unique("fx_framework_installation_receipt_unique").on(
       table.installationReceiptSha256,
     ),

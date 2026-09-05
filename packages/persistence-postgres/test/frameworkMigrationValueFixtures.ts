@@ -8,7 +8,7 @@ import type {
   CapturedFrameworkMigrationValue,
   FrameworkMigrationAttemptStartFrame,
   FrameworkMigrationStepReceiptFrame,
-  FreshRelationalMigrationPlan,
+  RelationalMigrationPlan,
 } from "../src/migrationCoordination/model";
 import type {
   FrameworkMigrationAttemptStartSha256,
@@ -53,7 +53,7 @@ export async function frameworkTargetNamespace() {
 }
 
 export async function completeFrameworkMigrationPlanSteps(
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
   attempt: CapturedFrameworkMigrationValue<
     FrameworkMigrationAttemptStartFrame,
     FrameworkMigrationAttemptStartSha256

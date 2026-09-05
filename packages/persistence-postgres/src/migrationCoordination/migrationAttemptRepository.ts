@@ -1,3 +1,4 @@
+import { additiveMigrationGraphLimits, withFrameworkCollisionGraphLimits } from "./additiveLimits";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import {
   epochMillisecondsFromCanonicalIsoInstant,
@@ -795,7 +796,10 @@ const restoreAttemptStartLineage = Effect.fn(
   let requiredAttemptId: string | null = null;
   let anchoredPreviousAttempt: RestoredFrameworkMigrationAttemptStart | null =
     null;
+  const bounded = yield* additiveMigrationGraphLimits;
+  let followed = 0;
   while (true) {
+    if (bounded && followed++ >= 2) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
     const decoded = yield* decodeAttemptStartRoot(row, operation);
     if (
       decoded.collisionStorageId !== preferredCollision.storageId ||
@@ -817,6 +821,7 @@ const restoreAttemptStartLineage = Effect.fn(
     rows.push(row);
     decodedRows.push(decoded);
     if (
+      (!bounded || preferredPreviousAttempt?.attempt.frame.previousAttemptId === null) &&
       rows.length === 1 &&
       preferredPreviousAttempt !== undefined &&
       preferredPreviousAttempt !== null &&
@@ -830,6 +835,7 @@ const restoreAttemptStartLineage = Effect.fn(
       break;
     }
     if (decoded.previousAttemptStorageId === null) break;
+    if (bounded && followed >= 2) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
     const previous = yield* loadAttemptStartRootByStorageId(
       transaction,
       decoded.previousAttemptStorageId,
@@ -926,7 +932,8 @@ const restoreAttemptStartLineage = Effect.fn(
     value: restoredRoot,
     previousAttempt: rootPreviousAttempt,
   });
-}, withFrameworkGraphReadPass);
+}, withFrameworkGraphReadPass, (read, transaction, _root, preferredCollision, operation, _previous?: RestoredFrameworkMigrationAttemptStart | null, _admission?: RestoredFrameworkMigrationPlanAdmission) =>
+  withFrameworkCollisionGraphLimits(read, transaction, preferredCollision.storageId, operation));
 
 const decodeAttemptStartRoot = Effect.fn(
   "FrameworkMigrationAttemptStartRepository.decodeRoot",

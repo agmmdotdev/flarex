@@ -112,7 +112,7 @@ interface MigrationPlanAdmissionDriverRow
     FrameworkMigrationPlanAdmissionFrame["admissionProfile"];
   readonly assignmentCount: number;
   readonly frameFormat: typeof FRAMEWORK_MIGRATION_PLAN_ADMISSION_FORMAT;
-  readonly frameVersion: typeof FRAMEWORK_MIGRATION_PLAN_ADMISSION_VERSION;
+  readonly frameVersion: 1 | 2;
   readonly canonicalByteLength: number;
   readonly observedCanonicalByteLength: number;
   readonly canonicalBytes: Uint8Array | null;
@@ -753,7 +753,7 @@ const decodeAdmissionRoot = Effect.fn(
     row.admissionSha256,
     {
       format: FRAMEWORK_MIGRATION_PLAN_ADMISSION_FORMAT,
-      version: FRAMEWORK_MIGRATION_PLAN_ADMISSION_VERSION,
+      version: row.frameVersion === 2 ? 2 : 1,
       maximumCanonicalBytes: MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
     },
     () => FrameworkMigrationRepositoryError.storedCorruption(operation),
@@ -763,7 +763,7 @@ const decodeAdmissionRoot = Effect.fn(
     canonicalBytes: stored.canonicalBytes,
     sha256Hex: stored.sha256Hex,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-  if (!isStoredFrameworkMigrationPlanAdmissionFrame(frame)) {
+  if (!isStoredFrameworkMigrationPlanAdmissionFrame(frame) || frame.version !== row.frameVersion) {
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
     );

@@ -142,3 +142,4 @@ export {
   fxSystemFrameworkSchemaTargetNamespaces,
   fxSystemRelationalPhysicalNameAssignments,
 } from "./migrationCoordination/schema";
+export { fxSystemFrameworkMigrationPlanBases } from "./migrationCoordination/baseSchema";

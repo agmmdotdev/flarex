@@ -14,6 +14,7 @@ import {
 } from "../relationalSchema/physical/storedValidation";
 import {
   RELATIONAL_PHYSICAL_NAMESPACE_PROFILE,
+  type RelationalPhysicalLayoutFrame,
 } from "../relationalSchema/physical/model";
 import {
   FRAMEWORK_MIGRATION_ATTEMPT_START_FORMAT,
@@ -33,7 +34,8 @@ import {
   type FrameworkMigrationCollisionHeadFrame,
   type FrameworkMigrationPlanAdmissionFrame,
   type FrameworkMigrationStepReceiptFrame,
-  type FreshRelationalMigrationPlanFrame,
+  type RelationalMigrationPlanFrame,
+  type FrameworkMigrationBaseInstallation,
 } from "./model";
 import {
   FRAMEWORK_SCHEMA_TARGET_NAMESPACE_FORMAT,
@@ -83,7 +85,7 @@ export function isStoredFrameworkSchemaTargetNamespaceFrame(
 
 export function isStoredFreshRelationalMigrationPlanFrame(
   input: unknown,
-): input is FreshRelationalMigrationPlanFrame {
+): input is RelationalMigrationPlanFrame {
   return isStoredMigrationPlan(input);
 }
 
@@ -208,18 +210,19 @@ function isStoredMigrationPlan(input: unknown): boolean {
       "steps",
     ]) ||
     input.format !== FRAMEWORK_MIGRATION_PLAN_FORMAT ||
-    input.version !== FRAMEWORK_MIGRATION_PLAN_VERSION ||
+    (input.version !== 1 && input.version !== 2) ||
     !isStoredArtifactIdentity(input.artifact) ||
     input.artifact.owner !== "system" ||
     !isStoredPhysicalLocator(input.physicalLocator) ||
     !isStoredTargetNamespace(input.targetNamespace) ||
     !isStoredCollisionCoordinate(input.collision) ||
-    input.baseInstallation !== null ||
+    !(input.version === 1 ? input.baseInstallation === null
+      : isStoredMigrationBaseInstallation(input.baseInstallation)) ||
     !isStoredRelationalPhysicalLayoutFrame(input.physicalLayout) ||
     !isPrivateValueSha256(input.physicalLayoutSha256) ||
     !Array.isArray(input.steps) ||
     input.steps.length < 1 ||
-    input.steps.length > 66_000
+    input.steps.length > (input.version === 2 ? 8 : 66_000)
   ) return false;
   if (
     input.artifact.deploymentId !== input.targetNamespace.deploymentId ||
@@ -268,12 +271,29 @@ function planMatchesPhysicalLayout(
     !Array.isArray(input.physicalLayout.foreignKeys) ||
     !Array.isArray(input.steps)) return false;
   const steps = input.steps;
+  const verification = steps[0];
+  const base = input.version === 2 && isStoredMigrationStep(verification) &&
+    verification.operation.codec.format === "flarex.relational-verify-base-structure" &&
+    isStoredRelationalPhysicalLayoutFrame(verification.operation.physicalLayout)
+    ? verification.operation.physicalLayout : undefined;
+  if (input.version === 2 && (base === undefined ||
+    !isStoredMigrationBaseInstallation(input.baseInstallation) ||
+    !isAdditiveLayout(base, input.physicalLayout) ||
+    !samePrivateJson(input.baseInstallation.identity.artifact, base.artifact) ||
+    !samePrivateJson(input.baseInstallation.identity.physicalLocator, base.physicalLocator) ||
+    !samePrivateJson(input.baseInstallation.identity.targetNamespace, base.targetNamespace) ||
+    verification.operation.expectedLayoutSha256 !== input.baseInstallation.physicalLayoutSha256 ||
+    !sameStepReferences(verification.dependencies, []))) return false;
   const tableSteps = new Map<string, Readonly<{
     readonly stepId: string;
     readonly stepSha256: string;
   }>>();
-  let cursor = 0;
+  let cursor = base === undefined ? 0 : 1;
   for (const table of input.physicalLayout.tables) {
+    if (base?.tables.some(t => t.identity.tableId === table.identity.tableId)) {
+      tableSteps.set(table.identity.tableId, storedStepReference(verification));
+      continue;
+    }
     const step = steps[cursor];
     const tableId = physicalTableId(table);
     if (tableId === undefined || !isStoredMigrationStep(step) ||
@@ -295,6 +315,7 @@ function planMatchesPhysicalLayout(
     cursor += 1;
   }
   for (const table of input.physicalLayout.tables) {
+    if (base?.tables.some(t => t.identity.tableId === table.identity.tableId)) continue;
     if (!isExactPrivateValueRecord(table, [
       "identity", "name", "scopeColumn", "columns", "keys", "checks",
       "indexes",
@@ -313,6 +334,7 @@ function planMatchesPhysicalLayout(
     }
   }
   for (const foreignKey of input.physicalLayout.foreignKeys) {
+    if (base?.foreignKeys.some(f => samePrivateJson(f, foreignKey))) continue;
     const step = steps[cursor];
     const dependencies = physicalForeignKeyDependencies(
       foreignKey,
@@ -439,7 +461,7 @@ function sameStepReferences(
   );
 }
 
-function samePrivateJson(left: unknown, right: unknown): boolean {
+export function samePrivateJson(left: unknown, right: unknown): boolean {
   const pending: Array<readonly [unknown, unknown]> = [[left, right]];
   try {
     while (pending.length > 0) {
@@ -586,6 +608,9 @@ function isStoredOperation(input: unknown): input is Readonly<
         isPrivateValueSha256(input.expectedForeignKeySha256);
     case "flarex.relational-validate-structure":
       return isPrivateValueSha256(input.expectedLayoutSha256);
+    case "flarex.relational-verify-base-structure":
+      return isStoredRelationalPhysicalLayoutFrame(input.physicalLayout) &&
+        isPrivateValueSha256(input.expectedLayoutSha256);
     default:
       return false;
   }
@@ -609,6 +634,8 @@ function operationKeys(input: unknown): readonly string[] {
       return ["codec", "foreignKey", "expectedForeignKeySha256"];
     case "flarex.relational-validate-structure":
       return ["codec", "expectedLayoutSha256"];
+    case "flarex.relational-verify-base-structure":
+      return ["codec", "physicalLayout", "expectedLayoutSha256"];
     default:
       return [];
   }
@@ -660,6 +687,7 @@ function operationProjection(
             projectionKind: "foreignKey",
             projectionSha256: operation.expectedForeignKeySha256 }
         : undefined;
+    case "flarex.relational-verify-base-structure":
     case "flarex.relational-validate-structure":
       return isPrivateValueSha256(operation.expectedLayoutSha256)
         ? { phase: "validation", preconditionKind: "exact",
@@ -679,20 +707,61 @@ function isStoredPlanAdmission(input: unknown): boolean {
     "admittedAt",
   ]) &&
     input.format === FRAMEWORK_MIGRATION_PLAN_ADMISSION_FORMAT &&
-    input.version === FRAMEWORK_MIGRATION_PLAN_ADMISSION_VERSION &&
+    (input.version === 1 || input.version === 2) &&
     isStoredCollisionCoordinate(input.collision) &&
     isPrivateValueSha256(input.planSha256) &&
     isStoredArtifactIdentity(input.artifact) &&
     input.artifact.owner === "system" &&
     isStoredPhysicalLocator(input.physicalLocator) &&
     isStoredTargetNamespace(input.targetNamespace) &&
-    input.baseInstallation === null &&
+    (input.version === 1 ? input.baseInstallation === null &&
+      input.admissionProfile === "synthetic-system-fresh"
+      : isStoredMigrationBaseInstallation(input.baseInstallation) &&
+        input.admissionProfile === "synthetic-system-additive" &&
+        input.previousPlanSha256 === input.baseInstallation.identity.migrationPlanSha256) &&
     isNameAssignmentReferenceSet(input.nameAssignments) &&
     (input.previousPlanSha256 === null ||
       isPrivateValueSha256(input.previousPlanSha256)) &&
-    input.admissionProfile === "synthetic-system-fresh" &&
     isCanonicalPrivateValueInstant(input.admittedAt) &&
     sameCoordinateFields(input);
+}
+
+export function isStoredMigrationBaseInstallation(input: unknown): input is FrameworkMigrationBaseInstallation {
+  return isExactPrivateValueRecord(input, ["identity", "installationReceiptSha256",
+    "readinessSha256", "physicalLayoutSha256"]) &&
+    isExactPrivateValueRecord(input.identity, ["artifact", "physicalLocator", "targetNamespace",
+      "migrationPlanSha256", "installationSha256"]) &&
+    isStoredArtifactIdentity(input.identity.artifact) && input.identity.artifact.owner === "system" &&
+    isStoredPhysicalLocator(input.identity.physicalLocator) &&
+    isStoredTargetNamespace(input.identity.targetNamespace) &&
+    isPrivateValueSha256(input.identity.migrationPlanSha256) &&
+    isPrivateValueSha256(input.identity.installationSha256) &&
+    isPrivateValueSha256(input.installationReceiptSha256) &&
+    isPrivateValueSha256(input.readinessSha256) && isPrivateValueSha256(input.physicalLayoutSha256);
+}
+
+/** Compare stable physical definitions, allowing artifact identity to change. */
+export function isAdditiveLayout(base: RelationalPhysicalLayoutFrame,
+  candidate: RelationalPhysicalLayoutFrame): boolean {
+  if (base.artifact.owner !== "system" || candidate.artifact.owner !== "system" ||
+    base.artifact.deploymentId !== candidate.artifact.deploymentId ||
+    base.artifact.lineageId !== candidate.artifact.lineageId ||
+    !samePrivateJson(base.physicalLocator, candidate.physicalLocator) ||
+    !samePrivateJson(base.targetNamespace, candidate.targetNamespace) ||
+    !samePrivateJson(base.profiles, candidate.profiles) ||
+    candidate.tables.length !== base.tables.length + 1) return false;
+  if (!base.tables.every(t => candidate.tables.some(c => samePrivateJson(t, c))) ||
+    !base.foreignKeys.every(f => candidate.foreignKeys.some(c => samePrivateJson(f, c))) ||
+    !base.nameAssignments.every(a => candidate.nameAssignments.some(c => samePrivateJson(a, c))) ||
+    !base.relationships.every(r => candidate.relationships.some(c => samePrivateJson(r, c))) ||
+    !base.requiredPhysicalCapabilities.every(r => candidate.requiredPhysicalCapabilities.some(c => samePrivateJson(r, c)))) return false;
+  const added = candidate.tables.find(t => !base.tables.some(b => b.identity.tableId === t.identity.tableId));
+  if (added === undefined || added.indexes.length !== 1 || added.indexes[0]?.predicate !== null) return false;
+  const addedKeys = candidate.foreignKeys.filter(f => !base.foreignKeys.some(b => samePrivateJson(b, f)));
+  return addedKeys.length === 2 && addedKeys.every(f => (f.kind === "scopeAuthorityForeignKey" ? f.table : f.sourceTable).tableId === added.identity.tableId) &&
+    addedKeys.some(f => f.kind === "scopeAuthorityForeignKey") &&
+    addedKeys.some(f => f.kind !== "scopeAuthorityForeignKey" &&
+      base.tables.some(t => t.identity.tableId === f.targetTable.tableId));
 }
 
 function isNameAssignmentReference(input: unknown): input is Readonly<{

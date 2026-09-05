@@ -1,4 +1,6 @@
+import { withAdditiveMigrationGraphLimits } from "./additiveLimits";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
+import { insertFrameworkMigrationBaseEffect, restoreFrameworkMigrationBaseEffect } from "./baseRepository";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -30,8 +32,8 @@ import type { FrameworkMigrationPlanSha256 } from "./identity";
 import type {
   FrameworkMigrationCollisionCoordinate,
   FrameworkMigrationStep,
-  FreshRelationalMigrationPlan,
-  FreshRelationalMigrationPlanFrame,
+  RelationalMigrationPlan,
+  RelationalMigrationPlanFrame,
   RelationalStructuralOperation,
 } from "./model";
 import {
@@ -100,7 +102,7 @@ interface PreparedMigrationPlanDependency {
 }
 
 interface PreparedMigrationPlan {
-  readonly plan: FreshRelationalMigrationPlan;
+  readonly plan: RelationalMigrationPlan;
   readonly migrationPlanSha256Bytes: Uint8Array;
   readonly artifactSha256Bytes: Uint8Array;
   readonly requiredStepSetSha256Bytes: Uint8Array;
@@ -114,14 +116,14 @@ interface MigrationPlanDriverRow extends StoredFrameworkMigrationPlanRow {
   readonly planStorageId: bigint;
   readonly collisionStorageId: bigint;
   readonly artifactSha256: Uint8Array;
-  readonly locatorKind: FreshRelationalMigrationPlanFrame["physicalLocator"]["kind"];
+  readonly locatorKind: RelationalMigrationPlanFrame["physicalLocator"]["kind"];
   readonly locatorDatabaseKey: string;
   readonly locatorSchemaName: string;
   readonly migrationPlanSha256: Uint8Array;
   readonly requiredStepSetSha256: Uint8Array;
   readonly physicalLayoutSha256: Uint8Array;
   readonly frameFormat: typeof FRAMEWORK_MIGRATION_PLAN_FORMAT;
-  readonly frameVersion: typeof FRAMEWORK_MIGRATION_PLAN_VERSION;
+  readonly frameVersion: 1 | 2;
   readonly canonicalByteLength: number;
   readonly observedCanonicalByteLength: number;
   readonly canonicalBytes: Uint8Array | null;
@@ -153,7 +155,7 @@ interface MigrationPlanDependencyDriverRow
 
 interface DecodedMigrationPlanRoot {
   readonly storageId: bigint;
-  readonly frame: FreshRelationalMigrationPlanFrame;
+  readonly frame: RelationalMigrationPlanFrame;
   readonly canonicalJson: string;
 }
 
@@ -168,7 +170,7 @@ export const ensureFreshRelationalMigrationPlanInTransactionEffect = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   collision: RestoredFrameworkMigrationCollisionDomain,
-  input: FreshRelationalMigrationPlan,
+  input: RelationalMigrationPlan,
 ): Effect.fn.Return<
   RestoredFreshRelationalMigrationPlan,
   FrameworkMigrationRepositoryError
@@ -253,6 +255,8 @@ export const ensureFreshRelationalMigrationPlanInTransactionEffect = Effect.fn(
       prepared,
       operation,
     );
+    yield* insertFrameworkMigrationBaseEffect(transaction, storedCollision, storageId,
+      prepared.plan.frame, operation);
   }
 
   const row = yield* loadPlanRootByDigest(
@@ -296,7 +300,7 @@ export const readFreshRelationalMigrationPlanInTransactionEffect = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   collision: RestoredFrameworkMigrationCollisionDomain,
-  input: FreshRelationalMigrationPlan,
+  input: RelationalMigrationPlan,
 ): Effect.fn.Return<
   Option.Option<RestoredFreshRelationalMigrationPlan>,
   FrameworkMigrationRepositoryError
@@ -336,7 +340,7 @@ const resolveAuthenticatedFreshRelationalMigrationPlanOccupantForOperationEffect
   )(function* (
     occupant: Option.Option<RestoredFreshRelationalMigrationPlan>,
     collision: RestoredFrameworkMigrationCollisionDomain,
-    expected: FreshRelationalMigrationPlan,
+    expected: RelationalMigrationPlan,
     operation: MigrationPlanAggregateRepositoryOperation,
   ): Effect.fn.Return<
     Option.Option<RestoredFreshRelationalMigrationPlan>,
@@ -368,7 +372,7 @@ export const resolveAuthenticatedFreshRelationalMigrationPlanOccupantEffect =
   )(function* (
     occupant: Option.Option<RestoredFreshRelationalMigrationPlan>,
     collision: RestoredFrameworkMigrationCollisionDomain,
-    expected: FreshRelationalMigrationPlan,
+    expected: RelationalMigrationPlan,
     operation: MigrationPlanRepositoryOperation,
   ): Effect.fn.Return<
     Option.Option<RestoredFreshRelationalMigrationPlan>,
@@ -495,7 +499,7 @@ export const restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffe
 const prepareExpectedPlan = Effect.fn(
   "FrameworkMigrationPlanRepository.prepareExpected",
 )(function* (
-  input: FreshRelationalMigrationPlan,
+  input: RelationalMigrationPlan,
   operation: MigrationPlanRepositoryOperation,
 ): Effect.fn.Return<PreparedMigrationPlan, FrameworkMigrationRepositoryError> {
   if (!isCapturedFreshRelationalMigrationPlan(input)) {
@@ -592,7 +596,7 @@ const requireStoredPlanCollision = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   collision: RestoredFrameworkMigrationCollisionDomain,
-  plan: FreshRelationalMigrationPlan,
+  plan: RelationalMigrationPlan,
   operation: MigrationPlanAggregateRepositoryOperation,
 ): Effect.fn.Return<
   RestoredFrameworkMigrationCollisionDomain,
@@ -827,7 +831,10 @@ const restorePlanOccupant = Effect.fn(
     decoded.frame,
     operation,
   );
+  const base = yield* restoreFrameworkMigrationBaseEffect(transaction, collision,
+    decoded.storageId, decoded.frame, operation);
   return yield* restoreStoredFreshRelationalMigrationPlan({
+    ...(Option.isSome(base) ? { baseReadiness: base.value } : {}),
     row,
     stepRows: sidecars.steps,
     dependencyRows: sidecars.dependencies,
@@ -835,7 +842,8 @@ const restorePlanOccupant = Effect.fn(
     collision,
     nameAssignments: assignments,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-}, withFrameworkGraphReadPass);
+}, withFrameworkGraphReadPass, (effect, _transaction, row) =>
+  row.frameVersion === 2 ? withAdditiveMigrationGraphLimits(effect) : effect);
 
 const decodePlanRoot = Effect.fn(
   "FrameworkMigrationPlanRepository.decodeRoot",
@@ -855,7 +863,7 @@ const decodePlanRoot = Effect.fn(
     row.migrationPlanSha256,
     {
       format: FRAMEWORK_MIGRATION_PLAN_FORMAT,
-      version: FRAMEWORK_MIGRATION_PLAN_VERSION,
+      version: row.frameVersion === 2 ? 2 : 1,
       maximumCanonicalBytes: MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES,
     },
     () => FrameworkMigrationRepositoryError.storedCorruption(operation),
@@ -865,7 +873,7 @@ const decodePlanRoot = Effect.fn(
     canonicalBytes: stored.canonicalBytes,
     sha256Hex: stored.sha256Hex,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-  if (!isStoredFreshRelationalMigrationPlanFrame(frame)) {
+  if (!isStoredFreshRelationalMigrationPlanFrame(frame) || frame.version !== row.frameVersion) {
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
     );
@@ -882,7 +890,7 @@ const resolvePlanOccupantCollision = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   row: MigrationPlanDriverRow,
-  frame: FreshRelationalMigrationPlanFrame,
+  frame: RelationalMigrationPlanFrame,
   preferred: RestoredFrameworkMigrationCollisionDomain,
   operation: MigrationPlanAggregateRepositoryOperation,
 ): Effect.fn.Return<
@@ -938,7 +946,7 @@ const loadPlanSidecars = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   planStorageId: bigint,
-  frame: FreshRelationalMigrationPlanFrame,
+  frame: RelationalMigrationPlanFrame,
   operation: MigrationPlanAggregateRepositoryOperation,
 ): Effect.fn.Return<
   Readonly<{

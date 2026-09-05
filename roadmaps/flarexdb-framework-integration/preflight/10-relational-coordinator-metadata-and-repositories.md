@@ -5,9 +5,14 @@ additive private metadata DDL, source-private topological restoration, all
 thirteen transaction-parameterized repository families, and the complete
 serial PGlite functional gate are implemented. No target session,
 generated relational DDL, coordinator runtime, binding, adapter, genuine-
-PostgreSQL acceptance, or production activation is authorized
+PostgreSQL acceptance, or production activation is authorized by this record.
 
 Last reviewed: 2026-09-03
+
+The later [additive-upgrade contract](./12-base-backed-additive-upgrade.md)
+extends this eighteen-table baseline with one private plan-base sidecar and
+version-2 plan/admission constraints. It owns that successor migration and its
+acceptance; this document retains the original checkpoint-2 boundary.
 
 ## Decision
 

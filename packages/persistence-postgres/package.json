@@ -230,7 +230,9 @@
     "test:e01-b:postgres": "vitest run test/applicationRelationReadiness.postgres.test.ts --no-file-parallelism --testTimeout=300000",
     "test:pglite": "vitest run test/pglite.runtime.test.ts --no-file-parallelism",
     "test:pglite:migrations": "vitest run test/pglite.migrations.test.ts --no-file-parallelism",
-    "test:postgres": "node ../../scripts/run-test-lane.mjs postgres-persistence"
+    "test:postgres": "node ../../scripts/run-test-lane.mjs postgres-persistence",
+    "test:framework-coordinator-additive:pglite": "node ../../scripts/run-test-lane.mjs framework-coordinator-additive-pglite",
+    "test:framework-coordinator-additive:postgres": "node ../../scripts/run-test-lane.mjs framework-coordinator-additive-postgres"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",

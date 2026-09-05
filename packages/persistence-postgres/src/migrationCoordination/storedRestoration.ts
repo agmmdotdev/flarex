@@ -1,4 +1,5 @@
 import { compareUtf16Strings } from "@flarex/utils/strings";
+import { isRestoredFrameworkSchemaReadiness, type RestoredFrameworkSchemaReadiness } from "../frameworkSchema/installation/storedMetadataRestoration";
 import { Brand, Effect } from "effect";
 
 import { compareFrameworkSchemaArtifactIdentities } from
@@ -74,9 +75,10 @@ import {
   type FrameworkMigrationCollisionCoordinate,
   type FrameworkMigrationPlanAdmissionFrame,
   type FrameworkMigrationStepReceiptFrame,
-  type FreshRelationalMigrationPlan,
+  type RelationalMigrationPlan,
 } from "./model";
 import {
+  samePrivateJson,
   isStoredCollisionCoordinate,
   isStoredFrameworkMigrationAttemptStartFrame,
   isStoredFrameworkMigrationAttemptTerminalFrame,
@@ -179,7 +181,7 @@ export interface StoredFrameworkMigrationPlanStepDependencyRow {
 export interface RestoredFreshRelationalMigrationPlan {
   readonly storageId: bigint;
   readonly collision: RestoredFrameworkMigrationCollisionDomain;
-  readonly plan: FreshRelationalMigrationPlan;
+  readonly plan: RelationalMigrationPlan;
 }
 
 export interface StoredFrameworkMigrationPlanAdmissionRow
@@ -517,6 +519,7 @@ export function isRestoredRelationalPhysicalNameAssignment(
 }
 
 export interface RestoreStoredFreshRelationalMigrationPlanInput {
+  readonly baseReadiness?: RestoredFrameworkSchemaReadiness;
   readonly row: StoredFrameworkMigrationPlanRow;
   readonly stepRows: readonly StoredFrameworkMigrationPlanStepRow[];
   readonly dependencyRows:
@@ -552,7 +555,7 @@ export const restoreStoredFreshRelationalMigrationPlan = Effect.fn(
     row,
     row.migrationPlanSha256,
     FRAMEWORK_MIGRATION_PLAN_FORMAT,
-    FRAMEWORK_MIGRATION_PLAN_VERSION,
+    row.frameVersion === 2 ? 2 : 1,
     MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES,
   );
   const frame = yield* verifyStoredFrameworkMigrationValue({
@@ -568,7 +571,7 @@ export const restoreStoredFreshRelationalMigrationPlan = Effect.fn(
     row.physicalLayoutSha256,
   );
   if (
-    !isStoredFreshRelationalMigrationPlanFrame(frame) ||
+    !isStoredFreshRelationalMigrationPlanFrame(frame) || frame.version !== row.frameVersion ||
     !sameTargetFrame(
       frame.targetNamespace,
       input.targetNamespace.targetNamespace.frame,
@@ -584,6 +587,21 @@ export const restoreStoredFreshRelationalMigrationPlan = Effect.fn(
   ) {
     return yield* corrupt();
   }
+  if (frame.version === 2) {
+    const base = input.baseReadiness;
+    const verification = frame.steps[0]?.operation;
+    if (base === undefined || !isRestoredFrameworkSchemaReadiness(base) ||
+      base.installation.plan.plan.frame.version !== 1 ||
+      base.installation.collision.storageId !== input.collision.storageId ||
+      verification?.codec.format !== "flarex.relational-verify-base-structure" ||
+      !samePrivateJson(verification.physicalLayout, base.installation.plan.plan.frame.physicalLayout) ||
+      !samePrivateJson(frame.baseInstallation.identity, base.installation.installation.frame.identity) ||
+      frame.baseInstallation.installationReceiptSha256 !== base.installation.installation.sha256 ||
+      frame.baseInstallation.readinessSha256 !== base.readiness.sha256 ||
+      frame.baseInstallation.physicalLayoutSha256 !== base.installation.plan.plan.physicalLayout.layoutSha256) {
+      return yield* corrupt();
+    }
+  } else if (input.baseReadiness !== undefined) return yield* corrupt();
   for (let index = 0; index < input.nameAssignments.length; index += 1) {
     const restored = input.nameAssignments[index];
     if (
@@ -704,7 +722,7 @@ export const restoreStoredFrameworkMigrationPlanAdmission = Effect.fn(
     row,
     row.admissionSha256,
     FRAMEWORK_MIGRATION_PLAN_ADMISSION_FORMAT,
-    FRAMEWORK_MIGRATION_PLAN_ADMISSION_VERSION,
+    row.frameVersion === 2 ? 2 : 1,
     MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
   );
   const frame = yield* verifyStoredFrameworkMigrationValue({
@@ -717,7 +735,9 @@ export const restoreStoredFrameworkMigrationPlanAdmission = Effect.fn(
     ? null
     : yield* storedSha256(row.previousPlanSha256);
   if (
-    !isStoredFrameworkMigrationPlanAdmissionFrame(frame) ||
+    !isStoredFrameworkMigrationPlanAdmissionFrame(frame) || frame.version !== row.frameVersion ||
+    !samePrivateJson(frame.baseInstallation, input.plan.plan.frame.baseInstallation) ||
+    frame.version !== input.plan.plan.frame.version ||
     !sameCollision(frame.collision, input.collision.coordinate) ||
     compareFrameworkSchemaArtifactIdentities(
       frame.artifact,
@@ -1244,7 +1264,7 @@ const verifyPlanSidecars = Effect.fn(
 )(function* (
   planStorageId: bigint,
   collisionStorageId: bigint,
-  steps: FreshRelationalMigrationPlan["frame"]["steps"],
+  steps: RelationalMigrationPlan["frame"]["steps"],
   rows: readonly StoredFrameworkMigrationPlanStepRow[],
   dependencyRows: readonly StoredFrameworkMigrationPlanStepDependencyRow[],
 ): Effect.fn.Return<void, FrameworkMigrationValueError> {

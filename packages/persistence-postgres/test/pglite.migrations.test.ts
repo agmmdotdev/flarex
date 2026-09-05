@@ -131,6 +131,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_framework_migration_event",
       "fx_system_framework_migration_plan",
       "fx_system_framework_migration_plan_admission",
+      "fx_system_framework_migration_plan_base",
       "fx_system_framework_migration_plan_step",
       "fx_system_framework_migration_plan_step_dependency",
       "fx_system_framework_migration_step_receipt",
@@ -585,7 +586,11 @@ describe("createPGlitePersistence", () => {
         sequences: "12",
         receipts: "81",
       });
-      for (const tableName of FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES) {
+      // This historical upgrade stops at 0080; the base sidecar arrives in 0081.
+      const previousCoordinatorTables = FRAMEWORK_COORDINATOR_METADATA_TABLE_NAMES
+        .filter((name) => name !== "fx_system_framework_migration_plan_base");
+      expect(previousCoordinatorTables).toHaveLength(18);
+      for (const tableName of previousCoordinatorTables) {
         const stored = await current.query<{ count: string }>(
           `select count(*)::text as count from "${tableName}"`,
         );
