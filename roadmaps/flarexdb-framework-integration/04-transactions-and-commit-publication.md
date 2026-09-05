@@ -12,6 +12,11 @@ commit, feed, and outbox authority.
 It does not authorize changes to application OCC, point-commit compilation,
 scope-clock locking, commit ordering, or feed storage.
 
+The accepted [execution-profile preflight](./preflight/14-transaction-execution-profiles.md)
+records the pinned framework evidence and shared ownership direction. Concrete
+transaction-owner and commit-owner implementation contracts remain required;
+the preflight does not claim the current Application-shaped host is neutral.
+
 ## Transaction Hosts
 
 Use separate high-level hosts:
@@ -26,6 +31,13 @@ Use separate high-level hosts:
 These hosts may share transaction acquisition, scope/generation fencing,
 settlement, and finalization mechanics. They must not be collapsed into one
 public parameterized transaction API.
+
+The shared foundation does not imply one journal execution model. Preserve
+Application's current journal/OCC path. Trusted CMS and commerce commands use
+their admitted physical transaction profile; workflows compose committed
+steps with framework-owned recovery. A future explicit cross-domain command
+coordinates admitted domain capabilities under one owner, rather than adding
+an independently committing call inside an existing logical mutation.
 
 ## Relational Transaction Capability
 
@@ -142,6 +154,18 @@ second commit/feed/outbox authority.
 - Nested Medusa service calls propagate the same commerce transaction manager.
 - Savepoints are admitted only where framework behavior and driver support are
   proven.
+- The outer owner alone commits or rolls back the physical transaction.
+  Nested completion cannot commit it. A failed borrowed operation marks it
+  rollback-only unless an admitted savepoint contract proves safe recovery;
+  catching the error does not restore write authority.
+- Expired, missing, foreign, or rolled-back borrowed handles fail closed.
+  They cannot fall back to an independent connection. Legitimate standalone
+  reads still use their separately admitted read contract.
+- Preserve Payload's supported hook ordering and transaction-local reads.
+  `afterChange` is not an after-commit hook. Do not move hooks wholesale or
+  replay arbitrary framework callbacks through Application OCC retries.
+- Capture admitted Medusa service events as typed durable intents; service
+  return is not proof of outer transaction settlement.
 - No SQL transaction or lock spans remote work, a workflow pause, or an
   unbounded user callback.
 - Application user code never receives a relational transaction handle.
@@ -152,6 +176,22 @@ second commit/feed/outbox authority.
 - A trusted Medusa or Payload command may coordinate narrowly admitted
   cross-owner operations only after a separate atomicity contract proves one
   transaction owner and one finalizer.
+
+### Explicit Cross-Domain Command Gate
+
+After the participating Application, Payload, and Medusa lane proofs, admit a
+named private command over one scope, physical placement, and exact bindings.
+Prove one Application-owned row change, one scalar CMS operation, and one
+simple Medusa service operation in the same transaction. Inject failure after
+the last operation and require complete row/sidecar rollback and no published
+facts, wakes, or events. Successful execution publishes all admitted changes
+and typed event intents through one finalizer. No operation bypasses its
+domain's write policy, validation, or capability boundary.
+
+This proof does not admit arbitrary Payload hooks, an entire Medusa workflow,
+cross-database transactions, or public callback syntax. Remote effects and
+workflow pauses use committed steps and durable outbox intent. Delivery retry
+does not promise atomic or exactly-once effects in an external service.
 
 ## Proposed Lock-Order Reconciliation
 
@@ -201,6 +241,11 @@ behavioral, transaction, recovery, and regression proof.
 - Transactions are pinned to exact scope, owner, placement, and schema binding.
 - Nested framework calls reuse or savepoint according to explicit policy.
 - Cross-transaction receipt mixing is rejected.
+- Borrowed transaction failure, even if caught by the caller, cannot leak
+  subsequent writes through a fallback connection or premature nested commit.
+- Admitted Payload hooks retain their order and read pending writes; Medusa
+  events remain withheld until outer commit. Arbitrary callback replay and
+  unsupported external effects are rejected by the compatibility profile.
 - Constraint, rollback, timeout, interruption, and uncertain-settlement paths
   are tested.
 - One commit publishes all accepted typed families atomically.

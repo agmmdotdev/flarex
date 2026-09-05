@@ -258,10 +258,17 @@ This gate must pass before the first CMS-managed write is accepted:
 
 ### Scalar CRUD and request transaction
 
+- Apply the accepted [execution-profile contract](./preflight/14-transaction-execution-profiles.md)
+  through the CMS host; preserve Payload's request lifecycle without routing
+  it through Application's logical journal or arbitrary-callback OCC replay.
 - Implement the admitted CRUD, find, count, filter, sort, selection, and page
   subset over application rows and declared indexes/uniques.
 - Reuse one request transaction for nested Payload operations.
 - Roll back every nested row and sidecar mutation on failure.
+- Prove outer-owner settlement: nested completion cannot commit, a caught
+  borrowed-operation failure remains rollback-only, and a lost/closed mutation
+  session cannot fall back to an independent database connection. Keep valid
+  standalone reads under their separate admission contract.
 - Publish Flarex commit/change/outbox evidence exactly once.
 - Do not use the Dynamic Worker logical journal for trusted Payload commands.
 - Use PGlite for the fast matrix and genuine PostgreSQL for rollback,
@@ -269,6 +276,10 @@ This gate must pass before the first CMS-managed write is accepted:
 - Use one fixed conformance-only nested callback to prove same-request reuse;
   do not turn that proof into general user-hook support or hold the first
   product transaction across arbitrary remote/file work.
+- Preserve supported hook ordering and pending-write visibility. `afterChange`
+  runs before commit in the pinned source; do not relocate it after commit.
+  Auth email, uploads, and arbitrary external-effect hooks remain outside this
+  first profile. Later admission must resolve their effect/retry semantics.
 
 ### Relation-bearing Application candidate and overlay rebinding
 

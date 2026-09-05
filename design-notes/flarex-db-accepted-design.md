@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-05
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -46,6 +46,31 @@ outbox rows in a commit intent
 The correct unification point is the trusted Postgres authority, scope clock,
 commit feed, outbox, and adapter contracts. It is not one universal physical
 table shape or one universal user-visible transaction.
+
+### Shared Commit Authority And Execution Profiles
+
+Application, Payload, and Medusa share trusted transaction ownership, scope
+fencing, durable commit evidence, and typed feed/outbox publication. They retain
+different execution profiles: Application uses its logical journal and OCC;
+admitted Payload requests and Medusa service commands use bounded trusted
+database transactions; Medusa workflows retain step-level transactions,
+checkpoints, retries, and compensation. A workflow's recovery transaction is
+not one SQL transaction spanning its complete execution.
+
+Explicit cross-domain atomic commands are an accepted target after the
+participating lanes and a separate atomicity contract pass their gates. One
+trusted command owner may coordinate admitted Application, Payload, and Medusa
+operations within one scope and physical Postgres transaction, through their
+respective domain capabilities, with one finalizer. This grants neither raw
+writes to framework-owned rows nor arbitrary callbacks inside a transaction.
+It does not make ordinary `ctx.db`, `ctx.cms`, and `ctx.commerce` calls
+automatically atomic or replace the existing Application journal.
+
+The [transaction execution-profile preflight](../roadmaps/flarexdb-framework-integration/preflight/14-transaction-execution-profiles.md)
+owns the source findings, nested ownership/failure rules, hook and event
+boundaries, alternatives, and required proof. This is accepted direction, not
+an implemented host, public API, or approval to change Application OCC,
+publication locking, journal formats, or commit recovery incidentally.
 
 ## Hosted Runtime Topology
 
@@ -195,7 +220,7 @@ work continues.
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted first Flarex/Cloudflare coordination adapter | One deterministic instance per scope, durable SQLite cursor/query/dependency state and Postgres catch-up composed around the separately owned portable Query Sync Engine semantics. |
 | VersionDO, DocCacheDO, QueryCacheDO | Deferred optimization | Add only after measurement and a gap-free freshness protocol. |
-| Generic atomic `ctx.db + ctx.commerce` | Rejected | Commerce-affecting atomic behavior belongs behind a Medusa-owned facade/workflow. Cross-boundary follow-up uses IDs and the transactional outbox. |
+| Generic atomic `ctx.db + ctx.cms + ctx.commerce` | Rejected | Explicit domain commands preserve framework mutation ownership. A separately admitted cross-domain command may use one scoped physical transaction and finalizer; workflows and cross-placement follow-up use committed steps and the transactional outbox. |
 
 Replacement strategy is selected from shipped-state evidence:
 

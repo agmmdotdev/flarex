@@ -89,7 +89,10 @@ Use these sources in order:
 15. [`preflight/13-application-projection-and-data-bindings.md`](./preflight/13-application-projection-and-data-bindings.md)
     owns the completed binding preflight and recommended private projection,
     selection/admission/recovery and synthetic test-selection implementation.
-16. Current code, migrations, any source snapshot already admitted by its own
+16. [`preflight/14-transaction-execution-profiles.md`](./preflight/14-transaction-execution-profiles.md)
+    owns the accepted execution profiles, pinned framework lifecycle findings,
+    outer transaction ownership, and deferred cross-domain command proof.
+17. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -139,8 +142,14 @@ Preflight records:
 | [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md) | Private no-base PGlite and bounded native PostgreSQL execution, contention, cancellation, settlement and process-restart evidence | Opaque authority, four fresh operation handlers, bounded read-only graph reuse, fifteen-step execution profile, remaining general scale and host-resolution gates |
 | [`preflight/12-base-backed-additive-upgrade.md`](./preflight/12-base-backed-additive-upgrade.md) | Implemented privately with PGlite and ordinary-role PostgreSQL acceptance | One fresh base to one additive successor, explicit base verification, versioned plan/admission contracts, bounded lineage and combined PGlite/native acceptance |
 | [`preflight/13-application-projection-and-data-bindings.md`](./preflight/13-application-projection-and-data-bindings.md) | Preflight complete; concrete private implementation contract proposed, code pending | Application-owned coherent projection, exact named bindings, residual profile authentication, atomic selection, transaction-local admission, restart recovery and non-serving synthetic selection |
+| [`preflight/14-transaction-execution-profiles.md`](./preflight/14-transaction-execution-profiles.md) | Accepted architecture direction; concrete implementation contracts and proofs pending | Shared transaction ownership, separate Application/framework/workflow execution profiles, nested failure and event boundaries, and explicitly gated cross-domain atomic commands |
 
 ## Current Architecture
+
+The accepted [transaction execution profiles](./preflight/14-transaction-execution-profiles.md)
+share transaction ownership and commit evidence while preserving Application
+journal/OCC, bounded framework commands, and Medusa workflow recovery. This
+direction is not an implemented neutral host or a universal mutation API.
 
 The repository contains a private fresh-install and bounded additive-upgrade
 lifecycle through artifact, physical plan, target/session, structural execution
@@ -223,9 +232,13 @@ The smallest safe sequence is:
    activation/admission and recovery implementation. Include its non-serving
    test-only selection seam for the later synthetic system proof; do not add a
    generic system slot. Binding implementation and acceptance remain pending.
-6. Complete the mandatory transaction-owner preflight, then add its narrow
-   owner-scoped relational transaction/store capability. Do not create a
-   universal database or transaction API.
+6. Use the accepted
+   [execution-profile preflight](./preflight/14-transaction-execution-profiles.md)
+   to complete the concrete transaction-owner implementation contract, then
+   add its narrow owner-scoped relational transaction/store capability. Preserve
+   outer ownership, fail-closed borrowed sessions, framework lifecycle semantics,
+   and current Application lock ordering. Do not create a universal database
+   or transaction API.
 7. Complete the mandatory commit-owner preflight, then add its transaction-
    bound mutation receipts and typed finalization mechanics without inventing a
    generic relational change-fact family.
@@ -261,6 +274,12 @@ The smallest safe sequence is:
     broader modules only through their own bounded conformance gates.
 16. Add cross-domain references only after both endpoint lanes have stable
     identities, bindings, lifecycle rules, and committed change facts.
+    Separately admit a named private cross-domain atomic command after the
+    participating lane and transaction/commit-owner proofs. It must use one
+    scope, physical transaction and finalizer, preserve each domain's write
+    authority, and prove complete rollback and event withholding. This is not
+    a prerequisite for the earlier individual lane proofs and does not admit
+    arbitrary journal callbacks or whole-workflow SQL transactions.
 17. Run full conformance, scale, recovery, hosted, and operator gates before
     any production activation.
 

@@ -268,6 +268,9 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
 
 ### Commerce transaction-host admission
 
+- Apply the accepted [execution-profile contract](./preflight/14-transaction-execution-profiles.md):
+  preserve service transaction-manager reuse while Flarex owns the outer
+  physical transaction. Workflow orchestration is a separate execution profile.
 - Complete the separate transaction-owner preflight before receipt-family
   implementation or any Currency write.
 - Prove Flarex-owned scoped physical transaction acquisition, binding
@@ -275,8 +278,11 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
   settlement.
 - Adapt Medusa's transaction-manager contract and nested propagation without
   giving Medusa or a repository the raw physical handle or finalizer.
-- Freeze lock order and the point at which the canonical publication lock is
-  acquired after lane work.
+- Preserve current Application lock ordering initially. Resolve the complete
+  shared lock order in the transaction-owner contract before any change to
+  publication-lock placement; acquisition after lane work is not yet accepted.
+- Prove that borrowed-manager completion cannot commit the outer transaction,
+  and nested failure cannot escape through an independent transaction.
 
 ### Commerce-row commit and event-intent admission
 
@@ -286,6 +292,9 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
   Currency behavior under test.
 - Persist each admitted event intent with the same commit and common outbox
   wake, then dispatch by stable identity with durable retry and delivery state.
+- Intercept the existing service event handoff into that typed intent path;
+  `EmitEvents` service completion is not evidence of an outer borrowed
+  transaction's commit. Prove rollback suppresses external publication.
 - Introduce no temporary publication path, arbitrary event envelope, second
   feed, or second outbox.
 
@@ -362,6 +371,9 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
 ### Workflows and locks
 
 - Prove transaction boundaries around workflow steps.
+- Preserve checkpoint, retry, waiting, and compensation semantics. A supported
+  service call joining one transaction does not prove a whole workflow can join
+  it; retain the original product-create compensation behavior as evidence.
 - Do not hold database locks across workflow pauses or remote effects.
 - Adapt lock and idempotency stores through their own bounded capabilities.
 - Test crash, replay, duplicate delivery, timeout, and lost-response behavior.
