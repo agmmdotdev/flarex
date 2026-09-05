@@ -584,7 +584,9 @@ and Application evidence.
 
 ## Deferred Binding Boundary
 
-This record reconciles but does not implement the next selection boundary:
+This record reconciles but does not implement the next selection boundary.
+The [completed binding preflight](./13-application-projection-and-data-bindings.md)
+now owns the concrete implementation proposal:
 
 - the existing Application head remains the only Application selector;
 - the future coherent Application reference must be issued inside the
@@ -598,15 +600,14 @@ This record reconciles but does not implement the next selection boundary:
 - runtime admission later re-resolves the target and revalidates the complete
   set inside the accepting transaction.
 
-The next binding preflight must replace the earlier single capability-array
-shorthand with exact physical evidence plus authenticated residual
-adapter/query/store profiles. It must also freeze its remaining codecs,
-repository, candidates/history/head, hint/re-read/restart policy, and genuine
-PostgreSQL race proofs.
+The binding preflight replaces the earlier single capability-array shorthand
+with exact physical evidence plus authenticated residual adapter/query/store
+profiles. It specifies the proposed codecs, repository, candidates/history/head,
+hint/re-read/restart policy, and genuine PostgreSQL race proofs. Implementation
+and acceptance of that capability remain pending.
 
-The later synthetic `system` transaction proof has no selection authority yet.
-Before that proof, a separate preflight must choose either a specifically named
-system slot with explicit product semantics or a non-serving test-only
+The later synthetic `system` transaction proof has no implemented selection
+authority yet. The binding preflight recommends a non-serving test-only
 selection capability minted by the trusted accepting-transaction fixture after
 authenticating scope, target, installation, readiness, and availability. The
 initial `DataBindingSet` cannot be used as if it already had a system slot, and
@@ -817,11 +818,14 @@ acceptance needed to finish it; it need not be repeated for each checkpoint:
    checkpoint completes. This acceptance is complete for the bounded private
    fresh and one-hop additive profiles; general lineage scale, other transports
    and production resolution remain independently gated.
-6. **Application projection and binding preflight:** only then freeze and
-   implement `DataBindingSet`, activation, and serving admission.
-7. **Synthetic system selection preflight:** choose and prove one explicitly
-   named system slot or one non-serving test-only accepting-transaction
-   capability. Do not infer a generic slot or production fallback.
+6. **Application projection and binding capability:** its
+   [preflight](./13-application-projection-and-data-bindings.md) is complete;
+   implement and prove the proposed `DataBindingSet`, activation, admission
+   and recovery contract as one private capability.
+7. **Synthetic system selection:** include the preflight's recommended
+   non-serving test-only accepting-transaction capability and refusal proofs
+   in the binding implementation. Do not infer a generic slot or production
+   fallback.
 8. **Transaction and commit owners:** complete their mandatory preflights and
    synthetic reserved-relational data proof before any framework adapter.
 9. **Framework consumers:** Payload preservation/proofs precede the first
@@ -956,6 +960,7 @@ separately approved [additive capability](./12-base-backed-additive-upgrade.md)
 extends that core with exact retained-base verification and a bounded one-hop
 successor. Both profiles have independent ordinary-role PostgreSQL acceptance.
 This completes the private structural installation/upgrade capability within
-their admitted limits. The next owner is the Application projection and binding
-preflight; additional DDL profiles, general scale, adapters, hosted/public APIs
-and production selection remain gated.
+their admitted limits. The Application projection and binding preflight is
+[complete](./13-application-projection-and-data-bindings.md), and its private
+implementation is next; additional DDL profiles, general scale, adapters,
+hosted/public APIs and production selection remain gated.

@@ -251,10 +251,9 @@ stale fences and lost COMMIT responses. Native advancement fits the unchanged
 transaction and statement ceilings for the admitted profile. These proofs do
 not establish general lineage scale or hosted transport behavior.
 
-The next capability is the separately owned Application projection and
-`DataBindingSet` preflight in the
-[umbrella sequence](./09-relational-installation-and-migration-coordination.md#deferred-binding-boundary).
-It must join exact installation evidence with authenticated residual
-adapter/query/store profiles while preserving the Application selector and
-framework domain mutation authority. Binding implementation, transaction/store
-work and the Payload/Medusa consumer proofs remain later approvals.
+The separately owned [Application projection and data-bindings preflight](./13-application-projection-and-data-bindings.md)
+is complete. Its proposed private implementation joins exact installation
+evidence with authenticated residual adapter/query/store profiles while
+preserving the Application selector and framework domain mutation authority.
+Binding implementation, transaction/store work and the Payload/Medusa consumer
+proofs remain later approvals.

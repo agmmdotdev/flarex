@@ -5,10 +5,11 @@
 Status: active accepted roadmap domain. The private framework-artifact
 repository has completed its focused PGlite and ordinary-role PostgreSQL
 acceptance. Relational values, coordinator metadata/repositories, and all
-three fresh-install execution slices are implemented privately; coordinator
-execution has independent no-base PGlite and bounded native PostgreSQL evidence.
-Bounded-lineage scale, upgrades, serving bindings, framework data
-transactions, adapters, and production activation remain open.
+three fresh-install execution slices are implemented privately. Fresh
+installation and one fresh-base-to-additive-successor upgrade have independent
+PGlite and ordinary-role PostgreSQL acceptance. General lineage scale and
+upgrades beyond that bounded profile remain open, as do serving bindings,
+framework data transactions, adapters, and production activation.
 
 The [current gate matrix](#current-gate-status) is the cross-lane status index.
 Focused owners define exact contracts and evidence; lane documents link here
@@ -81,8 +82,14 @@ Use these sources in order:
     owns the three-slice checkpoint-3 decomposition, opaque target/session and
     PGlite functional boundary, the private plan/target-bound structural-runner
     registry, fresh coordinator with PGlite and bounded native PostgreSQL
-    evidence, and unresolved upgrade, other-transport, host-resolver and scaling gates.
-14. Current code, migrations, any source snapshot already admitted by its own
+    evidence, and remaining other-transport, host-resolver and scaling gates.
+14. [`preflight/12-base-backed-additive-upgrade.md`](./preflight/12-base-backed-additive-upgrade.md)
+    owns the implemented one-hop additive upgrade, exact retained-base
+    verification, bounded lineage and independent PGlite/native acceptance.
+15. [`preflight/13-application-projection-and-data-bindings.md`](./preflight/13-application-projection-and-data-bindings.md)
+    owns the completed binding preflight and recommended private projection,
+    selection/admission/recovery and synthetic test-selection implementation.
+16. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -131,11 +138,13 @@ Preflight records:
 | [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Complete checkpoint-2 contract; exact additive catalog, topological restoration, all thirteen source-private repository families, and manifest-owned serial PGlite functional gate implemented production-inert | Exact eighteen-table baseline plus the separately owned additive base sidecar, canonical-byte authority, normalized constraint sidecars, timestamp mapping, complete-graph cold rehydration, private transaction kernels, and PGlite evidence gate |
 | [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md) | Private no-base PGlite and bounded native PostgreSQL execution, contention, cancellation, settlement and process-restart evidence | Opaque authority, four fresh operation handlers, bounded read-only graph reuse, fifteen-step execution profile, remaining general scale and host-resolution gates |
 | [`preflight/12-base-backed-additive-upgrade.md`](./preflight/12-base-backed-additive-upgrade.md) | Implemented privately with PGlite and ordinary-role PostgreSQL acceptance | One fresh base to one additive successor, explicit base verification, versioned plan/admission contracts, bounded lineage and combined PGlite/native acceptance |
+| [`preflight/13-application-projection-and-data-bindings.md`](./preflight/13-application-projection-and-data-bindings.md) | Preflight complete; concrete private implementation contract proposed, code pending | Application-owned coherent projection, exact named bindings, residual profile authentication, atomic selection, transaction-local admission, restart recovery and non-serving synthetic selection |
 
 ## Current Architecture
 
-The repository contains a private fresh-install lifecycle through artifact,
-physical plan, target/session, structural execution and readiness publication.
+The repository contains a private fresh-install and bounded additive-upgrade
+lifecycle through artifact, physical plan, target/session, structural execution
+and readiness publication.
 It does not yet contain an integrated framework data/serving path:
 
 - scope resolution and physical placement are reusable authorities;
@@ -150,7 +159,7 @@ It does not yet contain an integrated framework data/serving path:
   current fact families are application-specific; and
 - the checked-in migration runner owns static Flarex platform migrations;
   generated framework structures use the separately owned private coordinator,
-  currently proven only for the fresh PGlite profile.
+  with fresh and one-hop additive PGlite and native PostgreSQL acceptance.
 
 The `payload` and `medusa` catalog namespaces reserve stable vocabulary. They
 do not prove an adapter, framework migration compatibility, runtime caller or
@@ -208,12 +217,12 @@ The smallest safe sequence is:
    the opaque target/session plus PGlite functional adapter and the fixed-
    registry relational structural runner are now closed as separate private
    functional evidence alongside the fresh coordinator and repository helpers.
-   Stop after fresh plus base-backed genuine-PostgreSQL structural
-   acceptance. Then separately preflight the Application projection,
-   `DataBindingSet`, activation, and serving owner. Before the synthetic system
-   transaction proof, also preflight one specifically named system slot or a
-   non-serving test-only selection capability; the initial binding set supplies
-   neither.
+   Fresh plus base-backed genuine-PostgreSQL structural acceptance is complete.
+   The [binding preflight](./preflight/13-application-projection-and-data-bindings.md)
+   recommends one coherent private Application projection, `DataBindingSet`,
+   activation/admission and recovery implementation. Include its non-serving
+   test-only selection seam for the later synthetic system proof; do not add a
+   generic system slot. Binding implementation and acceptance remain pending.
 6. Complete the mandatory transaction-owner preflight, then add its narrow
    owner-scoped relational transaction/store capability. Do not create a
    universal database or transaction API.
@@ -267,7 +276,9 @@ at most fifteen plan steps on both drivers, with bounded immutable-reference
 reuse inside each read-only restoration pass. Larger plans and long lineage
 need their own measured bound before that limit can grow. The separate
 [additive profile](./preflight/12-base-backed-additive-upgrade.md) completes
-bounded fresh-plus-base acceptance before the next binding preflight.
+bounded fresh-plus-base acceptance. The following
+[binding preflight](./preflight/13-application-projection-and-data-bindings.md)
+is complete; its implementation remains pending.
 
 ## Current Gate Status
 
@@ -279,9 +290,9 @@ bounded fresh-plus-base acceptance before the next binding preflight.
 | Coordinator metadata/repositories | Eighteen-table baseline plus immutable plan-base sidecar, thirteen repository families with base corroboration, bounded cold restoration and PGlite/native evidence complete | General lineage scale remains open |
 | Fresh coordinator execution | Private no-base PGlite and ordinary-role native PostgreSQL profile; bounded read-only graph reuse, physical sessions, concurrency, cancellation, uncertain settlement, OS-process restart and exact readiness replay | Fifteen-step execution limit; larger plans, general lineage scale, hosted/TLS transports and production resolution unproven |
 | Base-backed structural upgrade | Private fresh A to additive B and exact replay, retained objects/rows, locked base availability, recovery and PGlite/PostgreSQL acceptance | One-hop synthetic system profile only; general upgrades and production selection remain gated |
-| Serving bindings | Accepted identity and ownership boundaries | Application projection, Payload overlay, `DataBindingSet`, activation/recovery and serving unimplemented |
+| Serving bindings | Accepted identity/ownership boundaries; concrete projection/binding preflight complete | Proposed private activation/admission/recovery contract; Application projection, Payload overlay, `DataBindingSet` and serving unimplemented |
 | Relational data transaction/store and finalization | Accepted target boundaries | Transaction-owner and commit-owner decisions and implementation pending; no generic relational fact family |
-| Synthetic relational data proof | Defined fail-closed receipt/rollback target | Explicit system selection plus store/transaction prerequisites pending; installation readiness is not this proof |
+| Synthetic relational data proof | Defined fail-closed receipt/rollback target; non-serving test-only selection recommended by binding preflight | Selection implementation plus store/transaction prerequisites pending; installation readiness is not this proof |
 | Application preservation | Existing private `SV-R Core` baseline complete | Post-core document/OCC/relation/commit regression pending |
 | Payload scalar and non-reactive relation proofs | Pinned contract and native relation prerequisite available | Adapter, CMS read/request transaction, write-policy admission, scalar proof and relation candidate/rebinding pending |
 | Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
@@ -304,9 +315,10 @@ contracts or implementation authorization:
   distinct from nested transaction reuse and invalid-token refusal.
 - [Transaction lock-order reconciliation](./04-transactions-and-commit-publication.md#proposed-lock-order-reconciliation)
   before the Application-shaped execution host becomes shared machinery.
-- [Binding interruption recovery](./02-schema-artifacts-and-bindings.md#proposed-binding-recovery-contract),
-  with an explicit availability expectation while exact overlay rebinding is
-  incomplete.
+- [Binding selection, admission and interruption recovery](./preflight/13-application-projection-and-data-bindings.md),
+  now specified as one private implementation proposal, including the serving
+  gap while exact overlay rebinding is incomplete and distinct test-only
+  synthetic selection.
 
 ## Package Direction
 
@@ -364,7 +376,10 @@ reuse reduces repeated restoration work and supports the larger fresh profile.
 The [approved additive capability](./preflight/12-base-backed-additive-upgrade.md)
 implements one fresh-base-to-successor upgrade with exact base authority,
 retained structures and bounded lineage, with independent PGlite/native acceptance.
-The next capability is the Application projection and `DataBindingSet` preflight.
+The [Application projection and `DataBindingSet` preflight](./preflight/13-application-projection-and-data-bindings.md)
+is complete. Its proposed private selection/admission/recovery capability is
+the next implementation; the later transaction/store and commit owners remain
+separate.
 This evidence does not activate
 bindings, framework stores, common data finalization, adapters, SDKs, runtime
 routes or production traffic.

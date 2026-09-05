@@ -3,8 +3,9 @@
 Status: accepted cross-domain architecture. The private artifact repository,
 relational/lifecycle values, coordinator metadata/repositories and no-base
 PGlite execution and bounded native PostgreSQL fresh installation/recovery are
-implemented. Broader scale, upgrades, bindings, framework transaction/store
-hosts and adapters remain open; the
+implemented, along with one fresh-base-to-additive-successor upgrade on both
+database lanes. General scale and upgrades beyond that profile, bindings,
+framework transaction/store hosts and adapters remain open; the
 roadmap's current capability matrix owns detailed implementation status.
 
 Last reviewed: 2026-09-05

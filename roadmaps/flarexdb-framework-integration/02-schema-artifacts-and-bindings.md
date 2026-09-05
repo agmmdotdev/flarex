@@ -306,6 +306,11 @@ ordinary domain API.
 Status: operational design recommendation for the later binding capability;
 no new activation owner, recovery API or availability guarantee is accepted.
 
+The [completed binding preflight](./preflight/13-application-projection-and-data-bindings.md#recovery-and-failure-semantics)
+now specifies this recommendation's exact-request recovery, historical-receipt
+versus current-admission distinction, and implementation proof. It remains
+unimplemented.
+
 The accepted exact-head rule has a deliberate consequence: if Application head
 A becomes B before B's framework overlay is activated, the old overlay must
 refuse serving even when its content tables remain compatible. The Application
@@ -345,16 +350,18 @@ uses compact database-only row identities without changing the natural
 artifact coordinate, and keeps artifact dependencies distinct from
 installation or binding selection.
 
-Installation, readiness, availability, Application-reference,
-Payload-overlay, and `DataBindingSet` codecs remain later preflights. No current
-checkpoint may dual-bind, fall back, route production traffic, change the
-Application active head, or admit framework relational DDL.
-
-The relational installation/readiness/availability and structural migration
-authority is now accepted in design by
+Installation, readiness and availability values and repositories are now
+implemented privately, together with fresh and bounded additive structural
+execution on PGlite and ordinary-role PostgreSQL. Their authority is owned by
 [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md).
-It implements nothing and deliberately leaves Application projection,
-`DataBindingSet`, activation, and serving for the following checkpoint.
+That execution does not supply an Application projection or active binding.
+
+The [Application projection and data-bindings preflight](./preflight/13-application-projection-and-data-bindings.md)
+is complete and recommends the concrete private candidate/history/head,
+activation, transaction-local admission, recovery and test-selection contract.
+Application-reference, Payload-overlay and `DataBindingSet` implementation
+remain pending. Binding activation must never run DDL, dual-bind, fall back,
+route production traffic or change the Application active head.
 
 ## Exit Criteria
 
