@@ -1,3 +1,4 @@
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../migrationCoordination/graphReadPass";
 import { eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -310,7 +311,7 @@ export const restoreStoredFrameworkSchemaReadinessReferenceInTransactionEffect =
         preferredInstallation.collision,
         operation,
       );
-    },
+    }, makeFrameworkGraphReferenceRead<RestoredFrameworkSchemaReadiness>(),
   );
 
 /** Source-private restoration for readinessPublished event subjects. */
@@ -341,7 +342,7 @@ export const restoreStoredFrameworkSchemaReadinessReferenceBySha256InTransaction
         preferredCollision,
         operation,
       );
-    },
+    }, makeFrameworkGraphReferenceRead<RestoredFrameworkSchemaReadiness>(),
   );
 
 const prepareExpectedReadiness = Effect.fn(
@@ -491,7 +492,7 @@ const restoreReadinessOccupant = Effect.fn(
     row,
     installation,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-});
+}, withFrameworkGraphReadPass);
 
 const loadReadinessRootByStorageId = Effect.fn(
   "FrameworkSchemaReadinessRepository.loadByStorageId",

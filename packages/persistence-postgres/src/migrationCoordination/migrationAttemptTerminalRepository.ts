@@ -1,3 +1,4 @@
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -426,7 +427,7 @@ export const restoreStoredFrameworkMigrationAttemptTerminalReferenceInTransactio
       preferredCollision,
       operation,
     )).value;
-  });
+  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptTerminal>());
 
 /** Source-private restoration of a committed terminal digest reference. */
 export const restoreStoredFrameworkMigrationAttemptTerminalReferenceBySha256InTransactionEffect =
@@ -478,7 +479,7 @@ export const restoreStoredFrameworkMigrationAttemptTerminalReferenceBySha256InTr
       );
     }
     return occupant.value;
-  });
+  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptTerminal>());
 
 const prepareExpectedAttemptTerminal = Effect.fn(
   "FrameworkMigrationAttemptTerminalRepository.prepareExpected",
@@ -735,7 +736,7 @@ const restoreAttemptTerminalOccupant = Effect.fn(
     stepReceipts,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
   return Object.freeze({ value, stepReceipts });
-});
+}, withFrameworkGraphReadPass);
 
 const decodeAttemptTerminalRoot = Effect.fn(
   "FrameworkMigrationAttemptTerminalRepository.decodeRoot",

@@ -1,3 +1,4 @@
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../migrationCoordination/graphReadPass";
 import { eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -325,7 +326,7 @@ export const restoreStoredFrameworkSchemaInstallationReferenceInTransactionEffec
         preferredCollision,
         operation,
       );
-    },
+    }, makeFrameworkGraphReferenceRead<RestoredFrameworkSchemaInstallation>(),
   );
 
 /** Source-private restoration for installationPublished event subjects. */
@@ -356,7 +357,7 @@ export const restoreStoredFrameworkSchemaInstallationReferenceByReceiptSha256InT
         preferredCollision,
         operation,
       );
-    },
+    }, makeFrameworkGraphReferenceRead<RestoredFrameworkSchemaInstallation>(),
   );
 
 const prepareExpectedInstallation = Effect.fn(
@@ -518,7 +519,7 @@ const restoreInstallationOccupant = Effect.fn(
     admission: terminal.attempt.admission,
     terminal,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-});
+}, withFrameworkGraphReadPass);
 
 const loadInstallationRootByStorageId = Effect.fn(
   "FrameworkSchemaInstallationRepository.loadByStorageId",

@@ -1,3 +1,4 @@
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -489,7 +490,7 @@ export const restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffe
       preferredCollision,
       operation,
     );
-  });
+  }, makeFrameworkGraphReferenceRead<RestoredFreshRelationalMigrationPlan>());
 
 const prepareExpectedPlan = Effect.fn(
   "FrameworkMigrationPlanRepository.prepareExpected",
@@ -834,7 +835,7 @@ const restorePlanOccupant = Effect.fn(
     collision,
     nameAssignments: assignments,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-});
+}, withFrameworkGraphReadPass);
 
 const decodePlanRoot = Effect.fn(
   "FrameworkMigrationPlanRepository.decodeRoot",

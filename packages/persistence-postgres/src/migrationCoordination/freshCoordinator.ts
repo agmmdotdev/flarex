@@ -379,9 +379,9 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
     artifact,
     physicalLayout,
   });
-  if (plan.frame.steps.length > 11) {
+  if (plan.frame.steps.length > 15) {
     return yield* Effect.fail(coordinatorError("prepare", "invalidInput",
-      "Fresh coordinator execution supports at most 11 plan steps"));
+      "Fresh coordinator execution supports at most 15 plan steps"));
   }
   const structuralRunner = yield*
     issueRelationalStructuralRunnerTokenEffect(input.target, plan);

@@ -416,10 +416,11 @@ remain open in
 
 The approved [native PostgreSQL fresh installation and recovery](./11-target-session-and-fresh-coordinator.md#native-implementation-evidence)
 capability proves the bounded no-base profile on real connections. The shared
-coordinator admits at most eleven plan steps on both PGlite and PostgreSQL.
-The larger-plan experiment exceeded its work budget, so bounded corroboration
-is the next shared-core design question before broadening to upgrades. The
-whole coordinator gate remains open.
+coordinator admits at most fifteen plan steps on both PGlite and PostgreSQL.
+Bounded read-only graph reuse reduces repeated immutable-reference reads and
+supports that larger fresh profile. The next shared-core preflight is a bounded
+base-backed additive upgrade with exact base authority and its own measured
+lineage/work bound. The whole coordinator gate remains open.
 
 After that fresh proof, complete bounded-lineage requirements and the
 base-backed PGlite/native profile, then the separately owned Application

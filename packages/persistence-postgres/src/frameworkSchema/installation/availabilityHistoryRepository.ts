@@ -1,3 +1,4 @@
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../migrationCoordination/graphReadPass";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -394,7 +395,7 @@ export const restoreStoredFrameworkSchemaAvailabilityHistoryReferenceInTransacti
         );
       }
       return occupant.value;
-    },
+    }, makeFrameworkGraphReferenceRead<RestoredFrameworkSchemaAvailabilityHistory>(),
   );
 
 const prepareExpectedAvailabilityHistory = Effect.fn(
@@ -737,7 +738,7 @@ const restoreAvailabilityHistoryChain = Effect.fn(
     );
   }
   return rootOccupant;
-});
+}, withFrameworkGraphReadPass);
 
 const decodeAvailabilityHistoryRoot = Effect.fn(
   "FrameworkSchemaAvailabilityHistoryRepository.decodeRoot",

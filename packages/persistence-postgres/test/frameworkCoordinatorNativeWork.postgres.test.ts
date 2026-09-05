@@ -8,7 +8,7 @@ import { postgresUrl } from "./postgresHelpers";
 
 const native = postgresUrl === null ? describe.skip : describe;
 native("native fresh migration work budget", () => {
-  it.each([0, 1, 2])("records acquisition, claim, step, reconstruction, takeover and finalize work with %i extra tables", async extra => {
+  it.each([0, 1, 2, 4])("records acquisition, claim, step, reconstruction, takeover and finalize work with %i extra tables", async extra => {
     let statements = 0;
     let transactionStatements = 0;
     let maximumTransactionStatements = 0;
@@ -23,12 +23,14 @@ native("native fresh migration work budget", () => {
     };
     await withNativeCoordinator(async fixture => {
       const pending = await measure("prepareAndClaim", () => runEffect(runFreshFrameworkMigrationCoordinatorEffect({
-        ...fixture.input, maximumStepsPerRun: 0, leaseDurationMilliseconds: 10_000,
+        // Keep the claim live through the first measured transaction even on
+        // a slow host; lease expiry is induced only after reconstruction.
+        ...fixture.input, maximumStepsPerRun: 0, leaseDurationMilliseconds: 60_000,
       })));
       if (pending.kind !== "pending") throw new Error("Expected claim");
       await measure("firstStep", () => runEffect(executeNextFrameworkMigrationStepEffect(pending.claim)));
       await measure("reconstruction", () => runEffect(readFrameworkMigrationClaimProgressEffect(pending.claim)));
-      await delay(10_100);
+      await delay(60_100);
       const takeover = await measure("takeover", () => runEffect(runFreshFrameworkMigrationCoordinatorEffect({
         ...fixture.input, attemptId: "attempt-b", leaseOwnerId: "worker-b", maximumStepsPerRun: 0,
       })));
@@ -44,6 +46,8 @@ native("native fresh migration work budget", () => {
         .toMatchObject({ kind: "ready" });
       expect(maximumTransactionStatements).toBeLessThanOrEqual(8_192);
       expect(statements).toBeLessThanOrEqual(50_000);
+      const priorStatements = new Map([[7, 9_848], [9, 12_563], [11, 16_786]]).get(pending.requiredStepCount);
+      if (priorStatements !== undefined) expect(statements).toBeLessThan(priorStatements * 0.7);
       expect(measurements.every(item => item.milliseconds < 60_000)).toBe(true);
       console.log(JSON.stringify({ profile: "native-fresh", planSteps: pending.requiredStepCount,
         acquisitionMilliseconds: Math.round(acquisitionMilliseconds), maximumTransactionStatements,
@@ -69,14 +73,14 @@ native("native fresh migration work budget", () => {
     });
   }, 180_000);
 
-  it("refuses a fifteen-step plan before target metadata or DDL work", async () => {
+  it("refuses a seventeen-step plan before target metadata or DDL work", async () => {
     let acquisitions = 0;
     await withNativeCoordinator(async fixture => {
       expect(await runEffectFailure(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))
-        .toMatchObject({ reason: "invalidInput", message: "Fresh coordinator execution supports at most 11 plan steps" });
+        .toMatchObject({ reason: "invalidInput", message: "Fresh coordinator execution supports at most 15 plan steps" });
       expect(acquisitions).toBe(0);
       expect((await fixture.persistence.query<{ count: number }>(
         "select count(*)::int as count from fx_system_framework_migration_collision_domain")).rows[0]?.count).toBe(0);
-    }, { observe: event => { if (event.phase === "acquire") acquisitions += 1; } }, 4);
+    }, { observe: event => { if (event.phase === "acquire") acquisitions += 1; } }, 5);
   }, 180_000);
 });

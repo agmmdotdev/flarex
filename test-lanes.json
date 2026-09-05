@@ -17,6 +17,7 @@
       "test/frameworkCoordinatorTargetSession.test.ts"
     ],
     "framework-coordinator-checkpoint2-pglite": [
+      "test/frameworkCoordinatorGraphReadPass.test.ts",
       "test/privateCanonicalValue.test.ts",
       "test/relationalSchemaPhysical.test.ts",
       "test/migrationCoordinationValues.test.ts",

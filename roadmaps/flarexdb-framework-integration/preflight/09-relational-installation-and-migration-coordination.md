@@ -796,9 +796,10 @@ Each checkpoint requires a separate implementation approval:
    `system` artifact with no base.
    The approved [native PostgreSQL fresh installation and recovery](./11-target-session-and-fresh-coordinator.md#native-implementation-evidence)
    capability now brings forward the bounded fresh-profile part of step 5.
-   Its eleven-step execution limit applies to both drivers. Larger plans and
-   long lineage need bounded corroboration before broadening that profile;
-   step 5 still owns complete fresh-plus-base acceptance.
+   Its fifteen-step execution limit applies to both drivers. Bounded read-only
+   graph reuse reduces repeated immutable-reference work within each pass;
+   larger plans and long lineage still need their own measured bound. Step 5
+   still owns complete fresh-plus-base acceptance.
 4. **Base-backed additive PGlite candidate:** require the exact authenticated
    base receipts and matching target/owner/lineage/profile, re-observe the base
    under the collision head, retain its compatible structures, and reject

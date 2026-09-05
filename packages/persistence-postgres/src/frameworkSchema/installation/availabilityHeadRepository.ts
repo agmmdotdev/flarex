@@ -1,3 +1,4 @@
+import { withFrameworkGraphReadPass } from "../../migrationCoordination/graphReadPass";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -467,7 +468,7 @@ const restoreAvailabilityHeadOccupant = Effect.fn(
     readiness: history.readiness,
     history,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-});
+}, withFrameworkGraphReadPass);
 
 const decodeAvailabilityHeadRoot = Effect.fn(
   "FrameworkSchemaAvailabilityHeadRepository.decodeRoot",

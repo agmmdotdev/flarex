@@ -1,0 +1,104 @@
+import { Context, Effect, Option } from "effect";
+
+import type { FlarexMetadataTransaction } from "../metadataTransaction";
+import type { FrameworkMigrationRepositoryError } from "./repositoryErrors";
+
+interface GraphReadPass {
+  readonly kind: "frameworkGraphReadPass";
+}
+interface GraphReadState {
+  readonly transaction: FlarexMetadataTransaction;
+  readonly releases: Set<() => void>;
+  active: boolean;
+  retained: number;
+}
+const states = new WeakMap<GraphReadPass, GraphReadState>();
+
+// This is dynamically repeated read-pass state, not a database service or a
+// transaction-wide cache. Only read-only aggregate restorers establish it.
+const currentPass = Context.Reference<GraphReadPass | undefined>(
+  "flarex/FrameworkMigrationGraphReadPass",
+  { defaultValue: () => undefined },
+);
+const MAX_RETAINED_REFERENCES = 512;
+
+/** Effect.fn transform for a read-only aggregate restoration. Never wrap an
+ * ensure, publication, mutable read, or arbitrary transaction callback. */
+export const withFrameworkGraphReadPass = Effect.fn(
+  "FrameworkMigrationGraphReadPass.withPass",
+)(function* <Value, Failure>(
+  read: Effect.Effect<Value, Failure>,
+  transaction: FlarexMetadataTransaction,
+): Effect.fn.Return<Value, Failure> {
+  const inherited = yield* currentPass;
+  const inheritedState = inherited === undefined ? undefined : states.get(inherited);
+  if (inheritedState?.active && inheritedState.transaction === transaction) {
+    return yield* read;
+  }
+  const pass: GraphReadPass = Object.freeze({ kind: "frameworkGraphReadPass" });
+  const state: GraphReadState = { transaction, active: true, retained: 0, releases: new Set() };
+  states.set(pass, state);
+  return yield* read.pipe(
+    Effect.provideService(currentPass, pass),
+    Effect.ensuring(Effect.sync(() => {
+      state.active = false;
+      for (const release of state.releases) release();
+      state.releases.clear();
+      states.delete(pass);
+    })),
+  );
+});
+
+interface ReferenceNode<Value> {
+  readonly children: Map<unknown, ReferenceNode<Value>>;
+  value: Option.Option<Value>;
+}
+
+/** One typed slot per immutable-reference reader. The slot retains no values
+ * outside a live pass. Object arguments use identity, including preferred
+ * restored authority; primitive references keep their exact runtime types.
+ * Only successes are retained, after the original full restoration succeeds. */
+type FrameworkGraphReferenceRead<Value> = (
+  read: Effect.Effect<Value, FrameworkMigrationRepositoryError>,
+  transaction: FlarexMetadataTransaction,
+  ...references: readonly unknown[]
+) => Effect.Effect<Value, FrameworkMigrationRepositoryError>;
+
+export function makeFrameworkGraphReferenceRead<Value>(): FrameworkGraphReferenceRead<Value> {
+  const roots = new WeakMap<GraphReadPass, ReferenceNode<Value>>();
+  return Effect.fn("FrameworkMigrationGraphReadPass.reference")(
+    function* (
+      read: Effect.Effect<Value, FrameworkMigrationRepositoryError>,
+      transaction: FlarexMetadataTransaction,
+      ...references: readonly unknown[]
+    ): Effect.fn.Return<Value, FrameworkMigrationRepositoryError> {
+      const pass = yield* currentPass;
+      const state = pass === undefined ? undefined : states.get(pass);
+      if (pass === undefined || state === undefined || !state.active || state.transaction !== transaction) {
+        return yield* read;
+      }
+      let found = roots.get(pass);
+      for (const reference of references) found = found?.children.get(reference);
+      if (found !== undefined && Option.isSome(found.value)) return found.value.value;
+
+      const value = yield* read;
+      if (state.active && state.retained < MAX_RETAINED_REFERENCES) {
+        if (!roots.has(pass)) state.releases.add(() => { roots.delete(pass); });
+        let node: ReferenceNode<Value> = roots.get(pass) ?? referenceNode();
+        roots.set(pass, node);
+        for (const reference of references) {
+          let child: ReferenceNode<Value> | undefined = node.children.get(reference);
+          if (child === undefined) { child = referenceNode(); node.children.set(reference, child); }
+          node = child;
+        }
+        if (Option.isNone(node.value)) state.retained += 1;
+        node.value = Option.some(value);
+      }
+      return value;
+    },
+  );
+}
+
+function referenceNode<Value>(): ReferenceNode<Value> {
+  return { children: new Map(), value: Option.none() };
+}

@@ -17,6 +17,18 @@ import { ensureFrameworkMigrationCollisionDomainInTransactionEffect,
 const native = postgresUrl === null ? describe.skip : describe;
 
 native("native fresh framework migration coordinator", () => {
+  it("installs and replays a fifteen-step plan within the default run budget", async () => {
+    await withNativeCoordinator(async fixture => {
+      expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))
+        .toMatchObject({ kind: "ready", replayed: false });
+      expect(await countNativeRows(fixture, "fx_system_framework_migration_step_receipt")).toBe(15);
+      expect(await publicationCounts(fixture)).toEqual([1, 1, 1, 1]);
+      expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))
+        .toMatchObject({ kind: "ready", replayed: true });
+      expect(await publicationCounts(fixture)).toEqual([1, 1, 1, 1]);
+    }, {}, 4);
+  }, 180_000);
+
   it("installs and exactly replays one durable readiness result", async () => {
     await withNativeCoordinator(async fixture => {
       const ready = await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input));

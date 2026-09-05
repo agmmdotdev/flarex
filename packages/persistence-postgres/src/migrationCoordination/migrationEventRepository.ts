@@ -1,3 +1,4 @@
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -416,7 +417,7 @@ export const restoreStoredFrameworkMigrationEventReferenceInTransactionEffect =
         );
       }
       return occupant.value;
-    },
+    }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationEvent>(),
   );
 
 const prepareExpectedEvent = Effect.fn(
@@ -866,7 +867,7 @@ const restoreEventChain = Effect.fn(
     );
   }
   return rootOccupant;
-});
+}, withFrameworkGraphReadPass);
 
 const restoreStoredEventSubject = Effect.fn(
   "FrameworkMigrationEventRepository.restoreSubject",

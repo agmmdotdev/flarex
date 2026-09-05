@@ -1,3 +1,4 @@
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import {
   epochMillisecondsFromCanonicalIsoInstant,
   type CanonicalIsoInstant,
@@ -401,7 +402,7 @@ export const restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEf
       );
     }
     return occupant.value;
-  });
+  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStart>());
 
 /** Source-private restoration of an attempt-start digest reference. */
 export const restoreStoredFrameworkMigrationAttemptStartReferenceBySha256InTransactionEffect =
@@ -459,7 +460,7 @@ export const restoreStoredFrameworkMigrationAttemptStartReferenceBySha256InTrans
       );
     }
     return occupant.value;
-  });
+  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStart>());
 
 /** Source-private restoration of a lease event's attempt identity. */
 export const restoreStoredFrameworkMigrationAttemptStartReferenceByIdentityInTransactionEffect =
@@ -513,7 +514,7 @@ export const restoreStoredFrameworkMigrationAttemptStartReferenceByIdentityInTra
       );
     }
     return occupant.value;
-  });
+  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStart>());
 
 const prepareExpectedAttemptStart = Effect.fn(
   "FrameworkMigrationAttemptStartRepository.prepareExpected",
@@ -925,7 +926,7 @@ const restoreAttemptStartLineage = Effect.fn(
     value: restoredRoot,
     previousAttempt: rootPreviousAttempt,
   });
-});
+}, withFrameworkGraphReadPass);
 
 const decodeAttemptStartRoot = Effect.fn(
   "FrameworkMigrationAttemptStartRepository.decodeRoot",

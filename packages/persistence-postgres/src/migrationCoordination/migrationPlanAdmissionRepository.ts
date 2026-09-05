@@ -1,3 +1,4 @@
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { asc, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -514,7 +515,7 @@ export const restoreStoredFrameworkMigrationPlanAdmissionReferenceInTransactionE
       preferredCollision,
       operation,
     );
-  });
+  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationPlanAdmission>());
 
 /** Source-private restoration of a committed admission digest reference. */
 export const restoreStoredFrameworkMigrationPlanAdmissionReferenceBySha256InTransactionEffect =
@@ -555,7 +556,7 @@ export const restoreStoredFrameworkMigrationPlanAdmissionReferenceBySha256InTran
       preferredCollision,
       operation,
     );
-  });
+  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationPlanAdmission>());
 
 const prepareExpectedAdmission = Effect.fn(
   "FrameworkMigrationPlanAdmissionRepository.prepareExpected",
@@ -728,7 +729,7 @@ const restoreAdmissionOccupant = Effect.fn(
     previousPlan,
     nameAssignments: assignments,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-});
+}, withFrameworkGraphReadPass);
 
 const decodeAdmissionRoot = Effect.fn(
   "FrameworkMigrationPlanAdmissionRepository.decodeRoot",

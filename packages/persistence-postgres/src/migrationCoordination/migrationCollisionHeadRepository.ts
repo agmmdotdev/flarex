@@ -1,3 +1,4 @@
+import { withFrameworkGraphReadPass } from "./graphReadPass";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -720,7 +721,7 @@ const restoreCollisionHeadOccupant = Effect.fn(
     currentAttempt,
     lastEvent,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-});
+}, withFrameworkGraphReadPass);
 
 const decodeCollisionHeadRoot = Effect.fn(
   "FrameworkMigrationCollisionHeadRepository.decodeRoot",

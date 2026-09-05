@@ -3,7 +3,7 @@ import {
   type UnknownRecord,
 } from "@flarex/utils/records";
 import type { CanonicalIsoInstant } from "@flarex/time/iso-instant";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { Brand, Effect, Encoding, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -570,6 +570,30 @@ describe("framework coordinator migration-event repository", () => {
           "readEvent",
         ),
     );
+  }, PGLITE_TEST_TIMEOUT);
+
+  it.each(["plan", "sidecar"] as const)("revalidates %s corruption after an earlier graph read in the same transaction", async kind => {
+    const persistence = await createMigratedPGlitePersistence();
+    const stored = await storedEventFixture(persistence, 7);
+    const tail = stored.restored.at(-1);
+    if (tail === undefined) throw new Error("Missing event tail");
+    await persistence.drizzle.transaction(async transaction => {
+      const read = restoreStoredFrameworkMigrationEventReferenceInTransactionEffect(
+        transaction, stored.graph.collision, tail.storageId,
+        tail.event.frame.sequence, tail.event.sha256, "readEvent",
+      );
+      expect((await runEffect(read)).event.sha256).toBe(tail.event.sha256);
+      // Deliberate corruption exercises physical database authority between
+      // completed read passes. Neither the prior success nor failure may stick.
+      await transaction.execute(kind === "plan"
+        ? sql`update fx_system_framework_migration_plan set canonical_bytes = set_byte(canonical_bytes, 0, (get_byte(canonical_bytes, 0) + 1) % 256)`
+        : sql`update fx_system_framework_migration_plan_step set dependency_count = dependency_count + 1`);
+      expect(await runEffectFailure(read)).toMatchObject({ reason: "storedCorruption" });
+      await transaction.execute(kind === "plan"
+        ? sql`update fx_system_framework_migration_plan set canonical_bytes = set_byte(canonical_bytes, 0, (get_byte(canonical_bytes, 0) + 255) % 256)`
+        : sql`update fx_system_framework_migration_plan_step set dependency_count = dependency_count - 1`);
+      expect((await runEffect(read)).event.sha256).toBe(tail.event.sha256);
+    });
   }, PGLITE_TEST_TIMEOUT);
 
   it("follows caller rollback and preserves the exact driver cause", async () => {

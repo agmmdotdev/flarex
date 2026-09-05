@@ -1,3 +1,4 @@
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
@@ -458,7 +459,7 @@ export const restoreStoredFrameworkMigrationStepReceiptReferenceBySha256InTransa
       );
     }
     return occupant.value;
-  });
+  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationStepReceipt>());
 
 /**
  * Source-private restoration of the exact ordinal receipt prefix referenced by
@@ -731,7 +732,7 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
     restored.push(occupant.value);
   }
   return Object.freeze(restored);
-});
+}, withFrameworkGraphReadPass);
 
 const prepareExpectedStepReceipt = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.prepareExpected",
@@ -1208,7 +1209,7 @@ const restoreReceiptDependencyClosure = Effect.fn(
     );
   }
   return restoredRoot;
-});
+}, withFrameworkGraphReadPass);
 
 const preparePendingReceiptRestoration = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.preparePendingRestoration",

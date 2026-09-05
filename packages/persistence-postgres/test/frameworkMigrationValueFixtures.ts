@@ -23,11 +23,16 @@ export const FRAMEWORK_VALUE_LOCATOR = Object.freeze({
   schemaName: "flarex_shared",
 } satisfies ScopePhysicalLocator);
 
-export async function syntheticSystemArtifact() {
+export async function syntheticSystemArtifact(extraTables = 0) {
+  const schema = syntheticSchemaInput();
+  const template = schema.tables[1];
+  if (template === undefined) throw new Error("Missing parent table fixture");
   return runEffect(captureRelationalSchemaArtifact({
     deploymentId: "deployment-a",
     provenance: { kind: "synthetic", fixtureId: "relational-system" },
-    schema: syntheticSchemaInput(),
+    schema: { ...schema, tables: [...schema.tables, ...Array.from({ length: extraTables }, (_, index) => ({
+      ...template, tableId: `extra_${index}`, indexes: [], constraints: [],
+    }))] },
   }));
 }
 

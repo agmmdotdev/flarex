@@ -72,6 +72,18 @@ describe("private fresh framework migration coordinator", () => {
     expect(await generatedTableNames(fixture.persistence)).toEqual([]);
   }, TEST_TIMEOUT);
 
+  it("installs and replays a fifteen-step plan within the default run budget", async () => {
+    const fixture = await createCoordinatorFixture({ extraTables: 4 });
+    expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))
+      .toMatchObject({ kind: "ready", replayed: false });
+    const counts = await coordinatorRootCounts(fixture.persistence);
+    expect(counts.receipts).toBe(15);
+    expect(await generatedTableNames(fixture.persistence)).toHaveLength(6);
+    expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))
+      .toMatchObject({ kind: "ready", replayed: true });
+    expect(await coordinatorRootCounts(fixture.persistence)).toEqual(counts);
+  }, TEST_TIMEOUT);
+
   it("installs a fresh relational plan and exactly replays readiness", async () => {
     const fixture = await createCoordinatorFixture();
     const ready = await runEffect(
@@ -398,6 +410,7 @@ async function createCoordinatorFixture(
     readonly admitArtifact?: boolean;
     readonly artifact?: "synthetic" | "currency";
     readonly targetFaults?: boolean;
+    readonly extraTables?: number;
   }> = {},
 ) {
   const persistence = await createMigratedPGlitePersistence();
@@ -407,7 +420,7 @@ async function createCoordinatorFixture(
   `);
   const captured = options.artifact === "currency"
     ? await currencyArtifact()
-    : await syntheticSystemArtifact();
+    : await syntheticSystemArtifact(options.extraTables);
   const artifactFixture =
     makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence);
   const prepared = prepareFrameworkSchemaArtifactAdmission(captured.artifact);

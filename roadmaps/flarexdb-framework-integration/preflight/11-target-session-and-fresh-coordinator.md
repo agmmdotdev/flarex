@@ -261,11 +261,12 @@ concurrent-exclusion evidence.
 
 The implemented private fresh profile does not resolve these issues:
 
-- **Bounded lineage corroboration:** receipt prefixes, migration-event chains,
-  and availability-history chains can accumulate `O(N^2)` database reads when
-  rebuilt independently. A transaction/session-authenticated cache,
-  materialized closure anchor, or another bounded database proof is required
-  before scale or production activation.
+- **Bounded lineage corroboration:** read-only pass reuse removes repeated
+  immutable-reference reads within one restoration. Receipt prefixes,
+  migration-event chains and availability-history chains can still accumulate
+  `O(N^2)` work across independent restorations. General lineage scale needs
+  its own measured bound and reviewed corroboration strategy before production
+  activation.
 - **Production target identity:** a host-owned production target resolver and
   driver registry must derive canonical physical database identity and issue
   targets. Caller-supplied test composition cannot become that authority.
@@ -320,9 +321,43 @@ deadlines, active-query cancellation, cleanup failure, blocked COMMIT settlement
 and interruption after acknowledged COMMIT. Separate OS-process tests reconstruct
 partial progress and pre-/post-COMMIT response loss from durable state.
 
+### Read-only Graph Corroboration
+
+Private pass-local reuse reduces duplicate immutable-reference restoration
+within one read-only graph pass. Event-chain restoration repeatedly reaches the
+same attempt, admission and plan through distinct subjects and receipt prefixes.
+Canonical codecs, complete sidecar checks, restored authority issuers,
+repository signatures, transaction drivers and mutable-head lock/CAS behavior
+remain intact. Only successful stored immutable references are retained;
+failed or absent results are not. Pass identity includes the exact transaction;
+reference identity includes the exact preferred authority object and every
+reference argument. Digest-only and storage-ID-only global caches are excluded.
+
+The pass begins inside a read-only aggregate restoration and ends on success,
+failure or interruption. It cannot cross an ensure/publication write, separate
+repository call, new transaction or recovery session. Closed inherited contexts
+cannot reuse evidence. Each pass retains at most 512 successful reference
+entries independently of the coordinator's statement and time limits;
+exhausting retention capacity continues ordinary validated reads. This reuse
+does not change storage formats, schemas, drivers or production resolution.
+
+A transaction-wide cache and durable closure anchors were considered and
+deferred: they would require write invalidation or new persisted authority.
+PostgreSQL [Read Committed](https://www.postgresql.org/docs/18/transaction-iso.html#XACT-READ-COMMITTED)
+uses statement snapshots, so sharing a transaction does not establish an
+immutable database snapshot. Reuse here has the same read-pass boundary as the
+existing receipt/admission restoration maps; it adds no isolation guarantee.
+
+The native seven-, nine- and eleven-step work profiles require fewer SQL reads,
+and the fifteen-step profile now fits the existing transaction and statement
+budgets. Same-transaction corruption refusal and closed-context isolation
+preserve fresh validation across passes. General upgrade/availability lineage
+scale remains a separate gate; this optimization does not make work across
+independent passes constant or establish production throughput.
+
 ### Admitted Work Profile
 
-The shared coordinator, on both PGlite and PostgreSQL, admits at most **eleven
+The shared coordinator, on both PGlite and PostgreSQL, admits at most **fifteen
 plan steps** and at most **sixteen step calls per run**. Larger plans fail before target acquisition or metadata
 publication. These are execution-profile limits; the pure plan/value format
 retains its independent capacity. Defaults are a 120-second coordinator run,
@@ -332,17 +367,14 @@ statements per transaction. The coordinator run budget may be configured up to
 budget. A timeout never establishes non-commit; a later run must reconstruct
 durable progress or readiness.
 
-Native work measurements cover seven-, nine- and eleven-step fixtures and
+Native work measurements cover seven-, nine-, eleven- and fifteen-step fixtures and
 separate acquisition, preparation/claim, each step, reconstruction, takeover and
 finalization. Deliberate lease waits are outside the operation measurements.
-Repeated graph authentication still performs substantial database work.
-A fifteen-step experiment exceeded its five-minute acceptance budget amid
-test-catalog churn; that run does not isolate the source of the delay or
-establish a larger-plan bound. Fifteen-step plans are not admitted by this
-execution profile. Larger-plan and long-lineage work
-requires a separately reviewed bounded corroboration strategy rather than
-increasing timeouts or extrapolating the small-profile result. This limitation
-does not close the general lineage or throughput gate.
+Pass-local immutable-reference reuse reduces repeated graph authentication
+enough to admit the measured fifteen-step profile. Larger plans and long
+lineages still require a separately reviewed, measured corroboration strategy;
+the execution limit must not grow by increasing timeouts or extrapolating these
+fixtures. This profile does not close the general lineage or throughput gate.
 
 `test:framework-coordinator-fresh:postgres` is the manifest-owned serial native
 lane. The target/session, structural-runner and fresh-coordinator PGlite lanes

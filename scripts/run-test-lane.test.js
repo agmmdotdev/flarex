@@ -119,6 +119,7 @@ describe("test lane manifest and runner", () => {
       "exec",
       "vitest",
       "run",
+      "test/frameworkCoordinatorGraphReadPass.test.ts",
       "test/privateCanonicalValue.test.ts",
       "test/relationalSchemaPhysical.test.ts",
       "test/migrationCoordinationValues.test.ts",

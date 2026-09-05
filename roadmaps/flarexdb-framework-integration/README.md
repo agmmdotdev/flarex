@@ -129,7 +129,7 @@ Preflight records:
 | [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md) | Implemented privately; value evidence complete and no DDL/runtime activation | Exact first-slice relational value vocabulary, deterministic normalization, framework-artifact composition, Currency and synthetic fixtures, and closed downstream gates |
 | [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; value/storage checkpoints and private PGlite plus bounded native fresh execution evidence complete; base-backed execution, scale, binding and runtime remain pending | Cycle-free identities, collision domain, physical lowering, structural plan/ledger values, readiness/availability and upgrade/database proof matrix |
 | [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Complete checkpoint-2 contract; exact additive catalog, topological restoration, all thirteen source-private repository families, and manifest-owned serial PGlite functional gate implemented production-inert | Exact eighteen-table target-local catalog, canonical-byte authority, normalized constraint sidecars, timestamp mapping, complete-graph cold rehydration, private transaction kernels, and PGlite evidence gate |
-| [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md) | Private no-base PGlite and bounded native PostgreSQL execution, contention, cancellation, settlement and process-restart evidence | Opaque authority, fixed four-handler registry, eleven-step execution profile, remaining lineage/upgrade/host-resolution gates |
+| [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md) | Private no-base PGlite and bounded native PostgreSQL execution, contention, cancellation, settlement and process-restart evidence | Opaque authority, fixed four-handler registry, bounded read-only graph reuse, fifteen-step execution profile, remaining lineage/upgrade/host-resolution gates |
 
 ## Current Architecture
 
@@ -262,8 +262,9 @@ own preflight. Later steps do not authorize earlier owner changes implicitly.
 The approved [native PostgreSQL fresh installation and recovery](./preflight/11-target-session-and-fresh-coordinator.md#native-implementation-evidence)
 capability is implemented for a bounded, private profile. It brings forward
 fresh acceptance before a base-backed candidate. The shared coordinator admits
-at most eleven plan steps on both drivers; larger plans and long lineage need
-bounded corroboration before that limit can grow. Full fresh-plus-base-backed
+at most fifteen plan steps on both drivers, with bounded immutable-reference
+reuse inside each read-only restoration pass. Larger plans and long lineage
+need their own measured bound before that limit can grow. Full fresh-plus-base-backed
 acceptance is still required before binding work.
 
 ## Current Gate Status
@@ -274,7 +275,7 @@ acceptance is still required before binding work.
 | Framework artifact repository | Private admission/read/list, authenticated control sessions, PGlite and ordinary-role PostgreSQL acceptance complete | Does not execute framework target plans |
 | Relational and lifecycle values | Private canonical schema, physical layout, plan, installation/readiness/availability values complete | No public DSL or live framework compiler |
 | Coordinator metadata/repositories | Eighteen-table catalog, thirteen repository families, stored restoration, PGlite gate and native fresh transaction evidence complete | Base-backed native graph and general lineage work remain open |
-| Fresh coordinator execution | Private no-base PGlite and ordinary-role native PostgreSQL profile; physical sessions, concurrency, cancellation, uncertain settlement, OS-process restart and exact readiness replay | Eleven-step execution limit; larger plans, general lineage scale, hosted/TLS transports and production resolution unproven |
+| Fresh coordinator execution | Private no-base PGlite and ordinary-role native PostgreSQL profile; bounded read-only graph reuse, physical sessions, concurrency, cancellation, uncertain settlement, OS-process restart and exact readiness replay | Fifteen-step execution limit; larger plans, general lineage scale, hosted/TLS transports and production resolution unproven |
 | Base-backed structural upgrade | Accepted design | Execution and PGlite/PostgreSQL proofs pending |
 | Serving bindings | Accepted identity and ownership boundaries | Application projection, Payload overlay, `DataBindingSet`, activation/recovery and serving unimplemented |
 | Relational data transaction/store and finalization | Accepted target boundaries | Transaction-owner and commit-owner decisions and implementation pending; no generic relational fact family |
@@ -349,15 +350,17 @@ owners:
 - [Coordinator metadata and repositories](./preflight/10-relational-coordinator-metadata-and-repositories.md)
   owns the exact catalog, restoration and transaction-parameterized kernels.
 - [Target/session, structural runner and fresh coordinator](./preflight/11-target-session-and-fresh-coordinator.md)
-  owns implemented no-base PGlite and bounded native behavior, its eleven-step
+  owns implemented no-base PGlite and bounded native behavior, its fifteen-step
   execution limit, and remaining upgrade, scale and production-resolution boundaries.
 - [The installation/migration umbrella](./preflight/09-relational-installation-and-migration-coordination.md)
   retains full fresh-plus-base-backed acceptance before the later binding
   checkpoint.
 
-Fresh installation now has private native contention, interruption and uncertain
-settlement evidence within the admitted work profile. Its measured reconstruction
-cost makes bounded immutable-graph corroboration the next shared-core design
-question before larger plans or upgrades. This evidence does not activate
+Fresh installation has private native contention, interruption and uncertain
+settlement evidence within the admitted work profile. Bounded read-only graph
+reuse reduces repeated restoration work and supports the larger fresh profile.
+The next shared-core capability to preflight is a bounded base-backed additive
+upgrade, including exact base authority, reuse of compatible structures and its
+own lineage/work bound. This evidence does not activate
 bindings, framework stores, common data finalization, adapters, SDKs, runtime
 routes or production traffic.
