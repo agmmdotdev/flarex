@@ -768,7 +768,9 @@ production routing remain later gates even after local PostgreSQL passes.
 
 ## Ordered Implementation Checkpoints
 
-Each checkpoint requires a separate implementation approval:
+These checkpoints describe dependency order. Implementation approval covers
+the coherent capability defined by its focused preflight, including the native
+acceptance needed to finish it; it need not be repeated for each checkpoint:
 
 1. **Pure physical and lifecycle values:** implement target-namespace,
    physical-name/layout, name-assignment, fresh structural plan,
@@ -804,6 +806,10 @@ Each checkpoint requires a separate implementation approval:
    base receipts and matching target/owner/lineage/profile, re-observe the base
    under the collision head, retain its compatible structures, and reject
    mismatch, quarantine, unregistered conflict, or destructive change.
+   [The bounded additive preflight](./12-base-backed-additive-upgrade.md)
+   recommends one fresh-base-to-successor capability including its native
+   acceptance from step 5. Its new base contract and limits remain proposed
+   until implementation approval; they do not widen the current fresh profile.
 5. **Genuine PostgreSQL acceptance:** prove every DDL, contention, lease,
    timeout, interruption, uncertainty, recovery, catalog, and scope-isolation
    claim for both the fresh and base-backed profiles before the coordinator

@@ -418,9 +418,10 @@ The approved [native PostgreSQL fresh installation and recovery](./11-target-ses
 capability proves the bounded no-base profile on real connections. The shared
 coordinator admits at most fifteen plan steps on both PGlite and PostgreSQL.
 Bounded read-only graph reuse reduces repeated immutable-reference reads and
-supports that larger fresh profile. The next shared-core preflight is a bounded
-base-backed additive upgrade with exact base authority and its own measured
-lineage/work bound. The whole coordinator gate remains open.
+supports that larger fresh profile. The [next shared-core preflight](./12-base-backed-additive-upgrade.md)
+recommends a bounded base-backed additive upgrade with exact base authority
+and its own measured lineage/work bound. Implementation approval is pending;
+the whole coordinator gate remains open.
 
 After that fresh proof, complete bounded-lineage requirements and the
 base-backed PGlite/native profile, then the separately owned Application

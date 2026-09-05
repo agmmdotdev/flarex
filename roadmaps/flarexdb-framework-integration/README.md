@@ -130,6 +130,7 @@ Preflight records:
 | [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; value/storage checkpoints and private PGlite plus bounded native fresh execution evidence complete; base-backed execution, scale, binding and runtime remain pending | Cycle-free identities, collision domain, physical lowering, structural plan/ledger values, readiness/availability and upgrade/database proof matrix |
 | [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Complete checkpoint-2 contract; exact additive catalog, topological restoration, all thirteen source-private repository families, and manifest-owned serial PGlite functional gate implemented production-inert | Exact eighteen-table target-local catalog, canonical-byte authority, normalized constraint sidecars, timestamp mapping, complete-graph cold rehydration, private transaction kernels, and PGlite evidence gate |
 | [`preflight/11-target-session-and-fresh-coordinator.md`](./preflight/11-target-session-and-fresh-coordinator.md) | Private no-base PGlite and bounded native PostgreSQL execution, contention, cancellation, settlement and process-restart evidence | Opaque authority, fixed four-handler registry, bounded read-only graph reuse, fifteen-step execution profile, remaining lineage/upgrade/host-resolution gates |
+| [`preflight/12-base-backed-additive-upgrade.md`](./preflight/12-base-backed-additive-upgrade.md) | Researched recommendation; implementation approval pending | One fresh base to one additive successor, explicit base verification, versioned plan/admission contracts, bounded lineage and combined PGlite/native acceptance |
 
 ## Current Architecture
 
@@ -359,8 +360,9 @@ owners:
 Fresh installation has private native contention, interruption and uncertain
 settlement evidence within the admitted work profile. Bounded read-only graph
 reuse reduces repeated restoration work and supports the larger fresh profile.
-The next shared-core capability to preflight is a bounded base-backed additive
-upgrade, including exact base authority, reuse of compatible structures and its
-own lineage/work bound. This evidence does not activate
+The [next shared-core preflight](./preflight/12-base-backed-additive-upgrade.md)
+recommends one bounded base-backed additive upgrade, including exact base
+authority, reuse of compatible structures and its own lineage/work bound.
+Implementation approval is pending. This evidence does not activate
 bindings, framework stores, common data finalization, adapters, SDKs, runtime
 routes or production traffic.

@@ -277,7 +277,9 @@ The implemented private fresh profile does not resolve these issues:
   that selection authority.
 - **Base-backed PostgreSQL acceptance:** the later upgrade profile must prove
   its own contention, interruption, settlement and recovery. Fresh installation
-  evidence does not transfer automatically to base-backed execution.
+  evidence does not transfer automatically to base-backed execution. The
+  [bounded additive preflight](./12-base-backed-additive-upgrade.md) recommends
+  the next complete capability; implementation approval is pending.
 - **Other native transports:** hosted poolers, TLS cancellation and production
   driver composition remain outside the direct non-TLS PostgreSQL test profile.
 
