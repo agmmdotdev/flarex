@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "testFileGroups": {
     "framework-payload-preferences-postgres": ["test/payloadPreferenceBinding.postgres.test.ts"],
-    "framework-payload-preferences-pglite": ["test/payloadPreferenceBinding.test.ts"],
+    "framework-payload-preferences-pglite": ["test/payloadPreferenceBinding.test.ts", "test/payloadPreferenceCleanupValues.test.ts"],
     "framework-payload-scalar-postgres": ["test/payloadScalar.postgres.test.ts"],
     "framework-payload-scalar-pglite": ["test/payloadScalarProfile.test.ts", "test/payloadScalar.test.ts"],
     "framework-cms-pglite": ["test/cmsRequestLifetime.test.ts", "test/cmsHost.test.ts"],

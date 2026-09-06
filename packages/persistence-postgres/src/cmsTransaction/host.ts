@@ -27,6 +27,7 @@ import { prepareCmsApplicationCommit, enterCmsApplicationCommit, type PointCommi
 import { prepareCmsApplication, withCmsAdmission, requireCmsAdmission } from "./admission";
 import { makeCmsRequestLifetime } from "./lifetime";
 import { makeCmsDocuments, type CmsDocuments } from "./documents";
+import { makePayloadPreferenceCleanup, consumePayloadPreferenceCleanup, type PayloadPreferenceCleanup } from "../payloadPreferences/cleanup";
 import { cmsError, cmsLimits, CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
 
 declare const commandBrand: unique symbol;
@@ -35,6 +36,7 @@ export interface CmsCommandContext {
   readonly context: CmsRequestContext;
   readonly transactionId: string;
   readonly documents: CmsDocuments;
+  readonly preferences: PayloadPreferenceCleanup;
   readonly begin: (id?: CmsPresentedTransactionId) => Effect.Effect<string, CmsTransactionError>;
   readonly commit: (id: CmsPresentedTransactionId) => Effect.Effect<never, CmsTransactionError>;
   readonly rollback: (id: CmsPresentedTransactionId) => Effect.Effect<never, CmsTransactionError>;
@@ -69,9 +71,9 @@ export interface CmsHostInput<Failure> {
   /** Authenticated by the private composition root; never adapter command input. */
   readonly identityAndAccessPolicy: Json;
   readonly materialization: PointCommitTransactionProofOptionsV1;
-  /** Optional closed-consumer restriction, checked under the admitted scope lock. */
-  /** Exact preference binding admission only; grants no lifecycle mutation port. */
+  /** Exact preference binding; cleanup remains noncommittable until publication is implemented. */
   readonly payloadPreferenceTarget?: FrameworkMigrationTarget;
+  /** Optional closed-consumer restriction, checked under the admitted scope lock. */
   readonly expectedContentIdentity?: Readonly<{ configSha256: string; provenanceSha256: string }>;
 }
 export interface CmsHost {
@@ -82,6 +84,7 @@ export interface CmsHost {
 export interface CmsHostTestHooks extends CmsMaterializationTestHooks {
   /** Physical-driver conformance only; never passed to a registered operation. */
   readonly afterAdmission?: (tx: FlarexMetadataTransaction) => Effect.Effect<void, CmsTransactionError>;
+  readonly afterPreferenceClosure?: (evidence: Effect.Success<ReturnType<typeof consumePayloadPreferenceCleanup>>) => Effect.Effect<void, CmsTransactionError>;
 }
 const digestBytes = makeLivePrivateSha256V1({
   invalidBudget: () => cmsError("limitExceeded"), invalidBytes: () => cmsError("invalidInput"),
@@ -174,12 +177,13 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
             yield* Effect.fromResult(lifetime.charge(captured.bytes + evidence.canonicalBytes.byteLength));
             const participant = commit === null ? null : yield* enterCmsApplicationCommit(commit, admission, lifetime);
             const working = yield* makeCmsDocuments(admission, lifetime, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), participant?.uniqueDefinitions ?? []);
+            const preferences = yield* makePayloadPreferenceCleanup(admission, lifetime, working.pendingDeletions);
             const invoke = Effect.fn("CmsHost.invoke")(function* (context: CmsRequestContext, child: CmsCommand, childArgs: Json): Effect.fn.Return<Json, CmsTransactionError> {
               const definition = commands.get(child);
               if (definition === undefined || !allowed.has(child) || (key === null && definition.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
               const childInput = yield* Effect.fromResult(capturePrivateJsonData(childArgs, lifetime.remainingBytes(), cmsError));
               yield* Effect.fromResult(lifetime.charge(childInput.bytes));
-              const commandContext = Object.freeze({ context, transactionId, documents: working.documents,
+              const commandContext = Object.freeze({ context, transactionId, documents: working.documents, preferences: preferences.cleanup,
                 begin: id => lifetime.begin(context, id), commit: id => lifetime.adapterCommit(context, id), rollback: id => lifetime.rollback(context, id),
                 nested: (next, nextArgs) => lifetime.nested(context, transactionId, nested => invoke(nested, next, nextArgs)) } satisfies CmsCommandContext);
               const value = yield* Effect.suspend(() => definition.run(commandContext, childInput.value));
@@ -192,6 +196,10 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
             yield* Effect.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
             const digest = yield* sha256(result.canonicalBytes);
             yield* lifetime.seal;
+            const preferenceEvidence = yield* consumePayloadPreferenceCleanup(yield* preferences.close(), admission, lifetime);
+            if (testHooks?.afterPreferenceClosure !== undefined) yield* testHooks.afterPreferenceClosure(preferenceEvidence);
+            // Even an observed empty cleanup cannot publish through the content-only participant.
+            if (preferenceEvidence.length > 0) return yield* Effect.fail(cmsError("unsupportedProfile"));
             if (participant !== null && lookup !== null) yield* participant.finalize(yield* working.close(), lookup, result, digest, testHooks);
             return result.valueJson;
           }).pipe(Effect.ensuring(lifetime.close));

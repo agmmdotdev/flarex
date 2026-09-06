@@ -301,7 +301,7 @@ Payload-facing error/result behavior needs explicit conformance evidence.
 | --- | --- |
 | Supported | One exercised flat `posts` collection with scalar text, number, Boolean, date, generated identity/timestamps, and bounded JSON only where the admitted content contract requires it; one explicit dormant auth collection exists solely to satisfy sanitized configuration |
 | Implemented privately | Local API `create`, `find`, `findByID`, `count` and update-by-ID through the Payload pipeline |
-| Blocked | Local API delete-by-ID: content deletion reaches mandatory unbound preference cleanup, rejects and fully rolls back; [lifecycle extension](./19-payload-preference-cleanup-and-delete-publication.md) has implemented storage/binding; cleanup and publication remain |
+| Blocked | Local API delete-by-ID: content deletion reaches mandatory unbound preference cleanup, rejects and fully rolls back; [lifecycle extension](./19-payload-preference-cleanup-and-delete-publication.md) has implemented storage/binding and bounded CMS cleanup receipts; atomic publication and adapter routing remain |
 | Supported | ID/equality filters, deterministic bounded sorting, limit/page/pagination, and exact result envelopes |
 | Supported | One request-scoped transaction, one conformance-only nested same-request operation, outer-only commit, and rollback on nested failure |
 | Supported | Unique conflict projected to the pinned Payload validation family; trusted unexpected failures remain non-public with causes retained |
@@ -403,8 +403,8 @@ interruption and fresh-connection lost-COMMIT recovery.
 Complete CRUD is **not** established. Payload always requests
 `payload-preferences` cleanup after content deletion. The refusal and complete
 rollback are regression-tested; the [focused owner extension](./19-payload-preference-cleanup-and-delete-publication.md)
-records the evidence and implemented storage/binding prerequisite. Cleanup and
-publication are still pending. Required proof below stays
+records the evidence and implemented storage/binding and CMS cleanup receipts.
+Atomic publication and adapter routing are still pending. Required proof below stays
 open until actual deletion succeeds through that admitted lifecycle path.
 
 ## Required First Proof

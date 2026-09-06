@@ -109,7 +109,8 @@ Use these sources in order:
     and the complete private denial vertical required before CMS writes.
 21. [`preflight/19-payload-preference-cleanup-and-delete-publication.md`](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
     records the real Payload delete blocker and accepted private lifecycle
-    storage/binding slice, with cleanup and atomic publication still pending.
+    storage/binding and bounded cleanup/receipt slices; atomic publication and
+    adapter routing remain pending.
 22. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
@@ -341,7 +342,7 @@ has private Application-only and synthetic Medusa acceptance.
 | Application preservation | Post-core complete native mutation/OCC/replay/publication, query, SV-R Core and RQ01 scenarios pass on PGlite and ordinary-role PostgreSQL | Rerun after shared publication changes; Action/Task, live sync and hosted claims remain separate |
 | CMS request host and Application publication | Private scalar host, pending documents, materialization and publication implemented on both drivers | Pinned Payload supported scalar operations proven; delete lifecycle prerequisite remains |
 | Application table write policy | Private denial capability implemented | Canonical ownership and ordinary Application journal/commit denial preserved; the separate private CMS participant owns managed writes |
-| Payload scalar and non-reactive relation proofs | Private pinned scalar create/read/update and nested hooks proven on both drivers | Delete blocked by mandatory preference cleanup; preference storage/binding implemented, cleanup and publication pending before scalar completion and relation candidate/rebinding |
+| Payload scalar and non-reactive relation proofs | Private pinned scalar create/read/update and nested hooks proven on both drivers | Preference storage/binding and bounded cleanup/receipts implemented; atomic publication and adapter routing pending before delete success, scalar completion and relation candidate/rebinding |
 | Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
@@ -439,6 +440,6 @@ adds pending documents, authenticated materialization, one Application publicati
 and retained-result recovery. The pinned Payload private consumer proves scalar
 create/read/update and nested hooks. Actual delete rejects and rolls back at
 mandatory preference cleanup. The [next proposal](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
-now implements real lifecycle storage and binding. Cleanup and atomic
-publication remain before scalar completion.
+now implements real lifecycle storage, binding and bounded cleanup receipts.
+Atomic publication and adapter routing remain before scalar completion.
 Public framework adapters, SDKs, runtime routes and production remain gated.

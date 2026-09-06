@@ -46,6 +46,28 @@ export interface CmsClosedDocuments {
 declare const closureBrand: unique symbol;
 export interface CmsDocumentClosure { readonly [closureBrand]: true }
 const closures = new WeakMap<object, CmsClosedDocuments>();
+declare const pendingDeletionsBrand: unique symbol;
+export interface CmsPendingDeletions { readonly [pendingDeletionsBrand]: true }
+const deletionSets = new WeakMap<object, Readonly<{
+  admission: CmsAdmission;
+  lifetime: CmsRequestLifetime;
+  rows: ReadonlyMap<AppDocumentIdV1, PendingDocument>;
+}>>();
+
+/** Only the document owner can attest a still-pending posts deletion. No SQL is issued. */
+export const requireCmsPendingDeletion = Effect.fn("CmsDocuments.requirePendingDeletion")(function* (
+  token: CmsPendingDeletions, admission: CmsAdmission, lifetime: CmsRequestLifetime, documentId: string,
+) {
+  const state = deletionSets.get(token);
+  if (state === undefined || state.admission !== admission || state.lifetime !== lifetime) return yield* Effect.fail(cmsError("invalidAuthority"));
+  yield* requireCmsAdmission(admission);
+  const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(documentId).pipe(Result.mapError(cause => cmsError("invalidInput", cause))));
+  const row = state.rows.get(identity.id);
+  if (row === undefined || row.tableName !== "posts" || row.current !== null || row.attempts.length === 0) {
+    return yield* Effect.fail(cmsError("invalidAuthority"));
+  }
+  return row.documentId;
+});
 
 /** Only a closed, internally derived set can enter Application materialization. */
 export const consumeCmsDocumentClosure = Effect.fn("CmsDocuments.consumeClosure")(function* (
@@ -84,6 +106,9 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   const managed = new Set(state.frame.payloadContent?.tables.map(table => table.tableId));
   const tables = state.schema.tables.filter(table => managed.has(table.tableId.toString()));
   const rows = new Map<AppDocumentIdV1, PendingDocument>();
+  // SAFETY: this owner alone registers the live working set; the handle conveys no rows.
+  const pendingDeletions = Object.freeze({}) as CmsPendingDeletions;
+  deletionSets.set(pendingDeletions, Object.freeze({ admission, lifetime, rows }));
   const scanned = new Set<CatalogTableId>();
   const attempts: CmsDocumentAttempt[] = [];
   let inserted = 0;
@@ -265,5 +290,5 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   const documents = Object.freeze({ get, find, insert, delete: remove,
     patch: (context, id, documentId, fields) => edit(context, id, documentId, fields, "patch"),
     replace: (context, id, documentId, fields) => edit(context, id, documentId, fields, "replace") } satisfies CmsDocuments);
-  return Object.freeze({ documents, close });
+  return Object.freeze({ documents, close, pendingDeletions });
 });

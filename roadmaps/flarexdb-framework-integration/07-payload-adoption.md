@@ -7,8 +7,9 @@ Create, reads, count, update, defaults/validation and fixed nested-hook behavior
 use the implemented CMS host and Application publication on both drivers.
 Delete necessarily reaches unbound `payload-preferences` cleanup and is proven
 to reject with full rollback. The [focused lifecycle proposal](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
-now implements private preference storage and binding. Cleanup and publication
-remain before completing scalar CRUD and advancing to content relations. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
+now implements private preference storage, binding, and bounded CMS cleanup
+with authenticated receipts. Atomic publication and adapter routing remain
+before completing scalar CRUD and advancing to content relations. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation

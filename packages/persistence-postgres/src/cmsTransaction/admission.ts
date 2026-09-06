@@ -18,6 +18,7 @@ import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority, TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import { cmsError } from "./model";
+import type { RestoredFrameworkSchemaAvailabilityHead } from "../frameworkSchema/installation/storedMetadataRestoration";
 
 declare const admissionBrand: unique symbol;
 export interface CmsAdmission { readonly [admissionBrand]: true }
@@ -32,6 +33,7 @@ export interface CmsAdmissionState {
   readonly schema: ApplicationRelationSchemaAuthority;
   readonly frame: DataBindingSetFrame;
   readonly head: DataBindingHeadToken;
+  readonly preferenceAvailability: RestoredFrameworkSchemaAvailabilityHead | null;
 }
 const admissions = new WeakMap<object, CmsAdmissionState>();
 const prepared = new WeakSet<object>();
@@ -93,16 +95,18 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
     return yield* Effect.fail(cmsError("invalidAuthority"));
   }
   yield* verifyPayloadContentBinding(tx, frame);
+  let preferenceAvailability: RestoredFrameworkSchemaAvailabilityHead | null = null;
   if (preferenceTarget !== undefined && frame.payloadLifecycle !== null) {
     const snapshot = frameworkMigrationTargetSnapshot(preferenceTarget);
     if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
       !scopePhysicalLocatorsEqual(snapshot.physicalLocator, authority.physicalLocator)) return yield* Effect.fail(cmsError("invalidAuthority"));
     const availability = yield* lockBindingInstallation(tx, frame.payloadLifecycle, snapshot);
     yield* verifyPayloadPreferenceBinding(frame, availability);
+    preferenceAvailability = availability;
   }
   // SAFETY: authority resides exclusively in this live, transaction-bound registry.
   const token = Object.freeze({}) as CmsAdmission;
-  admissions.set(token, Object.freeze({ tx, authority, clock, schema, frame,
+  admissions.set(token, Object.freeze({ tx, authority, clock, schema, frame, preferenceAvailability,
     head: Object.freeze({ sequence: head.value.frame.sequence, sha256: head.value.sha256 }) }));
   return yield* Effect.suspend(() => work(token)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(token))));
 });

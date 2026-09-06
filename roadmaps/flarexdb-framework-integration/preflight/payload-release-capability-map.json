@@ -211,6 +211,6 @@
     "nextOwnerProposal": "19-payload-preference-cleanup-and-delete-publication.md",
     "publicExport": false,
     "production": false,
-    "preferenceLifecycle": "storageAndExactBindingImplementedCleanupAndPublicationPending"
+    "preferenceLifecycle": "storageBindingAndCleanupReceiptsImplementedAtomicPublicationAndAdapterRoutingPending"
   }
 }

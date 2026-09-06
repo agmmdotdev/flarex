@@ -1,8 +1,9 @@
 # Payload Preference Cleanup And Delete Publication
 
-Status: first preference value/schema and exact binding admission slice accepted
-and implemented privately. Cleanup, lifecycle receipts and atomic publication
-remain the next bounded slices; successful Payload deletion remains blocked.
+Status: preference value/schema, exact binding admission, and bounded cleanup
+with authenticated receipts are implemented privately. Atomic lifecycle
+publication and Payload adapter routing remain pending; successful Payload
+deletion remains blocked.
 
 ## Reproduction And Evidence
 
@@ -75,7 +76,7 @@ extension, not general `deleteMany`, preference API or dashboard parity.
 
 The first implemented slice installs the preference schema through the existing
 coordinator and admits its exact content-plus-lifecycle binding. The
-cleanup/receipt and publication steps follow as complete bounded slices.
+cleanup/receipt slice is also implemented; publication follows separately.
 Delete stays unsupported until the final combined proof passes.
 
 ## Implemented Storage And Admission Contract
@@ -106,7 +107,8 @@ target; content-only composition still refuses a lifecycle-bearing head, and a
 preference composition refuses a missing lifecycle slot. Each CMS entry locks
 and revalidates installation availability beside the scope/binding checks before
 running the command. The binding grants no preference data operation or SQL
-handle to the command.
+handle to the command. The subsequent cleanup composition grants only the
+operation-specific port described below.
 
 The shared driver scenario exercises installation, typed physical record
 round-trip, cold selection, refusal of mismatched profile/readiness/artifact,
@@ -114,6 +116,44 @@ and withdrawal before command execution. Existing scalar Local API delete
 continues to refuse mandatory preference cleanup. The focused manifest lanes
 are `framework-payload-preferences-pglite` and
 `framework-payload-preferences-postgres`.
+
+## Implemented Cleanup And Receipt Contract
+
+The transaction-owned cleanup port accepts only `{ key: { in: [key] } }` with
+one `collection-posts-<ID>` key. Before SQL, the live CMS request owner validates
+the context, transaction ID and write mode, and the document owner authenticates
+that exact ID as a pending `posts` deletion. A fabricated ID, content-only
+composition, alternate collection or predicate, repeated key, escaped context,
+or mismatched request cannot acquire lifecycle mutation authority.
+
+The port derives its qualified table and columns from the already admitted
+installation. Every query includes the admitted scope UUID, storage generation
+and exact key. It locks and reads at most the remaining identity budget plus
+one; overflow fails before deletion. Only those selected identities are deleted,
+and returned identities must exactly match. All operations share the outer CMS
+transaction, request byte budget and cumulative lifecycle identity budget.
+
+Each completed query/delete issues a private registered receipt containing the
+pending content ID, cleanup key and exact deleted preference IDs. A real empty
+query issues an empty receipt. No preference values enter this evidence. The
+owner closes the complete receipt set, revalidates pending deletions and permits
+one authenticated consumption by the same closing admission/lifetime. Commands
+cannot supply or discard receipts to influence that set.
+
+The host deliberately rejects every nonempty cleanup receipt set, including an
+empty-match receipt, before the content-only publication participant runs.
+Cleanup SQL therefore rolls back with all content, commit, fact, retained
+outcome, index, unique-key, wake and clock state. The private Payload adapter
+still rejects its `deleteMany` call; this slice proves the underlying CMS port,
+not Local API delete success. No general relational mutation profile is promoted.
+
+The shared driver scenario reuses the storage/binding fixture to prove empty and
+matching cleanup, scope/generation/key isolation, overflow before deletion,
+caught failure, failure after cleanup, stale request and withdrawn binding,
+exact receipt contents, and full rollback. The next slice must pin the private
+lifecycle fact codec/catalog and retention contract, integrate authenticated
+receipts into the existing atomic publisher, then route the exact Payload call
+and prove actual Local API deletion on both drivers.
 
 ## Ownership And Exclusions
 
@@ -135,4 +175,5 @@ open and does not advance the ordered relation/Medusa conformance gates.
 
 The [accepted audit stop conditions](./07-payload-release-and-adapter-contract.md#stop-conditions)
 and repository shared-owner rule governed the accepted storage/binding decision.
-Current implementation deliberately stops before cleanup and publication.
+Current implementation deliberately stops before atomic publication and adapter
+routing.

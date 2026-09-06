@@ -5,8 +5,9 @@ owner-correct synthetic Medusa commerce evidence, and scalar content-overlay
 admission against activated V3 Application ownership. The Application selector
 retains authority. The separately accepted [preference storage/binding slice](./19-payload-preference-cleanup-and-delete-publication.md)
 adds the exact pinned Payload lifecycle installation beside content. Its sole
-adapter profile grants binding admission only; lifecycle data operations and
-publication remain gated. The private CMS content host is implemented under its
+adapter profile grants binding admission only. The separately authenticated CMS
+cleanup port now issues noncommittable deletion receipts; atomic publication
+remains gated. The private CMS content host is implemented under its
 own contract. General framework profiles and production serving remain gated.
 
 ## Outcome And Boundary
