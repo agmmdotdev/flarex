@@ -6,7 +6,9 @@ their exact acceptance boundaries are maintained in the
 Application preservation is complete on PGlite and ordinary-role PostgreSQL.
 The private scalar CMS host/publication capability, Application write-policy
 denial and content-overlay admission are implemented;
-framework conformance and production activation remain separately gated.
+the private pinned Payload consumer proves supported scalar operations while
+[mandatory delete cleanup](./19-payload-preference-cleanup-and-delete-publication.md)
+blocks complete CRUD. Later framework conformance and production remain gated.
 
 Last reviewed: 2026-09-06
 

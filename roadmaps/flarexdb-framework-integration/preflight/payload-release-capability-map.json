@@ -1,6 +1,6 @@
 {
   "kind": "PayloadReleaseCapabilityMap",
-  "status": "exactReleaseAuditAcceptedRuntimeInactive",
+  "status": "privateScalarConformancePartialDeleteLifecycleBlocked",
   "release": {
     "package": "payload",
     "version": "3.88.0",
@@ -65,17 +65,17 @@
       "explicitDormantAuthCollection"
     ],
     "collections": {
-    "always": [
-      "payload-preferences",
-      "payload-migrations"
-    ],
-    "conditional": [
-      "payload-locked-documents",
-      "payload-jobs",
-      "payload-folders",
-      "payload-query-presets",
-      "payload-kv"
-    ]
+      "always": [
+        "payload-preferences",
+        "payload-migrations"
+      ],
+      "conditional": [
+        "payload-locked-documents",
+        "payload-jobs",
+        "payload-folders",
+        "payload-query-presets",
+        "payload-kv"
+      ]
     },
     "globals": {
       "conditional": [
@@ -94,8 +94,7 @@
       "find",
       "findOne",
       "count",
-      "updateOne",
-      "deleteOne"
+      "updateOne"
     ],
     "supportedQuery": [
       "id",
@@ -149,7 +148,10 @@
       "cloudflareWorkerHost",
       "hosted",
       "production"
-    ]
+    ],
+    "blockedOperations": {
+      "deleteById": "mandatoryPreferenceCleanupRequiresApprovedLifecycleBindingAndPublication"
+    }
   },
   "nextRelationProfile": {
     "admittedShape": [
@@ -188,7 +190,26 @@
   },
   "activation": {
     "authorized": false,
-    "nextBehaviorSlice": "frameworkInstallationReadinessBindingAndMigrationCoordinationPreflight",
+    "nextBehaviorSlice": "payloadPreferenceLifecycleBindingAndAtomicDeleteProposal",
     "payloadContentUsesRelationalSchema": false
+  },
+  "privateRuntimeEvidence": {
+    "host": "NodeOnlyDevelopmentDependency",
+    "supportedLocalApi": [
+      "create",
+      "find",
+      "findByID",
+      "count",
+      "updateById"
+    ],
+    "drivers": [
+      "PGlite",
+      "ordinaryRolePostgreSQL"
+    ],
+    "delete": "refusesMandatoryUnboundPreferenceCleanupAndRollsBack",
+    "completeCrud": false,
+    "nextOwnerProposal": "19-payload-preference-cleanup-and-delete-publication.md",
+    "publicExport": false,
+    "production": false
   }
 }

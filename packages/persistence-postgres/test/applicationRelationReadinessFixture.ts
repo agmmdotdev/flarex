@@ -418,6 +418,7 @@ export interface RelationReadinessFixtureOptions {
   readonly persistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly writePolicy?: boolean;
   readonly cmsIndexes?: boolean;
+  readonly cmsFields?: Parameters<typeof policyManifestFixture>[2];
   /** Compose the database-authenticated session target for DataBinding admission. */
   readonly bindingAdmission?: boolean;
   readonly includeFunction?: boolean;
@@ -514,7 +515,7 @@ export async function relationReadinessFixture(
     relationBuild,
   );
   let relationInput = options.writePolicy === true
-    ? { ...await policyManifestFixture(undefined, options.cmsIndexes), deploymentId, decisions: [] }
+    ? { ...await policyManifestFixture(undefined, options.cmsIndexes, options.cmsFields), deploymentId, decisions: [] }
     : await relationApplicationInput(
     deploymentId,
     fixtureOrdinal,

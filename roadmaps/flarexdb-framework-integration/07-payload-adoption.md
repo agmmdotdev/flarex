@@ -2,13 +2,13 @@
 
 ## Status And Scope
 
-Status: accepted source-backed sequence; exact `payload@3.88.0` contract audit
-and native non-reactive relation prerequisite complete, Payload adapter
-implementation not started. The private scalar CMS host, pending documents and
-Application commit participant are implemented under the
-[CMS capability contract](./preflight/17-cms-request-transactions-and-application-publication.md).
-The next slice proves this substrate through the pinned headless scalar Local
-API profile and its fixed nested hook, preserving Payload result/error assertions.
+Status: private pinned `payload@3.88.0` scalar Local API integration is partial.
+Create, reads, count, update, defaults/validation and fixed nested-hook behavior
+use the implemented CMS host and Application publication on both drivers.
+Delete necessarily reaches unbound `payload-preferences` cleanup and is proven
+to reject with full rollback. The [focused lifecycle proposal](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
+is the next owner decision before completing scalar CRUD and advancing to
+content relations. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation
@@ -19,15 +19,15 @@ adapter work. Fenced relation-sync registration and `SV-R Live` are
 prerequisites only for subscriptions, live invalidation, reconnect, or
 resnapshot claims.
 
-There is currently no Payload dependency, adapter package, `ctx.cms` runtime,
-or production Payload path in the repository.
+Payload is an exact development dependency for the private Node proof. There
+is no public adapter package, `ctx.cms` runtime or production Payload path.
 
 The exact Payload contract preflight is accepted in
 [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md).
 It pins `payload@3.88.0` and its peeled release commit, inventories the complete
 adapter surface and internal collections, and freezes the first headless Local
-API profile. It authorizes no dependency, adapter package, runtime import,
-write-policy change, migration, or compatibility claim. The accepted cross-
+API profile. The subsequent private implementation admits only the closed scalar Node
+composition, not public package promotion or lifecycle/migration authority. The accepted cross-
 lane order is owned by
 [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md).
 

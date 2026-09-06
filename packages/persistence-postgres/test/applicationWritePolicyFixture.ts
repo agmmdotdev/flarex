@@ -4,7 +4,7 @@ import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analys
 import type { ApplicationWritePolicies } from "@flarex/analysis/internal/application-write-policy";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 
-export function policyFixture() {
+export function policyFixture(fields: ApplicationWritePolicies["configuration"]["tables"][number]["fields"] = [{ name: "title", kind: "text" }]) {
   const provenance = {
     format: "flarex.payload-provenance", version: 1, package: "payload", release: "3.88.0",
     npmIntegrity: "sha512-O7zuS80bvEGLte+7xZjwN05+ox5BCsGcQT2M6+CTote07JQOOvHJoiuoyQFw6cUElcFTWGMC5dy03w7J7sTYGg==",
@@ -12,7 +12,7 @@ export function policyFixture() {
   } satisfies ApplicationWritePolicies["provenance"];
   const configuration = {
     format: "flarex.payload-configuration", version: 1, profile: "payload.scalar", provenanceSha256: hashPolicyFixture(provenance),
-    tables: [{ logicalTableName: "posts", fields: [{ name: "title", kind: "text" }] }],
+    tables: [{ logicalTableName: "posts", fields }],
   } satisfies ApplicationWritePolicies["configuration"];
   return {
     format: "flarex.application-table-write-policies", version: 1, provenance, configuration,
@@ -23,8 +23,8 @@ export function policyFixture() {
   } satisfies ApplicationWritePolicies;
 }
 
-export async function policyManifestFixture(rootSha256 = "1".repeat(64), indexed = false) {
-  const writePolicies = policyFixture();
+export async function policyManifestFixture(rootSha256 = "1".repeat(64), indexed = false, fields?: ApplicationWritePolicies["configuration"]["tables"][number]["fields"]) {
+  const writePolicies = policyFixture(fields);
   const canonical = await Effect.runPromise(verifyApplicationManifestV3({
     format: "flarex.application-manifest", version: 3,
     sourceArtifact: {
@@ -37,7 +37,7 @@ export async function policyManifestFixture(rootSha256 = "1".repeat(64), indexed
     schema: {
       version: 3,
       tables: ["audit", "posts"].map((name, index) => ({ tableId: index + 1, name,
-        validator: { type: "object", value: { title: { fieldType: { type: "string" }, optional: false } } },
+        validator: { type: "object", value: Object.fromEntries((name === "posts" && fields !== undefined ? fields : [{ name: "title", kind: "text" }]).map(field => [field.name, { fieldType: { type: field.kind === "number" ? "number" : field.kind === "boolean" ? "boolean" : "string" }, optional: false }])) },
         placement: { kind: "global" } })),
       indexes: indexed ? [{ indexId: 1, tableId: 2, name: "by_title", fields: ["title"] }] : [],
       relations: [], writePolicies, writePolicySetSha256: hashPolicyFixture(writePolicies),

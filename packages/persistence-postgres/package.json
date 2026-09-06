@@ -258,6 +258,7 @@
   "devDependencies": {
     "drizzle-kit": "^0.31.10",
     "miniflare": "catalog:",
+    "payload": "3.88.0",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

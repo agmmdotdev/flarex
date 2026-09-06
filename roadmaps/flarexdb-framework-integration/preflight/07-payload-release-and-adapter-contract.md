@@ -1,10 +1,12 @@
 # Payload Release And Database-Adapter Contract
 
-Status: accepted exact-release source audit; no Payload dependency, adapter,
-runtime, write path, dashboard, public API, hosted path, or production
-activation is authorized
+Status: accepted exact-release audit and private Node scalar conformance slice.
+Pinned Payload is a development dependency for this private proof; create/read/
+update and fixed nested-hook behavior are implemented on both drivers. Complete
+CRUD is blocked by mandatory preference cleanup. Dashboard, public API, hosted
+and production activation remain gated.
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-06
 
 ## Decision
 
@@ -124,7 +126,7 @@ Sources:
 - A mutation reaching the adapter without its admitted transaction ID fails
   before data access; it cannot obtain an autocommit fallback. A presented
   blank, zero, unknown, expired or otherwise invalid ID fails for reads and
-  writes. Standalone reads with no presented ID have the unresolved admission
+  writes. Standalone reads with no presented ID use the accepted bounded admission
   contract below and must not be conflated with invalid-token recovery.
 - Only the outer Payload operation may finalize the Flarex commit/change/outbox
   publication; nested operations reuse its transaction and contribute receipts.
@@ -146,14 +148,13 @@ interruption, settlement, and no-unbounded-transaction rules.
 
 ### Proposed standalone read contract
 
-Status: source-backed contract gap with a recommended resolution; the CMS
-transaction-owner capability must accept the exact read policy before adapter
-implementation.
+Status: accepted and implemented by the private CMS host; exercised through
+Payload standalone reads and nested pending-document reads.
 
 The [CMS host/publication proposal](./17-cms-request-transactions-and-application-publication.md#read-policy-and-pending-documents)
-now makes the bounded snapshot, same-request pending view, exact count and
-invalid-ID refusal policy concrete. It remains proposed until that owning
-contract is accepted.
+owns the bounded snapshot, same-request pending view, exact count and
+invalid-ID refusal policy. The private bridge admits Payload findByID's exact
+transaction-ID-only request projection only within the live host invocation.
 
 The pinned
 [collection find operation](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/payload/src/collections/operations/find.ts)
@@ -262,7 +263,8 @@ further user/document relationships. Therefore:
   but does not claim their runtime lifecycle merely because sanitization
   created them;
 - the bounded headless harness may serve `posts` only after proving that startup
-  and every admitted operation touch no unbound internal surface; any internal,
+  and every supported operation touch no unbound internal surface; delete is
+  currently excluded because it necessarily requests preference cleanup. Any internal,
   auth, preference, migration, or KV access fails closed before data access;
 - the dashboard/auth gate waits for its dedicated preferences, auth, locking,
   polymorphic-relation, and lifecycle proof. The first monomorphic relation
@@ -298,7 +300,8 @@ Payload-facing error/result behavior needs explicit conformance evidence.
 | Disposition | Capability |
 | --- | --- |
 | Supported | One exercised flat `posts` collection with scalar text, number, Boolean, date, generated identity/timestamps, and bounded JSON only where the admitted content contract requires it; one explicit dormant auth collection exists solely to satisfy sanitized configuration |
-| Supported | Payload operation pipeline for `create`, `find`, `findOne`, `count`, `updateOne`, and `deleteOne` |
+| Implemented privately | Local API `create`, `find`, `findByID`, `count` and update-by-ID through the Payload pipeline |
+| Blocked | Local API delete-by-ID: content deletion reaches mandatory unbound preference cleanup, rejects and fully rolls back; [lifecycle extension](./19-payload-preference-cleanup-and-delete-publication.md) awaits approval |
 | Supported | ID/equality filters, deterministic bounded sorting, limit/page/pagination, and exact result envelopes |
 | Supported | One request-scoped transaction, one conformance-only nested same-request operation, outer-only commit, and rollback on nested failure |
 | Supported | Unique conflict projected to the pinned Payload validation family; trusted unexpected failures remain non-public with causes retained |
@@ -371,6 +374,38 @@ Payload core or dashboard works in Flarex's Cloudflare Worker host. Runtime,
 bundle, Node-compatibility, dashboard, and hosted evidence remain separate
 gates.
 
+## Current Private Conformance
+
+The closed Node composition lives under private `src/payloadScalar` in
+`@flarex/persistence-postgres`, with no package export or runtime route. It pins
+`payload@3.88.0` as a dev dependency and binds its exact content configuration
+and provenance digests under the CMS scope lock, including before replay.
+The fixed access callbacks run through Payload with `overrideAccess: false`;
+identity/access authority belongs to the outer host. Only deterministic
+conformance hooks are registered. Runtime closure revokes bound calls and
+replay before entering CMS admission.
+
+Generated identity/timestamps, scalar defaults and date normalization, bounded
+ID/title equality, ID ordering, exact pagination envelopes, ValidationError
+field paths and uniqueness, pending reads, nested rollback and retained replay
+are exercised through actual Local API calls. Positive `limit` remains bounded
+when `pagination: false`, matching the pinned [find implementation](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/drizzle/src/find/findMany.ts).
+Limit zero, broader operators, projection and population remain refused.
+
+Use `framework-payload-scalar-pglite` and `framework-payload-scalar-postgres`
+from the root test-lane runner. Both require
+`PAYLOAD_DISABLE_DEPENDENCY_CHECKER=true` to disable only Payload's background
+package scanner in this exact-pinned test harness; native also requires
+`FLAREX_POSTGRES_DATABASE_URL`. Each driver reuses the shared CMS setup and one
+file-scoped persistence fixture; native adds concurrency, competing uniqueness,
+interruption and fresh-connection lost-COMMIT recovery.
+
+Complete CRUD is **not** established. Payload always requests
+`payload-preferences` cleanup after content deletion. The refusal and complete
+rollback are regression-tested; the [focused owner extension](./19-payload-preference-cleanup-and-delete-publication.md)
+records the evidence and recommended next slice. Required proof below stays
+open until actual deletion succeeds through that admitted lifecycle path.
+
 ## Required First Proof
 
 After the shared-core, Application-preservation, CMS transaction/commit, and
@@ -420,5 +455,5 @@ Use the [master capability matrix](../README.md#current-gate-status) for current
 status and [the three-lane sequence](./05-core-first-three-lane-readiness.md)
 for remaining native lifecycle, binding, transaction, receipt and consumer
 gates. Application remains Payload content's schema and row authority. The
-proposed read policy above is resolved within the CMS host capability, without
-opening adapter, dashboard or runtime activation in this source audit.
+read policy above is implemented within the CMS host capability. The private
+consumer proof does not open dashboard, public or production activation.

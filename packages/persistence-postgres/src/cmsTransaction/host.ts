@@ -45,6 +45,8 @@ interface CommandDefinition {
   readonly run: (context: CmsCommandContext, args: Json) => Effect.Effect<Json, CmsTransactionError>;
 }
 const commands = new WeakMap<object, CommandDefinition>();
+const contentDigest = Schema.String.check(Schema.makeFilter(value => /^[0-9a-f]{64}$/.test(value) ? undefined : "Expected SHA-256"));
+const decodeContentIdentity = Schema.decodeUnknownEffect(Schema.Struct({ configSha256: contentDigest, provenanceSha256: contentDigest }));
 const decodeRequestKey = Schema.decodeUnknownResult(TransactionRequestKeyV1Schema);
 
 /** Trusted composition only: no runtime registration and no arbitrary framework hooks. */
@@ -66,6 +68,8 @@ export interface CmsHostInput<Failure> {
   /** Authenticated by the private composition root; never adapter command input. */
   readonly identityAndAccessPolicy: Json;
   readonly materialization: PointCommitTransactionProofOptionsV1;
+  /** Optional closed-consumer restriction, checked under the admitted scope lock. */
+  readonly expectedContentIdentity?: Readonly<{ configSha256: string; provenanceSha256: string }>;
 }
 export interface CmsHost {
   readonly newRequestKey: () => string;
@@ -98,6 +102,8 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
   const { database, session, deploymentId, controlDatabase, application, pointCommitAuthority } = input;
   const compositionAuthority = input.authority;
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
+  const expectedContentIdentity = input.expectedContentIdentity === undefined ? undefined :
+    yield* decodeContentIdentity(input.expectedContentIdentity).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
   const allowed = new Set(input.commands);
   const names = new Set<string>();
   if (!hasRelationalSessionDatabase(session, database) || allowed.size === 0 || allowed.size > cmsLimits.calls) {
@@ -138,6 +144,8 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
           lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId));
         return yield* withCmsAdmission(prepared, tx, located.authority, clock, admission => Effect.gen(function* () {
           const state = yield* requireCmsAdmission(admission);
+          if (expectedContentIdentity !== undefined && (state.frame.payloadContent?.configSha256 !== expectedContentIdentity.configSha256 ||
+            state.frame.payloadContent.provenanceSha256 !== expectedContentIdentity.provenanceSha256)) return yield* Effect.fail(cmsError("invalidAuthority"));
           if (testHooks?.afterAdmission !== undefined) yield* testHooks.afterAdmission(tx);
           const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId));
           const evidence = yield* canonicalizeSuccessfulResultV1Effect({ domain: "flarex.private.cms-command", version: 1,

@@ -22,8 +22,9 @@ row/index/unique materialization and publication primitives without impersonatin
 an Application function or gaining relational mutation authority.
 
 This capability does not admit a Payload adapter, arbitrary hooks, native relation
-mutation, commerce facts, public APIs or production use. The next consumer proof
-is the pinned Payload scalar Local API profile.
+mutation, commerce facts, public APIs or production use. The separately
+authorized pinned Payload consumer now proves supported scalar operations and
+fixed nested hooks; full CRUD awaits the [preference lifecycle extension](./19-payload-preference-cleanup-and-delete-publication.md).
 
 ## Implemented Owners And Proofs
 
@@ -325,7 +326,9 @@ committable. No generic publisher registry or parallel Application engine is
 needed for this proof.
 
 After the private host, prove the pinned Payload Local API scalar profile with
-unchanged result/error assertions and its fixed nested hook. Then admit the
+unchanged result/error assertions and its fixed nested hook. This consumer
+currently proves create/read/update but blocks delete at mandatory preference
+cleanup; resolve the [focused proposal](./19-payload-preference-cleanup-and-delete-publication.md) before claiming scalar completion. Then admit the
 native-relation candidate/rebinding proof, followed by real Medusa Currency.
 Shared-core preservation and this proposal alone establish none of those
 framework compatibility claims.

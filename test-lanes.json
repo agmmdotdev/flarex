@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
+    "framework-payload-scalar-postgres": ["test/payloadScalar.postgres.test.ts"],
+    "framework-payload-scalar-pglite": ["test/payloadScalarProfile.test.ts", "test/payloadScalar.test.ts"],
     "framework-cms-pglite": ["test/cmsRequestLifetime.test.ts", "test/cmsHost.test.ts"],
     "framework-cms-postgres": ["test/cmsHost.postgres.test.ts"],
     "framework-coordinator-fresh-postgres": [
@@ -130,6 +132,8 @@
     ]
   },
   "selectors": {
+    "framework-payload-scalar-pglite": ["framework-payload-scalar-pglite"],
+    "framework-payload-scalar-postgres": ["framework-payload-scalar-postgres"],
     "framework-cms-pglite": ["framework-cms-pglite"],
     "framework-cms-postgres": ["framework-cms-postgres"],
     "fast": [
@@ -233,6 +237,67 @@
     ]
   },
   "lanes": [
+    {
+      "id": "framework-payload-scalar-postgres",
+      "category": "postgres",
+      "proof": "Pinned Payload 3.88.0 private headless create/read/update, fixed nested hooks, exact replay and atomic refusal of mandatory unbound preference cleanup. Full CRUD remains blocked. Native PostgreSQL adds competing requests, uniqueness, interruption and lost-COMMIT recovery.",
+      "prerequisites": [
+        {
+          "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER",
+          "equals": "true"
+        },
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-payload-scalar-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-payload-scalar-postgres"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-payload-scalar-pglite",
+      "category": "pglite",
+      "proof": "Pinned Payload 3.88.0 private headless create/read/update, fixed nested hooks, exact replay and atomic refusal of mandatory unbound preference cleanup. Full CRUD remains blocked.",
+      "prerequisites": [
+        {
+          "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER",
+          "equals": "true"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-payload-scalar-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-payload-scalar-pglite"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
     {
       "id": "framework-cms-pglite",
       "category": "pglite",
