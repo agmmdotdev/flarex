@@ -39,6 +39,7 @@ export interface CmsDocumentAttempt {
 export interface CmsClosedDocuments {
   readonly admission: CmsAdmission;
   readonly lifetime: CmsRequestLifetime;
+  readonly pendingDeletions: CmsPendingDeletions;
   readonly changes: readonly CmsFinalDocumentChange[];
   readonly attempts: readonly CmsDocumentAttempt[];
   readonly noFinalRows: readonly AppDocumentIdV1[];
@@ -283,7 +284,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     noFinalRows.sort();
     // SAFETY: only this owner derives and registers the full attempted set.
     const closure = Object.freeze({}) as CmsDocumentClosure;
-    closures.set(closure, Object.freeze({ admission, lifetime, changes: Object.freeze(changes),
+    closures.set(closure, Object.freeze({ admission, lifetime, pendingDeletions, changes: Object.freeze(changes),
       attempts: Object.freeze([...attempts]), noFinalRows: Object.freeze(noFinalRows) }));
     return closure;
   });

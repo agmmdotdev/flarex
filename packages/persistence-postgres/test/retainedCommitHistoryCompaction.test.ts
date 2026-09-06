@@ -136,6 +136,8 @@ describe("O11-D retained commit-history compaction", () => {
       "relationChangeDirectory",
       "changeDeletion",
       "relationChangeDeletion",
+      "preferenceDeletionDirectory",
+      "preferenceDeletion",
       "headerDeletion",
     ]);
     await expect(readHistoryCounts(persistence, context.scopeId)).resolves

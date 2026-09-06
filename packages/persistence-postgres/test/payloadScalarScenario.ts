@@ -85,12 +85,10 @@ export function payloadScalarScenario(persistence: PGliteFlarexPersistence | Pos
     expect(runtime.hookRuns()).toBe(3);
     const page = await runEffect(host.read(runtime.commands.find, { limit: 1, page: 2 }));
     expect(page).toMatchObject({ totalDocs: 3, totalPages: 3, page: 2, pagingCounter: 2, hasPrevPage: true, hasNextPage: true, prevPage: 1, nextPage: 3 });
-    // Regression for the upstream profile gap: real delete reaches mandatory
-    // preferences cleanup. Refusal must roll the pending content deletion back.
+    // Content-only composition still refuses mandatory preference cleanup.
     const beforeDelete = await inventory();
     const deletion = await runEffectFailure(host.run(host.newRequestKey(), runtime.commands.delete, { id: created.id }));
-    expect(deletion.cause).toBeInstanceOf(UnsupportedPayloadScalarCapability);
-    expect(deletion.cause).toMatchObject({ capability: "deleteMany:payload-preferences" });
+    expect(deletion).toMatchObject({ reason: "unsupportedProfile" });
     expect(await inventory()).toEqual(beforeDelete);
     expect(await runEffect(host.read(runtime.commands.findByID, { id: created.id }))).toEqual(updated);
     expect(await runEffect(host.read(runtime.commands.count, {}))).toEqual({ totalDocs: 3 });

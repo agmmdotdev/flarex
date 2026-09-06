@@ -1,9 +1,9 @@
 # Payload Preference Cleanup And Delete Publication
 
 Status: preference value/schema, exact binding admission, and bounded cleanup
-with authenticated receipts are implemented privately. Atomic lifecycle
-publication and Payload adapter routing remain pending; successful Payload
-deletion remains blocked.
+with authenticated receipts, atomic lifecycle publication and exact Payload
+adapter routing are implemented privately. The closed scalar Local API delete
+path succeeds under exact combined content/lifecycle admission.
 
 ## Reproduction And Evidence
 
@@ -24,13 +24,13 @@ Admin and document locks does not remove the obligation.
 
 The accepted scalar profile expected complete content CRUD without runtime
 internal-collection access. The actual pipeline crosses the deferred lifecycle
-boundary. The private adapter rejects `deleteMany:payload-preferences`; the
-shared PGlite/native PostgreSQL scenario verifies the original row remains and
+boundary. The content-only composition rejects required preference cleanup; its
+shared PGlite/native PostgreSQL regression verifies the original row remains and
 no revision, index, unique key, commit, fact, retained outcome, wake or scope
 clock changes. Create, reads, count, update and fixed nested-hook behavior have
 positive evidence; a direct adapter delete is not a substitute for Local API
-success. The existing delete assertion remains a refusal/rollback regression
-until this prerequisite is implemented.
+success. That content-only assertion remains a refusal/rollback regression beside the
+combined-binding positive deletion proof.
 
 ## Recommended Boundary And Implementation Order
 
@@ -76,8 +76,8 @@ extension, not general `deleteMany`, preference API or dashboard parity.
 
 The first implemented slice installs the preference schema through the existing
 coordinator and admits its exact content-plus-lifecycle binding. The
-cleanup/receipt slice is also implemented; publication follows separately.
-Delete stays unsupported until the final combined proof passes.
+cleanup/receipt and atomic publication slices are also implemented, including
+the final combined Payload deletion proof.
 
 ## Implemented Storage And Admission Contract
 
@@ -112,8 +112,8 @@ operation-specific port described below.
 
 The shared driver scenario exercises installation, typed physical record
 round-trip, cold selection, refusal of mismatched profile/readiness/artifact,
-and withdrawal before command execution. Existing scalar Local API delete
-continues to refuse mandatory preference cleanup. The focused manifest lanes
+and withdrawal before command execution. Content-only scalar Local API delete
+continues to refuse mandatory preference cleanup; the combined binding succeeds. The focused manifest lanes
 are `framework-payload-preferences-pglite` and
 `framework-payload-preferences-postgres`.
 
@@ -140,22 +140,61 @@ owner closes the complete receipt set, revalidates pending deletions and permits
 one authenticated consumption by the same closing admission/lifetime. Commands
 cannot supply or discard receipts to influence that set.
 
-The host deliberately rejects every nonempty cleanup receipt set, including an
-empty-match receipt, before the content-only publication participant runs.
-Cleanup SQL therefore rolls back with all content, commit, fact, retained
-outcome, index, unique-key, wake and clock state. The private Payload adapter
-still rejects its `deleteMany` call; this slice proves the underlying CMS port,
-not Local API delete success. No general relational mutation profile is promoted.
+The CMS participant consumes the complete cleanup closure alongside its
+authenticated document closure. It publishes deletion identities with content,
+commit, retained outcome, index, unique-key, wake and clock state in one outer
+transaction. Empty cleanup is a real query with no lifecycle fact children.
+The adapter routes only the pinned `payload-preferences` selector through the
+port. No general relational mutation profile is promoted.
 
 The shared driver scenario reuses the storage/binding fixture to prove empty and
 matching cleanup, scope/generation/key isolation, overflow before deletion,
 caught failure, failure after cleanup, stale request and withdrawn binding,
-exact receipt contents, and full rollback. The next slice must pin the private
-lifecycle fact codec/catalog and retention contract, integrate authenticated
-receipts into the existing atomic publisher, then route the exact Payload call
-and prove actual Local API deletion on both drivers.
+exact receipt contents, and full rollback. The publication scenario proves actual
+Payload deletion, empty and matching preferences, exact-256 and cumulative
+two-key overflow boundaries, every publication fault boundary, nested failure,
+replay and retention corruption/refusal. Native PostgreSQL additionally proves
+competing same-key requests, interruption after cleanup, and lost-COMMIT
+recovery on a fresh connection without callback replay.
 
 ## Ownership And Exclusions
+
+### Accepted Private Publication And Retention Contract
+
+The bounded publisher extension uses `fx_system_commit_payload_preference_deletion`
+as a typed private fact family (codec version 1), with a separate
+`payload_preference_deletion_count` on the existing scope commit header. The
+Application row-change count and public Application feed shape keep their
+existing meaning. The family is not a generic relational feed or publisher API.
+
+Each child contains scope UUID, epoch UUID, commit sequence, contiguous family
+ordinal, storage generation, exact preference artifact SHA-256, preference ID,
+and the correlated deleted content table/row identity. It stores no preference
+value, user reference, or arbitrary metadata. The header bounds this family to
+256 children. A composite foreign key binds the child to its exact header;
+another binds its content identity to the same-epoch Application revision.
+The CMS participant additionally requires the correlated final disposition to
+be a content deletion. Empty cleanup has no children and count zero. A net-zero
+created/deleted content row may have empty cleanup, but cannot publish a
+nonempty lifecycle deletion without a final content tombstone.
+
+The CMS participant consumes the authentic, complete cleanup closure itself,
+alongside the authentic document closure from the same working set. It derives
+the child records after validating receipts and final content dispositions.
+The existing allocation, materializer, commit header, retained result, outbox
+and scope-clock publisher remain the sole transaction/ordering authority.
+Every failure, interruption or uncertain decision follows the existing outer
+transaction and retained-outcome recovery rules; callbacks are not replayed
+after ambiguous COMMIT.
+
+Children are retained exactly with their header under the existing retained
+history floor, not under a new TTL or independent purge job. The existing
+compactor verifies the header count against contiguous child ordinals, deletes
+and verifies the exact family, then removes the header in the same transaction.
+Corrupt or missing evidence blocks compaction. No schema installation is kept
+alive by a foreign key from history: the exact artifact hash is self-contained
+identity provenance. Public lifecycle subscriptions and production compaction
+activation remain outside this private integration gate.
 
 Payload owns the cleanup selector and observable Local API behavior. The
 coordinator owns physical lifecycle installation and readiness. Binding/CMS
@@ -169,11 +208,7 @@ user hooks, public `ctx.cms`, Worker, hosted or production activation is added.
 No unbound-store empty response, successful unsupported-method stub, catch-and-
 continue fallback, or post-commit cleanup may make deletion appear successful.
 
-An alternative is to keep the private profile explicitly create/read/update
-only. That preserves useful evidence but leaves the accepted scalar CRUD gate
-open and does not advance the ordered relation/Medusa conformance gates.
-
 The [accepted audit stop conditions](./07-payload-release-and-adapter-contract.md#stop-conditions)
 and repository shared-owner rule governed the accepted storage/binding decision.
-Current implementation deliberately stops before atomic publication and adapter
-routing.
+Current implementation stops at the private scalar profile. Content relations,
+general lifecycle operations and public/production activation remain gated.

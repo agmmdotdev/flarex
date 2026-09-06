@@ -5,6 +5,7 @@
  * explicitly retained migration-drain readers without making Drizzle treat
  * those displaced tables as part of a fresh deployment.
  */
+export { fxSystemCommitPayloadPreferenceDeletions } from "./payloadPreferences/factsSchema";
 export {
   commits,
   deploymentPackages,

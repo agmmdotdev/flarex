@@ -10,9 +10,9 @@ installation and one fresh-base-to-additive-successor upgrade have independent
 PGlite and ordinary-role PostgreSQL acceptance. General lineage scale and
 upgrades beyond that bounded profile remain open. Private binding admission and
 synthetic scalar transactions/store and the private scalar CMS Application
-commit participant are implemented. Pinned Payload scalar create/read/update
-and fixed nested hooks are proven privately; delete is blocked by required
-preference cleanup. Public serving and production activation remain gated.
+commit participant are implemented. Pinned Payload scalar CRUD and fixed nested
+hooks are proven privately, including exact preference cleanup and atomic
+lifecycle publication under the combined binding. Public serving and production activation remain gated.
 
 The [current gate matrix](#current-gate-status) is the cross-lane status index.
 Focused owners define exact contracts and evidence; lane documents link here
@@ -109,8 +109,8 @@ Use these sources in order:
     and the complete private denial vertical required before CMS writes.
 21. [`preflight/19-payload-preference-cleanup-and-delete-publication.md`](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
     records the real Payload delete blocker and accepted private lifecycle
-    storage/binding and bounded cleanup/receipt slices; atomic publication and
-    adapter routing remain pending.
+    storage/binding, bounded cleanup/receipts, atomic lifecycle publication and
+    exact Payload delete routing.
 22. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
@@ -154,7 +154,7 @@ Preflight records:
 | [`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md) | Accepted; inert source island imported and verified, package promotion pending | Cloudflare-oriented fork as primary source, official Medusa as provenance baseline, independent verified island, reuse classification, and separately gated package promotion |
 | [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md) | Accepted sequencing; consumer audits and relational value slice complete, later shared-core gates pending | Consumer-informed shared core followed by Flarex Application preservation, Payload scalar and native-relation proofs, then Medusa package convergence |
 | [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md) | Accepted exact source/capability audit; no promotion or runtime activation | Mature-DML authority, reproducible 65-input Currency semantic graph, exploratory broader graph notes, reuse classifications, retained evidence, and deferred Query/Link/workflow/lock/idempotency/event gates |
-| [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md) | Accepted exact `payload@3.88.0` audit and partial private scalar conformance; delete lifecycle blocked | Adapter surface, request nesting, hook/transaction constraint, internal collections, first headless scalar profile, relation cutline, and migration/host boundary |
+| [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md) | Accepted exact `payload@3.88.0` audit and private scalar CRUD conformance under combined content/lifecycle binding | Adapter surface, request nesting, hook/transaction constraint, internal collections, first headless scalar profile, relation cutline, and migration/host boundary |
 | [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md) | Implemented privately; value evidence complete and no DDL/runtime activation | Exact first-slice relational value vocabulary, deterministic normalization, framework-artifact composition, Currency and synthetic fixtures, and closed downstream gates |
 | [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; value/storage checkpoints and bounded private fresh/additive PGlite and native acceptance complete; general scale, binding and runtime remain pending | Cycle-free identities, collision domain, physical lowering, structural plan/ledger values, readiness/availability and upgrade/database proof matrix |
 | [`preflight/10-relational-coordinator-metadata-and-repositories.md`](./preflight/10-relational-coordinator-metadata-and-repositories.md) | Complete checkpoint-2 contract; exact additive catalog, topological restoration, all thirteen source-private repository families, and manifest-owned serial PGlite functional gate implemented production-inert | Exact eighteen-table baseline plus the separately owned additive base sidecar, canonical-byte authority, normalized constraint sidecars, timestamp mapping, complete-graph cold rehydration, private transaction kernels, and PGlite evidence gate |
@@ -340,9 +340,9 @@ has private Application-only and synthetic Medusa acceptance.
 | Relational receipts and finalization | Private SQL-issued receipts, complete collector and outer admission implemented on both drivers | No admitted relational fact family or successful framework publication |
 | Synthetic relational data proof | Non-serving selection, scalar operations, pending reads, nested rollback, authenticated receipts and finalization rejection implemented | Mutation attempts cannot publish; real framework conformance remains |
 | Application preservation | Post-core complete native mutation/OCC/replay/publication, query, SV-R Core and RQ01 scenarios pass on PGlite and ordinary-role PostgreSQL | Rerun after shared publication changes; Action/Task, live sync and hosted claims remain separate |
-| CMS request host and Application publication | Private scalar host, pending documents, materialization and publication implemented on both drivers | Pinned Payload supported scalar operations proven; delete lifecycle prerequisite remains |
+| CMS request host and Application publication | Private scalar host, pending documents, materialization and publication implemented on both drivers | Pinned Payload scalar CRUD and atomic preference cleanup publication proven under combined binding |
 | Application table write policy | Private denial capability implemented | Canonical ownership and ordinary Application journal/commit denial preserved; the separate private CMS participant owns managed writes |
-| Payload scalar and non-reactive relation proofs | Private pinned scalar create/read/update and nested hooks proven on both drivers | Preference storage/binding and bounded cleanup/receipts implemented; atomic publication and adapter routing pending before delete success, scalar completion and relation candidate/rebinding |
+| Payload scalar and non-reactive relation proofs | Private pinned scalar CRUD, preference cleanup/publication and nested hooks proven on both drivers | Advance to the bounded content-relation preflight and candidate/rebinding proof; general Payload parity remains gated |
 | Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
@@ -438,8 +438,9 @@ Application reads and app-owned writes, and denies ordinary managed-table writes
 at the journal and authoritative commit boundaries. The private CMS host now
 adds pending documents, authenticated materialization, one Application publication
 and retained-result recovery. The pinned Payload private consumer proves scalar
-create/read/update and nested hooks. Actual delete rejects and rolls back at
-mandatory preference cleanup. The [next proposal](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
-now implements real lifecycle storage, binding and bounded cleanup receipts.
-Atomic publication and adapter routing remain before scalar completion.
+CRUD and nested hooks. Combined content/lifecycle admission enables
+actual delete with atomic preference facts. The [lifecycle contract](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
+implements lifecycle storage, binding, bounded cleanup receipts, atomic
+publication and exact adapter routing. Content-only composition still refuses
+cleanup. The next behavior gate is the bounded content-relation preflight.
 Public framework adapters, SDKs, runtime routes and production remain gated.

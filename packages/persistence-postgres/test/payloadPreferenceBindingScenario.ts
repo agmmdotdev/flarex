@@ -39,6 +39,7 @@ import { cmsHostFixture } from "./cmsHostFixture";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "./frameworkSchemaArtifactAdmissionTestSupport";
 import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { payloadPreferencePublicationScenario } from "./payloadPreferencePublicationScenario";
 const decodeGeneration = Schema.decodeUnknownEffect(StorageGenerationSchema);
 
 export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {
@@ -113,6 +114,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   let observedIds: readonly (string | null)[] = [];
   let cleanupCompletions = 0;
   const closedReceipts: unknown[] = [];
+  let sawCleanup = false;
   const create = defineCmsCommand({ name: "preference-create-post", mode: "write", run: Effect.fn("PreferenceTest.create")(
     ctx => ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: "cleanup-post", score: 0, enabled: false,
       publishedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" })) });
@@ -133,8 +135,9 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   const cleanup = defineCmsCommand({ name: "preference-cleanup-post", mode: "write", run: cleanupRun });
   const cleanupRead = defineCmsCommand({ name: "preference-cleanup-read", mode: "read", run: cleanupRun });
   const cleanupHost = await runEffect(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target, commands: [create, cleanup, cleanupRead] }, {
-    afterAdmission: tx => Effect.sync(() => { activeTx = tx; }),
-    afterPreferenceClosure: evidence => Effect.sync(() => { closedReceipts.push(evidence); }),
+    afterAdmission: tx => Effect.sync(() => { activeTx = tx; sawCleanup = false; }),
+    afterPreferenceClosure: evidence => Effect.sync(() => { closedReceipts.push(evidence); sawCleanup = evidence.length > 0; }),
+    afterPreferenceFacts: () => sawCleanup ? Effect.fail(cmsError("unsupportedProfile")) : Effect.void,
   }));
   const post = await runEffect(cleanupHost.run(cleanupHost.newRequestKey(), create, {}));
   if (!isJsonObject(post) || typeof post._id !== "string") throw new Error("Missing cleanup post");
@@ -185,6 +188,10 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   expect(await persistence.drizzle.select().from(table)).toEqual(overflowBefore);
   expect(await inventory()).toEqual(publicationBefore);
   // Remove only test seeds so the original withdrawal/retention assertion remains exact.
+  await persistence.drizzle.delete(table).where(ne(table.id, record.id));
+  await payloadPreferencePublicationScenario({ persistence, hostInput: { ...hostInput, payloadPreferenceTarget: target },
+    seed: async (id, preferenceIds) => { await persistence.drizzle.insert(table).values(preferenceIds.map(preferenceId => ({ ...seed, id: preferenceId, key: `collection-posts-${id}` }))); },
+    readPreferenceIds: async () => (await persistence.drizzle.select({ id: table.id }).from(table)).map(row => row.id), inventory });
   await persistence.drizzle.delete(table).where(ne(table.id, record.id));
   const schema = payloadPreferenceSchemaInput();
   const malformed = await runEffect(captureRelationalSchemaArtifact({ deploymentId: fixture.deploymentId, provenance: profile.artifact.provenance, schema: { ...schema, tables: schema.tables.map(table => ({ ...table, indexes: [] })) } }));

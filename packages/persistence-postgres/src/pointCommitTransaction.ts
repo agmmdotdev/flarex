@@ -4,6 +4,9 @@ import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protoco
 import { requireCmsAdmission, type CmsAdmission, type PreparedCmsApplication } from "./cmsTransaction/admission";
 import { consumeCmsDocumentClosure, type CmsDocumentClosure } from "./cmsTransaction/documents";
 import type { CmsRequestLifetime } from "./cmsTransaction/lifetime";
+import { consumePayloadPreferenceCleanup, type PayloadPreferenceCleanupClosure } from "./payloadPreferences/cleanup";
+import { fxSystemCommitPayloadPreferenceDeletions } from "./payloadPreferences/factsSchema";
+import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { cmsError, type CmsTransactionError } from "./cmsTransaction/model";
 import {
   bytesEqualFullScan as bytesEqual,
@@ -5815,6 +5818,8 @@ const cmsKernel = <Value>(work: () => Promise<Value>) => Effect.tryPromise({
 
 export interface CmsMaterializationTestHooks {
   readonly transformReceipts?: (receipts: readonly object[]) => readonly object[];
+  readonly afterPreferenceClosure?: (evidence: Effect.Success<ReturnType<typeof consumePayloadPreferenceCleanup>>) => Effect.Effect<void, CmsTransactionError>;
+  readonly afterPreferenceFacts?: () => Effect.Effect<void, CmsTransactionError>;
 }
 
 export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(function* (
@@ -5836,6 +5841,7 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(function* 
   let finalized = false;
   const finalize = Effect.fn("CmsCommit.finalize")(function* (
     closure: CmsDocumentClosure,
+    preferenceClosure: PayloadPreferenceCleanupClosure,
     identity: ResolveCommittedPointOutcomeInputV1,
     result: CanonicalSuccessfulResultV1,
     resultSha256: Uint8Array,
@@ -5845,6 +5851,18 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(function* 
     if (finalized || identity.scopeUuid !== clock.scopeUuid || !lifetime.isClosing()) return yield* Effect.fail(cmsError("invalidAuthority"));
     finalized = true;
     const closed = yield* consumeCmsDocumentClosure(closure, admission, lifetime);
+    const preferenceEvidence = yield* consumePayloadPreferenceCleanup(preferenceClosure, admission, lifetime, closed.pendingDeletions);
+    if (hooks?.afterPreferenceClosure !== undefined) yield* hooks.afterPreferenceClosure(preferenceEvidence);
+    const preferenceFacts: Omit<typeof fxSystemCommitPayloadPreferenceDeletions.$inferInsert, "commitSeq" | "changeOrdinal">[] = [];
+    for (const cleanup of preferenceEvidence) {
+      if (cleanup.preferenceIds.length === 0) continue;
+      const content = closed.changes.find(row => row.documentId === cleanup.documentId);
+      const binding = state.frame.payloadLifecycle;
+      if (content?.kind !== "deleted" || binding === null) return yield* Effect.fail(cmsError("invalidAuthority"));
+      for (const preferenceId of cleanup.preferenceIds) preferenceFacts.push({ scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid,
+        codecVersion: 1, storageGeneration: state.authority.storageGeneration, artifactSha256: binding.installation.artifact.artifactSha256,
+        preferenceId, contentTableId: content.tableId, contentRowId: appRowIdHexV1ToBytes(content.rowId) });
+    }
     const allowed = new Set(state.frame.payloadContent?.tables.map(table => table.tableId));
     const noFinal = yield* Effect.forEach(closed.noFinalRows, documentId => Effect.fromResult(decodeAppDocumentIdentityV1Result(documentId))
       .pipe(Effect.mapError(cause => cmsError("storedCorruption", cause)), Effect.map(row => ({
@@ -5902,9 +5920,18 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(function* 
       authorityPins: { scopeId: scope.scopeId, requestKey: identity.requestKey, functionPath: identity.expectedFunctionPath },
       rowIntents: closed.changes, identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
       requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
+      payloadPreferenceDeletionCount: preferenceFacts.length,
     };
     const kernel: ApplicationPublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: [] };
     yield* cmsKernel(() => writeApplicationPublicationPrefix(state.tx, contribution, kernel, prepared.options));
+    if (preferenceFacts.length > 0) {
+      const written = yield* runDrizzleStatementEffect(state.tx.insert(fxSystemCommitPayloadPreferenceDeletions)
+        .values(preferenceFacts.map((fact, changeOrdinal) => ({ ...fact, changeOrdinal, commitSeq: allocation.commitSeq })))
+        .returning({ ordinal: fxSystemCommitPayloadPreferenceDeletions.changeOrdinal }), cause => cmsError("statementFailure", cause));
+      if (written.length !== preferenceFacts.length || new Set(written.map(row => row.ordinal)).size !== written.length ||
+        written.some(row => row.ordinal < 0 || row.ordinal >= preferenceFacts.length)) return yield* Effect.fail(cmsError("storedCorruption"));
+    }
+    if (hooks?.afterPreferenceFacts !== undefined) yield* hooks.afterPreferenceFacts();
     yield* cmsKernel(() => advanceApplicationPublicationClock(state.tx, contribution, kernel, prepared.options));
     return allocation.commitSeq;
   });
@@ -7952,6 +7979,7 @@ async function publishPointCommitInTransaction(
 }
 
 interface ApplicationPublicationContribution {
+  readonly payloadPreferenceDeletionCount?: number;
   readonly authorityPins: Pick<PointCommitAuthorityPinsV1, "scopeId" | "requestKey" | "functionPath">;
   readonly rowIntents: ReadonlyArray<Pick<PreparedPointCommitRowIntentV1, "tableId" | "rowId">>;
   readonly identityAccessPolicySha256: Uint8Array;
@@ -7990,6 +8018,7 @@ async function writeApplicationPublicationPrefix(
       commitSeq,
       changeCount,
       relationAdjacencyChangeCount,
+      payloadPreferenceDeletionCount: command.payloadPreferenceDeletionCount ?? 0,
       committedAt: publicationTime,
     }).returning({ commitSeq: fxSystemCommits.commitSeq }));
   projectPointCommitTransactionResult(

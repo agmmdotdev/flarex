@@ -118,9 +118,10 @@ export const makePayloadPreferenceCleanup = Effect.fn("PayloadPreferences.makeCl
 /** Single-use owner evidence only; consuming it grants no publication authority. */
 export const consumePayloadPreferenceCleanup = Effect.fn("PayloadPreferences.consumeCleanup")(function* (
   closure: PayloadPreferenceCleanupClosure, admission: CmsAdmission, lifetime: CmsRequestLifetime,
+  pendingDeletions: CmsPendingDeletions,
 ) {
   const state = closures.get(closure);
-  if (state === undefined || state.admission !== admission || state.lifetime !== lifetime || !lifetime.isClosing()) {
+  if (state === undefined || state.admission !== admission || state.lifetime !== lifetime || state.pendingDeletions !== pendingDeletions || !lifetime.isClosing()) {
     return yield* Effect.fail(cmsError("invalidAuthority"));
   }
   yield* requireCmsAdmission(admission);

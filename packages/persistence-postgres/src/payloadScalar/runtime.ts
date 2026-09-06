@@ -51,7 +51,14 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
     return doc;
   };
   const posts = scalarPostsCollection();
-  posts.hooks = { afterChange: [hook] };
+  posts.hooks = { afterChange: [hook], afterDelete: [async ({ doc, req }) => {
+    if (doc.title === "delete-unresolved") { pendingReads += 1; await new Promise<void>(() => {}); }
+    if (doc.title === "delete-nested-fail") {
+      await req.payload.create({ collection: "posts", data: { title: "delete-child", publishedAt: doc.publishedAt }, req, depth: 0, overrideAccess: false });
+      await req.payload.create({ collection: "posts", data: {}, req, depth: 0, overrideAccess: false });
+    }
+    return doc;
+  }] };
   const config = yield* Effect.tryPromise({
     try: () => buildConfig({ secret: "private-payload-conformance-only-not-a-deployment-secret", db: bridge.adapter,
         collections: [posts, { slug: "users", auth: true, lockDocuments: false, fields: [] }],

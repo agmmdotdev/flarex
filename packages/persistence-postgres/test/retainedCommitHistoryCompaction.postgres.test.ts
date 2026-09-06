@@ -48,6 +48,7 @@ describePostgres("real PostgreSQL O11-D retained commit-history compaction", () 
         persistence,
         "fx_system_commit",
       )).resolves.toEqual([
+        "fx_commit_preference_deletion_header_fk",
         "fx_system_commit_app_row_change_header_fk",
         "fx_system_commit_relation_adjacency_header_fk",
       ]);
@@ -117,6 +118,9 @@ describePostgres("real PostgreSQL O11-D retained commit-history compaction", () 
       expect(plans.relationChangeDeletion).toMatch(
         /fx_system_commit_relation_adjacency_(?:pk|endpoint_unique)/,
       );
+      for (const name of ["preferenceDeletionDirectory", "preferenceDeletion"] as const) {
+        expect(plans[name]).toMatch(/fx_system_commit_payload_preference_deletion_|fx_commit_preference_deletion_identity_unique/);
+      }
       expect(plans.headerDeletion).toMatch(
         /fx_system_commit_(?:scope_uuid_commit_seq_pk|scope_epoch_seq_unique)/,
       );
@@ -289,6 +293,8 @@ async function explainPlans(
         client,
         requireQuery(queries, "relationChangeDeletion"),
       ),
+      preferenceDeletionDirectory: await explainObserved(client, requireQuery(queries, "preferenceDeletionDirectory")),
+      preferenceDeletion: await explainObserved(client, requireQuery(queries, "preferenceDeletion")),
       headerDeletion: await explainObserved(
         client,
         requireQuery(queries, "headerDeletion"),

@@ -244,8 +244,9 @@
     {
       "id": "framework-payload-preferences-postgres",
       "category": "postgres",
-      "proof": "Exact private Payload preference schema installation, typed record preservation, content/lifecycle binding, cold admission and readiness refusal. No cleanup or lifecycle publication.",
+      "proof": "Exact preference binding, bounded cleanup and authenticated atomic lifecycle facts, pinned Payload delete, rollback, retention, native replay, concurrency, interruption and lost-COMMIT recovery.",
       "prerequisites": [
+        { "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER", "equals": "true" },
         {
           "name": "FLAREX_POSTGRES_DATABASE_URL"
         }
@@ -272,8 +273,8 @@
     {
       "id": "framework-payload-preferences-pglite",
       "category": "pglite",
-      "proof": "Exact private Payload preference schema installation, typed record preservation, content/lifecycle binding, cold admission and readiness refusal. No cleanup or lifecycle publication.",
-      "prerequisites": [],
+      "proof": "Exact preference binding, bounded cleanup and authenticated atomic lifecycle facts, pinned Payload delete, publication rollback, identity limits, replay and retention.",
+      "prerequisites": [{ "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER", "equals": "true" }],
       "steps": [
         {
           "id": "persistence-framework-payload-preferences-pglite",

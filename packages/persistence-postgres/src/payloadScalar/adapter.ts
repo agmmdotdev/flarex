@@ -150,7 +150,12 @@ export function makePayloadScalarAdapter() {
     deleteOne: async args => { const state = admit(args); const prior = await one(args); if (prior === null) return unsupported("missing delete identity");
       await run(state, state.context.documents.delete(state.context.context, transactionId(state), prior.id)); return prior; },
     countGlobalVersions: deferred, countVersions: deferred, createGlobal: deferred, createGlobalVersion: deferred, createMigration: deferred,
-    createVersion: deferred, deleteMany: args => unsupported(`deleteMany:${args.collection}`), deleteVersions: deferred, findDistinct: deferred, findGlobal: deferred,
+    createVersion: deferred, deleteMany: async args => {
+      const state = stateFor(args.req);
+      if (args.collection !== "payload-preferences" || Object.keys(args).some(key => !["collection", "req", "where"].includes(key))) return unsupported(`deleteMany:${args.collection}`);
+      await run(state, state.context.preferences.deleteForPendingPost(state.context.context, transactionId(state), args.where));
+      touched.add(args.collection);
+    }, deleteVersions: deferred, findDistinct: deferred, findGlobal: deferred,
     findGlobalVersions: deferred, findVersions: deferred, generateSchema: deferred, migrate: deferred, migrateDown: deferred,
     migrateFresh: deferred, migrateRefresh: deferred, migrateReset: deferred, migrateStatus: deferred, queryDrafts: deferred,
     updateGlobal: deferred, updateGlobalVersion: deferred, updateJobs: deferred, updateMany: deferred, updateVersion: deferred, upsert: deferred,

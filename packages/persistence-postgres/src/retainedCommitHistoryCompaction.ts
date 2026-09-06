@@ -45,6 +45,7 @@ import {
   LocatedReadCommittedTransactionFailureV1,
 } from "./transactionSessionAttemptKernel";
 import { runLocatedReadCommittedEffect } from "./locatedReadCommittedEffect";
+import { fxSystemCommitPayloadPreferenceDeletions } from "./payloadPreferences/factsSchema";
 
 const retainedCommitHistoryCompactionPortBrand: unique symbol = Symbol(
   "FlarexDB/retainedCommitHistoryCompactionPort",
@@ -62,8 +63,10 @@ export interface RetainedCommitHistoryCompactionQuery {
     | "headerDirectory"
     | "changeDirectory"
     | "relationChangeDirectory"
+    | "preferenceDeletionDirectory"
     | "changeDeletion"
     | "relationChangeDeletion"
+    | "preferenceDeletion"
     | "headerDeletion";
   readonly sql: string;
   readonly params: ReadonlyArray<unknown>;
@@ -153,8 +156,10 @@ export class RetainedCommitHistoryCompactionPersistenceError extends
       | "headerDirectory"
       | "changeDirectory"
       | "relationChangeDirectory"
+      | "preferenceDeletionDirectory"
       | "changeDeletion"
       | "relationChangeDeletion"
+      | "preferenceDeletion"
       | "headerDeletion";
     readonly cause: unknown;
   }> {}
@@ -278,6 +283,7 @@ const compactInTransaction = Effect.fn(
     epochUuid: fxSystemCommits.epochUuid,
     commitSeq: fxSystemCommits.commitSeq,
     changeCount: fxSystemCommits.changeCount,
+    payloadPreferenceDeletionCount: fxSystemCommits.payloadPreferenceDeletionCount,
     relationAdjacencyChangeCount:
       fxSystemCommits.relationAdjacencyChangeCount,
   }).from(fxSystemCommits).where(and(
@@ -395,11 +401,25 @@ const compactInTransaction = Effect.fn(
     deletedRelationChanges,
   ));
 
+  const preferenceQuery = tx.select({ changeOrdinal: fxSystemCommitPayloadPreferenceDeletions.changeOrdinal })
+    .from(fxSystemCommitPayloadPreferenceDeletions).where(and(eq(fxSystemCommitPayloadPreferenceDeletions.scopeUuid, scopeUuid.scopeUuid),
+      eq(fxSystemCommitPayloadPreferenceDeletions.commitSeq, header.commitSeq))).orderBy(asc(fxSystemCommitPayloadPreferenceDeletions.changeOrdinal)).limit(257);
+  observeDrizzleQuery("preferenceDeletionDirectory", preferenceQuery, state.observeQuery);
+  const preferenceRows = yield* queryEffect("preferenceDeletionDirectory", preferenceQuery);
+  yield* Effect.fromResult(requireExactChangeDirectoryResult(authority, header.payloadPreferenceDeletionCount, preferenceRows));
+  const preferenceDeletion = tx.delete(fxSystemCommitPayloadPreferenceDeletions).where(and(
+    eq(fxSystemCommitPayloadPreferenceDeletions.scopeUuid, scopeUuid.scopeUuid), eq(fxSystemCommitPayloadPreferenceDeletions.commitSeq, header.commitSeq)))
+    .returning({ changeOrdinal: fxSystemCommitPayloadPreferenceDeletions.changeOrdinal });
+  observeDrizzleQuery("preferenceDeletion", preferenceDeletion, state.observeQuery);
+  const deletedPreferences = yield* queryEffect("preferenceDeletion", preferenceDeletion);
+  yield* Effect.fromResult(requireExactChangeDirectoryResult(authority, header.payloadPreferenceDeletionCount, deletedPreferences));
+
   const headerDeletion = tx.delete(fxSystemCommits).where(and(
     eq(fxSystemCommits.scopeUuid, scopeUuid.scopeUuid),
     eq(fxSystemCommits.epochUuid, header.epochUuid),
     eq(fxSystemCommits.commitSeq, header.commitSeq),
     eq(fxSystemCommits.changeCount, header.changeCount),
+    eq(fxSystemCommits.payloadPreferenceDeletionCount, header.payloadPreferenceDeletionCount),
     eq(
       fxSystemCommits.relationAdjacencyChangeCount,
       header.relationAdjacencyChangeCount,
@@ -431,6 +451,7 @@ const compactInTransaction = Effect.fn(
 });
 
 interface DecodedHeader {
+  readonly payloadPreferenceDeletionCount: number;
   readonly epochUuid: ScopeEpochUuidV1;
   readonly commitSeq: CommitSeq;
   readonly changeCount: number;
@@ -441,6 +462,7 @@ function decodeHeaderResult(
   authority: TrustedScopeAuthority,
   retainedFloor: CommitSeq,
   row: Readonly<{
+    readonly payloadPreferenceDeletionCount: unknown;
     readonly epochUuid: unknown;
     readonly commitSeq: unknown;
     readonly changeCount: unknown;
@@ -492,6 +514,9 @@ function decodeHeaderResult(
     return Object.freeze({
       epochUuid,
       commitSeq,
+      payloadPreferenceDeletionCount: yield* (typeof row.payloadPreferenceDeletionCount === "number" && Number.isSafeInteger(row.payloadPreferenceDeletionCount) &&
+        row.payloadPreferenceDeletionCount >= 0 && row.payloadPreferenceDeletionCount <= 256 ? Result.succeed(row.payloadPreferenceDeletionCount) :
+        Result.fail(compactionError(authority, "storedEvidenceInvalid"))),
       changeCount: row.changeCount,
       relationAdjacencyChangeCount: row.relationAdjacencyChangeCount,
     });
@@ -534,7 +559,7 @@ function requireExactAuthority(
     : Effect.fail(compactionError(authority, "staleAuthority"));
 }
 
-function queryEffect<Value>(
+const queryEffect = Effect.fn("RetainedCommitHistory.query")(function <Value>(
   operation: RetainedCommitHistoryCompactionPersistenceError["operation"],
   query: PromiseLike<Value>,
 ): Effect.Effect<Value, RetainedCommitHistoryCompactionPersistenceError> {
@@ -545,7 +570,7 @@ function queryEffect<Value>(
       cause,
     }),
   }));
-}
+});
 
 function compactionError(
   authority: TrustedScopeAuthority,

@@ -1,9 +1,9 @@
 # Payload Release And Database-Adapter Contract
 
 Status: accepted exact-release audit and private Node scalar conformance slice.
-Pinned Payload is a development dependency for this private proof; create/read/
-update and fixed nested-hook behavior are implemented on both drivers. Complete
-CRUD is blocked by mandatory preference cleanup. Dashboard, public API, hosted
+Pinned Payload is a development dependency for this private proof. Scalar CRUD
+and fixed nested-hook behavior are implemented on both drivers; deletion requires
+exact combined content/lifecycle admission and atomic preference facts. Dashboard, public API, hosted
 and production activation remain gated.
 
 Last reviewed: 2026-09-06
@@ -263,9 +263,9 @@ further user/document relationships. Therefore:
   but does not claim their runtime lifecycle merely because sanitization
   created them;
 - the bounded headless harness may serve `posts` only after proving that startup
-  and every supported operation touch no unbound internal surface; delete is
-  currently excluded because it necessarily requests preference cleanup. Any internal,
-  auth, preference, migration, or KV access fails closed before data access;
+  and every supported operation touch no unbound internal surface. Delete requires
+  the exact combined preference binding and bounded cleanup port. All other
+  internal, auth, preference, migration, or KV access fails closed before data access;
 - the dashboard/auth gate waits for its dedicated preferences, auth, locking,
   polymorphic-relation, and lifecycle proof. The first monomorphic relation
   slice does not authorize it.
@@ -301,11 +301,11 @@ Payload-facing error/result behavior needs explicit conformance evidence.
 | --- | --- |
 | Supported | One exercised flat `posts` collection with scalar text, number, Boolean, date, generated identity/timestamps, and bounded JSON only where the admitted content contract requires it; one explicit dormant auth collection exists solely to satisfy sanitized configuration |
 | Implemented privately | Local API `create`, `find`, `findByID`, `count` and update-by-ID through the Payload pipeline |
-| Blocked | Local API delete-by-ID: content deletion reaches mandatory unbound preference cleanup, rejects and fully rolls back; [lifecycle extension](./19-payload-preference-cleanup-and-delete-publication.md) has implemented storage/binding and bounded CMS cleanup receipts; atomic publication and adapter routing remain |
+| Implemented privately | Local API delete-by-ID under exact combined content/lifecycle admission, with bounded cleanup, authenticated receipts, atomic facts, replay and retention; content-only composition still refuses mandatory cleanup. See the [lifecycle contract](./19-payload-preference-cleanup-and-delete-publication.md) |
 | Supported | ID/equality filters, deterministic bounded sorting, limit/page/pagination, and exact result envelopes |
 | Supported | One request-scoped transaction, one conformance-only nested same-request operation, outer-only commit, and rollback on nested failure |
 | Supported | Unique conflict projected to the pinned Payload validation family; trusted unexpected failures remain non-public with causes retained |
-| Deferred | Auth operations, preferences/internal collection operations, KV operations, `updateMany`, `deleteMany`, `upsert`, `findDistinct`, globals, drafts, versions, jobs, and migration commands |
+| Deferred | Auth operations, general preference/internal collection operations, KV operations, `updateMany`, general `deleteMany`, `upsert`, `findDistinct`, globals, drafts, versions, jobs, and migration commands |
 | Deferred | General hooks/access callbacks, uploads/file work, remote effects, rich text, arrays, blocks, localization, and arbitrary JSON shapes |
 | Deferred | Monomorphic one/many relations as the next content slice |
 | Deferred | Polymorphic relations, reverse joins, population/depth, arbitrary `JoinQuery`, and repeated targets |
@@ -400,12 +400,12 @@ package scanner in this exact-pinned test harness; native also requires
 file-scoped persistence fixture; native adds concurrency, competing uniqueness,
 interruption and fresh-connection lost-COMMIT recovery.
 
-Complete CRUD is **not** established. Payload always requests
-`payload-preferences` cleanup after content deletion. The refusal and complete
-rollback are regression-tested; the [focused owner extension](./19-payload-preference-cleanup-and-delete-publication.md)
-records the evidence and implemented storage/binding and CMS cleanup receipts.
-Atomic publication and adapter routing are still pending. Required proof below stays
-open until actual deletion succeeds through that admitted lifecycle path.
+Private scalar CRUD is established for the exact combined binding. Payload
+requests `payload-preferences` cleanup after content deletion; the [focused
+owner extension](./19-payload-preference-cleanup-and-delete-publication.md) owns
+its bounded deletion receipts, atomic lifecycle facts, retained-history contract,
+and PGlite/native proof. Content-only refusal remains regression-tested. This
+does not establish general adapter, relationship, dashboard or production parity.
 
 ## Required First Proof
 

@@ -2,14 +2,15 @@
 
 ## Status And Scope
 
-Status: private pinned `payload@3.88.0` scalar Local API integration is partial.
+Status: private pinned `payload@3.88.0` scalar Local API CRUD is implemented for
+the closed headless profile with exact combined content/lifecycle admission.
 Create, reads, count, update, defaults/validation and fixed nested-hook behavior
 use the implemented CMS host and Application publication on both drivers.
-Delete necessarily reaches unbound `payload-preferences` cleanup and is proven
-to reject with full rollback. The [focused lifecycle proposal](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
+Delete uses exact `payload-preferences` cleanup with atomic lifecycle facts.
+Content-only composition still rejects cleanup with full rollback. The [focused lifecycle proposal](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
 now implements private preference storage, binding, and bounded CMS cleanup
-with authenticated receipts. Atomic publication and adapter routing remain
-before completing scalar CRUD and advancing to content relations. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
+with authenticated receipts, atomic publication, and exact Payload delete
+routing. The next gate is the bounded content-relation preflight. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation
