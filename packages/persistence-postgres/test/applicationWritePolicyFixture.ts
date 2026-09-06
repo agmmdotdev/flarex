@@ -23,7 +23,7 @@ export function policyFixture() {
   } satisfies ApplicationWritePolicies;
 }
 
-export async function policyManifestFixture(rootSha256 = "1".repeat(64)) {
+export async function policyManifestFixture(rootSha256 = "1".repeat(64), indexed = false) {
   const writePolicies = policyFixture();
   const canonical = await Effect.runPromise(verifyApplicationManifestV3({
     format: "flarex.application-manifest", version: 3,
@@ -39,7 +39,8 @@ export async function policyManifestFixture(rootSha256 = "1".repeat(64)) {
       tables: ["audit", "posts"].map((name, index) => ({ tableId: index + 1, name,
         validator: { type: "object", value: { title: { fieldType: { type: "string" }, optional: false } } },
         placement: { kind: "global" } })),
-      indexes: [], relations: [], writePolicies, writePolicySetSha256: hashPolicyFixture(writePolicies),
+      indexes: indexed ? [{ indexId: 1, tableId: 2, name: "by_title", fields: ["title"] }] : [],
+      relations: [], writePolicies, writePolicySetSha256: hashPolicyFixture(writePolicies),
     },
     functions: [{ path: "functions:write", moduleName: "functions", exportName: "write", kind: "mutation", visibility: "public",
       args: { type: "any" }, returns: null, partition: null }],

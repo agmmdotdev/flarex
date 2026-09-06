@@ -104,9 +104,9 @@ Application readiness and the complete retained managed-table set in ascending
 stable table-ID order. Configuration, provenance and per-table write-policy
 digests must match activated ownership. Legacy readiness, missing/extra or
 ordinary tables, stale heads and corrupt ownership are refused. Head movement
-requires explicit overlay rebinding. This admission grants no CMS document
-operation until the separate request host and materialization capability is
-implemented under the [accepted CMS contract](./17-cms-request-transactions-and-application-publication.md).
+requires explicit overlay rebinding. This admission alone grants no CMS document
+operation. The separate private request host and materialization capability now
+consume it under the [accepted CMS contract](./17-cms-request-transactions-and-application-publication.md).
 
 Each physical binding pins owner-qualified artifact identity, target namespace,
 installation/receipt digest, readiness digest, and the exact availability

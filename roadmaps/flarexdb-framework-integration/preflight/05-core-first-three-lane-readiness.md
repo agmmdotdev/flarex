@@ -4,8 +4,8 @@ Status: accepted execution sequence. The private shared-core capabilities and
 their exact acceptance boundaries are maintained in the
 [master capability matrix](../README.md#current-gate-status). Post-core
 Application preservation is complete on PGlite and ordinary-role PostgreSQL.
-The CMS host/publication contract is accepted and in progress. Application
-write-policy denial and private content-overlay admission are implemented;
+The private scalar CMS host/publication capability, Application write-policy
+denial and content-overlay admission are implemented;
 framework conformance and production activation remain separately gated.
 
 Last reviewed: 2026-09-06
@@ -446,8 +446,8 @@ Mutation attempts still require rollback. The implemented
 now closes authenticated issuance, complete collection and single-use outer
 rejection in both drivers. No synthetic fact family is admitted. Full Application
 preservation is complete. The [CMS host and Application publication proposal](./17-cms-request-transactions-and-application-publication.md)
-is accepted and in progress. The [Application write-policy contract](./18-application-table-write-policy.md)
-establishes the implemented denial capability before CMS publication. The proposed
+is implemented privately. The [Application write-policy contract](./18-application-table-write-policy.md)
+establishes ordinary Application denial alongside the separate CMS participant. The bounded
 [CMS read contract](./07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract)
 is defined by that contract's accepted bounded snapshot policy; it does
 not authorize routing Payload content through the synthetic reserved-relational store.

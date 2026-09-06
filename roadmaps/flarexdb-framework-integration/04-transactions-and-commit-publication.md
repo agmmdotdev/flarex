@@ -33,10 +33,11 @@ Application publisher or permit a successful relational data commit.
 
 The post-core Application preservation vertical now passes on both drivers.
 The accepted [CMS host/Application publication contract](./preflight/17-cms-request-transactions-and-application-publication.md)
-defines the next separate commit-owner capability, including standalone reads,
-pending documents, exact Application materialization and result recovery. It
-has its Application write-policy prerequisite implemented. Content-overlay
-admission is implemented; the request host and publication remain in progress.
+implements the private scalar commit participant, including standalone reads,
+pending documents, exact Application materialization and retained-result recovery.
+It requires the implemented Application write policy and exact content-overlay
+admission. The next consumer proof is the pinned Payload scalar Local API profile;
+commerce and synthetic relational publication retain their separate gates.
 
 ## Transaction Hosts
 

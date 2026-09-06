@@ -2,25 +2,68 @@
 
 ## Status And Outcome
 
-Status: accepted private CMS host and Application commit-participation
-capability; implementation in progress. The
-post-core Application-preservation gate is complete on PGlite and ordinary-role
-PostgreSQL 18; its maintained proof inventory is below.
+Status: implemented private scalar CMS host and Application commit participant.
+The shared scenario runs on PGlite and ordinary-role PostgreSQL; the existing
+Application mutation, query, relation and publication preservation lanes remain
+required after changes to their shared owners.
 
-The next usable outcome is a bounded scalar CMS command that reads its pending
-Application documents and publishes exactly one Application commit, result,
-change set and wake. A failing nested operation rolls the entire command back.
-This requires the separately accepted [Application write-policy capability](./18-application-table-write-policy.md) before
-any CMS-owned table can be written. It does not admit a Payload adapter, arbitrary
-hooks, native relation mutation, commerce facts, public APIs or production use.
+A fixed trusted scalar CMS command reads its pending Application documents and
+publishes exactly one Application commit, result, change set and wake. Nested
+success joins that command; any failed operation latches whole-command rollback,
+including caught failures and unresolved work at closure. Standalone reads hold
+one bounded snapshot and produce no publication.
 
-The content-overlay admission is implemented privately against activated V3
-Application write ownership. It authenticates the exact managed-table set,
-configuration/provenance and policy digests, rejects stale or corrupt evidence,
-and requires rebinding after Application head movement. This is binding
-admission only; the request host, pending documents, materialization receipts,
-CMS publication and result recovery remain in progress as one capability.
-A selected overlay does not yet grant any CMS document operation.
+The host requires activated V3 Application write ownership and exact private
+content-overlay admission. It authenticates the managed-table set, configuration,
+provenance, policy digests and active head, and requires rebinding after head
+movement. Application-owned invocation retains its existing journal, OCC,
+session and lease path. CMS owns its pending working set and uses the same owned
+row/index/unique materialization and publication primitives without impersonating
+an Application function or gaining relational mutation authority.
+
+This capability does not admit a Payload adapter, arbitrary hooks, native relation
+mutation, commerce facts, public APIs or production use. The next consumer proof
+is the pinned Payload scalar Local API profile.
+
+## Implemented Owners And Proofs
+
+- [CMS host](../../../packages/persistence-postgres/src/cmsTransaction/host.ts)
+  owns fixed command registration, authenticated admission, one physical session,
+  canonical request identity and retained-result recovery.
+- [Request lifetime](../../../packages/persistence-postgres/src/cmsTransaction/lifetime.ts)
+  owns exact context and ID resolution, nested lifetimes, rollback-only state,
+  active-call closure and cumulative resource limits.
+- [Pending documents](../../../packages/persistence-postgres/src/cmsTransaction/documents.ts)
+  owns schema-validated scalar operations, base-plus-pending reads, exact count
+  and deterministic pages, and an opaque one-use working-set closure.
+- [Application commit owner](../../../packages/persistence-postgres/src/pointCommitTransaction.ts)
+  owns final transition budgets, OCC, index/unique/candidate maintenance,
+  authenticated materialization receipts and the shared publication tail.
+  The package's existing facade exposes no CMS issuer or general publisher.
+- The [shared driver scenario](../../../packages/persistence-postgres/test/cmsHostScenario.ts)
+  covers scalar changes, uniqueness, nesting, bounded reads, receipt attacks,
+  rollback at publication steps, replay and result retention. The
+  [native scenario](../../../packages/persistence-postgres/test/cmsHost.postgres.test.ts)
+  adds concurrent duplicate keys, lost COMMIT acknowledgement resolved on a
+  different backend, active statement cancellation, combined callback/cleanup
+  failures, scope/build lock contenders, binding activation and distinct-scope
+  progress. PGlite establishes functional behavior, not native lock semantics.
+
+```sh
+node scripts/run-test-lane.mjs framework-cms-pglite
+node scripts/run-test-lane.mjs framework-cms-postgres
+```
+
+Run database lanes serially. The same fixture and scenario are shared across
+drivers; pure lifetime cases require no database startup. Native execution
+requires `FLAREX_POSTGRES_DATABASE_URL` for an ordinary test role.
+
+The bounded profile counts the root command within the call limit. JSON capture
+and current-row hydration both have aggregate limits, including corrupt JSONB
+projections. Final unique transitions obey the existing Application commit
+budget. Uncertain settlement resolves only authenticated retained outcomes on a
+fresh session; absent outcome evidence remains decision-uncertain and never
+triggers automatic command replay.
 
 ## Application Preservation
 
@@ -48,10 +91,11 @@ not repeat these verticals for every pure receipt validation case. These lanes
 cover the complete named vertical, not every package test, Action/Task, hosted
 Cloudflare, reconnect/live sync, Payload or Medusa conformance.
 
-No Application runtime, journal, schema, row, relation or publication source was
-changed to obtain this preservation result. Future shared publication changes
-must pass these same lanes again plus focused fault and concurrency tests at the
-changed boundary.
+The CMS participant shares the existing row/index/unique lowering and publication
+primitives. Application journal/lease cleanup, session settlement, relation
+maintenance and clock ordering retain their original positions. Changes to these
+shared owners must pass the preservation lanes plus focused fault and concurrency
+tests at the changed boundary.
 
 ## Current Source And Required Boundaries
 
@@ -149,7 +193,7 @@ disposition. Same-value and net-zero commands are not treated as standalone
 reads. The first profile uses generated document identity and does not admit
 caller-selected ID resurrection.
 
-Proposed ceilings are 64 combined command/store calls, 32 returned rows per
+The private ceilings are 64 combined command/store calls, 32 returned rows per
 page, 256 examined or retained document identities, 64 KiB per document and
 1 MiB total captured input, working-set, result and receipt evidence. Charge
 before retention and use stricter existing Application limits where applicable.

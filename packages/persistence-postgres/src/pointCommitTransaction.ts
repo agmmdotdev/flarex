@@ -1,3 +1,10 @@
+import { SnapshotTokenSchema } from "flarex-protocol/storage-authority";
+import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
+import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
+import { requireCmsAdmission, type CmsAdmission, type PreparedCmsApplication } from "./cmsTransaction/admission";
+import { consumeCmsDocumentClosure, type CmsDocumentClosure } from "./cmsTransaction/documents";
+import type { CmsRequestLifetime } from "./cmsTransaction/lifetime";
+import { cmsError, type CmsTransactionError } from "./cmsTransaction/model";
 import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
@@ -1474,6 +1481,18 @@ interface PreparedPointCommitTransactionCommandV1
   readonly attemptedTableIds: ReadonlyArray<CatalogTableId> | null;
 }
 
+/** Shared document mechanics require no Application function, journal or session. */
+interface ApplicationDocumentDefinitionCommand {
+  readonly authorityPins: Pick<PointCommitAuthorityPinsV1, "deploymentId" | "scopeId" | "schemaVersionId">;
+  readonly rowIntents: ReadonlyArray<Pick<PreparedPointCommitRowIntentV1, "tableId">>;
+}
+interface ApplicationDocumentMaterializationCommand extends ApplicationDocumentDefinitionCommand {
+  readonly authorityPins: ApplicationDocumentDefinitionCommand["authorityPins"] & Pick<PointCommitAuthorityPinsV1, "snapshotToken">;
+  readonly rowIntents: ReadonlyArray<PreparedPointCommitRowIntentV1>;
+  readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
+}
+type ApplicationDocumentMaterializationClock = Pick<LockedPointCommitClockV1, "record" | "scopeUuid">;
+
 interface PreparedPointCommitPublicationCommandV1
   extends PreparedPointCommitTransactionCommandV1 {
   readonly successfulResult: Readonly<
@@ -1644,7 +1663,7 @@ const resolvePointCommitAuthority = Effect.fn(
 const prepareIntrinsicIndexDefinitions = Effect.fn(
   "PointCommitTransaction.prepareIntrinsicIndexDefinitions",
 )(function* (
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentDefinitionCommand,
   options: PointCommitTransactionProofOptionsV1,
 ): Effect.fn.Return<
   ReadonlyArray<LocatedAppIndexDefinitionV1>,
@@ -1691,7 +1710,7 @@ const prepareIntrinsicIndexDefinitions = Effect.fn(
 const prepareDeveloperIndexDefinitions = Effect.fn(
   "PointCommitTransaction.prepareDeveloperIndexDefinitions",
 )(function* (
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentDefinitionCommand,
   options: PointCommitTransactionProofOptionsV1,
 ): Effect.fn.Return<
   ReadonlyArray<LocatedAppIndexDefinitionV1>,
@@ -1756,7 +1775,7 @@ const prepareDeveloperIndexDefinitions = Effect.fn(
 const prepareUniqueConstraintDefinitions = Effect.fn(
   "PointCommitTransaction.prepareUniqueConstraintDefinitions",
 )(function* (
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentDefinitionCommand,
   options: PointCommitTransactionProofOptionsV1,
 ): Effect.fn.Return<
   ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
@@ -1791,7 +1810,6 @@ const prepareUniqueConstraintDefinitions = Effect.fn(
       }),
     );
   }
-  let mutationCount = 0;
   let previousDefinitionId = 0;
   for (const definition of definitions) {
     if (
@@ -1806,21 +1824,21 @@ const prepareUniqueConstraintDefinitions = Effect.fn(
       );
     }
     previousDefinitionId = definition.uniqueConstraintDefinitionId;
-    for (const intent of command.rowIntents) {
-      if (intent.tableId === definition.tableId) mutationCount += 1;
-    }
   }
-  if (mutationCount > MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1) {
-    return yield* Effect.fail(
-      new PointCommitUniqueConstraintMaintenanceUnavailableV1Error({
-        reason: "mutationLimitExceeded",
-        observed: mutationCount,
-        maximum: MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1,
-      }),
-    );
-  }
+  yield* Effect.fromResult(validateApplicationUniqueTransitionBudget(command.rowIntents, definitions));
   return definitions;
 });
+
+function validateApplicationUniqueTransitionBudget(
+  rows: ApplicationDocumentDefinitionCommand["rowIntents"],
+  definitions: readonly LocatedAppUniqueConstraintDefinitionV1[],
+): Result.Result<void, PointCommitUniqueConstraintMaintenanceUnavailableV1Error> {
+  const count = definitions.reduce((total, definition) => total + rows.filter(row => row.tableId === definition.tableId).length, 0);
+  return count > MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1
+    ? Result.fail(new PointCommitUniqueConstraintMaintenanceUnavailableV1Error({ reason: "mutationLimitExceeded", observed: count,
+        maximum: MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 }))
+    : Result.succeed(undefined);
+}
 
 type PreparedPointCommitApplicationRelations = Readonly<{
   readonly port: ApplicationRelationCommitPort;
@@ -1881,7 +1899,7 @@ const prepareApplicationRelationDefinitions = Effect.fn(
 const prepareCandidateSchemaWriteGuard = Effect.fn(
   "PointCommitTransaction.prepareCandidateSchemaWriteGuard",
 )(function* (
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentDefinitionCommand,
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: PointCommitTransactionProofOptionsV1,
 ): Effect.fn.Return<
@@ -5719,12 +5737,198 @@ async function runPointCommitTransactionKernel(
       );
     }
   }
+  await materializeApplicationDocumentRows(tx, command, allocation.commitSeq, clock.record.epoch,
+    loadedHeads, intrinsicBuilds, developerIndexActions, uniqueKeyActions, options);
+  if (relationPlan !== null) {
+    const relationMaintenance = await runPointCommitInTransactionEffect(
+      maintainPointCommitApplicationRelationsEffect(
+        tx,
+        command,
+        allocation.commitSeq,
+        relationPlan,
+        options,
+      ),
+    );
+    projectPointCommitTransactionResult(relationMaintenance);
+  }
+  for (const developer of developerBuilds) {
+    await resetPointCommitDeveloperIndexValidation(tx, developer.build);
+  }
+  return Object.freeze({
+    kind: "ready",
+    clock,
+    relationAdjacencyChanges:
+      relationPlan?.prepared.adjacencyChanges ?? Object.freeze([]),
+    ...allocation,
+  });
+}
+
+interface PreparedCmsCommit {
+  readonly application: PreparedCmsApplication;
+  readonly command: ApplicationDocumentDefinitionCommand;
+  readonly intrinsic: readonly LocatedAppIndexDefinitionV1[];
+  readonly developer: readonly LocatedAppIndexDefinitionV1[];
+  readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
+  readonly candidate: PreparedPointCommitCandidateSchemaWriteGuard;
+  readonly options: PointCommitTransactionProofOptionsV1;
+}
+const cmsPreparations = new WeakSet<object>();
+const decodeCmsDeploymentId = Schema.decodeUnknownResult(TransactionGrantDeploymentIdV1Schema);
+
+/** Source-private second participant. It never manufactures executor/session authority. */
+export const prepareCmsApplicationCommit = Effect.fn("CmsCommit.prepare")(function* (
+  application: PreparedCmsApplication,
+  authority: TrustedScopeAuthority,
+  ports: PointMutationSessionAuthorityResolutionPortsV1,
+  options: PointCommitTransactionProofOptionsV1,
+) {
+  if (options.intrinsicCreationTimeIndexes === undefined || options.developerIndexes === undefined ||
+    options.uniqueConstraints === undefined || options.candidateSchemaWriteGuard === undefined) {
+    return yield* Effect.fail(cmsError("invalidAuthority"));
+  }
+  const tableIds = application.schema.writePolicy?.writePolicies.filter(policy => policy.owner === "payload").map(policy => policy.tableId) ?? [];
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(authority.scopeId));
+  const deploymentId = yield* Effect.fromResult(decodeCmsDeploymentId(application.schema.deploymentId));
+  const command: ApplicationDocumentDefinitionCommand = {
+    authorityPins: { deploymentId, scopeId: scope.scopeId, schemaVersionId: application.schema.schemaVersionId },
+    rowIntents: tableIds.toSorted((a, b) => a - b).map(tableId => ({ tableId })),
+  };
+  const intrinsic = yield* prepareIntrinsicIndexDefinitions(command, options);
+  const developer = yield* prepareDeveloperIndexDefinitions(command, options);
+  const unique = yield* prepareUniqueConstraintDefinitions(command, options);
+  const candidate = yield* prepareCandidateSchemaWriteGuard(command, ports, options);
+  if (candidate === null) return yield* Effect.fail(cmsError("invalidAuthority"));
+  const prepared: PreparedCmsCommit = Object.freeze({ application, command, intrinsic, developer, unique, candidate, options });
+  cmsPreparations.add(prepared);
+  return prepared;
+});
+
+/** Only the physical owner calls this bridge into its existing Promise-based kernel. */
+const cmsKernel = <Value>(work: () => Promise<Value>) => Effect.tryPromise({
+  try: work,
+  catch: cause => {
+    const failure = mapTransactionFailure(cause);
+    return cmsError(failure instanceof PointCommitSqlErrorV1 ? "statementFailure" :
+      failure instanceof AppUniqueKeyConflictError ? "uniqueConflict" : "storedCorruption", failure);
+  },
+});
+
+export interface CmsMaterializationTestHooks {
+  readonly transformReceipts?: (receipts: readonly object[]) => readonly object[];
+}
+
+export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(function* (
+  prepared: PreparedCmsCommit,
+  admission: CmsAdmission,
+  lifetime: CmsRequestLifetime,
+) {
+  const state = yield* requireCmsAdmission(admission);
+  if (!cmsPreparations.has(prepared) || state.schema !== prepared.application.schema ||
+    state.authority.scopeId !== prepared.command.authorityPins.scopeId) return yield* Effect.fail(cmsError("invalidAuthority"));
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
+  const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(state.clock.epoch)).pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
+  const clock = { record: state.clock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
+  const authorityPins = { ...prepared.command.authorityPins,
+    snapshotToken: SnapshotTokenSchema.make({ scopeId: state.authority.scopeId, epoch: state.clock.epoch, commitSeq: state.clock.lastCommitSeq }) };
+  const empty: ApplicationDocumentMaterializationCommand = { authorityPins, rowIntents: [], dependencies: [] };
+  const intrinsic = yield* cmsKernel(() => lockPointCommitIntrinsicIndexBuilds(state.tx, clock, prepared.intrinsic, empty));
+  const developer = yield* cmsKernel(() => lockPointCommitDeveloperIndexBuilds(state.tx, clock, prepared.developer, empty));
+  let finalized = false;
+  const finalize = Effect.fn("CmsCommit.finalize")(function* (
+    closure: CmsDocumentClosure,
+    identity: ResolveCommittedPointOutcomeInputV1,
+    result: CanonicalSuccessfulResultV1,
+    resultSha256: Uint8Array,
+    hooks?: CmsMaterializationTestHooks,
+  ): Effect.fn.Return<CommitSeq, CmsTransactionError> {
+    yield* requireCmsAdmission(admission, state.tx);
+    if (finalized || identity.scopeUuid !== clock.scopeUuid || !lifetime.isClosing()) return yield* Effect.fail(cmsError("invalidAuthority"));
+    finalized = true;
+    const closed = yield* consumeCmsDocumentClosure(closure, admission, lifetime);
+    const allowed = new Set(state.frame.payloadContent?.tables.map(table => table.tableId));
+    const noFinal = yield* Effect.forEach(closed.noFinalRows, documentId => Effect.fromResult(decodeAppDocumentIdentityV1Result(documentId))
+      .pipe(Effect.mapError(cause => cmsError("storedCorruption", cause)), Effect.map(row => ({
+        documentId: row.id, tableId: row.tableId, rowId: row.rowId,
+        dependency: { kind: "appRowPoint", documentId: row.id, observed: { kind: "missing", basis: { kind: "noVisibleRevision" } } },
+      } satisfies PointCommitDependencyV1))));
+    const dependencies = [...closed.changes, ...noFinal].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId));
+    const dispositions = new Map(dependencies.map(row => [row.documentId, row]));
+    if (dispositions.size !== dependencies.length || dependencies.some(row => !allowed.has(row.tableId.toString())) ||
+      closed.attempts.some((attempt, index) => attempt.ordinal !== index || !dispositions.has(attempt.documentId)) ||
+      dependencies.some(row => !closed.attempts.some(attempt => attempt.documentId === row.documentId))) {
+      return yield* Effect.fail(cmsError("invalidAuthority"));
+    }
+    const command: ApplicationDocumentMaterializationCommand = { authorityPins, rowIntents: closed.changes, dependencies };
+    yield* Effect.fromResult(validateApplicationUniqueTransitionBudget(closed.changes, prepared.unique))
+      .pipe(Effect.mapError(cause => cmsError("limitExceeded", cause)));
+    const minimumIndexRevisions = prepared.developer.reduce((total, definition) =>
+      total + closed.changes.filter(row => row.tableId === definition.access.tableId).length, 0);
+    if (minimumIndexRevisions > MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1) return yield* Effect.fail(cmsError("limitExceeded"));
+    const heads = yield* cmsKernel(() => loadPointCommitHeads(state.tx, clock, command, prepared.options));
+    yield* Effect.fromResult(validatePointCommitDependenciesResult(command, heads)).pipe(Effect.mapError(cause => cmsError("storedCorruption", cause)));
+    const now = yield* cmsKernel(() => readPointCommitDatabaseTime(state.tx, scope.scopeId, prepared.options));
+    const allocation = yield* Effect.fromResult(allocatePointCommitKernelResult(clock, "publish", now)).pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
+    if (allocation.outboxSeq === null) return yield* Effect.fail(cmsError("storedCorruption"));
+    const changed = new Set(closed.changes.map(row => row.tableId));
+    const selectedDeveloper = developer.filter(index => changed.has(index.definition.access.tableId));
+    const indexActions = yield* cmsKernel(() => preparePointCommitDeveloperIndexActions(state.tx, command, heads, selectedDeveloper));
+    const uniqueActions = yield* cmsKernel(() => preparePointCommitUniqueKeyActions(state.tx, command, heads, prepared.unique.filter(definition => changed.has(definition.tableId))));
+    yield* cmsKernel(() => runCandidateSchemaWriteGuard(state.tx, prepared.candidate, state.authority, state.clock, allocation.commitSeq,
+      closed.changes.flatMap(row => row.kind === "live" ? [{ tableId: row.tableId, rowId: row.rowId, document: row.document }] : [])));
+    yield* cmsKernel(() => materializeApplicationDocumentRows(state.tx, command, allocation.commitSeq, state.clock.epoch, heads,
+      intrinsic.filter(index => changed.has(index.definition.access.tableId)), indexActions, uniqueActions, prepared.options));
+    for (const index of selectedDeveloper) yield* cmsKernel(() => resetPointCommitDeveloperIndexValidation(state.tx, index.build));
+
+    // Positive receipts exist only after checked Application lowering. This issuer
+    // and registry are unique to this physical transaction, admission and closure.
+    const receipts = closed.attempts.map(attempt => Object.freeze({ ordinal: attempt.ordinal }));
+    const receiptEvidence = new WeakMap<object, typeof closed.attempts[number]>();
+    for (const [index, receipt] of receipts.entries()) {
+      const attempt = closed.attempts[index];
+      if (attempt === undefined) return yield* Effect.fail(cmsError("storedCorruption"));
+      receiptEvidence.set(receipt, attempt);
+    }
+    yield* Effect.fromResult(lifetime.charge(receipts.length * 128));
+    const presented = hooks?.transformReceipts?.(Object.freeze(receipts)) ?? receipts;
+    if (!lifetime.isClosing() || presented.length !== receipts.length) {
+      return yield* Effect.fail(cmsError("invalidAuthority"));
+    }
+    for (let index = 0; index < receipts.length; index += 1) {
+      const receipt = presented[index];
+      if (receipt === undefined || receiptEvidence.get(receipt) !== closed.attempts[index]) return yield* Effect.fail(cmsError("invalidAuthority"));
+    }
+    for (const receipt of receipts) receiptEvidence.delete(receipt);
+    const contribution: ApplicationPublicationContribution = {
+      authorityPins: { scopeId: scope.scopeId, requestKey: identity.requestKey, functionPath: identity.expectedFunctionPath },
+      rowIntents: closed.changes, identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
+      requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
+    };
+    const kernel: ApplicationPublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: [] };
+    yield* cmsKernel(() => writeApplicationPublicationPrefix(state.tx, contribution, kernel, prepared.options));
+    yield* cmsKernel(() => advanceApplicationPublicationClock(state.tx, contribution, kernel, prepared.options));
+    return allocation.commitSeq;
+  });
+  return Object.freeze({ uniqueDefinitions: prepared.unique, finalize });
+});
+
+/** The existing Application row/index/unique lowering order, shared by both participants. */
+async function materializeApplicationDocumentRows(
+  tx: AppRowTransaction,
+  command: ApplicationDocumentMaterializationCommand,
+  commitSeq: CommitSeq,
+  writeEpoch: ScopeEpoch,
+  loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  intrinsicBuilds: ReadonlyArray<LockedPointCommitIntrinsicIndexV1>,
+  developerIndexActions: ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>,
+  uniqueKeyActions: ReadonlyArray<PointCommitUniqueKeyActionV1>,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<void> {
   let intrinsicBuildIndex = 0;
   for (const rowIntent of command.rowIntents) {
     const rowRevision = await lowerTentativePointCommitRow(
       tx,
-      clock.record.epoch,
-      allocation.commitSeq,
+      writeEpoch,
+      commitSeq,
       command,
       loadedHeads,
       rowIntent,
@@ -5767,16 +5971,16 @@ async function runPointCommitTransactionKernel(
   await writePointCommitDeveloperIndexActions(
     tx,
     command,
-    allocation.commitSeq,
-    clock.record.epoch,
+    commitSeq,
+    writeEpoch,
     developerIndexActions,
     options,
   );
   await writePointCommitUniqueKeyActions(
     tx,
     command,
-    allocation.commitSeq,
-    clock.record.epoch,
+    commitSeq,
+    writeEpoch,
     uniqueKeyActions,
     options,
   );
@@ -5790,33 +5994,11 @@ async function runPointCommitTransactionKernel(
       );
     }
   }
-  if (relationPlan !== null) {
-    const relationMaintenance = await runPointCommitInTransactionEffect(
-      maintainPointCommitApplicationRelationsEffect(
-        tx,
-        command,
-        allocation.commitSeq,
-        relationPlan,
-        options,
-      ),
-    );
-    projectPointCommitTransactionResult(relationMaintenance);
-  }
-  for (const developer of developerBuilds) {
-    await resetPointCommitDeveloperIndexValidation(tx, developer.build);
-  }
-  return Object.freeze({
-    kind: "ready",
-    clock,
-    relationAdjacencyChanges:
-      relationPlan?.prepared.adjacencyChanges ?? Object.freeze([]),
-    ...allocation,
-  });
 }
 
 async function resetPointCommitUniqueConstraintValidation(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
 ): Promise<boolean> {
   const settled = await Effect.runPromise(Effect.result(
     resetAppUniqueConstraintSetValidationInTransactionEffect(tx, {
@@ -6143,7 +6325,7 @@ function requirePointCommitReadyForPublicationResult(
 }
 
 function allocatePointCommitKernelResult(
-  clock: LockedPointCommitClockV1,
+  clock: Pick<LockedPointCommitClockV1, "record">,
   mode: PointCommitTransactionModeV1,
   publicationTimeMilliseconds: number,
 ): Result.Result<
@@ -7121,8 +7303,8 @@ function requireAttemptIsLiveResult(
 
 async function loadPointCommitHeads(
   tx: AppRowTransaction,
-  clock: LockedPointCommitClockV1,
-  command: PreparedPointCommitDependencyCommandV1,
+  clock: ApplicationDocumentMaterializationClock,
+  command: Pick<ApplicationDocumentMaterializationCommand, "authorityPins" | "dependencies">,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<ReadonlyArray<LoadedPointCommitHeadV1>> {
   if (command.dependencies.length === 0) return Object.freeze([]);
@@ -7183,7 +7365,7 @@ async function loadPointCommitHeads(
 
 function capturePointCommitHeadsResult(
   rows: ReadonlyArray<unknown>,
-  command: PreparedPointCommitDependencyCommandV1,
+  command: Pick<ApplicationDocumentMaterializationCommand, "authorityPins" | "dependencies">,
   lastCommitSeq: CommitSeq,
 ): Result.Result<
   ReadonlyArray<LoadedPointCommitHeadV1>,
@@ -7271,7 +7453,7 @@ function decodePointCommitHeadResult(
 }
 
 function validatePointCommitDependenciesResult(
-  command: PreparedPointCommitDependencyCommandV1,
+  command: Pick<ApplicationDocumentMaterializationCommand, "authorityPins" | "dependencies">,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
 ): Result.Result<
   void,
@@ -7286,7 +7468,7 @@ function validatePointCommitDependenciesResult(
 }
 
 function findPointCommitConflictAfterEvidenceValidationResult(
-  command: PreparedPointCommitDependencyCommandV1,
+  command: Pick<ApplicationDocumentMaterializationCommand, "authorityPins" | "dependencies">,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
 ): Result.Result<
   PointCommitConflictV1Error | null,
@@ -7694,6 +7876,104 @@ async function publishPointCommitInTransaction(
   },
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<void> {
+  const contribution: ApplicationPublicationContribution = {
+    authorityPins: command.authorityPins,
+    rowIntents: command.rowIntents,
+    identityAccessPolicySha256: command.session.identityAccessPolicySha256,
+    requestSha256: command.session.requestSha256,
+    resultSha256: command.sealIdentity.resultSha256,
+    successfulResult: command.successfulResult,
+  };
+  await writeApplicationPublicationPrefix(tx, contribution, kernel, options);
+  const publicationTime = new Date(kernel.publicationTimeMilliseconds);
+  const scopeUuid = kernel.clock.scopeUuid;
+  const journal = await sqlCall("deleteJournal", () =>
+    tx.delete(fxSystemTransactionJournals).where(and(
+      eq(fxSystemTransactionJournals.scopeUuid, scopeUuid),
+      eq(
+        fxSystemTransactionJournals.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemTransactionJournals.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+    )).returning({ sessionId: fxSystemTransactionJournals.sessionId }));
+  projectPointCommitTransactionResult(requireSinglePublicationWriteResult(
+    journal,
+    command.authorityPins.sessionId,
+    "sessionId",
+  ));
+  await emitTransactionStep(options, command, "journalDeleted");
+
+  const lease = await sqlCall("deleteLease", () =>
+    tx.delete(fxSystemSnapshotLeases).where(and(
+      eq(fxSystemSnapshotLeases.scopeUuid, scopeUuid),
+      eq(
+        fxSystemSnapshotLeases.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemSnapshotLeases.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+    )).returning({ sessionId: fxSystemSnapshotLeases.sessionId }));
+  projectPointCommitTransactionResult(requireSinglePublicationWriteResult(
+    lease,
+    command.authorityPins.sessionId,
+    "sessionId",
+  ));
+  await emitTransactionStep(options, command, "leaseDeleted");
+
+  const session = await sqlCall("commitSession", () =>
+    tx.update(fxSystemTransactionSessions).set({
+      lifecycle: "committed",
+      updatedAt: publicationTime,
+    }).where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, scopeUuid),
+      eq(
+        fxSystemTransactionSessions.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemTransactionSessions.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+      eq(fxSystemTransactionSessions.lifecycle, "finishing"),
+    )).returning({ sessionId: fxSystemTransactionSessions.sessionId }));
+  projectPointCommitTransactionResult(requireSinglePublicationWriteResult(
+    session,
+    command.authorityPins.sessionId,
+    "sessionId",
+  ));
+  await emitTransactionStep(options, command, "sessionCommitted");
+
+  await advanceApplicationPublicationClock(tx, contribution, kernel, options);
+}
+
+interface ApplicationPublicationContribution {
+  readonly authorityPins: Pick<PointCommitAuthorityPinsV1, "scopeId" | "requestKey" | "functionPath">;
+  readonly rowIntents: ReadonlyArray<Pick<PreparedPointCommitRowIntentV1, "tableId" | "rowId">>;
+  readonly identityAccessPolicySha256: Uint8Array;
+  readonly requestSha256: Uint8Array;
+  readonly resultSha256: Uint8Array;
+  readonly successfulResult: Pick<PreparedPointCommitPublicationCommandV1["successfulResult"], "canonicalBytes" | "semanticSizeBytes">;
+}
+interface ApplicationPublicationKernel {
+  readonly clock: Pick<LockedPointCommitClockV1, "record" | "scopeUuid" | "epochUuid">;
+  readonly commitSeq: CommitSeq;
+  readonly outboxSeq: OutboxSeq;
+  readonly publicationTimeMilliseconds: number;
+  readonly relationAdjacencyChanges: ReadonlyArray<ApplicationRelationAdjacencyChange>;
+}
+
+/** Shared atoms; only the two package-owned participants below can contribute. */
+async function writeApplicationPublicationPrefix(
+  tx: AppRowTransaction,
+  command: ApplicationPublicationContribution,
+  kernel: ApplicationPublicationKernel,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<void> {
   const publicationTime = new Date(kernel.publicationTimeMilliseconds);
   const scopeUuid = kernel.clock.scopeUuid;
   const epochUuid = kernel.clock.epochUuid;
@@ -7792,11 +8072,11 @@ async function publishPointCommitInTransaction(
       requestKey: command.authorityPins.requestKey,
       identityAccessPolicySha256:
         TransactionIdentityAccessPolicySha256V1Schema.make(copyBytes(
-          command.session.identityAccessPolicySha256,
+          command.identityAccessPolicySha256,
         )),
       functionPath: command.authorityPins.functionPath,
       requestSha256: TransactionRequestSha256V1Schema.make(copyBytes(
-        command.session.requestSha256,
+        command.requestSha256,
       )),
       epochUuid,
       commitSeq,
@@ -7805,7 +8085,7 @@ async function publishPointCommitInTransaction(
       resultSemanticBytes: command.successfulResult.semanticSizeBytes,
       resultBytes: command.successfulResult.canonicalBytes,
       resultSha256: FlarexValueSha256V1Schema.make(copyBytes(
-        command.sealIdentity.resultSha256,
+        command.resultSha256,
       )),
       resultExpiredAt: null,
       createdAt: publicationTime,
@@ -7841,67 +8121,18 @@ async function publishPointCommitInTransaction(
   );
   await emitTransactionStep(options, command, "wakeWritten");
 
-  const journal = await sqlCall("deleteJournal", () =>
-    tx.delete(fxSystemTransactionJournals).where(and(
-      eq(fxSystemTransactionJournals.scopeUuid, scopeUuid),
-      eq(
-        fxSystemTransactionJournals.sessionId,
-        command.authorityPins.sessionId,
-      ),
-      eq(
-        fxSystemTransactionJournals.attemptFence,
-        command.authorityPins.attemptFence,
-      ),
-    )).returning({ sessionId: fxSystemTransactionJournals.sessionId }));
-  projectPointCommitTransactionResult(requireSinglePublicationWriteResult(
-    journal,
-    command.authorityPins.sessionId,
-    "sessionId",
-  ));
-  await emitTransactionStep(options, command, "journalDeleted");
+}
 
-  const lease = await sqlCall("deleteLease", () =>
-    tx.delete(fxSystemSnapshotLeases).where(and(
-      eq(fxSystemSnapshotLeases.scopeUuid, scopeUuid),
-      eq(
-        fxSystemSnapshotLeases.sessionId,
-        command.authorityPins.sessionId,
-      ),
-      eq(
-        fxSystemSnapshotLeases.attemptFence,
-        command.authorityPins.attemptFence,
-      ),
-    )).returning({ sessionId: fxSystemSnapshotLeases.sessionId }));
-  projectPointCommitTransactionResult(requireSinglePublicationWriteResult(
-    lease,
-    command.authorityPins.sessionId,
-    "sessionId",
-  ));
-  await emitTransactionStep(options, command, "leaseDeleted");
-
-  const session = await sqlCall("commitSession", () =>
-    tx.update(fxSystemTransactionSessions).set({
-      lifecycle: "committed",
-      updatedAt: publicationTime,
-    }).where(and(
-      eq(fxSystemTransactionSessions.scopeUuid, scopeUuid),
-      eq(
-        fxSystemTransactionSessions.sessionId,
-        command.authorityPins.sessionId,
-      ),
-      eq(
-        fxSystemTransactionSessions.attemptFence,
-        command.authorityPins.attemptFence,
-      ),
-      eq(fxSystemTransactionSessions.lifecycle, "finishing"),
-    )).returning({ sessionId: fxSystemTransactionSessions.sessionId }));
-  projectPointCommitTransactionResult(requireSinglePublicationWriteResult(
-    session,
-    command.authorityPins.sessionId,
-    "sessionId",
-  ));
-  await emitTransactionStep(options, command, "sessionCommitted");
-
+async function advanceApplicationPublicationClock(
+  tx: AppRowTransaction,
+  command: ApplicationPublicationContribution,
+  kernel: ApplicationPublicationKernel,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<void> {
+  const scopeUuid = kernel.clock.scopeUuid;
+  const commitSeq = kernel.commitSeq;
+  const outboxSeq = kernel.outboxSeq;
+  const publicationTime = new Date(kernel.publicationTimeMilliseconds);
   const clock = await sqlCall("advanceScopeClock", () =>
     tx.update(fxSystemScopeClocks).set({
       lastCommitSeq: commitSeq,
@@ -8090,9 +8321,9 @@ interface PointCommitUniqueKeyActionV1 {
 
 async function lockPointCommitDeveloperIndexBuilds(
   tx: AppRowTransaction,
-  clock: LockedPointCommitClockV1,
+  clock: ApplicationDocumentMaterializationClock,
   definitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
 ): Promise<ReadonlyArray<LockedPointCommitDeveloperIndexV1>> {
   if (definitions.length === 0) return Object.freeze([]);
   const rows = await sqlCall("lockDeveloperIndexBuilds", () =>
@@ -8138,7 +8369,7 @@ async function lockPointCommitDeveloperIndexBuilds(
 
 async function preparePointCommitDeveloperIndexActions(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
   builds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
 ): Promise<ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>> {
@@ -8294,7 +8525,7 @@ async function preparePointCommitDeveloperIndexActions(
 
 async function preparePointCommitUniqueKeyActions(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
   definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
 ): Promise<ReadonlyArray<PointCommitUniqueKeyActionV1>> {
@@ -8431,7 +8662,7 @@ function lowerPointCommitUniqueKey(
 
 async function loadPointCommitUniqueKeyOwners(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   plans: ReadonlyArray<PointCommitUniqueKeyPlanV1>,
 ): Promise<ReadonlyMap<string, PointCommitUniqueKeyOwnerV1>> {
   if (plans.length === 0) return new Map();
@@ -8598,7 +8829,7 @@ function comparePointCommitUniqueKeyActions(
 
 async function loadPointCommitDeveloperIndexDocuments(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   loadedHeadsByDocumentId: ReadonlyMap<
     AppDocumentIdV1,
     LoadedPointCommitHeadV1
@@ -8617,7 +8848,7 @@ async function loadPointCommitDeveloperIndexDocuments(
 
 async function loadPointCommitUniqueKeyDocuments(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   loadedHeadsByDocumentId: ReadonlyMap<
     AppDocumentIdV1,
     LoadedPointCommitHeadV1
@@ -8655,7 +8886,7 @@ async function loadPointCommitRelationDocuments(
 
 async function loadPointCommitDocumentsForTables(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   loadedHeadsByDocumentId: ReadonlyMap<
     AppDocumentIdV1,
     LoadedPointCommitHeadV1
@@ -8835,7 +9066,7 @@ function uniqueDeveloperIndexPositions(
 
 async function loadPointCommitDeveloperIndexEntryHeads(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   positions: ReadonlyArray<PointCommitDeveloperIndexPositionV1>,
 ): Promise<ReadonlyMap<string, PointCommitDeveloperIndexEntryHeadV1>> {
   if (positions.length === 0) return new Map();
@@ -8961,7 +9192,7 @@ function compareDeveloperIndexEntryActions(
 
 async function writePointCommitDeveloperIndexActions(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   commitSeq: CommitSeq,
   writeEpoch: ScopeEpoch,
   actions: ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>,
@@ -8990,7 +9221,7 @@ async function writePointCommitDeveloperIndexActions(
 
 async function writePointCommitUniqueKeyActions(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   commitSeq: CommitSeq,
   writeEpoch: ScopeEpoch,
   actions: ReadonlyArray<PointCommitUniqueKeyActionV1>,
@@ -9107,9 +9338,9 @@ interface LockedPointCommitIntrinsicIndexV1 {
 
 async function lockPointCommitIntrinsicIndexBuilds(
   tx: AppRowTransaction,
-  clock: LockedPointCommitClockV1,
+  clock: ApplicationDocumentMaterializationClock,
   definitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
 ): Promise<ReadonlyArray<LockedPointCommitIntrinsicIndexV1>> {
   const locked: LockedPointCommitIntrinsicIndexV1[] = [];
   for (const definition of definitions) {
@@ -9270,7 +9501,7 @@ async function lowerTentativePointCommitRow(
   tx: AppRowTransaction,
   writeEpoch: ScopeEpoch,
   tentativeCommitSeq: CommitSeq,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
   intent: PreparedPointCommitRowIntentV1,
 ): Promise<AppendPreparedAppRowRevisionV1Input> {
@@ -9292,7 +9523,7 @@ async function lowerTentativePointCommitRow(
 function prepareTentativePointCommitRowResult(
   writeEpoch: ScopeEpoch,
   tentativeCommitSeq: CommitSeq,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
   intent: PreparedPointCommitRowIntentV1,
 ): Result.Result<
@@ -9372,7 +9603,7 @@ function freezeRowIdentity(
 
 async function emitTransactionStep(
   options: PointCommitTransactionProofOptionsV1,
-  command: PreparedPointCommitAttemptScalarCommandV1,
+  command: Readonly<{ authorityPins: Pick<PointCommitAuthorityPinsV1, "scopeId"> }>,
   step: PointCommitTransactionProofStepV1,
 ): Promise<void> {
   await options.afterTransactionStep?.(Object.freeze({

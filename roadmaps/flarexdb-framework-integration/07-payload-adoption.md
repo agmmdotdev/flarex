@@ -4,7 +4,11 @@
 
 Status: accepted source-backed sequence; exact `payload@3.88.0` contract audit
 and native non-reactive relation prerequisite complete, Payload adapter
-implementation not started
+implementation not started. The private scalar CMS host, pending documents and
+Application commit participant are implemented under the
+[CMS capability contract](./preflight/17-cms-request-transactions-and-application-publication.md).
+The next slice proves this substrate through the pinned headless scalar Local
+API profile and its fixed nested hook, preserving Payload result/error assertions.
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation

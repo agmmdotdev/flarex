@@ -417,6 +417,7 @@ export async function setExactRelationAdjacencyVersion(
 export interface RelationReadinessFixtureOptions {
   readonly persistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly writePolicy?: boolean;
+  readonly cmsIndexes?: boolean;
   /** Compose the database-authenticated session target for DataBinding admission. */
   readonly bindingAdmission?: boolean;
   readonly includeFunction?: boolean;
@@ -478,18 +479,22 @@ export async function relationReadinessFixture(
     }
     return createLocatedAppSchemaCandidateValidationTarget(persistence.drizzle, LOCATOR);
   })();
+  const scopeSessionTargets = { resolve: async () => {
+    if (!isLocatedReadCommittedAttemptTargetV1(pointTarget)) throw new Error("Expected a read-committed session target");
+    return pointTarget;
+  } };
   const authorityPorts = Object.freeze({
     scopeMetadata: control,
     provisioningReceipts: {
       getScopeAuthorityProvisioningReceipt: (scopeId: typeof authority.scopeId) =>
         getScopeAuthorityProvisioningReceipt(control.drizzle, scopeId),
     },
-    scopeClockTargets: { resolve: async () => locatedTarget },
+    scopeClockTargets: options.bindingAdmission === true ? scopeSessionTargets : { resolve: async () => locatedTarget },
   });
   const pointCommitAuthority = Object.freeze({
     scopeMetadata: control,
     provisioningReceipts: authorityPorts.provisioningReceipts,
-    scopeSessionTargets: { resolve: async () => pointTarget },
+    scopeSessionTargets,
   });
   const relationCommit = createApplicationRelationCommitPort(
     control.drizzle,
@@ -509,7 +514,7 @@ export async function relationReadinessFixture(
     relationBuild,
   );
   let relationInput = options.writePolicy === true
-    ? { ...await policyManifestFixture(), deploymentId, decisions: [] }
+    ? { ...await policyManifestFixture(undefined, options.cmsIndexes), deploymentId, decisions: [] }
     : await relationApplicationInput(
     deploymentId,
     fixtureOrdinal,

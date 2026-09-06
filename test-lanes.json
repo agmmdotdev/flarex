@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
+    "framework-cms-pglite": ["test/cmsRequestLifetime.test.ts", "test/cmsHost.test.ts"],
+    "framework-cms-postgres": ["test/cmsHost.postgres.test.ts"],
     "framework-coordinator-fresh-postgres": [
       "test/frameworkCoordinatorPostgresTarget.test.ts",
       "test/frameworkCoordinatorFreshCoordinator.postgres.test.ts",
@@ -128,6 +130,8 @@
     ]
   },
   "selectors": {
+    "framework-cms-pglite": ["framework-cms-pglite"],
+    "framework-cms-postgres": ["framework-cms-postgres"],
     "fast": [
       "fast-workspace"
     ],
@@ -229,6 +233,58 @@
     ]
   },
   "lanes": [
+    {
+      "id": "framework-cms-pglite",
+      "category": "pglite",
+      "proof": "Private scalar CMS request lifetime, pending documents, Application row/index/unique materialization, exact receipts, atomic publication and retained-result replay.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-framework-cms-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-cms-pglite"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-cms-postgres",
+      "category": "postgres",
+      "proof": "Private scalar CMS request lifetime, pending documents, Application row/index/unique materialization, exact receipts, atomic publication and retained-result replay. Native PostgreSQL additionally proves backend barriers, cancellation, cleanup and uncertain COMMIT recovery.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-cms-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-cms-postgres"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
     {
       "id": "framework-application-preservation-pglite",
       "category": "pglite",

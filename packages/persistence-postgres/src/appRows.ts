@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
   AppDocumentSystemFieldV1Error,
@@ -680,6 +680,78 @@ export const readCurrentAppRowInTransactionEffect = Effect.fn(
     ));
   }
   return yield* decodeRevisionRowEffect(identity, revision);
+});
+
+/**
+ * Private bounded current view for a caller holding the scope clock through
+ * its complete operation. Includes tombstones in the examined identity limit.
+ * The pinned clock must be current; this is not a historical collection scan.
+ */
+export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
+  "AppRows.readBoundedCurrentSet",
+)(function* (
+  tx: AppRowTransaction,
+  input: Readonly<{ scopeId: ScopeId; tableId: CatalogTableId; snapshotCommitSeq: CommitSeq;
+    maximumIdentities: number; maximumDocumentBytes: number; maximumTotalValueBytes: number; rowId?: AppRowIdHexV1 }>,
+): Effect.fn.Return<ReadonlyArray<AppRowRevisionV1>, ReadAppRowError> {
+  if (!Number.isSafeInteger(input.maximumIdentities) || input.maximumIdentities < 0 || input.maximumIdentities > 256 ||
+    !Number.isSafeInteger(input.maximumDocumentBytes) || input.maximumDocumentBytes < 1 || input.maximumDocumentBytes > 1_048_576 ||
+    !Number.isSafeInteger(input.maximumTotalValueBytes) || input.maximumTotalValueBytes < 0 || input.maximumTotalValueBytes > 1_048_576) {
+    return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: input.maximumIdentities }));
+  }
+  const scopeId = yield* Effect.fromResult(decodeReadFieldResult(decodeScopeIdResult(input.scopeId), "invalidScopeId"));
+  const tableId = yield* Effect.fromResult(decodeReadFieldResult(decodeCatalogTableIdResult(input.tableId), "invalidTableId"));
+  const snapshotCommitSeq = yield* Effect.fromResult(decodeReadFieldResult(decodeCommitSeqResult(input.snapshotCommitSeq), "invalidSnapshotCommitSeq"));
+  const scopeUuid = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId).pipe(
+    Result.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidScopeId", cause })),
+  ));
+  const clocks = yield* readAppRowRowsEffect(tx.select({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq })
+    .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid.scopeUuid)).limit(1), "readScopeAuthority");
+  if (clocks[0]?.lastCommitSeq !== snapshotCommitSeq) {
+    return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "invalidSnapshotCommitSeq", cause: snapshotCommitSeq }));
+  }
+  const join = and(
+      eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid),
+      eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
+      eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId),
+      eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
+    );
+  const selectedRowId = input.rowId === undefined ? undefined : yield* Effect.fromResult(
+    decodeReadFieldResult(decodeAppRowIdHexV1Result(input.rowId), "invalidRowId"),
+  );
+  const where = and(eq(fxAppRowCurrent.scopeUuid, scopeUuid.scopeUuid), eq(fxAppRowCurrent.tableId, tableId),
+    selectedRowId === undefined ? undefined : eq(fxAppRowCurrent.rowId, appRowIdHexV1ToBytes(selectedRowId)));
+  const sizes = yield* readAppRowRowsEffect(tx.select({
+    bytes: sql<number>`coalesce(octet_length(${fxAppRowRevisions.valueBytes}), 0)`,
+    jsonBytes: sql<number>`coalesce(octet_length(${fxAppRowRevisions.valueJson}::text), 0)`,
+  }).from(fxAppRowCurrent).leftJoin(fxAppRowRevisions, join).where(where)
+    .orderBy(fxAppRowCurrent.rowId).limit(input.maximumIdentities + 1), "readCurrentRevision");
+  if (sizes.length > input.maximumIdentities || sizes.some(size =>
+    size.bytes > input.maximumDocumentBytes || size.jsonBytes > input.maximumDocumentBytes * 4) ||
+    sizes.reduce((total, size) => total + size.bytes, 0) > input.maximumTotalValueBytes ||
+    // JSONB text has an explicit bounded representation allowance as well as
+    // canonical bytes. Corrupt mismatched projections must not hydrate unbounded JSON.
+    sizes.reduce((total, size) => total + size.jsonBytes, 0) > input.maximumTotalValueBytes * 4) {
+    return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: "bounded current view exceeds capture budget" }));
+  }
+  const rows = yield* readAppRowRowsEffect(tx.select({ pointer: fxAppRowCurrent, revision: fxAppRowRevisions })
+    .from(fxAppRowCurrent).leftJoin(fxAppRowRevisions, join).where(where)
+    .orderBy(fxAppRowCurrent.rowId).limit(input.maximumIdentities + 1), "readCurrentRevision");
+  if (rows.length !== sizes.length) {
+    return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "invalidSnapshotCommitSeq", cause: "current view changed while pinned" }));
+  }
+  const revisions: AppRowRevisionV1[] = [];
+  for (const row of rows) {
+    const rowId = yield* Effect.fromResult(appRowIdHexV1FromBytesResult(row.pointer.rowId).pipe(
+      Result.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidRowId", cause })),
+    ));
+    const identity = { scopeId, tableId, rowId };
+    if (row.revision === null || row.pointer.commitSeq > snapshotCommitSeq) {
+      return yield* Effect.fail(new AppRowStorageCorruptionError(identity, "bounded current pointer is not visible at the pinned clock"));
+    }
+    revisions.push(yield* decodeRevisionRowEffect(identity, row.revision));
+  }
+  return Object.freeze(revisions);
 });
 
 export async function appendAppRowRevisionAndAdvanceCurrentInTransaction(

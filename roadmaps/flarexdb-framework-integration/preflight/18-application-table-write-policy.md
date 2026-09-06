@@ -23,8 +23,8 @@ new scalar CMS-managed table and an ordinary Application-owned table. Analysis,
 publication, readiness and activation preserve their exact ownership. Application
 reads and app-owned mutations continue to work. Every ordinary mutation path
 rejects the CMS-managed table, including a forged journal and an old admission.
-Payload writes remain unavailable until the CMS host and content binding pass
-their own implementation and conformance gates.
+The separate private CMS host and content binding now implement managed writes.
+Payload Local API compatibility remains gated on its own adapter proof.
 
 This capability changes Application artifact, readiness/activation, authoring
 types and commit admission. It does not implement a Payload adapter, authorize
