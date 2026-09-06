@@ -3,7 +3,8 @@
 ## Status And Scope
 
 Status: accepted target boundary; private scalar transaction/store implemented.
-Receipt families and finalization require their separate commit-owner contract.
+Private receipt collection and finalization rejection are implemented. Successful
+family publication requires its separate commit-owner contract.
 
 This plan owns the framework-facing transaction-host shape and the safe
 participation of accepted framework mutations in the existing Flarex scope
@@ -14,7 +15,7 @@ scope-clock locking, commit ordering, or feed storage.
 
 The accepted [execution-profile preflight](./preflight/14-transaction-execution-profiles.md)
 records the pinned framework evidence and shared ownership direction. The
-commit-owner implementation contract remains required;
+successful-family commit-owner implementation contract remains required;
 the preflight does not claim the current Application-shaped host is neutral.
 
 The implemented [scalar transaction/store contract](./preflight/15-scalar-relational-transaction-and-store.md)
@@ -24,10 +25,10 @@ read-only settlement and mandatory rollback of mutation attempts. Focused PGlite
 and ordinary-role PostgreSQL cover this profile; receipt families and typed finalization retain
 their separate commit-owner gate.
 
-The concrete [receipt/admission proposal](./preflight/16-mutation-receipts-and-finalization-admission.md)
-defines that next capability: checked SQL issues private receipts, the host owns
+The implemented [receipt/admission contract](./preflight/16-mutation-receipts-and-finalization-admission.md)
+supplies checked SQL receipt issuance. The host owns
 the complete set, and one outer admission authenticates it before rejecting the
-unadmitted synthetic family. Approval is pending. This does not extract the
+unadmitted synthetic family. This does not extract the
 Application publisher or permit a successful relational data commit.
 
 ## Transaction Hosts
@@ -105,7 +106,7 @@ finalization.
 ## Mutation Receipts
 
 The target contract has stores produce opaque transaction-bound mutation
-receipts rather than letting adapters author feed records. In the proposed
+receipts rather than letting adapters author feed records. In the implemented
 private capability the host collects them automatically while commands retain
 ordinary store results; commands cannot omit contributions. A receipt proves:
 

@@ -106,7 +106,8 @@
     ],
     "framework-scalar-store-pglite": [
       "test/relationalTransaction.test.ts",
-      "test/relationalData.test.ts"
+      "test/relationalData.test.ts",
+      "test/publicationReceipts.test.ts"
     ],
     "framework-scalar-store-postgres": [
       "test/relationalTransaction.postgres.test.ts"

@@ -29,6 +29,11 @@ import type { RelationalCommandContext } from "../src/relationalTransaction/host
 import type { RelationalSession } from "../src/relationalTransaction/session";
 import { relationalStore } from "../src/relationalTransaction/store";
 import { requireRelationalLifetime } from "../src/relationalTransaction/lifetime";
+import { publicationError } from "../src/commitPublication/model";
+import type {
+  PublicationOwner,
+  ReceiptObservation,
+} from "../src/commitPublication/model";
 import { relationalError } from "../src/relationalTransaction/model";
 import type {
   RelationalTransaction,
@@ -38,6 +43,9 @@ import {
   fxSystemScopeClocks,
   fxSystemCommits,
   fxSystemOutbox,
+  fxSystemCommitAppRowChanges,
+  fxSystemCommitRelationAdjacencyChanges,
+  fxSystemIdempotency,
 } from "../src/schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
@@ -179,6 +187,21 @@ export async function exerciseRelationalStore<
     .from(fxSystemScopeClocks);
   const commits = await fixture.target.drizzle.select().from(fxSystemCommits);
   const wakes = await fixture.target.drizzle.select().from(fxSystemOutbox);
+  const appFacts = await fixture.target.drizzle
+    .select()
+    .from(fxSystemCommitAppRowChanges);
+  const relationFacts = await fixture.target.drizzle
+    .select()
+    .from(fxSystemCommitRelationAdjacencyChanges);
+  const outcomes = await fixture.target.drizzle
+    .select()
+    .from(fxSystemIdempotency);
+  const receiptState: {
+    owner?: PublicationOwner;
+    observations: readonly ReceiptObservation[];
+    failReceipt: boolean;
+    completions: number;
+  } = { observations: [], failReceipt: false, completions: 0 };
   const rejectAcceptedText = Effect.tap(() =>
     Effect.die("Invalid SQL text reached a successful store result"),
   );
@@ -412,6 +435,30 @@ export async function exerciseRelationalStore<
           case "zero":
             yield* context.store.delete(context.transaction, table, "missing");
             return;
+          case "same-value":
+            yield* context.store.update(context.transaction, table, "a", {
+              ["__proto__"]: "Alpha",
+            });
+            return;
+          case "net-zero":
+            yield* context.store.insert(context.transaction, table, {
+              id: "net",
+              ["__proto__"]: "Net",
+              slug: "slug-net",
+              rank: 1,
+            });
+            yield* context.store.delete(context.transaction, table, "net");
+            return;
+          case "receipt":
+            yield* context.store.update(context.transaction, table, "a", {
+              ["__proto__"]: "Pending receipt",
+            });
+            return;
+          case "last-failure":
+            yield* context.store.update(context.transaction, table, "a", {
+              ["__proto__"]: "Pending failure",
+            });
+            return yield* Effect.fail(relationalError("invalidInput"));
           default:
             return yield* Effect.fail(relationalError("invalidInput"));
         }
@@ -425,6 +472,7 @@ export async function exerciseRelationalStore<
           .pipe(Effect.result);
         expect(Result.isFailure(failure)).toBe(true);
         if (kind === "unique" || kind === "check") {
+          expect(receiptState.owner?.receipts()).toEqual([]);
           expect(failure).toMatchObject({
             _tag: "Failure",
             failure: {
@@ -475,28 +523,73 @@ export async function exerciseRelationalStore<
     (_context: RelationalCommandContext, _input: null) =>
       Effect.succeed("x".repeat(1_100_000)),
   );
+  const childEntered = await runEffect(Deferred.make<void>());
+  const child = defineRelationalCommand(
+    (_context: RelationalCommandContext, _input: null) =>
+      Effect.gen(function* () {
+        yield* Deferred.succeed(childEntered, undefined);
+        yield* Effect.sleep("100 millis");
+      }),
+  );
+  const openChild = defineRelationalCommand(
+    (context: RelationalCommandContext, _input: null) =>
+      Effect.gen(function* () {
+        yield* Effect.forkChild(
+          context.nested(context.transaction, child, null),
+        );
+        yield* Deferred.await(childEntered);
+      }),
+  );
   const host = await runEffect(
-    makeRelationalHost({
-      database: fixture.target.drizzle,
-      session,
-      target,
-      deploymentId: fixture.deploymentId,
-      authority: fixture.authorityPorts,
-      commands: [
-        read,
-        insert,
-        mutate,
-        bad,
-        caught,
-        foreign,
-        cancelled,
-        timeout,
-        large,
-        largeOutput,
-      ],
-    }),
+    makeRelationalHost(
+      {
+        database: fixture.target.drizzle,
+        session,
+        target,
+        deploymentId: fixture.deploymentId,
+        authority: fixture.authorityPorts,
+        commands: [
+          read,
+          insert,
+          mutate,
+          bad,
+          caught,
+          foreign,
+          cancelled,
+          timeout,
+          large,
+          largeOutput,
+          child,
+          openChild,
+        ],
+      },
+      {
+        onCollection: (owner) => {
+          receiptState.owner = owner;
+        },
+        beforeComplete: () =>
+          Effect.gen(function* () {
+            receiptState.completions++;
+            if (receiptState.failReceipt)
+              return yield* Effect.fail(
+                publicationError("invalidReceiptAuthority"),
+              );
+          }),
+        beforeAdmission: (owner, seal) =>
+          owner.inspect(seal).pipe(
+            Effect.tap((observations) =>
+              Effect.sync(() => {
+                receiptState.observations = observations;
+              }),
+            ),
+          ),
+      },
+    ),
   );
   await runEffect(host.run(reference, read, null));
+  expect(
+    await runEffectFailure(host.run(reference, openChild, null)),
+  ).toMatchObject({ reason: "receiptAdmissionClosed" });
   if (held === undefined) throw new Error("Missing captured transaction token");
   expect(
     await runEffectFailure(
@@ -506,6 +599,22 @@ export async function exerciseRelationalStore<
   expect(
     await runEffectFailure(host.run(reference, mutate, null)),
   ).toMatchObject({ reason: "unadmittedFinalization" });
+  expect(
+    receiptState.observations.map(
+      ({ ordinal, operation, key, affectedRows }) => ({
+        ordinal,
+        operation,
+        key,
+        affectedRows,
+      }),
+    ),
+  ).toEqual([
+    { ordinal: 1, operation: "update", key: "a", affectedRows: 1 },
+    { ordinal: 2, operation: "insert", key: "new", affectedRows: 1 },
+    { ordinal: 3, operation: "update", key: "new", affectedRows: 1 },
+    { ordinal: 4, operation: "delete", key: "a", affectedRows: 1 },
+  ]);
+  expect(receiptState.owner?.receipts()).toEqual([]);
   expect(
     await runEffectFailure(host.run(reference, foreign, null)),
   ).toMatchObject({ reason: "invalidAuthority" });
@@ -537,6 +646,28 @@ export async function exerciseRelationalStore<
   expect(
     await runEffectFailure(host.run(reference, bad, "zero")),
   ).toMatchObject({ reason: "unadmittedFinalization" });
+  expect(receiptState.observations).toMatchObject([
+    { ordinal: 1, operation: "delete", affectedRows: 0 },
+  ]);
+  for (const kind of ["same-value", "net-zero"]) {
+    expect(
+      await runEffectFailure(host.run(reference, bad, kind)),
+    ).toMatchObject({ reason: "unadmittedFinalization" });
+    expect(receiptState.observations.length).toBe(
+      kind === "same-value" ? 1 : 2,
+    );
+  }
+  const beforeFailedReceipt = receiptState.completions;
+  receiptState.failReceipt = true;
+  expect(
+    await runEffectFailure(host.run(reference, caught, "receipt")),
+  ).toMatchObject({ reason: "rollbackOnly" });
+  receiptState.failReceipt = false;
+  expect(receiptState.completions).toBe(beforeFailedReceipt + 1);
+  expect(receiptState.owner?.receipts()).toEqual([]);
+  expect(
+    await runEffectFailure(host.run(reference, bad, "last-failure")),
+  ).toMatchObject({ reason: "invalidInput" });
   const fiber = Effect.runFork(host.run(reference, cancelled, null));
   await runEffect(Deferred.await(entered));
   await runEffect(Fiber.interrupt(fiber));
@@ -579,6 +710,17 @@ export async function exerciseRelationalStore<
   expect(await fixture.target.drizzle.select().from(fxSystemOutbox)).toEqual(
     wakes,
   );
+  expect(
+    await fixture.target.drizzle.select().from(fxSystemCommitAppRowChanges),
+  ).toEqual(appFacts);
+  expect(
+    await fixture.target.drizzle
+      .select()
+      .from(fxSystemCommitRelationAdjacencyChanges),
+  ).toEqual(relationFacts);
+  expect(
+    await fixture.target.drizzle.select().from(fxSystemIdempotency),
+  ).toEqual(outcomes);
   const withdrawn = await changeBindingAvailability(
     fixture,
     prepared.availability,

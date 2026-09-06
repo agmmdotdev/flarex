@@ -7,6 +7,9 @@ export class RelationalTransactionError extends Data.TaggedError(
 )<{
   readonly reason:
     | "invalidAuthority"
+    | "invalidReceiptAuthority"
+    | "incompleteReceiptSet"
+    | "receiptAdmissionClosed"
     | "closed"
     | "rollbackOnly"
     | "overlappingOperation"

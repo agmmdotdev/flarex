@@ -6,10 +6,12 @@ import { captureRelationalData } from "./data";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import type { RelationalPhysicalTable } from "../relationalSchema/physical/model";
+import type { RelationalMutationAttempt } from "../commitPublication/model";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import {
   guardRelationalOperation,
   requireRelationalLifetime,
+  projectPublicationError,
 } from "./lifetime";
 import type { RelationalLifetime } from "./lifetime";
 import { relationalError, relationalLimits } from "./model";
@@ -335,6 +337,15 @@ const insert: RelationalStore["insert"] = Effect.fn("RelationalStore.insert")(
       Effect.gen(function* () {
         const table = yield* claim(state, handle);
         const row = yield* capture(state, table, input, true);
+        const primaryId = table.columns.find(
+          (column) => column.name === primaryName(table),
+        )?.identity.columnId;
+        const key = primaryId === undefined ? undefined : row[primaryId];
+        if (typeof key !== "string")
+          return yield* Effect.fail(relationalError("invalidInput"));
+        const attempt = yield* state.recorder
+          .reserve(table, "insert", key)
+          .pipe(Effect.mapError(projectPublicationError));
         state.mutationAttempted = true;
         const columns = [
           sql.identifier("scope_uuid"),
@@ -346,11 +357,13 @@ const insert: RelationalStore["insert"] = Effect.fn("RelationalStore.insert")(
             (column) => sql`${row[column.identity.columnId]}`,
           ),
         ];
-        const result = (yield* execute(
+        const rows = yield* execute(
           state,
           table,
           sql`insert into ${physicalTable(state, table)} (${sql.join(columns, sql`, `)}) values (${sql.join(values, sql`, `)}) returning ${projection(table)}`,
-        ))[0];
+        );
+        yield* completeMutation(state, table, attempt, rows);
+        const result = rows[0];
         if (result === undefined)
           return yield* Effect.fail(relationalError("statementFailure"));
         return result;
@@ -370,14 +383,17 @@ const update: RelationalStore["update"] = Effect.fn("RelationalStore.update")(
             (column) =>
               sql`${sql.identifier(column.name)} = ${row[column.identity.columnId]}`,
           );
+        const attempt = yield* state.recorder
+          .reserve(table, "update", key)
+          .pipe(Effect.mapError(projectPublicationError));
         state.mutationAttempted = true;
-        return Option.fromNullishOr(
-          (yield* execute(
-            state,
-            table,
-            sql`update ${physicalTable(state, table)} set ${sql.join(assignments, sql`, `)} where ${where} returning ${projection(table)}`,
-          ))[0],
+        const rows = yield* execute(
+          state,
+          table,
+          sql`update ${physicalTable(state, table)} set ${sql.join(assignments, sql`, `)} where ${where} returning ${projection(table)}`,
         );
+        yield* completeMutation(state, table, attempt, rows);
+        return Option.fromNullishOr(rows[0]);
       }),
     ),
 );
@@ -387,16 +403,41 @@ const remove: RelationalStore["delete"] = Effect.fn("RelationalStore.delete")(
       Effect.gen(function* () {
         const table = yield* claim(state, handle);
         const where = yield* keyPredicate(state, table, key);
+        const attempt = yield* state.recorder
+          .reserve(table, "delete", key)
+          .pipe(Effect.mapError(projectPublicationError));
         state.mutationAttempted = true;
-        return Option.fromNullishOr(
-          (yield* execute(
-            state,
-            table,
-            sql`delete from ${physicalTable(state, table)} where ${where} returning ${projection(table)}`,
-          ))[0],
+        const rows = yield* execute(
+          state,
+          table,
+          sql`delete from ${physicalTable(state, table)} where ${where} returning ${projection(table)}`,
         );
+        yield* completeMutation(state, table, attempt, rows);
+        return Option.fromNullishOr(rows[0]);
       }),
     ),
+);
+const completeMutation = Effect.fn("RelationalStore.completeMutation")(
+  function* (
+    state: RelationalLifetime,
+    table: RelationalPhysicalTable,
+    attempt: RelationalMutationAttempt,
+    rows: readonly ScalarRow[],
+  ) {
+    const primaryId = table.columns.find(
+      (column) => column.name === primaryName(table),
+    )?.identity.columnId;
+    const keys: string[] = [];
+    for (const row of rows) {
+      const key = primaryId === undefined ? undefined : row[primaryId];
+      if (typeof key !== "string")
+        return yield* Effect.fail(relationalError("invalidReceiptAuthority"));
+      keys.push(key);
+    }
+    yield* state.recorder
+      .complete(attempt, keys)
+      .pipe(Effect.mapError(projectPublicationError));
+  },
 );
 export const relationalStore: RelationalStore = Object.freeze({
   table: getTable,

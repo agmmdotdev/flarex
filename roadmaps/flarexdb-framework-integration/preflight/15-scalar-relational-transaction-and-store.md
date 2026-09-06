@@ -233,8 +233,8 @@ reviewers and the exact staged diff gate. Report measured focused-lane costs
 and any unavailable native proof honestly.
 
 The private transaction/store capability is implemented. The concrete
-[commit-owner proposal](./16-mutation-receipts-and-finalization-admission.md)
-specifies the next authenticated receipt/finalization rejection proof. Successful
+[implemented commit-owner contract](./16-mutation-receipts-and-finalization-admission.md)
+adds authenticated receipts and finalization rejection. Successful
 Application/Payload publication and later real Currency conformance retain
 their existing order. Do not open further document-only gates for ordinary
 implementation details within this contract.

@@ -133,21 +133,28 @@ describe.skipIf(postgresUrl === null)(
           // A held admitted command blocks scope changes and availability movement.
           const entered = await runEffect(Deferred.make<void>());
           const finish = await runEffect(Deferred.make<void>());
-          const hold = defineRelationalCommand((_context, _input: null) =>
-            Effect.gen(function* () {
-              yield* Deferred.succeed(entered, undefined);
-              yield* Deferred.await(finish);
-            }),
+          const hold = defineRelationalCommand(
+            (_context, _input: null) => Effect.void,
           );
           const holdingHost = await runEffect(
-            makeRelationalHost({
-              database: persistence.drizzle,
-              session,
-              target,
-              deploymentId: fixture.deploymentId,
-              authority: fixture.authorityPorts,
-              commands: [hold],
-            }),
+            makeRelationalHost(
+              {
+                database: persistence.drizzle,
+                session,
+                target,
+                deploymentId: fixture.deploymentId,
+                authority: fixture.authorityPorts,
+                commands: [hold],
+              },
+              {
+                beforeAdmission: (owner, seal) =>
+                  Effect.gen(function* () {
+                    expect(yield* owner.inspect(seal)).toEqual([]);
+                    yield* Deferred.succeed(entered, undefined);
+                    yield* Deferred.await(finish);
+                  }),
+              },
+            ),
           );
           const holding = runEffect(
             holdingHost.run(tested.reference, hold, null),

@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { sql } from "drizzle-orm";
 import { captureRelationalData } from "./data";
+import type { PublicationTestHooks } from "../commitPublication/model";
 import type { FlarexMetadataDatabase } from "../deployments";
 import {
   captureTrustedScopeAuthorityResolutionPorts,
@@ -107,6 +108,7 @@ const invoke = Effect.fn("RelationalHost.invoke")(function* <
   depth: number,
 ): Effect.fn.Return<Value, Failure | RelationalTransactionError> {
   const state = yield* requireRelationalLifetime(token);
+  state.activeCommands += 1;
   return yield* Effect.gen(function* () {
     const run = commands.get(command);
     state.calls += 1;
@@ -134,11 +136,11 @@ const invoke = Effect.fn("RelationalHost.invoke")(function* <
         > =>
           Effect.gen(function* () {
             if (borrowed !== token) {
-              state.status = "rollbackOnly";
+              if (state.status === "open") state.status = "rollbackOnly";
               return yield* Effect.fail(relationalError("invalidAuthority"));
             }
             if (nestedActive || state.busy) {
-              state.status = "rollbackOnly";
+              if (state.status === "open") state.status = "rollbackOnly";
               return yield* Effect.fail(
                 relationalError("overlappingOperation"),
               );
@@ -178,9 +180,14 @@ const invoke = Effect.fn("RelationalHost.invoke")(function* <
     }
     return value;
   }).pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        state.activeCommands -= 1;
+      }),
+    ),
     Effect.tapCause(() =>
       Effect.sync(() => {
-        state.status = "rollbackOnly";
+        if (state.status === "open") state.status = "rollbackOnly";
       }),
     ),
   );
@@ -188,8 +195,11 @@ const invoke = Effect.fn("RelationalHost.invoke")(function* <
 
 export const makeRelationalHost = Effect.fn("RelationalHost.make")(function* (
   input: RelationalHostInput,
+  testHooks?: PublicationTestHooks,
 ): Effect.fn.Return<RelationalHost, RelationalTransactionError> {
   const { database, session, target, deploymentId } = input;
+  const hooks =
+    testHooks === undefined ? undefined : Object.freeze({ ...testHooks });
   const snapshot = frameworkMigrationTargetSnapshot(target);
   if (
     !hasRelationalSessionDatabase(session, database) ||
@@ -242,6 +252,7 @@ export const makeRelationalHost = Effect.fn("RelationalHost.make")(function* (
             located.authority,
             admitted,
             (token) => invoke(allowed, token, command, capturedInput.value, 0),
+            hooks,
           );
         }).pipe(
           Effect.timeoutOrElse({

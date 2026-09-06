@@ -94,7 +94,7 @@ independent base-backed acceptance. The following mechanisms remain absent:
 
 - production target/runner resolution and general lineage scale proof;
 - framework operation profiles beyond the private synthetic scalar transaction/store;
-- transaction-bound relational mutation receipts and typed finalization;
+- admitted relational fact families and successful typed publication;
 - Payload configuration/content overlays and adapter behavior; and
 - promoted Medusa packages or a Flarex-backed Medusa adapter.
 
@@ -243,7 +243,9 @@ authorize rerouting or rewriting the working Application path.
 
 ### Commit-owner admission
 
-Before receipt or finalizer implementation, complete the mandatory commit-owner
+The private receipt and rejection capability is implemented under
+[its concrete commit-owner contract](./16-mutation-receipts-and-finalization-admission.md).
+Before any accepting family publisher, complete its mandatory commit-owner
 preflight from
 [`../04-transactions-and-commit-publication.md`](../04-transactions-and-commit-publication.md).
 It must freeze every exact receipt/fact family, semantic issuer, authentication
@@ -254,7 +256,7 @@ authorize a new fact family.
 ### Mutation receipts and typed finalization
 
 Every admitted write operation produces a transaction-bound receipt. The
-[private receipt proposal](./16-mutation-receipts-and-finalization-admission.md)
+[implemented private receipt contract](./16-mutation-receipts-and-finalization-admission.md)
 keeps complete collection inside the host and retains ordinary command results.
 Only the common finalizer may validate receipts, allocate commit order, publish typed
 facts, persist admitted event intents, and write the common outbox wake.
@@ -433,11 +435,12 @@ The private [scalar relational transaction/store](./15-scalar-relational-transac
 constrained by the accepted [execution profiles](./14-transaction-execution-profiles.md).
 It preserves scope-first admission and proves cancellation, rollback-only nesting,
 scalar operations and read-only settlement on PGlite and ordinary-role PostgreSQL.
-Mutation attempts still require rollback. The next capability is authenticated
-receipt preparation and finalization rejection under the concrete
-[commit-owner proposal](./16-mutation-receipts-and-finalization-admission.md).
-Its issuer, complete collector and single-use outer admission await approval;
-no synthetic fact family is admitted. The proposed
+Mutation attempts still require rollback. The implemented
+[receipt/admission capability](./16-mutation-receipts-and-finalization-admission.md)
+now closes authenticated issuance, complete collection and single-use outer
+rejection in both drivers. No synthetic fact family is admitted. Full Application
+preservation is next, followed by the CMS host and Application participation
+contract. The proposed
 [CMS read contract](./07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract)
 remains a requirement before the Payload host; it does not authorize routing
 Payload content through the synthetic reserved-relational store.

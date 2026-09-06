@@ -2,13 +2,14 @@
 
 ## Status And Outcome
 
-Status: proposed concrete commit-owner capability. The private scalar
+Status: accepted and implemented private commit-owner capability, with focused
+PGlite and ordinary-role PostgreSQL coverage. The private scalar
 [transaction/store](./15-scalar-relational-transaction-and-store.md) is its
-implemented prerequisite. Implementation requires approval of this contract.
+implemented prerequisite.
 
-Prove that each successful scalar mutation statement produces authenticated,
-transaction-bound evidence, that the outer owner accounts for every attempted
-mutation, and that finalization rejects otherwise valid evidence without an
+Each successful scalar mutation statement now produces authenticated,
+transaction-bound evidence. The outer owner accounts for every attempted
+mutation, and finalization rejects otherwise valid evidence without an
 admitted fact family. Keep successful read-only settlement. This closes the
 receipt and rejection portion of the synthetic shared-core proof; it does not
 establish a successful framework commit or complete Application preservation.
@@ -52,7 +53,7 @@ the missing proof without constructing an unused pluggable publisher registry.
 
 ## Ownership And Composition
 
-Create source-private `src/commitPublication/` modules for the receipt model,
+Source-private `src/commitPublication/` modules own the receipt model,
 authenticated collection and finalization admission. Keep physical SQL and
 scalar validation in `relationalTransaction/store.ts`; the relational lifetime
 owns composition and the outer call into admission. Use named Effect operations
@@ -114,7 +115,7 @@ retain duplicate full scalar rows, SQL text, parameters or driver results.
 
 ## Outer Sealing And Admission
 
-The proposed flow is:
+The implemented flow is:
 
 ```text
 scope/binding admission on the actual transaction
@@ -225,9 +226,8 @@ manifest validation, core/diff lint, both standing reviewers and the exact
 staged gate. This is focused preservation evidence, not a claim that the full
 Application document/OCC/relation/commit vertical has been requalified.
 
-After approval, implement the entire issuer, collector, outer admission and
-database rejection proof with durable roadmap reconciliation in one coherent
-checkpoint. Then complete the full Application-preservation gate and the
+The issuer, collector, outer admission and database rejection proof are
+implemented. Next complete the full Application-preservation gate and the
 separately required CMS host/Application commit-participation contract. Preserve
 the ordered Payload scalar, Payload native-relation and real Medusa Currency
 proofs; receipt plumbing alone does not prove the core through both frameworks.
