@@ -10,6 +10,15 @@ export type ApplicationActivationReadinessCommitment =
       readonly readinessSha256: string;
       readonly relationSetReadinessSha256: string;
       readonly relationCount: number;
+    }>
+  | Readonly<{
+      readonly kind: "policy";
+      readonly contractVersion: 3;
+      readonly readinessSha256: string;
+      readonly relationSetReadinessSha256: string;
+      readonly relationCount: number;
+      readonly writePolicySetSha256: string;
+      readonly writeOwnershipSha256: string;
     }>;
 
 export interface ApplicationActivationExpectedHeadFrame {
@@ -39,7 +48,8 @@ export function applicationActivationRequestFrame(
       })
     : Object.freeze({
         ...common,
-        version: 2,
+        version: input.readiness.contractVersion,
+        ...policyCommitmentFields(input.readiness),
         readinessContractVersion: input.readiness.contractVersion,
         relationSetReadinessSha256:
           input.readiness.relationSetReadinessSha256,
@@ -75,7 +85,8 @@ export function applicationActivationFrame(
       })
     : Object.freeze({
         ...common,
-        version: 2,
+        version: input.readiness.contractVersion,
+        ...policyCommitmentFields(input.readiness),
         readinessContractVersion: input.readiness.contractVersion,
         relationSetReadinessSha256:
           input.readiness.relationSetReadinessSha256,
@@ -107,10 +118,18 @@ export function applicationActiveHeadFrame(
       })
     : Object.freeze({
         ...common,
-        version: 2,
+        version: input.readiness.contractVersion,
+        ...policyCommitmentFields(input.readiness),
         readinessContractVersion: input.readiness.contractVersion,
         relationSetReadinessSha256:
           input.readiness.relationSetReadinessSha256,
         relationCount: input.readiness.relationCount,
       });
+}
+
+function policyCommitmentFields(readiness: ApplicationActivationReadinessCommitment) {
+  return readiness.kind === "policy" ? {
+    writePolicySetSha256: readiness.writePolicySetSha256,
+    writeOwnershipSha256: readiness.writeOwnershipSha256,
+  } : {};
 }

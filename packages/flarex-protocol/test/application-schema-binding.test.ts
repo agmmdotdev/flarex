@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { Effect, Result } from "effect";
+import { encodeCanonicalJson, type Json } from "../src/json";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -14,6 +16,7 @@ import {
   canonicalizeApplicationSchemaBinding,
   canonicalizeApplicationSchemaBindingV1,
   canonicalizeApplicationSchemaBindingV2,
+  canonicalizeApplicationSchemaBindingV3,
   canonicalizePhysicalEdgeDefinition,
   canonicalizeSemanticRelationDefinition,
   decodeApplicationSchemaBindingResult,
@@ -176,6 +179,37 @@ async function bindingV2(
 }
 
 describe("application schema binding", () => {
+  it("binds V3 scalar policies to exact catalog identities without weakening V2", async () => {
+    const base = await bindingV2();
+    const writePolicies = tables.map((table, index) => {
+      const declaration = index === 0
+        ? { logicalTableName: table.logicalName, owner: "payload", policyId: "payload.scalar", configSha256: digest("a"), provenanceSha256: digest("b") }
+        : { logicalTableName: table.logicalName, owner: "application" };
+      const { logicalTableName: _logicalTableName, ...policy } = declaration;
+      return { ...table, ...policy, writePolicySha256: createHash("sha256").update(encodeCanonicalJson({
+        format: "flarex.application-table-write-policy", version: 1, ...declaration,
+      } satisfies Json, () => { throw new Error("Invalid policy fixture"); })).digest("hex") };
+    });
+    const input = { ...base, version: 3, relationBindings: [], semanticDefinitions: [], edgeDefinitions: [],
+      writePolicies, writePolicySetSha256: digest("c") };
+    const canonical = await Effect.runPromise(canonicalizeApplicationSchemaBindingV3(input));
+    expect(canonical.binding.writePolicies).toEqual(writePolicies);
+    expect(canonical.binding.relationBindings).toEqual([]);
+    expect((await Effect.runPromise(canonicalizeApplicationSchemaBinding(input))).sha256Hex).toBe(canonical.sha256Hex);
+    expect(Result.isFailure(decodeApplicationSchemaBindingResult({ ...base,
+      relationBindings: [], semanticDefinitions: [], edgeDefinitions: [] }))).toBe(true);
+    for (const policies of [writePolicies.slice(0, 1), [...writePolicies].reverse(),
+      writePolicies.map(policy => ({ ...policy, tableId: 99 })),
+      writePolicies.map(policy => ({ ...policy, writePolicySha256: digest("d") })),
+      writePolicies.map(policy => ({ ...policy, unexpected: true }))]) {
+      expect(Result.isFailure(await Effect.runPromise(Effect.result(
+        canonicalizeApplicationSchemaBindingV3({ ...input, writePolicies: policies }),
+      )))).toBe(true);
+    }
+    canonical.canonicalBytes.fill(0);
+    expect(new TextDecoder().decode(canonical.canonicalBytes)).toBe(canonical.canonicalText);
+  });
+
   it("publishes shared per-definition byte ceilings", () => {
     expect(MAX_SEMANTIC_RELATION_DEFINITION_CANONICAL_BYTES_V1).toBe(16_384);
     expect(MAX_PHYSICAL_EDGE_DEFINITION_CANONICAL_BYTES_V1).toBe(16_384);

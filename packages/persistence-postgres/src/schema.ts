@@ -93,7 +93,7 @@ import type {
 import {
   MAX_APPLICATION_SCHEMA_BINDING_CANONICAL_BYTES,
   MAX_PHYSICAL_EDGE_DEFINITION_CANONICAL_BYTES_V1,
-  type ApplicationSchemaBindingV2,
+  type ApplicationSchemaBindingWithRelations,
   type PhysicalEdgeDefinitionV1,
 } from "flarex-protocol/internal/application-schema-binding";
 import { MAX_RELATION_MANY_ITEMS_V1 } from
@@ -978,10 +978,10 @@ export const fxControlBoundApplicationSchemas = pgTable(
       .notNull(),
     schemaManifestSha256: bytea("schema_manifest_sha256").notNull(),
     bindingCodecVersion: integer("binding_codec_version")
-      .$type<2>()
+      .$type<2 | 3>()
       .notNull(),
     bindingJson: jsonb("binding_json")
-      .$type<ApplicationSchemaBindingV2>()
+      .$type<ApplicationSchemaBindingWithRelations>()
       .notNull(),
     bindingBytes: bytea("binding_bytes").notNull(),
     boundPublicationSha256: bytea("bound_publication_sha256").notNull(),
@@ -1034,7 +1034,7 @@ export const fxControlBoundApplicationSchemas = pgTable(
         and ${nonBlankText(table.schemaVersionId)}
         and ${table.schemaVersion} between 1 and 2147483647
         and octet_length(${table.schemaManifestSha256}) = 32
-        and ${table.bindingCodecVersion} = 2
+        and ${table.bindingCodecVersion} in (2, 3)
         and octet_length(${table.bindingBytes}) between 1 and ${sql.raw(
           String(MAX_APPLICATION_SCHEMA_BINDING_CANONICAL_BYTES),
         )}
@@ -1046,7 +1046,7 @@ export const fxControlBoundApplicationSchemas = pgTable(
           jsonb_typeof(${table.bindingJson}) = 'object'
           and ${table.bindingJson} ->> 'format'
             = 'flarex.application-schema-binding'
-          and ${table.bindingJson} -> 'version' = '2'::jsonb
+          and ${table.bindingJson} -> 'version' = to_jsonb(${table.bindingCodecVersion})
         ) is true`,
     ),
     check(

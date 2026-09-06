@@ -41,10 +41,13 @@ export class ApplicationActiveHeadStateError extends Data.TaggedError(
 }> {}
 
 interface DecodedApplicationActiveHeadBase {
+  readonly evidenceByteLength: number;
   readonly scopeId: TrustedScopeAuthority["scopeId"];
   readonly activationSequence: bigint;
   readonly revisionId: string;
   readonly readinessSha256: Uint8Array;
+  readonly writePolicySetSha256: string | null;
+  readonly writeOwnershipSha256: string | null;
   readonly activationSha256: Uint8Array;
   readonly headSha256: Uint8Array;
 }
@@ -58,17 +61,20 @@ export type DecodedApplicationActiveHead =
     }>
   | Readonly<DecodedApplicationActiveHeadBase & {
       readonly readinessKind: "relation";
-      readonly readinessContractVersion: 2;
+      readonly readinessContractVersion: 2 | 3;
       readonly relationSetReadinessSha256: Uint8Array;
       readonly relationCount: number;
     }>;
 
 interface DecodedApplicationActivationBase {
+  readonly evidenceByteLength: number;
   readonly scopeId: TrustedScopeAuthority["scopeId"];
   readonly activationSequence: bigint;
   readonly previousActivationSequence: bigint | null;
   readonly revisionId: string;
   readonly readinessSha256: Uint8Array;
+  readonly writePolicySetSha256: string | null;
+  readonly writeOwnershipSha256: string | null;
   readonly activationRequestSha256: Uint8Array;
   readonly activationSha256: Uint8Array;
   readonly activatedAt: Date;
@@ -83,7 +89,7 @@ export type DecodedApplicationActivation =
     }>
   | Readonly<DecodedApplicationActivationBase & {
       readonly readinessKind: "relation";
-      readonly readinessContractVersion: 2;
+      readonly readinessContractVersion: 2 | 3;
       readonly relationSetReadinessSha256: Uint8Array;
       readonly relationCount: number;
     }>;
@@ -113,10 +119,13 @@ export const decodeApplicationActiveHeadRowEffect = Effect.fn(
     row.revisionId,
   );
   const common = {
+    evidenceByteLength: row.headBytes.byteLength,
     scopeId: row.scopeId,
     activationSequence: row.activationSequence,
     revisionId: row.revisionId,
     readinessSha256: copyBytes(row.readinessSha256),
+    writePolicySetSha256: row.writePolicySetSha256 === null ? null : encodeBytesToLowercaseHex(row.writePolicySetSha256),
+    writeOwnershipSha256: row.writeOwnershipSha256 === null ? null : encodeBytesToLowercaseHex(row.writeOwnershipSha256),
     activationSha256: copyBytes(row.activationSha256),
     headSha256: copyBytes(row.headSha256),
   } as const;
@@ -131,7 +140,7 @@ export const decodeApplicationActiveHeadRowEffect = Effect.fn(
     : Object.freeze({
         ...common,
         readinessKind: "relation" as const,
-        readinessContractVersion: 2 as const,
+        readinessContractVersion: readiness.commitment.contractVersion,
         relationSetReadinessSha256:
           copyBytes(readiness.relationSetReadinessSha256),
         relationCount: readiness.relationCount,
@@ -164,11 +173,14 @@ export const decodeApplicationActivationRowEffect = Effect.fn(
     row.revisionId,
   );
   const common = {
+    evidenceByteLength: row.activationBytes.byteLength,
     scopeId: row.scopeId,
     activationSequence: row.activationSequence,
     previousActivationSequence: row.previousActivationSequence,
     revisionId: row.revisionId,
     readinessSha256: copyBytes(row.readinessSha256),
+    writePolicySetSha256: row.writePolicySetSha256 === null ? null : encodeBytesToLowercaseHex(row.writePolicySetSha256),
+    writeOwnershipSha256: row.writeOwnershipSha256 === null ? null : encodeBytesToLowercaseHex(row.writeOwnershipSha256),
     activationRequestSha256: copyBytes(row.activationRequestSha256),
     activationSha256: copyBytes(row.activationSha256),
     activatedAt: new Date(activatedAt.getTime()),
@@ -184,7 +196,7 @@ export const decodeApplicationActivationRowEffect = Effect.fn(
     : Object.freeze({
         ...common,
         readinessKind: "relation" as const,
-        readinessContractVersion: 2 as const,
+        readinessContractVersion: readiness.commitment.contractVersion,
         relationSetReadinessSha256:
           copyBytes(readiness.relationSetReadinessSha256),
         relationCount: readiness.relationCount,
@@ -358,6 +370,8 @@ export function activationMatchesHead(
     activation.activationSequence !== head.activationSequence ||
     activation.revisionId !== head.revisionId ||
     activation.readinessContractVersion !== head.readinessContractVersion ||
+    activation.writePolicySetSha256 !== head.writePolicySetSha256 ||
+    activation.writeOwnershipSha256 !== head.writeOwnershipSha256 ||
     !bytesEqualFullScan(activation.readinessSha256, head.readinessSha256) ||
     !bytesEqualFullScan(activation.activationSha256, head.activationSha256)) {
     return false;
@@ -383,7 +397,7 @@ type DecodedReadiness =
       readonly kind: "relation";
       readonly commitment: Extract<
         ApplicationActivationReadinessCommitment,
-        { readonly kind: "relation" }
+        { readonly kind: "relation" | "policy" }
       >;
       readonly relationSetReadinessSha256: Uint8Array;
       readonly relationCount: number;
@@ -398,6 +412,7 @@ function decodeHeadReadiness(
     row.headSha256,
   )) return storedState(row.revisionId);
   if (row.readinessContractVersion === 1 &&
+    row.writePolicySetSha256 === null && row.writeOwnershipSha256 === null &&
     row.relationSetReadinessSha256 === null && row.relationCount === null) {
     return Effect.succeed(Object.freeze({
       kind: "legacy" as const,
@@ -408,14 +423,14 @@ function decodeHeadReadiness(
       }),
     }));
   }
-  if (row.readinessContractVersion === 2 &&
+  const policy = decodePolicyCommitment(row);
+  if (policy !== undefined && row.readinessContractVersion !== 1 &&
     isUint8ArrayWithByteLength(row.relationSetReadinessSha256, 32) &&
-    validRelationCount(row.relationCount)) {
+    validRelationCount(row.relationCount, row.readinessContractVersion === 3 ? 0 : 1)) {
     return Effect.succeed(Object.freeze({
       kind: "relation" as const,
       commitment: Object.freeze({
-        kind: "relation" as const,
-        contractVersion: 2 as const,
+        ...policy,
         readinessSha256: encodeBytesToLowercaseHex(row.readinessSha256),
         relationSetReadinessSha256:
           encodeBytesToLowercaseHex(row.relationSetReadinessSha256),
@@ -437,6 +452,7 @@ function decodeActivationReadiness(
     return storedState(row.revisionId);
   }
   if (row.readinessContractVersion === 1 &&
+    row.writePolicySetSha256 === null && row.writeOwnershipSha256 === null &&
     isUint8ArrayWithByteLength(row.legacyReadinessSha256, 32) &&
     bytesEqualFullScan(row.legacyReadinessSha256, row.readinessSha256) &&
     row.relationReadinessSha256 === null &&
@@ -450,16 +466,16 @@ function decodeActivationReadiness(
       }),
     }));
   }
-  if (row.readinessContractVersion === 2 && row.legacyReadinessSha256 === null &&
+  const policy = decodePolicyCommitment(row);
+  if (policy !== undefined && row.readinessContractVersion !== 1 && row.legacyReadinessSha256 === null &&
     isUint8ArrayWithByteLength(row.relationReadinessSha256, 32) &&
     bytesEqualFullScan(row.relationReadinessSha256, row.readinessSha256) &&
     isUint8ArrayWithByteLength(row.relationSetReadinessSha256, 32) &&
-    validRelationCount(row.relationCount)) {
+    validRelationCount(row.relationCount, row.readinessContractVersion === 3 ? 0 : 1)) {
     return Effect.succeed(Object.freeze({
       kind: "relation" as const,
       commitment: Object.freeze({
-        kind: "relation" as const,
-        contractVersion: 2 as const,
+        ...policy,
         readinessSha256: encodeBytesToLowercaseHex(row.readinessSha256),
         relationSetReadinessSha256:
           encodeBytesToLowercaseHex(row.relationSetReadinessSha256),
@@ -476,9 +492,23 @@ function commonDigestsAreValid(...values: ReadonlyArray<unknown>): boolean {
   return values.every(value => isUint8ArrayWithByteLength(value, 32));
 }
 
-function validRelationCount(value: unknown): value is number {
+function decodePolicyCommitment(row: Pick<typeof fxSystemApplicationActiveHeads.$inferSelect,
+  "readinessContractVersion" | "writePolicySetSha256" | "writeOwnershipSha256">) {
+  if (row.readinessContractVersion === 2 && row.writePolicySetSha256 === null && row.writeOwnershipSha256 === null) {
+    return { kind: "relation" as const, contractVersion: 2 as const };
+  }
+  if (row.readinessContractVersion === 3 && isUint8ArrayWithByteLength(row.writePolicySetSha256, 32) &&
+    isUint8ArrayWithByteLength(row.writeOwnershipSha256, 32)) {
+    return { kind: "policy" as const, contractVersion: 3 as const,
+      writePolicySetSha256: encodeBytesToLowercaseHex(row.writePolicySetSha256),
+      writeOwnershipSha256: encodeBytesToLowercaseHex(row.writeOwnershipSha256) };
+  }
+  return undefined;
+}
+
+function validRelationCount(value: unknown, minimum: number): value is number {
   return Number.isSafeInteger(value) && typeof value === "number" &&
-    value >= 1 && value <= 1_024;
+    value >= minimum && value <= 1_024;
 }
 
 const validateFrame = Effect.fn("ApplicationActiveHead.validateFrame")(

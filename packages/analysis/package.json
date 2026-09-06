@@ -8,6 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./application-analysis": "./src/applicationAnalysis.ts",
+    "./internal/application-write-policy": "./src/applicationWritePolicy/index.ts",
+    "./internal/application-publication-v3": "./src/applicationPublicationFramesV3.ts",
     "./internal/application-publication-v1": "./src/applicationPublicationFramesV1.ts",
     "./internal/application-publication-v2": "./src/applicationPublicationFramesV2.ts",
     "./internal/application-import-policy-v1": "./src/applicationImportPolicyV1.ts",

@@ -1,8 +1,8 @@
 import {
-  canonicalizeApplicationManifestV2,
-  type ApplicationManifestV2,
+  verifyApplicationManifestWithRelations,
+  type ApplicationManifestWithRelations,
 } from "@flarex/analysis/application-analysis";
-import { applicationSchemaPublicationFrameV2 } from
+import { applicationSchemaPublicationFrame } from
   "@flarex/analysis/internal/application-publication-v2";
 import {
   bytesEqual,
@@ -17,6 +17,7 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
+import { prepareApplicationWritePolicyBinding, verifyStoredApplicationWritePolicyBinding } from "../applicationWritePolicyBinding";
 import { AppSchemaCatalogCompilationErrorV1 } from
   "flarex-protocol/app-schema-catalog";
 import {
@@ -30,15 +31,15 @@ import {
 } from "flarex-protocol/catalog";
 import {
   canonicalizeApplicationManifestSchemaBinding,
-  canonicalizeApplicationSchemaBindingV2,
+  canonicalizeApplicationSchemaBindingWithRelations,
   canonicalizePhysicalEdgeDefinition,
   canonicalizeSemanticRelationDefinition,
-  type ApplicationSchemaBindingV2,
+  type ApplicationSchemaBindingWithRelations,
   type ApplicationSchemaEdgeDefinitionV2,
   type ApplicationSchemaRelationBindingV2,
   type ApplicationSchemaSemanticDefinitionV2,
   type CanonicalApplicationManifestSchemaBindingV1,
-  type CanonicalApplicationSchemaBindingV2,
+  type CanonicalApplicationSchemaBindingWithRelations,
   type CanonicalPhysicalEdgeDefinitionV1,
   type CanonicalSemanticRelationDefinitionV1,
 } from "flarex-protocol/internal/application-schema-binding";
@@ -123,7 +124,7 @@ export interface ApplicationRelationBindingRepository {
 
 interface PublicationSource {
   readonly deploymentId: string;
-  readonly manifest: ApplicationManifestV2;
+  readonly manifest: ApplicationManifestWithRelations;
   readonly manifestSha256: string;
   readonly manifestSha256Bytes: Uint8Array;
   readonly manifestBytes: Uint8Array;
@@ -174,7 +175,7 @@ interface PlannedRelation {
 interface ExistingPublicationPlan {
   readonly kind: "existing";
   readonly source: PublicationSource;
-  readonly bound: CanonicalApplicationSchemaBindingV2;
+  readonly bound: CanonicalApplicationSchemaBindingWithRelations;
   readonly schemaManifestSha256: Uint8Array;
   readonly schemaArtifactManifestBytes: Uint8Array;
   readonly schemaArtifactManifestJson: unknown;
@@ -195,7 +196,7 @@ interface CreatePublicationPlan {
   readonly schemaManifest: SchemaManifestAppSchemaV1;
   readonly schemaManifestSha256: Uint8Array;
   readonly relations: ReadonlyArray<PlannedRelation>;
-  readonly bound: CanonicalApplicationSchemaBindingV2;
+  readonly bound: CanonicalApplicationSchemaBindingWithRelations;
   readonly manifestBinding: CanonicalApplicationManifestSchemaBindingV1;
 }
 
@@ -387,14 +388,12 @@ export const locateApplicationRelationManifestBindingEffect = Effect.fn(
       operation,
     ),
   });
-  const manifest = yield* Effect.fromResult(
-    canonicalizeApplicationManifestV2(parsedManifest).pipe(
-      Result.mapError(cause => relationBindingReadFailureValue(
+  const manifest = yield* verifyApplicationManifestWithRelations(parsedManifest).pipe(
+      Effect.mapError(cause => relationBindingReadFailureValue(
         "storedState",
         cause,
         operation,
       )),
-    ),
   );
   const recomputedManifestSha256 = yield* relationBindingReadSha256Effect(
     manifest.canonicalBytes,
@@ -411,7 +410,7 @@ export const locateApplicationRelationManifestBindingEffect = Effect.fn(
     );
   }
   const applicationSchemaFrame = yield* Effect.fromResult(
-    applicationSchemaPublicationFrameV2(manifest.manifest).pipe(
+    applicationSchemaPublicationFrame(manifest.manifest).pipe(
       Result.mapError(cause => relationBindingReadFailureValue(
         "storedState",
         cause,
@@ -531,14 +530,12 @@ const prepareSourceEffect = Effect.fn(
   if (!LOWERCASE_SHA256.test(input.manifestSha256)) {
     return yield* bindingFailure("manifestDigestMismatch");
   }
-  const canonicalManifest = yield* Effect.fromResult(
-    canonicalizeApplicationManifestV2(input.manifest).pipe(
-      Result.mapError(cause => bindingFailureValue(
+  const canonicalManifest = yield* verifyApplicationManifestWithRelations(input.manifest).pipe(
+      Effect.mapError(cause => bindingFailureValue(
         "invalidManifest",
         "Expected a canonical Application Manifest V2.",
         cause,
       )),
-    ),
   );
   const manifestBytes = copyBytes(canonicalManifest.canonicalBytes);
   const manifestSha256Bytes = yield* sha256Effect(manifestBytes);
@@ -547,7 +544,7 @@ const prepareSourceEffect = Effect.fn(
     return yield* bindingFailure("manifestDigestMismatch");
   }
   const applicationSchemaFrame = yield* Effect.fromResult(
-    applicationSchemaPublicationFrameV2(canonicalManifest.manifest).pipe(
+    applicationSchemaPublicationFrame(canonicalManifest.manifest).pipe(
       Result.mapError(cause => bindingFailureValue(
         "invalidManifest",
         "The Application Manifest V2 schema frame is invalid.",
@@ -680,9 +677,13 @@ const preparePlanEffect = Effect.fn(
     highWater,
     origins,
   );
-  const bound = yield* canonicalizeApplicationSchemaBindingV2({
+  const policy = yield* prepareApplicationWritePolicyBinding(source.manifest, projection.tables).pipe(
+    Effect.mapError(cause => bindingFailureValue("invalidManifest", "Invalid table write-policy evidence.", cause)),
+  );
+  const bound = yield* canonicalizeApplicationSchemaBindingWithRelations({
     format: "flarex.application-schema-binding",
-    version: 2,
+    version: source.manifest.version,
+    ...(policy === null ? {} : policy),
     deploymentId: source.deploymentId,
     applicationSchemaSha256: source.applicationSchemaSha256,
     schemaVersionId: source.schemaVersionId,
@@ -921,7 +922,7 @@ function nextCatalogIdEffect(
 }
 
 interface DecodedBoundRoot {
-  readonly bound: CanonicalApplicationSchemaBindingV2;
+  readonly bound: CanonicalApplicationSchemaBindingWithRelations;
   readonly schemaManifestSha256: Uint8Array;
   readonly applicationSchemaFrameBytes: Uint8Array;
 }
@@ -1001,7 +1002,7 @@ const decodeStoredBoundRowEffect = Effect.fn(
   row: typeof fxControlBoundApplicationSchemas.$inferSelect,
 ): Effect.fn.Return<DecodedBoundRoot, ApplicationRelationBindingError> {
   if (
-    row.bindingCodecVersion !== 2 ||
+    (row.bindingCodecVersion !== 2 && row.bindingCodecVersion !== 3) ||
     !isUint8ArrayWithByteLength(row.applicationSchemaSha256, 32) ||
     !isUint8Array(row.applicationSchemaFrameBytes) ||
     !isUint8ArrayWithByteLength(row.schemaManifestSha256, 32) ||
@@ -1022,7 +1023,7 @@ const decodeStoredBoundRowEffect = Effect.fn(
       "The stored application-schema frame does not match its digest.",
     );
   }
-  const bound = yield* canonicalizeApplicationSchemaBindingV2(
+  const bound = yield* canonicalizeApplicationSchemaBindingWithRelations(
     row.bindingJson,
   ).pipe(Effect.mapError(cause => bindingFailureValue(
     "storedState",
@@ -1030,6 +1031,7 @@ const decodeStoredBoundRowEffect = Effect.fn(
     cause,
   )));
   if (
+    bound.binding.version !== row.bindingCodecVersion ||
     bound.binding.deploymentId !== row.deploymentId ||
     bound.binding.schemaVersionId !== row.schemaVersionId ||
     bound.binding.schemaVersion !== row.schemaVersion ||
@@ -1047,6 +1049,9 @@ const decodeStoredBoundRowEffect = Effect.fn(
       "The stored bound-schema bytes, digest, and projection disagree.",
     );
   }
+  yield* verifyStoredApplicationWritePolicyBinding(bound.binding, row.applicationSchemaFrameBytes).pipe(
+    Effect.mapError(cause => bindingFailureValue("storedState", "Stored table write policies disagree with their schema evidence.", cause)),
+  );
   return Object.freeze({
     bound,
     schemaManifestSha256: copyBytes(row.schemaManifestSha256),
@@ -1058,7 +1063,7 @@ const prepareManifestBindingEffect = Effect.fn(
   "ApplicationRelationBinding.prepareManifestBinding",
 )(function* (
   source: PublicationSource,
-  bound: CanonicalApplicationSchemaBindingV2,
+  bound: CanonicalApplicationSchemaBindingWithRelations,
 ): Effect.fn.Return<
   CanonicalApplicationManifestSchemaBindingV1,
   ApplicationRelationBindingError
@@ -1082,7 +1087,7 @@ const prepareManifestBindingEffect = Effect.fn(
 const prepareEdgeEvidenceEffect = Effect.fn(
   "ApplicationRelationBinding.prepareEdgeEvidence",
 )(function* (
-  bound: CanonicalApplicationSchemaBindingV2,
+  bound: CanonicalApplicationSchemaBindingWithRelations,
 ): Effect.fn.Return<
   ReadonlyMap<CatalogEdgeDefinitionId, CanonicalPhysicalEdgeDefinitionV1>,
   ApplicationRelationBindingError
@@ -1114,7 +1119,7 @@ const validateLocatedRelationBindingCatalogEffect = Effect.fn(
   "ApplicationRelationBinding.validateLocatedCommitCatalog",
 )(function* (
   db: FlarexMetadataDatabase,
-  bound: CanonicalApplicationSchemaBindingV2,
+  bound: CanonicalApplicationSchemaBindingWithRelations,
 ): Effect.fn.Return<void, ReadApplicationRelationBindingError> {
   const relationRows = yield* relationBindingReadQueryEffect(() => db.select()
     .from(fxControlSchemaVersionRelationBindings)
@@ -1851,7 +1856,8 @@ const publishCreatePlanInTransactionEffect = Effect.fn(
       ),
     }))));
   }
-  yield* relationQueryEffect(() => tx.insert(
+  if (plan.relations.length > 0) {
+    yield* relationQueryEffect(() => tx.insert(
     fxControlSchemaVersionRelationBindings,
   ).values(plan.relations.map(relation => ({
     deploymentId: plan.source.deploymentId,
@@ -1875,7 +1881,8 @@ const publishCreatePlanInTransactionEffect = Effect.fn(
       ? "new" as const
       : relation.binding.evolution.physical,
     requiredForActivation: true as const,
-  }))));
+    }))));
+  }
   yield* relationQueryEffect(() => tx.insert(
     fxControlBoundApplicationSchemas,
   ).values({
@@ -1885,7 +1892,7 @@ const publishCreatePlanInTransactionEffect = Effect.fn(
     schemaVersionId: plan.source.schemaVersionId,
     schemaVersion: plan.schemaVersion,
     schemaManifestSha256: plan.schemaManifestSha256,
-    bindingCodecVersion: 2,
+    bindingCodecVersion: plan.bound.binding.version,
     bindingJson: plan.bound.binding,
     bindingBytes: plan.bound.canonicalBytes,
     boundPublicationSha256: lowercaseHexToBytes(plan.bound.sha256Hex),
@@ -2095,7 +2102,7 @@ const verifyStableRelationRowsInTransactionEffect = Effect.fn(
 )(function* (
   tx: StableTableCatalogTransaction,
   deploymentId: string,
-  bound: ApplicationSchemaBindingV2,
+  bound: ApplicationSchemaBindingWithRelations,
 ): Effect.fn.Return<void, ApplicationRelationBindingError> {
   const relationIds = bound.relationBindings.map(binding =>
     binding.relationId
@@ -2356,14 +2363,14 @@ const revalidateOriginsInTransactionEffect = Effect.fn(
 
 function boundRowMatchesPlan(
   row: typeof fxControlBoundApplicationSchemas.$inferSelect,
-  bound: CanonicalApplicationSchemaBindingV2,
+  bound: CanonicalApplicationSchemaBindingWithRelations,
   schemaManifestSha256: Uint8Array,
   applicationSchemaFrameBytes: Uint8Array,
 ): boolean {
   return row.deploymentId === bound.binding.deploymentId &&
     row.schemaVersionId === bound.binding.schemaVersionId &&
     row.schemaVersion === bound.binding.schemaVersion &&
-    row.bindingCodecVersion === 2 &&
+    row.bindingCodecVersion === bound.binding.version &&
     isUint8ArrayWithByteLength(row.applicationSchemaSha256, 32) &&
     encodeBytesToLowercaseHex(row.applicationSchemaSha256) ===
       bound.binding.applicationSchemaSha256 &&
@@ -2436,7 +2443,7 @@ function relationBindingRowMatches(
 
 function publicationResult(
   status: "created" | "existing",
-  bound: CanonicalApplicationSchemaBindingV2,
+  bound: CanonicalApplicationSchemaBindingWithRelations,
   manifestBinding: CanonicalApplicationManifestSchemaBindingV1,
 ): ApplicationRelationBindingPublication {
   return Object.freeze({

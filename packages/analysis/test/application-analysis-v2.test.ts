@@ -193,7 +193,7 @@ describe("Application Manifest V2", () => {
     )(structuredClone(v2.manifest)))).toBe(true);
     expect(canonicalizeApplicationManifest({
       ...structuredClone(v1.manifest),
-      version: 3,
+      version: 4,
     })).toMatchObject({
       _tag: "Failure",
       failure: { reason: "invalidInput", path: "version" },

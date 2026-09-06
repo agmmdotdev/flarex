@@ -17,6 +17,7 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
   canonicalizeSuccessfulResultV1Effect,
+  canonicalizeSessionJournalV1Effect,
   type CanonicalSuccessfulResultBytesV1,
   type CanonicalSuccessfulResultV1,
   type SessionJournalV1,
@@ -57,6 +58,7 @@ export class InvalidAuthenticatedCommitAuthorityV1Error extends Data.TaggedError
 }> {}
 
 export type CommitInputAuthorityCorruptionReasonV1 =
+  | "journalSealMismatch"
   | "executionAuthorityGenerationInvalid"
   | "duplicateTableAuthority"
   | "pointTableAuthorityMissing"
@@ -212,6 +214,7 @@ export interface VerifiedSuccessfulResultV1 {
 }
 
 export interface VerifiedCommitInputStateV1 {
+  readonly journalBytes: Uint8Array;
   readonly authorityPins: Readonly<CommitInputAuthorityPinsV1>;
   readonly sealIdentity: Readonly<StoredAttemptSealIdentityPortV1>;
   readonly journal: SessionJournalV1;
@@ -388,6 +391,12 @@ export const verifyCommitInputStateEffect = Effect.fn(
   }
 
   const stableResultBytes = copyBytes(canonicalResult.canonicalBytes);
+  const canonicalJournal = yield* canonicalizeSessionJournalV1Effect(source.journal).pipe(
+    Effect.mapError(() => authorityCorruption("journalSealMismatch")));
+  if (canonicalJournal.sha256Hex !== encodeBytesToLowercaseHex(source.sealIdentity.journalSha256)) {
+    return yield* authorityCorruptionEffect("journalSealMismatch");
+  }
+  const journalBytes = canonicalJournal.canonicalBytes;
   const stableJournal = Object.freeze(structuredClone(source.journal));
   const stableSchemaManifest = Object.freeze(
     structuredClone(source.schemaManifest),
@@ -399,6 +408,7 @@ export const verifyCommitInputStateEffect = Effect.fn(
     ),
     sealIdentity: detachSealIdentity(source.sealIdentity),
     journal: stableJournal,
+    get journalBytes(): Uint8Array { return copyBytes(journalBytes); },
     points: Object.freeze(verifiedPoints),
     successfulResult: Object.freeze({
       valueCodecVersion: canonicalResult.evidence.valueCodecVersion,

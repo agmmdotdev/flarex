@@ -11,6 +11,9 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { Data, Effect, Option, Result, Schema } from "effect";
+import { validateApplicationWriteOwnershipForCommit } from "./applicationWriteOwnership/Commit";
+import { ApplicationTableWriteDeniedError } from "./applicationWriteOwnership/Model";
+export { ApplicationTableWriteDeniedError } from "./applicationWriteOwnership/Model";
 
 import {
   AppDocumentSystemFieldV1Error,
@@ -836,6 +839,7 @@ export type SessionJournalResolvePointTableV1Error =
   | SessionJournalTargetUnavailableV1Error;
 
 export type SessionJournalRunPointOperationV1Error =
+  | ApplicationTableWriteDeniedError
   | InvalidSessionJournalCapabilityV1Error
   | InvalidSessionJournalInputV1Error
   | SessionJournalAttemptUnavailableV1Error
@@ -2628,6 +2632,7 @@ function mapRunPointOperationFailure(
     });
   }
   if (
+    cause instanceof ApplicationTableWriteDeniedError ||
     cause instanceof InvalidSessionJournalCapabilityV1Error ||
     cause instanceof InvalidSessionJournalInputV1Error ||
     cause instanceof SessionJournalAttemptUnavailableV1Error ||
@@ -3114,6 +3119,16 @@ const runPointOperationInTransactionEffect = Effect.fn(
     ));
   }
 
+  if (request.kind !== "get") {
+    // The resolved table capability supplies this identity before any write event,
+    // overlay, counter or receipt is appended. Commit-generation admission remains separate.
+    yield* validateApplicationWriteOwnershipForCommit(tx, { scopeId: context.anchor.scopeId,
+      generation: "application_v1", authenticatedAttemptedTables: [table.tableId], materialTables: [] }).pipe(
+      Effect.mapError(cause => cause.reason === "writeDenied" ? new ApplicationTableWriteDeniedError({
+        operation: request.kind, tableName: table.tableName,
+        message: "Ordinary Application mutations cannot write this managed table.",
+      }) : new SessionJournalPersistenceV1Error({ operation: "runPointOperation", cause })));
+  }
   const plan = yield* planFreshPointOperationEffect(
     tx,
     context,

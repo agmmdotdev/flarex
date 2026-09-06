@@ -5,7 +5,7 @@ import {
 } from "@flarex/utils/bytes";
 import { and, asc, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
-import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
+import { encodeCanonicalJson, isJson, isJsonObject } from "flarex-protocol/json";
 
 import type { CatalogEdgeDefinitionId } from "flarex-protocol/catalog";
 
@@ -27,6 +27,7 @@ import { isRetryableSqlTransactionCause } from
   "./locatedReadCommittedEffect";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import type { ScopeClockRecord } from "./scopeClock";
+import { canonicalizeApplicationWriteOwnership } from "./applicationWriteOwnership/Codec";
 
 const UTF8 = new TextEncoder();
 const UTF8_FATAL = new TextDecoder("utf-8", { fatal: true });
@@ -255,7 +256,7 @@ const loadActiveRelationReadinessChildren = Effect.fn(
   );
   const root = roots[0];
   if (roots.length !== 1 || root === undefined ||
-    root.readinessCodecVersion !== 2 ||
+    root.readinessCodecVersion !== head.readinessContractVersion ||
     root.relationSetCodecVersion !== 1 ||
     root.deploymentId !== authority.deploymentId ||
     root.storageGeneration !== clock.storageGeneration ||
@@ -314,13 +315,25 @@ const loadActiveRelationReadinessChildren = Effect.fn(
     root.relationSetReadinessSha256,
     head.revisionId,
   );
-  if (!applicationRelationReadinessFrameMatchesRow(readinessFrame, root) ||
+  if (!isJson(readinessFrame) || !isJsonObject(readinessFrame) ||
+    !applicationRelationReadinessFrameMatchesRow(readinessFrame, root) ||
     !applicationRelationSetFrameMatchesRow(
       relationSetFrame,
       root,
       revisionSchema.schemaVersion,
     )) {
     return yield* storedState(head.revisionId);
+  }
+  if (root.readinessCodecVersion === 3) {
+    const ownership = yield* canonicalizeApplicationWriteOwnership(readinessFrame.writeOwnership).pipe(
+      Effect.mapError(cause => new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false, cause })),
+    );
+    if (ownership.frame.scopeId !== head.scopeId || ownership.frame.revisionId !== head.revisionId ||
+      ownership.frame.activationSequence !== head.activationSequence.toString() ||
+      ownership.frame.writePolicySetSha256 !== head.writePolicySetSha256 ||
+      readinessFrame.writePolicySetSha256 !== head.writePolicySetSha256 ||
+      readinessFrame.writeOwnershipSha256 !== ownership.sha256Hex ||
+      ownership.sha256Hex !== head.writeOwnershipSha256) return yield* storedState(head.revisionId);
   }
   const children = yield* query(
     tx.select().from(fxSystemApplicationReadinessRelations).where(and(
@@ -344,8 +357,12 @@ export function applicationRelationReadinessFrameMatchesRow(
   value: unknown,
   root: typeof fxSystemApplicationReadiness.$inferSelect,
 ): boolean {
-  if (!hasExactOwnDataKeys(value, READINESS_FRAME_KEYS) ||
-    value.format !== "flarex.application-readiness" || value.version !== 2 ||
+  const keys = root.readinessCodecVersion === 3
+    ? [...READINESS_FRAME_KEYS, "writePolicySetSha256", "writeOwnershipSha256", "writeOwnership"]
+    : READINESS_FRAME_KEYS;
+  if (!hasExactOwnDataKeys(value, keys) ||
+    (root.readinessCodecVersion !== 2 && root.readinessCodecVersion !== 3) ||
+    value.format !== "flarex.application-readiness" || value.version !== root.readinessCodecVersion ||
     value.status !== "ready" || value.scopeId !== root.scopeId ||
     value.deploymentId !== root.deploymentId ||
     value.revisionId !== root.revisionId ||

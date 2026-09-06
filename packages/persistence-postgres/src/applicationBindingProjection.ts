@@ -35,6 +35,16 @@ export type ApplicationBindingReference = Readonly<{
         relationFrontierCommitSeq: string;
         relationSetReadinessSha256: string;
         relationCount: number;
+      }>
+    | Readonly<{
+        kind: "policy";
+        manifestSchemaBindingSha256: string;
+        boundPublicationSha256: string;
+        relationFrontierCommitSeq: string;
+        relationSetReadinessSha256: string;
+        relationCount: number;
+        writePolicySetSha256: string;
+        writeOwnershipSha256: string;
       }>;
 }> &
   JsonObject;
@@ -81,7 +91,11 @@ export const readApplicationBindingProjectionInTransaction = Effect.fn(
           schemaBindingSha256: hex(validated.basis.schemaBindingSha256),
         })
       : Object.freeze({
-          kind: "relation" as const,
+          ...(validated.basis.writeOwnership === null ? { kind: "relation" as const } : {
+            kind: "policy" as const,
+            writePolicySetSha256: validated.basis.writeOwnership.frame.writePolicySetSha256,
+            writeOwnershipSha256: validated.basis.writeOwnership.sha256Hex,
+          }),
           manifestSchemaBindingSha256: hex(
             validated.basis.manifestSchemaBindingSha256,
           ),

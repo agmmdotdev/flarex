@@ -579,10 +579,11 @@ export const fxSystemApplicationReadiness = pgTable(
         and octet_length(${table.physicalReadinessSha256}) = 32
         and ${table.relationSetCodecVersion} = 1
         and ${table.relationFrontierCommitSeq} >= 0
-        and ${table.relationCount} between 1 and 1024
+        and (${table.relationCount} between 1 and 1024
+          or (${table.readinessCodecVersion} = 3 and ${table.relationCount} = 0))
         and octet_length(${table.relationSetReadinessSha256}) = 32
         and octet_length(${table.relationSetReadinessBytes}) between 1 and 1048576
-        and ${table.readinessCodecVersion} = 2
+        and ${table.readinessCodecVersion} in (2, 3)
         and octet_length(${table.readinessSha256}) = 32
         and octet_length(${table.readinessBytes}) between 1 and 16777216`,
     ),

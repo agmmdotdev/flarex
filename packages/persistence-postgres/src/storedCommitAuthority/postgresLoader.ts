@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import {
@@ -951,10 +951,10 @@ async function selectApplicationGraphSizeRows(
     eq(fxSystemApplicationActivations.revisionId, revisionId),
   )).limit(2);
   const contract = contractRows[0]?.readinessContractVersion;
-  if (contractRows.length !== 1 || (contract !== 1 && contract !== 2)) {
+  if (contractRows.length !== 1 || (contract !== 1 && contract !== 2 && contract !== 3)) {
     return Object.freeze([]);
   }
-  if (contract === 2) {
+  if (contract === 2 || contract === 3) {
     const query = tx.select({
       kind: sql<"relation">`'relation'`,
       activationByteLengthText: sql<string>`octet_length(
@@ -1027,7 +1027,7 @@ async function selectApplicationGraphSizeRows(
         eq(fxSystemApplicationActivations.activationSequence,
           activationSequence),
         eq(fxSystemApplicationActivations.revisionId, revisionId),
-        eq(fxSystemApplicationActivations.readinessContractVersion, 2),
+        inArray(fxSystemApplicationActivations.readinessContractVersion, [2, 3]),
       )).limit(2);
     observeDrizzleQuery("applicationGraphSizes", query, options.observeQuery);
     return await query;
@@ -1193,7 +1193,7 @@ async function selectApplicationGraphPayloadRows(
         eq(fxSystemApplicationActivations.activationSequence,
           activationSequence),
         eq(fxSystemApplicationActivations.revisionId, revisionId),
-        eq(fxSystemApplicationActivations.readinessContractVersion, 2),
+        inArray(fxSystemApplicationActivations.readinessContractVersion, [2, 3]),
       )).limit(2);
     observeDrizzleQuery("applicationGraphPayload", query, options.observeQuery);
     const rows = await query;

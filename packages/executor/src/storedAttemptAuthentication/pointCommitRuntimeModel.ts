@@ -148,6 +148,7 @@ export function rebaseFinishingPreparedPointCommitState(
   );
   const successfulResult = state.plan.successfulResult;
   const plan = Object.freeze({
+    get journalBytes(): Uint8Array { return copyBytes(state.plan.journalBytes); },
     authorityPins: Object.freeze({
       ...pins,
       snapshotToken: Object.freeze({ ...pins.snapshotToken }),
@@ -428,6 +429,7 @@ export function capturePointCommitTransactionCommand(
   );
   return Object.freeze({
     ...scalar,
+    journalBytes: copyBytes(state.plan.journalBytes),
     dependencies,
     indexRangeDependencies: capturePointCommitIndexRangeDependencies(state),
     relationDependencies: capturePointCommitRelationDependencies(state),
@@ -619,9 +621,13 @@ export function pointCommitPublicationCommandsEqual(
     | "indexRangeDependencies"
     | "relationDependencies"
     | "rowIntents"
+    | "journalBytes"
     | "successfulResult"
   > extends never ? true : never = true;
   void commandFieldsAreExhaustive;
+  if (left.journalBytes === undefined || right.journalBytes === undefined
+    ? left.journalBytes !== right.journalBytes
+    : !bytesEqual(left.journalBytes, right.journalBytes)) return false;
   if (!pointCommitAuthorityPinsEqual(
     left.authorityPins,
     right.authorityPins,

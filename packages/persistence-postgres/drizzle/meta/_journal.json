@@ -589,6 +589,27 @@
       "when": 1788624013736,
       "tag": "0083_synthetic_medusa_admission",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1788688583000,
+      "tag": "0084_application_write_policy_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1788689472756,
+      "tag": "0085_application_write_policy_readiness",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1788690580552,
+      "tag": "0086_application_write_ownership",
+      "breakpoints": true
     }
   ]
 }

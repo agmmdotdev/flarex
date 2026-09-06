@@ -2,11 +2,21 @@
 
 ## Status And Coherent Outcome
 
-Status: proposed Application-owner capability; implementation requires acceptance.
+Status: private Application-owner denial capability implemented and reviewed;
+PGlite and native PostgreSQL preservation pass.
 This is the concrete write-policy prerequisite of the
 [CMS request/publication proposal](./17-cms-request-transactions-and-application-publication.md).
 It closes the policy decision in one capability, without another preliminary
 value-only or storage-only approval gate.
+
+The private source producer, Manifest V3 analysis, durable binding/publication,
+readiness and activation now preserve canonical `writePolicies` evidence and
+`writePolicySetSha256`. Activation installs authenticated retained ownership in
+the existing target transaction. Private generated-authoring types omit managed
+table writers; the journal returns recoverable pre-append denials, and the
+authoritative commit kernel independently checks authenticated attempted tables
+before generation dispatch and net-zero row coalescing can bypass ownership.
+Existing V1/V2 encoded contracts retain their exact shapes.
 
 The first executable outcome is an authenticated Application containing one
 new scalar CMS-managed table and an ordinary Application-owned table. Analysis,
@@ -112,7 +122,7 @@ activation and fence anchors on the actual activation transaction.
 
 Use a distinct policy-bearing `ApplicationManifestV3` with schema version 3.
 Its schema contains existing tables, indexes and relations plus required
-`writePolicies`. The schema publication and readiness commitments must include
+`writePolicies` and `writePolicySetSha256`. The schema publication and readiness commitments must include
 the complete policy-set digest. Do not change V1/V2 canonical bytes, add optional
 permission fields to their strict decoders, or strip V3 into V2 for an old
 consumer. Empty relation declarations are valid in the scalar V3 fixture.
@@ -145,7 +155,9 @@ Readiness verifies canonical bytes/digests, complete table coverage, owner/profi
 agreement and all current schema/index/unique/relation prerequisites. The policy
 does not replace candidate-schema validation or native relation readiness.
 
-Activation under the existing scope-clock write lock must atomically:
+Policy activation first holds the control deployment row used by schema
+publishers, then takes the existing target scope-clock write lock. Under these
+locks, the target transaction must atomically:
 
 1. validate the exact policy-aware readiness and expected active-head CAS;
 2. verify retained managed ownership against authenticated prior activation;
@@ -295,6 +307,25 @@ One shared end-to-end scenario per driver must prove:
 - Native PostgreSQL barriers between activation and commit, current writer versus
   stale writer, distinct scopes, rollback, deadline and cancellation. Use an
   ordinary role; PGlite does not prove these physical holder orders.
+
+Implementation checks also authenticate each retained claim against its immutable
+readiness frame, including the complete policy digest. Rehashing the claim,
+activation and head cannot erase ownership while readiness remains unchanged.
+The 64-record recovery budget currently admits 21 ownership activations: one
+head plus 21 activation/claim/readiness triples. Activation 22 refuses and rolls
+back, leaving the head recoverable and every earlier activation replayable.
+This is a deliberate private admission ceiling, not an unbounded lifecycle claim;
+a later compaction/retention capability must precede sustained production use.
+
+Policy activation serializes legacy control-schema publication with the target
+newness decision. It holds the control deployment
+row lock before taking the target scope clock, through target settlement. Final
+history reads use that same control transaction via an opaque issued lease.
+Control remains read-only and the target remains the sole activation decision
+owner. A control-lock cleanup failure after target commit is a resource failure;
+it does not imply target rollback. Exact activation replay recovers that outcome.
+The native test pauses at head installation, verifies the exact waiting
+legacy publisher and stale writer, and proves unrelated-scope progress.
 
 Reuse the manifest-owned Application preservation lanes for the connected
 document/OCC/relation/commit/read behavior. Run focused affected package

@@ -1,12 +1,12 @@
 import {
-  canonicalizeApplicationManifestV2,
-  type ApplicationManifestV2,
+  verifyApplicationManifestWithRelations,
+  type ApplicationManifestWithRelations,
 } from "@flarex/analysis/application-analysis";
 import {
   applicationFunctionCatalogPublicationFrameV2,
   applicationFunctionEntryPublicationFrameV2,
-  applicationPublicationCommitmentFrameV2,
-  applicationSchemaPublicationFrameV2,
+  applicationPublicationCommitmentFrame,
+  applicationSchemaPublicationFrame,
 } from "@flarex/analysis/internal/application-publication-v2";
 import {
   bytesEqualFullScan,
@@ -47,7 +47,7 @@ export interface PublishApplicationRelationInput {
   readonly candidateId: string;
   readonly analysisId: string;
   readonly manifestSha256: string;
-  readonly manifest: ApplicationManifestV2;
+  readonly manifest: ApplicationManifestWithRelations;
 }
 
 export interface ApplicationRelationPublicationFunction {
@@ -56,9 +56,9 @@ export interface ApplicationRelationPublicationFunction {
   readonly exportName: string;
   readonly kind: "query" | "mutation" | "workflowMutation" | "action";
   readonly visibility: "public" | "internal";
-  readonly args: ApplicationManifestV2["functions"][number]["args"];
-  readonly returns: ApplicationManifestV2["functions"][number]["returns"];
-  readonly partition: ApplicationManifestV2["functions"][number]["partition"];
+  readonly args: ApplicationManifestWithRelations["functions"][number]["args"];
+  readonly returns: ApplicationManifestWithRelations["functions"][number]["returns"];
+  readonly partition: ApplicationManifestWithRelations["functions"][number]["partition"];
   readonly entrySha256: string;
 }
 
@@ -114,7 +114,7 @@ export interface ApplicationRelationPublicationRepository {
 interface PublicationAuthorityState {
   readonly targetDb: FlarexMetadataDatabase;
   readonly controlDb: FlarexMetadataDatabase;
-  readonly manifest: ApplicationManifestV2;
+  readonly manifest: ApplicationManifestWithRelations;
   readonly authority: ApplicationAnalysisAuthority;
 }
 
@@ -192,10 +192,8 @@ const preparePublication = Effect.fn("ApplicationRelationPublication.prepare")(
       !validIdentity(captured.candidateId, 256) ||
       !validIdentity(captured.analysisId, 256)
     ) return yield* failure("invalidInput");
-    const canonicalManifest = yield* Effect.fromResult(
-      canonicalizeApplicationManifestV2(captured.manifest).pipe(
-        Result.mapError(cause => failureValue("invalidInput", false, cause)),
-      ),
+    const canonicalManifest = yield* verifyApplicationManifestWithRelations(captured.manifest).pipe(
+      Effect.mapError(cause => failureValue("invalidInput", false, cause)),
     );
     const manifestSha256Bytes = yield* sha256(canonicalManifest.canonicalBytes);
     if (
@@ -226,7 +224,7 @@ const preparePublication = Effect.fn("ApplicationRelationPublication.prepare")(
         canonicalManifest.manifest.schema.relations.length
     ) return yield* failure("schemaBindingMismatch");
     const schemaBytes = yield* Effect.fromResult(
-      applicationSchemaPublicationFrameV2(canonicalManifest.manifest).pipe(
+      applicationSchemaPublicationFrame(canonicalManifest.manifest).pipe(
         Result.mapError(cause => failureValue("invalidInput", false, cause)),
       ),
     );
@@ -276,8 +274,7 @@ const preparePublication = Effect.fn("ApplicationRelationPublication.prepare")(
       boundPublicationSha256Bytes,
       relationBinding.boundPublicationSha256,
     )) return yield* failure("schemaBindingMismatch");
-    const publicationBytes = yield* Effect.fromResult(
-      applicationPublicationCommitmentFrameV2({
+    const commitmentInput = {
         scopeId: captured.authority.scopeId,
         deploymentId: captured.deploymentId,
         revisionId: captured.revisionId,
@@ -295,7 +292,9 @@ const preparePublication = Effect.fn("ApplicationRelationPublication.prepare")(
         ),
         manifestSchemaBindingSha256: binding.manifestBinding.sha256Hex,
         boundPublicationSha256: manifestBinding.boundPublicationSha256,
-      }).pipe(
+    };
+    const publicationBytes = yield* Effect.fromResult(
+      applicationPublicationCommitmentFrame(canonicalManifest.manifest, commitmentInput).pipe(
         Result.mapError(cause => failureValue("invalidInput", false, cause)),
       ),
     );

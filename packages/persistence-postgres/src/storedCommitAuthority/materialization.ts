@@ -19,13 +19,13 @@ import {
 import {
   applicationFunctionCatalogPublicationFrameV2,
   applicationFunctionEntryPublicationFrameV2,
-  applicationPublicationCommitmentFrameV2,
-  applicationSchemaPublicationFrameV2,
+  applicationPublicationCommitmentFrame,
+  applicationSchemaPublicationFrame,
 } from "@flarex/analysis/internal/application-publication-v2";
 import {
   canonicalizeApplicationManifest,
   canonicalizeApplicationManifestV1,
-  isApplicationManifestV2,
+  verifyApplicationManifestWithRelations,
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
 import {
@@ -90,6 +90,7 @@ import {
 } from "flarex-protocol/transaction-session";
 
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
+import { canonicalizeApplicationWriteOwnership } from "../applicationWriteOwnership/Codec";
 import { snapshotSchemaManifestValue } from "../schemaManifestValueSnapshot";
 import {
   applicationActivationFrame,
@@ -1400,7 +1401,8 @@ const materializeRelationApplicationGraphEffect = Effect.fn(
   const boundAt = databaseTimestampFromUnknown(revisionSchema.boundAt);
   if (activatedAt === null || readyAt === null ||
     boundAt === null || boundAt.getTime() !== readyAt.getTime() ||
-    activation.readinessContractVersion !== 2 ||
+    (activation.readinessContractVersion !== 2 && activation.readinessContractVersion !== 3) ||
+    activation.readinessContractVersion !== readiness.readinessCodecVersion ||
     activation.relationReadinessSha256 === null ||
     activation.relationSetReadinessSha256 === null ||
     activation.relationCount === null) {
@@ -1418,9 +1420,19 @@ const materializeRelationApplicationGraphEffect = Effect.fn(
     readiness.relationSetReadinessBytes,
     readiness.relationSetReadinessSha256,
   ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  const policySetSha = activation.writePolicySetSha256;
+  const ownershipSha = activation.writeOwnershipSha256;
+  if (activation.readinessContractVersion === 3
+    ? !isUint8ArrayWithByteLength(policySetSha, 32) || !isUint8ArrayWithByteLength(ownershipSha, 32)
+    : policySetSha !== null || ownershipSha !== null) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
   const readinessCommitment = {
-    kind: "relation" as const,
-    contractVersion: 2 as const,
+    ...(policySetSha !== null && ownershipSha !== null
+      ? { kind: "policy" as const, contractVersion: 3 as const,
+          writePolicySetSha256: encodeBytesToLowercaseHex(policySetSha),
+          writeOwnershipSha256: encodeBytesToLowercaseHex(ownershipSha) }
+      : { kind: "relation" as const, contractVersion: 2 as const }),
     readinessSha256: encodeBytesToLowercaseHex(readiness.readinessSha256),
     relationSetReadinessSha256:
       encodeBytesToLowercaseHex(readiness.relationSetReadinessSha256),
@@ -1506,11 +1518,16 @@ const materializeRelationApplicationGraphEffect = Effect.fn(
       Result.mapError(() => "applicationGraphInvalid" as const),
     ),
   );
-  if (!isApplicationManifestV2(canonicalManifest.manifest) ||
-    !bytesEqual(canonicalManifest.canonicalBytes, analysis.manifestBytes)) {
+  if (!bytesEqual(canonicalManifest.canonicalBytes, analysis.manifestBytes)) {
     return yield* Effect.fail("applicationGraphInvalid" as const);
   }
-  const manifest = canonicalManifest.manifest;
+  const verifiedManifest = yield* verifyApplicationManifestWithRelations(canonicalManifest.manifest).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  const manifest = verifiedManifest.manifest;
+  if (manifest.version !== activation.readinessContractVersion) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
   const selected = manifest.functions.find(
     candidate => candidate.path === target.function.path,
   );
@@ -1518,7 +1535,7 @@ const materializeRelationApplicationGraphEffect = Effect.fn(
     return yield* Effect.fail("applicationGraphInvalid" as const);
   }
   const schemaFrame = yield* Effect.fromResult(
-    applicationSchemaPublicationFrameV2(manifest).pipe(
+    applicationSchemaPublicationFrame(manifest).pipe(
       Result.mapError(() => "applicationGraphInvalid" as const),
     ),
   );
@@ -1542,7 +1559,7 @@ const materializeRelationApplicationGraphEffect = Effect.fn(
     Effect.mapError(() => "applicationGraphInvalid" as const),
   );
   const publicationFrame = yield* Effect.fromResult(
-    applicationPublicationCommitmentFrameV2({
+    applicationPublicationCommitmentFrame(manifest, {
       scopeId: target.scopeId,
       deploymentId: expected.deploymentId,
       revisionId: target.revisionId,
@@ -1629,6 +1646,21 @@ const materializeRelationApplicationGraphEffect = Effect.fn(
       readiness,
     )) {
     return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  if (manifest.version === 3) {
+    const ownership = yield* canonicalizeApplicationWriteOwnership(readinessValue.writeOwnership).pipe(
+      Effect.mapError(() => "applicationGraphInvalid" as const),
+    );
+    if (policySetSha === null || ownershipSha === null ||
+      ownership.frame.scopeId !== target.scopeId || ownership.frame.revisionId !== target.revisionId ||
+      ownership.frame.activationSequence !== activation.activationSequence.toString() ||
+      ownership.frame.writePolicySetSha256 !== manifest.schema.writePolicySetSha256 ||
+      readinessValue.writePolicySetSha256 !== manifest.schema.writePolicySetSha256 ||
+      readinessValue.writeOwnershipSha256 !== ownership.sha256Hex ||
+      encodeBytesToLowercaseHex(policySetSha) !== manifest.schema.writePolicySetSha256 ||
+      !bytesEqual(ownership.sha256, ownershipSha)) {
+      return yield* Effect.fail("applicationGraphInvalid" as const);
+    }
   }
   const relationSetValue = yield* Effect.try({
     try: (): unknown => JSON.parse(

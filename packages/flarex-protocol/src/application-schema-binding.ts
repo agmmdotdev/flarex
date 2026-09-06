@@ -50,6 +50,7 @@ export const APPLICATION_SCHEMA_BINDING_FORMAT =
   "flarex.application-schema-binding" as const;
 export const APPLICATION_SCHEMA_BINDING_VERSION_V1 = 1 as const;
 export const APPLICATION_SCHEMA_BINDING_VERSION_V2 = 2 as const;
+export const APPLICATION_SCHEMA_BINDING_VERSION_V3 = 3 as const;
 export const MAX_APPLICATION_SCHEMA_BINDING_RELATIONS = 1_024;
 export const MAX_APPLICATION_SCHEMA_BINDING_CANONICAL_BYTES =
   16 * 1_024 * 1_024;
@@ -414,12 +415,60 @@ export const ApplicationSchemaBindingV2Schema =
 export type ApplicationSchemaBindingV2 =
   typeof ApplicationSchemaBindingV2Schema.Type;
 
+const WritePolicyBindingFields = {
+  ...ApplicationSchemaTableBindingSchema.fields,
+  writePolicySha256: LowercaseSha256HexSchema,
+};
+export const ApplicationSchemaWritePolicyBindingSchema = Schema.Union([
+  Schema.Struct({ ...WritePolicyBindingFields, owner: Schema.Literal("application") }).annotate(StrictStructOptions),
+  Schema.Struct({
+    ...WritePolicyBindingFields,
+    owner: Schema.Literal("payload"),
+    policyId: Schema.Literal("payload.scalar"),
+    configSha256: LowercaseSha256HexSchema,
+    provenanceSha256: LowercaseSha256HexSchema,
+  }).annotate(StrictStructOptions),
+]);
+export type ApplicationSchemaWritePolicyBinding = typeof ApplicationSchemaWritePolicyBindingSchema.Type;
+
+const ApplicationSchemaBindingV3StructuralSchema = Schema.Struct({
+  ...ApplicationSchemaBindingV2StructuralSchema.fields,
+  version: Schema.Literal(APPLICATION_SCHEMA_BINDING_VERSION_V3),
+  tables: ApplicationSchemaTableBindingsSchema.check(Schema.isMaxLength(64)),
+  relationBindings: Schema.Array(ApplicationSchemaRelationBindingV2Schema).check(Schema.isMaxLength(MAX_APPLICATION_SCHEMA_BINDING_RELATIONS)),
+  semanticDefinitions: Schema.Array(ApplicationSchemaSemanticDefinitionV2Schema).check(Schema.isMaxLength(MAX_APPLICATION_SCHEMA_BINDING_RELATIONS)),
+  edgeDefinitions: Schema.Array(ApplicationSchemaEdgeDefinitionV2Schema).check(Schema.isMaxLength(MAX_APPLICATION_SCHEMA_BINDING_RELATIONS)),
+  writePolicySetSha256: LowercaseSha256HexSchema,
+  writePolicies: Schema.Array(ApplicationSchemaWritePolicyBindingSchema).check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+}).annotate(StrictStructOptions);
+
+export const ApplicationSchemaBindingV3Schema = ApplicationSchemaBindingV3StructuralSchema.check(
+  Schema.makeFilter(binding => {
+    const issue = validateBindingV2(binding);
+    if (issue !== undefined) return issue;
+    if (binding.writePolicies.length !== binding.tables.length) return "Expected exactly one write policy per bound table";
+    for (let index = 0; index < binding.tables.length; index++) {
+      const table = binding.tables[index];
+      const policy = binding.writePolicies[index];
+      if (!table || !policy || table.tableId !== policy.tableId ||
+        table.logicalName !== policy.logicalName || table.applicationTableId !== policy.applicationTableId) {
+        return "Expected write policy order and stable identities to match the complete table binding";
+      }
+    }
+    return undefined;
+  }),
+);
+export type ApplicationSchemaBindingV3 = typeof ApplicationSchemaBindingV3Schema.Type;
+export type ApplicationSchemaBindingWithRelations = ApplicationSchemaBindingV2 | ApplicationSchemaBindingV3;
+
 export type ApplicationSchemaBinding =
   | ApplicationSchemaBindingV1
-  | ApplicationSchemaBindingV2;
+  | ApplicationSchemaBindingV2
+  | ApplicationSchemaBindingV3;
 export const ApplicationSchemaBindingSchema = Schema.Union([
   ApplicationSchemaBindingV1Schema,
   ApplicationSchemaBindingV2Schema,
+  ApplicationSchemaBindingV3Schema,
 ]);
 
 export const APPLICATION_MANIFEST_SCHEMA_BINDING_FORMAT_V1 =
@@ -503,6 +552,14 @@ export interface CanonicalApplicationSchemaBindingV2 {
   readonly sha256Hex: ApplicationSchemaBindingSha256Hex;
 }
 
+export interface CanonicalApplicationSchemaBindingV3 {
+  readonly binding: ApplicationSchemaBindingV3;
+  readonly canonicalText: string;
+  readonly canonicalBytes: Uint8Array;
+  readonly sha256Hex: ApplicationSchemaBindingSha256Hex;
+}
+export type CanonicalApplicationSchemaBindingWithRelations = CanonicalApplicationSchemaBindingV2 | CanonicalApplicationSchemaBindingV3;
+
 export interface CanonicalApplicationManifestSchemaBindingV1 {
   readonly binding: ApplicationManifestSchemaBindingV1;
   readonly canonicalText: string;
@@ -515,7 +572,8 @@ export type CanonicalApplicationManifestSchemaBinding =
 
 export type CanonicalApplicationSchemaBinding =
   | CanonicalApplicationSchemaBindingV1
-  | CanonicalApplicationSchemaBindingV2;
+  | CanonicalApplicationSchemaBindingV2
+  | CanonicalApplicationSchemaBindingV3;
 
 const decodeBindingV1Shape = Schema.decodeUnknownResult(
   ApplicationSchemaBindingV1Schema,
@@ -558,11 +616,19 @@ export function decodeApplicationSchemaBindingV2Result(
   );
 }
 
+const decodeBindingV3Shape = Schema.decodeUnknownResult(ApplicationSchemaBindingV3Schema, StrictParseOptions);
+export function decodeApplicationSchemaBindingV3Result(
+  input: unknown,
+): Result.Result<ApplicationSchemaBindingV3, ApplicationSchemaBindingError> {
+  return decodeOwnedValueResult(input, decodeBindingV3Shape, "decodeBinding");
+}
+
 export function decodeApplicationSchemaBindingResult(
   input: unknown,
 ): Result.Result<ApplicationSchemaBinding, ApplicationSchemaBindingError> {
   return Result.gen(function* () {
     const version = yield* bindingVersionResult(input);
+    if (version === 3) return yield* decodeApplicationSchemaBindingV3Result(input);
     if (version === APPLICATION_SCHEMA_BINDING_VERSION_V1) {
       const binding = yield* decodeApplicationSchemaBindingV1Result(input);
       return binding;
@@ -693,6 +759,14 @@ export const canonicalizeApplicationSchemaBindingV2 = Effect.fn(
   const binding = yield* Effect.fromResult(
     decodeApplicationSchemaBindingV2Result(input),
   );
+  yield* verifyBindingRelationDigests(binding);
+  const encoded = yield* encodeAndDigest(binding, "canonicalizeBinding");
+  return canonicalBindingV2(binding, encoded);
+});
+
+const verifyBindingRelationDigests = Effect.fn("ApplicationSchemaBinding.verifyRelations")(function* (
+  binding: ApplicationSchemaBindingWithRelations,
+): Effect.fn.Return<void, ApplicationSchemaBindingError> {
   for (let index = 0; index < binding.semanticDefinitions.length; index += 1) {
     const entry = binding.semanticDefinitions[index];
     if (entry === undefined) {
@@ -721,9 +795,41 @@ export const canonicalizeApplicationSchemaBindingV2 = Effect.fn(
       return yield* digestMismatch(`edgeDefinitions[${index}]`);
     }
   }
-  const encoded = yield* encodeAndDigest(binding, "canonicalizeBinding");
-  return canonicalBindingV2(binding, encoded);
 });
+
+export const canonicalizeApplicationSchemaBindingV3 = Effect.fn("ApplicationSchemaBinding.canonicalizeV3")(
+  function* (input: unknown): Effect.fn.Return<CanonicalApplicationSchemaBindingV3, ApplicationSchemaBindingError> {
+    const binding = yield* Effect.fromResult(decodeApplicationSchemaBindingV3Result(input));
+    yield* verifyBindingRelationDigests(binding);
+    for (const policy of binding.writePolicies) {
+      const declaration = {
+        format: "flarex.application-table-write-policy",
+        version: 1,
+        logicalTableName: policy.logicalName,
+        owner: policy.owner,
+        ...(policy.owner === "payload" ? {
+          policyId: policy.policyId, configSha256: policy.configSha256, provenanceSha256: policy.provenanceSha256,
+        } : {}),
+      };
+      const encoded = yield* encodeAndDigest(declaration, "canonicalizeBinding", 1_048_576);
+      if (encoded.sha256Hex !== policy.writePolicySha256) return yield* digestMismatch(`writePolicies.${policy.logicalName}`);
+    }
+    const encoded = yield* encodeAndDigest(binding, "canonicalizeBinding");
+    return Object.freeze({
+      binding, canonicalText: encoded.canonicalText,
+      get canonicalBytes(): Uint8Array { return copyBytes(encoded.stableBytes); },
+      sha256Hex: ApplicationSchemaBindingSha256HexSchema.make(encoded.sha256Hex),
+    });
+  },
+);
+
+export const canonicalizeApplicationSchemaBindingWithRelations = Effect.fn("ApplicationSchemaBinding.canonicalizeWithRelations")(
+  function* (input: unknown): Effect.fn.Return<CanonicalApplicationSchemaBindingWithRelations, ApplicationSchemaBindingError> {
+    const version = yield* Effect.fromResult(bindingVersionResult(input));
+    if (version === 3) return yield* canonicalizeApplicationSchemaBindingV3(input);
+    return yield* canonicalizeApplicationSchemaBindingV2(input);
+  },
+);
 
 export const canonicalizeApplicationSchemaBinding = Effect.fn(
   "ApplicationSchemaBinding.canonicalize",
@@ -736,7 +842,7 @@ export const canonicalizeApplicationSchemaBinding = Effect.fn(
   const version = yield* Effect.fromResult(bindingVersionResult(input));
   return version === APPLICATION_SCHEMA_BINDING_VERSION_V1
     ? yield* canonicalizeApplicationSchemaBindingV1(input)
-    : yield* canonicalizeApplicationSchemaBindingV2(input);
+    : yield* canonicalizeApplicationSchemaBindingWithRelations(input);
 });
 
 export const canonicalizeApplicationManifestSchemaBindingV1 = Effect.fn(
@@ -898,7 +1004,7 @@ function decodeOwnedValueResult<A>(
 
 function bindingVersionResult(
   input: unknown,
-): Result.Result<1 | 2, ApplicationSchemaBindingError> {
+): Result.Result<1 | 2 | 3, ApplicationSchemaBindingError> {
   const measurement = measureCanonicalJsonUtf8Bytes(
     input,
     MAX_APPLICATION_SCHEMA_BINDING_CANONICAL_BYTES,
@@ -923,7 +1029,8 @@ function bindingVersionResult(
   const descriptor = Object.getOwnPropertyDescriptor(input, "version");
   return descriptor !== undefined && "value" in descriptor &&
       (descriptor.value === APPLICATION_SCHEMA_BINDING_VERSION_V1 ||
-        descriptor.value === APPLICATION_SCHEMA_BINDING_VERSION_V2)
+        descriptor.value === APPLICATION_SCHEMA_BINDING_VERSION_V2 ||
+        descriptor.value === APPLICATION_SCHEMA_BINDING_VERSION_V3)
     ? Result.succeed(descriptor.value)
     : Result.fail(bindingError("decodeBinding", { reason: "invalidInput" }));
 }
@@ -969,7 +1076,7 @@ function validateBaseBinding(
 }
 
 function validateBindingV2(
-  binding: typeof ApplicationSchemaBindingV2StructuralSchema.Type,
+  binding: Omit<typeof ApplicationSchemaBindingV2StructuralSchema.Type, "version">,
 ): string | undefined {
   const baseIssue = validateBaseBinding({
     ...binding,

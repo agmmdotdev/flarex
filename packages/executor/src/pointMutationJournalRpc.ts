@@ -2,6 +2,7 @@ import type {
   RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
 } from "@flarex/persistence-postgres/session-journal-store";
+import { ApplicationTableWriteDeniedError } from "@flarex/persistence-postgres/session-journal-store";
 import { RpcTarget, type RpcStub } from "cloudflare:workers";
 import { Cause, Data, Effect, Exit } from "effect";
 import {
@@ -297,8 +298,8 @@ class PointMutationJournalRpcSessionStateV1 {
             recoverDocumentValidation &&
             onlyReason !== undefined &&
             Cause.isFailReason(onlyReason) &&
-            onlyReason.error instanceof
-              ApplicationRevisionSyscallDocumentValidationV1Error
+            (onlyReason.error instanceof ApplicationRevisionSyscallDocumentValidationV1Error ||
+              onlyReason.error instanceof ApplicationTableWriteDeniedError)
           ) {
             throw onlyReason.error;
           }

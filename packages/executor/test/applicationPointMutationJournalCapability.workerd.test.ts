@@ -33,6 +33,7 @@ describe("Application point-mutation journal capability", () => {
       maximumActive: 1,
       lateName: "FlarexApplicationJournalCapabilityStopped",
       validationName: "ApplicationRevisionSyscallDocumentValidationV1Error",
+      deniedNames: Array(4).fill("ApplicationTableWriteDeniedError"),
       validAfterValidation: "1:00000000-0000-4000-8000-000000000001",
       results: [
         { kind: "present", document: { name: "Ada" } },

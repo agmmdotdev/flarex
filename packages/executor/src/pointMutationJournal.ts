@@ -17,6 +17,7 @@ import type {
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
   InvalidSessionJournalCapabilityV1Error,
+  ApplicationTableWriteDeniedError,
   InvalidSessionJournalInputV1Error,
   PinnedPointTableCorruptionV1Error,
   PinnedPointTableNotFoundV1Error,
@@ -176,7 +177,8 @@ export type PointMutationJournalBoundaryV1Error =
   | ApplicationRevisionSyscallValidatorStaleV1Error
   | ApplicationRevisionSyscallValidatorCorruptionV1Error
   | ApplicationRevisionSyscallValidatorIntegrationV1Error
-  | ApplicationRevisionSyscallDocumentValidationV1Error;
+  | ApplicationRevisionSyscallDocumentValidationV1Error
+  | ApplicationTableWriteDeniedError;
 
 export interface PointMutationJournalV1 {
   readonly openAttempt: (
@@ -1106,7 +1108,8 @@ function mapPersistenceFailure(
     cause instanceof ApplicationRevisionSyscallValidatorStaleV1Error ||
     cause instanceof ApplicationRevisionSyscallValidatorCorruptionV1Error ||
     cause instanceof ApplicationRevisionSyscallValidatorIntegrationV1Error ||
-    cause instanceof ApplicationRevisionSyscallDocumentValidationV1Error
+    cause instanceof ApplicationRevisionSyscallDocumentValidationV1Error ||
+    cause instanceof ApplicationTableWriteDeniedError
   ) {
     return cause;
   }

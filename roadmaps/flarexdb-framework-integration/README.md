@@ -103,7 +103,7 @@ Use these sources in order:
     records the completed Application-preservation gate and proposes the private
     CMS read/request host and Application publication participation contract.
 20. [`preflight/18-application-table-write-policy.md`](./preflight/18-application-table-write-policy.md)
-    proposes authenticated Application table policy, retained managed ownership
+    defines accepted Application table policy, retained managed ownership
     and the complete private denial vertical required before CMS writes.
 21. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
@@ -159,7 +159,7 @@ Preflight records:
 | [`preflight/15-scalar-relational-transaction-and-store.md`](./preflight/15-scalar-relational-transaction-and-store.md) | Implemented privately with focused PGlite and ordinary-role PostgreSQL coverage | Private synthetic scalar operations, exact owner/table authority, pending-write reads, rollback-only nesting, cancellation with cleanup, read-only settlement and mutation rollback before receipt-family admission |
 | [`preflight/16-mutation-receipts-and-finalization-admission.md`](./preflight/16-mutation-receipts-and-finalization-admission.md) | Implemented privately with focused PGlite and ordinary-role PostgreSQL coverage | SQL-issued private receipts, complete bounded collection, one outer admission, and synthetic rejection without a new fact family or Application publisher changes |
 | [`preflight/17-cms-request-transactions-and-application-publication.md`](./preflight/17-cms-request-transactions-and-application-publication.md) | Application preservation complete; CMS host/publication proposal pending acceptance | Complete native mutation/OCC/replay, query, SV-R Core and RQ01 driver lanes; proposed bounded CMS pending documents, authenticated Application materialization, one publication and outcome recovery |
-| [`preflight/18-application-table-write-policy.md`](./preflight/18-application-table-write-policy.md) | Concrete Application-owner proposal pending acceptance | Policy-bearing canonical Application identity, new managed-table activation, retained ownership, authoring restrictions and authoritative denial before any CMS writer is admitted |
+| [`preflight/18-application-table-write-policy.md`](./preflight/18-application-table-write-policy.md) | Private denial capability implemented | Policy-bearing canonical Application identity, new managed-table activation, retained ownership, authoring restrictions and authoritative denial before any CMS writer is admitted |
 
 ## Current Architecture
 
@@ -333,9 +333,9 @@ has private Application-only and synthetic Medusa acceptance.
 | Relational receipts and finalization | Private SQL-issued receipts, complete collector and outer admission implemented on both drivers | No admitted relational fact family or successful framework publication |
 | Synthetic relational data proof | Non-serving selection, scalar operations, pending reads, nested rollback, authenticated receipts and finalization rejection implemented | Mutation attempts cannot publish; real framework conformance remains |
 | Application preservation | Post-core complete native mutation/OCC/replay/publication, query, SV-R Core and RQ01 scenarios pass on PGlite and ordinary-role PostgreSQL | Rerun after shared publication changes; Action/Task, live sync and hosted claims remain separate |
-| CMS request host and Application publication | Concrete private contract proposed | Acceptance, separate write-policy contract and implementation pending; no adapter or successful CMS publication yet |
-| Application table write policy | Concrete private denial contract proposed | Acceptance and implementation pending; no current CMS-managed write authority |
-| Payload scalar and non-reactive relation proofs | Pinned contract and native relation prerequisite available | Adapter, CMS read/request transaction, write-policy admission, scalar proof and relation candidate/rebinding pending |
+| CMS request host and Application publication | Concrete private contract proposed; Application denial prerequisite implemented | CMS host/content overlay implementation and successful CMS publication proof pending |
+| Application table write policy | Private denial capability implemented | Canonical policy through activation, retained ownership and journal/commit denial proven on both drivers; no CMS-managed write issuer |
+| Payload scalar and non-reactive relation proofs | Pinned contract and native relation prerequisite available | Adapter, CMS read/request transaction, scalar proof and relation candidate/rebinding pending |
 | Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
@@ -426,8 +426,10 @@ adds authentic SQL evidence, complete collection and outer rejection. Full
 Application preservation now passes on both drivers. The
 [CMS host/Application publication proposal](./preflight/17-cms-request-transactions-and-application-publication.md)
 follows implementation of the [Application table write-policy proposal](./preflight/18-application-table-write-policy.md).
-That proposal is the next complete capability: activate a new managed table,
-preserve ordinary Application reads and app-owned writes, and deny unauthorized
-writes through every entrypoint before enabling CMS publication.
+The private denial capability now activates a new managed table, preserves
+Application reads and app-owned writes, and denies ordinary managed-table writes
+at the journal and authoritative commit boundaries. The next consumer slice is
+the private CMS request host and content overlay, followed by the pinned Payload
+scalar Local API proof.
 Framework adapters, SDKs, runtime routes and
 production traffic remain gated.

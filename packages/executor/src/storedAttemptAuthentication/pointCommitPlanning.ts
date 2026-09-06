@@ -111,6 +111,7 @@ export type PreparedPointRowIntentV1 =
     }>;
 
 export interface PreparedPointCommitStateV1 {
+  readonly journalBytes: Uint8Array;
   readonly authorityPins: VerifiedCommitInputStateV1["authorityPins"];
   readonly sealIdentity: VerifiedCommitInputStateV1["sealIdentity"];
   readonly dependencies: ReadonlyArray<PreparedPointDependencyV1>;
@@ -251,7 +252,9 @@ export function planPointCommitStateV1(
     const dependencies = Object.freeze(
       candidates.map((candidate) => candidate.dependency),
     );
+    const journalBytes = copyBytes(source.journalBytes);
     return Object.freeze({
+      get journalBytes(): Uint8Array { return copyBytes(journalBytes); },
       authorityPins: captureAuthorityPins(source.authorityPins),
       sealIdentity: captureSealIdentity(source.sealIdentity),
       dependencies,

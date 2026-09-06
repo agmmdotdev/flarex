@@ -1,12 +1,12 @@
 import {
-  canonicalizeApplicationManifestV2,
-  type ApplicationManifestV2,
+  verifyApplicationManifestWithRelations,
+  type ApplicationManifestWithRelations,
 } from "@flarex/analysis/application-analysis";
 import {
   applicationFunctionCatalogPublicationFrameV2,
   applicationFunctionEntryPublicationFrameV2,
-  applicationPublicationCommitmentFrameV2,
-  applicationSchemaPublicationFrameV2,
+  applicationPublicationCommitmentFrame,
+  applicationSchemaPublicationFrame,
 } from "@flarex/analysis/internal/application-publication-v2";
 import {
   bytesEqualFullScan,
@@ -27,6 +27,9 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import type { AppRowTransaction } from "./appRows";
+import { runEffectTransaction } from "./effectTransaction";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
+import { deployments } from "./schema";
 import {
   hasAppSchemaCandidateReadinessComposition,
   loadAppSchemaCandidateReadinessEffect,
@@ -143,6 +146,9 @@ import {
 const UTF8 = new TextEncoder();
 const UTF8_FATAL = new TextDecoder("utf-8", { fatal: true });
 const MAXIMUM_FUNCTIONS = 4_096;
+import { prepareApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Preparation";
+import { ApplicationWriteOwnershipHistoryBudget } from "./applicationWriteOwnership/Policy";
+import type { CanonicalApplicationWriteOwnership } from "./applicationWriteOwnership/Model";
 const MAXIMUM_PHYSICAL_DEFINITIONS = 16_384;
 
 export interface ApplicationRelationReadinessFoldContext {
@@ -280,6 +286,8 @@ export interface ApplicationRelationReadinessFoldRepository {
 }
 
 export interface ApplicationRelationReadinessActivationBasis {
+  readonly writePolicy: ApplicationRelationSchemaAuthority["writePolicy"];
+  readonly writeOwnership: CanonicalApplicationWriteOwnership | null;
   readonly authority: ApplicationReadinessAuthority;
   readonly deploymentId: string;
   readonly revisionId: string;
@@ -287,7 +295,7 @@ export interface ApplicationRelationReadinessActivationBasis {
   readonly analysisId: string;
   readonly sourceArtifactRootSha256: Uint8Array;
   readonly manifestSha256: Uint8Array;
-  readonly manifest: ApplicationManifestV2;
+  readonly manifest: ApplicationManifestWithRelations;
   readonly publicationSha256: Uint8Array;
   readonly functionCatalogSha256: Uint8Array;
   readonly applicationSchemaSha256: Uint8Array;
@@ -335,6 +343,7 @@ interface ApplicationRelationSetReadinessEvidenceSnapshot {
 
 const repositoryStates = new WeakMap<object, FoldRepositoryState>();
 interface IssuedReadyResultState {
+  readonly writeOwnership: CanonicalApplicationWriteOwnership | null;
   readonly kind: "prepared" | "stored" | "active";
   readonly repository: FoldRepositoryState;
   readonly deploymentId: string;
@@ -558,6 +567,42 @@ export function getApplicationRelationReadinessFoldDefinitionAuthority(
   });
 }
 
+const activationCatalogLeaseBrand: unique symbol = Symbol("ApplicationActivationCatalogLease");
+export interface ApplicationActivationCatalogLease { readonly [activationCatalogLeaseBrand]: true }
+const activationCatalogLeases = new WeakMap<ApplicationActivationCatalogLease, Readonly<{
+  issued: ApplicationRelationReadinessFoldResult; tx: FlarexMetadataTransaction;
+}>>();
+
+/** The control deployment lock precedes the target clock and remains held until
+ * target activation settles. Control is read-only; target remains the sole
+ * activation decision owner. This serializes first ownership with legacy schema
+ * publication even when control and target use separate databases. */
+export const withApplicationActivationCatalogLock = Effect.fn("ApplicationRelationReadinessFold.withActivationCatalogLock")(
+  function* <Value, Failure>(repository: ApplicationRelationReadinessFoldRepository,
+    issued: ApplicationRelationReadinessFoldResult,
+    run: (lease: ApplicationActivationCatalogLease | undefined) => Effect.Effect<Value, Failure>):
+    Effect.fn.Return<Value, Failure | SettleApplicationRelationReadinessFoldError> {
+    const state = issuedReadyResults.get(issued);
+    if (state === undefined || repositoryStates.get(repository) !== state.repository) return yield* failure("invalidComposition").pipe(
+      Effect.mapError(error => exposeFoldIssue("validate", error)));
+    if (state.prepared.schema.writePolicy === null) return yield* run(undefined);
+    return yield* runEffectTransaction<Value, Failure | ApplicationRelationReadinessFoldIssue,
+      ApplicationRelationReadinessFoldIssue, FlarexMetadataTransaction>(
+      callback => state.repository.context.controlDb.transaction(callback),
+      "Application activation catalog lock rolled back.",
+      tx => Effect.gen(function* () {
+        const rows = yield* query(tx.select({ id: deployments.deploymentId }).from(deployments)
+          .where(eq(deployments.deploymentId, state.deploymentId)).limit(1).for("update"));
+        if (rows.length !== 1) return yield* failure("storedState");
+        const lease: ApplicationActivationCatalogLease = Object.freeze({ [activationCatalogLeaseBrand]: true as const });
+        activationCatalogLeases.set(lease, { issued, tx });
+        return yield* run(lease).pipe(Effect.ensuring(Effect.sync(() => { activationCatalogLeases.delete(lease); })));
+      }),
+      cause => failureValue("resourceFailure", false, cause),
+    ).pipe(Effect.mapError(cause => cause instanceof ApplicationRelationReadinessFoldIssue ? exposeFoldIssue("validate", cause) : cause));
+  },
+);
+
 export const validateApplicationRelationReadinessForActivationInTransaction =
   Effect.fn(
     "ApplicationRelationReadinessFold.validateForActivationInTransaction",
@@ -566,6 +611,7 @@ export const validateApplicationRelationReadinessForActivationInTransaction =
     issued: ApplicationRelationReadinessFoldResult,
     tx: AppRowTransaction,
     currentClock: ScopeClockRecord,
+    catalogLease?: ApplicationActivationCatalogLease,
   ): Effect.fn.Return<
     ApplicationRelationReadinessActivationValidation,
     SettleApplicationRelationReadinessFoldError
@@ -576,6 +622,7 @@ export const validateApplicationRelationReadinessForActivationInTransaction =
       issued,
       tx,
       currentClock,
+      catalogLease,
     ).pipe(
       Effect.mapError(error => exposeFoldIssue("validate", error)),
     );
@@ -638,7 +685,7 @@ interface StoredBundle {
   readonly deploymentId: string;
   readonly revision: typeof fxSystemApplicationRevisionsV2.$inferSelect;
   readonly publication: typeof fxSystemApplicationPublications.$inferSelect;
-  readonly manifest: ApplicationManifestV2;
+  readonly manifest: ApplicationManifestWithRelations;
   readonly functions: ReadonlyArray<
     typeof fxSystemApplicationFunctions.$inferSelect
   >;
@@ -646,6 +693,7 @@ interface StoredBundle {
 }
 
 interface PreparedFold {
+  readonly ownershipBudget: ApplicationWriteOwnershipHistoryBudget;
   readonly bundle: StoredBundle;
   readonly schema: ApplicationRelationSchemaAuthority;
   readonly requirements: PublishedPhysicalRequirementSnapshotV1;
@@ -821,6 +869,7 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
     return Object.freeze({
       target: located.target,
       prepared: Object.freeze({
+        ownershipBudget: new ApplicationWriteOwnershipHistoryBudget(),
         bundle,
         schema,
         requirements,
@@ -1040,11 +1089,11 @@ const reserveBundle = Effect.fn("ApplicationRelationReadinessFold.reserve")(
 const validateStoredPublication = Effect.fn(
   "ApplicationRelationReadinessFold.validateStoredPublication",
 )(function* (
-  manifest: ApplicationManifestV2,
+  manifest: ApplicationManifestWithRelations,
   publication: typeof fxSystemApplicationPublications.$inferSelect,
 ): Effect.fn.Return<void, ApplicationRelationReadinessFoldIssue> {
     const schemaBytes = yield* Effect.fromResult(
-      applicationSchemaPublicationFrameV2(manifest).pipe(
+      applicationSchemaPublicationFrame(manifest).pipe(
         Result.mapError(cause => failureValue("storedState", false, cause)),
       ),
     );
@@ -1063,7 +1112,7 @@ const validateStoredPublication = Effect.fn(
         yield* sha256(functionCatalogBytes))
     ) return yield* failure("storedState");
     const commitment = yield* Effect.fromResult(
-      applicationPublicationCommitmentFrameV2({
+      applicationPublicationCommitmentFrame(manifest, {
         scopeId: publication.scopeId,
         deploymentId: publication.deploymentId,
         revisionId: publication.revisionId,
@@ -1093,6 +1142,7 @@ const validateStoredPublication = Effect.fn(
 });
 
 interface ValidatedPreparedFold {
+  readonly writeOwnership: CanonicalApplicationWriteOwnership | null;
   readonly physical: Extract<
     ApplicationPhysicalReadinessResult,
     { readonly status: "ready" }
@@ -1236,10 +1286,12 @@ const validatePreparedFoldInTransaction = Effect.fn(
         context.relations,
       );
     }
-    return Object.freeze({
-      physical,
-      relations,
-    });
+    const writeOwnership = yield* prepareApplicationWriteOwnershipInTransaction(tx, context.controlDb, {
+      scopeId: clock.scopeId, deploymentId: prepared.bundle.deploymentId,
+      schemaVersionId: prepared.schema.schemaVersionId,
+      revisionId: prepared.bundle.revision.revisionId, policy: prepared.schema.writePolicy,
+    }, prepared.ownershipBudget).pipe(Effect.mapError(cause => failureValue("storedState", false, cause)));
+    return Object.freeze({ physical, relations, writeOwnership });
 });
 
 const loadStoredActiveRelationEvidence = Effect.fn(
@@ -1268,7 +1320,7 @@ const loadStoredActiveRelationEvidence = Effect.fn(
   );
   const root = roots[0];
   if (roots.length !== 1 || root === undefined ||
-    root.readinessCodecVersion !== 2 || root.relationSetCodecVersion !== 1 ||
+    root.readinessCodecVersion !== prepared.bundle.manifest.version || root.relationSetCodecVersion !== 1 ||
     root.storageGeneration !== clock.storageGeneration ||
     root.storageGenerationFence !== clock.storageGenerationFence ||
     root.epoch !== clock.epoch ||
@@ -1426,6 +1478,7 @@ const settleInTransaction = Effect.fn(
       validated.physical,
       validated.relations,
       readyAt,
+      validated.writeOwnership,
     );
     const readinessSha256 = yield* sha256(readinessBytes);
     const inserted = yield* insertOrReplayReadiness(
@@ -1446,6 +1499,7 @@ const settleInTransaction = Effect.fn(
       readinessBytes,
       validated.relations,
       inserted.readyAt,
+      validated.writeOwnership,
     );
 });
 
@@ -1485,6 +1539,7 @@ const readReadyInTransaction = Effect.fn(
     replay.readinessBytes,
     validated.relations,
     replay.readyAt,
+    validated.writeOwnership,
   );
 });
 
@@ -1525,6 +1580,7 @@ const readActiveReadyInTransaction = Effect.fn(
     replay.readinessBytes,
     validated.relations,
     replay.readyAt,
+    validated.writeOwnership,
   );
 });
 
@@ -1558,6 +1614,7 @@ const loadStoredRelationReadinessReplay = Effect.fn(
     validated.physical,
     validated.relations,
     readyAt,
+    validated.writeOwnership,
   );
   const readinessSha256 = yield* sha256(readinessBytes);
   const storedAt = yield* validateReadinessReplay(
@@ -1587,6 +1644,7 @@ function issueReadyResult(
   readinessBytes: Uint8Array,
   relationEvidence: ApplicationRelationSetReadinessEvidenceSnapshot,
   readyAt: Date,
+  writeOwnership: CanonicalApplicationWriteOwnership | null,
 ): Extract<
   ApplicationRelationReadinessFoldResult,
   { readonly status: "ready" }
@@ -1613,6 +1671,7 @@ function issueReadyResult(
     },
   } as const);
   issuedReadyResults.set(result, Object.freeze({
+    writeOwnership,
     kind,
     repository: repositoryState,
     deploymentId: prepared.bundle.deploymentId,
@@ -1657,6 +1716,7 @@ const validateIssuedRelationReadinessForActivation = Effect.fn(
   issued: ApplicationRelationReadinessFoldResult,
   tx: AppRowTransaction,
   currentClock: ScopeClockRecord,
+  catalogLease?: ApplicationActivationCatalogLease,
 ): Effect.fn.Return<
   ApplicationRelationReadinessActivationValidation,
   InternalApplicationRelationReadinessFoldError
@@ -1674,10 +1734,13 @@ const validateIssuedRelationReadinessForActivation = Effect.fn(
     issuedState.repository !== repositoryState ||
     issuedState.prepared.bundle.authority.scopeId !== currentClock.scopeId
   ) return yield* failure("invalidComposition");
+  const catalog = catalogLease === undefined ? undefined : activationCatalogLeases.get(catalogLease);
+  if (catalogLease !== undefined && (catalog === undefined || catalog.issued !== issued)) return yield* failure("invalidComposition");
   const validated = yield* validatePreparedFoldInTransaction(
     tx,
-    issuedState.prepared,
-    repositoryState.context,
+    // Issued evidence is reusable; consumption belongs to this validation call.
+    Object.freeze({ ...issuedState.prepared, ownershipBudget: new ApplicationWriteOwnershipHistoryBudget() }),
+    catalog === undefined ? repositoryState.context : { ...repositoryState.context, controlDb: catalog.tx },
     currentClock,
     expectedKind === "active" ? "storedActive" : "current",
   );
@@ -1727,6 +1790,8 @@ const relationActivationBasis = Effect.fn(
   const bundle = prepared.bundle;
   const relationEvidence = state.relationEvidence;
   return Object.freeze({
+    writePolicy: prepared.schema.writePolicy,
+    writeOwnership: state.writeOwnership,
     authority: Object.freeze({
       ...bundle.authority,
       physicalLocator: Object.freeze({
@@ -1876,7 +1941,7 @@ const insertOrReplayReadiness = Effect.fn(
         relationCount: relations.receipt.relationCount,
         relationSetReadinessSha256: relations.sha256,
         relationSetReadinessBytes: relations.canonicalBytes,
-        readinessCodecVersion: 2,
+        readinessCodecVersion: prepared.bundle.manifest.version,
         readinessSha256,
         readinessBytes,
         readyAt,
@@ -1884,7 +1949,7 @@ const insertOrReplayReadiness = Effect.fn(
         revisionId: fxSystemApplicationReadiness.revisionId,
       }),
     );
-    if (insertedRows.length === 1) {
+    if (insertedRows.length === 1 && relationChildren.length > 0) {
       yield* execute(tx.insert(fxSystemApplicationReadinessRelations).values(
         relationChildren.map(({ child, semanticDefinitionSha256,
           physicalDefinitionSha256, relationReadinessSha256 }) => ({
@@ -2046,7 +2111,7 @@ const validateReadinessReplay = Effect.fn(
       row.relationFrontierCommitSeq !==
         BigInt(relations.receipt.frontierCommitSeq) ||
       row.relationCount !== relations.receipt.relationCount ||
-      row.readinessCodecVersion !== 2 ||
+      row.readinessCodecVersion !== prepared.bundle.manifest.version ||
       !bytesEqualFullScan(row.sourceArtifactRootSha256,
         prepared.bundle.revision.sourceArtifactRootSha256) ||
       !bytesEqualFullScan(row.manifestSha256,
@@ -2132,10 +2197,15 @@ const relationReadinessFrame = Effect.fn(
   }>,
   relations: ApplicationRelationSetReadinessEvidenceSnapshot,
   readyAt: Date,
+  writeOwnership: CanonicalApplicationWriteOwnership | null,
 ): Effect.Effect<Uint8Array, ApplicationRelationReadinessFoldIssue> {
   return canonicalBytes({
     format: "flarex.application-readiness",
-    version: 2,
+    version: prepared.bundle.manifest.version,
+    ...(prepared.schema.writePolicy === null ? {} : {
+      writePolicySetSha256: prepared.schema.writePolicy.writePolicySetSha256,
+    }),
+    ...(writeOwnership === null ? {} : { writeOwnership: writeOwnership.frame, writeOwnershipSha256: writeOwnership.sha256Hex }),
     status: "ready",
     scopeId: prepared.bundle.authority.scopeId,
     deploymentId: prepared.bundle.deploymentId,
@@ -2193,7 +2263,9 @@ function requireSchemaCorrelation(
   bundle: StoredBundle,
   schema: ApplicationRelationSchemaAuthority,
 ): Effect.Effect<void, ApplicationRelationReadinessFoldIssue> {
-  return schema.deploymentId === bundle.deploymentId &&
+  return (bundle.manifest.version === 3
+      ? schema.writePolicy !== null && schema.writePolicy.writePolicySetSha256 === bundle.manifest.schema.writePolicySetSha256
+      : schema.writePolicy === null) && schema.deploymentId === bundle.deploymentId &&
       schema.applicationManifestSha256 ===
         encodeBytesToLowercaseHex(bundle.revision.manifestSha256) &&
       schema.applicationSchemaSha256 ===
@@ -2289,17 +2361,15 @@ const decodeStoredManifest = Effect.fn(
   bytes: Uint8Array,
   expectedSha256: Uint8Array,
 ): Effect.fn.Return<
-  ApplicationManifestV2,
+  ApplicationManifestWithRelations,
   ApplicationRelationReadinessFoldIssue
 > {
     const parsed = yield* Effect.try({
       try: (): unknown => JSON.parse(UTF8_FATAL.decode(bytes)),
       catch: cause => failureValue("storedState", false, cause),
     });
-    const canonical = yield* Effect.fromResult(
-      canonicalizeApplicationManifestV2(parsed).pipe(
-        Result.mapError(cause => failureValue("storedState", false, cause)),
-      ),
+    const canonical = yield* verifyApplicationManifestWithRelations(parsed).pipe(
+      Effect.mapError(cause => failureValue("storedState", false, cause)),
     );
     if (
       !bytesEqualFullScan(canonical.canonicalBytes, bytes) ||

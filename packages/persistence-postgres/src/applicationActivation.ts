@@ -9,10 +9,13 @@ import { canonicalizeApplicationManifest } from
   "@flarex/analysis/application-analysis";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, sql } from "drizzle-orm";
-import { Cause, Data, Effect, Exit, Result } from "effect";
+import { Cause, Data, Effect, Encoding, Exit, Result } from "effect";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
 import type { AppRowTransaction } from "./appRows";
+import { fxSystemApplicationWriteOwnership } from "./applicationWriteOwnership/Schema";
+import { readApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Repository";
+import { ApplicationWriteOwnershipHistoryBudget } from "./applicationWriteOwnership/Policy";
 import {
   decodeApplicationActivationRowEffect,
   decodeApplicationActiveHeadRowEffect,
@@ -36,6 +39,8 @@ import {
   hasApplicationRelationReadinessFoldComposition,
   validateActiveApplicationRelationReadinessInTransaction,
   validateApplicationRelationReadinessForActivationInTransaction,
+  withApplicationActivationCatalogLock,
+  type ApplicationActivationCatalogLease,
   type ApplicationRelationReadinessActivationBasis,
   type ApplicationRelationReadinessFoldRepository,
   type ApplicationRelationReadinessFoldResult,
@@ -734,17 +739,20 @@ function makeCompositeApplicationActivationRepository<
           input.revisionId,
         );
       }
-      return yield* runLocatedTransaction(
-        located.target,
-        "activate",
-        input.revisionId,
-        tx => activateRelationInTransaction(
-          tx,
-          located.authority,
-          captured.relationReadiness,
-          readiness,
-          expected,
-          captured.faultAfter,
+      return yield* withApplicationActivationCatalogLock(captured.relationReadiness, readiness,
+        catalogLease => runLocatedTransaction(
+          located.target,
+          "activate",
+          input.revisionId,
+          tx => activateRelationInTransaction(
+            tx,
+            located.authority,
+            captured.relationReadiness,
+            readiness,
+            expected,
+            captured.faultAfter,
+            catalogLease,
+          ),
         ),
       );
     },
@@ -1214,6 +1222,7 @@ const activateRelationInTransaction = Effect.fn(
   faultAfter: ApplicationRelationActivationContext<unknown, unknown>[
     "faultAfter"
   ],
+  catalogLease: ApplicationActivationCatalogLease | undefined,
 ) {
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
     tx,
@@ -1232,6 +1241,7 @@ const activateRelationInTransaction = Effect.fn(
       readiness,
       tx,
       clock,
+      catalogLease,
     );
   if (validated.status !== "ready") {
     return yield* activationFailure(
@@ -1420,6 +1430,24 @@ const persistActivationInTransaction = Effect.fn(
   const activationSequence = previousActivationSequence === null
     ? 1n
     : previousActivationSequence + 1n;
+  const ownership = validated.kind === "relation" ? validated.basis.writeOwnership : null;
+  const writePolicySetSha256 = ownership === null ? null : yield* Effect.fromResult(
+    Encoding.decodeHex(ownership.frame.writePolicySetSha256).pipe(Result.mapError(cause =>
+      activationError("activate", "storedState", basis.revisionId, false, cause))));
+  if (ownership === null) {
+    const retained = yield* query(tx.select({ sequence: fxSystemApplicationWriteOwnership.activationSequence })
+      .from(fxSystemApplicationWriteOwnership).where(eq(fxSystemApplicationWriteOwnership.scopeId, authority.scopeId)).limit(1),
+      "activate", basis.revisionId);
+    if (head?.readinessContractVersion === 3 || retained.length !== 0) {
+      return yield* activationFailure("activate", "notReady", basis.revisionId);
+    }
+  } else if (ownership.frame.scopeId !== authority.scopeId || ownership.frame.revisionId !== basis.revisionId ||
+    ownership.frame.activationSequence !== activationSequence.toString() ||
+    (ownership.frame.predecessor === null ? head?.readinessContractVersion === 3 :
+      head?.activationSequence.toString() !== ownership.frame.predecessor.activationSequence ||
+      head.writeOwnershipSha256 !== ownership.frame.predecessor.claimsSha256)) {
+    return yield* activationFailure("activate", "expectedHead", basis.revisionId);
+  }
   const activatedAt = yield* databaseTime(
     tx,
     authority.scopeId,
@@ -1442,6 +1470,8 @@ const persistActivationInTransaction = Effect.fn(
       previousActivationSequence,
       revisionId: basis.revisionId,
       readinessContractVersion: readiness.contractVersion,
+      writePolicySetSha256: writePolicySetSha256,
+      writeOwnershipSha256: ownership?.sha256 ?? null,
       readinessSha256: copyBytes(basis.readinessSha256),
       legacyReadinessSha256: validated.kind === "legacy"
         ? copyBytes(basis.readinessSha256)
@@ -1466,6 +1496,11 @@ const persistActivationInTransaction = Effect.fn(
     basis.revisionId,
   );
   yield* runFault(faultAfter, "activationInserted", basis.revisionId);
+  if (ownership !== null) {
+    yield* query(tx.insert(fxSystemApplicationWriteOwnership).values({ scopeId: authority.scopeId, activationSequence,
+      claimsSha256: ownership.sha256, claimsBytes: ownership.canonicalBytes }).returning({
+      sequence: fxSystemApplicationWriteOwnership.activationSequence }), "activate", basis.revisionId);
+  }
   const nextHead = yield* canonicalFrame(applicationActiveHeadFrame({
     scopeId: authority.scopeId,
     activationSequence: activationSequence.toString(),
@@ -1480,6 +1515,8 @@ const persistActivationInTransaction = Effect.fn(
         activationSequence,
         revisionId: basis.revisionId,
         readinessContractVersion: readiness.contractVersion,
+        writePolicySetSha256: writePolicySetSha256,
+        writeOwnershipSha256: ownership?.sha256 ?? null,
         readinessSha256: copyBytes(basis.readinessSha256),
         relationSetReadinessSha256: validated.kind === "relation"
           ? copyBytes(validated.basis.relationSetReadinessSha256)
@@ -1511,6 +1548,8 @@ const persistActivationInTransaction = Effect.fn(
         activationSequence,
         revisionId: basis.revisionId,
         readinessContractVersion: readiness.contractVersion,
+        writePolicySetSha256: writePolicySetSha256,
+        writeOwnershipSha256: ownership?.sha256 ?? null,
         readinessSha256: copyBytes(basis.readinessSha256),
         relationSetReadinessSha256: validated.kind === "relation"
           ? copyBytes(validated.basis.relationSetReadinessSha256)
@@ -1542,6 +1581,13 @@ const persistActivationInTransaction = Effect.fn(
         basis.revisionId,
       );
     }
+  }
+  if (ownership !== null) {
+    // A newly installed head must remain cold-readable and replayable within the
+    // same aggregate limit. Failure rolls back both the claim and head writes.
+    const recoveryBudget = new ApplicationWriteOwnershipHistoryBudget();
+    yield* readApplicationWriteOwnershipInTransaction(tx, authority.scopeId, recoveryBudget).pipe(Effect.mapError(cause =>
+      activationError("activate", "notReady", basis.revisionId, false, cause)));
   }
   yield* runFault(faultAfter, "headWritten", basis.revisionId);
   return Object.freeze({
@@ -1782,7 +1828,11 @@ const loadRevisionReadinessKindInTransaction = Effect.fn(
       revisionId,
     );
   }
-  return canonical.manifest.version === 1 ? "legacy" : "relation";
+  switch (canonical.manifest.version) {
+    case 1: return "legacy";
+    case 2: return "relation";
+    case 3: return "relation";
+  }
 });
 
 const loadActiveRevisionHint = Effect.fn("ApplicationActivation.loadHeadHint")(
@@ -1898,6 +1948,13 @@ function expectedMatchesHead(
 function activationReadinessCommitment(
   validated: ValidatedActivation,
 ): ApplicationActivationReadinessCommitment {
+  if (validated.kind === "relation" && validated.basis.writeOwnership !== null) {
+    return Object.freeze({ kind: "policy", contractVersion: 3,
+      readinessSha256: encodeBytesToLowercaseHex(validated.basis.readinessSha256),
+      relationSetReadinessSha256: encodeBytesToLowercaseHex(validated.basis.relationSetReadinessSha256), relationCount: validated.basis.relationCount,
+      writePolicySetSha256: validated.basis.writeOwnership.frame.writePolicySetSha256,
+      writeOwnershipSha256: validated.basis.writeOwnership.sha256Hex });
+  }
   return validated.kind === "legacy"
     ? Object.freeze({
         kind: "legacy" as const,
@@ -1920,6 +1977,13 @@ function activationReadinessCommitment(
 function decodedReadinessCommitment(
   decoded: DecodedActivation,
 ): ApplicationActivationReadinessCommitment {
+  if (decoded.readinessKind === "relation" && decoded.readinessContractVersion === 3 &&
+    decoded.writePolicySetSha256 !== null && decoded.writeOwnershipSha256 !== null) {
+    return Object.freeze({ kind: "policy", contractVersion: 3,
+      readinessSha256: encodeBytesToLowercaseHex(decoded.readinessSha256),
+      relationSetReadinessSha256: encodeBytesToLowercaseHex(decoded.relationSetReadinessSha256), relationCount: decoded.relationCount,
+      writePolicySetSha256: decoded.writePolicySetSha256, writeOwnershipSha256: decoded.writeOwnershipSha256 });
+  }
   return decoded.readinessKind === "legacy"
     ? Object.freeze({
         kind: "legacy" as const,
@@ -1943,6 +2007,7 @@ function activationMatchesValidated(
 ): boolean {
   const basis = validated.basis;
   if (activation.scopeId !== basis.authority.scopeId ||
+    activation.readinessContractVersion !== (validated.kind === "legacy" ? 1 : validated.basis.manifest.version) ||
     activation.revisionId !== basis.revisionId ||
     !bytesEqualFullScan(activation.readinessSha256, basis.readinessSha256)) {
     return false;
@@ -1963,6 +2028,7 @@ function headMatchesValidatedReadiness(
 ): boolean {
   const basis = validated.basis;
   if (head.scopeId !== basis.authority.scopeId ||
+    head.readinessContractVersion !== (validated.kind === "legacy" ? 1 : validated.basis.manifest.version) ||
     head.revisionId !== basis.revisionId ||
     !bytesEqualFullScan(head.readinessSha256, basis.readinessSha256)) {
     return false;

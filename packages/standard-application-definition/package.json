@@ -11,6 +11,7 @@
     "./internal/legacy-authoring": "./src/authoringV1.ts",
     "./internal/prepared-definition-v1": "./src/preparedDefinitionV1.ts",
     "./internal/relation-definition": "./src/relationDefinition/index.ts",
+    "./internal/write-policy-source": "./src/writePolicySource.ts",
     "./internal/task-authoring-v1": "./src/taskAuthoringV1.ts",
     "./internal/task-definition-v1": "./src/taskDefinition/v1.ts"
   },

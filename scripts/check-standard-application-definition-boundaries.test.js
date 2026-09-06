@@ -56,6 +56,7 @@ describe("Standard Application definition boundary checker", () => {
           "packages/standard-application-definition/src/applicationSource.ts",
         text: `
           import { policy } from "@flarex/analysis/internal/application-analysis-module-path-policy";
+          import { decodeApplicationWritePolicies } from "@flarex/analysis/internal/application-write-policy";
           import { snapshotApplicationSchemaDefinition } from "@flarex/application-schema-definition/application-schema";
           import { copyBytes } from "@flarex/utils/bytes";
           import { compareUtf16Strings } from "@flarex/utils/strings";
@@ -185,7 +186,7 @@ describe("Standard Application definition boundary checker", () => {
     );
 
     expect(report.errors).toEqual([
-      "Standard Application definition package must expose exactly ./application-source and its six declared internal owner subpaths with no package root or /v1 product export.",
+      "Standard Application definition package must expose exactly ./application-source and its seven declared internal owner subpaths with no package root or /v1 product export.",
     ]);
   });
 
@@ -536,6 +537,7 @@ function validManifest() {
         "./src/relationDefinition/index.ts",
       "./internal/task-authoring-v1": "./src/taskAuthoringV1.ts",
       "./internal/task-definition-v1": "./src/taskDefinition/v1.ts",
+      "./internal/write-policy-source": "./src/writePolicySource.ts",
     },
     dependencies: {
       "@flarex/analysis": "workspace:*",

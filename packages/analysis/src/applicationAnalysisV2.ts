@@ -39,6 +39,14 @@ import type {
   AnalyzerValidatorError,
   ApplicationAnalysis,
 } from "./index.ts";
+import {
+  canonicalizeApplicationManifestV3,
+  ApplicationManifestV3Schema,
+  makeApplicationManifestV3,
+  verifyApplicationManifestV3,
+  type ApplicationManifestV3,
+  type CanonicalApplicationManifestV3,
+} from "./applicationAnalysisV3.ts";
 
 const UTF8_ENCODER = new TextEncoder();
 
@@ -57,7 +65,8 @@ export interface ApplicationManifestV2 {
   readonly functions: ApplicationManifestV1["functions"];
 }
 
-export type ApplicationManifest = ApplicationManifestV1 | ApplicationManifestV2;
+export type ApplicationManifest = ApplicationManifestV1 | ApplicationManifestV2 | ApplicationManifestV3;
+export type ApplicationManifestWithRelations = ApplicationManifestV2 | ApplicationManifestV3;
 
 export interface CanonicalApplicationManifestV2 {
   readonly manifest: ApplicationManifestV2;
@@ -67,7 +76,21 @@ export interface CanonicalApplicationManifestV2 {
 
 export type CanonicalApplicationManifest =
   | CanonicalApplicationManifestV1
-  | CanonicalApplicationManifestV2;
+  | CanonicalApplicationManifestV2
+  | CanonicalApplicationManifestV3;
+export type CanonicalApplicationManifestWithRelations = CanonicalApplicationManifestV2 | CanonicalApplicationManifestV3;
+
+/** Current schema consumers authenticate V3 references and never downgrade to V1. */
+export const verifyApplicationManifestWithRelations = Effect.fn("ApplicationAnalysis.verifyCurrentManifest")(
+  function* (value: unknown): Effect.fn.Return<CanonicalApplicationManifestWithRelations, ApplicationAnalysisContractError> {
+    const canonical = yield* Effect.fromResult(canonicalizeApplicationManifest(value));
+    switch (canonical.manifest.version) {
+      case 1: return yield* Effect.fail(new ApplicationAnalysisContractError({ operation: "decodeManifest", reason: "invalidInput", path: "version" }));
+      case 2: return yield* Effect.fromResult(canonicalizeApplicationManifestV2(canonical.manifest));
+      case 3: return yield* verifyApplicationManifestV3(canonical.manifest);
+    }
+  },
+);
 
 const OwnedApplicationManifestV2Schema = Schema.declare<ApplicationManifestV2>(
   (value): value is ApplicationManifestV2 =>
@@ -93,6 +116,7 @@ export const ApplicationManifestV2Schema = Schema.Unknown.pipe(
 export const ApplicationManifestSchema = Schema.Union([
   ApplicationManifestV1Schema,
   ApplicationManifestV2Schema,
+  ApplicationManifestV3Schema,
 ]);
 
 export function decodeApplicationManifestV2(
@@ -122,9 +146,11 @@ export function canonicalizeApplicationManifest(
 > {
   return Result.gen(function* () {
     const version = yield* manifestVersion(value);
-    return version === 1
-      ? yield* canonicalizeApplicationManifestV1(value)
-      : yield* canonicalizeApplicationManifestV2(value);
+    switch (version) {
+      case 1: return yield* canonicalizeApplicationManifestV1(value);
+      case 2: return yield* canonicalizeApplicationManifestV2(value);
+      case 3: return yield* canonicalizeApplicationManifestV3(value);
+    }
   });
 }
 
@@ -154,6 +180,9 @@ export const makeApplicationManifest = Effect.fn(
     analysis,
     sourceArtifact,
   );
+  if (analysis.writePolicies !== undefined) {
+    return yield* makeApplicationManifestV3(canonicalV1.manifest, analysis.relations, analysis.writePolicies);
+  }
   if (analysis.relations.length === 0) return canonicalV1;
   return yield* Effect.fromResult(
     canonicalizeApplicationManifestV2ForOperation({
@@ -206,6 +235,34 @@ function decodeApplicationManifestV2Worker(
       ));
     }
 
+    const { base: canonicalV1, relations: expectedRelations } = yield*
+      decodeApplicationManifestRelationParts(manifestProperties, schemaProperties, operation, false);
+    return snapshotApplicationManifestV2({
+      format: canonicalV1.format,
+      version: APPLICATION_MANIFEST_VERSION_V2,
+      sourceArtifact: canonicalV1.sourceArtifact,
+      schema: {
+        version: APPLICATION_MANIFEST_VERSION_V2,
+        tables: canonicalV1.schema.tables,
+        indexes: canonicalV1.schema.indexes,
+        relations: expectedRelations,
+      },
+      functions: canonicalV1.functions,
+    });
+  });
+}
+
+/** Shared field validation only; never emits a downgraded manifest for a reader. */
+export function decodeApplicationManifestRelationParts(
+  manifestProperties: ReadonlyMap<string, unknown>,
+  schemaProperties: ReadonlyMap<string, unknown>,
+  operation: "decodeManifest" | "lowerManifest",
+  allowEmptyRelations: boolean,
+): Result.Result<Readonly<{
+  readonly base: ApplicationManifestV1;
+  readonly relations: ReadonlyArray<AnalyzedApplicationRelation>;
+}>, ApplicationAnalysisContractError> {
+  return Result.gen(function* () {
     const canonicalV1 = yield* decodeApplicationManifestV1({
       format: manifestProperties.get("format"),
       version: 1,
@@ -226,6 +283,7 @@ function decodeApplicationManifestV2Worker(
     const suppliedRelations = yield* decodeAnalyzedRelationEntries(
       schemaProperties.get("relations"),
       operation,
+      allowEmptyRelations,
     );
     const expectedRelations = yield* analyzeDecodedApplicationRelationsResult(
       suppliedRelations.map(entry => entry.declaration),
@@ -270,24 +328,14 @@ function decodeApplicationManifestV2Worker(
       }
     }
 
-    return snapshotApplicationManifestV2({
-      format: canonicalV1.format,
-      version: APPLICATION_MANIFEST_VERSION_V2,
-      sourceArtifact: canonicalV1.sourceArtifact,
-      schema: {
-        version: APPLICATION_MANIFEST_VERSION_V2,
-        tables: canonicalV1.schema.tables,
-        indexes: canonicalV1.schema.indexes,
-        relations: expectedRelations,
-      },
-      functions: canonicalV1.functions,
-    });
+    return { base: canonicalV1, relations: expectedRelations };
   });
 }
 
 function decodeAnalyzedRelationEntries(
   value: unknown,
   operation: "decodeManifest" | "lowerManifest",
+  allowEmpty: boolean,
 ): Result.Result<
   ReadonlyArray<AnalyzedApplicationRelation>,
   ApplicationAnalysisContractError
@@ -295,7 +343,7 @@ function decodeAnalyzedRelationEntries(
   return Result.gen(function* () {
     const inspected = yield* inspectRelationArray(value, operation);
     const length = inspected.length;
-    if (length === 0) {
+    if (length === 0 && !allowEmpty) {
       return yield* Result.fail(contractFailure(
         operation,
         "invalidSchemaRelationship",
@@ -407,7 +455,7 @@ function canonicalizeApplicationManifestV2ForOperation(
   });
 }
 
-function strictOwnDataProperties(
+export function strictOwnDataProperties(
   value: unknown,
   expectedKeys: ReadonlyArray<string>,
   path: string,
@@ -451,14 +499,14 @@ function strictOwnDataProperties(
 
 function manifestVersion(
   value: unknown,
-): Result.Result<1 | 2, ApplicationAnalysisContractError> {
+): Result.Result<1 | 2 | 3, ApplicationAnalysisContractError> {
   try {
     if (!isNonArrayRecord(value)) {
       return Result.fail(contractFailure("decodeManifest", "invalidInput"));
     }
     const descriptor = Object.getOwnPropertyDescriptor(value, "version");
     return descriptor !== undefined && "value" in descriptor &&
-        (descriptor.value === 1 || descriptor.value === 2)
+        (descriptor.value === 1 || descriptor.value === 2 || descriptor.value === 3)
       ? Result.succeed(descriptor.value)
       : Result.fail(contractFailure("decodeManifest", "invalidInput", {
           path: "version",

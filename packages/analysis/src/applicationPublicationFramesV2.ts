@@ -11,6 +11,7 @@ import {
   type ApplicationManifestV2,
   isApplicationManifestV1,
 } from "./applicationAnalysisV2";
+import { applicationSchemaPublicationFrameV3, applicationPublicationCommitmentFrameV3, type ApplicationPublicationFrameV3Error } from "./applicationPublicationFramesV3.ts";
 
 export const APPLICATION_SCHEMA_PUBLICATION_FRAME_VERSION_V2 = 2 as const;
 export const APPLICATION_SCHEMA_PUBLICATION_MAXIMUM_FRAME_BYTES_V2 =
@@ -83,7 +84,7 @@ export function applicationSchemaPublicationFrameV2(
 
 /** Canonical function catalog for a relation-bearing Application manifest. */
 export function applicationFunctionCatalogPublicationFrameV2(
-  manifest: ApplicationManifestV2,
+  manifest: Pick<ApplicationManifestV2, "functions">,
 ): Result.Result<Uint8Array, ApplicationPublicationFrameV2Error> {
   return canonicalPublicationFrame("functionCatalog", {
     format: "flarex.application-function-catalog",
@@ -118,11 +119,21 @@ export function applicationSchemaPublicationFrame(
 ): Result.Result<
   Uint8Array,
   ApplicationPublicationFrameV1Error |
-    ApplicationSchemaPublicationFrameV2Error
+    ApplicationSchemaPublicationFrameV2Error | ApplicationPublicationFrameV3Error
 > {
+  if (manifest.version === 3) return applicationSchemaPublicationFrameV3(manifest);
   return isApplicationManifestV1(manifest)
     ? applicationSchemaPublicationFrameV1(manifest)
     : applicationSchemaPublicationFrameV2(manifest);
+}
+
+export function applicationPublicationCommitmentFrame(
+  manifest: ApplicationManifestV2 | import("./applicationAnalysisV3.ts").ApplicationManifestV3,
+  input: ApplicationPublicationCommitmentV2Input,
+): Result.Result<Uint8Array, ApplicationPublicationFrameV2Error | ApplicationPublicationFrameV3Error> {
+  return manifest.version === 3
+    ? applicationPublicationCommitmentFrameV3({ ...input, writePolicySetSha256: manifest.schema.writePolicySetSha256 })
+    : applicationPublicationCommitmentFrameV2(input);
 }
 
 function canonicalPublicationFrame(

@@ -1,4 +1,4 @@
-import type { ApplicationManifestV2 } from
+import type { ApplicationManifestWithRelations } from
   "@flarex/analysis/application-analysis";
 import { Data } from "effect";
 import type {
@@ -6,7 +6,7 @@ import type {
   ApplicationManifestSchemaBindingV1,
   ApplicationManifestSchemaBindingSha256Hex,
   ApplicationSchemaBindingSha256Hex,
-  ApplicationSchemaBindingV2,
+  ApplicationSchemaBindingWithRelations,
   ApplicationSchemaRelationBindingV2,
 } from "flarex-protocol/internal/application-schema-binding";
 import type { CatalogSchemaVersionId } from
@@ -39,14 +39,14 @@ export type RelationEvolutionDecision =
 
 export interface PublishApplicationRelationBindingInput {
   readonly deploymentId: string;
-  readonly manifest: ApplicationManifestV2;
+  readonly manifest: ApplicationManifestWithRelations;
   readonly manifestSha256: string;
   readonly decisions: ReadonlyArray<RelationEvolutionDecision>;
 }
 
 export interface ApplicationRelationBindingPublication {
   readonly status: "created" | "existing";
-  readonly binding: ApplicationSchemaBindingV2;
+  readonly binding: ApplicationSchemaBindingWithRelations;
   readonly boundPublicationSha256: ApplicationSchemaBindingSha256Hex;
   readonly manifestBinding: ApplicationManifestSchemaBindingV1;
   readonly manifestSchemaBindingSha256:
@@ -57,7 +57,7 @@ export interface ApplicationRelationBindingPublication {
 export interface LocatedApplicationRelationBinding {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
-  readonly binding: ApplicationSchemaBindingV2;
+  readonly binding: ApplicationSchemaBindingWithRelations;
   readonly applicationSchemaSha256: Uint8Array;
   readonly schemaManifestSha256: Uint8Array;
   readonly boundPublicationSha256: Uint8Array;

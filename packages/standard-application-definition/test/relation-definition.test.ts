@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   produceInternalStandardApplicationSourceWithRelations,
+  produceInternalStandardApplicationSourceWithWritePolicies,
   produceStandardApplicationSource,
   STANDARD_APPLICATION_SCHEMA_MODULE_PATH,
   type StandardApplicationSource,
@@ -28,6 +29,34 @@ describe("Standard Application relation definitions", () => {
     expect(publicApplicationSource).not.toHaveProperty(
       "ProduceInternalStandardApplicationRelationSourceError",
     );
+    expect(publicApplicationSource).not.toHaveProperty(
+      "produceInternalStandardApplicationSourceWithWritePolicies",
+    );
+  });
+
+  it("emits owned policy declarations for trusted analysis to authenticate", () => {
+    const policies = {
+      format: "flarex.application-table-write-policies", version: 1,
+      provenance: {
+        format: "flarex.payload-provenance", version: 1, package: "payload", release: "3.88.0",
+        npmIntegrity: "sha512-O7zuS80bvEGLte+7xZjwN05+ox5BCsGcQT2M6+CTote07JQOOvHJoiuoyQFw6cUElcFTWGMC5dy03w7J7sTYGg==",
+        gitTagObject: "c54dea8f4010d9cb194780f2ee1e4b3ec697f9be", gitCommit: "fea6f8a47a50ff1330d8a5071b43e7dcffb97b22",
+      },
+      configuration: {
+        format: "flarex.payload-configuration", version: 1, profile: "payload.scalar", provenanceSha256: "0".repeat(64),
+        tables: [{ logicalTableName: "posts", fields: [] }],
+      },
+      tables: [
+        { logicalTableName: "posts", owner: "payload", policyId: "payload.scalar", configSha256: "0".repeat(64), provenanceSha256: "0".repeat(64) },
+        { logicalTableName: "users", owner: "application" },
+      ],
+    };
+    const source = Result.getOrThrow(produceInternalStandardApplicationSourceWithWritePolicies(preparedDefinition(), policies));
+    policies.configuration.tables[0]!.logicalTableName = "changed";
+    expect(schemaSource(source)).toContain('relations: [], writePolicies: {');
+    expect(schemaSource(source)).toContain('"logicalTableName":"posts","owner":"payload"');
+    expect(schemaSource(source)).not.toContain("changed");
+    expect(Result.isFailure(produceInternalStandardApplicationSourceWithWritePolicies(preparedDefinition(), policies))).toBe(true);
   });
 
   it("preserves the established zero-relation schema source exactly", () => {

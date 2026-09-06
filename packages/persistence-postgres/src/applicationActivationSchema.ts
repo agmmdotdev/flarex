@@ -18,7 +18,7 @@ import {
 import { bytea, fxSystemApplicationReadinessV1 } from "./schema";
 
 /** Concrete persisted readiness contract selected by one Application activation. */
-export type ApplicationActivationReadinessContractVersion = 1 | 2;
+export type ApplicationActivationReadinessContractVersion = 1 | 2 | 3;
 
 /**
  * The one Application activation history. The physical table is unversioned;
@@ -44,6 +44,8 @@ export const fxSystemApplicationActivations = pgTable(
     relationReadinessSha256: bytea("relation_readiness_sha256"),
     relationSetReadinessSha256: bytea("relation_set_readiness_sha256"),
     relationCount: integer("relation_count"),
+    writePolicySetSha256: bytea("write_policy_set_sha256"),
+    writeOwnershipSha256: bytea("write_ownership_sha256"),
     activationRequestSha256: bytea("activation_request_sha256").notNull(),
     activationSha256: bytea("activation_sha256").notNull(),
     activationBytes: bytea("activation_bytes").notNull(),
@@ -120,14 +122,20 @@ export const fxSystemApplicationActivations = pgTable(
           and ${table.relationReadinessSha256} is null
           and ${table.relationSetReadinessSha256} is null
           and ${table.relationCount} is null)
-        or (${table.readinessContractVersion} = 2
+        or (${table.readinessContractVersion} in (2, 3)
           and ${table.legacyReadinessSha256} is null
           and ${table.relationReadinessSha256} is not null
           and ${table.relationReadinessSha256} = ${table.readinessSha256}
           and ${table.relationSetReadinessSha256} is not null
           and octet_length(${table.relationSetReadinessSha256}) = 32
           and ${table.relationCount} is not null
-          and ${table.relationCount} between 1 and 1024)
+          and (${table.relationCount} between 1 and 1024
+            or (${table.readinessContractVersion} = 3 and ${table.relationCount} = 0)))
+      ) and (
+        (${table.readinessContractVersion} in (1, 2) and ${table.writePolicySetSha256} is null and ${table.writeOwnershipSha256} is null)
+        or (${table.readinessContractVersion} = 3 and ${table.writePolicySetSha256} is not null
+          and ${table.writeOwnershipSha256} is not null and octet_length(${table.writePolicySetSha256}) = 32
+          and octet_length(${table.writeOwnershipSha256}) = 32)
       )`,
     ),
     check(
@@ -152,6 +160,8 @@ export const fxSystemApplicationActiveHeads = pgTable(
     readinessSha256: bytea("readiness_sha256").notNull(),
     relationSetReadinessSha256: bytea("relation_set_readiness_sha256"),
     relationCount: integer("relation_count"),
+    writePolicySetSha256: bytea("write_policy_set_sha256"),
+    writeOwnershipSha256: bytea("write_ownership_sha256"),
     activationSha256: bytea("activation_sha256").notNull(),
     headSha256: bytea("head_sha256").notNull(),
     headBytes: bytea("head_bytes").notNull(),
@@ -214,11 +224,17 @@ export const fxSystemApplicationActiveHeads = pgTable(
         (${table.readinessContractVersion} = 1
           and ${table.relationSetReadinessSha256} is null
           and ${table.relationCount} is null)
-        or (${table.readinessContractVersion} = 2
+        or (${table.readinessContractVersion} in (2, 3)
           and ${table.relationSetReadinessSha256} is not null
           and octet_length(${table.relationSetReadinessSha256}) = 32
           and ${table.relationCount} is not null
-          and ${table.relationCount} between 1 and 1024)
+          and (${table.relationCount} between 1 and 1024
+            or (${table.readinessContractVersion} = 3 and ${table.relationCount} = 0)))
+      ) and (
+        (${table.readinessContractVersion} in (1, 2) and ${table.writePolicySetSha256} is null and ${table.writeOwnershipSha256} is null)
+        or (${table.readinessContractVersion} = 3 and ${table.writePolicySetSha256} is not null
+          and ${table.writeOwnershipSha256} is not null and octet_length(${table.writePolicySetSha256}) = 32
+          and octet_length(${table.writeOwnershipSha256}) = 32)
       )`,
     ),
     check(

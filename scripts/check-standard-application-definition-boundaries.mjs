@@ -138,6 +138,7 @@ const taskAuthoringAllowedProductionImports = new Set([
 const applicationSourceAllowedProductionImports = new Set([
   ...shippedDefinitionAllowedProductionImports,
   "@flarex/analysis/internal/application-analysis-module-path-policy",
+  "@flarex/analysis/internal/application-write-policy",
   "@flarex/application-schema-definition/application-schema",
   "@flarex/utils/bytes",
   "@flarex/utils/strings",
@@ -248,7 +249,7 @@ if (isCliEntrypoint()) {
   } else {
     console.log("Standard Application definition boundary check passed.");
     console.log(
-      "Allowed package exports: ./application-source plus six explicit internal owner subpaths.",
+      "Allowed package exports: ./application-source plus seven explicit internal owner subpaths.",
     );
     console.log(
       `Allowed runtime dependencies: ${expectedRuntimeDependencies.size}`,
@@ -447,7 +448,7 @@ function collectExportErrors(exportsValue, errors) {
 
   const exportNames = Object.keys(exportsValue).sort();
   if (
-    exportNames.length !== 7
+    exportNames.length !== 8
     || exportNames[0] !== "./application-source"
     || exportNames[1] !== "./internal/application-task-binding-v1"
     || exportNames[2] !== "./internal/legacy-authoring"
@@ -455,6 +456,7 @@ function collectExportErrors(exportsValue, errors) {
     || exportNames[4] !== "./internal/relation-definition"
     || exportNames[5] !== "./internal/task-authoring-v1"
     || exportNames[6] !== "./internal/task-definition-v1"
+    || exportNames[7] !== "./internal/write-policy-source"
     || exportsValue["./application-source"] !==
       "./src/applicationSourcePublic.ts"
     || exportsValue["./internal/application-task-binding-v1"] !==
@@ -469,9 +471,11 @@ function collectExportErrors(exportsValue, errors) {
       "./src/taskAuthoringV1.ts"
     || exportsValue["./internal/task-definition-v1"] !==
       "./src/taskDefinition/v1.ts"
+    || exportsValue["./internal/write-policy-source"] !==
+      "./src/writePolicySource.ts"
   ) {
     errors.push(
-      "Standard Application definition package must expose exactly ./application-source and its six declared internal owner subpaths with no package root or /v1 product export.",
+      "Standard Application definition package must expose exactly ./application-source and its seven declared internal owner subpaths with no package root or /v1 product export.",
     );
   }
 }

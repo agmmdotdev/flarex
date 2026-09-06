@@ -16,6 +16,7 @@
     "./auth": "./src/auth.ts",
     "./ids": "./src/ids.ts",
     "./server": "./src/server.ts",
+    "./internal/application-write-policy": "./src/applicationWritePolicy.ts",
     "./validator-json": "./src/validatorJson.ts",
     "./values": "./src/values.ts"
   },

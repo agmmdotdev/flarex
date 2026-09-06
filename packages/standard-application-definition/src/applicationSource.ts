@@ -31,6 +31,12 @@ import type {
 import {
   prepareStandardApplicationRelations,
 } from "./relationDefinition/Preparation.js";
+import {
+  decodeApplicationWritePolicies,
+  applicationWritePolicyCanonicalText,
+  type ApplicationWritePolicies,
+  type ApplicationWritePolicyError,
+} from "@flarex/analysis/internal/application-write-policy";
 
 export const STANDARD_APPLICATION_EXECUTION_MODULE_PATH =
   "_flarex/application.js" as const;
@@ -102,9 +108,27 @@ export function produceInternalStandardApplicationSourceWithRelations(
   );
 }
 
+/** Private policy-bearing schema source; trusted analysis authenticates references. */
+export function produceInternalStandardApplicationSourceWithWritePolicies(
+  definition: PreparedStandardApplicationDefinitionV1,
+  writePolicyInput: unknown,
+  relationDeclarationInputs: unknown = [],
+): Result.Result<StandardApplicationSource,
+  ApplicationWritePolicyError | ProduceInternalStandardApplicationRelationSourceError
+> {
+  return Result.gen(function* () {
+    const schema = snapshotApplicationSchemaDefinition(definition.program.schema);
+    const policies = yield* decodeApplicationWritePolicies(writePolicyInput,
+      schema.tables.map(table => table.logicalName));
+    const relations = yield* prepareStandardApplicationRelations(relationDeclarationInputs);
+    return yield* producePreparedStandardApplicationSource(definition, relations, policies);
+  });
+}
+
 function producePreparedStandardApplicationSource(
   definition: PreparedStandardApplicationDefinitionV1,
   relations?: PreparedStandardApplicationRelations,
+  writePolicies?: ApplicationWritePolicies,
 ): Result.Result<StandardApplicationSource, StandardApplicationSourceError> {
   return Result.gen(function* () {
     const sourceModules = definition.artifactIngressPlan.source.modules;
@@ -199,7 +223,7 @@ function producePreparedStandardApplicationSource(
       `export default { ${registrations.join(", ")} };`,
       "",
     ].join("\n");
-    const schemaSource = yield* generateSchemaSource(definition, relations).pipe(
+    const schemaSource = yield* generateSchemaSource(definition, relations, writePolicies).pipe(
       Result.mapError(issue => error("invalidValidator", issue.path)),
     );
     const ownedModules: StandardApplicationSourceModule[] = sourceModules.map(
@@ -239,6 +263,7 @@ function producePreparedStandardApplicationSource(
 function generateSchemaSource(
   definition: PreparedStandardApplicationDefinitionV1,
   relations?: PreparedStandardApplicationRelations,
+  writePolicies?: ApplicationWritePolicies,
 ): Result.Result<string, Readonly<{ readonly path: string }>> {
   return Result.gen(function* () {
     const logicalSchema = snapshotApplicationSchemaDefinition(
@@ -268,7 +293,7 @@ function generateSchemaSource(
       'import { definePartitionTable, defineSchema } from "flarex/server";',
       'import { v } from "flarex/values";',
     ];
-    if (relations === undefined) {
+    if (relations === undefined && writePolicies === undefined) {
       return [
         ...prefix,
         `export default defineSchema({ ${tables.join(", ")} });`,
@@ -279,9 +304,9 @@ function generateSchemaSource(
       ...prefix,
       `const schema = defineSchema({ ${tables.join(", ")} });`,
       `export default { tables: schema.tables, relations: [${
-        relations.declarations.map(declaration => declaration.canonicalText)
+        (relations?.declarations ?? []).map(declaration => declaration.canonicalText)
           .join(", ")
-      }] };`,
+      }]${writePolicies === undefined ? "" : `, writePolicies: ${applicationWritePolicyCanonicalText(writePolicies)}`} };`,
       "",
     ].join("\n");
   });

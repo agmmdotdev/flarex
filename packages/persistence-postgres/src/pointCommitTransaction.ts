@@ -13,6 +13,7 @@ import {
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
+import { validateApplicationWriteOwnershipForCommit } from "./applicationWriteOwnership/Commit";
 
 import {
   AppCreationTimeV1Schema,
@@ -41,6 +42,8 @@ import {
 } from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
+  CanonicalSessionJournalBytesV1Schema,
+  decodeCanonicalSessionJournalV1Effect,
   CommitSyscallSequenceV1Schema,
   LogicalApplicationRelationIncomingReadDependencyV1Schema,
   LogicalIndexRangeReadDependencyV1Schema,
@@ -357,6 +360,7 @@ const MAX_SIGNED_COMMIT_SEQ_TEXT_LENGTH =
   MAX_SIGNED_COMMIT_SEQ.toString().length;
 const HASH_BYTE_LENGTH = 32;
 const MAX_COMMIT_RELATION_ADJACENCY_CHANGES_PER_STATEMENT = 500;
+const decodePointCommitJournalBytesResult = Schema.decodeUnknownResult(CanonicalSessionJournalBytesV1Schema);
 const decodePointCommitCreationTimeResult = Schema.decodeUnknownResult(
   Schema.toType(AppCreationTimeV1Schema),
 );
@@ -501,6 +505,8 @@ export type PointCommitRowIntentV1 =
 
 export interface PointCommitTransactionCommandV1
   extends PointCommitAttemptScalarCommandV1 {
+  /** Full authenticated journal preserves attempted writes before net-zero coalescing. */
+  readonly journalBytes?: Uint8Array;
   readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
   readonly indexRangeDependencies: ReadonlyArray<
     LogicalIndexRangeReadDependencyV1
@@ -807,6 +813,8 @@ export type PointCommitCorruptionReasonV1 =
   | "readCommittedCapabilityMissing"
   | "scopeClockInvalid"
   | "activeApplicationHeadInvalid"
+  | "applicationWritePolicyDenied"
+  | "applicationWritePolicyEvidenceInvalid"
   | "sessionDuplicate"
   | "sessionInvalid"
   | "leaseDuplicate"
@@ -1463,6 +1471,7 @@ interface PreparedPointCommitTransactionCommandV1
       keyof PointCommitAttemptScalarCommandV1 | "rowIntents"
     > {
   readonly rowIntents: ReadonlyArray<PreparedPointCommitRowIntentV1>;
+  readonly attemptedTableIds: ReadonlyArray<CatalogTableId> | null;
 }
 
 interface PreparedPointCommitPublicationCommandV1
@@ -2411,6 +2420,19 @@ const preparePointCommitCommand = Effect.fn(
   const captured = yield* Effect.fromResult(
     capturePointCommitCommandResult(input),
   );
+  let attemptedTableIds: ReadonlyArray<CatalogTableId> | null = null;
+  if (captured.journalBytes !== undefined) {
+    const journal = yield* decodeCanonicalSessionJournalV1Effect({ canonicalBytes: captured.journalBytes,
+      expectedSha256Hex: encodeBytesToLowercaseHex(captured.sealIdentity.journalSha256) }).pipe(
+      Effect.mapError(() => corruption("commandInvalid")));
+    const tables = new Set<CatalogTableId>();
+    for (const write of journal.journal.writes) {
+      const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(write.documentId).pipe(
+        Result.mapError(() => corruption("commandInvalid"))));
+      tables.add(identity.tableId);
+    }
+    attemptedTableIds = Object.freeze([...tables]);
+  }
   const rowIntents: PreparedPointCommitRowIntentV1[] = [];
   for (const rowIntent of captured.rowIntents) {
     if (rowIntent.kind === "deleted") {
@@ -2447,6 +2469,7 @@ const preparePointCommitCommand = Effect.fn(
   }
   return Object.freeze({
     ...captured,
+    attemptedTableIds,
     rowIntents: Object.freeze(rowIntents),
   });
 });
@@ -2609,6 +2632,8 @@ function capturePointCommitCommandResult(
         authorityPins.snapshotToken.commitSeq,
       );
     const rowIntents = yield* captureRowIntentsResult(input.rowIntents);
+    const journalBytes = input.journalBytes === undefined ? undefined : yield* decodePointCommitJournalBytesResult(input.journalBytes).pipe(
+      Result.map(copyBytes), Result.mapError(() => corruption("commandInvalid")));
     for (const rowIntent of rowIntents) {
       if (!dependencies.some(
         (dependency) => pointDependenciesEqual(dependency, rowIntent),
@@ -2624,6 +2649,7 @@ function capturePointCommitCommandResult(
       indexRangeDependencies,
       relationDependencies,
       rowIntents,
+      ...(journalBytes === undefined ? {} : { journalBytes }),
     });
   });
 }
@@ -5515,6 +5541,14 @@ async function runPointCommitTransactionKernel(
   projectPointCommitTransactionResult(
     requireLockedClockAuthorityResult(clock, preliminaryAuthority, command),
   );
+  projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+    validateApplicationWriteOwnershipForCommit(tx, { scopeId: command.authorityPins.scopeId,
+      generation: command.authorityPins.executionAuthorityGeneration,
+      authenticatedAttemptedTables: command.attemptedTableIds, materialTables: command.rowIntents.map(row => row.tableId) }).pipe(
+      Effect.mapError(error => error.reason === "resourceFailure"
+        ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
+        : corruption(error.reason === "writeDenied" ? "applicationWritePolicyDenied" : "applicationWritePolicyEvidenceInvalid"))),
+  ));
   await validateActiveRelationSelectionForPointCommit(tx, command);
   if (command.relationDependencies.length > 0) {
     await emitTransactionStep(
@@ -6455,11 +6489,11 @@ async function validateActiveApplicationSchemaForPointCommit(
   const readinessContractVersion =
     contractRows[0]?.readinessContractVersion;
   if (contractRows.length !== 1 ||
-    (readinessContractVersion !== 1 && readinessContractVersion !== 2)) {
+    (readinessContractVersion !== 1 && readinessContractVersion !== 2 && readinessContractVersion !== 3)) {
     throw corruption("activeApplicationHeadInvalid");
   }
   if (
-    readinessContractVersion === 2 &&
+    (readinessContractVersion === 2 || readinessContractVersion === 3) &&
     command.rowIntents.length > 0 &&
     preparedApplicationRelations === null
   ) {
@@ -6468,7 +6502,7 @@ async function validateActiveApplicationSchemaForPointCommit(
     });
   }
   if (
-    readinessContractVersion === 2 &&
+    (readinessContractVersion === 2 || readinessContractVersion === 3) &&
     command.rowIntents.length > 0 &&
     preparedApplicationRelations?.definitions === null
   ) {
@@ -6528,7 +6562,7 @@ async function validateActiveApplicationSchemaForPointCommit(
       ).where(and(
         eq(fxSystemApplicationActiveHeads.scopeId,
           command.authorityPins.scopeId),
-        eq(fxSystemApplicationActiveHeads.readinessContractVersion, 2),
+        inArray(fxSystemApplicationActiveHeads.readinessContractVersion, [2, 3]),
       )).limit(2).for("share");
   observeDrizzleQuery("validateActiveApplicationSchema", query, options);
   const rows = await sqlCall(
@@ -6564,7 +6598,7 @@ async function validateActiveApplicationSchemaForPointCommit(
         encodeBytesToLowercaseHex(row.schemaManifestSha256) !==
           applicationRelations.schemaManifestSha256 ||
         (
-          readinessContractVersion === 2 &&
+          (readinessContractVersion === 2 || readinessContractVersion === 3) &&
           (
             !isUint8ArrayWithByteLength(row.boundPublicationSha256, 32) ||
             encodeBytesToLowercaseHex(row.boundPublicationSha256) !==

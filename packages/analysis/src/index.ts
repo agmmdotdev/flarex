@@ -20,6 +20,9 @@ import {
   decodeSchemaManifestAppTableDeclarationsV1Result,
 } from "flarex-protocol/schema-manifest";
 import { ValidatorJson as ProtocolValidatorJsonSchema } from "flarex-protocol/validator-json";
+import { verifyApplicationWritePolicies } from "./applicationWritePolicy/verification.ts";
+import { validateApplicationWritePolicySchema } from "./applicationWritePolicy/schemaCompatibility.ts";
+import type { ApplicationWritePolicies } from "./applicationWritePolicy/model.ts";
 import {
   ApplicationRelationAnalysisError,
   analyzeApplicationRelationDeclarationsResult,
@@ -117,6 +120,7 @@ export type DeploymentAnalysis = {
 
 export type ApplicationAnalysis = DeploymentAnalysis & {
   readonly relations: ReadonlyArray<AnalyzedApplicationRelation>;
+  readonly writePolicies?: ApplicationWritePolicies;
 };
 
 export type LoadedExecutionModules = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
@@ -275,7 +279,30 @@ export const analyzeLoadedApplicationSourcePackageEffect = Effect.fn(
         declarations,
         analysis.schema,
       );
-  return { ...analysis, relations };
+  const schemaDefinition = input.schemaDefinition;
+  const policyInspection = yield* Effect.try({
+    try: () => ({
+      descriptor: Object.getOwnPropertyDescriptor(schemaDefinition, "writePolicies"),
+      present: Reflect.has(schemaDefinition, "writePolicies"),
+    }),
+    catch: cause => schemaError("Schema write policies could not be inspected.", cause),
+  });
+  if (policyInspection.descriptor === undefined && !policyInspection.present) return { ...analysis, relations };
+  const policyProperty = policyInspection.descriptor;
+  if (policyProperty === undefined) {
+    return yield* schemaFailure("Schema write policies must not be inherited.");
+  }
+  if (!("value" in policyProperty) || !policyProperty.enumerable) {
+    return yield* schemaFailure("Schema write policies must be an enumerable own data property.");
+  }
+  const verified = yield* verifyApplicationWritePolicies(
+    policyProperty.value,
+    analysis.schema.tables.map(table => table.name),
+  ).pipe(Effect.mapError(cause => schemaError("Invalid Application write policies.", cause)));
+  yield* Effect.fromResult(validateApplicationWritePolicySchema(verified.policies, analysis.schema.tables)).pipe(
+    Effect.mapError(cause => schemaError("Application write policies do not match the scalar schema.", cause)),
+  );
+  return { ...analysis, relations, writePolicies: verified.policies };
 });
 
 export const analyzeApplicationRelationDeclarationsEffect = Effect.fn(

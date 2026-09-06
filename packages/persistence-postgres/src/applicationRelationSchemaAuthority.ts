@@ -1,6 +1,6 @@
 import {
-  canonicalizeApplicationManifestV2,
-  type ApplicationManifestV2,
+  verifyApplicationManifestWithRelations,
+  type ApplicationManifestWithRelations,
 } from "@flarex/analysis/application-analysis";
 import {
   bytesEqualFullScan,
@@ -12,6 +12,7 @@ import type {
   ApplicationSchemaEdgeDefinitionV2,
   ApplicationSchemaRelationBindingV2,
   ApplicationSchemaSemanticDefinitionV2,
+  ApplicationSchemaBindingV3,
 } from "flarex-protocol/internal/application-schema-binding";
 import {
   type CatalogSchemaVersion,
@@ -36,6 +37,7 @@ import {
 } from "./schemaVersionArtifacts";
 
 export interface ApplicationRelationSchemaAuthority {
+  readonly writePolicy: Pick<ApplicationSchemaBindingV3, "writePolicySetSha256" | "writePolicies"> | null;
   readonly deploymentId: string;
   readonly applicationManifestSha256: string;
   readonly applicationSchemaSha256: string;
@@ -74,7 +76,7 @@ export interface ApplicationRelationSchemaAuthorityPort {
   readonly resolve: (input: {
     readonly deploymentId: string;
     readonly applicationManifestSha256: string;
-    readonly manifest: ApplicationManifestV2;
+    readonly manifest: ApplicationManifestWithRelations;
   }) => Effect.Effect<
     ApplicationRelationSchemaAuthority,
     ResolveApplicationRelationSchemaAuthorityError
@@ -90,7 +92,7 @@ export function createApplicationRelationSchemaAuthorityPort(
     function* (input: {
       readonly deploymentId: string;
       readonly applicationManifestSha256: string;
-      readonly manifest: ApplicationManifestV2;
+      readonly manifest: ApplicationManifestWithRelations;
     }): Effect.fn.Return<
       ApplicationRelationSchemaAuthority,
       ResolveApplicationRelationSchemaAuthorityError
@@ -100,10 +102,8 @@ export function createApplicationRelationSchemaAuthorityPort(
         input.deploymentId.includes("\0") ||
         !/^[0-9a-f]{64}$/.test(input.applicationManifestSha256)
       ) return yield* failure("invalidInput");
-      const canonical = yield* Effect.fromResult(
-        canonicalizeApplicationManifestV2(input.manifest).pipe(
-          Result.mapError(cause => failureValue("invalidInput", cause)),
-        ),
+      const canonical = yield* verifyApplicationManifestWithRelations(input.manifest).pipe(
+        Effect.mapError(cause => failureValue("invalidInput", cause)),
       );
       const manifestSha256 = yield* sha256(canonical.canonicalBytes);
       if (
@@ -157,6 +157,10 @@ export function createApplicationRelationSchemaAuthorityPort(
           canonical.manifest.schema.relations.length
       ) return yield* failure("bindingMismatch");
       return Object.freeze({
+        writePolicy: bound.binding.version === 3 ? Object.freeze({
+          writePolicySetSha256: bound.binding.writePolicySetSha256,
+          writePolicies: bound.binding.writePolicies,
+        }) : null,
         deploymentId: input.deploymentId,
         applicationManifestSha256: input.applicationManifestSha256,
         applicationSchemaSha256: pin.applicationSchemaSha256,

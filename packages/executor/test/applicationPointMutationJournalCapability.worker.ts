@@ -4,6 +4,7 @@ import type {
   RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
 } from "@flarex/persistence-postgres/session-journal-store";
+import { ApplicationTableWriteDeniedError } from "@flarex/persistence-postgres/session-journal-store";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
 } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
@@ -21,16 +22,19 @@ import type {
 const DOCUMENT_ID = decodeAppDocumentIdV1(
   "1:00000000-0000-4000-8000-000000000001",
 );
+const MANAGED_ID = decodeAppDocumentIdV1("2:00000000-0000-4000-8000-000000000001");
 
 export default {
   async fetch(): Promise<Response> {
     const table = Object.freeze({}) as PointMutationJournalTableV1;
+    const managedTable = Object.freeze({}) as PointMutationJournalTableV1;
     const index = Object.freeze({}) as PointMutationJournalIndexV1;
     const operations: Array<Record<string, unknown>> = [];
     let active = 0;
     let maximumActive = 0;
     const journal = Object.freeze({
       resolvePointTable: (tableName: unknown) => {
+        if (tableName === "posts") return Effect.succeed(managedTable);
         if (tableName !== "users") return Effect.die("wrong table");
         return Effect.succeed(table);
       },
@@ -44,13 +48,17 @@ export default {
         receivedTable: PointMutationJournalTableV1,
         operation: unknown,
       ) => Effect.gen(function* () {
-        if (receivedTable !== table || typeof operation !== "object" ||
+        if ((receivedTable !== table && receivedTable !== managedTable) || typeof operation !== "object" ||
           operation === null) return yield* Effect.die("wrong point input");
         active += 1;
         maximumActive = Math.max(maximumActive, active);
         yield* Effect.promise(() => Promise.resolve());
         active -= 1;
         const record = operation as Record<string, unknown>;
+        if (receivedTable === managedTable && (record.kind === "insert" || record.kind === "patch" || record.kind === "replace" || record.kind === "delete")) {
+          return yield* new ApplicationTableWriteDeniedError({ operation: record.kind, tableName: "posts",
+            message: "Ordinary Application mutations cannot write this managed table." });
+        }
         if (record.kind === "insert" &&
           typeof record.fields === "object" && record.fields !== null &&
           Reflect.get(record.fields, "invalid") === true) {
@@ -101,8 +109,17 @@ export default {
     } satisfies PointMutationOccBoundJournalV1);
     const session = makeApplicationPointMutationJournalCapabilitySessionV1(
       journal,
-      [{ tableId: 1, logicalName: "users" }],
+      [{ tableId: 1, logicalName: "users" }, { tableId: 2, logicalName: "posts" }],
     );
+    const deniedNames: string[] = [];
+    for (const invoke of [
+      () => session.target.insertPointDocument("posts", { title: "denied" }),
+      () => session.target.patchPointDocument(MANAGED_ID, { title: "denied" }),
+      () => session.target.replacePointDocument(MANAGED_ID, { title: "denied" }),
+      () => session.target.deletePointDocument(MANAGED_ID),
+    ]) {
+      try { await invoke(); } catch (cause) { deniedNames.push(cause instanceof Error ? cause.name : "unknown"); }
+    }
     let validationName = "missing";
     try {
       await session.target.insertPointDocument("users", { invalid: true });
@@ -133,6 +150,7 @@ export default {
       results,
       operations,
       validationName,
+      deniedNames,
       validAfterValidation,
       maximumActive,
       lateName,

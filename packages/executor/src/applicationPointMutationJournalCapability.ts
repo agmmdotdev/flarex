@@ -2,6 +2,7 @@ import type {
   RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
 } from "@flarex/persistence-postgres/session-journal-store";
+import { ApplicationTableWriteDeniedError } from "@flarex/persistence-postgres/session-journal-store";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
 } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
@@ -381,15 +382,15 @@ async function runJournalEffect<A>(
 
 function documentValidationFailure(
   cause: unknown,
-): ApplicationRevisionSyscallDocumentValidationV1Error | undefined {
+): ApplicationRevisionSyscallDocumentValidationV1Error | ApplicationTableWriteDeniedError | undefined {
   if (!(cause instanceof JournalEffectFailure)) return undefined;
   const onlyReason = cause.cause.reasons.length === 1
     ? cause.cause.reasons[0]
     : undefined;
   return onlyReason !== undefined &&
       Cause.isFailReason(onlyReason) &&
-      onlyReason.error instanceof
-        ApplicationRevisionSyscallDocumentValidationV1Error
+      (onlyReason.error instanceof ApplicationRevisionSyscallDocumentValidationV1Error ||
+        onlyReason.error instanceof ApplicationTableWriteDeniedError)
     ? onlyReason.error
     : undefined;
 }

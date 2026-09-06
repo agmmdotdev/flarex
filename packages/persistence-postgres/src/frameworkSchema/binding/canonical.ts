@@ -116,6 +116,14 @@ export function isApplicationBindingReference(
   )
     return false;
   const readiness = input.readiness;
+  if (record(readiness, ["kind", "manifestSchemaBindingSha256", "boundPublicationSha256",
+    "relationFrontierCommitSeq", "relationSetReadinessSha256", "relationCount",
+    "writePolicySetSha256", "writeOwnershipSha256"])) {
+    return readiness.kind === "policy" && sha(readiness.writePolicySetSha256) && sha(readiness.writeOwnershipSha256) &&
+      sha(readiness.manifestSchemaBindingSha256) && sha(readiness.boundPublicationSha256) &&
+      uint(readiness.relationFrontierCommitSeq) && sha(readiness.relationSetReadinessSha256) &&
+      typeof readiness.relationCount === "number" && Number.isSafeInteger(readiness.relationCount) && readiness.relationCount >= 0;
+  }
   return record(readiness, ["kind", "schemaBindingSha256"])
     ? readiness.kind === "legacy" && sha(readiness.schemaBindingSha256)
     : record(readiness, [
