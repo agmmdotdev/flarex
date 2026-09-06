@@ -62,7 +62,7 @@ export const readFrameworkSchemaInstallationByIdentityInTransactionEffect = Effe
   "FrameworkSchemaInstallationRepository.readByIdentity",
 )(function* (transaction: FlarexMetadataTransaction, identity: FrameworkSchemaInstallationIdentity) {
   const operation = "readInstallation" as const;
-  if (!isStoredInstallationIdentity(identity) || (identity.artifact.owner !== "medusa" && identity.artifact.owner !== "system")) {
+  if (!isStoredInstallationIdentity(identity) || (identity.artifact.owner !== "medusa" && identity.artifact.owner !== "system" && identity.artifact.owner !== "payload")) {
     return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
   }
   const namespace = yield* captureFrameworkSchemaTargetNamespace({ deploymentId: identity.targetNamespace.deploymentId,

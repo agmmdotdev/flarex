@@ -59,5 +59,5 @@ export async function cmsHostFixture(persistence: PGliteFlarexPersistence | Post
     payloadLifecycle: null, commerce: null, crossDomainReferences: [] }));
   await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "cms-host-activate", candidate.sha256, null)));
 
-  return { fixture, posts, bindings, reference, candidate };
+  return { fixture, posts, bindings, reference, candidate, target };
 }

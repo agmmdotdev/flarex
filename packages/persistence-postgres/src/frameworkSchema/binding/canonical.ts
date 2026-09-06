@@ -12,7 +12,7 @@ import {
   isCanonicalPrivateValuePositiveInt64 as positive,
   isCanonicalPrivateValueInstant as instant,
 } from "../privateStoredValueShape";
-import { isStoredPhysicalLocator } from "../../migrationCoordination/storedValidation";
+import { isStoredPhysicalLocator, isStoredArtifactIdentity } from "../../migrationCoordination/storedValidation";
 import { isStoredInstallationIdentity } from "../installation/storedValidation";
 import { isStoredRelationalPhysicalCapability } from "../../relationalSchema/physical/storedValidation";
 import {
@@ -205,7 +205,8 @@ export function isPhysicalDataBinding(
   const kinds = input.profiles.map((profile) => profile.kind);
   const coverage = input.profiles.flatMap((profile) => profile.coverage);
   return (
-    (kinds.join(",") === "adapter,store" ||
+    ((isStoredArtifactIdentity(input.installation.artifact) && input.installation.artifact.owner === "payload" && kinds.join(",") === "adapter") ||
+      kinds.join(",") === "adapter,store" ||
       kinds.join(",") === "adapter,query,store") &&
     coverage.length <= MAX_BINDING_REQUIREMENTS &&
     new Set(

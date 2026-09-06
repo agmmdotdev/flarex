@@ -1,3 +1,7 @@
+import { frameworkMigrationTargetSnapshot, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
+import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
+import { lockBindingInstallation } from "../frameworkSchema/binding/evidence";
+import { verifyPayloadPreferenceBinding } from "../payloadPreferences/binding";
 import { Effect, Option } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import type { ApplicationActiveSelection, ApplicationBindingSelectionReader } from "../applicationActivation";
@@ -63,6 +67,7 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
   authority: TrustedScopeAuthority,
   clock: ScopeClockRecord,
   work: (admission: CmsAdmission) => Effect.Effect<Value, Failure, Requirements>,
+  preferenceTarget?: FrameworkMigrationTarget,
 ) {
   if (!prepared.has(application) || clock.scopeId !== authority.scopeId ||
     clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence ||
@@ -74,7 +79,8 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
   if (Option.isNone(candidate)) return yield* Effect.fail(cmsError("storedCorruption"));
   const frame = candidate.value.frame;
   if (!sameBindingValue(projection, frame.application)) return yield* Effect.fail(cmsError("bindingChanged"));
-  if (frame.payloadContent === null || frame.payloadLifecycle !== null || frame.commerce !== null ||
+  if (frame.payloadContent === null || (frame.payloadLifecycle !== null && preferenceTarget === undefined) ||
+    (frame.payloadLifecycle === null && preferenceTarget !== undefined) || frame.commerce !== null ||
     projection.readiness.kind !== "policy" || projection.readiness.relationCount !== 0) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   }
@@ -87,6 +93,13 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
     return yield* Effect.fail(cmsError("invalidAuthority"));
   }
   yield* verifyPayloadContentBinding(tx, frame);
+  if (preferenceTarget !== undefined && frame.payloadLifecycle !== null) {
+    const snapshot = frameworkMigrationTargetSnapshot(preferenceTarget);
+    if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
+      !scopePhysicalLocatorsEqual(snapshot.physicalLocator, authority.physicalLocator)) return yield* Effect.fail(cmsError("invalidAuthority"));
+    const availability = yield* lockBindingInstallation(tx, frame.payloadLifecycle, snapshot);
+    yield* verifyPayloadPreferenceBinding(frame, availability);
+  }
   // SAFETY: authority resides exclusively in this live, transaction-bound registry.
   const token = Object.freeze({}) as CmsAdmission;
   admissions.set(token, Object.freeze({ tx, authority, clock, schema, frame,

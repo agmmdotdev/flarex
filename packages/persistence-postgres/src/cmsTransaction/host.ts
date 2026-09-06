@@ -1,3 +1,4 @@
+import { hasFrameworkMigrationTargetDatabase, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
 import { Cause, Clock, Effect, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
@@ -69,6 +70,8 @@ export interface CmsHostInput<Failure> {
   readonly identityAndAccessPolicy: Json;
   readonly materialization: PointCommitTransactionProofOptionsV1;
   /** Optional closed-consumer restriction, checked under the admitted scope lock. */
+  /** Exact preference binding admission only; grants no lifecycle mutation port. */
+  readonly payloadPreferenceTarget?: FrameworkMigrationTarget;
   readonly expectedContentIdentity?: Readonly<{ configSha256: string; provenanceSha256: string }>;
 }
 export interface CmsHost {
@@ -101,6 +104,8 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
 ): Effect.fn.Return<CmsHost, CmsTransactionError> {
   const { database, session, deploymentId, controlDatabase, application, pointCommitAuthority } = input;
   const compositionAuthority = input.authority;
+  const preferenceTarget = input.payloadPreferenceTarget;
+  if (preferenceTarget !== undefined && !hasFrameworkMigrationTargetDatabase(preferenceTarget, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const expectedContentIdentity = input.expectedContentIdentity === undefined ? undefined :
     yield* decodeContentIdentity(input.expectedContentIdentity).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
@@ -190,7 +195,7 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
             if (participant !== null && lookup !== null) yield* participant.finalize(yield* working.close(), lookup, result, digest, testHooks);
             return result.valueJson;
           }).pipe(Effect.ensuring(lifetime.close));
-        }));
+        }), preferenceTarget);
       })));
     });
     return yield* attempt(false).pipe(Effect.catchCause(foreignCause => {

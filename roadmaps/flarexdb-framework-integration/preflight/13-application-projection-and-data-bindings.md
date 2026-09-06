@@ -3,9 +3,11 @@
 Status: private implementation complete for Application-only binding,
 owner-correct synthetic Medusa commerce evidence, and scalar content-overlay
 admission against activated V3 Application ownership. The Application selector
-retains authority. CMS document operations/publication, Payload lifecycle
-profiles, real framework adapters, relational data writes and production
-serving remain gated.
+retains authority. The separately accepted [preference storage/binding slice](./19-payload-preference-cleanup-and-delete-publication.md)
+adds the exact pinned Payload lifecycle installation beside content. Its sole
+adapter profile grants binding admission only; lifecycle data operations and
+publication remain gated. The private CMS content host is implemented under its
+own contract. General framework profiles and production serving remain gated.
 
 ## Outcome And Boundary
 
@@ -120,7 +122,8 @@ each profile in the current target/session. Persisted profile digests identify
 the required contract; they are not proof that the loaded implementation meets
 it. Unknown profiles and missing residual coverage refuse admission. Test-only
 profile issuers stay in test composition and cannot resolve in a production
-host. This preflight does not claim any real Payload or Medusa profile is ready.
+host. Current Payload content and preference binding acceptance is limited to
+the separately owned private profiles; Medusa conformance remains gated.
 
 Use strict canonical frames for the candidate, activation request, immutable
 activation record and mutable head. Reuse existing identity and canonical-byte
@@ -283,8 +286,10 @@ target-local ledger; `0083_synthetic_medusa_admission` extends only the private
 fresh admission constraint. No package-root or public subpath is added.
 
 The only physical serving slot currently exercised is commerce with explicit
-test-only profiles and owner-correct synthetic artifacts. Populated Payload
-content/lifecycle slots refuse admission until their own profile issuers exist.
+test-only profiles and owner-correct synthetic artifacts. Content uses activated
+Application ownership. The closed preference lifecycle profile accepts only
+its pinned artifact and content/provenance pair; other lifecycle profiles
+remain refused.
 Consequently, simultaneous multi-physical-lane admission is a later Payload
 gate, not evidence supplied by this implementation. Canonical lane traversal is
 retained, and no unsupported owner is substituted to manufacture that proof.

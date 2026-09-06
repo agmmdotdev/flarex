@@ -1,3 +1,4 @@
+import { verifyPayloadPreferenceBinding } from "../../payloadPreferences/binding";
 import { Effect, Option } from "effect";
 import { withAdditiveMigrationGraphLimits } from "../../migrationCoordination/additiveLimits";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
@@ -75,9 +76,6 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
     snapshot: FrameworkMigrationTargetSnapshot,
     profiles: DataBindingTestProfiles | undefined,
   ) {
-    // Lifecycle storage remains unadmitted; content uses activated Application ownership.
-    if (frame.payloadLifecycle !== null)
-      return yield* Effect.fail(bindingError("unsupportedProfile"));
     yield* verifyPayloadContentBinding(tx, frame);
     const verified: VerifiedBindingLane[] = [];
     for (const { slot, binding } of physicalBindings(frame)) {
@@ -86,7 +84,8 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
         binding,
         snapshot,
       );
-      yield* validateBindingProfiles(
+      if (slot === "payloadLifecycle") yield* verifyPayloadPreferenceBinding(frame, availability);
+      else yield* validateBindingProfiles(
         profiles,
         database,
         target,

@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
+    "framework-payload-preferences-postgres": ["test/payloadPreferenceBinding.postgres.test.ts"],
+    "framework-payload-preferences-pglite": ["test/payloadPreferenceBinding.test.ts"],
     "framework-payload-scalar-postgres": ["test/payloadScalar.postgres.test.ts"],
     "framework-payload-scalar-pglite": ["test/payloadScalarProfile.test.ts", "test/payloadScalar.test.ts"],
     "framework-cms-pglite": ["test/cmsRequestLifetime.test.ts", "test/cmsHost.test.ts"],
@@ -134,6 +136,8 @@
   "selectors": {
     "framework-payload-scalar-pglite": ["framework-payload-scalar-pglite"],
     "framework-payload-scalar-postgres": ["framework-payload-scalar-postgres"],
+    "framework-payload-preferences-pglite": ["framework-payload-preferences-pglite"],
+    "framework-payload-preferences-postgres": ["framework-payload-preferences-postgres"],
     "framework-cms-pglite": ["framework-cms-pglite"],
     "framework-cms-postgres": ["framework-cms-postgres"],
     "fast": [
@@ -237,6 +241,58 @@
     ]
   },
   "lanes": [
+    {
+      "id": "framework-payload-preferences-postgres",
+      "category": "postgres",
+      "proof": "Exact private Payload preference schema installation, typed record preservation, content/lifecycle binding, cold admission and readiness refusal. No cleanup or lifecycle publication.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-payload-preferences-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-payload-preferences-postgres"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-payload-preferences-pglite",
+      "category": "pglite",
+      "proof": "Exact private Payload preference schema installation, typed record preservation, content/lifecycle binding, cold admission and readiness refusal. No cleanup or lifecycle publication.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-framework-payload-preferences-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-payload-preferences-pglite"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
     {
       "id": "framework-payload-scalar-postgres",
       "category": "postgres",

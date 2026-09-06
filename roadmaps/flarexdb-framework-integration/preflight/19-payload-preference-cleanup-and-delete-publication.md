@@ -1,8 +1,8 @@
 # Payload Preference Cleanup And Delete Publication
 
-Status: proposed owner extension, awaiting explicit approval. The private scalar
-Local API proof is partial; successful deletion remains blocked. This note
-records an actual integration finding, not a defect in the CMS content owner.
+Status: first preference value/schema and exact binding admission slice accepted
+and implemented privately. Cleanup, lifecycle receipts and atomic publication
+remain the next bounded slices; successful Payload deletion remains blocked.
 
 ## Reproduction And Evidence
 
@@ -73,10 +73,47 @@ extension, not general `deleteMany`, preference API or dashboard parity.
    Seed preferences through a private test-only lifecycle authority, never a
    public preference route or ordinary Application write bypass.
 
-The first implementation slice after approval is the preference value/schema
-artifact and exact content-plus-lifecycle binding admission, with its refusal
-proofs. The cleanup/receipt and publication steps follow as complete bounded
-slices. Delete stays unsupported until the final combined proof passes.
+The first implemented slice installs the preference schema through the existing
+coordinator and admits its exact content-plus-lifecycle binding. The
+cleanup/receipt and publication steps follow as complete bounded slices.
+Delete stays unsupported until the final combined proof passes.
+
+## Implemented Storage And Admission Contract
+
+The source-private `payloadPreferences` owner defines one Payload-owned
+`payload-preferences` lineage. The coordinator injects its existing `scope_uuid`
+column and scope foreign key. Authored fields retain storage generation, record
+ID, nullable key/JSON value, opaque user collection/ID, and created/updated
+instants. The primary key and key lookup index include storage generation and
+the coordinator's scope prefix. `users` is the only admitted user discriminator;
+this is storage preservation, not auth or polymorphic relation execution.
+Capture rejects NUL and unpaired UTF-16 surrogates in all strings and JSON keys
+before returning a record, preserving PostgreSQL text/JSONB representability.
+
+Relational values and persisted owner codecs recognize Payload ownership.
+Fresh installation is narrower: only the complete canonical pinned preference
+artifact and source provenance receive `payload-preferences-fresh` admission.
+Another Payload schema, lineage or source revision cannot acquire this
+execution profile. Existing system/Medusa profiles retain their prior gates;
+Payload additive upgrades remain closed. The metadata migration extends only
+the existing collision-owner and admission-profile checks.
+
+Binding preparation, activation and cold re-admission verify the exact artifact,
+ready installation/availability receipt, sole binding-only adapter profile, and
+pinned scalar content configuration/provenance. No query/store coverage is
+claimed. CMS composition must explicitly supply its authenticated preference
+target; content-only composition still refuses a lifecycle-bearing head, and a
+preference composition refuses a missing lifecycle slot. Each CMS entry locks
+and revalidates installation availability beside the scope/binding checks before
+running the command. The binding grants no preference data operation or SQL
+handle to the command.
+
+The shared driver scenario exercises installation, typed physical record
+round-trip, cold selection, refusal of mismatched profile/readiness/artifact,
+and withdrawal before command execution. Existing scalar Local API delete
+continues to refuse mandatory preference cleanup. The focused manifest lanes
+are `framework-payload-preferences-pglite` and
+`framework-payload-preferences-postgres`.
 
 ## Ownership And Exclusions
 
@@ -97,5 +134,5 @@ only. That preserves useful evidence but leaves the accepted scalar CRUD gate
 open and does not advance the ordered relation/Medusa conformance gates.
 
 The [accepted audit stop conditions](./07-payload-release-and-adapter-contract.md#stop-conditions)
-and repository shared-owner rule require this separate decision. Current
-implementation deliberately stops at the refusal boundary.
+and repository shared-owner rule governed the accepted storage/binding decision.
+Current implementation deliberately stops before cleanup and publication.

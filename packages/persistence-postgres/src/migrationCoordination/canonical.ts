@@ -1,3 +1,4 @@
+import { capturePayloadPreferenceArtifact } from "../payloadPreferences/schema";
 import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
 import { compareUtf16Strings, isNonBlankString } from "@flarex/utils/strings";
 import { Brand, Effect, Result } from "effect";
@@ -224,9 +225,9 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
   if (
     copyCapturedFrameworkSchemaArtifactEvidence(input.artifact) === undefined ||
     !isCapturedRelationalPhysicalLayout(input.physicalLayout) ||
-    (input.artifact.identity.owner !== "system" && input.artifact.identity.owner !== "medusa") ||
+    (input.artifact.identity.owner !== "system" && input.artifact.identity.owner !== "medusa" && input.artifact.identity.owner !== "payload") ||
     input.artifact.dependencies.length !== 0 ||
-    input.artifact.provenance.kind !== "synthetic" ||
+    (input.artifact.identity.owner !== "payload" && input.artifact.provenance.kind !== "synthetic") ||
     !sameArtifactIdentity(
       input.artifact.identity,
       input.physicalLayout.frame.artifact,
@@ -237,6 +238,11 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
     );
   }
 
+  if (input.artifact.identity.owner === "payload") {
+    const expected = yield* capturePayloadPreferenceArtifact(input.artifact.identity.deploymentId).pipe(
+      Effect.mapError(cause => cause.reason === "resourceFailure" ? FrameworkMigrationValueError.resourceFailure("capturePlan", cause) : FrameworkMigrationValueError.unsupportedArtifact()));
+    if (expected.artifact.canonicalJson !== input.artifact.canonicalJson) return yield* Effect.fail(FrameworkMigrationValueError.unsupportedArtifact());
+  }
   const layout = input.physicalLayout;
   const collision = collisionCoordinate(layout, input.artifact.identity.owner);
   const steps: FrameworkMigrationStep[] = [];
@@ -424,7 +430,7 @@ export const captureFrameworkMigrationPlanAdmission = Effect.fn(
     previousPlanSha256: input.previousPlanSha256,
     ...(input.plan.frame.version === 1
       ? { version: 1, baseInstallation: null,
-          admissionProfile: input.plan.frame.artifact.owner === "medusa"
+          admissionProfile: input.plan.frame.artifact.owner === "payload" ? "payload-preferences-fresh" : input.plan.frame.artifact.owner === "medusa"
             ? "synthetic-medusa-fresh" : "synthetic-system-fresh" } as const
       : { version: 2, baseInstallation: input.plan.frame.baseInstallation,
           admissionProfile: "synthetic-system-additive" } as const),
@@ -1550,7 +1556,7 @@ function isCollisionCoordinate(input: unknown): boolean {
       "physicalNamespaceProfile",
     ]) &&
       isTargetNamespaceFrame(input.targetNamespace) &&
-      (input.owner === "system" || input.owner === "medusa") &&
+      (input.owner === "system" || input.owner === "medusa" || input.owner === "payload") &&
       identityText(input.lineageId) &&
       input.physicalNamespaceProfile === RELATIONAL_PHYSICAL_NAMESPACE_PROFILE;
   } catch {

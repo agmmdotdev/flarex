@@ -12,7 +12,7 @@ export const RELATIONAL_SCHEMA_FORMAT_VERSION = 1;
 
 export type RelationalSchemaOwner = Extract<
   FrameworkSchemaArtifactOwner,
-  "medusa" | "system"
+  "medusa" | "system" | "payload"
 >;
 
 export type RelationalTableId = Brand.Branded<

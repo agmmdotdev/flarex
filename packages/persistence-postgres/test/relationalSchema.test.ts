@@ -435,9 +435,9 @@ describe("private relational schema values", () => {
   });
 
   it("rejects unsupported owners, types, relationships, and actions deterministically", () => {
-    const payload = minimalInput();
-    Reflect.set(payload, "owner", "payload");
-    expectUnsupported(payload, "$.owner", "payload");
+    const application = minimalInput();
+    Reflect.set(application, "owner", "application");
+    expectUnsupported(application, "$.owner", "application");
 
     const malformedOwner = minimalInput();
     Reflect.set(malformedOwner, "owner", 42);

@@ -415,6 +415,7 @@ export async function setExactRelationAdjacencyVersion(
 }
 
 export interface RelationReadinessFixtureOptions {
+  readonly physicalLocator?: SplitScopePhysicalLocator;
   readonly persistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly writePolicy?: boolean;
   readonly cmsIndexes?: boolean;
@@ -431,6 +432,7 @@ export async function relationReadinessFixture(
   ensureRelationBuildTestWebCrypto();
   fixtureOrdinal += 1;
   const resource = options.persistence ?? await createMigratedPGlitePersistence();
+  const fixtureLocator = options.physicalLocator ?? LOCATOR;
   const persistence: ApplicationNativeMutationPersistence = resource;
   const controlResource = options.writePolicy === true && !("pool" in resource) ? await createMigratedPGlitePersistence() : resource;
   const control: ApplicationNativeMutationPersistence = controlResource;
@@ -439,7 +441,7 @@ export async function relationReadinessFixture(
   );
   const provisionOptions =
     {
-      placementPlanner: { plan: () => LOCATOR },
+      placementPlanner: { plan: () => fixtureLocator },
       targetResolver: {
         resolve: async (locator: SplitScopePhysicalLocator) =>
           "pool" in resource ? createPostgresLocatedSplitScopeClockTarget(resource, locator) : createPGliteLocatedSplitScopeClockTarget(resource, locator),
@@ -469,8 +471,8 @@ export async function relationReadinessFixture(
     epoch: clock.epoch,
   });
   const pointTarget = "pool" in resource
-    ? createPostgresLocatedPointMutationSessionActivationTargetV1(resource, LOCATOR)
-    : createPGliteLocatedPointMutationSessionActivationTargetV1(resource, LOCATOR);
+    ? createPostgresLocatedPointMutationSessionActivationTargetV1(resource, fixtureLocator)
+    : createPGliteLocatedPointMutationSessionActivationTargetV1(resource, fixtureLocator);
   const locatedTarget = (() => {
     if (options.bindingAdmission === true) {
       if (!isLocatedReadCommittedAttemptTargetV1(pointTarget)) {
@@ -478,7 +480,7 @@ export async function relationReadinessFixture(
       }
       return pointTarget;
     }
-    return createLocatedAppSchemaCandidateValidationTarget(persistence.drizzle, LOCATOR);
+    return createLocatedAppSchemaCandidateValidationTarget(persistence.drizzle, fixtureLocator);
   })();
   const scopeSessionTargets = { resolve: async () => {
     if (!isLocatedReadCommittedAttemptTargetV1(pointTarget)) throw new Error("Expected a read-committed session target");

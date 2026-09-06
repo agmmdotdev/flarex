@@ -140,7 +140,7 @@ export function isStoredTargetNamespace(input: unknown): input is Readonly<{
 
 export function isStoredArtifactIdentity(input: unknown): input is Readonly<{
   readonly deploymentId: string;
-  readonly owner: "system" | "medusa";
+  readonly owner: "system" | "medusa" | "payload";
   readonly lineageId: string;
   readonly artifactSha256: string;
 }> {
@@ -179,7 +179,7 @@ export function isStoredCollisionCoordinate(input: unknown): input is Readonly<{
     readonly physicalDatabaseIdentity: string;
     readonly schemaName: string;
   }>;
-  readonly owner: "system" | "medusa";
+  readonly owner: "system" | "medusa" | "payload";
   readonly lineageId: string;
   readonly physicalNamespaceProfile: string;
 }> {
@@ -714,7 +714,7 @@ function isStoredPlanAdmission(input: unknown): boolean {
     isStoredPhysicalLocator(input.physicalLocator) &&
     isStoredTargetNamespace(input.targetNamespace) &&
     (input.version === 1 ? input.baseInstallation === null &&
-      input.admissionProfile === (input.artifact.owner === "medusa"
+      input.admissionProfile === (input.artifact.owner === "payload" ? "payload-preferences-fresh" : input.artifact.owner === "medusa"
         ? "synthetic-medusa-fresh" : "synthetic-system-fresh")
       : input.artifact.owner === "system" && isStoredMigrationBaseInstallation(input.baseInstallation) &&
         input.admissionProfile === "synthetic-system-additive" &&
@@ -966,6 +966,6 @@ function samePhysicalLocator(left: unknown, right: unknown): boolean {
     left.schemaName === right.schemaName;
 }
 
-function isOwner(input: unknown): input is "system" | "medusa" {
-  return input === "system" || input === "medusa";
+function isOwner(input: unknown): input is "system" | "medusa" | "payload" {
+  return input === "system" || input === "medusa" || input === "payload";
 }

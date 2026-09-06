@@ -207,7 +207,7 @@ function layoutCoordinatesMatch(
 function embeddedCoordinatesMatch(
   current: unknown,
   deploymentId: string,
-  owner: "system" | "medusa",
+  owner: "system" | "medusa" | "payload",
   lineageId: string,
 ): boolean {
   if (current === null || typeof current !== "object") return true;
@@ -743,13 +743,13 @@ function strictlyAfter(previous: string | undefined, current: string): boolean {
   return previous === undefined || compareUtf16Strings(previous, current) < 0;
 }
 
-function isOwner(input: unknown): input is "system" | "medusa" {
-  return input === "system" || input === "medusa";
+function isOwner(input: unknown): input is "system" | "medusa" | "payload" {
+  return input === "system" || input === "medusa" || input === "payload";
 }
 
 function isArtifactIdentity(input: unknown): input is Readonly<{
   readonly deploymentId: string;
-  readonly owner: "system" | "medusa";
+  readonly owner: "system" | "medusa" | "payload";
   readonly lineageId: string;
   readonly artifactSha256: string;
 }> {

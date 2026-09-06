@@ -1197,6 +1197,7 @@ function decodeOwner(
 ): Result.Result<RelationalSchemaOwner, RelationalSchemaError> {
   switch (input) {
     case "medusa":
+    case "payload":
     case "system":
       return Result.succeed(input);
     default:

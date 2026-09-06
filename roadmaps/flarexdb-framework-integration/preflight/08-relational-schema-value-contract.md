@@ -6,6 +6,11 @@ remain unauthorized
 
 Last reviewed: 2026-09-02
 
+The separately accepted [preference storage slice](./19-payload-preference-cleanup-and-delete-publication.md)
+adds Payload-owned lifecycle values to this vocabulary. Its coordinator
+execution accepts only the exact pinned preference artifact; Payload content
+continues to use Application schema authority.
+
 ## Decision
 
 The first consumer-informed shared-core behavior slice is complete as a private

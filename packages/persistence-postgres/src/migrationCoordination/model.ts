@@ -209,7 +209,7 @@ type MigrationAdmissionFields = Readonly<{
 
 export type FrameworkMigrationPlanAdmissionFrame = MigrationAdmissionFields & (
   | Readonly<{ readonly version: 1; readonly baseInstallation: null;
-      readonly admissionProfile: "synthetic-system-fresh" | "synthetic-medusa-fresh" }>
+      readonly admissionProfile: "synthetic-system-fresh" | "synthetic-medusa-fresh" | "payload-preferences-fresh" }>
   | Readonly<{ readonly version: 2;
       readonly baseInstallation: FrameworkMigrationBaseInstallation;
       readonly admissionProfile: "synthetic-system-additive" }>

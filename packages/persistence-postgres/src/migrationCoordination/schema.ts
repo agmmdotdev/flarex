@@ -225,7 +225,7 @@ export const fxSystemFrameworkMigrationCollisionDomains = pgTable(
     check(
       "fx_framework_migration_collision_identity_check",
       sql`${table.collisionStorageId} between 1 and ${sql.raw(MAX_INT64)}
-        and ${table.owner} in ('medusa', 'system')
+        and ${table.owner} in ('medusa', 'system', 'payload')
         and ${isFrameworkMetadataTextWithin(
           table.lineageId,
           MAX_COMMON_IDENTITY_UTF8_BYTES,
@@ -650,7 +650,7 @@ export const fxSystemFrameworkMigrationPlanAdmissions = pgTable(
             and ${table.previousPlanSha256} is not null
             and ${digestHasExactLength(table.previousPlanSha256)})
         )
-        and ((${table.frameVersion} = 1 and ${table.admissionProfile} in ('synthetic-system-fresh', 'synthetic-medusa-fresh'))
+        and ((${table.frameVersion} = 1 and ${table.admissionProfile} in ('synthetic-system-fresh', 'synthetic-medusa-fresh', 'payload-preferences-fresh'))
           or (${table.frameVersion} = 2 and ${table.admissionProfile} = 'synthetic-system-additive'
             and ${table.previousPlanStorageId} is not null))
         and ${table.assignmentCount} between 0 and ${sql.raw(

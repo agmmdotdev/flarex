@@ -266,7 +266,7 @@ function isCapabilitySet(
 
 function embeddedCoordinatesMatch(
   input: unknown,
-  owner: "system" | "medusa",
+  owner: "system" | "medusa" | "payload",
   lineageId: string,
 ): boolean {
   const pending: unknown[] = [input];
