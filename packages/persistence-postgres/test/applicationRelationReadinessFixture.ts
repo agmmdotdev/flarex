@@ -43,6 +43,7 @@ import { loadPublishedPhysicalRequirementSnapshotV1, reconcilePublishedIndexBuil
 import { createPhysicalDefinitionLifecyclePort } from "../src/physicalDefinitionLifecycle";
 import { createPGliteLocatedPointMutationSessionActivationTargetV1, createPGliteLocatedSplitScopeClockTarget, createPGliteSplitScopeAuthorityProvisioner } from "../src/pglite";
 import { createPointCommitPublisherPortV1 } from "../src/pointCommitTransaction";
+import { isLocatedReadCommittedAttemptTargetV1 } from "../src/transactionSessionAttemptKernel";
 import { getScopeAuthorityProvisioningReceipt } from "../src/scopeAuthorityProvisioningReceipt";
 import type { SplitScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
@@ -416,6 +417,8 @@ export async function setExactRelationAdjacencyVersion(
 export interface RelationReadinessFixtureOptions {
   readonly persistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly writePolicy?: boolean;
+  /** Compose the database-authenticated session target for DataBinding admission. */
+  readonly bindingAdmission?: boolean;
   readonly includeFunction?: boolean;
   readonly semanticReuse?: boolean;
 }
@@ -463,10 +466,18 @@ export async function relationReadinessFixture(
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
   });
-  const locatedTarget = createLocatedAppSchemaCandidateValidationTarget(
-    persistence.drizzle,
-    LOCATOR,
-  );
+  const pointTarget = "pool" in resource
+    ? createPostgresLocatedPointMutationSessionActivationTargetV1(resource, LOCATOR)
+    : createPGliteLocatedPointMutationSessionActivationTargetV1(resource, LOCATOR);
+  const locatedTarget = (() => {
+    if (options.bindingAdmission === true) {
+      if (!isLocatedReadCommittedAttemptTargetV1(pointTarget)) {
+        throw new Error("Binding fixture requires a read-committed session target");
+      }
+      return pointTarget;
+    }
+    return createLocatedAppSchemaCandidateValidationTarget(persistence.drizzle, LOCATOR);
+  })();
   const authorityPorts = Object.freeze({
     scopeMetadata: control,
     provisioningReceipts: {
@@ -475,9 +486,6 @@ export async function relationReadinessFixture(
     },
     scopeClockTargets: { resolve: async () => locatedTarget },
   });
-  const pointTarget = "pool" in resource
-    ? createPostgresLocatedPointMutationSessionActivationTargetV1(resource, LOCATOR)
-    : createPGliteLocatedPointMutationSessionActivationTargetV1(resource, LOCATOR);
   const pointCommitAuthority = Object.freeze({
     scopeMetadata: control,
     provisioningReceipts: authorityPorts.provisioningReceipts,

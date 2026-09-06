@@ -21,6 +21,7 @@ import {
 } from "./profiles";
 import type { VerifiedBindingLane } from "./repository";
 import { scopePhysicalLocatorsEqual } from "../../scopePhysicalLocator";
+import { verifyPayloadContentBinding } from "./content";
 
 export const lockBindingInstallation = Effect.fn(
   "DataBindingEvidence.lockInstallation",
@@ -74,9 +75,10 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
     snapshot: FrameworkMigrationTargetSnapshot,
     profiles: DataBindingTestProfiles | undefined,
   ) {
-    // Their codecs reserve identity; no current owner can issue CMS write-policy or lifecycle authority.
-    if (frame.payloadContent !== null || frame.payloadLifecycle !== null)
+    // Lifecycle storage remains unadmitted; content uses activated Application ownership.
+    if (frame.payloadLifecycle !== null)
       return yield* Effect.fail(bindingError("unsupportedProfile"));
+    yield* verifyPayloadContentBinding(tx, frame);
     const verified: VerifiedBindingLane[] = [];
     for (const { slot, binding } of physicalBindings(frame)) {
       const availability = yield* lockBindingInstallation(

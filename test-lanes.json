@@ -99,10 +99,12 @@
       "test/frameworkDataBindingValues.test.ts",
       "test/frameworkSyntheticMedusaProfile.test.ts",
       "test/migrationCoordinationValues.test.ts",
-      "test/frameworkDataBindings.test.ts"
+      "test/frameworkDataBindings.test.ts",
+      "test/frameworkContentBindings.test.ts"
     ],
     "framework-bindings-postgres": [
-      "test/frameworkDataBindings.postgres.test.ts"
+      "test/frameworkDataBindings.postgres.test.ts",
+      "test/frameworkContentBindings.postgres.test.ts"
     ],
     "framework-scalar-store-pglite": [
       "test/relationalTransaction.test.ts",

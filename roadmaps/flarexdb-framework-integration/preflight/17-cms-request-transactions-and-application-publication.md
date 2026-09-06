@@ -2,8 +2,8 @@
 
 ## Status And Outcome
 
-Status: concrete proposal for the private CMS host and Application
-commit-participation capability. Implementation is not yet accepted. The
+Status: accepted private CMS host and Application commit-participation
+capability; implementation in progress. The
 post-core Application-preservation gate is complete on PGlite and ordinary-role
 PostgreSQL 18; its maintained proof inventory is below.
 
@@ -13,6 +13,14 @@ change set and wake. A failing nested operation rolls the entire command back.
 This requires the separately accepted [Application write-policy capability](./18-application-table-write-policy.md) before
 any CMS-owned table can be written. It does not admit a Payload adapter, arbitrary
 hooks, native relation mutation, commerce facts, public APIs or production use.
+
+The content-overlay admission is implemented privately against activated V3
+Application write ownership. It authenticates the exact managed-table set,
+configuration/provenance and policy digests, rejects stale or corrupt evidence,
+and requires rebinding after Application head movement. This is binding
+admission only; the request host, pending documents, materialization receipts,
+CMS publication and result recovery remain in progress as one capability.
+A selected overlay does not yet grant any CMS document operation.
 
 ## Application Preservation
 

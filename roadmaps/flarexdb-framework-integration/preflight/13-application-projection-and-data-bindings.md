@@ -1,9 +1,11 @@
 # Application Projection And Data Bindings Preflight
 
-Status: private implementation complete for Application-only binding and
-owner-correct synthetic Medusa commerce evidence. The Application selector
-retains authority. Payload content/lifecycle profiles, real framework adapters,
-relational data writes and production serving remain gated.
+Status: private implementation complete for Application-only binding,
+owner-correct synthetic Medusa commerce evidence, and scalar content-overlay
+admission against activated V3 Application ownership. The Application selector
+retains authority. CMS document operations/publication, Payload lifecycle
+profiles, real framework adapters, relational data writes and production
+serving remain gated.
 
 ## Outcome And Boundary
 
@@ -96,6 +98,15 @@ Neither a populated content overlay nor installation readiness alone can grant
 Payload writes; the separately owned Application write-policy gate is still
 required. Absent owner support is a typed refusal, not an implicitly supported
 empty capability profile.
+
+The private scalar content overlay requires policy-bearing, relation-free
+Application readiness and the complete retained managed-table set in ascending
+stable table-ID order. Configuration, provenance and per-table write-policy
+digests must match activated ownership. Legacy readiness, missing/extra or
+ordinary tables, stale heads and corrupt ownership are refused. Head movement
+requires explicit overlay rebinding. This admission grants no CMS document
+operation until the separate request host and materialization capability is
+implemented under the [accepted CMS contract](./17-cms-request-transactions-and-application-publication.md).
 
 Each physical binding pins owner-qualified artifact identity, target namespace,
 installation/receipt digest, readiness digest, and the exact availability
