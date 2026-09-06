@@ -185,6 +185,11 @@ dashboard, general hooks and broader lifecycle support are later capabilities.
 
 ### Application write-policy admission preflight
 
+The concrete [Application table write-policy proposal](./preflight/18-application-table-write-policy.md)
+now defines this capability and its first complete implementation proof.
+It remains proposed until accepted; no Payload writer is activated by the
+preceding Application denial capability.
+
 This separately approved Application-owner gate is mandatory before the first
 writable Payload vertical because the current framework-binding work does not
 authorize a change to application commit admission:

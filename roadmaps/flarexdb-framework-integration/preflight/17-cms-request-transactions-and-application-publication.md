@@ -10,7 +10,7 @@ PostgreSQL 18; its maintained proof inventory is below.
 The next usable outcome is a bounded scalar CMS command that reads its pending
 Application documents and publishes exactly one Application commit, result,
 change set and wake. A failing nested operation rolls the entire command back.
-This requires the separately accepted Application write-policy capability before
+This requires the separately accepted [Application write-policy capability](./18-application-table-write-policy.md) before
 any CMS-owned table can be written. It does not admit a Payload adapter, arbitrary
 hooks, native relation mutation, commerce facts, public APIs or production use.
 
@@ -242,7 +242,8 @@ contracts at each operation boundary; retain narrow typed failures and exact
 causes, with one public-to-adapter error projection. Pure capture and conservation
 policies remain independently testable without database startup.
 
-The write-policy prerequisite must authenticate CMS-managed ownership in the
+The [write-policy proposal](./18-application-table-write-policy.md) defines the
+preceding complete denial vertical. It must authenticate CMS-managed ownership in the
 Application publication/binding and reject ordinary Application mutation, direct
 adapter, stale owner and forged capability paths. It cannot be an adapter-local
 table-name denylist. This proposal does not quietly authorize that owner change

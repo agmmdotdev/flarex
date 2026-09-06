@@ -445,8 +445,9 @@ Mutation attempts still require rollback. The implemented
 now closes authenticated issuance, complete collection and single-use outer
 rejection in both drivers. No synthetic fact family is admitted. Full Application
 preservation is complete. The [CMS host and Application publication proposal](./17-cms-request-transactions-and-application-publication.md)
-is ready for acceptance, with a separate write-policy prerequisite before
-implementation. The proposed
+is ready for acceptance. The [Application write-policy proposal](./18-application-table-write-policy.md)
+defines the preceding complete denial capability; its acceptance and
+implementation must establish ownership before CMS publication. The proposed
 [CMS read contract](./07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract)
 is resolved by that proposal's bounded snapshot policy once accepted; it does
 not authorize routing Payload content through the synthetic reserved-relational store.
