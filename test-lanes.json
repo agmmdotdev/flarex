@@ -111,6 +111,18 @@
     ],
     "framework-scalar-store-postgres": [
       "test/relationalTransaction.postgres.test.ts"
+    ],
+    "framework-application-preservation-pglite": [
+      "test/integration/applicationNativeMutation.test.ts",
+      "test/integration/applicationNativeQuery.test.ts",
+      "test/integration/applicationRelationalCore.test.ts",
+      "test/integration/applicationRelationQuery.pglite.test.ts"
+    ],
+    "framework-application-preservation-postgres": [
+      "test/integration/applicationNativeMutation.postgres.test.ts",
+      "test/integration/applicationNativeQuery.postgres.test.ts",
+      "test/integration/applicationRelationalCore.postgres.test.ts",
+      "test/integration/applicationRelationQuery.postgres.test.ts"
     ]
   },
   "selectors": {
@@ -206,9 +218,63 @@
     ],
     "framework-scalar-store-postgres": [
       "framework-scalar-store-postgres"
+    ],
+    "framework-application-preservation-pglite": [
+      "framework-application-preservation-pglite"
+    ],
+    "framework-application-preservation-postgres": [
+      "framework-application-preservation-postgres"
     ]
   },
   "lanes": [
+    {
+      "id": "framework-application-preservation-pglite",
+      "category": "pglite",
+      "proof": "Complete existing Application-native mutation/OCC/replay/publication, query snapshot, SV-R Core and RQ01 scenarios after framework shared-core changes. One Worker-backed file at a time; no task, action, live-sync, framework adapter or production claim.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "system-framework-application-preservation-pglite",
+          "cwd": "packages/system-test",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            { "testFileGroup": "framework-application-preservation-pglite" },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=480000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-application-preservation-postgres",
+      "category": "postgres",
+      "proof": "The same complete Application document/OCC/relation/commit/read vertical on ordinary-role PostgreSQL 18 with split control and target stores. Existing assertions and fixture ownership are unchanged; one Worker-backed file at a time.",
+      "prerequisites": [
+        { "name": "FLAREX_POSTGRES_DATABASE_URL" }
+      ],
+      "steps": [
+        {
+          "id": "system-framework-application-preservation-postgres",
+          "cwd": "packages/system-test",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "--config",
+            "vitest.postgres.config.ts",
+            { "testFileGroup": "framework-application-preservation-postgres" },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=480000"
+          ]
+        }
+      ]
+    },
     {
       "id": "framework-coordinator-fresh-postgres",
       "category": "postgres",

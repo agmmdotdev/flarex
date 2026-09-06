@@ -99,7 +99,10 @@ Use these sources in order:
 18. [`preflight/16-mutation-receipts-and-finalization-admission.md`](./preflight/16-mutation-receipts-and-finalization-admission.md)
     owns the implemented private receipt issuer, complete collection,
     single-use outer admission and unadmitted-family rejection capability.
-19. Current code, migrations, any source snapshot already admitted by its own
+19. [`preflight/17-cms-request-transactions-and-application-publication.md`](./preflight/17-cms-request-transactions-and-application-publication.md)
+    records the completed Application-preservation gate and proposes the private
+    CMS read/request host and Application publication participation contract.
+20. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -152,6 +155,7 @@ Preflight records:
 | [`preflight/14-transaction-execution-profiles.md`](./preflight/14-transaction-execution-profiles.md) | Accepted architecture direction; scalar transaction contract implemented, commit-family and cross-domain proofs pending | Shared transaction ownership, separate Application/framework/workflow execution profiles, nested failure and event boundaries, and explicitly gated cross-domain atomic commands |
 | [`preflight/15-scalar-relational-transaction-and-store.md`](./preflight/15-scalar-relational-transaction-and-store.md) | Implemented privately with focused PGlite and ordinary-role PostgreSQL coverage | Private synthetic scalar operations, exact owner/table authority, pending-write reads, rollback-only nesting, cancellation with cleanup, read-only settlement and mutation rollback before receipt-family admission |
 | [`preflight/16-mutation-receipts-and-finalization-admission.md`](./preflight/16-mutation-receipts-and-finalization-admission.md) | Implemented privately with focused PGlite and ordinary-role PostgreSQL coverage | SQL-issued private receipts, complete bounded collection, one outer admission, and synthetic rejection without a new fact family or Application publisher changes |
+| [`preflight/17-cms-request-transactions-and-application-publication.md`](./preflight/17-cms-request-transactions-and-application-publication.md) | Application preservation complete; CMS host/publication proposal pending acceptance | Complete native mutation/OCC/replay, query, SV-R Core and RQ01 driver lanes; proposed bounded CMS pending documents, authenticated Application materialization, one publication and outcome recovery |
 
 ## Current Architecture
 
@@ -259,9 +263,10 @@ The smallest safe sequence is:
    fail-closed finalization rejection, and rollback in PGlite and genuine
    PostgreSQL. Do not invent a generic system binding or synthetic change-fact
    family.
-9. Run the complete existing Flarex Application document, OCC, native-relation,
-   commit, and read vertical to prove that shared-core work did not reroute or
-   weaken Application authority.
+9. The complete existing Flarex Application document, OCC, native-relation,
+   commit, and read vertical passes after shared-core work on both drivers.
+   Retain the [preservation lanes](./preflight/17-cms-request-transactions-and-application-publication.md#application-preservation)
+   for later changes to shared publication.
 10. With the exact Payload contract accepted, complete the CMS request-
    transaction-host, Application commit-participation/finalization, and
    Application write-policy gates, then prove one scalar-only CMS-managed
@@ -322,8 +327,9 @@ has private Application-only and synthetic Medusa acceptance.
 | Serving bindings | Private Application projection, exact binding ledger, activation/admission/recovery and synthetic Medusa evidence complete | Payload content/lifecycle profile issuers, real adapters, multi-physical-lane admission and production serving remain gated |
 | Relational data transaction/store | Private scalar profile implemented on PGlite and ordinary-role PostgreSQL | Read-only settlement and mutation rollback only; no Payload or Medusa store admission |
 | Relational receipts and finalization | Private SQL-issued receipts, complete collector and outer admission implemented on both drivers | No admitted relational fact family or successful framework publication |
-| Synthetic relational data proof | Non-serving selection, scalar operations, pending reads, nested rollback, authenticated receipts and finalization rejection implemented | Mutation attempts cannot publish; full Application preservation and real framework conformance remain |
-| Application preservation | Existing private `SV-R Core` baseline complete | Post-core document/OCC/relation/commit regression pending |
+| Synthetic relational data proof | Non-serving selection, scalar operations, pending reads, nested rollback, authenticated receipts and finalization rejection implemented | Mutation attempts cannot publish; real framework conformance remains |
+| Application preservation | Post-core complete native mutation/OCC/replay/publication, query, SV-R Core and RQ01 scenarios pass on PGlite and ordinary-role PostgreSQL | Rerun after shared publication changes; Action/Task, live sync and hosted claims remain separate |
+| CMS request host and Application publication | Concrete private contract proposed | Acceptance, separate write-policy contract and implementation pending; no adapter or successful CMS publication yet |
 | Payload scalar and non-reactive relation proofs | Pinned contract and native relation prerequisite available | Adapter, CMS read/request transaction, write-policy admission, scalar proof and relation candidate/rebinding pending |
 | Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
@@ -412,6 +418,8 @@ synthetic Medusa evidence. The private synthetic scalar transaction/store now
 proves owned scalar data, pending-write reads, nested rollback, bounded cleanup
 and read-only settlement. The implemented [receipt/admission contract](./preflight/16-mutation-receipts-and-finalization-admission.md)
 adds authentic SQL evidence, complete collection and outer rejection. Full
-Application preservation is next, followed by the CMS host/Application
-commit-participation contract. Framework adapters, SDKs, runtime routes and
+Application preservation now passes on both drivers. The
+[CMS host/Application publication proposal](./preflight/17-cms-request-transactions-and-application-publication.md)
+is next, together with its separate Application write-policy prerequisite.
+Framework adapters, SDKs, runtime routes and
 production traffic remain gated.

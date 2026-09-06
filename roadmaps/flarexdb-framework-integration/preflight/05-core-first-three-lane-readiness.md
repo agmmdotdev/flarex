@@ -1,13 +1,13 @@
 # Core-First Three-Lane Readiness
 
-Status: accepted execution sequence; consumer audits, the private value-only
-relational schema, and the production-inert installation/migration checkpoints
-1 and 2 are complete through their serial PGlite storage/repository gate.
-Checkpoint 3's private target/session, structural runner, and fresh coordinator
-have PGlite functional evidence. Base-backed, genuine-PostgreSQL, scale,
-production resolution, transaction, binding, adapter, and production remain open.
+Status: accepted execution sequence. The private shared-core capabilities and
+their exact acceptance boundaries are maintained in the
+[master capability matrix](../README.md#current-gate-status). Post-core
+Application preservation is complete on PGlite and ordinary-role PostgreSQL.
+The CMS host/publication contract is proposed; Application write-policy,
+framework conformance and production activation remain separately gated.
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-06
 
 ## Decision
 
@@ -295,6 +295,11 @@ compatibility, or Payload behavior.
 
 ### Flarex Application preservation
 
+Status: complete after shared-core receipt work on PGlite and ordinary-role
+PostgreSQL 18. The [maintained preservation inventory](./17-cms-request-transactions-and-application-publication.md#application-preservation)
+covers complete native mutation/OCC/replay/publication, native query, SV-R Core
+and RQ01 scenarios. Repeat it when shared publication changes.
+
 Run the complete existing Application document, OCC, native relation, commit,
 and read path after the shared-core slice. Add only focused regression coverage
 needed to prove no ownership, transaction, fact, ordering, or activation
@@ -439,10 +444,11 @@ Mutation attempts still require rollback. The implemented
 [receipt/admission capability](./16-mutation-receipts-and-finalization-admission.md)
 now closes authenticated issuance, complete collection and single-use outer
 rejection in both drivers. No synthetic fact family is admitted. Full Application
-preservation is next, followed by the CMS host and Application participation
-contract. The proposed
+preservation is complete. The [CMS host and Application publication proposal](./17-cms-request-transactions-and-application-publication.md)
+is ready for acceptance, with a separate write-policy prerequisite before
+implementation. The proposed
 [CMS read contract](./07-payload-release-and-adapter-contract.md#proposed-standalone-read-contract)
-remains a requirement before the Payload host; it does not authorize routing
-Payload content through the synthetic reserved-relational store.
+is resolved by that proposal's bounded snapshot policy once accepted; it does
+not authorize routing Payload content through the synthetic reserved-relational store.
 Each capability should deliver an executable outcome with its failure proofs;
 ordinary implementation details do not require serial prerequisite-doc gates.

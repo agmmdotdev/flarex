@@ -150,6 +150,11 @@ Status: source-backed contract gap with a recommended resolution; the CMS
 transaction-owner capability must accept the exact read policy before adapter
 implementation.
 
+The [CMS host/publication proposal](./17-cms-request-transactions-and-application-publication.md#read-policy-and-pending-documents)
+now makes the bounded snapshot, same-request pending view, exact count and
+invalid-ID refusal policy concrete. It remains proposed until that owning
+contract is accepted.
+
 The pinned
 [collection find operation](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/payload/src/collections/operations/find.ts)
 and

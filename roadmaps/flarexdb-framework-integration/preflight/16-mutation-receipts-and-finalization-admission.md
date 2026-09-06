@@ -227,7 +227,8 @@ staged gate. This is focused preservation evidence, not a claim that the full
 Application document/OCC/relation/commit vertical has been requalified.
 
 The issuer, collector, outer admission and database rejection proof are
-implemented. Next complete the full Application-preservation gate and the
-separately required CMS host/Application commit-participation contract. Preserve
+implemented. The full Application-preservation gate now passes on both drivers;
+the [CMS host/Application publication contract](./17-cms-request-transactions-and-application-publication.md)
+is proposed, with separate write-policy acceptance required before implementation. Preserve
 the ordered Payload scalar, Payload native-relation and real Medusa Currency
 proofs; receipt plumbing alone does not prove the core through both frameworks.

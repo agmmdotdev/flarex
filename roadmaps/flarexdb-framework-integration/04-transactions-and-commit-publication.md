@@ -31,6 +31,12 @@ the complete set, and one outer admission authenticates it before rejecting the
 unadmitted synthetic family. This does not extract the
 Application publisher or permit a successful relational data commit.
 
+The post-core Application preservation vertical now passes on both drivers.
+The [CMS host/Application publication proposal](./preflight/17-cms-request-transactions-and-application-publication.md)
+defines the next separate commit-owner capability, including standalone reads,
+pending documents, exact Application materialization and result recovery. It
+requires acceptance and the separate Application write-policy prerequisite.
+
 ## Transaction Hosts
 
 Use separate high-level hosts:
