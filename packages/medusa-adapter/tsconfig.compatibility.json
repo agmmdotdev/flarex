@@ -7,7 +7,7 @@
     "types": ["node", "vitest/globals"],
     "paths": {
       "@services": ["../medusa-currency/src/services/index.ts"],
-      "@medusajs/test-utils": ["./test/support/runner.ts"]
+      "@medusajs/test-utils": ["./test/support/runner-contract.ts"]
     }
   },
   "include": [

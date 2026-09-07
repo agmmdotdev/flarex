@@ -417,6 +417,7 @@ export async function setExactRelationAdjacencyVersion(
 export interface RelationReadinessFixtureOptions {
   readonly physicalLocator?: SplitScopePhysicalLocator;
   readonly persistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
+  readonly controlPersistence?: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly writePolicy?: boolean;
   readonly cmsIndexes?: boolean;
   readonly cmsFields?: Parameters<typeof policyManifestFixture>[2];
@@ -435,7 +436,7 @@ export async function relationReadinessFixture(
   const resource = options.persistence ?? await createMigratedPGlitePersistence();
   const fixtureLocator = options.physicalLocator ?? LOCATOR;
   const persistence: ApplicationNativeMutationPersistence = resource;
-  const controlResource = options.writePolicy === true && !("pool" in resource) ? await createMigratedPGlitePersistence() : resource;
+  const controlResource = options.controlPersistence ?? (options.writePolicy === true && !("pool" in resource) ? await createMigratedPGlitePersistence() : resource);
   const control: ApplicationNativeMutationPersistence = controlResource;
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     `deployment_application_relation_fold_${fixtureOrdinal}`,

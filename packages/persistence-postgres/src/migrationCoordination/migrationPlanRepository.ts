@@ -1,4 +1,5 @@
 import { withAdditiveMigrationGraphLimits } from "./additiveLimits";
+import { reaffirmCapturedPlanAdmissionAuthority } from "./authority";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { insertFrameworkMigrationBaseEffect, restoreFrameworkMigrationBaseEffect } from "./baseRepository";
 import { and, asc, eq, sql } from "drizzle-orm";
@@ -359,6 +360,7 @@ const resolveAuthenticatedFreshRelationalMigrationPlanOccupantForOperationEffect
         expected,
       ) === "exact"
     ) {
+      reaffirmCapturedPlanAdmissionAuthority(occupant.value.plan, expected);
       return occupant;
     }
     return yield* Effect.fail(

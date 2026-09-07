@@ -99,7 +99,7 @@ independent base-backed acceptance. The following mechanisms remain absent:
 - framework operation profiles beyond the private synthetic scalar transaction/store;
 - admitted relational fact families and successful typed publication;
 - general Payload configuration/content overlays and adapter behavior; and
-- a Flarex-backed Medusa commerce adapter beyond private Currency value translation.
+- Medusa adapters beyond the private Flarex-backed Currency capability.
 
 The [Application projection and binding capability](./13-application-projection-and-data-bindings.md)
 is implemented privately for Application-only and synthetic Medusa evidence,
@@ -436,8 +436,8 @@ records the implemented private source relocation, actual DML compatibility and
 unchanged baseline. The bounded private Payload scalar and non-reactive
 relation prerequisites are implemented, including the separate fresh-only
 reverse-join profile. Currency's source/type/build/test graph is manifest-admitted.
-The [Currency host/publication proposal](./25-medusa-currency-host-and-publication.md)
-now defines the next coherent capability, pending approval: exact live fresh
+The [Currency host/publication capability](./25-medusa-currency-host-and-publication.md)
+implements the private capability: exact live fresh
 installation, seed-gated serving, bounded queries, authenticated managers and
 shared commerce row publication. Currency's read-only public interface requires
 no domain events; event attempts remain rejected. General module migration

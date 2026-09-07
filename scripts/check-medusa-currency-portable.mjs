@@ -8,6 +8,7 @@ const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.target).replaceAll("\\", "/")));
 const inputs = new Set();
+for (const entry of ["packages/medusa-currency/src/static-manifest.ts", "packages/medusa-adapter/src/currency-service.ts"]) {
 await build({
   configFile: false,
   logLevel: "silent",
@@ -29,7 +30,8 @@ await build({
   build: {
     write: false,
     minify: false,
-    lib: { entry: path.join(root, "packages/medusa-currency/src/static-manifest.ts"), formats: ["es"] },
+    lib: { entry: path.join(root, entry), formats: ["es"] },
   },
 });
-console.log(`Verified Currency static-manifest browser bundle across ${inputs.size} inputs; no Node, ORM, database, or island runtime imports.`);
+}
+console.log(`Verified Currency static-manifest and Flarex service browser bundle across ${inputs.size} inputs; no Node, ORM, database, or island runtime imports.`);

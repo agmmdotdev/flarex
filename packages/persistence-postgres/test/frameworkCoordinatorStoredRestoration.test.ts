@@ -56,6 +56,7 @@ import {
 import { captureRelationalPhysicalLayout } from
   "../src/relationalSchema/physical/canonical";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { reaffirmCapturedPlanAdmissionAuthority } from "../src/migrationCoordination/authority";
 import {
   completeFrameworkMigrationPlanSteps,
   expectDeeplyFrozen,
@@ -73,6 +74,14 @@ const AVAILABILITY_REASON_SHA256 = "22".repeat(32);
 const eventSequence = Brand.nominal<CanonicalNonNegativeInt64>();
 
 describe("framework coordinator stored restoration", () => {
+  it("requires fresh exact-plan authority before issuing a new admission from cold evidence", async () => {
+    const values = await restoreMigrationGraph();
+    const input = { plan: values.restoredPlan.plan, nameAssignments: values.restoredPlan.plan.physicalLayout.nameAssignments,
+      previousPlanSha256: null, admittedAt: T0 };
+    await runEffectFailure(captureFrameworkMigrationPlanAdmission(input));
+    expect(reaffirmCapturedPlanAdmissionAuthority(values.restoredPlan.plan, values.plan)).toBe(true);
+    expect((await runEffect(captureFrameworkMigrationPlanAdmission(input))).frame.admissionProfile).toBe("synthetic-system-fresh");
+  });
   it("keeps cold-restoration operations source-private", async () => {
     expect("restoreStoredFreshRelationalMigrationPlan" in persistenceRoot)
       .toBe(false);

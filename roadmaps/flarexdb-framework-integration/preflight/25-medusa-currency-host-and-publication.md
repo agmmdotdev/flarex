@@ -2,13 +2,13 @@
 
 ## Status And Decision
 
-Status: researched proposal, pending capability approval. No live Currency
-installation, commerce transaction host or commerce publication is implemented
-by this record. [Record 24](./24-medusa-currency-convergence-and-schema-compatibility.md)
+Status: implemented private Currency capability on PGlite and ordinary-role
+PostgreSQL.
+[Record 24](./24-medusa-currency-convergence-and-schema-compatibility.md)
 records the completed private source closure, actual DML value translation and
 unchanged comparison baseline.
 
-The next outcome is one working private Currency capability: compile the actual
+The implemented outcome is one working private Currency capability: compile the actual
 model, install its reserved relational layout, seed the pinned 123 currencies,
 admit a serving binding, and run the unchanged Currency service over Flarex.
 Private repository writes must prove pending reads, rollback, one shared commit
@@ -28,6 +28,43 @@ and [Medusa adapter design](../../../design-notes/flarexdb-medusa-commerce-adapt
 retain one transaction/publication substrate and distinct semantic owners.
 Medusa owns Currency behavior; Flarex owns storage authority and settlement.
 
+### Shared metadata, adapter-owned compatibility
+
+Restrict runtime admission to the selected Currency proof without specializing
+durable core metadata for Currency. Module business tables are generated from
+actual DML. Shared relational change facts identify the installation, artifact,
+table, versioned canonical primary key, operation and commit. The issuer validates
+the key against the admitted table/key descriptor, including ordered components
+and types; an arbitrary JSON key or a hash alone is not accepted identity.
+
+Shared initialization receipts identify the installation, step, admitted
+contract, dataset digest and verified completion. Currency's adapter owns its
+default dataset and expected count of 123; core validates completion against that
+captured contract, rather than placing the number in a database constraint.
+Initialization receipts outlive ordinary commit-history retention.
+
+The private runtime currently admits one table with one text primary key and a
+catalog of at most 256 rows. Shared key codecs validate declared ordered text
+components; other scalar key kinds, multiple runtime tables and larger catalogs
+require further admission. Read/count/delete inputs and nested command values
+consume the same cumulative budget. Catalog size probes run before hydration;
+writes return identities and recheck stored sizes before loading expanded values.
+The byte probe conservatively bounds the whole admitted catalog, even for a
+smaller selected page. This deliberate first-profile restriction is not general
+Medusa query compatibility.
+
+Cancellation closes the framework runner gate and joins started DAL/SQL work
+before transaction cleanup. Uncooperative JavaScript continuations receive a
+bounded cleanup wait and cannot start SQL after revocation. Publication drains
+its current bounded statement and checks cancellation before the next atom.
+
+Currency column names, code-filter normalization and Medusa query grammar stay
+in the adapter. Core owns scoped physical operations, resource bounds, authentic
+receipts and settlement. New modules extend their adapter descriptors and
+compatibility proofs; they do not each add a fact table, initialization table or
+commit-header column. New schema/query/transaction features still require their
+own proven admission. This is not an unrestricted generic database API.
+
 | Current source | Consequence for this capability |
 | --- | --- |
 | `medusa-currency/src/services/currency-module-service.ts` and `medusa-types/src/currency/service.ts` | The declared public service provides retrieve, list and list-and-count. Preserve its recursive lowercase normalization and errors; do not invent public create/update methods. |
@@ -36,9 +73,9 @@ Medusa owns Currency behavior; Flarex owns storage authority and settlement.
 | `medusa-currency/src/loaders/initial-data.ts` | The loader upserts the default catalog but catches errors. It remains comparison evidence; warning-only completion cannot authorize serving. |
 | `medusa-utils/src/modules-sdk/decorators/inject-transaction-manager.ts` | A truthy context manager bypasses opening another transaction. Every target repository operation must authenticate the manager, rather than trusting the decorator. |
 | `relationalTransaction/lifetime.ts` and `model.ts` | The current store admits a single system-owned scalar table and a 32-row keyset page. Currency requires a distinct selected profile with numeric, JSON, timestamp, default, projection, offset and count semantics. |
-| `migrationCoordination/canonical.ts`, `schema.ts`, `storedValidation.ts`, `storedRestoration.ts` | Fresh Medusa admission currently means synthetic provenance and a persisted synthetic profile. Allowing source provenance without changing all corresponding identities would mislabel live installation evidence. |
+| `migrationCoordination/canonical.ts`, `schema.ts`, `storedValidation.ts`, `storedRestoration.ts` | Live fresh admission requires an authentic matching commerce descriptor. Cold stored plans are evidence only until reaffirmed by the exact freshly captured plan; persisted labels cannot mint authority. |
 | `commitPublication/collection.ts` | Synthetic mutation receipts deliberately reject finalization. Preserve that denial; a successful Currency participant needs its own authenticated closure. |
-| `pointCommitTransaction.ts` | Application and CMS share publication atoms, but their contribution types still describe application rows. Currency code keys cannot be encoded as fictitious document IDs. |
+| `pointCommitTransaction.ts` | Application, CMS and commerce share publication atoms. Commerce contributes typed relational facts through an admission-bound single-use closure; code keys are never fictitious document IDs. |
 
 The repository's Convex `crates/database/src/transaction.rs` requires completed
 nested work before producing a final transaction; `committer.rs` separates
@@ -70,7 +107,7 @@ is a trusted code boundary; receiving an artifact or a matching profile string
 from a caller is not authority. Core consumes captured value contracts and
 never imports Medusa or maintains a second hand-authored Currency schema.
 
-Introduce an explicitly named live fresh-Currency migration profile through
+Use the explicitly named registered-commerce-fresh migration profile through
 plan capture, persisted constraints, restoration, readiness and binding
 validation. Preserve existing synthetic and Payload profiles and their proofs.
 Reject other Medusa artifacts, altered capabilities and semantic upgrades.
@@ -99,7 +136,7 @@ Comparison repositories remain separately named test lanes with no target
 fallback. Ordinary target DML uses the admitted layout and scope, never
 caller-provided SQL, physical names or a raw database handle.
 
-Proposed closed Currency budget: at most 256 stored rows including soft-deleted
+Implemented closed Currency budget: at most 256 stored rows including soft-deleted
 rows; at most 256 result rows and code operands; offset 0 through 255; explicit
 take 0 through 256. Omitted take returns the admitted matching catalog rather
 than silently truncating at the synthetic store's page size. Enforce the
@@ -136,17 +173,17 @@ outer rollback even when application code catches it. Await all tracked work
 before closing; preserve the existing cancellation, drain, quarantine and
 uncertain-settlement rules from the shared session owner.
 
-Add a private commerce participant and typed Currency receipt collection.
+The private commerce participant collects typed relational row receipts.
 Receipts bind exact transaction/admission, physical table, code, operation,
 command order and affected-row evidence. Reject missing, duplicate, foreign,
 reordered or unconsumed receipts. Preserve the synthetic rejecting collector.
 Freeze the complete ordered closure before the outer finalizer accepts it.
 
 The common publication owner writes one scope commit containing separately
-typed Currency row facts, one canonical retained command result, one existing
+typed relational row facts for Currency, one canonical retained command result, one existing
 commit wake and one scope-clock advancement in the same transaction as rows
-and seed receipt. Add persisted Currency fact storage and explicit header count
-validation; update schema installation, restoration, feed readers and retention
+and initialization receipt. Add shared relational fact storage and one explicit
+relational header count; update schema installation, restoration, feed readers and retention
 consumers so existing Application/CMS readers do not misinterpret a commerce-only
 commit as corruption or lose its facts. Do not overload application row facts,
 Payload preference facts, the wake's event kind or Application journal authority.
@@ -154,7 +191,7 @@ Payload preference facts, the wake's event kind or Application journal authority
 Keep Application/CMS preparation and authority checks with their current
 participants. Share the actual publication atoms through a closed contribution
 contract rather than duplicating the commit tail or exporting a general
-transaction/finalizer callback. Read-only commands emit no commit or wake.
+transaction/finalizer callback. Read-only commands emit no commit or wake; keyed execution refuses read-command tokens.
 Each successful mutating command has one retained outcome, including a
 successful no-op; failed commands have none. Ordered row facts reflect actual
 affected rows, not attempted zero-row writes.
@@ -186,7 +223,7 @@ bring unrelated modules and a second persistence path. Implementing generic
 Medusa events now would invent a Currency contract. The selected direction
 proves the actual service and shared core with explicit private boundaries.
 
-## Completion And Efficient Validation
+## Capability Boundary And Efficient Validation
 
 1. Actual DML produces a fresh live installation; failed/mismatched seed blocks
    serving, restart resumes safely and exact seed recovery does not overwrite

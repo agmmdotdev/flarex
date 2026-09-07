@@ -822,6 +822,9 @@ importers:
       '@flarex/persistence-postgres':
         specifier: workspace:*
         version: link:../persistence-postgres
+      '@flarex/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@medusajs/currency':
         specifier: workspace:*
         version: link:../medusa-currency

@@ -15,7 +15,8 @@ import {
 } from "../src/relationalTransaction/model";
 
 /** One Wasm instance, one lease, with an external watchdog that can stop active SQL. */
-export async function createRelationalPGliteFixture(options: { readonly fileBacked?: boolean } = {}) {
+export async function createRelationalPGliteFixture(options: { readonly fileBacked?: boolean; readonly observeQuery?: (text: string) => Promise<void> | void; readonly registerCleanup?: (cleanup: () => Promise<void>) => void } = {}) {
+  const fixtureOptions = options;
   // Only this fixture-created directory is removed by its registered cleanup.
   const dataDir = options.fileBacked === true ? await mkdtemp(join(tmpdir(), "flarex-relational-")) : undefined;
   const worker = new Worker(
@@ -70,7 +71,7 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
         );
     },
   );
-  onTestFinished(async () => {
+  (options.registerCleanup ?? onTestFinished)(async () => {
     await terminate(new Error("Fixture closed"));
     if (dataDir !== undefined) await rm(dataDir, { recursive: true, force: true });
   });
@@ -111,11 +112,12 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
         "select sum(i) from generate_series(1,1000000000) i",
       );
     }
+    await fixtureOptions.observeQuery?.(text);
     const result = await request("query", text, params, options?.rowMode);
     // SAFETY: exact PGlite query response crosses structured clone, without re-shaping rows or fields.
     return result as QueryResult<Row>;
   };
-  const tx = { query, exec: (text: string) => request("exec", text) };
+  const tx = { query, exec: async (text: string) => { await fixtureOptions.observeQuery?.(text); return request("exec", text); } };
   const client = {
     query: <Row extends Record<string, unknown>>(
       text: string,

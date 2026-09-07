@@ -1,0 +1,305 @@
+import { sql, type SQL } from "drizzle-orm";
+import { Effect, Result } from "effect";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
+import { isPrivateValueText } from "../frameworkSchema/privateStoredValueShape";
+import { databaseTimestampFromUnknown } from "../databaseTimestamp";
+import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
+import type { Json, JsonObject } from "flarex-protocol/json";
+import { captureRelationalPrimaryKey } from "../commitPublication/relationalFacts";
+import { capturePrivateJsonData } from "../privateJsonData";
+import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
+import { runOwnedPromise } from "../ownedPromise";
+import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRequestLifetime";
+import type { RelationalPhysicalColumn } from "../relationalSchema/physical/model";
+import { requireCommerceAdmission, type CommerceAdmission } from "./admission";
+import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
+
+export interface RelationalRowFact {
+  readonly tableId: string;
+  readonly keyBytes: Uint8Array;
+  readonly operation: "insert" | "update" | "delete";
+}
+declare const closureBrand: unique symbol;
+export interface CommerceRowClosure { readonly [closureBrand]: true }
+interface ClosureState {
+  readonly admission: CommerceAdmission;
+  readonly lifetime: BoundedRequestLifetime<CommerceTransactionError>;
+  readonly facts: readonly RelationalRowFact[];
+}
+const closures = new WeakMap<object, ClosureState>();
+
+export type { CommerceStore } from "./storeModel";
+import type { CommerceStore } from "./storeModel";
+
+const invalid = () => commerceError("invalidInput");
+// Inputs are already detached plain JSON. PostgreSQL text and JSONB must preserve
+// every string and object key exactly across the driver UTF-8 boundary.
+const representable = (value: Json): boolean => typeof value === "string" ? isPrivateValueText(value) :
+  value === null || typeof value !== "object" ? true : Array.isArray(value) ? value.every(representable) :
+  Object.entries(value).every(([key, member]) => isPrivateValueText(key) && representable(member));
+const countWithin = (value: unknown, maximum: number): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= maximum;
+
+export const makeCommerceStore = Effect.fn("CommerceStore.make")(function* (
+  admission: CommerceAdmission, lifetime: BoundedRequestLifetime<CommerceTransactionError>, id: string,
+) {
+  const state = yield* requireCommerceAdmission(admission);
+  const layout = state.descriptor.layout.frame;
+  const table = layout.tables[0];
+  if (table === undefined || layout.tables.length !== 1) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const primary = table.keys.find(key => key.kind === "primary");
+  const keyColumns = primary?.columns.filter(name => name !== "scope_uuid").map(name => table.columns.find(column => column.name === name));
+  if (primary === undefined || keyColumns === undefined || keyColumns.length !== 1 || keyColumns.some(column => column?.type !== "text")) {
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  }
+  const key = keyColumns[0];
+  if (key === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
+  const target = sql`${sql.identifier(layout.targetNamespace.schemaName)}.${sql.identifier(table.name)}`;
+  const scoped = sql`${sql.identifier("scope_uuid")} = ${scope.scopeUuid}::uuid`;
+  const facts: RelationalRowFact[] = [];
+  let closed = false;
+  const column = (name: unknown): Result.Result<RelationalPhysicalColumn, CommerceTransactionError> => {
+    const found = table.columns.find(value => value.identity.columnId === name);
+    return found === undefined ? Result.fail(commerceError("unsupportedProfile")) : Result.succeed(found);
+  };
+  const returning = sql.join(table.columns.map(value => sql`${sql.identifier(value.name)} as ${sql.identifier(value.identity.columnId)}`), sql`, `);
+  let statementCount = 0;
+  const statement = <Value>(query: PromiseLike<Value>) => Effect.suspend(() => ++statementCount > commerceLimits.calls
+    ? Effect.fail(commerceError("limitExceeded")) : runOwnedPromise(() => Promise.resolve(query), cause => commerceError("statementFailure", cause)));
+  const driverRows = Effect.fn("CommerceStore.decodeDriverRows")((result: unknown) => Effect.try({
+    // Compatibility bridge to the installed driver's throwing shape decoder.
+    try: () => rowsFromDriverExecuteResult(result, () => { throw commerceError("storedCorruption"); }),
+    catch: cause => commerceError("storedCorruption", cause),
+  }));
+  const queryRows = Effect.fn("CommerceStore.queryRows")(function* (query: SQL) {
+    const result = yield* statement(state.tx.execute(query));
+    const rows = yield* driverRows(result);
+    if (rows === undefined || rows.length > commerceLimits.catalogRows) return yield* Effect.fail(commerceError("storedCorruption"));
+    const values: JsonObject[] = [];
+    for (const row of rows) {
+      if (!isNonArrayRecord(row)) return yield* Effect.fail(commerceError("storedCorruption"));
+      const normalized = { ...row };
+      for (const field of table.columns) {
+        const value = normalized[field.identity.columnId];
+        if (field.type === "timestamp with time zone" && value !== undefined && value !== null) {
+          const timestamp = databaseTimestampFromUnknown(value);
+          if (timestamp === null) return yield* Effect.fail(commerceError("storedCorruption"));
+          normalized[field.identity.columnId] = timestamp.toISOString();
+        }
+      }
+      const captured = yield* Effect.fromResult(capturePrivateJsonData(normalized, commerceLimits.rowBytes,
+        (reason, cause) => commerceError(reason === "limitExceeded" ? reason : "storedCorruption", cause)));
+      if (!isNonArrayRecord(captured.value)) return yield* Effect.fail(commerceError("storedCorruption"));
+      for (const [name, value] of Object.entries(captured.value)) {
+        const field = yield* Effect.fromResult(column(name)).pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)));
+        yield* Effect.fromResult(parameter(field, value)).pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)));
+      }
+      yield* Effect.fromResult(lifetime.charge(captured.bytes));
+      values.push(captured.value);
+    }
+    return Object.freeze(values);
+  });
+  const catalogBound = Effect.fn("CommerceStore.catalogBound")(function* () {
+    const payload = sql`jsonb_build_object(${sql.join(table.columns.flatMap(field => [sql`${field.identity.columnId}::text`, sql`${sql.identifier(field.name)}`]), sql`, `)})`;
+    const result = yield* statement(state.tx.execute(sql`select count(*)::integer as total, coalesce(max(octet_length(payload::text)), 0)::integer as maximum, coalesce(sum(octet_length(payload::text)), 0)::integer as bytes from (select ${payload} as payload from ${target} where ${scoped} limit ${commerceLimits.catalogRows + 1}) bounded`));
+    const rows = yield* driverRows(result);
+    const row = rows?.[0];
+    if (rows?.length !== 1 || !isNonArrayRecord(row) || typeof row.total !== "number" || typeof row.maximum !== "number" || typeof row.bytes !== "number") return yield* Effect.fail(commerceError("storedCorruption"));
+    if (row.total > commerceLimits.catalogRows || row.maximum > commerceLimits.rowBytes || row.bytes > lifetime.remainingBytes()) return yield* Effect.fail(commerceError("limitExceeded"));
+  });
+  const parameter = (field: RelationalPhysicalColumn, value: Json): Result.Result<SQL, CommerceTransactionError> => {
+    // Physical type names are the captured layout's closed scalar union. Typed
+    // NULLs are required in VALUES tables, where PostgreSQL otherwise infers text.
+    if (value === null) return field.nullable ? Result.succeed(sql`cast(null as ${sql.raw(field.type)})`) : Result.fail(invalid());
+    switch (field.type) {
+      case "text": return isPrivateValueText(value) ? Result.succeed(sql`${value}`) : Result.fail(invalid());
+      case "integer": return typeof value === "number" && Number.isSafeInteger(value) && value >= -2147483648 && value <= 2147483647
+        ? Result.succeed(sql`${value}::integer`) : Result.fail(invalid());
+      case "numeric": return (typeof value === "number" && Number.isFinite(value)) ||
+        (typeof value === "string" && value.length <= 1024 && /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/.test(value))
+        ? Result.succeed(sql`${String(value)}::numeric`) : Result.fail(invalid());
+      case "jsonb": return Result.succeed(sql`${JSON.stringify(value)}::jsonb`);
+      case "timestamp with time zone": return typeof value === "string" && isCanonicalIsoInstant(value)
+        ? Result.succeed(sql`${value}::timestamptz`) : Result.fail(invalid());
+    }
+  };
+  const parseRead = (input: unknown) => Result.gen(function* () {
+    const captured = yield* capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError);
+    if (!representable(captured.value)) return yield* Result.fail(invalid());
+    yield* lifetime.charge(captured.bytes);
+    if (!isNonArrayRecord(captured.value) || Object.keys(captured.value).some(name => !["predicate", "fields", "skip", "take", "order"].includes(name))) return yield* Result.fail(invalid());
+    const value = captured.value;
+    const skip = value.skip ?? 0;
+    const take = value.take ?? commerceLimits.catalogRows;
+    if (!countWithin(skip, commerceLimits.catalogRows - 1) || !countWithin(take, commerceLimits.catalogRows)) return yield* Result.fail(commerceError("limitExceeded"));
+    const fields = value.fields ?? table.columns.map(item => item.identity.columnId);
+    if (!Array.isArray(fields) || fields.length === 0 || fields.length > table.columns.length) return yield* Result.fail(invalid());
+    const selected: SQL[] = [];
+    for (const name of fields) { const field = yield* column(name); selected.push(sql`${sql.identifier(field.name)} as ${sql.identifier(field.identity.columnId)}`); }
+    const order = value.order;
+    if (!isNonArrayRecord(order) || Object.keys(order).some(name => !["column", "direction"].includes(name)) || !["asc", "desc"].includes(String(order.direction))) return yield* Result.fail(invalid());
+    const ordered = yield* column(order.column);
+    let nodes = 0;
+    let operands = 0;
+    const predicate = (supplied: unknown, depth: number): Result.Result<SQL, CommerceTransactionError> => Result.gen(function* () {
+      if (++nodes > commerceLimits.filterNodes || depth > commerceLimits.filterDepth) return yield* Result.fail(commerceError("limitExceeded"));
+      if (!isNonArrayRecord(supplied)) return yield* Result.fail(invalid());
+      if (supplied.kind === "and" || supplied.kind === "or") {
+        if (Object.keys(supplied).some(name => !["kind", "children"].includes(name)) || !Array.isArray(supplied.children)) return yield* Result.fail(invalid());
+        const parts: SQL[] = [];
+        for (const child of supplied.children) parts.push(yield* predicate(child, depth + 1));
+        return parts.length === 0 ? (supplied.kind === "and" ? sql`true` : sql`false`) : sql`(${sql.join(parts, supplied.kind === "and" ? sql` and ` : sql` or `)})`;
+      }
+      const field = yield* column(supplied.column);
+      if (supplied.kind === "isNull" && Object.keys(supplied).every(name => ["kind", "column"].includes(name))) return sql`${sql.identifier(field.name)} is null`;
+      if (supplied.kind !== "in" || Object.keys(supplied).some(name => !["kind", "column", "values"].includes(name)) || !Array.isArray(supplied.values)) return yield* Result.fail(invalid());
+      operands += supplied.values.length;
+      if (operands > commerceLimits.filterOperands) return yield* Result.fail(commerceError("limitExceeded"));
+      const parts: SQL[] = [];
+      for (const member of supplied.values) {
+        const data = yield* capturePrivateJsonData(member, commerceLimits.rowBytes, commerceError);
+        parts.push(yield* parameter(field, data.value));
+      }
+      return parts.length === 0 ? sql`false` : sql`${sql.identifier(field.name)} in (${sql.join(parts, sql`, `)})`;
+    });
+    return { filter: yield* predicate(value.predicate ?? { kind: "and", children: [] }, 0), selected: sql.join(selected, sql`, `),
+      order: sql`${sql.identifier(ordered.name)} ${order.direction === "asc" ? sql`asc` : sql`desc`}`, skip, take };
+  });
+  const guard = <Value>(context: BoundedRequestContext, mode: "read" | "write", work: Effect.Effect<Value, CommerceTransactionError>) =>
+    lifetime.operation(context, id, mode, Effect.gen(function* () {
+      yield* requireCommerceAdmission(admission);
+      if (closed) return yield* Effect.fail(commerceError("closed"));
+      return yield* work;
+    }));
+  const find: CommerceStore["find"] = Effect.fn("CommerceStore.find")((context, input) => guard(context, "read", Effect.gen(function* () {
+    const query = yield* Effect.fromResult(parseRead(input));
+    yield* catalogBound();
+    return yield* queryRows(sql`select ${query.selected} from ${target} where ${scoped} and (${query.filter}) order by ${query.order} offset ${query.skip} limit ${query.take}`);
+  })));
+  const count: CommerceStore["count"] = Effect.fn("CommerceStore.count")((context, input) => guard(context, "read", Effect.gen(function* () {
+    const query = yield* Effect.fromResult(parseRead(input));
+    yield* catalogBound();
+    const result = yield* statement(state.tx.execute(sql`select count(*)::integer as total from ${target} where ${scoped} and (${query.filter})`));
+    const rows = yield* driverRows(result);
+    const row = rows?.[0];
+    if (rows?.length !== 1 || !isNonArrayRecord(row) || !countWithin(row.total, commerceLimits.catalogRows)) return yield* Effect.fail(commerceError("storedCorruption"));
+    return row.total;
+  })));
+  const record = Effect.fn("CommerceStore.record")(function* (row: JsonObject, operation: RelationalRowFact["operation"]) {
+    const value = row[key.identity.columnId];
+    if (typeof value !== "string" || value.length === 0) return yield* Effect.fail(commerceError("storedCorruption"));
+    if (facts.length >= commerceLimits.catalogRows) return yield* Effect.fail(commerceError("limitExceeded"));
+    const encoded = yield* captureRelationalPrimaryKey(state.descriptor.layout, table.identity.tableId, row)
+      .pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)));
+    facts.push(Object.freeze({ tableId: table.identity.tableId, keyBytes: new TextEncoder().encode(encoded.canonicalJson), operation }));
+  });
+  const write: CommerceStore["write"] = Effect.fn("CommerceStore.write")((context, mode, input) => guard(context, "write", Effect.gen(function* () {
+    if (!["insert", "upsert", "update"].includes(mode)) return yield* Effect.fail(invalid());
+    const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
+    if (!representable(captured.value)) return yield* Effect.fail(invalid());
+    if (!Array.isArray(captured.value) || captured.value.length > commerceLimits.catalogRows) return yield* Effect.fail(invalid());
+    yield* Effect.fromResult(lifetime.charge(captured.bytes));
+    yield* catalogBound();
+    if (captured.value.length === 0) return [];
+    const inputs: { readonly key: string; readonly fields: readonly RelationalPhysicalColumn[]; readonly parameters: readonly SQL[] }[] = [];
+    const uniqueKeys = new Set<string>();
+    for (const inputRow of captured.value) {
+      if (!isNonArrayRecord(inputRow)) return yield* Effect.fail(invalid());
+      const keyValue = inputRow[key.identity.columnId];
+      if (typeof keyValue !== "string" || keyValue.length === 0 || uniqueKeys.has(keyValue)) return yield* Effect.fail(invalid());
+      uniqueKeys.add(keyValue);
+      const fields: RelationalPhysicalColumn[] = [];
+      const parameters: SQL[] = [];
+      for (const name of Object.keys(inputRow).toSorted()) {
+        const field = yield* Effect.fromResult(column(name));
+        const member = yield* Effect.fromResult(capturePrivateJsonData(inputRow[name], commerceLimits.rowBytes, commerceError));
+        fields.push(field); parameters.push(yield* Effect.fromResult(parameter(field, member.value)));
+      }
+      inputs.push({ key: keyValue, fields, parameters });
+    }
+    const before = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${sql.identifier(key.name)} in (${sql.join(inputs.map(row => sql`${row.key}`), sql`, `)}) limit ${commerceLimits.catalogRows}`);
+    const existing = new Map(before.map(row => [row[key.identity.columnId], row]));
+    if (existing.size !== before.length || (mode === "insert" && before.length !== 0)) return yield* Effect.fail(commerceError("storedCorruption"));
+    const groups = new Map<string, typeof inputs>();
+    for (const row of inputs) {
+      if (mode === "update" && !existing.has(row.key)) continue;
+      const groupKey = `${existing.has(row.key) ? "update" : "insert"}:${row.fields.map(field => field.name).join(",")}`;
+      const group = groups.get(groupKey) ?? [];
+      group.push(row); groups.set(groupKey, group);
+    }
+    const output = new Map<string, JsonObject>();
+    for (const group of groups.values()) {
+      const first = group[0];
+      if (first === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+      const inserting = !existing.has(first.key);
+      let query: SQL;
+      if (inserting) {
+        query = sql`insert into ${target} (${sql.identifier("scope_uuid")}, ${sql.join(first.fields.map(field => sql.identifier(field.name)), sql`, `)}) values ${sql.join(group.map(row => sql`(${scope.scopeUuid}::uuid, ${sql.join([...row.parameters], sql`, `)})`), sql`, `)} returning ${sql.identifier(key.name)} as ${sql.identifier(key.identity.columnId)}`;
+      } else {
+        const managed = layout.requiredPhysicalCapabilities.filter(capability => capability.kind === "managedTimestamps").map(capability => capability.updatedAtColumn.columnName);
+        const updates = first.fields.flatMap(field => field.name === key.name || managed.includes(field.name) ? [] :
+          [sql`${sql.identifier(field.name)} = ${sql.identifier("incoming")}.${sql.identifier(field.name)}`]);
+        for (const name of managed) updates.push(sql`${sql.identifier(name)} = current_timestamp`);
+        if (updates.length === 0) {
+          for (const row of group) { const retained = existing.get(row.key); if (retained !== undefined) output.set(row.key, retained); }
+          continue;
+        }
+        const qualifiedReturning = sql`stored.${sql.identifier(key.name)} as ${sql.identifier(key.identity.columnId)}`;
+        query = sql`update ${target} as stored set ${sql.join(updates, sql`, `)} from (values ${sql.join(group.map(row => sql`(${sql.join([...row.parameters], sql`, `)})`), sql`, `)}) as incoming (${sql.join(first.fields.map(field => sql.identifier(field.name)), sql`, `)}) where stored.scope_uuid = ${scope.scopeUuid}::uuid and stored.${sql.identifier(key.name)} = incoming.${sql.identifier(key.name)} returning ${qualifiedReturning}`;
+      }
+      const identities = yield* queryRows(query);
+      if (identities.length !== group.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+      // SQL defaults and numeric expansion can enlarge a short input. Return
+      // identities first; bound the stored catalog before hydrating new values.
+      yield* catalogBound();
+      const written = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${sql.identifier(key.name)} in (${sql.join(group.map(row => sql`${row.key}`), sql`, `)}) limit ${commerceLimits.catalogRows}`);
+      if (written.length !== group.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+      for (const row of written) {
+        const value = row[key.identity.columnId];
+        if (typeof value !== "string" || output.has(value) || !group.some(inputRow => inputRow.key === value)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        output.set(value, row);
+      }
+    }
+    yield* catalogBound();
+    const ordered: JsonObject[] = [];
+    for (const inputRow of inputs) {
+      const row = output.get(inputRow.key);
+      if (row === undefined) continue;
+      if (row !== existing.get(inputRow.key)) yield* record(row, existing.has(inputRow.key) ? "update" : "insert");
+      ordered.push(row);
+    }
+    return Object.freeze(ordered);
+  })));
+  const remove: CommerceStore["delete"] = Effect.fn("CommerceStore.delete")((context, input) => guard(context, "write", Effect.gen(function* () {
+    const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
+    if (!representable(captured.value)) return yield* Effect.fail(invalid());
+    if (!Array.isArray(captured.value) || captured.value.length > commerceLimits.catalogRows || captured.value.some(value => !isPrivateValueText(value) || value.length === 0)) return yield* Effect.fail(invalid());
+    yield* Effect.fromResult(lifetime.charge(captured.bytes));
+    yield* catalogBound();
+    if (captured.value.length === 0) return [];
+    const deleted = yield* queryRows(sql`delete from ${target} where ${scoped} and ${sql.identifier(key.name)} in (${sql.join(captured.value.map(value => sql`${value}`), sql`, `)}) returning ${returning}`);
+    for (const row of deleted.toSorted((a, b) => String(a[key.identity.columnId]).localeCompare(String(b[key.identity.columnId])))) yield* record(row, "delete");
+    return deleted;
+  })));
+  const close = Effect.fn("CommerceStore.close")(function* () {
+    yield* requireCommerceAdmission(admission);
+    if (closed || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
+    closed = true;
+    // SAFETY: the finalizer consumes this exact admission/lifetime-bound closure once.
+    const closure = Object.freeze({}) as CommerceRowClosure;
+    closures.set(closure, { admission, lifetime, facts: Object.freeze(facts.slice()) });
+    return closure;
+  });
+  return { store: Object.freeze({ find, count, write, delete: remove } satisfies CommerceStore), close };
+});
+
+export const consumeCommerceRows = Effect.fn("CommerceStore.consume")(function* (
+  closure: CommerceRowClosure, admission: CommerceAdmission, lifetime: BoundedRequestLifetime<CommerceTransactionError>,
+) {
+  const state = closures.get(closure);
+  if (state === undefined || state.admission !== admission || state.lifetime !== lifetime || !lifetime.isClosing()) return yield* Effect.fail(commerceError("receiptMismatch"));
+  closures.delete(closure);
+  return state.facts;
+});

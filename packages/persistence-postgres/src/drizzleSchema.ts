@@ -6,6 +6,8 @@
  * those displaced tables as part of a fresh deployment.
  */
 export { fxSystemCommitPayloadPreferenceDeletions } from "./payloadPreferences/factsSchema";
+export { fxSystemCommitRelationalChanges } from "./commitPublication/relationalFactsSchema";
+export { fxSystemFrameworkInitializations } from "./frameworkSchema/installation/initializationSchema";
 export {
   commits,
   deploymentPackages,

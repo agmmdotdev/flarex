@@ -1,8 +1,10 @@
 # Medusa Package And Capability Source Map
 
 Status: accepted source audit for the pinned inert fork. The private Currency
-closure and DML value adapter are implemented under the Currency owner; live
-Flarex installation, commerce serving/writes and production activation remain gated.
+closure and DML value adapter are implemented under the Currency owner.
+[Record 25](./25-medusa-currency-host-and-publication.md) owns implemented private
+Flarex installation, seeded service and relational publication. Broader module
+compatibility and production activation remain gated.
 
 Last reviewed: 2026-09-07
 

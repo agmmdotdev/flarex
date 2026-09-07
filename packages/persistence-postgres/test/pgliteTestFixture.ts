@@ -29,12 +29,12 @@ function migratedDataDir(): Promise<Blob | File> {
  * The snapshot is built once in each Vitest worker and the database is closed
  * automatically when the current test finishes.
  */
-export async function createMigratedPGlitePersistence(): Promise<PGlitePersistence> {
+export async function createMigratedPGlitePersistence(registerCleanup: (cleanup: () => Promise<void>) => void = onTestFinished): Promise<PGlitePersistence> {
   const db = await PGlite.create({ loadDataDir: await migratedDataDir() });
 
   try {
     const persistence = await createPGlitePersistence({ db });
-    onTestFinished(() => db.close());
+    registerCleanup(() => db.close());
     return persistence;
   } catch (error: unknown) {
     await db.close();

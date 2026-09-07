@@ -1,4 +1,4 @@
-import { Effect, Option, Result } from "effect";
+import { Cause, Effect, Option, Result } from "effect";
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import {
@@ -101,6 +101,7 @@ export interface DataBindingHost<ApplicationFailure> {
 }
 
 export interface DataBindingHostInput<ApplicationFailure> {
+  readonly commerceProfile?: import("../../commerceTransaction/profile").CommerceProfile;
   readonly database: FlarexMetadataDatabase;
   readonly deploymentId: string;
   readonly target: FrameworkMigrationTarget;
@@ -132,6 +133,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
     return yield* Effect.fail(bindingError("placementMismatch"));
   const database = input.database;
   const target = input.target;
+  const commerceProfile = input.commerceProfile;
   const deploymentId = input.deploymentId;
   const authorityPorts = captureTrustedScopeAuthorityResolutionPorts(
     input.authority,
@@ -172,7 +174,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
         },
         (tx) => work(tx, located.authority),
       ).pipe(
-        Effect.mapError((error): Failure | DataBindingError =>
+        Effect.catchCause(cause => Effect.failCause(Cause.map(cause, (error: Failure | LocatedReadCommittedTransactionFailureV1): Failure | DataBindingError =>
           error instanceof LocatedReadCommittedTransactionFailureV1
             ? bindingError(
                 error.issue.kind === "decisionUncertain"
@@ -181,7 +183,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
                 error,
               )
             : error,
-        ),
+        ))),
       ),
   );
   const lockScope = Effect.fn("DataBindingHost.lockScope")(function* (
@@ -245,6 +247,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           snapshot,
           profiles,
           active.selection,
+          commerceProfile,
         );
         return yield* storeBindingCandidate(tx, candidate, verified);
       }),
@@ -286,6 +289,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           snapshot,
           profiles,
           active.selection,
+          commerceProfile,
         );
         const current = yield* readBindingHead(tx, authority, true);
         if (
@@ -384,6 +388,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           snapshot,
           profiles,
           active.selection,
+          commerceProfile,
         );
         const current = yield* readBindingHead(tx, authority, true);
         const matches = Option.isNone(current)

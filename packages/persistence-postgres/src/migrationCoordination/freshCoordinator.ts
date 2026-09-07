@@ -197,6 +197,7 @@ export type FrameworkMigrationCoordinatorFailure =
   | FrameworkMigrationSessionFailure;
 
 export interface RunFreshFrameworkMigrationCoordinatorInput {
+  readonly commerceProfile?: import("../commerceTransaction/profile").CommerceProfile;
   readonly artifactRepository: FrameworkSchemaArtifactRepository;
   readonly artifactIdentity: FrameworkSchemaArtifactIdentity;
   readonly target: FrameworkMigrationTarget;
@@ -366,6 +367,7 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
   FrameworkMigrationCoordinatorFailure
 > {
   const maximumSteps = input.maximumStepsPerRun ?? 16;
+  if (base !== undefined && input.commerceProfile !== undefined) return yield* Effect.fail(coordinatorError("prepare", "invalidInput", "Commerce admits only fresh installation"));
   if (
     !isIdentityText(input.attemptId) ||
     !isIdentityText(input.leaseOwnerId) ||
@@ -409,6 +411,7 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
   let plan: RelationalMigrationPlan = yield* captureFreshRelationalMigrationPlan({
     artifact,
     physicalLayout,
+    ...(input.commerceProfile === undefined ? {} : { commerceProfile: input.commerceProfile }),
   });
   if (base !== undefined) {
     const candidate = plan;
@@ -490,7 +493,7 @@ function prepareCoordinatorGraphEffect(
     transaction => withFrameworkMigrationRawTransactionEffect(
       transaction,
       input.target,
-      raw => prepareCoordinatorGraphInTransaction(raw, plan),
+      raw => prepareCoordinatorGraphInTransaction(raw, plan, input.commerceProfile),
     ),
   );
 }
@@ -510,7 +513,7 @@ function prepareCoordinatorGraphWithRecoveryEffect(
       transaction => withFrameworkMigrationRawTransactionEffect(
         transaction,
         input.target,
-        raw => prepareCoordinatorGraphInTransaction(raw, plan),
+        raw => prepareCoordinatorGraphInTransaction(raw, plan, input.commerceProfile),
       ),
     ),
   ));
@@ -521,6 +524,7 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   planValue: RelationalMigrationPlan,
+  commerceProfile?: import("../commerceTransaction/profile").CommerceProfile,
 ): Effect.fn.Return<PreparedCoordinatorGraph, FrameworkMigrationCoordinatorFailure> {
   const target = yield* ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
     transaction,
@@ -556,6 +560,9 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
     );
   if (Option.isSome(existingHead) && existingHead.value.plan.plan.migrationPlanSha256 === planValue.migrationPlanSha256) {
     yield* requireExactPlan(existingHead.value.plan.plan, planValue, "prepare");
+    if ((existingHead.value.admission.admission.frame.admissionProfile === "registered-commerce-fresh") !== (commerceProfile !== undefined)) {
+      return yield* Effect.fail(coordinatorError("prepare", "planConflict", "Commerce admission requires its exact live descriptor"));
+    }
     return Object.freeze({
       collision: existingHead.value.collision,
       plan: existingHead.value.plan,
@@ -584,6 +591,7 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
   if (previousEvent === undefined) return yield* Effect.fail(corruption("prepare", "Missing predecessor event authority"));
   const clock = yield* readDatabaseClock(transaction, 1);
   const admissionValue = yield* captureFrameworkMigrationPlanAdmission({
+    ...(commerceProfile === undefined ? {} : { commerceProfile }),
     plan: plan.plan,
     nameAssignments: plan.plan.physicalLayout.nameAssignments,
     previousPlanSha256: previousHead?.plan.plan.migrationPlanSha256 ?? null,

@@ -59,7 +59,7 @@ export const makePayloadPreferenceCleanup = Effect.fn("PayloadPreferences.makeCl
       const captured = yield* Effect.fromResult(capturePrivateJsonData(selector, lifetime.remainingBytes(), cmsError));
       yield* Effect.fromResult(lifetime.charge(captured.bytes));
       const value = captured.value;
-      if (!isJsonObject(value) || Object.keys(value).join() !== "key" || !isJsonObject(value.key) ||
+      if (!isJsonObject(value) || Object.keys(value).join() !== "key" || value.key === undefined || !isJsonObject(value.key) ||
         Object.keys(value.key).join() !== "in" || !Array.isArray(value.key.in) || value.key.in.length !== 1 ||
         typeof value.key.in[0] !== "string" || !value.key.in[0].startsWith("collection-posts-")) {
         return yield* Effect.fail(cmsError("invalidInput"));

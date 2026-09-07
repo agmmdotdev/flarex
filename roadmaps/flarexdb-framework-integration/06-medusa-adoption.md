@@ -6,9 +6,10 @@ Status: accepted source-backed sequence with the inert fork source island and
 exact package/capability audit complete. The core-first and bounded private
 Payload prerequisites are complete. The [Currency convergence/schema record](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
 records implemented private package promotion and actual DML compatibility.
-The [Currency host/publication proposal](./preflight/25-medusa-currency-host-and-publication.md)
-defines the next complete service capability, pending approval. Flarex-backed
-serving and commerce publication remain unimplemented; production is unauthorized.
+The [Currency host/publication capability](./preflight/25-medusa-currency-host-and-publication.md)
+implements fresh installation, seed-gated serving and shared relational publication
+through the unchanged Currency service. Product, stored Links and production
+activation remain separate gates.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,
@@ -277,13 +278,13 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
 
 - [Record 25](./preflight/25-medusa-currency-host-and-publication.md) combines
   this host, fresh seed-gated installation, bounded DAL and Currency row
-  publication into one proposed capability. Approval covers those owners
+  publication into one implemented private capability. Its scope covers those owners
   together; ordinary implementation details do not create new approval gates.
 - Apply the accepted [execution-profile contract](./preflight/14-transaction-execution-profiles.md):
   preserve service transaction-manager reuse while Flarex owns the outer
   physical transaction. Workflow orchestration is a separate execution profile.
-- Complete the separate transaction-owner preflight before receipt-family
-  implementation or any Currency write.
+- Record 25 owns Currency transaction and publication admission together; a
+  future module must prove its additional required semantics.
 - Prove Flarex-owned scoped physical transaction acquisition, binding
   revalidation, isolation, timeout, interruption, commit, rollback, and
   settlement.
@@ -301,10 +302,11 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
   declared public service is read-only; it admits no domain-event family and
   rejects nonempty event handoffs. Event identity and durable delivery below
   remain obligations for the first selected module operation requiring them.
-- Complete the separate commit-owner preflight before any Currency write.
+- Reuse shared relational facts and initialization receipts. Dataset size and
+  module behavior belong to adapter contracts, not new core metadata per module.
 - Add typed commerce-row mutation receipts and facts to the common finalizer.
-- Add only the pinned typed Medusa event-intent contracts required by the
-  Currency behavior under test.
+- Add only the pinned typed Medusa event-intent contracts required by a later
+  selected module; Currency admits no domain-event family.
 - Persist each admitted event intent with the same commit and common outbox
   wake, then dispatch by stable identity with durable retry and delivery state.
 - Intercept the existing service event handoff into that typed intent path;

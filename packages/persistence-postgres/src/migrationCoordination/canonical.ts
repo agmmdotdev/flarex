@@ -1,4 +1,5 @@
 import { capturePayloadPreferenceArtifact } from "../payloadPreferences/schema";
+import { matchesCommerceProfile, matchesCommerceMigrationPlan } from "../commerceTransaction/profile";
 import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
 import { compareUtf16Strings, isNonBlankString } from "@flarex/utils/strings";
 import { Brand, Effect, Result } from "effect";
@@ -32,6 +33,7 @@ import {
   capturedAuthorityForStepReceipt,
   capturedFrameworkMigrationTerminalAdmission,
   capturedPlanForAdmission,
+  capturedPlanAdmissionRequirement,
   capturedPlanForStep,
   isCapturedFrameworkMigrationAttemptTerminalAuthority,
   isCapturedFreshRelationalMigrationPlanAuthority,
@@ -227,7 +229,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
     !isCapturedRelationalPhysicalLayout(input.physicalLayout) ||
     (input.artifact.identity.owner !== "system" && input.artifact.identity.owner !== "medusa" && input.artifact.identity.owner !== "payload") ||
     input.artifact.dependencies.length !== 0 ||
-    (input.artifact.identity.owner !== "payload" && input.artifact.provenance.kind !== "synthetic") ||
+    (input.artifact.identity.owner !== "payload" && input.artifact.provenance.kind !== "synthetic" && !matchesCommerceProfile(input.commerceProfile, input.artifact, input.physicalLayout)) ||
     !sameArtifactIdentity(
       input.artifact.identity,
       input.physicalLayout.frame.artifact,
@@ -375,7 +377,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
     physicalLayout: layout,
     targetNamespace: layout.targetNamespace,
   });
-  registerCapturedFreshRelationalMigrationPlan(plan);
+  registerCapturedFreshRelationalMigrationPlan(plan, input.artifact.identity.owner === "medusa" && input.artifact.provenance.kind !== "synthetic" ? "commerce" : "ordinary");
   return plan;
 });
 
@@ -398,6 +400,9 @@ export const captureFrameworkMigrationPlanAdmission = Effect.fn(
 > {
   if (
     !isCapturedFreshRelationalMigrationPlanAuthority(input.plan) ||
+    capturedPlanAdmissionRequirement(input.plan) === undefined ||
+    (capturedPlanAdmissionRequirement(input.plan) === "commerce" && !matchesCommerceMigrationPlan(input.commerceProfile, input.plan)) ||
+    (input.commerceProfile !== undefined && !matchesCommerceMigrationPlan(input.commerceProfile, input.plan)) ||
     !isCanonicalIsoInstant(input.admittedAt) ||
     (input.previousPlanSha256 !== null &&
       !isSha256(input.previousPlanSha256)) ||
@@ -430,7 +435,7 @@ export const captureFrameworkMigrationPlanAdmission = Effect.fn(
     previousPlanSha256: input.previousPlanSha256,
     ...(input.plan.frame.version === 1
       ? { version: 1, baseInstallation: null,
-          admissionProfile: input.plan.frame.artifact.owner === "payload" ? "payload-preferences-fresh" : input.plan.frame.artifact.owner === "medusa"
+          admissionProfile: matchesCommerceMigrationPlan(input.commerceProfile, input.plan) ? "registered-commerce-fresh" : input.plan.frame.artifact.owner === "payload" ? "payload-preferences-fresh" : input.plan.frame.artifact.owner === "medusa"
             ? "synthetic-medusa-fresh" : "synthetic-system-fresh" } as const
       : { version: 2, baseInstallation: input.plan.frame.baseInstallation,
           admissionProfile: "synthetic-system-additive" } as const),

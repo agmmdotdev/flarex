@@ -109,7 +109,7 @@ export const captureAdditiveRelationalMigrationPlan = Effect.fn(
   const plan = Object.freeze({ frame, migrationPlanSha256: brandPlanSha256(captured.sha256Hex),
     canonicalJson: captured.canonicalJson, requiredStepSetSha256: required.sha256Hex,
     physicalLayout: fresh.physicalLayout, targetNamespace: fresh.targetNamespace });
-  registerCapturedFreshRelationalMigrationPlan(plan);
+  registerCapturedFreshRelationalMigrationPlan(plan, "ordinary");
   return plan;
 });
 

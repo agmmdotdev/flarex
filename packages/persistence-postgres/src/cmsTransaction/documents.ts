@@ -273,7 +273,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     lifetime.operation(context, id, "read", Effect.gen(function* () {
       const query = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), cmsError));
       yield* charge(query.bytes);
-      if (!isJsonObject(query.value) || !isJsonObject(query.value.where) || Object.keys(query.value).toSorted().join() !== "limit,offset,where" ||
+      if (!isJsonObject(query.value) || query.value.where === undefined || !isJsonObject(query.value.where) || Object.keys(query.value).toSorted().join() !== "limit,offset,where" ||
         typeof query.value.limit !== "number" || !Number.isSafeInteger(query.value.limit) || query.value.limit < 1 || query.value.limit > cmsLimits.pageRows ||
         typeof query.value.offset !== "number" || !Number.isSafeInteger(query.value.offset) || query.value.offset < 0 ||
         Object.values(query.value.where).some(value => value !== null && typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean")) {

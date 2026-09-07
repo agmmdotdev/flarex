@@ -51,6 +51,7 @@ export interface CapturedMigrationAttemptTerminalAuthority {
 }
 
 const capturedPlans = new WeakSet<RelationalMigrationPlan>();
+const planAdmissionRequirements = new WeakMap<RelationalMigrationPlan, "ordinary" | "commerce">();
 const capturedPlanSteps = new WeakMap<
   FrameworkMigrationStep,
   RelationalMigrationPlan
@@ -71,11 +72,26 @@ const capturedTerminals = new WeakMap<
 
 export function registerCapturedFreshRelationalMigrationPlan(
   plan: RelationalMigrationPlan,
+  admissionRequirement?: "ordinary" | "commerce",
 ): void {
   for (const step of plan.frame.steps) {
     capturedPlanSteps.set(step, plan);
   }
   capturedPlans.add(plan);
+  if (admissionRequirement !== undefined) planAdmissionRequirements.set(plan, admissionRequirement);
+}
+
+export function capturedPlanAdmissionRequirement(plan: RelationalMigrationPlan): "ordinary" | "commerce" | undefined {
+  return planAdmissionRequirements.get(plan);
+}
+
+/** Stored plans restore evidence. A freshly captured exact plan reissues admission authority. */
+export function reaffirmCapturedPlanAdmissionAuthority(restored: RelationalMigrationPlan, source: RelationalMigrationPlan): boolean {
+  const requirement = planAdmissionRequirements.get(source);
+  if (!capturedPlans.has(restored) || requirement === undefined || restored.canonicalJson !== source.canonicalJson ||
+    restored.physicalLayout.canonicalJson !== source.physicalLayout.canonicalJson) return false;
+  planAdmissionRequirements.set(restored, requirement);
+  return true;
 }
 
 export function isCapturedFreshRelationalMigrationPlanAuthority(

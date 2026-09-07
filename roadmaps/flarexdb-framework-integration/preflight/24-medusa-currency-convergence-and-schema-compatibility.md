@@ -15,9 +15,9 @@ file or test-harness adjustment into another preflight. Source preservation and
 schema translation belong together because a fixture copied from Currency does
 not prove that the real framework supplies the same schema.
 
-The next coherent outcome is a Flarex-backed Currency
-service with exact fresh installation, binding, transaction propagation and
-typed commerce publication. Product relationships and one stored Module Link
+[Record 25](./25-medusa-currency-host-and-publication.md) now owns the implemented
+Flarex-backed Currency service with exact fresh installation, binding,
+transaction propagation and shared relational publication. Product relationships and one stored Module Link
 follow Currency. General Payload compatibility does not precede these proofs.
 
 The [three-lane plan](./05-core-first-three-lane-readiness.md) owns ordering;
@@ -77,7 +77,7 @@ in the island. PGlite exercises its existing test adapter, not Flarex persistenc
 The integration suite establishes linkable metadata, seeded reads, case handling,
 selection, pagination/counting and retrieve failures. It contains no create,
 update, delete, soft-delete, restore, rollback or Flarex-publication assertions.
-Those require additional service conformance in the later Flarex-backed slice;
+Those are covered by the selected Flarex-backed service conformance in record 25;
 do not describe these thirteen assertions as complete CRUD coverage.
 
 The exact compatibility sources are:

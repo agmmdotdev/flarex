@@ -61,7 +61,9 @@
     "medusa:currency:verify": "node scripts/check-medusa-source-island-boundary.mjs && node scripts/check-medusa-currency-portable.mjs",
     "medusa:currency:test:guards": "vitest run scripts/check-medusa-currency-promotion.test.js scripts/check-medusa-source-island-boundary.test.js --maxWorkers=1 --no-file-parallelism",
     "medusa:currency:test:pglite": "pnpm --filter @flarex/medusa-adapter test",
-    "medusa:currency:test:postgres": "pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.postgres.config.ts"
+    "medusa:currency:test:postgres": "pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.postgres.config.ts",
+    "medusa:currency:test:live:pglite": "pnpm --filter @flarex/medusa-adapter test:live",
+    "medusa:currency:test:live:postgres": "pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.live.postgres.config.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",

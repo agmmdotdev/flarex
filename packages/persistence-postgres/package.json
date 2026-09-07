@@ -7,6 +7,10 @@
     "src"
   ],
   "exports": {
+    "./internal/commerce-adapter": "./src/commerceAdapter.ts",
+    "./internal/commerce-profile": "./src/commerceProfile.ts",
+    "./internal/commerce": "./src/commerce.ts",
+    "./internal/commerce-values": "./src/commerceValues.ts",
     "./internal/relational-schema-values": "./src/relationalSchemaValues.ts",
     ".": "./src/index.ts",
     "./internal/application-task-bindings": "./src/applicationTaskBindings.ts",

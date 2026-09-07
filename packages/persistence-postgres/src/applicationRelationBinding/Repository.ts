@@ -954,7 +954,9 @@ const readBoundByApplicationSchemaEffect = Effect.fn(
   if (rows.length !== 1) {
     return yield* bindingFailure("storedState");
   }
-  const decoded = yield* decodeStoredBoundRowEffect(rows[0]);
+  const row = rows[0];
+  if (row === undefined) return yield* bindingFailure("storedState");
+  const decoded = yield* decodeStoredBoundRowEffect(row);
   if (
     decoded.bound.binding.applicationSchemaSha256 !==
       source.applicationSchemaSha256 ||
@@ -1741,7 +1743,7 @@ const publishExistingPlanInTransactionEffect = Effect.fn(
       plan.source.applicationSchemaSha256Bytes,
     ),
   )).limit(2).for("update"));
-  if (rows.length !== 1) {
+  if (rows.length !== 1 || rows[0] === undefined) {
     return yield* Effect.fail(new RelationBindingPlanStaleError());
   }
   if (!boundRowMatchesPlan(
@@ -1964,7 +1966,7 @@ const ensureManifestBindingInTransactionEffect = Effect.fn(
       source.manifestSha256Bytes,
     ),
   )).limit(2).for("update"));
-  if (rows.length !== 1 || !manifestBindingRowMatches(
+  if (rows.length !== 1 || rows[0] === undefined || !manifestBindingRowMatches(
     rows[0],
     source,
     canonical,
@@ -2148,7 +2150,7 @@ const verifyCreateProjectionInTransactionEffect = Effect.fn(
     ),
   )).limit(2).for("update"));
   if (
-    rootRows.length !== 1 ||
+    rootRows.length !== 1 || rootRows[0] === undefined ||
     !boundRowMatchesPlan(
       rootRows[0],
       plan.bound,

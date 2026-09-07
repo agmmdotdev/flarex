@@ -155,6 +155,7 @@ function isReadiness(input: unknown): boolean {
     index += 1) {
     const capability = input.validatedPhysicalCapabilities[index];
     const residual = input.residualRequirements[index];
+    if (capability === undefined) return false;
     if (!isExactPrivateValueRecord(capability, [
       "identity",
       "kind",

@@ -714,8 +714,9 @@ function isStoredPlanAdmission(input: unknown): boolean {
     isStoredPhysicalLocator(input.physicalLocator) &&
     isStoredTargetNamespace(input.targetNamespace) &&
     (input.version === 1 ? input.baseInstallation === null &&
-      input.admissionProfile === (input.artifact.owner === "payload" ? "payload-preferences-fresh" : input.artifact.owner === "medusa"
-        ? "synthetic-medusa-fresh" : "synthetic-system-fresh")
+      (input.artifact.owner === "medusa"
+        ? input.admissionProfile === "synthetic-medusa-fresh" || input.admissionProfile === "registered-commerce-fresh"
+        : input.admissionProfile === (input.artifact.owner === "payload" ? "payload-preferences-fresh" : "synthetic-system-fresh"))
       : input.artifact.owner === "system" && isStoredMigrationBaseInstallation(input.baseInstallation) &&
         input.admissionProfile === "synthetic-system-additive" &&
         input.previousPlanSha256 === input.baseInstallation.identity.migrationPlanSha256) &&

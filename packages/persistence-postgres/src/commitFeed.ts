@@ -554,6 +554,7 @@ function selectHeadersForChildCapture(
       !Number.isInteger(header.changeCount) ||
       header.changeCount < 0 ||
       header.changeCount > MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 ||
+      !Number.isInteger(header.relationalChangeCount) || header.relationalChangeCount < 0 || header.relationalChangeCount > 16000 ||
       !Number.isInteger(header.relationAdjacencyChangeCount) ||
       header.relationAdjacencyChangeCount < 0 ||
       header.relationAdjacencyChangeCount >
@@ -853,6 +854,7 @@ function validateCommitHeaders(
       !Number.isInteger(row.changeCount) ||
       row.changeCount < 0 ||
       row.changeCount > MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 ||
+      !Number.isInteger(row.relationalChangeCount) || row.relationalChangeCount < 0 || row.relationalChangeCount > 16000 ||
       !Number.isInteger(row.relationAdjacencyChangeCount) ||
       row.relationAdjacencyChangeCount < 0 ||
       row.relationAdjacencyChangeCount >

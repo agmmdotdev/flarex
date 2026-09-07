@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./internal/currency-schema": "./src/currency-schema.ts"
+    "./internal/currency-schema": "./src/currency-schema.ts",
+    "./internal/currency": "./src/currency-service.ts",
+    "./internal/currency-profile": "./src/currency-contract.ts"
   },
   "dependencies": {
+    "@flarex/utils": "workspace:*",
     "@medusajs/currency": "workspace:*",
     "@medusajs/utils": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
@@ -22,6 +25,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "test:live": "vitest run --config vitest.live.config.ts"
   }
 }

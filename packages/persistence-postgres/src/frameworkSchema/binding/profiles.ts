@@ -96,6 +96,12 @@ export const validateBindingProfiles = Effect.fn(
     )
       return yield* Effect.fail(bindingError("unsupportedProfile"));
   }
+  yield* validatePhysicalBindingCoverage(binding, availability);
+});
+
+export const validatePhysicalBindingCoverage = Effect.fn("DataBindingProfiles.validateCoverage")(function* (
+  binding: PhysicalDataBinding, availability: RestoredFrameworkSchemaAvailabilityHead,
+) {
   const readiness = availability.readiness.readiness.frame;
   const coverage = binding.profiles.flatMap((profile) => profile.coverage);
   for (const required of readiness.residualRequirements) {

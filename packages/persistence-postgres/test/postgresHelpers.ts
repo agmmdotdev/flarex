@@ -503,7 +503,7 @@ interface FileScopedPostgresFixture {
   readonly dispose: () => Promise<void>;
 }
 
-async function createFileScopedPostgresFixture(): Promise<FileScopedPostgresFixture> {
+export async function createFileScopedPostgresFixture(): Promise<FileScopedPostgresFixture> {
   const connectionString = requiredPostgresUrl();
   const schemaName = temporaryIdentifier("flarex_file_test");
   const migrationsSchema = temporaryIdentifier("flarex_file_migrations");

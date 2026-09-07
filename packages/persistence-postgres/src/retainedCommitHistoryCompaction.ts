@@ -1,3 +1,4 @@
+import { fxSystemCommitRelationalChanges } from "./commitPublication/relationalFactsSchema";
 import { and, asc, eq, lt } from "drizzle-orm";
 import { Data, Effect, Option, Result, Schema } from "effect";
 import { MAX_COMMIT_WRITE_OPERATIONS_V1 } from
@@ -64,9 +65,11 @@ export interface RetainedCommitHistoryCompactionQuery {
     | "changeDirectory"
     | "relationChangeDirectory"
     | "preferenceDeletionDirectory"
+    | "relationalChangeDirectory"
     | "changeDeletion"
     | "relationChangeDeletion"
     | "preferenceDeletion"
+    | "relationalChangeDeletion"
     | "headerDeletion";
   readonly sql: string;
   readonly params: ReadonlyArray<unknown>;
@@ -157,9 +160,11 @@ export class RetainedCommitHistoryCompactionPersistenceError extends
       | "changeDirectory"
       | "relationChangeDirectory"
       | "preferenceDeletionDirectory"
+    | "relationalChangeDirectory"
       | "changeDeletion"
       | "relationChangeDeletion"
       | "preferenceDeletion"
+    | "relationalChangeDeletion"
       | "headerDeletion";
     readonly cause: unknown;
   }> {}
@@ -284,6 +289,7 @@ const compactInTransaction = Effect.fn(
     commitSeq: fxSystemCommits.commitSeq,
     changeCount: fxSystemCommits.changeCount,
     payloadPreferenceDeletionCount: fxSystemCommits.payloadPreferenceDeletionCount,
+    relationalChangeCount: fxSystemCommits.relationalChangeCount,
     relationAdjacencyChangeCount:
       fxSystemCommits.relationAdjacencyChangeCount,
   }).from(fxSystemCommits).where(and(
@@ -301,7 +307,7 @@ const compactInTransaction = Effect.fn(
       retainedFloor: clock.oldestAvailableCommitSeq,
     });
   }
-  if (headerRows.length !== 1) {
+  if (headerRows.length !== 1 || headerRows[0] === undefined) {
     return yield* Effect.fail(compactionError(
       authority,
       "storedEvidenceInvalid",
@@ -414,12 +420,23 @@ const compactInTransaction = Effect.fn(
   const deletedPreferences = yield* queryEffect("preferenceDeletion", preferenceDeletion);
   yield* Effect.fromResult(requireExactChangeDirectoryResult(authority, header.payloadPreferenceDeletionCount, deletedPreferences));
 
+  const relationalQuery = tx.select({ changeOrdinal: fxSystemCommitRelationalChanges.changeOrdinal })
+    .from(fxSystemCommitRelationalChanges).where(and(eq(fxSystemCommitRelationalChanges.scopeUuid, scopeUuid.scopeUuid),
+      eq(fxSystemCommitRelationalChanges.commitSeq, header.commitSeq))).orderBy(asc(fxSystemCommitRelationalChanges.changeOrdinal)).limit(MAX_COMMIT_WRITE_OPERATIONS_V1 + 1);
+  observeDrizzleQuery("relationalChangeDirectory", relationalQuery, state.observeQuery);
+  yield* Effect.fromResult(requireExactChangeDirectoryResult(authority, header.relationalChangeCount, yield* queryEffect("relationalChangeDirectory", relationalQuery)));
+  const relationalDeletion = tx.delete(fxSystemCommitRelationalChanges).where(and(
+    eq(fxSystemCommitRelationalChanges.scopeUuid, scopeUuid.scopeUuid), eq(fxSystemCommitRelationalChanges.commitSeq, header.commitSeq)))
+    .returning({ changeOrdinal: fxSystemCommitRelationalChanges.changeOrdinal });
+  observeDrizzleQuery("relationalChangeDeletion", relationalDeletion, state.observeQuery);
+  yield* Effect.fromResult(requireExactChangeDirectoryResult(authority, header.relationalChangeCount, yield* queryEffect("relationalChangeDeletion", relationalDeletion)));
   const headerDeletion = tx.delete(fxSystemCommits).where(and(
     eq(fxSystemCommits.scopeUuid, scopeUuid.scopeUuid),
     eq(fxSystemCommits.epochUuid, header.epochUuid),
     eq(fxSystemCommits.commitSeq, header.commitSeq),
     eq(fxSystemCommits.changeCount, header.changeCount),
     eq(fxSystemCommits.payloadPreferenceDeletionCount, header.payloadPreferenceDeletionCount),
+    eq(fxSystemCommits.relationalChangeCount, header.relationalChangeCount),
     eq(
       fxSystemCommits.relationAdjacencyChangeCount,
       header.relationAdjacencyChangeCount,
@@ -452,6 +469,7 @@ const compactInTransaction = Effect.fn(
 
 interface DecodedHeader {
   readonly payloadPreferenceDeletionCount: number;
+  readonly relationalChangeCount: number;
   readonly epochUuid: ScopeEpochUuidV1;
   readonly commitSeq: CommitSeq;
   readonly changeCount: number;
@@ -463,6 +481,7 @@ function decodeHeaderResult(
   retainedFloor: CommitSeq,
   row: Readonly<{
     readonly payloadPreferenceDeletionCount: unknown;
+    readonly relationalChangeCount: unknown;
     readonly epochUuid: unknown;
     readonly commitSeq: unknown;
     readonly changeCount: unknown;
@@ -517,6 +536,7 @@ function decodeHeaderResult(
       payloadPreferenceDeletionCount: yield* (typeof row.payloadPreferenceDeletionCount === "number" && Number.isSafeInteger(row.payloadPreferenceDeletionCount) &&
         row.payloadPreferenceDeletionCount >= 0 && row.payloadPreferenceDeletionCount <= 256 ? Result.succeed(row.payloadPreferenceDeletionCount) :
         Result.fail(compactionError(authority, "storedEvidenceInvalid"))),
+      relationalChangeCount: yield* (typeof row.relationalChangeCount === "number" && Number.isSafeInteger(row.relationalChangeCount) && row.relationalChangeCount >= 0 && row.relationalChangeCount <= MAX_COMMIT_WRITE_OPERATIONS_V1 ? Result.succeed(row.relationalChangeCount) : Result.fail(compactionError(authority, "storedEvidenceInvalid"))),
       changeCount: row.changeCount,
       relationAdjacencyChangeCount: row.relationAdjacencyChangeCount,
     });

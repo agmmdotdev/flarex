@@ -43,9 +43,7 @@ export function cmsError(reason: CmsTransactionError["reason"], cause?: unknown)
   return new CmsTransactionError({ reason, ...(cause === undefined ? {} : { cause }) });
 }
 
-declare const requestBrand: unique symbol;
 /** A host-local request capability. A transaction ID alone is never authority. */
-export interface CmsRequestContext { readonly [requestBrand]: true }
-export type CmsPresentedTransactionId = string | Promise<string> | null | undefined;
+export type { BoundedRequestContext as CmsRequestContext, PresentedTransactionId as CmsPresentedTransactionId } from "../boundedRequestLifetime";
 export interface CmsHostIdentity { readonly hostId: symbol }
 export interface CmsRequestIdentity { readonly requestId: symbol }

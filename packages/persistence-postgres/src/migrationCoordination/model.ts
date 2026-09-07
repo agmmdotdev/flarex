@@ -209,7 +209,7 @@ type MigrationAdmissionFields = Readonly<{
 
 export type FrameworkMigrationPlanAdmissionFrame = MigrationAdmissionFields & (
   | Readonly<{ readonly version: 1; readonly baseInstallation: null;
-      readonly admissionProfile: "synthetic-system-fresh" | "synthetic-medusa-fresh" | "payload-preferences-fresh" }>
+      readonly admissionProfile: "synthetic-system-fresh" | "synthetic-medusa-fresh" | "payload-preferences-fresh" | "registered-commerce-fresh" }>
   | Readonly<{ readonly version: 2;
       readonly baseInstallation: FrameworkMigrationBaseInstallation;
       readonly admissionProfile: "synthetic-system-additive" }>
@@ -359,11 +359,13 @@ export interface CapturedFrameworkMigrationValue<Frame extends JsonObject, Sha> 
 }
 
 export interface CaptureFreshRelationalMigrationPlanInput {
+  readonly commerceProfile?: import("../commerceTransaction/profile").CommerceProfile;
   readonly artifact: FrameworkSchemaArtifact;
   readonly physicalLayout: RelationalPhysicalLayout;
 }
 
 export interface CaptureFrameworkMigrationPlanAdmissionInput {
+  readonly commerceProfile?: import("../commerceTransaction/profile").CommerceProfile;
   readonly plan: RelationalMigrationPlan;
   readonly nameAssignments: readonly RelationalPhysicalNameAssignment[];
   readonly previousPlanSha256: FrameworkMigrationPlanSha256 | null;

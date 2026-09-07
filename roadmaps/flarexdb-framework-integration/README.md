@@ -12,7 +12,9 @@ upgrades beyond that bounded profile remain open. Private binding admission and
 synthetic scalar transactions/store and the private scalar CMS Application
 commit participant are implemented. Pinned Payload scalar CRUD and fixed nested
 hooks are proven privately, including exact preference cleanup and atomic
-lifecycle publication under the combined binding. Public serving and production activation remain gated.
+lifecycle publication under the combined binding. Private Flarex-backed Currency now proves fresh actual-DML installation,
+seed-gated serving and shared relational commit publication. Public serving and
+production activation remain gated.
 
 The [current gate matrix](#current-gate-status) is the cross-lane status index.
 Focused owners define exact contracts and evidence; lane documents link here
@@ -129,7 +131,7 @@ Use these sources in order:
     capability, its unchanged baseline, exact promotion manifest and the
     explicit remaining Flarex commerce-host boundaries.
 27. [`preflight/25-medusa-currency-host-and-publication.md`](./preflight/25-medusa-currency-host-and-publication.md)
-    proposes the complete private Flarex-backed Currency service: live fresh
+    records the implemented private Flarex-backed Currency service: live fresh
     installation, seed-gated serving, bounded DAL, authenticated transactions
     and typed row publication. Capability approval is pending.
 28. Current code, migrations, any source snapshot already admitted by its own
@@ -191,7 +193,8 @@ Preflight records:
 | [`preflight/21-payload-many-transition-and-bounded-population.md`](./preflight/21-payload-many-transition-and-bounded-population.md) | Private depth-one forward population implemented; many-transition direction proposed | Request-bound identity batching and consistent bounded reads; many-valued existing-row conversion requires a separate migration-host decision; bounded reverse joins use the separate profile in preflight 23 |
 | [`preflight/22-payload-many-installation-and-migration-boundary.md`](./preflight/22-payload-many-installation-and-migration-boundary.md) | Private fresh-install many conformance implemented | Ordered many CRUD, bounded population, exact binding and retained recovery; existing-row conversion separately needs authenticated transformation, serving exclusion and durable progress |
 | [`preflight/23-payload-bounded-reverse-joins.md`](./preflight/23-payload-bounded-reverse-joins.md) | Private fresh-only reverse joins implemented | Same-transaction CMS incoming-source reads and bounded Payload virtual joins over both native relations; closes the bounded non-reactive Payload prerequisite |
-| [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md) | Implemented private Currency source/value compatibility | Actual DML, manifest-admitted source/build/type closure and unchanged PGlite/MikroORM comparison baseline; live Flarex installation, richer relational queries and typed commerce publication require the later Currency host capability |
+| [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md) | Implemented private Currency source/value compatibility | Actual DML, manifest-admitted source/build/type closure and unchanged PGlite/MikroORM comparison baseline; live Flarex installation, bounded relational queries and typed commerce publication are owned by record 25 |
+| [`preflight/25-medusa-currency-host-and-publication.md`](./preflight/25-medusa-currency-host-and-publication.md) | Implemented private Currency service and relational publication | Shared initialization/change metadata, live installation, borrowed managers, bounded queries, atomic publication/recovery and retention; broader modules and public activation remain gated |
 
 ## Current Architecture
 
@@ -371,7 +374,7 @@ has private Application-only and synthetic Medusa acceptance.
 | CMS request host and Application publication | Private CMS host, pending documents, row/relation materialization and publication implemented | Pinned Payload scalar CRUD and atomic preference cleanup publication proven under combined binding |
 | Application table write policy | Private denial capability implemented | Canonical ownership and ordinary Application journal/commit denial preserved; the separate private CMS participant owns managed writes |
 | Payload scalar and non-reactive relation proofs | Private pinned scalar/optional-one/fresh-many CRUD, fresh-only reverse joins, depth-one standalone population, preference cleanup/publication and nested requests implemented | Bounded non-reactive consumer milestone complete on both drivers. Existing-row many upgrades, general join parity and public/production activation remain gated |
-| Medusa Currency, Product and Module Link proofs | Private Currency source/type/build closure, actual DML value/canonical artifact compatibility and unchanged comparison baseline implemented | Live Flarex Currency installation, repository/query conformance, transaction propagation and typed commerce/event publication remain gated; Product and stored Links follow |
+| Medusa Currency, Product and Module Link proofs | Private Currency source/type/build closure, fresh actual-DML installation, seeded serving, unchanged service conformance and shared relational publication implemented | Product, stored Links, required domain-event families and general module compatibility follow |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
 
@@ -481,9 +484,10 @@ implements one CMS transaction for root, edge and source reads, with first-windo
 results and bounded population. This completes the bounded private non-reactive
 Payload prerequisite. The [Currency preflight](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
 records private source relocation and actual DML compatibility as implemented.
-The [Currency host/publication proposal](./preflight/25-medusa-currency-host-and-publication.md)
-defines Flarex-backed installation, bounded repository queries and commerce row
-publication as one capability pending approval. It preserves the read-only
+The [Currency host/publication capability](./preflight/25-medusa-currency-host-and-publication.md)
+implements Flarex-backed installation, bounded repository queries and commerce row
+publication as one capability. Shared change facts and initialization receipts
+contain no Currency-specific core schema or fixed dataset size. It preserves the read-only
 public Currency interface and rejects unadmitted domain events. General Payload
 parity is a separate gate.
 Public framework adapters, SDKs, runtime routes and production remain gated.

@@ -49,6 +49,7 @@ describePostgres("real PostgreSQL O11-D retained commit-history compaction", () 
         "fx_system_commit",
       )).resolves.toEqual([
         "fx_commit_preference_deletion_header_fk",
+        "fx_commit_relational_header_fk",
         "fx_system_commit_app_row_change_header_fk",
         "fx_system_commit_relation_adjacency_header_fk",
       ]);
@@ -295,6 +296,8 @@ async function explainPlans(
       ),
       preferenceDeletionDirectory: await explainObserved(client, requireQuery(queries, "preferenceDeletionDirectory")),
       preferenceDeletion: await explainObserved(client, requireQuery(queries, "preferenceDeletion")),
+      relationalChangeDirectory: await explainObserved(client, requireQuery(queries, "relationalChangeDirectory")),
+      relationalChangeDeletion: await explainObserved(client, requireQuery(queries, "relationalChangeDeletion")),
       headerDeletion: await explainObserved(
         client,
         requireQuery(queries, "headerDeletion"),

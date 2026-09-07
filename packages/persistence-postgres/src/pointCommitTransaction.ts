@@ -1,3 +1,4 @@
+import { runOwnedPromise } from "./ownedPromise";
 import { SnapshotTokenSchema } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
@@ -6,6 +7,12 @@ import { consumeCmsDocumentClosure, type CmsDocumentClosure } from "./cmsTransac
 import type { CmsRequestLifetime } from "./cmsTransaction/lifetime";
 import { consumePayloadPreferenceCleanup, type PayloadPreferenceCleanupClosure } from "./payloadPreferences/cleanup";
 import { fxSystemCommitPayloadPreferenceDeletions } from "./payloadPreferences/factsSchema";
+import { fxSystemCommitRelationalChanges } from "./commitPublication/relationalFactsSchema";
+import { fxSystemFrameworkInitializations } from "./frameworkSchema/installation/initializationSchema";
+import { requireCommerceAdmission, type CommerceAdmission } from "./commerceTransaction/admission";
+import { consumeCommerceRows, type CommerceRowClosure } from "./commerceTransaction/store";
+import { commerceError, type CommerceTransactionError } from "./commerceTransaction/model";
+import type { BoundedRequestLifetime } from "./boundedRequestLifetime";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { cmsError, type CmsTransactionError } from "./cmsTransaction/model";
 import {
@@ -5934,14 +5941,14 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(function* 
       if (receipt === undefined || receiptEvidence.get(receipt) !== closed.attempts[index]) return yield* Effect.fail(cmsError("invalidAuthority"));
     }
     for (const receipt of receipts) receiptEvidence.delete(receipt);
-    const contribution: ApplicationPublicationContribution = {
+    const contribution: ScopePublicationContribution = {
       authorityPins: { scopeId: scope.scopeId, requestKey: identity.requestKey, functionPath: identity.expectedFunctionPath },
       rowIntents: closed.changes, identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
       requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
       payloadPreferenceDeletionCount: preferenceFacts.length,
     };
-    const kernel: ApplicationPublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: relationPlan?.prepared.adjacencyChanges ?? [] };
-    yield* cmsKernel(() => writeApplicationPublicationPrefix(state.tx, contribution, kernel, prepared.options));
+    const kernel: ScopePublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: relationPlan?.prepared.adjacencyChanges ?? [] };
+    yield* cmsKernel(() => writeScopePublicationPrefix(state.tx, contribution, kernel, prepared.options));
     if (preferenceFacts.length > 0) {
       const written = yield* runDrizzleStatementEffect(state.tx.insert(fxSystemCommitPayloadPreferenceDeletions)
         .values(preferenceFacts.map((fact, changeOrdinal) => ({ ...fact, changeOrdinal, commitSeq: allocation.commitSeq })))
@@ -5950,7 +5957,7 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(function* 
         written.some(row => row.ordinal < 0 || row.ordinal >= preferenceFacts.length)) return yield* Effect.fail(cmsError("storedCorruption"));
     }
     if (hooks?.afterPreferenceFacts !== undefined) yield* hooks.afterPreferenceFacts();
-    yield* cmsKernel(() => advanceApplicationPublicationClock(state.tx, contribution, kernel, prepared.options));
+    yield* cmsKernel(() => advanceScopePublicationClock(state.tx, contribution, kernel, prepared.options));
     return allocation.commitSeq;
   });
   return Object.freeze({ uniqueDefinitions: prepared.unique, finalize });
@@ -7921,7 +7928,7 @@ async function publishPointCommitInTransaction(
   },
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<void> {
-  const contribution: ApplicationPublicationContribution = {
+  const contribution: ScopePublicationContribution = {
     authorityPins: command.authorityPins,
     rowIntents: command.rowIntents,
     identityAccessPolicySha256: command.session.identityAccessPolicySha256,
@@ -7929,7 +7936,7 @@ async function publishPointCommitInTransaction(
     resultSha256: command.sealIdentity.resultSha256,
     successfulResult: command.successfulResult,
   };
-  await writeApplicationPublicationPrefix(tx, contribution, kernel, options);
+  await writeScopePublicationPrefix(tx, contribution, kernel, options);
   const publicationTime = new Date(kernel.publicationTimeMilliseconds);
   const scopeUuid = kernel.clock.scopeUuid;
   const journal = await sqlCall("deleteJournal", () =>
@@ -7993,10 +8000,58 @@ async function publishPointCommitInTransaction(
   ));
   await emitTransactionStep(options, command, "sessionCommitted");
 
-  await advanceApplicationPublicationClock(tx, contribution, kernel, options);
+  await advanceScopePublicationClock(tx, contribution, kernel, options);
 }
 
-interface ApplicationPublicationContribution {
+/** A commerce closure carries neither Application journal nor materialization authority. */
+const publishCommerceAtoms = Effect.fn("CommerceCommit.publishAtoms")(<Value>(work: (signal: AbortSignal) => Promise<Value>) =>
+  runOwnedPromise(work, cause => commerceError("statementFailure", cause)));
+
+export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(function* (
+  admission: CommerceAdmission,
+  lifetime: BoundedRequestLifetime<CommerceTransactionError>,
+  closure: CommerceRowClosure,
+  identity: ResolveCommittedPointOutcomeInputV1,
+  result: CanonicalSuccessfulResultV1,
+  resultSha256: Uint8Array,
+): Effect.fn.Return<CommitSeq, CommerceTransactionError> {
+  const state = yield* requireCommerceAdmission(admission);
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
+  const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(state.clock.epoch)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
+  if (identity.scopeUuid !== scope.scopeUuid || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const facts = yield* consumeCommerceRows(closure, admission, lifetime);
+  const clock = { record: state.clock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
+  const now = yield* publishCommerceAtoms(() => readPointCommitDatabaseTime(state.tx, scope.scopeId, {}));
+  const allocation = yield* Effect.fromResult(allocatePointCommitKernelResult(clock, "publish", now))
+    .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
+  if (allocation.outboxSeq === null) return yield* Effect.fail(commerceError("storedCorruption"));
+  const contribution: ScopePublicationContribution = {
+    authorityPins: { scopeId: scope.scopeId, requestKey: identity.requestKey, functionPath: identity.expectedFunctionPath },
+    rowIntents: [], identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
+    requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
+    relationalFacts: facts.map(fact => ({ ...fact, codecVersion: 1,
+      installationSha256: state.reference.installation.installationSha256, artifactSha256: state.descriptor.artifact.identity.artifactSha256 })),
+  };
+  const kernel: ScopePublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: [] };
+  // The existing owner bridges its Promise-based publication kernel once.
+  yield* publishCommerceAtoms(signal => writeScopePublicationPrefix(state.tx, contribution, kernel, {}, signal));
+  if (state.bootstrap) {
+    const initialization = state.descriptor.initialization;
+    if (facts.length !== initialization.expectedRowCount || facts.some(fact => fact.operation !== "insert")) return yield* Effect.fail(commerceError("seedMismatch"));
+    const stored = yield* runDrizzleStatementEffect(state.tx.insert(fxSystemFrameworkInitializations).values({
+      scopeUuid: scope.scopeUuid, installationSha256: state.reference.installation.installationSha256,
+      artifactSha256: state.descriptor.artifact.identity.artifactSha256, stepId: initialization.stepId,
+      contractSha256: state.descriptor.contractSha256, datasetSha256: initialization.datasetSha256,
+      rowCount: initialization.expectedRowCount, commitSeq: allocation.commitSeq,
+    }).returning({ stepId: fxSystemFrameworkInitializations.stepId }), cause => commerceError("statementFailure", cause));
+    if (stored.length !== 1 || stored[0]?.stepId !== initialization.stepId) return yield* Effect.fail(commerceError("storedCorruption"));
+  }
+  yield* publishCommerceAtoms(() => advanceScopePublicationClock(state.tx, contribution, kernel, {}));
+  return allocation.commitSeq;
+});
+
+interface ScopePublicationContribution {
+  readonly relationalFacts?: readonly Omit<typeof fxSystemCommitRelationalChanges.$inferInsert, "scopeUuid" | "epochUuid" | "commitSeq" | "changeOrdinal">[];
   readonly payloadPreferenceDeletionCount?: number;
   readonly authorityPins: Pick<PointCommitAuthorityPinsV1, "scopeId" | "requestKey" | "functionPath">;
   readonly rowIntents: ReadonlyArray<Pick<PreparedPointCommitRowIntentV1, "tableId" | "rowId">>;
@@ -8005,7 +8060,7 @@ interface ApplicationPublicationContribution {
   readonly resultSha256: Uint8Array;
   readonly successfulResult: Pick<PreparedPointCommitPublicationCommandV1["successfulResult"], "canonicalBytes" | "semanticSizeBytes">;
 }
-interface ApplicationPublicationKernel {
+interface ScopePublicationKernel {
   readonly clock: Pick<LockedPointCommitClockV1, "record" | "scopeUuid" | "epochUuid">;
   readonly commitSeq: CommitSeq;
   readonly outboxSeq: OutboxSeq;
@@ -8013,13 +8068,15 @@ interface ApplicationPublicationKernel {
   readonly relationAdjacencyChanges: ReadonlyArray<ApplicationRelationAdjacencyChange>;
 }
 
-/** Shared atoms; only the two package-owned participants below can contribute. */
-async function writeApplicationPublicationPrefix(
+/** Shared atoms; only the package-owned Application, CMS and commerce participants contribute. */
+async function writeScopePublicationPrefix(
   tx: AppRowTransaction,
-  command: ApplicationPublicationContribution,
-  kernel: ApplicationPublicationKernel,
+  command: ScopePublicationContribution,
+  kernel: ScopePublicationKernel,
   options: PointCommitTransactionProofOptionsV1,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const publicationTime = new Date(kernel.publicationTimeMilliseconds);
   const scopeUuid = kernel.clock.scopeUuid;
   const epochUuid = kernel.clock.epochUuid;
@@ -8037,6 +8094,7 @@ async function writeApplicationPublicationPrefix(
       changeCount,
       relationAdjacencyChangeCount,
       payloadPreferenceDeletionCount: command.payloadPreferenceDeletionCount ?? 0,
+      relationalChangeCount: command.relationalFacts?.length ?? 0,
       committedAt: publicationTime,
     }).returning({ commitSeq: fxSystemCommits.commitSeq }));
   projectPointCommitTransactionResult(
@@ -8113,6 +8171,16 @@ async function writeApplicationPublicationPrefix(
     );
   }
 
+  signal?.throwIfAborted();
+  if (command.relationalFacts !== undefined && command.relationalFacts.length > 0) {
+    const facts = await tx.insert(fxSystemCommitRelationalChanges).values(command.relationalFacts.map((fact, changeOrdinal) => ({
+      ...fact, scopeUuid, epochUuid, commitSeq, changeOrdinal,
+    }))).returning({ ordinal: fxSystemCommitRelationalChanges.changeOrdinal });
+    if (facts.length !== command.relationalFacts.length || new Set(facts.map(fact => fact.ordinal)).size !== facts.length ||
+      facts.some(fact => fact.ordinal < 0 || fact.ordinal >= (command.relationalFacts?.length ?? 0))) throw corruption("publicationInvariantInvalid");
+  }
+
+  signal?.throwIfAborted();
   const outcome = await sqlCall("writeOutcome", () =>
     tx.insert(fxSystemIdempotency).values({
       scopeUuid,
@@ -8142,6 +8210,7 @@ async function writeApplicationPublicationPrefix(
   );
   await emitTransactionStep(options, command, "outcomeWritten");
 
+  signal?.throwIfAborted();
   const wake = await sqlCall("writeWake", () =>
     tx.insert(fxSystemOutbox).values({
       scopeUuid,
@@ -8170,10 +8239,10 @@ async function writeApplicationPublicationPrefix(
 
 }
 
-async function advanceApplicationPublicationClock(
+async function advanceScopePublicationClock(
   tx: AppRowTransaction,
-  command: ApplicationPublicationContribution,
-  kernel: ApplicationPublicationKernel,
+  command: ScopePublicationContribution,
+  kernel: ScopePublicationKernel,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<void> {
   const scopeUuid = kernel.clock.scopeUuid;

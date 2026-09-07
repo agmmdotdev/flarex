@@ -1649,6 +1649,7 @@ export const fxSystemCommits = pgTable(
     relationAdjacencyChangeCount:
       integer("relation_adjacency_change_count").notNull().default(0),
     payloadPreferenceDeletionCount: integer("payload_preference_deletion_count").notNull().default(0),
+    relationalChangeCount: integer("relational_change_count").notNull().default(0),
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1676,6 +1677,7 @@ export const fxSystemCommits = pgTable(
       sql`${table.changeCount} between 0 and 16000`,
     ),
     check("fx_system_commit_preference_deletion_count_check", sql`${table.payloadPreferenceDeletionCount} between 0 and 256`),
+    check("fx_system_commit_relational_change_count_check", sql`${table.relationalChangeCount} between 0 and 16000`),
     check(
       "fx_system_commit_relation_adjacency_change_count_check",
       sql`${table.relationAdjacencyChangeCount} between 0 and ${sql.raw(
