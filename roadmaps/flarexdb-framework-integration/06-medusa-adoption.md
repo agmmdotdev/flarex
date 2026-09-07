@@ -11,11 +11,12 @@ implements fresh installation, seed-gated serving and shared relational publicat
 through the unchanged Currency service.
 [Product schema and physical relationships](./preflight/26-medusa-product-schema-and-relationships.md)
 are also implemented, from complete actual DML to fresh installation and
-constraint conformance. The proposed
+constraint conformance. The implemented private
 [nested Product creation and local event contract](./preflight/28-medusa-product-create-and-event-delivery.md)
 owns the first multi-table service proof with an injected, transaction-buffered
 in-memory test adapter. Durable event storage/dispatch are deferred. Product
-service mutations, stored Links and production activation remain unadmitted.
+mutations beyond the admitted nested-create profile, stored Links and production
+activation remain unadmitted.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,
@@ -337,7 +338,7 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
 
 ### Product schema and physical relationships
 
-- [Record 26](./preflight/26-medusa-product-schema-and-relationships.md) proposes
+- [Record 26](./preflight/26-medusa-product-schema-and-relationships.md) implements
   one complete fresh-schema capability: actual ten-model closure, derived
   pivots, shared schema extensions, deterministic installation and physical
   constraint conformance in PGlite and genuine PostgreSQL.
@@ -347,19 +348,25 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
   single-table Currency runtime profile does not expand when a broader
   structural artifact becomes admissible.
 
-### Product event-intent expansion
+### Product local events and later durable delivery
 
 - Before the first Product create, update, delete, relation replacement, or
   restore proof, inventory the exact events emitted by the unchanged Product
   service behavior.
-- Complete the event-intent commit-owner extension and admit those typed
-  contracts into the existing durable intent/finalizer path.
-- Reject the Product mutation vertical until this admission is active.
+- [Record 28](./preflight/28-medusa-product-create-and-event-delivery.md) admits
+  only a private local create/read proof with typed, transaction-buffered events.
+  Acknowledged commit releases the buffer; uncertain settlement discards it even
+  if database-result recovery succeeds. No business event is stored in outbox.
+- Before event-bearing serving, decide the durable storage and dispatch owner,
+  comparing shared outbox payloads with separate immutable intents. Complete
+  atomic capture, provider handoff and crash recovery before that serving gate.
+  A separate event table and an existing dispatcher are not assumed.
 
 ### Product service relationships
 
-- Consume the complete schema proved above; admit the multi-table repository
-  and transaction profile together with the required typed event contracts.
+- Consume the complete schema proved above. Record 28 owns the bounded
+  multi-table create/read profile; later operations must expand the repository
+  and transaction profile together with their required typed event contracts.
 - Prove filtering, population, replacement, deletion and restore through the
   unchanged selected service behavior. Include complete relational facts for
   cascading changes; physical FK success does not prove publication coverage.

@@ -1220,9 +1220,9 @@ export function restoredFrameworkMigrationAttemptTerminalStepReceipts(
   return restoredTerminalStepReceipts.get(input);
 }
 
-const decodeMigrationCanonical = Effect.fn(
-  "FrameworkMigrationValue.decodeStoredMetadata",
-)(function* (
+// Measured per-row decoder hot path. The owning restore operations retain named
+// spans; these transparent Result/Effect bridges do not need another stack.
+const decodeMigrationCanonical = Effect.fnUntraced(function* (
   row: StoredCanonicalRow,
   sha256Bytes: unknown,
   format: string,
@@ -1244,9 +1244,7 @@ const decodeMigrationCanonical = Effect.fn(
   ));
 });
 
-const storedSha256 = Effect.fn(
-  "FrameworkMigrationValue.decodeStoredSha256",
-)(function* (
+const storedSha256 = Effect.fnUntraced(function* (
   input: unknown,
 ): Effect.fn.Return<string, FrameworkMigrationValueError> {
   return yield* Effect.fromResult(decodeStoredSha256HexResult(
@@ -1255,9 +1253,7 @@ const storedSha256 = Effect.fn(
   ));
 });
 
-const storedSha256Equals = Effect.fn(
-  "FrameworkMigrationValue.storedSha256Equals",
-)(function* (
+const storedSha256Equals = Effect.fnUntraced(function* (
   input: unknown,
   expected: string,
 ): Effect.fn.Return<boolean, FrameworkMigrationValueError> {
@@ -1395,9 +1391,7 @@ const terminalOutcomeProjectionMatches = Effect.fn(
   }
 });
 
-const nullableStoredSha256Equals = Effect.fn(
-  "FrameworkMigrationValue.nullableStoredSha256Equals",
-)(function* (
+const nullableStoredSha256Equals = Effect.fnUntraced(function* (
   input: unknown,
   expected: string | null,
 ): Effect.fn.Return<boolean, FrameworkMigrationValueError> {

@@ -57,3 +57,5 @@ export { StaticModuleResources } from "./modules-sdk/index";
 export { UpsertWithReplaceConfig } from "./dal/index";
 export { MedusaContainer } from "./common/medusa-container";
 export { IModuleService } from "./modules-sdk/index";
+export * as ProductTypes from "./product/index";
+export { ModulePersistenceMutationService } from "./modules-sdk/index";

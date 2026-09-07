@@ -33,6 +33,7 @@ export const verifyCommerceBinding = Effect.fn("CommerceBinding.verify")(functio
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   }
   yield* validatePhysicalBindingCoverage(binding, availability);
+  if (descriptor.initialization === null) return;
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   const rows = yield* runDrizzleStatementEffect(tx.select().from(fxSystemFrameworkInitializations).where(and(
     eq(fxSystemFrameworkInitializations.scopeUuid, scope.scopeUuid), eq(fxSystemFrameworkInitializations.installationSha256, binding.installation.installationSha256),

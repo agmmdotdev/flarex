@@ -27,3 +27,7 @@ export { PricingRepositoryService } from "@medusajs/types/pricing/common/price-s
 export { PricingRuleOperatorValues } from "@medusajs/types/pricing/common/price-rule";
 export { RepositoryService } from "@medusajs/types/dal/repository-service";
 export { UpsertWithReplaceConfig } from "@medusajs/types/dal/index";
+export { IEventBusModuleService, InferEntityType } from "@medusajs/types";
+export * as ProductTypes from "@medusajs/types/product/index";
+export { FilterableProductOptionValueProps } from "@medusajs/types/product/index";
+export { ModuleJoinerConfig } from "@medusajs/types";

@@ -182,6 +182,106 @@
       "types": "./dist/dml/relations/nullable.d.ts",
       "source": "./src/dml/relations/nullable.ts",
       "default": "./dist/dml/relations/nullable.js"
+    },
+    "./common/array-difference": {
+      "types": "./dist/common/array-difference.d.ts",
+      "source": "./src/common/array-difference.ts",
+      "default": "./dist/common/array-difference.js"
+    },
+    "./modules-sdk/create-medusa-mikro-orm-event-subscriber": {
+      "types": "./dist/modules-sdk/create-medusa-mikro-orm-event-subscriber.d.ts",
+      "source": "./src/modules-sdk/create-medusa-mikro-orm-event-subscriber.ts",
+      "default": "./dist/modules-sdk/create-medusa-mikro-orm-event-subscriber.js"
+    },
+    "./modules-sdk/decorators/emit-events": {
+      "types": "./dist/modules-sdk/decorators/emit-events.d.ts",
+      "source": "./src/modules-sdk/decorators/emit-events.ts",
+      "default": "./dist/modules-sdk/decorators/emit-events.js"
+    },
+    "./common/generate-entity-id": {
+      "types": "./dist/common/generate-entity-id.d.ts",
+      "source": "./src/common/generate-entity-id.ts",
+      "default": "./dist/common/generate-entity-id.js"
+    },
+    "./modules-sdk/decorators/inject-manager": {
+      "types": "./dist/modules-sdk/decorators/inject-manager.d.ts",
+      "source": "./src/modules-sdk/decorators/inject-manager.ts",
+      "default": "./dist/modules-sdk/decorators/inject-manager.js"
+    },
+    "./modules-sdk/decorators/inject-transaction-manager": {
+      "types": "./dist/modules-sdk/decorators/inject-transaction-manager.d.ts",
+      "source": "./src/modules-sdk/decorators/inject-transaction-manager.ts",
+      "default": "./dist/modules-sdk/decorators/inject-transaction-manager.js"
+    },
+    "./common/is-defined": {
+      "types": "./dist/common/is-defined.d.ts",
+      "source": "./src/common/is-defined.ts",
+      "default": "./dist/common/is-defined.js"
+    },
+    "./common/is-string": {
+      "types": "./dist/common/is-string.d.ts",
+      "source": "./src/common/is-string.ts",
+      "default": "./dist/common/is-string.js"
+    },
+    "./common/validate-handle": {
+      "types": "./dist/common/validate-handle.d.ts",
+      "source": "./src/common/validate-handle.ts",
+      "default": "./dist/common/validate-handle.js"
+    },
+    "./common/to-kebab-case": {
+      "types": "./dist/common/to-kebab-case.d.ts",
+      "source": "./src/common/to-kebab-case.ts",
+      "default": "./dist/common/to-kebab-case.js"
+    },
+    "./modules-sdk/decorators/context-parameter": {
+      "types": "./dist/modules-sdk/decorators/context-parameter.d.ts",
+      "source": "./src/modules-sdk/decorators/context-parameter.ts",
+      "default": "./dist/modules-sdk/decorators/context-parameter.js"
+    },
+    "./event-bus/message-aggregator": {
+      "types": "./dist/event-bus/message-aggregator.d.ts",
+      "source": "./src/event-bus/message-aggregator.ts",
+      "default": "./dist/event-bus/message-aggregator.js"
+    },
+    "./common/partition-array": {
+      "types": "./dist/common/partition-array.d.ts",
+      "source": "./src/common/partition-array.ts",
+      "default": "./dist/common/partition-array.js"
+    },
+    "./common/remove-undefined": {
+      "types": "./dist/common/remove-undefined.d.ts",
+      "source": "./src/common/remove-undefined.ts",
+      "default": "./dist/common/remove-undefined.js"
+    },
+    "./common/to-handle": {
+      "types": "./dist/common/to-handle.d.ts",
+      "source": "./src/common/to-handle.ts",
+      "default": "./dist/common/to-handle.js"
+    },
+    "./event-bus/common-events": {
+      "types": "./dist/event-bus/common-events.d.ts",
+      "source": "./src/event-bus/common-events.ts",
+      "default": "./dist/event-bus/common-events.js"
+    },
+    "./modules-sdk/event-builder-factory": {
+      "types": "./dist/modules-sdk/event-builder-factory.d.ts",
+      "source": "./src/modules-sdk/event-builder-factory.ts",
+      "default": "./dist/modules-sdk/event-builder-factory.js"
+    },
+    "./event-bus/utils": {
+      "types": "./dist/event-bus/utils.d.ts",
+      "source": "./src/event-bus/utils.ts",
+      "default": "./dist/event-bus/utils.js"
+    },
+    "./common/camel-to-snake-case": {
+      "types": "./dist/common/camel-to-snake-case.d.ts",
+      "source": "./src/common/camel-to-snake-case.ts",
+      "default": "./dist/common/camel-to-snake-case.js"
+    },
+    "./common/lower-case-first": {
+      "types": "./dist/common/lower-case-first.d.ts",
+      "source": "./src/common/lower-case-first.ts",
+      "default": "./dist/common/lower-case-first.js"
     }
   },
   "license": "MIT",

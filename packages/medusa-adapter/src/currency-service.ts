@@ -1,4 +1,5 @@
-import { makeCurrencyPromiseOwner, type CurrencyPromiseOwner } from "./currency-promise-owner";
+import { withCommerceService } from "./commerce-service-bridge";
+import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { Effect, Cause, Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Currency } from "@medusajs/currency/models";
@@ -6,33 +7,19 @@ import { CurrencyModuleService } from "@medusajs/currency/services";
 import { MedusaInternalService } from "@medusajs/utils/modules-sdk/medusa-internal-service";
 import type { ICurrencyModuleService, CurrencyTypes, FindConfig, FilterableCurrencyProps } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext, type CommerceHost } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { capturePrivateJsonData, commerceError, CommerceTransactionError, commerceLimits, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { currencyRepository } from "./currency-repository";
 import { captureCurrencyInput } from "./currency-values";
 
-const compose = (ctx: CommerceCommandContext, owner: CurrencyPromiseOwner) => {
+const compose = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
   const repository = currencyRepository(ctx, owner);
   const internal = new (MedusaInternalService(Currency))<object, typeof Currency>({ currencyRepository: repository });
   const service = new CurrencyModuleService({ baseRepository: repository, currencyService: internal }, { scope: "internal" });
   return { repository, internal, service, context: { manager: ctx.manager, transactionManager: ctx.manager } };
 };
 
-/** The sole Promise bridge into the unchanged framework, scoped to this command. */
-export const withCurrencyService = Effect.fn("CurrencyAdapter.withService")(function* (ctx: CommerceCommandContext,
-  work: (value: ReturnType<typeof compose>) => Promise<unknown>) {
-  const owner = makeCurrencyPromiseOwner();
-  return yield* Effect.gen(function* () {
-    const value = yield* Effect.tryPromise({
-      try: signal => owner.callback(() => work(compose(ctx, owner)), signal),
-      catch: cause => cause instanceof CommerceTransactionError ? cause : commerceError("adapterFailure", cause),
-    });
-    if (owner.hasPending()) return yield* ctx.refuse(commerceError("overlappingOperation"));
-    return (yield* Effect.fromResult(capturePrivateJsonData(value, commerceLimits.commandBytes, commerceError))).value;
-  }).pipe(
-    Effect.tapCause(cause => Effect.exit(ctx.refuse(commerceError("adapterFailure", cause))).pipe(Effect.asVoid)),
-    Effect.ensuring(owner.close),
-  );
-});
+export const withCurrencyService = Effect.fn("CurrencyAdapter.withService")((ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
+  withCommerceService(ctx, owner => compose(ctx, owner), work));
 
 const read = (kind: "list" | "count" | "retrieve") => defineCommerceCommand(`currency${kind}`, "read", Effect.fn(`CurrencyAdapter.${kind}`)(function* (ctx, value) {
   if (!isNonArrayRecord(value) || Object.keys(value).some(key => !["code", "filters", "config"].includes(key)) ||

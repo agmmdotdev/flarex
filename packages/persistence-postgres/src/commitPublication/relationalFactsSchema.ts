@@ -18,7 +18,7 @@ export const fxSystemCommitRelationalChanges = pgTable("fx_system_commit_relatio
   primaryKey({ columns: [table.scopeUuid, table.commitSeq, table.changeOrdinal] }),
   foreignKey({ name: "fx_commit_relational_header_fk", columns: [table.scopeUuid, table.epochUuid, table.commitSeq],
     foreignColumns: [fxSystemCommits.scopeUuid, fxSystemCommits.epochUuid, fxSystemCommits.commitSeq] }).onDelete("restrict").onUpdate("restrict"),
-  check("fx_commit_relational_values_check", sql`${table.codecVersion} = 1 and ${table.changeOrdinal} between 0 and 15999
+  check("fx_commit_relational_values_check", sql`${table.codecVersion} in (1, 2) and ${table.changeOrdinal} between 0 and 15999
     and ${table.installationSha256} ~ '^[0-9a-f]{64}$' and ${table.artifactSha256} ~ '^[0-9a-f]{64}$'
     and octet_length(${table.tableId}) between 1 and 1024 and octet_length(${table.keyBytes}) between 1 and 4096
     and ${table.operation} in ('insert', 'update', 'delete')`),

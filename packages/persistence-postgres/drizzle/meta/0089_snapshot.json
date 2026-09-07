@@ -8962,7 +8962,7 @@
       "checkConstraints": {
         "fx_commit_relational_values_check": {
           "name": "fx_commit_relational_values_check",
-          "value": "\"fx_system_commit_relational_change\".\"codec_version\" = 1 and \"fx_system_commit_relational_change\".\"change_ordinal\" between 0 and 15999\n    and \"fx_system_commit_relational_change\".\"installation_sha256\" ~ '^[0-9a-f]{64}$' and \"fx_system_commit_relational_change\".\"artifact_sha256\" ~ '^[0-9a-f]{64}$'\n    and octet_length(\"fx_system_commit_relational_change\".\"table_id\") between 1 and 1024 and octet_length(\"fx_system_commit_relational_change\".\"key_bytes\") between 1 and 4096\n    and \"fx_system_commit_relational_change\".\"operation\" in ('insert', 'update', 'delete')"
+          "value": "\"fx_system_commit_relational_change\".\"codec_version\" in (1, 2) and \"fx_system_commit_relational_change\".\"change_ordinal\" between 0 and 15999\n    and \"fx_system_commit_relational_change\".\"installation_sha256\" ~ '^[0-9a-f]{64}$' and \"fx_system_commit_relational_change\".\"artifact_sha256\" ~ '^[0-9a-f]{64}$'\n    and octet_length(\"fx_system_commit_relational_change\".\"table_id\") between 1 and 1024 and octet_length(\"fx_system_commit_relational_change\".\"key_bytes\") between 1 and 4096\n    and \"fx_system_commit_relational_change\".\"operation\" in ('insert', 'update', 'delete')"
         }
       },
       "isRLSEnabled": false

@@ -30,3 +30,54 @@ The complete Product harness uses one shared conformance body for PGlite and ord
 Run the Product installation through its dedicated Vitest configuration. Set FLAREX_TEST_DRIVER to postgres and provide FLAREX_POSTGRES_DATABASE_URL for native PostgreSQL; the default is PGlite. FLAREX_PRODUCT_MEASURE_STEPS=1 selects the repeatable two-step measurement, and FLAREX_PRODUCT_TIMINGS=1 reports full-run batch timings. The measurement mode is not database acceptance.
 
 Preservation includes changed bytes with an old digest, changed row/sidecar projections, strict resource bounds, cancellation, separate transactions, cold restoration, fresh-head/CAS behavior, and existing Currency/Payload canonical and runtime contracts. General Product service behavior and production/Cloudflare claims remain separate gates.
+
+## Product Runtime Harness Follow-up (2026-09-07)
+
+Disposition: the user separately approved the bounded shared-owner correction
+during record 28 validation. Four transparent per-row decoder/comparison bridges
+now use untraced Effect functions; their owning restoration operations retain
+named spans. Decoder rules, SQL, authority, caching and worker transport remain
+unchanged. Final Product installation and cold-profile reopening passed under
+the same deadline: 79.266 seconds on PGlite and 71.634 seconds on ordinary-role
+PostgreSQL. The complete 14-case suites took 135.45 and 116.97 seconds respectively.
+
+The new Product service harness runs the same 85-step installation against the
+existing worker-owned PGlite fixture, followed by cold-profile reopening and
+runtime conformance. The fixture also establishes the Application/Payload binding
+needed by the shared commerce host. Its installation must settle within the
+existing 90-second budget. Repeated runs exceeded that budget before readiness,
+so dependent Product assertions were skipped. Sharing pure verification across
+the bounded coordinator batches did not eliminate the failure.
+
+Reproduce with `FLAREX_TEST_DRIVER=pglite`, `FLAREX_PRODUCT_TIMINGS=1`, and
+`pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.config.ts test/product-local.test.ts`.
+A sampled run reached 16/32/48/64/80 completed steps at approximately
+14.5/28.2/43.2/59.4/77.9 seconds, then timed out before readiness. CPU sampling of
+the main test thread attributed approximately 15.4 seconds to the installed
+Effect rc.112 function tracing wrapper and 40.9 seconds to idle samples across
+the profiled setup. Callers included migration stored restoration, physical-name
+assignment restoration and receipt/event reconstruction. Idle samples do not
+separately quantify SQL execution, structured-clone transport or scheduling;
+this evidence does not establish a single bottleneck or blame the Effect upgrade.
+
+The ordinary-role PostgreSQL runtime lane passed ten Product cases in 122.76
+seconds total, including setup. This is functional evidence only, not acceptance
+of the PGlite setup regression or a satisfactory long-term test cost.
+
+The proposed correction remains in this shared owner: measure repeated
+restoration/transport work at the same trust boundaries, remove redundant
+transparent helper tracing where independently evidenced, and reduce redundant
+driver transport within the existing authenticated read-pass rules. Keep named
+domain operations, exact-byte/sidecar verification, fresh mutable-head checks,
+bounded retention, cancellation and worker watchdog behavior. Do not increase
+deadlines, bypass installation/readiness, cache authority across writes, or
+replace the worker fixture with an uncancellable driver to obtain a passing test.
+
+The connected binding readiness reader also reconstructs the installation and
+availability graph, but did not establish the coordinator's pure verification
+lifetime. Outside a coordinator call its repeated immutable-value verification
+therefore had no operation scope to reuse. The bounded correction applies that
+existing lifetime to `lockBindingInstallation`: each call still reads and locks
+its current SQL evidence, keeps its existing additive traversal policy, and
+releases pure bytes on settlement. It does not extend the database read-pass
+lifetime across the lock or retain restored authority between requests.

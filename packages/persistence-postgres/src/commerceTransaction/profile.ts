@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { FrameworkSchemaArtifact, FrameworkSchemaArtifactIdentity } from "../frameworkSchema/artifact/model";
 import { copyCapturedFrameworkSchemaArtifactEvidence } from "../frameworkSchema/artifact/canonical";
 import { isCapturedRelationalPhysicalLayout } from "../relationalSchema/physical/canonical";
@@ -6,6 +7,8 @@ import type { RelationalPhysicalLayout } from "../relationalSchema/physical/mode
 import type { RelationalMigrationPlan } from "../migrationCoordination/model";
 import { commerceError, commerceLimits } from "./model";
 import { capturePrivateCanonicalValue } from "../frameworkSchema/privateCanonicalValue";
+import { capturePrivateJsonData } from "../privateJsonData";
+import { selectRelationalRowKey } from "../commitPublication/relationalRowKey";
 
 declare const commerceProfileBrand: unique symbol;
 export interface CommerceProfile { readonly [commerceProfileBrand]: true }
@@ -15,7 +18,7 @@ export type CommerceInstallationProfile = CommerceProfile | CommerceSchemaProfil
 const schemaProfiles = new WeakMap<object, Readonly<{ artifact: FrameworkSchemaArtifact; layout: RelationalPhysicalLayout }>>();
 
 export function commerceSchemaPlanStepLimit(profile: CommerceInstallationProfile | undefined): number {
-  return profile !== undefined && schemaProfiles.has(profile) ? 128 : 15;
+  return profile !== undefined && (schemaProfiles.has(profile) || profiles.get(profile)?.localOnly === true) ? 128 : 15;
 }
 
 /** Trusted schema composition; this token grants no command, binding or seed authority. */
@@ -36,8 +39,15 @@ export interface CommerceProfileState {
   readonly artifact: FrameworkSchemaArtifact;
   readonly layout: RelationalPhysicalLayout;
   readonly profileId: string;
-  readonly initialization: Readonly<{ stepId: string; datasetSha256: string; expectedRowCount: number }>;
+  readonly initialization: Readonly<{ stepId: string; datasetSha256: string; expectedRowCount: number }> | null;
+  readonly tables: readonly CommerceTableCapability[];
+  readonly localOnly: boolean;
   readonly contractSha256: string;
+}
+export interface CommerceTableCapability {
+  readonly tableId: string;
+  readonly keyId: string;
+  readonly mode: "scalar" | "readInsert";
 }
 const profiles = new WeakMap<object, CommerceProfileState>();
 const sameArtifactIdentity = (left: FrameworkSchemaArtifactIdentity, right: FrameworkSchemaArtifactIdentity): boolean =>
@@ -75,7 +85,39 @@ export const registerCommerceProfile = Effect.fn("CommerceProfile.register")(fun
   const contract = yield* capturePrivateCanonicalValue({ format: "flarex.commerce-profile-contract", version: 1,
     artifact: { ...artifact.identity }, layoutSha256: layout.layoutSha256, profileId, initialization: capturedInitialization }, 4096,
     { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });
-  profiles.set(profile, Object.freeze({ artifact, layout, profileId, initialization: capturedInitialization, contractSha256: contract.sha256Hex }));
+  const primary = table.keys.find(key => key.kind === "primary");
+  if (primary === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  profiles.set(profile, Object.freeze({ artifact, layout, profileId, initialization: capturedInitialization, contractSha256: contract.sha256Hex,
+    localOnly: false, tables: Object.freeze([Object.freeze({ tableId: table.identity.tableId, keyId: primary.identity.keyId, mode: "scalar" as const })]) }));
+  return profile;
+});
+
+/** Source-private local conformance issuer. Ordinary hosts refuse this profile. */
+export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerLocal")(function* (
+  artifact: FrameworkSchemaArtifact, layout: RelationalPhysicalLayout, profileId: string,
+  capabilities: readonly Readonly<{ tableId: string; keyId: string }>[],
+) {
+  yield* registerCommerceSchemaProfile(artifact, layout);
+  const captured = yield* Effect.fromResult(capturePrivateJsonData(capabilities, 16_384, commerceError));
+  if (!/^[a-z][a-z0-9_.-]{0,127}$/.test(profileId) || !Array.isArray(captured.value) ||
+    captured.value.length === 0 || captured.value.length > 16) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const tables: CommerceTableCapability[] = [];
+  for (const entry of captured.value) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry) ||
+      Object.keys(entry).length !== 2 || typeof entry.tableId !== "string" || typeof entry.keyId !== "string" ||
+      tables.some(table => table.tableId === entry.tableId)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    yield* Effect.fromResult(selectRelationalRowKey(layout, entry.tableId, entry.keyId)).pipe(Effect.mapError(() => commerceError("unsupportedProfile")));
+    tables.push(Object.freeze({ tableId: entry.tableId, keyId: entry.keyId, mode: "readInsert" }));
+  }
+  tables.sort((left, right) => compareUtf16Strings(left.tableId, right.tableId));
+  const contract = yield* capturePrivateCanonicalValue({ format: "flarex.commerce-profile-contract", version: 2,
+    artifact: { ...artifact.identity }, layoutSha256: layout.layoutSha256, profileId, initialization: null,
+    localEventPolicy: "buffer-until-confirmed-commit", tables: tables.map(table => ({ ...table })) }, 16_384,
+    { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });
+  // SAFETY: only this registry issues the exact opaque local profile.
+  const profile = Object.freeze({}) as CommerceProfile;
+  profiles.set(profile, Object.freeze({ artifact, layout, profileId, initialization: null, localOnly: true,
+    tables: Object.freeze(tables), contractSha256: contract.sha256Hex }));
   return profile;
 });
 

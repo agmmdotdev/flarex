@@ -8029,7 +8029,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
     authorityPins: { scopeId: scope.scopeId, requestKey: identity.requestKey, functionPath: identity.expectedFunctionPath },
     rowIntents: [], identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
     requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
-    relationalFacts: facts.map(fact => ({ ...fact, codecVersion: 1,
+    relationalFacts: facts.map(fact => ({ ...fact,
       installationSha256: state.reference.installation.installationSha256, artifactSha256: state.descriptor.artifact.identity.artifactSha256 })),
   };
   const kernel: ScopePublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: [] };
@@ -8037,6 +8037,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   yield* publishCommerceAtoms(signal => writeScopePublicationPrefix(state.tx, contribution, kernel, {}, signal));
   if (state.bootstrap) {
     const initialization = state.descriptor.initialization;
+    if (initialization === null) return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (facts.length !== initialization.expectedRowCount || facts.some(fact => fact.operation !== "insert")) return yield* Effect.fail(commerceError("seedMismatch"));
     const stored = yield* runDrizzleStatementEffect(state.tx.insert(fxSystemFrameworkInitializations).values({
       scopeUuid: scope.scopeUuid, installationSha256: state.reference.installation.installationSha256,

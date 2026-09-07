@@ -2,16 +2,18 @@
 
 ## Status And Outcome
 
-Status: revised preflight for discussion; runtime admission is not implemented.
+Status: implemented and validated as a private fresh-install conformance
+capability. Required TypeScript and code-quality reviews are complete.
+This record does not authorize serving.
 This record narrows the earlier combined persistence/durable-delivery proposal
 to a private local Product proof. Durable event storage and dispatch remain
 undecided and deferred. The complete Product schema is implemented under
 [record 26](./26-medusa-product-schema-and-relationships.md), with shared
 installation reconstruction bounded by [record 27](./27-product-installation-reconstruction-cost.md).
 
-The next coherent capability should execute the pinned, unchanged
-`ProductModuleService.createProducts` through Flarex, read the committed nested
-graph through that service, and verify its exact business events with an injected,
+The approved capability executes the pinned, unchanged
+`ProductModuleService.createProducts` through Flarex, reads the committed nested
+graph through that service, and verifies its exact business events with an injected,
 transaction-buffered in-memory test adapter.
 This closes the first real multi-table commerce command rather than attempting
 all Product CRUD at once. Product remains a private, fresh-install test profile;
@@ -163,8 +165,14 @@ unnecessary for a bounded recording adapter.
    outside the SQL transaction and closed repository lifetime; destination work
    has a separate bounded test lifetime and no borrowed database manager.
 6. **Explicit local failure and recovery limits.** Lost-response recovery still
-   proves database result/row idempotency. Release a retained in-memory buffer at
-   most once only after its own attempt is confirmed committed. A replay that
+   proves database result/row idempotency. Release an in-memory buffer at most
+   once after acknowledged settlement of its own attempt. Any uncertain COMMIT
+   discards that buffer and records local delivery loss, even when database-result
+   recovery succeeds. An identical competing request can provide the retained
+   result after the first attempt rolled back; neither request identity, a reused
+   tentative commit sequence, equal results nor equal row facts proves which
+   attempt committed. The local profile adds no durable attempt identity to
+   resolve that ambiguity. A replay that
    merely reads a stored result must not reconstruct or emit messages. Process
    loss, cancellation between commit and release, or loss of the buffer can
    permanently lose local notifications. This profile makes no at-least-once or
@@ -204,6 +212,17 @@ memory. Verify actual retained-data obligations before prescribing a metadata
 migration; fixtures alone do not justify dual storage or legacy readers.
 
 ## Implementation Ownership And Order
+
+Model definitions remain imports from the pinned `@medusajs/product/models`
+package. The adapter derives entity table identity, ID prefixes, foreign keys
+and pivot columns from those models and the existing DML compiler output. It
+reuses Medusa's ID generation, event-name construction and portable mutation
+subscriber dispatch. A second handwritten Product entity/schema registry is
+not an accepted source of truth. Explicit supported operation and relation lists
+remain adapter capability policy; importing a model does not admit every method.
+Currency and Product share input capture, manager authentication and the owned
+Promise/transaction bridge. The Product service's business implementation stays
+unchanged apart from imports into the promoted portable source closure.
 
 | Concern | Classification and action |
 | --- | --- |
@@ -256,3 +275,34 @@ failures and required review fixes do not create further micro approval gates.
   and both repository reviewers before the coherent code commit. Reconcile this
   proposal and the gate matrix only with observed evidence, distinguishing native
   PostgreSQL, PGlite and untested deployed runtime behavior.
+
+## Observed Acceptance (2026-09-07)
+
+- Product: the same 14 conformance cases passed on PGlite and ordinary-role
+  PostgreSQL 18.3. The nested graph contains 12 entity rows, four pivot rows,
+  16 authenticated relational facts and the exact 12 Medusa messages. Selected
+  create/event assertions retain provenance to the pinned Product events test;
+  additional Flarex authority, rollback, recovery and retention tests are authored.
+- Installation plus cold-profile reopening: 79.266 seconds on PGlite and 71.634
+  seconds on PostgreSQL, within the unchanged cancellable 90-second budget.
+  Complete Product commands took 135.45 and 116.97 seconds respectively.
+- Currency preservation: 19 cases passed on PGlite; 18 passed on PostgreSQL with
+  one PGlite-specific interruption case skipped. Coordinator stored restoration,
+  graph read-pass and synthetic commerce admission checks: 13 cases passed.
+- CMS host/lifetime, binding and wake/schema preservation: 28 of 32 cases passed
+  in the combined run; four PostgreSQL wake cases exceeded the existing default
+  five-second test timeout. An isolated rerun passed five of six PostgreSQL wake
+  cases, with migration upgrade/replay still exceeding five seconds. All six
+  passed with a diagnostic CLI timeout of 30 seconds (17.73 seconds for the file).
+  This establishes functional preservation, not default-budget acceptance for
+  that existing migration fixture. No timeout configuration or assertion changed.
+- Affected Medusa builds, adapter and persistence typechecks, source promotion
+  and browser guards (614 inputs), lint and both required reviewers passed.
+  Product model metadata checks also passed. The generated migration snapshot
+  matches the generic row-key codec constraint; no event table was introduced.
+
+The remaining migration-fixture timing issue is test-owner follow-up; it does
+not relax the Product setup budget. No deployed Cloudflare runtime, general
+Product CRUD, durable event provider or production-serving claim follows from
+these local database proofs. Retained-result expiry is exercised separately from
+feed compaction, which must preserve the live result and business rows.

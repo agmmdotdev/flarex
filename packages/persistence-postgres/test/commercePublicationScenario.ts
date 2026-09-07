@@ -10,15 +10,13 @@ import { RelationalSessionError } from "../src/relationalTransaction/model";
 import { fxSystemCommitRelationalChanges } from "../src/commitPublication/relationalFactsSchema";
 import { readRelationalCommitFactsInTransaction } from "../src/commitPublication/relationalFacts";
 import { createCommitFeedRepositoryV1 } from "../src/commitFeed";
-import { fxSystemScopeClocks } from "../src/schema";
-import { createRetainedCommitHistoryCompactionPort, compactRetainedCommitHistoryPageEffect } from "../src/retainedCommitHistoryCompaction";
-import { createLocatedRetainedHistoryFloorTargetInternal } from "../src/retainedHistoryFloorObservation";
-import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from "../src/transactionSessionActivation";
-import { commerceInventory } from "./commerceInventory";
+import { commerceInventory, compactCommerceHistory } from "./commerceInventory";
 import type { CommerceHostTestFixture } from "./commerceHostFixture";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 export async function commercePublicationScenario(fixture: CommerceHostTestFixture, command: CommerceCommand, args: Json) {
+  const initializationPolicy = fixture.descriptor.initialization;
+  if (initializationPolicy === null) throw new Error("This scenario requires initialization");
   const db = fixture.persistence.drizzle;
   const hostInput = { ...fixture.hostInput, commands: [...fixture.hostInput.commands, command] };
   const host = await runEffect(makeCommerceHost(hostInput));
@@ -27,7 +25,7 @@ export async function commercePublicationScenario(fixture: CommerceHostTestFixtu
   if (clock === undefined || clock.scopeUuid === null) throw new Error("Missing fixture clock");
   const scopeUuid = clock.scopeUuid;
   const keyInput = { scopeUuid, commitSeq: CommitSeqSchema.make(1n), installationSha256: fixture.installation.installation.installationSha256, layout: fixture.descriptor.layout };
-  expect(await db.transaction(tx => runEffect(readRelationalCommitFactsInTransaction(tx, keyInput)))).toHaveLength(fixture.descriptor.initialization.expectedRowCount);
+  expect(await db.transaction(tx => runEffect(readRelationalCommitFactsInTransaction(tx, keyInput)))).toHaveLength(initializationPolicy.expectedRowCount);
   const feed = await runEffect(createCommitFeedRepositoryV1(db).listAfter({ scopeUuid: scopeUuid, exclusiveCommitSeq: CommitSeqSchema.make(0n) }));
   expect(feed.commits.length).toBe(before.commits.length);
   const rollback = new Error("Rollback deliberate fact corruption");
@@ -81,20 +79,12 @@ export async function commercePublicationScenario(fixture: CommerceHostTestFixtu
   const retained = await commerceInventory(fixture);
   const last = retained.commits.at(-1);
   if (last === undefined) throw new Error("Missing retained commit");
-  await db.update(fxSystemScopeClocks).set({ oldestAvailableCommitSeq: last.commitSeq }).where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
-  const port = createRetainedCommitHistoryCompactionPort({ authority: { ...fixture.hostInput.authority, scopeClockTargets: {
-    resolve: async locator => createLocatedRetainedHistoryFloorTargetInternal(db, locator, createDefaultLocatedReadCommittedTransactionRunnerV1(db)),
-  } } });
-  for (let page = 0; page < retained.commits.length; page += 1) {
-    await runEffect(compactRetainedCommitHistoryPageEffect(port, fixture.hostInput.deploymentId));
-    if ((await commerceInventory(fixture)).commits.length === 1) break;
-  }
-  const compacted = await commerceInventory(fixture);
+  const compacted = await compactCommerceHistory(fixture);
   expect(compacted.commits).toHaveLength(1);
   expect(compacted.facts.every(fact => fact.commitSeq === last.commitSeq)).toBe(true);
   expect(compacted.rows).toEqual(retained.rows);
   expect(compacted.initialization).toEqual(retained.initialization);
   const initialization = fixture.prepared.initialization.rows;
   if (initialization === undefined) throw new Error("Missing bootstrap dataset");
-  expect(await runEffect(host.initialize(initialization))).toEqual({ rowCount: fixture.descriptor.initialization.expectedRowCount });
+  expect(await runEffect(host.initialize(initialization))).toEqual({ rowCount: initializationPolicy.expectedRowCount });
 }

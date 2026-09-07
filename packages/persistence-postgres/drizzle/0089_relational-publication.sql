@@ -10,7 +10,7 @@ CREATE TABLE "fx_system_commit_relational_change" (
 	"key_bytes" "bytea" NOT NULL,
 	"operation" text NOT NULL,
 	CONSTRAINT "fx_system_commit_relational_change_scope_uuid_commit_seq_change_ordinal_pk" PRIMARY KEY("scope_uuid","commit_seq","change_ordinal"),
-	CONSTRAINT "fx_commit_relational_values_check" CHECK ("fx_system_commit_relational_change"."codec_version" = 1 and "fx_system_commit_relational_change"."change_ordinal" between 0 and 15999
+	CONSTRAINT "fx_commit_relational_values_check" CHECK ("fx_system_commit_relational_change"."codec_version" in (1, 2) and "fx_system_commit_relational_change"."change_ordinal" between 0 and 15999
     and "fx_system_commit_relational_change"."installation_sha256" ~ '^[0-9a-f]{64}$' and "fx_system_commit_relational_change"."artifact_sha256" ~ '^[0-9a-f]{64}$'
     and octet_length("fx_system_commit_relational_change"."table_id") between 1 and 1024 and octet_length("fx_system_commit_relational_change"."key_bytes") between 1 and 4096
     and "fx_system_commit_relational_change"."operation" in ('insert', 'update', 'delete'))

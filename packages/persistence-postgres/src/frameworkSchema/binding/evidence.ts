@@ -2,6 +2,7 @@ import type { ApplicationActiveSelection } from "../../applicationActivation";
 import { verifyPayloadPreferenceBinding } from "../../payloadPreferences/binding";
 import { Effect, Option } from "effect";
 import { withAdditiveMigrationGraphLimits } from "../../migrationCoordination/additiveLimits";
+import { withFrameworkMigrationPlanVerification } from "../../migrationCoordination/planVerificationScope";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type {
@@ -68,7 +69,7 @@ export const lockBindingInstallation = Effect.fn(
     return yield* Effect.fail(bindingError("unavailableInstallation"));
   }
   return value;
-}, withAdditiveMigrationGraphLimits);
+}, withAdditiveMigrationGraphLimits, withFrameworkMigrationPlanVerification);
 
 export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
   function* (

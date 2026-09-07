@@ -72,6 +72,11 @@
       "types": "./dist/pricing/common/price-rule.d.ts",
       "source": "./src/pricing/common/price-rule.ts",
       "default": "./dist/pricing/common/price-rule.js"
+    },
+    "./product/index": {
+      "types": "./dist/product/index.d.ts",
+      "source": "./src/product/index.ts",
+      "default": "./dist/product/index.js"
     }
   },
   "license": "MIT",

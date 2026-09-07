@@ -9,6 +9,8 @@ export interface CommerceCommand { readonly [commandBrand]: true }
 export interface CommerceCommandContext {
   readonly manager: BoundedRequestContext;
   readonly store: CommerceStore;
+  readonly table: (tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError>;
+  readonly captureLocalEvent: (event: unknown) => Effect.Effect<void, CommerceTransactionError>;
   readonly nested: (command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
   readonly rejectEvent: Effect.Effect<never, CommerceTransactionError>;
   readonly refuse: (error: CommerceTransactionError) => Effect.Effect<never, CommerceTransactionError>;

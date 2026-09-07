@@ -885,6 +885,10 @@ importers:
         version: 8.0.1
 
   packages/medusa-drizzle:
+    dependencies:
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
     devDependencies:
       '@medusajs/utils':
         specifier: workspace:*
@@ -913,6 +917,9 @@ importers:
 
   packages/medusa-product:
     dependencies:
+      '@medusajs/deps':
+        specifier: workspace:*
+        version: link:../medusa-deps
       '@medusajs/framework':
         specifier: workspace:*
         version: link:../medusa-framework

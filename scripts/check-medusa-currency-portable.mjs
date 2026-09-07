@@ -8,7 +8,7 @@ const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.target).replaceAll("\\", "/")));
 const inputs = new Set();
-for (const entry of ["packages/medusa-currency/src/static-manifest.ts", "packages/medusa-adapter/src/currency-service.ts", "packages/medusa-adapter/src/product-schema.ts"]) {
+for (const entry of ["packages/medusa-currency/src/static-manifest.ts", "packages/medusa-adapter/src/currency-service.ts", "packages/medusa-adapter/src/product-schema.ts", "packages/medusa-adapter/src/product-service.ts"]) {
 await build({
   configFile: false,
   logLevel: "silent",
@@ -20,7 +20,10 @@ await build({
     },
     load(id) {
       const file = id.replaceAll("\\", "/");
-      if (file.includes("third_party/medusa") || /mikro-orm|pglite|medusa-test-utils|medusa-deps|awilix/.test(file)) {
+      // The pinned subscriber factory has ORM types only; its retained function
+      // name is not an ORM dependency. Every actual dependency is still checked.
+      const subscriberFactory = file === path.resolve(root, "packages/medusa-utils/src/modules-sdk/create-medusa-mikro-orm-event-subscriber.ts").replaceAll("\\", "/");
+      if (file.includes("third_party/medusa") || (!subscriberFactory && /mikro-orm|pglite|medusa-test-utils|medusa-deps|awilix/.test(file))) {
         throw new Error(`Comparison dependency in Currency portable graph: ${file}`);
       }
       if (file.includes("/packages/medusa-") && !admitted.has(file)) throw new Error(`Unlisted portable input: ${file}`);
@@ -34,4 +37,4 @@ await build({
   },
 });
 }
-console.log(`Verified Currency static-manifest, Flarex service and Product schema browser bundles across ${inputs.size} inputs; no Node, ORM, database, or island runtime imports.`);
+console.log(`Verified Currency and Product schema/service browser bundles across ${inputs.size} inputs; no Node, ORM, database, or island runtime imports.`);

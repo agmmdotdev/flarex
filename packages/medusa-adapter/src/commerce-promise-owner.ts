@@ -1,14 +1,21 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 
 /** Own all DAL runners at the single framework boundary. Closing prevents late
  * Promise callbacks from starting SQL, interrupts and joins started runners,
  * and gives framework continuations a bounded opportunity to finish. */
-export function makeCurrencyPromiseOwner() {
+export function makeCommercePromiseOwner() {
   const controller = new AbortController();
   const runners = new Set<Promise<unknown>>();
   const callbacks = new Set<Promise<unknown>>();
   let open = true;
+  let refusal = Option.none<CommerceTransactionError>();
+  // Synchronous framework signatures cannot return an Effect. Keep their first
+  // refusal sticky until the owning service bridge can poison the transaction.
+  const reject = (error: CommerceTransactionError): never => {
+    if (Option.isNone(refusal)) refusal = Option.some(error);
+    throw error;
+  };
   const stop = () => { open = false; controller.abort(); };
   const track = <Value>(pending: Promise<Value>, set: Set<Promise<unknown>>) => {
     set.add(pending);
@@ -39,6 +46,6 @@ export function makeCurrencyPromiseOwner() {
       });
     }
   });
-  return { run, callback, close, hasPending: () => runners.size !== 0 || callbacks.size !== 0 };
+  return { run, callback, close, reject, refusal: () => refusal, hasPending: () => runners.size !== 0 || callbacks.size !== 0 };
 }
-export type CurrencyPromiseOwner = ReturnType<typeof makeCurrencyPromiseOwner>;
+export type CommercePromiseOwner = ReturnType<typeof makeCommercePromiseOwner>;

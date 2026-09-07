@@ -7,6 +7,11 @@
       "types": "./dist/schema.d.ts",
       "source": "./src/schema.ts",
       "default": "./dist/schema.js"
+    },
+    "./mutation-events": {
+      "types": "./dist/mutation-events.d.ts",
+      "source": "./src/mutation-events.ts",
+      "default": "./dist/mutation-events.js"
     }
   },
   "license": "MIT",
@@ -16,5 +21,8 @@
   },
   "devDependencies": {
     "@medusajs/utils": "workspace:*"
+  },
+  "dependencies": {
+    "@medusajs/types": "workspace:*"
   }
 }
