@@ -6,6 +6,7 @@ import { isJsonObject, type Json } from "flarex-protocol/json";
 import { capturePrivateJsonData } from "../privateJsonData";
 import { cmsError, type CmsTransactionError, type CmsPresentedTransactionId } from "../cmsTransaction/model";
 import type { CmsCommandContext } from "../cmsTransaction/host";
+import type { PayloadContentProfile } from "./contract";
 
 export class UnsupportedPayloadScalarCapability extends APIError {
   constructor(readonly capability: string) { super(`Unsupported private Payload scalar capability: ${capability}`, 400); }
@@ -47,16 +48,22 @@ const where = (input: unknown): ScalarPredicate => {
   }
   return fields;
 };
-const document = (value: Json): Record<string, Json> & { id: string } => {
+const payloadDocument = (value: Json, profile: PayloadContentProfile): Record<string, Json> & { id: string } => {
   if (!isJsonObject(value) || typeof value._id !== "string") throw new Error("Invalid admitted CMS document");
   const { _id, _creationTime, ...fields } = value;
-  return { ...fields, id: _id };
+  return { ...fields, ...(profile === "payload.content-relations" ? { relatedPost: fields.relatedPost ?? null } : {}), id: _id };
 };
-const fields = (input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => {
+const payloadFields = (profile: PayloadContentProfile, input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => {
   const normalized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
     if (key === "id") {
       if (value !== undefined && value !== expectedId) throw new UnsupportedPayloadScalarCapability("caller-selected identity");
+      continue;
+    }
+    if (key === "relatedPost" && profile === "payload.content-relations") {
+      if (value === null || value === undefined) continue;
+      if (typeof value !== "string") throw new UnsupportedPayloadScalarCapability("relation identity");
+      normalized[key] = value;
       continue;
     }
     if (!["title", "score", "enabled", "publishedAt", "createdAt", "updatedAt"].includes(key)) throw new UnsupportedPayloadScalarCapability("document fields");
@@ -76,7 +83,9 @@ const fields = (input: Record<string, unknown>, expectedId?: string, creationTim
 };
 
 /** Node-only, per-Payload-instance foreign Promise boundary; it owns no database. */
-export function makePayloadScalarAdapter() {
+export function makePayloadScalarAdapter(profile: PayloadContentProfile = "payload.scalar") {
+  const document = (value: Json) => payloadDocument(value, profile);
+  const fields = (input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => payloadFields(profile, input, expectedId, creationTimestamp);
   const current = new AsyncLocalStorage<RequestBridge>();
   const touched = new Set<string>();
   const unsupported = async (capability = "deferred adapter member"): Promise<never> => {
@@ -146,6 +155,12 @@ export function makePayloadScalarAdapter() {
     updateOne: async args => { const state = admit(args); const prior = args.id === undefined ? await one(args) : null;
       const id = args.id ?? prior?.id;
       if (typeof id !== "string") return unsupported("missing update identity");
+      if (profile === "payload.content-relations" && args.data.relatedPost === null) {
+        const priorDocument = await run(state, state.context.documents.get(state.context.context, transactionId(state), id));
+        if (priorDocument === null) throw new Error("Payload update lost its admitted document");
+        const { _id, _creationTime, relatedPost: _relatedPost, ...retained } = priorDocument;
+        return document(await run(state, state.context.documents.replace(state.context.context, transactionId(state), id, { ...retained, ...fields(args.data, id) })));
+      }
       return document(await run(state, state.context.documents.patch(state.context.context, transactionId(state), id, fields(args.data, id)))); },
     deleteOne: async args => { const state = admit(args); const prior = await one(args); if (prior === null) return unsupported("missing delete identity");
       await run(state, state.context.documents.delete(state.context.context, transactionId(state), prior.id)); return prior; },

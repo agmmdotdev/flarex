@@ -2,11 +2,11 @@
 
 ## Status And Recommendation
 
-Status: researched proposal; implementation requires approval of the coherent
-capability below. Private scalar CRUD and preference publication are implemented.
-Content relations remain rejected by the current runtime.
+Status: implemented privately for the exact optional-one profile below. Scalar
+CRUD and preference publication remain compatible; broader relation behavior
+and production/public promotion retain their separate gates.
 
-Deliver one private, non-reactive relationship through actual Payload Local API
+The private runtime delivers one non-reactive relationship through actual Payload Local API
 operations, including a scalar-to-relation Application successor and exact
 content/lifecycle rebinding. The first fixture adds optional `relatedPost` on
 `posts`, targeting `posts`, at depth zero. Complete candidate admission, activation,
@@ -21,7 +21,7 @@ by the adoption plan, or advance Medusa past its remaining prerequisites.
 
 Repository paths below are relative to the workspace root.
 
-| Current evidence | Consequence |
+| Boundary before this capability | Required correction |
 | --- | --- |
 | `packages/analysis/src/applicationWritePolicy/model.ts` and `schemaCompatibility.ts` accept only the scalar configuration and required scalar validators | A relation configuration needs an explicit strict profile and exact validator/relation agreement; changing only the adapter is insufficient. |
 | `packages/persistence-postgres/src/applicationWriteOwnership/Policy.ts`, `retainApplicationManagedTableClaims` | Any changed configuration or policy digest returns `ownershipChanged`, even with the same table and Payload owner. The roadmap's successor cannot currently activate. |
@@ -34,7 +34,7 @@ Repository paths below are relative to the workspace root.
 The ownership refusal is an intentional boundary, not an incidental bug to
 remove. Reproduce it with an existing retained Payload claim and a successor
 policy over the same table/name/policy ID/provenance but a new configuration and
-policy digest. Current result: `ownershipChanged`. Proposed result: admit only
+policy digest. Original result: `ownershipChanged`. The implemented exception admits only
 the authenticated additive successor described below. Arbitrary configuration
 changes, ownership transfers, and stale-head activation remain rejected. The
 affected owner is Application write-ownership retention and activation.
@@ -63,7 +63,7 @@ Pinned upstream references remain `payload@3.88.0`, release commit
 
 ## First Mapping And Compatibility Contract
 
-| Surface | Proposed admitted behavior |
+| Surface | Admitted behavior |
 | --- | --- |
 | Payload field | Top-level `relatedPost`, `type: relationship`, `relationTo: posts`, `hasMany: false`, optional, nonlocalized; no filter options or custom field callbacks. |
 | Native declaration | Optional one, monomorphic `posts` target, reverse-many, target-delete restrict, existing occurrence codec and stable relation identity. |
@@ -128,6 +128,34 @@ authenticated chain; do not add a caller-authored duplicate relation catalog to
 the Payload overlay. No new physical schema or migration is expected here. If
 the existing encoded retention contract cannot represent the admitted transition,
 return to this owner decision before introducing a new persisted contract.
+
+## Retained Evidence And Resource Boundary
+
+Initial admission and historical restoration use the same successor verifier.
+It reads canonical published manifests, checks the prior and next readiness
+commitments during recovery, and compares the existing validated closed unique
+sets over the publication-pinned schema versions. Configuration/index equality
+alone cannot prove uniqueness preservation.
+
+The admitted Application selection retains its original readiness/catalog
+composition. Binding and CMS recovery use that composition, while ordinary
+point commits reuse their nominal unique-definition port. Activation recovery
+reuses the held catalog lease before releasing the target transaction. Target
+metadata is never a fallback control catalog. Missing or changed evidence fails
+closed; no new persisted envelope, schema or migration is introduced. Catalog
+availability is required to restore a history containing this successor. A writer
+that commits after candidate readiness can invalidate that candidate: activation
+returns `notReady` and retains the old binding. A fresh ready successor is needed.
+If activation holds the lock first, the waiting old-overlay writer is refused
+before its Payload callback; exact rebinding enables subsequent requests.
+
+All restored evidence consumes one aggregate 64-record/1 MiB history budget.
+The transition adds two manifest records and, per unique set, one closure plus
+a binding and definition per member. Bytes are reserved before payload reads.
+For the exercised two-activation history with one unique member on each side,
+recovery uses 15 records: reserving the remaining 49 succeeds and reserving 50
+fails. Longer histories remain subject to both record and byte ceilings; the
+older scalar-only maximum is not a relation-history guarantee.
 
 ## Runtime Flow And Owned Changes
 

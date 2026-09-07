@@ -5,7 +5,8 @@ import { capturePrivateJsonData } from "../privateJsonData";
 import { cmsError, CmsTransactionError } from "../cmsTransaction/model";
 import { defineCmsCommand, makeCmsHost, type CmsHost, type CmsHostInput, type CmsCommandContext } from "../cmsTransaction/host";
 import { makePayloadScalarAdapter, UnsupportedPayloadScalarCapability } from "./adapter";
-import { scalarPostsCollection, payloadScalarContentIdentity } from "./profile";
+import { scalarPostsCollection, payloadScalarContentIdentity, payloadRelationContentIdentity } from "./profile";
+import type { PayloadContentProfile } from "./contract";
 
 const projectPayloadFailure = (cause: unknown): Effect.Effect<never, CmsTransactionError> => {
   if (cause instanceof CmsTransactionError) return Effect.fail(cause);
@@ -15,8 +16,8 @@ const projectPayloadFailure = (cause: unknown): Effect.Effect<never, CmsTransact
   return Effect.die(cause);
 };
 
-export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(function* () {
-  const bridge = makePayloadScalarAdapter();
+export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(function* (profile: PayloadContentProfile = "payload.scalar") {
+  const bridge = makePayloadScalarAdapter(profile);
   let hookRuns = 0;
   let executions = 0;
   let pendingReads = 0;
@@ -50,7 +51,7 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
     }
     return doc;
   };
-  const posts = scalarPostsCollection();
+  const posts = scalarPostsCollection(profile);
   posts.hooks = { afterChange: [hook], afterDelete: [async ({ doc, req }) => {
     if (doc.title === "delete-unresolved") { pendingReads += 1; await new Promise<void>(() => {}); }
     if (doc.title === "delete-nested-fail") {
@@ -92,8 +93,12 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
     const req: Partial<PayloadRequest> = ["create", "update", "delete"].includes(operation) ? { transactionID: context.transactionId } : {};
     const common = { collection: "posts", req, depth: 0, overrideAccess: false } as const;
     const data = args.data;
-    if ((operation === "create" || operation === "update") && (!isJsonObject(data) || Object.keys(data).some(key => !["title", "score", "enabled", "publishedAt"].includes(key)))) {
+    if ((operation === "create" || operation === "update") && (!isJsonObject(data) || Object.keys(data).some(key =>
+      !["title", "score", "enabled", "publishedAt", ...(profile === "payload.content-relations" ? ["relatedPost"] : [])].includes(key)))) {
       return yield* Effect.fail(cmsError("unsupportedProfile", new UnsupportedPayloadScalarCapability("input fields")));
+    }
+    if (isJsonObject(data) && data.relatedPost !== undefined && data.relatedPost !== null && typeof data.relatedPost !== "string") {
+      return yield* Effect.fail(cmsError("relationInvalid", new UnsupportedPayloadScalarCapability("relationship input")));
     }
     let call: () => Promise<unknown>;
     switch (operation) {
@@ -139,7 +144,7 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
   };
   const bind = Effect.fn("PayloadScalar.bind")(function* <Failure>(input: Omit<CmsHostInput<Failure>, "commands" | "expectedContentIdentity">): Effect.fn.Return<CmsHost, CmsTransactionError> {
     if (!live) return yield* Effect.fail(cmsError("closed"));
-    const host = yield* makeCmsHost({ ...input, commands: Object.values(commands), expectedContentIdentity: payloadScalarContentIdentity });
+    const host = yield* makeCmsHost({ ...input, commands: Object.values(commands), expectedContentIdentity: profile === "payload.scalar" ? payloadScalarContentIdentity : payloadRelationContentIdentity });
     return {
       newRequestKey: host.newRequestKey,
       run: (key, command, args) => Effect.suspend(() => live ? host.run(key, command, args) : Effect.fail(cmsError("closed"))),

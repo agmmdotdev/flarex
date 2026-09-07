@@ -154,7 +154,7 @@
     }
   },
   "nextRelationProfile": {
-    "status": "proposedAwaitingApproval",
+    "status": "privateOptionalOneImplemented",
     "preflight": "20-payload-content-relations-and-rebinding.md",
     "firstImplementation": "optionalOnePostsSelfRelationWithAuthenticatedSuccessorRebindingAndNativePublication",
     "firstDepth": 0,
@@ -163,10 +163,12 @@
       "topLevel",
       "nonlocalized",
       "monomorphic",
-      "one",
-      "many"
+      "optionalOnePostsSelfRelation",
+      "depthZero"
     ],
     "deferredShape": [
+      "many",
+      "requiredRelations",
       "polymorphic",
       "reverseJoin",
       "populationDepth",
@@ -195,7 +197,7 @@
   },
   "activation": {
     "authorized": false,
-    "nextBehaviorSlice": "optionalOnePayloadRelationSuccessorRebindingAndNativePublication",
+    "nextBehaviorSlice": "optionalManyExistingRowTransitionAndBoundedPopulationPreflight",
     "payloadContentUsesRelationalSchema": false
   },
   "privateRuntimeEvidence": {
@@ -214,9 +216,10 @@
     ],
     "delete": "atomicContentAndBoundedPreferenceDeletionWithExactCombinedBinding",
     "completeCrud": true,
-    "nextOwnerProposal": "20-payload-content-relations-and-rebinding.md",
+    "nextOwnerProposal": "notYetWritten",
     "publicExport": false,
     "production": false,
-    "preferenceLifecycle": "privateStorageBindingCleanupAtomicPublicationAndRetentionImplemented"
+    "preferenceLifecycle": "privateStorageBindingCleanupAtomicPublicationAndRetentionImplemented",
+    "relationContract": "20-payload-content-relations-and-rebinding.md"
   }
 }

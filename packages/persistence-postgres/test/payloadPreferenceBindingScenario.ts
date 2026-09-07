@@ -40,9 +40,10 @@ import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "./frameworkSc
 import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { payloadPreferencePublicationScenario } from "./payloadPreferencePublicationScenario";
+import { payloadRelationScenario } from "./payloadRelationScenario";
 const decodeGeneration = Schema.decodeUnknownEffect(StorageGenerationSchema);
 
-export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {
+export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession, relationOnly = false) {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
   const { fixture, target, bindings, reference, candidate: contentCandidate } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields,
@@ -103,6 +104,20 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
     authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority, application: fixture.relationActivation, commands: [probe], identityAndAccessPolicy: { profile: "preference-binding-only" },
     materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle), developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
       uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle), candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }) } };
+  const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent), revisions: await persistence.drizzle.select().from(fxAppRowRevisions),
+    commits: await persistence.drizzle.select().from(fxSystemCommits), outcomes: await persistence.drizzle.select().from(fxSystemIdempotency),
+    wakes: await persistence.drizzle.select().from(fxSystemOutbox), facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges),
+    clocks: await persistence.drizzle.select().from(fxSystemScopeClocks), unique: await persistence.drizzle.select().from(fxAppUniqueKeys), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent) });
+
+  if (relationOnly) {
+    await payloadRelationScenario({ persistence, fixture, bindings, hostInput: { ...hostInput, payloadPreferenceTarget: target }, inventory,
+      seed: async (id, preferenceIds) => { await persistence.drizzle.insert(table).values(preferenceIds.map(preferenceId => ({
+        scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration,
+        id: preferenceId, key: `collection-posts-${id}`, userCollection: "users", userId: "user-a", value: { retained: true },
+        createdAt: record.createdAt, updatedAt: record.updatedAt })));
+      } });
+    return;
+  }
   const disabled = await runEffect(makeCmsHost(hostInput));
   expect(await runEffectFailure(disabled.read(probe, {}))).toMatchObject({ reason: "unsupportedProfile" });
   const host = await runEffect(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
@@ -143,10 +158,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   if (!isJsonObject(post) || typeof post._id !== "string") throw new Error("Missing cleanup post");
   const postId = post._id;
   const selector = { key: { in: [`collection-posts-${postId}`] } };
-  const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent), revisions: await persistence.drizzle.select().from(fxAppRowRevisions),
-    commits: await persistence.drizzle.select().from(fxSystemCommits), outcomes: await persistence.drizzle.select().from(fxSystemIdempotency),
-    wakes: await persistence.drizzle.select().from(fxSystemOutbox), facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges),
-    clocks: await persistence.drizzle.select().from(fxSystemScopeClocks), unique: await persistence.drizzle.select().from(fxAppUniqueKeys), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent) });
+
   const foreignScope = ScopeIdSchema.make(`scope_${crypto.randomUUID()}`);
   await persistence.drizzle.insert(fxSystemScopeClocks).values({ scopeId: foreignScope, storageGeneration: await runEffect(decodeGeneration(reference.storageGeneration)), epoch: ScopeEpochSchema.make(reference.epoch) });
   const publicationBefore = await inventory();

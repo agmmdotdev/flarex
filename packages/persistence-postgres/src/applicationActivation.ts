@@ -14,7 +14,8 @@ import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
 import type { AppRowTransaction } from "./appRows";
 import { fxSystemApplicationWriteOwnership } from "./applicationWriteOwnership/Schema";
-import { readApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Repository";
+import { readApplicationRelationOwnershipInTransaction } from "./applicationRelationReadinessFold";
+import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
 import { ApplicationWriteOwnershipHistoryBudget } from "./applicationWriteOwnership/Policy";
 import {
   decodeApplicationActivationRowEffect,
@@ -1255,6 +1256,7 @@ const activateRelationInTransaction = Effect.fn(
     Object.freeze({ kind: "relation", basis: validated.basis }),
     expected,
     faultAfter,
+    budget => readApplicationRelationOwnershipInTransaction(readinessRepository, tx, authority.scopeId, budget, catalogLease),
   );
 });
 
@@ -1394,6 +1396,7 @@ const persistActivationInTransaction = Effect.fn(
   validated: ValidatedActivation,
   expected: ApplicationActiveCasToken | null,
   faultAfter: ActivationFault | undefined,
+  recoverOwnership?: (budget: ApplicationWriteOwnershipHistoryBudget) => Effect.Effect<unknown, ApplicationWriteOwnershipError>,
 ) {
   const basis = validated.basis;
   const authority = basis.authority;
@@ -1586,7 +1589,8 @@ const persistActivationInTransaction = Effect.fn(
     // A newly installed head must remain cold-readable and replayable within the
     // same aggregate limit. Failure rolls back both the claim and head writes.
     const recoveryBudget = new ApplicationWriteOwnershipHistoryBudget();
-    yield* readApplicationWriteOwnershipInTransaction(tx, authority.scopeId, recoveryBudget).pipe(Effect.mapError(cause =>
+    if (recoverOwnership === undefined) return yield* activationFailure("activate", "notReady", basis.revisionId);
+    yield* recoverOwnership(recoveryBudget).pipe(Effect.mapError(cause =>
       activationError("activate", "notReady", basis.revisionId, false, cause)));
   }
   yield* runFault(faultAfter, "headWritten", basis.revisionId);
@@ -2453,3 +2457,12 @@ function activationError(
     ...(cause === undefined ? {} : { cause }),
   });
 }
+
+/** The admitted selection retains its exact catalog composition; target metadata is not a fallback catalog. */
+export const readApplicationSelectionOwnershipInTransaction = Effect.fn("ApplicationActivation.readOwnership")(function* (
+  selection: ApplicationActiveSelection, tx: AppRowTransaction, scopeId: TrustedScopeAuthority["scopeId"], budget: ApplicationWriteOwnershipHistoryBudget,
+) {
+  const state = selectionStates.get(selection);
+  if (state?.kind !== "relation" || state.basis.authority.scopeId !== scopeId) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
+  return yield* readApplicationRelationOwnershipInTransaction(state.readinessRepository, tx, scopeId, budget);
+});

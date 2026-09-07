@@ -1,3 +1,4 @@
+import type { ApplicationActiveSelection } from "../../applicationActivation";
 import { verifyPayloadPreferenceBinding } from "../../payloadPreferences/binding";
 import { Effect, Option } from "effect";
 import { withAdditiveMigrationGraphLimits } from "../../migrationCoordination/additiveLimits";
@@ -75,8 +76,9 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
     target: FrameworkMigrationTarget,
     snapshot: FrameworkMigrationTargetSnapshot,
     profiles: DataBindingTestProfiles | undefined,
+    selection: ApplicationActiveSelection,
   ) {
-    yield* verifyPayloadContentBinding(tx, frame);
+    yield* verifyPayloadContentBinding(tx, frame, selection);
     const verified: VerifiedBindingLane[] = [];
     for (const { slot, binding } of physicalBindings(frame)) {
       const availability = yield* lockBindingInstallation(

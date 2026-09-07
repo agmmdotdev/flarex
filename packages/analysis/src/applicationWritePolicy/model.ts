@@ -32,20 +32,33 @@ const ScalarField = Schema.Struct({
   kind: Schema.Literals(["text", "number", "boolean", "date"]),
 }).annotate(StrictStructOptions);
 
+const OptionalPostRelationField = Schema.Struct({
+  name: Schema.Literal("relatedPost"), kind: Schema.Literal("relationship"),
+  target: Schema.Literal("posts"), cardinality: Schema.Literal("one"),
+  required: Schema.Literal(false), localized: Schema.Literal(false),
+  onTargetDelete: Schema.Literal("restrict"),
+}).annotate(StrictStructOptions);
+
 /** A private declarative profile, never a serialized executable Payload config. */
 export const PayloadConfigurationSchema = Schema.Struct({
   format: Schema.Literal("flarex.payload-configuration"),
   version: Schema.Literal(1),
-  profile: Schema.Literal("payload.scalar"),
+  profile: Schema.Literals(["payload.scalar", "payload.content-relations"]),
   provenanceSha256: Digest,
   tables: Schema.Array(Schema.Struct({
     logicalTableName: Identity,
-    fields: Schema.Array(ScalarField).check(Schema.isMaxLength(64)),
+    fields: Schema.Array(Schema.Union([ScalarField, OptionalPostRelationField])).check(Schema.isMaxLength(64)),
   }).annotate(StrictStructOptions)).check(
     Schema.isMinLength(1),
     Schema.isMaxLength(APPLICATION_WRITE_POLICY_MAXIMUM_TABLES),
   ),
-}).annotate(StrictStructOptions);
+}).annotate(StrictStructOptions).check(Schema.makeFilter(config => {
+  const relations = config.tables.flatMap(table => table.fields.filter(field => field.kind === "relationship"));
+  return config.profile === "payload.scalar"
+    ? relations.length === 0 ? undefined : "Scalar profile cannot declare relationships"
+    : config.tables.length === 1 && config.tables[0]?.logicalTableName === "posts" && relations.length === 1
+      ? undefined : "Expected the single optional posts relationship";
+}));
 export type PayloadConfiguration = typeof PayloadConfigurationSchema.Type;
 
 export const ApplicationTableWritePolicySchema = Schema.Union([

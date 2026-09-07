@@ -796,6 +796,7 @@ export async function prepareReadinessEvidence(
 export async function prepareAdditionalRelationRevision(
   fixture: Awaited<ReturnType<typeof relationReadinessFixture>>,
   ordinal = 0,
+  beforeReadiness?: () => Promise<void>,
 ) {
   const manifest = await runEffect(verifyApplicationManifestWithRelations(fixture.manifest));
   const analyses = makeApplicationAnalysisRepository(
@@ -855,12 +856,13 @@ export async function prepareAdditionalRelationRevision(
     publication,
     bindings,
   }));
+  if (beforeReadiness !== undefined) await beforeReadiness();
   const readiness = await runEffect(fixture.fold.settle({
     deploymentId: fixture.deploymentId,
     revisionId: publication.revisionId,
   }));
   if (readiness.status !== "ready") {
-    throw new Error("Expected one additional ready relation revision.");
+    throw new Error(`Expected one additional ready relation revision: ${JSON.stringify(readiness)}`);
   }
   return Object.freeze({ publication, readiness });
 }
@@ -1078,7 +1080,7 @@ export async function enableRelationPhysicalBuilds(
     fixture.relationBuild,
     fixture.deploymentId,
     fixture.relation.binding.schemaVersionId,
-    fixture.semanticReuse ? 1 : 2,
+    fixture.relation.binding.relationBindings.length,
   );
 }
 

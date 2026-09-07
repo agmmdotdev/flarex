@@ -1856,7 +1856,7 @@ type LocatedPreparedPointCommitApplicationRelations = Readonly<{
 const prepareApplicationRelationDefinitions = Effect.fn(
   "PointCommitTransaction.prepareApplicationRelationDefinitions",
 )(function* (
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentDefinitionCommand,
   pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1,
   options: PointCommitTransactionProofOptionsV1,
 ): Effect.fn.Return<
@@ -5565,7 +5565,7 @@ async function runPointCommitTransactionKernel(
   projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
     validateApplicationWriteOwnershipForCommit(tx, { scopeId: command.authorityPins.scopeId,
       generation: command.authorityPins.executionAuthorityGeneration,
-      authenticatedAttemptedTables: command.attemptedTableIds, materialTables: command.rowIntents.map(row => row.tableId) }).pipe(
+      authenticatedAttemptedTables: command.attemptedTableIds, materialTables: command.rowIntents.map(row => row.tableId) }, options.uniqueConstraints).pipe(
       Effect.mapError(error => error.reason === "resourceFailure"
         ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
         : corruption(error.reason === "writeDenied" ? "applicationWritePolicyDenied" : "applicationWritePolicyEvidenceInvalid"))),
@@ -5773,6 +5773,7 @@ interface PreparedCmsCommit {
   readonly developer: readonly LocatedAppIndexDefinitionV1[];
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
   readonly candidate: PreparedPointCommitCandidateSchemaWriteGuard;
+  readonly relations: PreparedPointCommitApplicationRelations | null;
   readonly options: PointCommitTransactionProofOptionsV1;
 }
 const cmsPreparations = new WeakSet<object>();
@@ -5801,7 +5802,13 @@ export const prepareCmsApplicationCommit = Effect.fn("CmsCommit.prepare")(functi
   const unique = yield* prepareUniqueConstraintDefinitions(command, options);
   const candidate = yield* prepareCandidateSchemaWriteGuard(command, ports, options);
   if (candidate === null) return yield* Effect.fail(cmsError("invalidAuthority"));
-  const prepared: PreparedCmsCommit = Object.freeze({ application, command, intrinsic, developer, unique, candidate, options });
+  const relations = application.schema.relations.length === 0 ? null : yield* prepareApplicationRelationDefinitions(command, ports, options);
+  if (application.schema.relations.length > 0 && (relations?.definitions === null || relations === null ||
+    relations.definitions.applicationSchemaSha256 !== application.schema.applicationSchemaSha256 ||
+    relations.definitions.schemaManifestSha256 !== application.schema.schemaManifestSha256 ||
+    relations.definitions.boundPublicationSha256 !== application.schema.boundPublicationSha256 ||
+    relations.definitions.definitions.length !== application.schema.relations.length)) return yield* Effect.fail(cmsError("invalidAuthority"));
+  const prepared: PreparedCmsCommit = Object.freeze({ application, command, intrinsic, developer, unique, candidate, relations, options });
   cmsPreparations.add(prepared);
   return prepared;
 });
@@ -5810,6 +5817,10 @@ export const prepareCmsApplicationCommit = Effect.fn("CmsCommit.prepare")(functi
 const cmsKernel = <Value>(work: () => Promise<Value>) => Effect.tryPromise({
   try: work,
   catch: cause => {
+    if (cause instanceof ApplicationRelationConstraintError) return cmsError("relationInvalid", cause);
+    if (cause instanceof ApplicationRelationTargetNotLiveError) return cmsError("relationTargetMissing", cause);
+    if (cause instanceof ApplicationRelationTargetDeleteRestrictedError) return cmsError("relationDeleteRestricted", cause);
+    if (cause instanceof ApplicationRelationCommitResourceExhaustionError) return cmsError("limitExceeded", cause);
     const failure = mapTransactionFailure(cause);
     return cmsError(failure instanceof PointCommitSqlErrorV1 ? "statementFailure" :
       failure instanceof AppUniqueKeyConflictError ? "uniqueConflict" : "storedCorruption", failure);
@@ -5884,6 +5895,10 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(function* 
     if (minimumIndexRevisions > MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1) return yield* Effect.fail(cmsError("limitExceeded"));
     const heads = yield* cmsKernel(() => loadPointCommitHeads(state.tx, clock, command, prepared.options));
     yield* Effect.fromResult(validatePointCommitDependenciesResult(command, heads)).pipe(Effect.mapError(cause => cmsError("storedCorruption", cause)));
+    const relationDefinitions = prepared.relations?.definitions;
+    const relationPlan = yield* cmsKernel(() => preparePointCommitApplicationRelationPlan(state.tx, command, heads,
+      relationDefinitions === undefined || relationDefinitions === null || prepared.relations === null ? null : { port: prepared.relations.port, definitions: relationDefinitions },
+      state.clock.lastCommitSeq, prepared.options));
     const now = yield* cmsKernel(() => readPointCommitDatabaseTime(state.tx, scope.scopeId, prepared.options));
     const allocation = yield* Effect.fromResult(allocatePointCommitKernelResult(clock, "publish", now)).pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
     if (allocation.outboxSeq === null) return yield* Effect.fail(cmsError("storedCorruption"));
@@ -5895,6 +5910,9 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(function* 
       closed.changes.flatMap(row => row.kind === "live" ? [{ tableId: row.tableId, rowId: row.rowId, document: row.document }] : [])));
     yield* cmsKernel(() => materializeApplicationDocumentRows(state.tx, command, allocation.commitSeq, state.clock.epoch, heads,
       intrinsic.filter(index => changed.has(index.definition.access.tableId)), indexActions, uniqueActions, prepared.options));
+    if (relationPlan !== null) yield* maintainPointCommitApplicationRelationsEffect(state.tx, command, allocation.commitSeq, relationPlan, prepared.options).pipe(
+      Effect.mapError(cause => cause instanceof ApplicationRelationTargetDeleteRestrictedError ? cmsError("relationDeleteRestricted", cause) :
+        cause instanceof PointCommitSqlFailureMarkerV1 ? cmsError("statementFailure", cause) : cmsError("storedCorruption", cause)));
     for (const index of selectedDeveloper) yield* cmsKernel(() => resetPointCommitDeveloperIndexValidation(state.tx, index.build));
 
     // Positive receipts exist only after checked Application lowering. This issuer
@@ -5922,7 +5940,7 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(function* 
       requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
       payloadPreferenceDeletionCount: preferenceFacts.length,
     };
-    const kernel: ApplicationPublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: [] };
+    const kernel: ApplicationPublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: relationPlan?.prepared.adjacencyChanges ?? [] };
     yield* cmsKernel(() => writeApplicationPublicationPrefix(state.tx, contribution, kernel, prepared.options));
     if (preferenceFacts.length > 0) {
       const written = yield* runDrizzleStatementEffect(state.tx.insert(fxSystemCommitPayloadPreferenceDeletions)
@@ -6052,7 +6070,7 @@ type PreparedPointCommitApplicationRelationPlan = Readonly<{
 
 async function preparePointCommitApplicationRelationPlan(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
   relations: LocatedPreparedPointCommitApplicationRelations | null,
   lastCommitSeq: bigint,
@@ -6147,7 +6165,7 @@ async function preparePointCommitApplicationRelationPlan(
 
 async function validatePointCommitApplicationRelationTargets(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   prepared: PreparedApplicationRelationCommit,
   lastCommitSeq: bigint,
   options: PointCommitTransactionProofOptionsV1,
@@ -6256,7 +6274,7 @@ const maintainPointCommitApplicationRelationsEffect = Effect.fn(
   "PointCommitTransaction.maintainApplicationRelations",
 )(function* (
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   commitSeq: CommitSeq,
   plan: PreparedPointCommitApplicationRelationPlan,
   options: PointCommitTransactionProofOptionsV1,
@@ -8896,7 +8914,7 @@ async function loadPointCommitUniqueKeyDocuments(
 
 async function loadPointCommitRelationDocuments(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: ApplicationDocumentMaterializationCommand,
   loadedHeadsByDocumentId: ReadonlyMap<
     AppDocumentIdV1,
     LoadedPointCommitHeadV1

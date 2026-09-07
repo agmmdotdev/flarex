@@ -11,9 +11,9 @@ Content-only composition still rejects cleanup with full rollback. The [focused 
 now implements private preference storage, binding, and bounded CMS cleanup
 with authenticated receipts, atomic publication, and exact Payload delete
 routing. The [content-relation preflight](./preflight/20-payload-content-relations-and-rebinding.md)
-proposes one optional self-relation with authenticated same-owner configuration
-advancement, exact rebinding and native CMS publication as one capability.
-Implementation awaits approval. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
+implements optional `posts.relatedPost` at depth zero, authenticated same-owner
+configuration advancement, exact combined rebinding and native CMS publication.
+Many-valued relationships and population remain later capabilities. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation
@@ -298,14 +298,13 @@ This gate must pass before the first CMS-managed write is accepted:
 ### Relation-bearing Application candidate and overlay rebinding
 
 The [focused preflight](./preflight/20-payload-content-relations-and-rebinding.md)
-owns the proposed first implementation and its prerequisite owner change.
-Current retained ownership rejects changed configuration/policy digests, and
-preference binding pins the scalar content digest. Neither currently admits
-this successor. The proposed capability preserves owner identity and old encoded
-contracts while authenticating one additive optional relationship transition.
-It includes the first real relation CRUD proof; many-valued fields and population
-remain follow-ups within the broader milestone below.
-
+owns the implemented optional-one successor. It preserves owner identity and
+old scalar bytes, verifies unchanged scalar/index/unique definitions, and
+revalidates the transition through retained authenticated catalog evidence.
+Application activation invalidates the old content overlay; exact combined
+content/lifecycle rebinding restores serving without a dual-writer interval.
+Many-valued fields and population remain follow-ups within the broader milestone
+below.
 - Capture a new independently digestible relation-bearing Payload
   configuration/provenance artifact. The stable Payload policy ID and ordinary
   write-owner mode may remain unchanged, but the configuration digest must
@@ -327,8 +326,9 @@ remain follow-ups within the broader milestone below.
 
 ### Native relation adoption
 
-Admit only the already proven non-reactive native storage and query guarantees
-first:
+Optional-one self-relations are implemented through Payload CRUD, with native
+committed reverse identity reads as an independent storage proof. The remaining
+adoption milestone must establish these wider guarantees:
 
 - top-level, nonlocalized, monomorphic one/many values;
 - duplicate rejection;

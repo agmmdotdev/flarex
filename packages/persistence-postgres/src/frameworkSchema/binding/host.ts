@@ -244,6 +244,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           target,
           snapshot,
           profiles,
+          active.selection,
         );
         return yield* storeBindingCandidate(tx, candidate, verified);
       }),
@@ -284,6 +285,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           target,
           snapshot,
           profiles,
+          active.selection,
         );
         const current = yield* readBindingHead(tx, authority, true);
         if (
@@ -381,6 +383,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           target,
           snapshot,
           profiles,
+          active.selection,
         );
         const current = yield* readBindingHead(tx, authority, true);
         const matches = Option.isNone(current)

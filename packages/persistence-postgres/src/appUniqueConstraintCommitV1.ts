@@ -1,3 +1,7 @@
+import type { AppRowTransaction } from "./appRows";
+import type { ScopeId } from "flarex-protocol/storage-authority";
+import type { ApplicationWriteOwnershipHistoryBudget } from "./applicationWriteOwnership/Policy";
+import { readApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Repository";
 import { Effect, Result } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
@@ -130,3 +134,11 @@ export function lowerCanonicalAppUniqueConstraintV1Result(
     ),
   );
 }
+
+/** Reuse the nominal control-catalog composition for ownership recovery. */
+export const readApplicationOwnershipForUniqueDefinitions = Effect.fn("AppUniqueConstraintDefinition.readOwnership")(function (
+  port: AppUniqueConstraintDefinitionPortV1 | undefined, tx: AppRowTransaction, scopeId: ScopeId, budget: ApplicationWriteOwnershipHistoryBudget,
+) {
+  return readApplicationWriteOwnershipInTransaction(tx, scopeId, budget,
+    port === undefined ? undefined : appUniqueConstraintDefinitionPortsV1.get(port));
+});

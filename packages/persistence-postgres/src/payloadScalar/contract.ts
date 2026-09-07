@@ -1,4 +1,4 @@
-import type { PayloadProvenance } from "@flarex/analysis/internal/application-write-policy";
+import type { PayloadProvenance, PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
 
 /** Closed compatibility profile; these fields also feed Application analysis. */
 export const payloadScalarFields = Object.freeze(([
@@ -9,6 +9,15 @@ export const payloadScalarFields = Object.freeze(([
   { name: "title", kind: "text" },
   { name: "updatedAt", kind: "date" },
 ] as const).map(field => Object.freeze(field)));
+
+export type PayloadContentProfile = "payload.scalar" | "payload.content-relations";
+export const payloadRelatedPostField = Object.freeze({ name: "relatedPost", kind: "relationship", target: "posts",
+  cardinality: "one", required: false, localized: false, onTargetDelete: "restrict" } as const);
+export const payloadRelationFields = Object.freeze([...payloadScalarFields, payloadRelatedPostField].toSorted((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+export function payloadContentConfiguration(profile: PayloadContentProfile, provenanceSha256: string): PayloadConfiguration {
+  return { format: "flarex.payload-configuration", version: 1, profile, provenanceSha256,
+    tables: [{ logicalTableName: "posts", fields: profile === "payload.scalar" ? payloadScalarFields : payloadRelationFields }] };
+}
 
 export const payloadScalarProvenance: PayloadProvenance = Object.freeze({
   format: "flarex.payload-provenance", version: 1, package: "payload", release: "3.88.0",

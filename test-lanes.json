@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
+    "framework-payload-relations-postgres": ["test/payloadRelation.postgres.test.ts"],
+    "framework-payload-relations-pglite": ["test/payloadRelation.test.ts", "test/payloadRelationValues.test.ts"],
     "framework-payload-preferences-postgres": ["test/payloadPreferenceBinding.postgres.test.ts"],
     "framework-payload-preferences-pglite": ["test/payloadPreferenceBinding.test.ts", "test/payloadPreferenceCleanupValues.test.ts"],
     "framework-payload-scalar-postgres": ["test/payloadScalar.postgres.test.ts"],
@@ -134,6 +136,8 @@
     ]
   },
   "selectors": {
+    "framework-payload-relations-postgres": ["framework-payload-relations-postgres"],
+    "framework-payload-relations-pglite": ["framework-payload-relations-pglite"],
     "framework-payload-scalar-pglite": ["framework-payload-scalar-pglite"],
     "framework-payload-scalar-postgres": ["framework-payload-scalar-postgres"],
     "framework-payload-preferences-pglite": ["framework-payload-preferences-pglite"],
@@ -241,6 +245,67 @@
     ]
   },
   "lanes": [
+    {
+      "id": "framework-payload-relations-postgres",
+      "category": "postgres",
+      "proof": "Private optional-one Payload relationship through authenticated scalar successor and combined rebinding, native row/edge/adjacency/preference publication, reverse identity reads, target integrity, rollback and bounded ownership recovery. Includes ordinary-role concurrency, interruption and lost-COMMIT recovery.",
+      "prerequisites": [
+        {
+          "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER",
+          "equals": "true"
+        },
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-payload-relations-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-payload-relations-postgres"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-payload-relations-pglite",
+      "category": "pglite",
+      "proof": "Private optional-one Payload relationship through authenticated scalar successor and combined rebinding, native row/edge/adjacency/preference publication, reverse identity reads, target integrity, rollback and bounded ownership recovery.",
+      "prerequisites": [
+        {
+          "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER",
+          "equals": "true"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-payload-relations-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-payload-relations-pglite"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
     {
       "id": "framework-payload-preferences-postgres",
       "category": "postgres",

@@ -282,8 +282,9 @@ one or `hasMany` values, row bounds, population depth, and dynamic
 `filterOptions`. The pinned source is
 [`fields/config/types.ts:1216-1316`](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/payload/src/fields/config/types.ts#L1216-L1316).
 
-The first relation slice remains top-level, nonlocalized, monomorphic one/many
-only. Polymorphism, reverse join fields, arbitrary population/depth, dynamic
+The implemented first relation slice is top-level, nonlocalized, monomorphic
+optional-one `posts.relatedPost`, at depth zero. The broader one/many milestone
+remains incomplete. See the [exact successor contract](./20-payload-content-relations-and-rebinding.md). Polymorphism, reverse join fields, arbitrary population/depth, dynamic
 filters, localization, arrays/blocks, and relationship query ordering/counting
 remain deferred.
 
@@ -294,6 +295,14 @@ claimed Payload parity behavior. The adapter rejects duplicates deterministicall
 until a later occurrence-identity gate proves the pinned semantics. Target
 liveness and restrict deletion are likewise Flarex product constraints whose
 Payload-facing error/result behavior needs explicit conformance evidence.
+
+The scalar profile remains supported with its original bytes. A separate strict
+`payload.content-relations` profile adds only the optional self-relation above.
+Actual Local API operations preserve omission, clear explicit null, return
+identity/null at depth zero, and reject populated objects before Payload can
+normalize them. Native final-document liveness, restrict and adjacency publication
+remain the shared-core authority. Population and Payload reverse joins are not
+part of this profile.
 
 ## First Private Compatibility Profile
 

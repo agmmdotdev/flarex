@@ -1,7 +1,8 @@
+import type { FlarexMetadataDatabase } from "../deployments";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
-import { isJson, isJsonObject, encodeCanonicalJson } from "flarex-protocol/json";
+import { isJson, isJsonObject, encodeCanonicalJson, type JsonObject } from "flarex-protocol/json";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { decodeApplicationActivationRowEffect, readCoherentApplicationActiveHeadInTransactionEffect,
   type CoherentApplicationActiveHead } from "../applicationActiveHeadRead";
@@ -14,6 +15,7 @@ import { fxSystemApplicationReadiness } from "../applicationRelationSchema";
 import { ApplicationWriteOwnershipError, type CanonicalApplicationWriteOwnership } from "./Model";
 import { ApplicationWriteOwnershipHistoryBudget } from "./Policy";
 import { fxSystemApplicationWriteOwnership } from "./Schema";
+import { prepareApplicationOwnershipSuccessor, admitsApplicationOwnershipSuccessor } from "./Successor";
 
 export interface ApplicationWriteOwnershipSnapshot {
   readonly active: CoherentApplicationActiveHead | null;
@@ -23,7 +25,7 @@ export interface ApplicationWriteOwnershipSnapshot {
 
 /** Callers own the scope-clock lock or repeatable-read snapshot. No caller supplies claims. */
 export const readApplicationWriteOwnershipInTransaction = Effect.fn("ApplicationWriteOwnership.readInTransaction")(
-  function* (tx: AppRowTransaction, scopeId: ScopeId, budget: ApplicationWriteOwnershipHistoryBudget):
+  function* (tx: AppRowTransaction, scopeId: ScopeId, budget: ApplicationWriteOwnershipHistoryBudget, controlDb?: FlarexMetadataDatabase):
     Effect.fn.Return<ApplicationWriteOwnershipSnapshot, ApplicationWriteOwnershipError> {
     const headSizes = yield* query(tx.select({ head: sql<number>`octet_length(${fxSystemApplicationActiveHeads.headBytes})`,
       activation: sql<number>`octet_length(${fxSystemApplicationActivations.activationBytes})` })
@@ -82,6 +84,7 @@ export const readApplicationWriteOwnershipInTransaction = Effect.fn("Application
     if (readinessRows.length !== readinessSizes.length) return yield* refuse();
     const readinessByRevision = new Map(readinessRows.map(row => [row.revisionId, row]));
     let previous: CanonicalApplicationWriteOwnership | null = null;
+    let previousReadiness: JsonObject | undefined;
     const history: CanonicalApplicationWriteOwnership[] = [];
     for (const row of rows) {
       const owned = yield* decodeStoredApplicationWriteOwnership(row.claimsBytes, row.claimsSha256);
@@ -107,9 +110,11 @@ export const readApplicationWriteOwnershipInTransaction = Effect.fn("Application
       if (readinessOwnership.sha256Hex !== owned.sha256Hex) return yield* refuse();
       const oldClaims = new Map(previous?.frame.claims.map(claim => [claim.policy.tableId, claim]) ?? []);
       const nextClaims = new Map(frame.claims.map(claim => [claim.policy.tableId, claim]));
+      const successor = previous === null ? undefined : yield* prepareApplicationOwnershipSuccessor(tx, scopeId,
+        previous.frame.revisionId, frame.revisionId, previous.frame.claims, frame.claims.map(claim => claim.policy), frame.writePolicySetSha256, budget, controlDb, previousReadiness === undefined ? undefined : { prior: previousReadiness, next: readyFrame });
       for (const old of oldClaims.values()) {
         const next = nextClaims.get(old.policy.tableId);
-        if (next === undefined || next.policy.writePolicySha256 !== old.policy.writePolicySha256 ||
+        if (next === undefined || (next.policy.writePolicySha256 !== old.policy.writePolicySha256 && !admitsApplicationOwnershipSuccessor(successor, old.policy, next.policy)) ||
           next.policy.logicalName !== old.policy.logicalName ||
           next.establishingActivationSequence !== old.establishingActivationSequence ||
           next.establishingRevisionId !== old.establishingRevisionId) return yield* refuse();
@@ -118,6 +123,7 @@ export const readApplicationWriteOwnershipInTransaction = Effect.fn("Application
         if (!oldClaims.has(claim.policy.tableId) && (claim.establishingActivationSequence !== frame.activationSequence ||
           claim.establishingRevisionId !== frame.revisionId)) return yield* refuse();
       }
+      previousReadiness = readyFrame;
       previous = owned;
       history.push(owned);
     }

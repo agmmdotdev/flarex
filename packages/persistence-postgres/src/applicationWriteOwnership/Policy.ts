@@ -1,4 +1,5 @@
 import { Result } from "effect";
+import { admitsApplicationOwnershipSuccessor, type ApplicationOwnershipSuccessor } from "./Successor";
 import type { ApplicationSchemaBindingV3 } from "flarex-protocol/internal/application-schema-binding";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
@@ -33,6 +34,7 @@ export function retainApplicationManagedTableClaims(input: Readonly<{
   previouslyWritable: ReadonlySet<CatalogTableId>;
   activationSequence: bigint;
   revisionId: string;
+  successor?: ApplicationOwnershipSuccessor;
 }>): Result.Result<ReadonlyArray<ApplicationManagedTableClaim>, ApplicationWriteOwnershipError> {
   const policies = new Map(input.policies.map(policy => [policy.tableId, policy]));
   const claims = new Map(input.previous.map(claim => [claim.policy.tableId, claim]));
@@ -43,11 +45,13 @@ export function retainApplicationManagedTableClaims(input: Readonly<{
   for (const previous of input.previous) {
     const current = policies.get(previous.policy.tableId);
     if (current === undefined || current.owner !== "payload" || previous.policy.owner !== "payload" ||
-      current.logicalName !== previous.policy.logicalName || current.writePolicySha256 !== previous.policy.writePolicySha256 ||
-      current.policyId !== previous.policy.policyId || current.configSha256 !== previous.policy.configSha256 ||
-      current.provenanceSha256 !== previous.policy.provenanceSha256) {
+      current.logicalName !== previous.policy.logicalName || current.policyId !== previous.policy.policyId ||
+      current.provenanceSha256 !== previous.policy.provenanceSha256 ||
+      ((current.writePolicySha256 !== previous.policy.writePolicySha256 || current.configSha256 !== previous.policy.configSha256) &&
+        !admitsApplicationOwnershipSuccessor(input.successor, previous.policy, current))) {
       return Result.fail(new ApplicationWriteOwnershipError({ reason: "ownershipChanged" }));
     }
+    claims.set(current.tableId, Object.freeze({ ...previous, policy: current }));
   }
   for (const policy of input.policies) {
     if (policy.owner !== "payload" || claims.has(policy.tableId)) continue;

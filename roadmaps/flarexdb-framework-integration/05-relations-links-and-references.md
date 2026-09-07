@@ -2,7 +2,9 @@
 
 ## Status And Scope
 
-Status: accepted authority profiles; framework implementations pending
+Status: accepted authority profiles; private optional-one Payload document
+relations implemented. Commerce links and broader Payload relation behavior
+remain pending.
 
 This plan owns the boundary between application/Payload document relations,
 relational foreign keys, Medusa Module Links, derived adjacency projections,

@@ -4,15 +4,14 @@ import type { RestoredFrameworkSchemaAvailabilityHead } from "../frameworkSchema
 import { bindingError } from "../frameworkSchema/binding/errors";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import { capturePrivateCanonicalValue } from "../frameworkSchema/privateCanonicalValue";
-import { payloadScalarFields, payloadScalarProvenance } from "../payloadScalar/contract";
+import { payloadScalarProvenance, payloadContentConfiguration, type PayloadContentProfile } from "../payloadScalar/contract";
 import { capturePayloadPreferenceArtifact } from "./schema";
 
 const errors = { invalidInput: () => bindingError("invalidInput"), hashFailure: (cause: unknown) => bindingError("resourceFailure", cause) };
-export const capturePayloadPreferenceProfile = Effect.fn("PayloadPreferences.captureProfile")(function* (deploymentId: string) {
+export const capturePayloadPreferenceProfile = Effect.fn("PayloadPreferences.captureProfile")(function* (deploymentId: string, contentProfile: PayloadContentProfile = "payload.scalar") {
   const captured = yield* capturePayloadPreferenceArtifact(deploymentId);
   const provenance = yield* capturePrivateCanonicalValue(payloadScalarProvenance, 4096, errors);
-  const config = yield* capturePrivateCanonicalValue({ format: "flarex.payload-configuration", version: 1, profile: "payload.scalar",
-    provenanceSha256: provenance.sha256Hex, tables: [{ logicalTableName: "posts", fields: payloadScalarFields }] }, 4096, errors);
+  const config = yield* capturePrivateCanonicalValue(payloadContentConfiguration(contentProfile, provenance.sha256Hex), 4096, errors);
   return { artifact: captured.artifact, schema: captured.schema, configSha256: config.sha256Hex, provenanceSha256: provenance.sha256Hex,
     profile: { kind: "adapter", profileId: "payload-preferences-binding", contractSha256: captured.artifact.identity.artifactSha256, coverage: [] } as const };
 });
@@ -24,7 +23,9 @@ export const verifyPayloadPreferenceBinding = Effect.fn("PayloadPreferences.veri
   const binding = frame.payloadLifecycle;
   const content = frame.payloadContent;
   if (binding === null || content === null || frame.commerce !== null) return yield* Effect.fail(bindingError("unsupportedProfile"));
-  const expected = yield* capturePayloadPreferenceProfile(binding.installation.artifact.deploymentId);
+  const count = frame.application.readiness.kind === "policy" ? frame.application.readiness.relationCount : -1;
+  if (count !== 0 && count !== 1) return yield* Effect.fail(bindingError("unsupportedProfile"));
+  const expected = yield* capturePayloadPreferenceProfile(binding.installation.artifact.deploymentId, count === 0 ? "payload.scalar" : "payload.content-relations");
   if (content.configSha256 !== expected.configSha256 || content.provenanceSha256 !== expected.provenanceSha256 ||
     !sameBindingValue(binding.installation.artifact, { ...expected.artifact.identity }) ||
     binding.profiles.length !== 1 || binding.profiles[0] === undefined || !sameBindingValue(binding.profiles[0], expected.profile) ||

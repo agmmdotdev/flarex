@@ -8,7 +8,7 @@ import { fxSystemScopeClocks } from "../schema";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { ApplicationWriteOwnershipError } from "./Model";
 import { ApplicationWriteOwnershipHistoryBudget, denyManagedApplicationTableWrites } from "./Policy";
-import { readApplicationWriteOwnershipInTransaction } from "./Repository";
+import { readApplicationOwnershipForUniqueDefinitions, type AppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraintCommitV1";
 import { fxSystemApplicationWriteOwnership } from "./Schema";
 
 /** Decisive guard on the existing point-commit transaction, under its scope-clock lock. */
@@ -18,7 +18,7 @@ export const validateApplicationWriteOwnershipForCommit = Effect.fn("Application
     generation: "application_v1" | "legacy_dynamic_worker_v1";
     authenticatedAttemptedTables: ReadonlyArray<CatalogTableId> | null;
     materialTables: ReadonlyArray<CatalogTableId>;
-  }>): Effect.fn.Return<void, ApplicationWriteOwnershipError> {
+  }>, uniqueConstraints?: AppUniqueConstraintDefinitionPortV1): Effect.fn.Return<void, ApplicationWriteOwnershipError> {
     const rows = yield* runDrizzleStatementEffect(tx.select({
       contract: fxSystemApplicationActiveHeads.readinessContractVersion,
       retained: sql<boolean>`exists (select 1 from ${fxSystemApplicationWriteOwnership}
@@ -31,7 +31,7 @@ export const validateApplicationWriteOwnershipForCommit = Effect.fn("Application
     if (status === undefined) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "authorityChanged" }));
     if (!status.retained && (status.contract === null || status.contract === 1 || status.contract === 2)) return;
     const budget = new ApplicationWriteOwnershipHistoryBudget();
-    const snapshot = yield* readApplicationWriteOwnershipInTransaction(tx, input.scopeId, budget);
+    const snapshot = yield* readApplicationOwnershipForUniqueDefinitions(uniqueConstraints, tx, input.scopeId, budget);
     if (snapshot.ownership === null || snapshot.active?.head.readinessContractVersion !== 3) {
       return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
     }

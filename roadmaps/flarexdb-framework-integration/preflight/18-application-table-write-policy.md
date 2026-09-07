@@ -39,6 +39,13 @@ types and commit admission. It does not implement a Payload adapter, authorize
 CMS publication, transfer an existing app-writable table, add privileged repair
 APIs, change row storage, or replace Application OCC and result replay.
 
+The later [optional-one successor contract](./20-payload-content-relations-and-rebinding.md)
+admits one narrow exception to the original exact-policy rule: the same Payload
+owner may add optional `posts.relatedPost` with unchanged scalar/index/unique
+semantics and exact authenticated predecessor/successor evidence. All other
+configuration changes and ownership transfers remain refused. Scalar encoded
+contracts and establishing identities retain their original meaning.
+
 ## Source Findings And Design Challenge
 
 The accepted [write-authority decision](../../../design-notes/flarex-db-accepted-design.md)

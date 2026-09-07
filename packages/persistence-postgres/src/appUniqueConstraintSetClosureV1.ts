@@ -167,10 +167,14 @@ export const readAppUniqueConstraintSetClosureV1Effect = Effect.fn(
   db: FlarexMetadataDatabase,
   deploymentId: string,
   schemaVersionId: CatalogSchemaVersionId,
+  maximumDefinitions = MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
 ): Effect.fn.Return<
   LocatedAppUniqueConstraintSetClosureV1 | null,
   ReadAppUniqueConstraintSetClosureV1Error
 > {
+  if (!Number.isSafeInteger(maximumDefinitions) || maximumDefinitions < 0 || maximumDefinitions > MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1) {
+    return yield* Effect.fail(corruption("invalid unique definition restoration limit"));
+  }
   const rows = yield* queryEffect("readClosure", () =>
     db.select().from(fxControlSchemaVersionUniqueConstraintSets).where(and(
       eq(fxControlSchemaVersionUniqueConstraintSets.deploymentId, deploymentId),
@@ -186,7 +190,7 @@ export const readAppUniqueConstraintSetClosureV1Effect = Effect.fn(
     db,
     deploymentId,
     schemaVersionId,
-    MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
+    maximumDefinitions,
   );
   const canonical = yield* Effect.tryPromise({
     try: () => canonicalizeAppUniqueConstraintSetV1(members),

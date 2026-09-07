@@ -14,6 +14,7 @@ import { readPreviouslyApplicationWritableTables } from "./History";
 import { ApplicationWriteOwnershipError, type CanonicalApplicationWriteOwnership } from "./Model";
 import { retainApplicationManagedTableClaims, type ApplicationWriteOwnershipHistoryBudget } from "./Policy";
 import { readApplicationWriteOwnershipInTransaction } from "./Repository";
+import { prepareApplicationOwnershipSuccessor } from "./Successor";
 
 /** The existing readiness/activation scope-clock lock serializes this proof with publication. */
 export const prepareApplicationWriteOwnershipInTransaction = Effect.fn("ApplicationWriteOwnership.prepareInTransaction")(
@@ -23,7 +24,7 @@ export const prepareApplicationWriteOwnershipInTransaction = Effect.fn("Applicat
     policy: Pick<ApplicationSchemaBindingV3, "writePolicies" | "writePolicySetSha256"> | null;
   }>, budget: ApplicationWriteOwnershipHistoryBudget): Effect.fn.Return<CanonicalApplicationWriteOwnership | null, ApplicationWriteOwnershipError> {
     if (input.policy === null) return null;
-    const snapshot = yield* readApplicationWriteOwnershipInTransaction(tx, input.scopeId, budget);
+    const snapshot = yield* readApplicationWriteOwnershipInTransaction(tx, input.scopeId, budget, controlDb);
     const retainedActivation = snapshot.history.find(owned => owned.frame.revisionId === input.revisionId);
     const priorReadiness = retainedActivation ?? (yield* readRetainedOwnershipPlan(tx, input.scopeId, input.revisionId, budget));
     if (priorReadiness !== null) {
@@ -52,8 +53,10 @@ export const prepareApplicationWriteOwnershipInTransaction = Effect.fn("Applicat
       ? yield* readPreviouslyApplicationWritableTables(tx, controlDb, input, budget)
       : new Set<never>();
     const activationSequence = (snapshot.active?.head.activationSequence ?? 0n) + 1n;
+    const successor = snapshot.ownership === null ? undefined : yield* prepareApplicationOwnershipSuccessor(tx, input.scopeId,
+      snapshot.ownership.frame.revisionId, input.revisionId, previous, input.policy.writePolicies, input.policy.writePolicySetSha256, budget, controlDb);
     const claims = yield* Effect.fromResult(retainApplicationManagedTableClaims({ policies: input.policy.writePolicies,
-      previous, previouslyWritable, activationSequence, revisionId: input.revisionId }));
+      previous, previouslyWritable, activationSequence, revisionId: input.revisionId, ...(successor === undefined ? {} : { successor }) }));
     const planned = yield* canonicalizeApplicationWriteOwnership({
       format: "flarex.application-write-ownership", version: 1, scopeId: input.scopeId,
       storageGeneration: "flarexdb_v1", activationSequence: activationSequence.toString(), revisionId: input.revisionId,

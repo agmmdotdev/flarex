@@ -986,39 +986,37 @@ function markLocatedDefinition(
   return frozen;
 }
 
-function decodeBindingRow(
+const decodeBindingRow = Effect.fn("AppUniqueConstraintDefinitions.decodeBindingRow")(function* (
   row: typeof fxControlSchemaVersionUniqueConstraintBindings.$inferSelect,
 ) {
-  return Effect.gen(function* () {
-    const schemaVersionId = yield* Effect.fromResult(
-      decodeSchemaVersionIdResult(row.schemaVersionId).pipe(
-        Result.mapError((cause) => corruption("invalid schema version ID", cause)),
-      ),
-    );
-    const logicalUniqueConstraintId = yield* Effect.fromResult(
-      decodeLogicalIdResult(row.logicalUniqueConstraintId).pipe(
-        Result.mapError((cause) => corruption("invalid logical ID", cause)),
-      ),
-    );
-    const uniqueConstraintDefinitionId = yield* Effect.fromResult(
-      decodeDefinitionIdResult(row.uniqueConstraintDefinitionId).pipe(
-        Result.mapError((cause) => corruption("invalid definition ID", cause)),
-      ),
-    );
-    const createdAt = copyFiniteDate(row.createdAt);
-    if (row.requiredForActivation !== true || createdAt === undefined) {
-      return yield* Effect.fail(corruption("invalid binding row"));
-    }
-    return Object.freeze({
-      deploymentId: row.deploymentId,
-      schemaVersionId,
-      logicalUniqueConstraintId,
-      uniqueConstraintDefinitionId,
-      requiredForActivation: true,
-      createdAt,
-    } satisfies AppSchemaVersionUniqueConstraintBindingRecordV1);
-  });
-}
+  const schemaVersionId = yield* Effect.fromResult(
+    decodeSchemaVersionIdResult(row.schemaVersionId).pipe(
+      Result.mapError((cause) => corruption("invalid schema version ID", cause)),
+    ),
+  );
+  const logicalUniqueConstraintId = yield* Effect.fromResult(
+    decodeLogicalIdResult(row.logicalUniqueConstraintId).pipe(
+      Result.mapError((cause) => corruption("invalid logical ID", cause)),
+    ),
+  );
+  const uniqueConstraintDefinitionId = yield* Effect.fromResult(
+    decodeDefinitionIdResult(row.uniqueConstraintDefinitionId).pipe(
+      Result.mapError((cause) => corruption("invalid definition ID", cause)),
+    ),
+  );
+  const createdAt = copyFiniteDate(row.createdAt);
+  if (row.requiredForActivation !== true || createdAt === undefined) {
+    return yield* Effect.fail(corruption("invalid binding row"));
+  }
+  return Object.freeze({
+    deploymentId: row.deploymentId,
+    schemaVersionId,
+    logicalUniqueConstraintId,
+    uniqueConstraintDefinitionId,
+    requiredForActivation: true,
+    createdAt,
+  } satisfies AppSchemaVersionUniqueConstraintBindingRecordV1);
+});
 
 function corruption(detail: string, cause?: unknown) {
   return new AppUniqueConstraintCatalogCorruptionError({ detail, cause });

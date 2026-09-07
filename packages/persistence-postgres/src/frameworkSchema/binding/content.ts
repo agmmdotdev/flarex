@@ -1,7 +1,7 @@
+import { readApplicationSelectionOwnershipInTransaction, type ApplicationActiveSelection } from "../../applicationActivation";
 import { Effect } from "effect";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
-import { readApplicationWriteOwnershipInTransaction } from "../../applicationWriteOwnership/Repository";
 import { ApplicationWriteOwnershipHistoryBudget } from "../../applicationWriteOwnership/Policy";
 import { sameBindingValue } from "./canonical";
 import { bindingError } from "./errors";
@@ -9,18 +9,18 @@ import type { DataBindingSetFrame } from "./model";
 
 /** Called only after the binding host has pinned the Application under its scope lock. */
 export const verifyPayloadContentBinding = Effect.fn("DataBindingContent.verify")(
-  function* (tx: FlarexMetadataTransaction, frame: DataBindingSetFrame) {
+  function* (tx: FlarexMetadataTransaction, frame: DataBindingSetFrame, selection: ApplicationActiveSelection) {
     const content = frame.payloadContent;
     if (content === null) return;
     if (
       frame.application.readiness.kind !== "policy" ||
-      frame.application.readiness.relationCount !== 0 ||
+      frame.application.readiness.relationCount > 1 ||
       !sameBindingValue(content.application, frame.application)
     ) {
       return yield* Effect.fail(bindingError("unsupportedProfile"));
     }
-    const { ownership } = yield* readApplicationWriteOwnershipInTransaction(
-      tx,
+    const { ownership } = yield* readApplicationSelectionOwnershipInTransaction(
+      selection, tx,
       ScopeIdSchema.make(frame.application.scopeId),
       new ApplicationWriteOwnershipHistoryBudget(),
     ).pipe(Effect.mapError(cause => bindingError(

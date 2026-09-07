@@ -1,3 +1,6 @@
+import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
+import { readApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Repository";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 import {
   verifyApplicationManifestWithRelations,
   type ApplicationManifestWithRelations,
@@ -2653,3 +2656,13 @@ function failureValue(
     ...(cause === undefined ? {} : { cause }),
   });
 }
+
+/** Recover using the same trusted catalog as readiness, without exporting its database. */
+export const readApplicationRelationOwnershipInTransaction = Effect.fn("ApplicationRelationReadinessFold.readOwnership")(function* (
+  repository: ApplicationRelationReadinessFoldRepository, tx: AppRowTransaction, scopeId: ScopeId, budget: ApplicationWriteOwnershipHistoryBudget, catalogLease?: ApplicationActivationCatalogLease,
+) {
+  const state = repositoryStates.get(repository);
+  const catalog = catalogLease === undefined ? undefined : activationCatalogLeases.get(catalogLease);
+  if (state === undefined || (catalogLease !== undefined && (catalog === undefined || issuedReadyResults.get(catalog.issued)?.repository !== state))) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
+  return yield* readApplicationWriteOwnershipInTransaction(tx, scopeId, budget, catalog?.tx ?? state.context.controlDb);
+});
