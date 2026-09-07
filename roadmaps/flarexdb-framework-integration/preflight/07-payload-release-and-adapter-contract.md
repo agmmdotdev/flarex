@@ -318,7 +318,8 @@ part of this profile.
 | Deferred | General hooks/access callbacks, uploads/file work, remote effects, rich text, arrays, blocks, localization, and arbitrary JSON shapes |
 | Supported privately | Optional-one `posts.relatedPost` at depth zero with authenticated scalar successor and exact combined rebinding |
 | Deferred | Many-valued relations over existing rows; explicit conversion and migration-host admission required |
-| Deferred | Polymorphic relations, reverse joins, population/depth, arbitrary `JoinQuery`, and repeated targets |
+| Supported privately | Depth-one standalone `findByID`/`find` over `posts.relatedPost`, with request-bound batching and aggregate limits |
+| Deferred | Polymorphic relations, reverse joins, deeper/nested population, arbitrary `JoinQuery`, and repeated targets |
 | Deferred | Authenticated Admin UI, REST/GraphQL, and public/generated `ctx.cms` |
 | Rejected | Direct developer `db.insert`, `db.update`, or `db.delete` against a CMS-owned table |
 | Rejected | Direct application use of `payload.db.*` as a CMS command |
@@ -400,7 +401,11 @@ ID/title equality, ID ordering, exact pagination envelopes, ValidationError
 field paths and uniqueness, pending reads, nested rollback and retained replay
 are exercised through actual Local API calls. Positive `limit` remains bounded
 when `pagination: false`, matching the pinned [find implementation](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/drizzle/src/find/findMany.ts).
-Limit zero, broader operators, projection and population remain refused.
+Caller-supplied limit zero, broader operators and projections remain refused.
+The relation profile additionally admits depth-one standalone `findByID`/`find`
+through the [bounded population contract](./21-payload-many-transition-and-bounded-population.md).
+Only its request-authenticated loader may use the pinned internal `id.in`,
+unpaginated limit-zero form; this does not widen caller query arguments.
 
 Use `framework-payload-scalar-pglite` and `framework-payload-scalar-postgres`
 from the root test-lane runner. Both require
@@ -457,9 +462,9 @@ The [content-relation preflight](./20-payload-content-relations-and-rebinding.md
 implements an optional-one, depth-zero `posts` self-relation with authenticated
 scalar-to-relation activation, combined rebinding and native CMS publication.
 The [many-transition and population proposal](./21-payload-many-transition-and-bounded-population.md)
-recommends bounded depth-one standalone reads next. Many-valued existing-row
+implements bounded depth-one standalone reads. Many-valued existing-row
 conversion requires a migration-host decision; reverse joins need their own
-query/response contract. These three broader behaviors remain unimplemented.
+query/response contract. Many conversion and reverse joins remain unimplemented.
 
 This audit, the exact Medusa source/capability audit, and the private value-only
 `RelationalSchema` contract are complete. Payload content does not compile into

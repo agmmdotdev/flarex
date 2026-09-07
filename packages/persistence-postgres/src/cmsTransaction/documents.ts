@@ -87,6 +87,8 @@ export const consumeCmsDocumentClosure = Effect.fn("CmsDocuments.consumeClosure"
 
 export interface CmsDocuments {
   readonly get: (context: CmsRequestContext, id: CmsPresentedTransactionId, documentId: string) => Effect.Effect<JsonObject | null, CmsTransactionError>;
+  readonly getMany: (context: CmsRequestContext, id: CmsPresentedTransactionId, tableName: string,
+    documentIds: readonly string[]) => Effect.Effect<readonly (JsonObject | null)[], CmsTransactionError>;
   readonly find: (context: CmsRequestContext, id: CmsPresentedTransactionId, tableName: string,
     query: Readonly<{ where: JsonObject; offset: number; limit: number }>) => Effect.Effect<Readonly<{ docs: readonly JsonObject[]; total: number }>, CmsTransactionError>;
   readonly insert: (context: CmsRequestContext, id: CmsPresentedTransactionId, tableName: string, fields: unknown) => Effect.Effect<JsonObject, CmsTransactionError>;
@@ -95,11 +97,17 @@ export interface CmsDocuments {
   readonly delete: (context: CmsRequestContext, id: CmsPresentedTransactionId, documentId: string) => Effect.Effect<void, CmsTransactionError>;
 }
 
+export interface CmsDocumentReadTestHooks {
+  readonly beforeRead?: (selection: "point" | "batch" | "scan") => Effect.Effect<void, CmsTransactionError>;
+  readonly observeQuery?: Parameters<typeof readBoundedCurrentAppRowsInTransactionEffect>[2];
+}
+
 export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   admission: CmsAdmission,
   lifetime: CmsRequestLifetime,
   creationTime: AppCreationTimeV1,
   uniqueDefinitions: readonly LocatedAppUniqueConstraintDefinitionV1[],
+  testHooks?: CmsDocumentReadTestHooks,
 ) {
   const state = yield* requireCmsAdmission(admission);
   const validator = yield* deriveApplicationSyscallValidator({ scopeId: state.authority.scopeId,
@@ -139,15 +147,17 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
         return captured.value;
       })),
     );
-  const readBase = Effect.fn("CmsDocuments.readBase")(function* (tableId: CatalogTableId, rowId?: AppRowIdHexV1) {
+  const readBase = Effect.fn("CmsDocuments.readBase")(function* (tableId: CatalogTableId, rowId?: AppRowIdHexV1, rowIds?: readonly AppRowIdHexV1[]) {
     yield* requireCmsAdmission(admission, state.tx);
     if (closed) return yield* Effect.fail(cmsError("closed"));
     const table = yield* Effect.fromResult(tableForId(tableId));
+    if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead(rowIds !== undefined ? "batch" : rowId !== undefined ? "point" : "scan");
     const loaded = yield* readBoundedCurrentAppRowsInTransactionEffect(state.tx, {
       scopeId: state.authority.scopeId, tableId, snapshotCommitSeq: state.clock.lastCommitSeq,
-      maximumIdentities: cmsLimits.identities, maximumDocumentBytes: cmsLimits.documentBytes,
+      maximumIdentities: rowIds === undefined ? cmsLimits.identities : cmsLimits.identities - rows.size, maximumDocumentBytes: cmsLimits.documentBytes,
       maximumTotalValueBytes: lifetime.remainingBytes(), ...(rowId === undefined ? {} : { rowId }),
-    }).pipe(Effect.mapError(cause => cmsError(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
+      ...(rowIds === undefined ? {} : { rowIds }),
+    }, testHooks?.observeQuery).pipe(Effect.mapError(cause => cmsError(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
       ? "limitExceeded" : cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause)));
     for (const base of loaded) {
       const documentId = appDocumentIdV1FromRowIdentity(base);
@@ -157,7 +167,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       rows.set(documentId, { tableId, tableName: table.logicalName, rowId: base.rowId, documentId, base,
         creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [] });
     }
-    if (rowId === undefined) scanned.add(tableId);
+    if (rowId === undefined && rowIds === undefined) scanned.add(tableId);
   });
   const locate = Effect.fn("CmsDocuments.locate")(function* (inputId: string) {
     const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(inputId).pipe(Result.mapError(cause => cmsError("invalidInput", cause))));
@@ -209,6 +219,25 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   const get: CmsDocuments["get"] = Effect.fn("CmsDocuments.get")((context, id, documentId) =>
     lifetime.operation(context, id, "read", locate(documentId).pipe(Effect.flatMap(({ pending }) =>
       pending?.current == null ? Effect.succeed(null) : Effect.fromResult(output(pending.current, true))))));
+  const getMany: CmsDocuments["getMany"] = Effect.fn("CmsDocuments.getMany")((context, id, tableName, input) =>
+    lifetime.operation(context, id, "read", Effect.gen(function* () {
+      const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), cmsError));
+      yield* charge(captured.bytes);
+      if (!Array.isArray(captured.value) || captured.value.length > cmsLimits.pageRows) return yield* Effect.fail(cmsError("limitExceeded"));
+      const table = yield* Effect.fromResult(tableForName(tableName));
+      const identities = yield* Effect.forEach(captured.value, value => Effect.fromResult(decodeAppDocumentIdentityV1Result(value)
+        .pipe(Result.mapError(cause => cmsError("invalidInput", cause)))));
+      if (identities.some(identity => identity.tableId !== table.tableId) || new Set(identities.map(identity => identity.id)).size !== identities.length) {
+        return yield* Effect.fail(cmsError("invalidInput"));
+      }
+      const missing = identities.filter(identity => !rows.has(identity.id));
+      if (!scanned.has(table.tableId) && rows.size + missing.length > cmsLimits.identities) return yield* Effect.fail(cmsError("limitExceeded"));
+      if (!scanned.has(table.tableId) && missing.length > 0) yield* readBase(table.tableId, undefined, missing.map(identity => identity.rowId));
+      return Object.freeze(yield* Effect.forEach(identities, identity => {
+        const pending = rows.get(identity.id);
+        return pending?.current == null ? Effect.succeed(null) : Effect.fromResult(output(pending.current, true));
+      }));
+    })));
   const insert: CmsDocuments["insert"] = Effect.fn("CmsDocuments.insert")((context, id, tableName, input) =>
     lifetime.operation(context, id, "write", Effect.gen(function* () {
       const table = yield* Effect.fromResult(tableForName(tableName));
@@ -288,7 +317,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       attempts: Object.freeze([...attempts]), noFinalRows: Object.freeze(noFinalRows) }));
     return closure;
   });
-  const documents = Object.freeze({ get, find, insert, delete: remove,
+  const documents = Object.freeze({ get, getMany, find, insert, delete: remove,
     patch: (context, id, documentId, fields) => edit(context, id, documentId, fields, "patch"),
     replace: (context, id, documentId, fields) => edit(context, id, documentId, fields, "replace") } satisfies CmsDocuments);
   return Object.freeze({ documents, close, pendingDeletions });

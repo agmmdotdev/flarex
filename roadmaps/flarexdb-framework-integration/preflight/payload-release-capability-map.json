@@ -171,7 +171,7 @@
       "requiredRelations",
       "polymorphic",
       "reverseJoin",
-      "populationDepth",
+      "populationBeyondDepthOne",
       "dynamicFilterOptions",
       "localized",
       "arrays",
@@ -181,7 +181,7 @@
     "duplicateTargets": "rejectedAsUnsupportedProfile"
   },
   "nextPopulationProfile": {
-    "status": "proposedPendingApproval",
+    "status": "privateDepthOneImplemented",
     "preflight": "21-payload-many-transition-and-bounded-population.md",
     "existingRelation": "posts.relatedPost",
     "operations": ["standaloneFindByID", "standaloneFind"],
@@ -208,7 +208,7 @@
   },
   "activation": {
     "authorized": false,
-    "nextBehaviorSlice": "boundedDepthOneForwardPopulationPendingApproval",
+    "nextBehaviorSlice": "optionalManyMigrationHostPreflight",
     "payloadContentUsesRelationalSchema": false
   },
   "privateRuntimeEvidence": {

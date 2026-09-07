@@ -360,20 +360,20 @@ function documentId(value: Json): string {
   return value.id;
 }
 
-function barrier<Value>() {
+export function barrier<Value>() {
   let resolve: (value: Value) => void = () => { throw new Error("Uninitialized barrier"); };
   const promise = new Promise<Value>(release => { resolve = release; });
   return { promise, resolve };
 }
 
-async function withDeadline<Value>(promise: Promise<Value>): Promise<Value> {
+export async function withDeadline<Value>(promise: Promise<Value>): Promise<Value> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([promise, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Native barrier deadline")), 5000); })]);
   } finally { if (timer !== undefined) clearTimeout(timer); }
 }
 
-async function heldNativeRace(persistence: PostgresFlarexPersistence, first: Effect.Effect<unknown, unknown>, second: Effect.Effect<unknown, unknown>, entered: Promise<void>, release: () => void) {
+export async function heldNativeRace(persistence: PostgresFlarexPersistence, first: Effect.Effect<unknown, unknown>, second: Effect.Effect<unknown, unknown>, entered: Promise<void>, release: () => void) {
   const firstObserved = Promise.allSettled([runEffect(first.pipe(Effect.result))]);
   let secondObserved: typeof firstObserved | undefined;
   let results: Array<Awaited<typeof firstObserved>[number]> = [];

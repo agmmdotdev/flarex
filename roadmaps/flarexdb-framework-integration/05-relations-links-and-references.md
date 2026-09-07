@@ -48,8 +48,8 @@ Native many-valued relations require a present array, including when their
 minimum item count is zero. Optional Payload input does not make an absent
 Application property valid. The [many-transition and population proposal](./preflight/21-payload-many-transition-and-bounded-population.md)
 separates authoritative content conversion from derived edge backfill, and
-recommends bounded forward population over the implemented optional-one relation
-next. Population must share the admitted CMS read request; native reverse
+implements bounded forward population over the optional-one relation.
+Population shares the admitted CMS read request; native reverse
 identity windows do not by themselves implement Payload join totals or paging.
 
 ## Relational Foreign-Key Relations

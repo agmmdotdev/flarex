@@ -80,8 +80,11 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
   const invoke = Effect.fn("PayloadScalar.invoke")(function* (context: CmsCommandContext, operation: string, args: Json) {
     if (!live) return yield* Effect.fail(cmsError("closed"));
     if (!isJsonObject(args)) return yield* Effect.fail(cmsError("invalidInput"));
-    const allowed = operation === "create" ? ["data"] : operation === "update" ? ["id", "data"] : operation === "find" ? ["where", "page", "limit", "pagination", "sort"] : operation === "count" ? ["where"] : ["id"];
+    const allowed = operation === "create" ? ["data"] : operation === "update" ? ["id", "data"] : operation === "find" ? ["where", "page", "limit", "pagination", "sort", "depth"] : operation === "count" ? ["where"] : operation === "findByID" ? ["id", "depth"] : ["id"];
     if (Object.keys(args).some(key => !allowed.includes(key))) return yield* Effect.fail(cmsError("unsupportedProfile"));
+    const depth = args.depth === undefined ? 0 : args.depth;
+    if ((depth !== 0 && depth !== 1) ||
+      (depth === 1 && (profile !== "payload.content-relations" || !context.standaloneRead))) return yield* Effect.fail(cmsError("unsupportedProfile"));
     if (args.where !== undefined && (!isJsonObject(args.where) || Object.entries(args.where).some(([key, value]) =>
       !["id", "title"].includes(key) || !isJsonObject(value) || Object.keys(value).join() !== "equals" || typeof value.equals !== "string"))) {
       return yield* Effect.fail(cmsError("invalidInput", new UnsupportedPayloadScalarCapability("where")));
@@ -91,7 +94,7 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
       if (isJsonObject(value) && typeof value.equals === "string") query[key] = { equals: value.equals };
     }
     const req: Partial<PayloadRequest> = ["create", "update", "delete"].includes(operation) ? { transactionID: context.transactionId } : {};
-    const common = { collection: "posts", req, depth: 0, overrideAccess: false } as const;
+    const common = { collection: "posts", req, depth, overrideAccess: false } as const;
     const data = args.data;
     if ((operation === "create" || operation === "update") && (!isJsonObject(data) || Object.keys(data).some(key =>
       !["title", "score", "enabled", "publishedAt", ...(profile === "payload.content-relations" ? ["relatedPost"] : [])].includes(key)))) {
@@ -129,7 +132,7 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
       default: return yield* Effect.fail(cmsError("unsupportedProfile"));
     }
     executions += 1;
-    const result = yield* Effect.tryPromise({ try: signal => bridge.within(context, req, signal, call), catch: cause => cause }).pipe(
+    const result = yield* Effect.tryPromise({ try: signal => bridge.within(context, req, signal, call, depth === 1), catch: cause => cause }).pipe(
       // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: compatibility - This Payload Promise boundary classifies every unknown rejection and preserves unknown causes as defects.
       Effect.catch(projectPayloadFailure));
     return (yield* Effect.fromResult(capturePrivateJsonData(result, 1_048_576, cmsError))).value;

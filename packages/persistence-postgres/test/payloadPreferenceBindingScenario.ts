@@ -41,9 +41,10 @@ import { installationBindingReference } from "./frameworkDataBindingPhysicalTest
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { payloadPreferencePublicationScenario } from "./payloadPreferencePublicationScenario";
 import { payloadRelationScenario } from "./payloadRelationScenario";
+import { payloadPopulationScenario } from "./payloadPopulationScenario";
 const decodeGeneration = Schema.decodeUnknownEffect(StorageGenerationSchema);
 
-export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession, relationOnly = false) {
+export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession, relationOnly: boolean | "population" = false) {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
   const { fixture, target, bindings, reference, candidate: contentCandidate } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields,
@@ -110,7 +111,8 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
     clocks: await persistence.drizzle.select().from(fxSystemScopeClocks), unique: await persistence.drizzle.select().from(fxAppUniqueKeys), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent) });
 
   if (relationOnly) {
-    await payloadRelationScenario({ persistence, fixture, bindings, hostInput: { ...hostInput, payloadPreferenceTarget: target }, inventory,
+    const scenario = relationOnly === "population" ? payloadPopulationScenario : payloadRelationScenario;
+    await scenario({ persistence, fixture, bindings, hostInput: { ...hostInput, payloadPreferenceTarget: target }, inventory,
       seed: async (id, preferenceIds) => { await persistence.drizzle.insert(table).values(preferenceIds.map(preferenceId => ({
         scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration,
         id: preferenceId, key: `collection-posts-${id}`, userCollection: "users", userId: "user-a", value: { retained: true },

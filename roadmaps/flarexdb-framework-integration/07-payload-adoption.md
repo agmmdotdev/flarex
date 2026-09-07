@@ -13,9 +13,9 @@ with authenticated receipts, atomic publication, and exact Payload delete
 routing. The [content-relation preflight](./preflight/20-payload-content-relations-and-rebinding.md)
 implements optional `posts.relatedPost` at depth zero, authenticated same-owner
 configuration advancement, exact combined rebinding and native CMS publication.
-The [next preflight](./preflight/21-payload-many-transition-and-bounded-population.md)
-proposes bounded forward population over that relation before many-valued
-existing-row conversion. Both remain unimplemented. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
+The [population contract](./preflight/21-payload-many-transition-and-bounded-population.md)
+implements bounded depth-one standalone forward reads over that relation.
+Many-valued existing-row conversion remains gated. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation
@@ -306,10 +306,10 @@ revalidates the transition through retained authenticated catalog evidence.
 Application activation invalidates the old content overlay; exact combined
 content/lifecycle rebinding restores serving without a dual-writer interval.
 The [many-transition and population preflight](./preflight/21-payload-many-transition-and-bounded-population.md)
-proposes depth-one standalone reads next. Many-valued fields require an explicit
+implements depth-one standalone reads. Many-valued fields require an explicit
 existing-row conversion and migration-host authority; adapter defaults and edge
-backfill cannot supply that authority. Both remain follow-ups within the broader
-milestone below.
+backfill cannot supply that authority. Many-valued fields and reverse joins
+remain follow-ups within the broader milestone below.
 - Capture a new independently digestible relation-bearing Payload
   configuration/provenance artifact. The stable Payload policy ID and ordinary
   write-owner mode may remain unchanged, but the configuration digest must

@@ -26,7 +26,7 @@ import { prepareCmsApplicationCommit, enterCmsApplicationCommit, type PointCommi
   type CmsMaterializationTestHooks } from "../pointCommitTransaction";
 import { prepareCmsApplication, withCmsAdmission, requireCmsAdmission } from "./admission";
 import { makeCmsRequestLifetime } from "./lifetime";
-import { makeCmsDocuments, type CmsDocuments } from "./documents";
+import { makeCmsDocuments, type CmsDocuments, type CmsDocumentReadTestHooks } from "./documents";
 import { makePayloadPreferenceCleanup, type PayloadPreferenceCleanup } from "../payloadPreferences/cleanup";
 import { cmsError, cmsLimits, CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
 
@@ -34,6 +34,8 @@ declare const commandBrand: unique symbol;
 export interface CmsCommand { readonly [commandBrand]: true }
 export interface CmsCommandContext {
   readonly context: CmsRequestContext;
+  readonly standaloneRead: boolean;
+  readonly reserveOutput: (bytes: number) => Effect.Effect<void, CmsTransactionError>;
   readonly transactionId: string;
   readonly documents: CmsDocuments;
   readonly preferences: PayloadPreferenceCleanup;
@@ -82,6 +84,7 @@ export interface CmsHost {
   readonly read: (command: CmsCommand, args: Json) => Effect.Effect<Json, CmsTransactionError>;
 }
 export interface CmsHostTestHooks extends CmsMaterializationTestHooks {
+  readonly documentReads?: CmsDocumentReadTestHooks;
   /** Physical-driver conformance only; never passed to a registered operation. */
   readonly afterAdmission?: (tx: FlarexMetadataTransaction) => Effect.Effect<void, CmsTransactionError>;
 }
@@ -175,14 +178,15 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
           return yield* Effect.gen(function* () {
             yield* Effect.fromResult(lifetime.charge(captured.bytes + evidence.canonicalBytes.byteLength));
             const participant = commit === null ? null : yield* enterCmsApplicationCommit(commit, admission, lifetime);
-            const working = yield* makeCmsDocuments(admission, lifetime, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), participant?.uniqueDefinitions ?? []);
+            const working = yield* makeCmsDocuments(admission, lifetime, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), participant?.uniqueDefinitions ?? [], testHooks?.documentReads);
             const preferences = yield* makePayloadPreferenceCleanup(admission, lifetime, working.pendingDeletions);
             const invoke = Effect.fn("CmsHost.invoke")(function* (context: CmsRequestContext, child: CmsCommand, childArgs: Json): Effect.fn.Return<Json, CmsTransactionError> {
               const definition = commands.get(child);
               if (definition === undefined || !allowed.has(child) || (key === null && definition.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
               const childInput = yield* Effect.fromResult(capturePrivateJsonData(childArgs, lifetime.remainingBytes(), cmsError));
               yield* Effect.fromResult(lifetime.charge(childInput.bytes));
-              const commandContext = Object.freeze({ context, transactionId, documents: working.documents, preferences: preferences.cleanup,
+              const commandContext = Object.freeze({ context, standaloneRead: key === null, reserveOutput: bytes => lifetime.operation(context, transactionId, "read", Effect.suspend(() => Effect.fromResult(lifetime.charge(bytes)))),
+                transactionId, documents: working.documents, preferences: preferences.cleanup,
                 begin: id => lifetime.begin(context, id), commit: id => lifetime.adapterCommit(context, id), rollback: id => lifetime.rollback(context, id),
                 nested: (next, nextArgs) => lifetime.nested(context, transactionId, nested => invoke(nested, next, nextArgs)) } satisfies CmsCommandContext);
               const value = yield* Effect.suspend(() => definition.run(commandContext, childInput.value));

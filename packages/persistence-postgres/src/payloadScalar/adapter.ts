@@ -1,12 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { APIError, ValidationError, type BaseDatabaseAdapter, type DatabaseAdapterObj,
   type PayloadRequest, type TypeWithID, type PaginatedDocs } from "payload";
-import { Clock, Effect, Result } from "effect";
+import { Clock, Effect, Result, Semaphore } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 import { capturePrivateJsonData } from "../privateJsonData";
 import { cmsError, type CmsTransactionError, type CmsPresentedTransactionId } from "../cmsTransaction/model";
 import type { CmsCommandContext } from "../cmsTransaction/host";
 import type { PayloadContentProfile } from "./contract";
+import { makePayloadPopulation, payloadPopulationIds } from "./population";
 
 export class UnsupportedPayloadScalarCapability extends APIError {
   constructor(readonly capability: string) { super(`Unsupported private Payload scalar capability: ${capability}`, 400); }
@@ -15,6 +16,8 @@ interface RequestBridge {
   readonly context: CmsCommandContext;
   readonly request: Partial<PayloadRequest>;
   readonly signal: AbortSignal;
+  readonly population: ReturnType<typeof makePayloadPopulation> | null;
+  readonly semaphore: Semaphore.Semaphore;
   live: boolean;
 }
 
@@ -28,7 +31,8 @@ const transactionId = (state: RequestBridge): CmsPresentedTransactionId => {
   }) : id;
 };
 const run = <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransactionError>): Promise<Value> =>
-  Effect.runPromise(effect.pipe(Effect.mapError(error => error.reason === "uniqueConflict"
+  Effect.runPromise((state.population === null ? effect : state.semaphore.withPermits(1)(Effect.suspend(() =>
+    state.live ? effect : Effect.fail(cmsError("closed"))))).pipe(Effect.mapError(error => error.reason === "uniqueConflict"
     ? new ValidationError({ collection: "posts", errors: [{ path: "title", tableName: "posts", message: state.request.t?.("error:valueMustBeUnique") ?? "Value must be unique" }], req: state.request }, state.request.t)
     : error)), { signal: state.signal });
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over the owned Result decoder.
@@ -115,8 +119,17 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
   };
   const one = async (args: Parameters<BaseDatabaseAdapter["findOne"]>[0]) => {
     const state = admit(args, true);
+    const predicate = where(args.where);
+    if (predicate._id !== undefined) {
+      const value = await run(state, state.context.documents.get(state.context.context, transactionId(state), predicate._id));
+      const found = value === null || (predicate.title !== undefined && value.title !== predicate.title) ? null : document(value);
+      if (state.population !== null) await run(state, Effect.fromResult(state.population.roots(found === null ? [] : [found])));
+      return found;
+    }
     const result = await run(state, state.context.documents.find(state.context.context, transactionId(state), "posts", { where: where(args.where), offset: 0, limit: 1 }));
-    return result.docs[0] === undefined ? null : document(result.docs[0]);
+    const found = result.docs[0] === undefined ? null : document(result.docs[0]);
+    if (state.population !== null) await run(state, Effect.fromResult(state.population.roots(found === null ? [] : [found])));
+    return found;
   };
   const adapter: DatabaseAdapterObj = { name: "flarex-private-scalar", defaultIDType: "text", init: ({ payload }) => ({
     name: "flarex-private-scalar", packageName: "flarex-private-scalar", defaultIDType: "text", payload, migrationDir: "",
@@ -136,7 +149,24 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
       return await one(args) as T | null;
     },
     find: async <T>(args: Parameters<BaseDatabaseAdapter["find"]>[0]): Promise<PaginatedDocs<T>> => {
-      const state = admit(args);
+      const state = stateFor(args.req);
+      const batch = await run(state, Effect.fromResult(payloadPopulationIds(args.where)));
+      // Pinned loader cache keys encode absent select as null before calling find.
+      admit(batch !== null && state.population !== null && args.select === null ? { ...args, select: undefined } : args);
+      if (batch !== null) {
+        const population = state.population;
+        if (population === null || args.pagination !== false || args.limit !== 0 || args.page !== 1 ||
+          args.skip !== undefined || args.projection !== undefined || args.versions ||
+          !(args.sort === "id" || (Array.isArray(args.sort) && args.sort.length === 1 && args.sort[0] === "id"))) return unsupported("population query");
+        await run(state, Effect.fromResult(population.admit(batch)));
+        const values = await run(state, state.context.documents.getMany(state.context.context, transactionId(state), "posts", batch));
+        const docs = values.map(value => value === null ? null : document(value));
+        const bytes = await run(state, Effect.fromResult(population.outputBytes(batch, docs)));
+        await run(state, state.context.reserveOutput(bytes));
+        // SAFETY: the closed profile and outputBytes prove every configured target document is present.
+        return { docs: docs as T[], totalDocs: docs.length, limit: docs.length, totalPages: 1, page: 1, pagingCounter: 1,
+          hasPrevPage: false, hasNextPage: false, prevPage: null, nextPage: null };
+      }
       const limit = args.limit ?? 10; const page = args.page ?? 1;
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32 || !Number.isSafeInteger(page) || page < 1 || page > 257 ||
         args.skip !== undefined || args.projection !== undefined || args.versions || (args.sort !== undefined && args.sort !== "id" && !(Array.isArray(args.sort) && args.sort.length === 1 && args.sort[0] === "id"))) {
@@ -146,8 +176,10 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
       const paginated = args.pagination !== false;
       const totalDocs = paginated ? found.total : found.docs.length;
       const totalPages = paginated ? Math.max(1, Math.ceil(totalDocs / limit)) : 1;
+      const values = found.docs.map(document);
+      if (state.population !== null) await run(state, Effect.fromResult(state.population.roots(values)));
       // SAFETY: same closed Payload collection-generic boundary as findOne.
-      const docs = found.docs.map(document) as T[];
+      const docs = values as T[];
       return { docs, totalDocs, limit, totalPages, page, pagingCounter: paginated ? (page - 1) * limit + 1 : 1,
         hasPrevPage: paginated && page > 1, hasNextPage: paginated && page < totalPages, prevPage: paginated && page > 1 ? page - 1 : null, nextPage: paginated && page < totalPages ? page + 1 : null };
     },
@@ -175,9 +207,13 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
     migrateFresh: deferred, migrateRefresh: deferred, migrateReset: deferred, migrateStatus: deferred, queryDrafts: deferred,
     updateGlobal: deferred, updateGlobalVersion: deferred, updateJobs: deferred, updateMany: deferred, updateVersion: deferred, upsert: deferred,
   } satisfies BaseDatabaseAdapter) };
-  const within = async <Value>(context: CmsCommandContext, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>) => {
-    const state: RequestBridge = { context, request, signal, live: true };
-    try { return await current.run(state, work); } finally { state.live = false; }
+  const within = async <Value>(context: CmsCommandContext, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>, populate = false) => {
+    if (populate && (!context.standaloneRead || profile !== "payload.content-relations")) throw new UnsupportedPayloadScalarCapability("population request");
+    const state: RequestBridge = { context, request, signal, live: !signal.aborted,
+      population: populate ? makePayloadPopulation() : null, semaphore: Semaphore.makeUnsafe(1) };
+    const abort = () => { state.live = false; };
+    signal.addEventListener("abort", abort, { once: true });
+    try { return await current.run(state, work); } finally { state.live = false; signal.removeEventListener("abort", abort); }
   };
   return { adapter, within, touched: () => [...touched], unsupported };
 }

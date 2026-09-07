@@ -2,13 +2,14 @@
 
 ## Status And Recommendation
 
-Status: researched proposal; implementation is not yet approved. The private
+Status: bounded forward population is implemented privately. The optional-many
+migration-host direction remains a proposal. The private
 optional-one capability in [preflight 20](./20-payload-content-relations-and-rebinding.md)
 is implemented. Its scalar successor, combined preference binding and depth-zero
-CRUD remain the current serving contract.
+CRUD remain compatible serving contracts.
 
-Implement bounded forward population over the existing `posts.relatedPost`
-relation next. Deliver actual pinned Payload `findByID` and `find` at depth one,
+Bounded forward population uses the existing `posts.relatedPost`
+relation. Actual pinned Payload `findByID` and `find` support depth one,
 using the same CMS read request and a bounded identity batch. This is one
 capability, including the request bridge, storage read, limits and both-driver
 conformance. It requires no new content schema or ownership successor.
@@ -23,7 +24,7 @@ relation milestone remains a prerequisite for the planned Medusa consumer proof.
 
 Repository paths in this record are relative to the workspace root.
 
-| Evidence | Consequence |
+| Evidence at preflight | Consequence |
 | --- | --- |
 | `packages/analysis/src/applicationRelationAnalysis.ts`, `sourceValidatorMatchesDeclaration` | Native many declarations require a nonoptional array validator. `minItems: 0` permits an empty array, not an absent field. |
 | `packages/persistence-postgres/src/applicationRelationCommit/Policy.ts`, `extractRelationOccurrencesResult` | Missing/null many values fail. The same lowerer reads prior and final documents and is reused by relation building. |
@@ -110,11 +111,11 @@ No migration-host implementation, new persisted progress record or native
 absence-policy change is authorized by this document. These unresolved owner
 decisions are why the next implementation uses the already-admitted relation.
 
-## Next Capability: Bounded Forward Population
+## Implemented Capability: Bounded Forward Population
 
 ### Observable Contract
 
-| Surface | Proposed first behavior |
+| Surface | Admitted behavior |
 | --- | --- |
 | Entry | Private Node standalone `findByID` and `find` on the relation profile accept explicit depth 0 or 1; omission stays at depth 0. |
 | Output | Depth 1 populates one `relatedPost` hop. Relations inside that target remain IDs/null at the depth boundary. Missing optional source value remains null. |
@@ -147,9 +148,13 @@ Add one operation-specific batch read at the CMS document owner and reuse the
 Application current-row reader beneath it. It accepts only authenticated table
 identities, a bounded distinct ID set and the existing request capability. Return
 results aligned with the requested IDs and retain explicit missing slots. Use a
-single bounded row query for an uncached batch; do not implement the loader by
+single bounded document query for an uncached batch; do not implement the loader by
 running a table scan or one SQL query per target. Existing target/current-row
 decoding, document limits and typed corruption failures retain their owners.
+The reader retains a separate size query before document hydration and its
+existing clock check. A cache hit needs no additional row query. Cumulative
+uncached identity capacity is checked before dispatch, so a ninth batch after
+256 retained identities cannot hydrate a 257th document before refusal.
 Route the exact root `findByID` lookup through the existing identity read as
 well, preserving missing-root behavior. Otherwise its current bounded `find`
 scan would hide a per-target batch improvement and unnecessarily load unrelated
@@ -209,8 +214,8 @@ optional-one successor and scalar API. Extend the existing adapter/request bridg
 and current-row read owner through narrow operations. No legacy engine needs a
 port, rewrite or temporary bridge for this capability.
 
-Implement argument/profile checks, the request-bound batch read, then pinned
-loader integration and conformance. Deliver them together after approval:
+The argument/profile checks, request-bound batch read, pinned loader integration
+and conformance form one capability. Its maintained proof contract is:
 
 - Pure contract tests reject unsupported depth, forged/cross-request loader
   admission, wrong-table IDs, unadmitted projections and one-over-budget inputs.
