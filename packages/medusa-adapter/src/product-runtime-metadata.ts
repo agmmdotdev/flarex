@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { compileProductValueProfile } from "./product-value-profile";
 import { describeToManyRelation, type ToManyRelation } from "@medusajs/drizzle/relation-query";
 import type { CommerceRelations } from "./commerce-relations";
 import { Product, ProductOption, ProductOptionValue, ProductVariant, ProductImage } from "@medusajs/product/models";
@@ -25,6 +26,7 @@ export interface ProductRuntimeMetadata {
   readonly foreignKeys: { readonly option: string; readonly value: string; readonly variant: string; readonly image: string };
   readonly pivot: { readonly table: Table; readonly variantColumn: string; readonly valueColumn: string };
   readonly queryRelations: CommerceRelations;
+  readonly valueProfile: ReturnType<typeof compileProductValueProfile>;
 }
 
 /** Select admitted model objects; identities, columns, prefixes and joins stay
@@ -67,6 +69,7 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
     }
   }
   return { product, option, value, variant, image, entities: [product, option, value, variant, image],
+    valueProfile: compileProductValueProfile({ product, option, value, variant, image }),
     foreignKeys: { option: yield* foreignKey(option, product), value: yield* foreignKey(value, option), variant: yield* foreignKey(variant, product), image: yield* foreignKey(image, product) },
     pivot: { table: pivot, variantColumn: link.joinColumns[0], valueColumn: link.inverseJoinColumns[0] }, queryRelations,
   } satisfies ProductRuntimeMetadata;

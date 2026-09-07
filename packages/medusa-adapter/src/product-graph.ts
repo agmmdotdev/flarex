@@ -2,86 +2,55 @@ import { assembleCommerceRelations } from "./commerce-relations";
 import { Effect } from "effect";
 import { generateEntityId } from "@medusajs/framework/utils/portable";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, isJsonObject, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
+import { decodeGraphArray, decodeVariantReference } from "./product-value-profile";
 import type { ProductRuntimeMetadata, ProductEntityMetadata } from "./product-runtime-metadata";
 export type ProductTable = string;
 export interface ProductGraph { readonly products: readonly string[]; readonly rows: ReadonlyMap<ProductTable, readonly JsonObject[]> }
 
 /** Refuse unsupported input before Medusa can normalize away unknown members. */
-export const validateProductCreate = Effect.fn("ProductAdapter.validateCreate")(function* (catalog: ProductRuntimeMetadata, input: Json) {
-  const scalarNames = (name: string) => {
-    const table = catalog.entities.find(value => value.table.name === name)?.table;
-    const managed = ["created_at", "updated_at", "deleted_at", ...(table?.foreignKeys.flatMap(key => key.columns) ?? [])];
-    return table?.columns.map(column => column.name).filter(column => !managed.includes(column)) ?? [];
-  };
-  const check = (value: Json, names: readonly string[]) => isJsonObject(value) && Object.keys(value).every(key => names.includes(key));
-  for (const product of Array.isArray(input) ? input : [input]) {
-    if (!check(product, [...scalarNames(catalog.product.table.name), "options", "variants", "images"]) || !isJsonObject(product)) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    for (const relation of ["options", "variants", "images"]) {
-      const children = product[relation];
-      if (children === undefined) continue;
-      if (!Array.isArray(children)) return yield* Effect.fail(commerceError("invalidInput"));
-      for (const child of children) {
-        const allowed = relation === "options" ? ["title", "values"] : relation === "images" ? scalarNames(catalog.image.table.name) : [...scalarNames(catalog.variant.table.name), "options"];
-        if (!check(child, allowed) || !isJsonObject(child)) return yield* Effect.fail(commerceError("unsupportedProfile"));
-        if (relation === "options" && child.values !== undefined && (!Array.isArray(child.values) || child.values.some(value => typeof value !== "string"))) return yield* Effect.fail(commerceError("invalidInput"));
-        if (relation === "variants" && child.options !== undefined && (!isJsonObject(child.options) || Object.values(child.options).some(value => typeof value !== "string"))) return yield* Effect.fail(commerceError("invalidInput"));
-      }
-    }
-  }
-});
+export const validateProductCreate = Effect.fn("ProductAdapter.validateCreate")((catalog: ProductRuntimeMetadata, input: Json) =>
+  Effect.fromResult(catalog.valueProfile.validateCreate(input)));
 
-/** The service has already assigned variants and moved option links into values.
- * Capture its acyclic graph and resolve repeated references by validated IDs. */
+/** Decode nodes in traversal order. IDs, parent ownership and repeated-reference
+ * equality remain graph invariants rather than structural schema checks. */
 export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(function* (catalog: ProductRuntimeMetadata, input: unknown) {
-  const value = yield* Effect.fromResult(captureCommerceInput(input));
-  if (!Array.isArray(value)) return yield* Effect.fail(commerceError("invalidInput"));
+  const captured = yield* Effect.fromResult(captureCommerceInput(input));
+  const value = yield* Effect.fromResult(decodeGraphArray(captured));
   const rows = new Map<ProductTable, JsonObject[]>(catalog.entities.map(entity => [entity.table.name, []]));
   rows.set(catalog.pivot.table.name, []);
   const ids = new Set<string>();
   const products: string[] = [];
-  const add = Effect.fn("ProductAdapter.graphRow")(function* (entity: ProductEntityMetadata, supplied: Json, extra: JsonObject, relations: readonly string[]) {
-    if (!isJsonObject(supplied)) return yield* Effect.fail(commerceError("invalidInput"));
-    const descriptor = entity.table;
-    const table = descriptor.name;
-    const fields = descriptor.columns.map(column => column.name);
-    if (Object.keys(supplied).some(name => !fields.includes(name) && !relations.includes(name)) ||
-      Object.keys(extra).some(name => supplied[name] !== undefined && supplied[name] !== extra[name]) ||
-      (supplied.id !== undefined && (typeof supplied.id !== "string" || supplied.id.length === 0 || supplied.id.length > 256))) return yield* Effect.fail(commerceError("invalidInput"));
-    const id = generateEntityId(typeof supplied.id === "string" ? supplied.id : undefined, entity.prefix);
+  const add = Effect.fn("ProductAdapter.graphRow")(function* (entity: ProductEntityMetadata, inputRow: Json, extra: JsonObject, relations: readonly string[]) {
+    const { supplied, id: suppliedId } = yield* Effect.fromResult(catalog.valueProfile.decodeRow(entity.table.name, inputRow));
+    const table = entity.table.name;
+    if (Object.keys(extra).some(name => supplied[name] !== undefined && supplied[name] !== extra[name])) return yield* Effect.fail(commerceError("invalidInput"));
+    const id = generateEntityId(suppliedId, entity.prefix);
     if (ids.has(table + ":" + id)) return yield* Effect.fail(commerceError("invalidInput"));
     ids.add(table + ":" + id);
     const row: JsonObject = { ...Object.fromEntries(Object.entries(supplied).filter(([name]) => !relations.includes(name))), ...extra, id };
     rows.get(table)?.push(row);
-    return row;
+    return { id, supplied };
   });
-  const members = Effect.fn("ProductAdapter.graphMembers")(function* (parent: JsonObject, name: string) {
-    const items = parent[name] ?? [];
-    if (!Array.isArray(items)) return yield* Effect.fail(commerceError("invalidInput"));
-    return items;
-  });
+  const members = (parent: JsonObject, name: string) => Effect.fromResult(decodeGraphArray(parent[name] ?? []));
   for (const product of value) {
-    if (!isJsonObject(product)) return yield* Effect.fail(commerceError("invalidInput"));
     const root = yield* add(catalog.product, product, {}, ["images", "options", "variants"]);
-    if (typeof root.id !== "string") return yield* Effect.fail(commerceError("invalidInput"));
     products.push(root.id);
     const variants = new Map<string, JsonObject>();
-    for (const variant of yield* members(product, "variants")) {
+    for (const variant of yield* members(root.supplied, "variants")) {
       const row = yield* add(catalog.variant, variant, { [catalog.foreignKeys.variant]: root.id }, []);
-      if (typeof row.id !== "string" || !isJsonObject(variant)) return yield* Effect.fail(commerceError("invalidInput"));
-      variants.set(row.id, variant);
+      variants.set(row.id, row.supplied);
     }
-    for (const image of yield* members(product, "images")) yield* add(catalog.image, image, { [catalog.foreignKeys.image]: root.id }, []);
-    for (const option of yield* members(product, "options")) {
+    for (const image of yield* members(root.supplied, "images")) yield* add(catalog.image, image, { [catalog.foreignKeys.image]: root.id }, []);
+    for (const option of yield* members(root.supplied, "options")) {
       const row = yield* add(catalog.option, option, { [catalog.foreignKeys.option]: root.id }, ["values"]);
-      if (!isJsonObject(option) || typeof row.id !== "string") return yield* Effect.fail(commerceError("invalidInput"));
-      for (const optionValue of yield* members(option, "values")) {
+      for (const optionValue of yield* members(row.supplied, "values")) {
         const child = yield* add(catalog.value, optionValue, { [catalog.foreignKeys.value]: row.id }, ["variants"]);
-        if (!isJsonObject(optionValue) || typeof child.id !== "string") return yield* Effect.fail(commerceError("invalidInput"));
         const linked = new Set<string>();
-        for (const variant of yield* members(optionValue, "variants")) {
-          if (!isJsonObject(variant) || typeof variant.id !== "string" || linked.has(variant.id)) return yield* Effect.fail(commerceError("invalidInput"));
+        for (const inputVariant of yield* members(child.supplied, "variants")) {
+          const variant = yield* Effect.fromResult(decodeVariantReference(inputVariant));
+          if (linked.has(variant.id)) return yield* Effect.fail(commerceError("invalidInput"));
           const declared = variants.get(variant.id);
           if (declared === undefined || JSON.stringify(declared) !== JSON.stringify(variant)) return yield* Effect.fail(commerceError("invalidInput"));
           linked.add(variant.id);
@@ -90,7 +59,7 @@ export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(func
       }
     }
   }
-  if ([...rows.values()].reduce((sum, group) => sum + group.length, 0) > 256) return yield* Effect.fail(commerceError("limitExceeded"));
+  if ([...rows.values()].reduce((sum, group) => sum + group.length, 0) > commerceLimits.catalogRows) return yield* Effect.fail(commerceError("limitExceeded"));
   return { products, rows } satisfies ProductGraph;
 });
 
