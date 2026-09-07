@@ -344,8 +344,10 @@ ordered arrays, target constraints, bounded forward population and recovery.
 It does not prove an upgrade of existing optional-one rows. Such an upgrade
 retains a separate conversion-authority, serving-fence and recovery gate; it is
 not an additional Medusa prerequisite without a recorded supported obligation.
-Bounded Payload reverse-join behavior remains the next consumer preflight before
-reconciling the complete non-reactive relation milestone.
+The [bounded Payload reverse-join proposal](./23-payload-bounded-reverse-joins.md)
+defines the next consumer capability before reconciling the complete non-reactive
+relation milestone. It needs approval for the standalone CMS incoming-source
+read boundary, then proves both virtual joins on the existing native owners.
 
 First capture a new independently digestible relation-bearing Payload
 configuration/provenance artifact. Its stable policy ID and ordinary write-

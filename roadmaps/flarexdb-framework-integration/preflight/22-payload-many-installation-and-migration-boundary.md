@@ -250,7 +250,7 @@ The output-bound scenario uses supported indexed titles and 32-target arrays,
 with short request batches that stay within existing command budgets. It does
 not enlarge index keys, document limits or transaction budgets to create load.
 
-The next remaining consumer gate after this capability is bounded Payload
-reverse-join behavior and reconciliation of the complete non-reactive relation
-milestone. Existing-row upgrades stay visibly deferred; public/production and
+The [bounded reverse-join proposal](./23-payload-bounded-reverse-joins.md) defines
+the next consumer capability and its pending approval. Completion should reconcile
+the complete non-reactive relation milestone. Existing-row upgrades stay visibly deferred; public/production and
 Medusa promotion still require their owning gates.

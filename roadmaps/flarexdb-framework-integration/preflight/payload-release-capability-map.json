@@ -208,6 +208,29 @@
     "existingRowUpgrade": "refusedIncludingEmptyRetainedOwnership",
     "dataMigrationAuthority": false
   },
+  "reverseJoinProposal": {
+    "status": "proposedPendingApproval",
+    "preflight": "23-payload-bounded-reverse-joins.md",
+    "configurationProfile": "payload.content-joins",
+    "installation": "freshOnly",
+    "fields": {
+      "referencedBy": "posts.relatedPost",
+      "referencedByMany": "posts.relatedPosts"
+    },
+    "operations": [
+      "standaloneFindByID",
+      "standaloneFind"
+    ],
+    "maximumDepth": 1,
+    "defaultWindow": 8,
+    "maximumWindow": 16,
+    "maximumPage": 1,
+    "totalDocs": false,
+    "order": "nativeSourceRowIdentity",
+    "consistency": "sameCmsAdmissionTransactionAndScopeClockShareLock",
+    "writeRequests": false,
+    "implementationAuthorized": false
+  },
   "rejectedBehavior": [
     "developerWritesToCmsOwnedTables",
     "payloadDbCallsAsCmsCommands",
@@ -225,7 +248,7 @@
   },
   "activation": {
     "authorized": false,
-    "nextBehaviorSlice": "boundedPayloadReverseJoinPreflight",
+    "nextBehaviorSlice": "boundedPayloadReverseJoinsPendingApproval",
     "payloadContentUsesRelationalSchema": false
   },
   "privateRuntimeEvidence": {

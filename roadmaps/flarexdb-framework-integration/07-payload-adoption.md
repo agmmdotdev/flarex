@@ -355,7 +355,10 @@ adoption milestone must establish these wider guarantees:
 These native behaviors have private fresh-many consumer evidence. Completing
 the broader milestone still requires Payload reverse-join configuration,
 admission and response shaping; native incoming-source reads alone do not
-establish that adapter behavior.
+establish that adapter behavior. The [bounded reverse-join proposal](./preflight/23-payload-bounded-reverse-joins.md)
+recommends implementing both virtual reverse fields through a request-bound CMS
+read capability, with first-window identities and depth-one population. Its
+implementation approval is pending; no new write or migration owner is proposed.
 
 The Payload adapter separately composes bounded forward population, reverse
 join behavior, authorization, and response shaping over those native
