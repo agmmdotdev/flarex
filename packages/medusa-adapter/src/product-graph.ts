@@ -19,7 +19,7 @@ export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(func
   const captured = yield* Effect.fromResult(captureCommerceInput(input));
   const value = yield* Effect.fromResult(decodeGraphArray(captured));
   const rows = new Map<ProductTable, JsonObject[]>(catalog.entities.map(entity => [entity.table.name, []]));
-  rows.set(catalog.pivot.table.name, []);
+  for (const table of catalog.writablePivots) rows.set(table.name, []);
   const ids = new Set<string>();
   const products: string[] = [];
   const add = Effect.fn("ProductAdapter.graphRow")(function* (entity: ProductEntityMetadata, inputRow: Json, extra: JsonObject, relations: readonly string[]) {
@@ -35,8 +35,20 @@ export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(func
   });
   const members = (parent: JsonObject, name: string) => Effect.fromResult(decodeGraphArray(parent[name] ?? []));
   for (const product of value) {
-    const root = yield* add(catalog.product, product, {}, ["images", "options", "variants"]);
+    const root = yield* add(catalog.product, product, {}, ["images", "options", "variants", "tags"]);
     products.push(root.id);
+    const tags = catalog.queryRelations.get(catalog.product.table.name)?.get("tags");
+    if (tags?.join.type !== "manyToMany") return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const sourceKey = tags.join.sourceColumns[0];
+    const targetKey = tags.join.targetColumns[0];
+    if (sourceKey === undefined || targetKey === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const linkedTags = new Set<string>();
+    for (const inputTag of yield* members(root.supplied, "tags")) {
+      const tag = yield* Effect.fromResult(decodeVariantReference(inputTag));
+      if (linkedTags.has(tag.id)) return yield* Effect.fail(commerceError("invalidInput"));
+      linkedTags.add(tag.id);
+      rows.get(tags.join.pivotTable)?.push({ [sourceKey]: root.id, [targetKey]: tag.id });
+    }
     const variants = new Map<string, JsonObject>();
     for (const variant of yield* members(root.supplied, "variants")) {
       const row = yield* add(catalog.variant, variant, { [catalog.foreignKeys.variant]: root.id }, []);
@@ -65,7 +77,7 @@ export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(func
 
 export const insertProductGraph = Effect.fn("ProductAdapter.insertGraph")(function* (ctx: CommerceCommandContext, catalog: ProductRuntimeMetadata, graph: ProductGraph) {
   const inserted = new Map<ProductTable, readonly JsonObject[]>();
-  for (const table of [...catalog.entities.map(item => item.table.name), catalog.pivot.table.name]) {
+  for (const table of [...catalog.entities.map(item => item.table.name), ...catalog.writablePivots.map(item => item.name)]) {
     const rows = graph.rows.get(table) ?? [];
     if (rows.length === 0) { inserted.set(table, []); continue; }
     const store = yield* ctx.table(table);

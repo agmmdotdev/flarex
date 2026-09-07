@@ -2,14 +2,14 @@
 
 ## Status And Decision
 
-Preflight completed on 2026-09-08 following the user's request to make skipped
-original Product cases runnable. This record proposes the next implementation
-slice; it does not change runtime admission or claim new passing cases.
-The service/runner baseline is `0c80319a`, including the relation-helper reuse
-in `20b3f338`. The separately landed query-decoder commit `5d1ebead` was also
-checked: Product filters remain limited to ID/handle, and projections to scalar
-fields. Extend its shared strict decoder boundary during implementation rather
-than restoring the previous decoding code.
+Implemented privately following user approval of the 2026-09-08 preflight to
+make skipped original Product cases runnable. Related creation, associations
+and bounded reads now admit the eight original cases below, for eleven total.
+The original assertions remain unchanged. Validation evidence is recorded below.
+The preflight service/runner baseline was `0c80319a`, including relation-helper
+reuse in `20b3f338`. Implementation builds on the completed decoder work through
+`c2c20e10` and extends its shared strict decoder boundary. The following sections
+retain the accepted implementation contract and explicit admission limits.
 
 Implement related-entity creation and the bounded Product associations and reads
 below as one capability. Preserve the unchanged pinned Medusa service and its
@@ -20,10 +20,10 @@ business-event storage is proposed.
 
 ## Exact Original Cases Targeted
 
-[Record 29](./29-medusa-original-product-tests.md) currently proves three of the
+[Record 29](./29-medusa-original-product-tests.md) established three of the
 57 registered original cases. The [inventory](./product-upstream-test-cases.json)
-remains the authority for actual admission: 3 admitted, 53 blocked, and 1 skipped
-by upstream. The following eight blocked cases are implementation targets only.
+now records 11 admitted, 45 blocked, and 1 skipped by upstream. The following
+eight cases are the additional admission under this record.
 
 Event case identities have the prefix
 `Product injected event bus > ProductModuleService Events > ` and come from
@@ -44,7 +44,7 @@ Append the exact suffix below to the corresponding prefix.
 | Product | `list > should return empty array when querying for a collection that doesnt exist` | Same setup, actual category-ID relation filtering, and valid nested collection projection |
 | Product | `images > should retrieve images ordered by rank` | Standalone image insertion for an existing product, preserved explicit ranks and ordered population |
 
-Successful acceptance would yield **11 admitted, 45 blocked and 1 upstream skip**
+Acceptance yields **11 admitted, 45 blocked and 1 upstream skip**
 in these two files: 11 executed and 46 skipped per driver. Other Product suites
 remain outside this registration. Do not enable a whole describe block or change
 the original upstream skip.
@@ -61,9 +61,8 @@ the filter into a collection lookup would not prove compatibility.
 
 [`product-schema.ts`](../../../packages/medusa-adapter/src/product-schema.ts)
 already imports all ten actual Product models and compiles thirteen business
-tables. The current runtime selects five entity tables and the variant-option
-pivot. Extend that selection from compiler metadata for tags, types, collections,
-the product-tag pivot, and category/pivot reads. Keep IDs, prefixes, columns,
+tables. The runtime now selects eight writable entities, two writable pivots,
+and category/category-pivot reads from that compiler metadata. Keep IDs, prefixes, columns,
 foreign keys and unique-pair keys derived from the pinned DML; do not duplicate
 model definitions or add module-specific core schema.
 
@@ -71,9 +70,10 @@ Add private commands and table-bound repositories for `createProductTags`,
 `createProductTypes`, `createProductCollections` and `createProductImages`.
 Retain the existing Product create/retrieve/list/list-and-count commands.
 Related repositories need the narrowly decoded reads used internally by those
-services, including the tag lookup during Product creation. The current
+services, including the tag lookup during Product creation. The baseline
 [`product-service.ts`](../../../packages/medusa-adapter/src/product-service.ts)
-deliberately supplies blocked repositories to those internal services. The
+supplied blocked repositories to those internal services; the implementation
+now supplies their table-bound repositories sharing the same request bridge. The
 Product graph repository cannot simply be reused as their implementation: its
 create and query methods interpret every call as a Product graph/root.
 
@@ -216,8 +216,32 @@ promotion/source guards, portable browser guard, focused Currency preservation,
 lint and the two required code reviewers before the implementation commit.
 Keep unrelated persistence suites out of this adapter-only acceptance unless
 changes or failures justify them. Record driver timings and unavailable native
-validation honestly. This docs-only preflight runs no database suite and adds no
-new runtime acceptance evidence.
+validation honestly. The original preflight added no database acceptance;
+implementation validation is recorded below.
+
+## Observed Implementation Validation (2026-09-08)
+
+- All eleven original cases passed on PGlite (112.46 seconds) and ordinary-role
+  PostgreSQL 18.3 (91.07 seconds), each reporting all 46 excluded cases.
+- The focused PGlite suite passed 88 checks. Review then found an internal
+  unpaginated tag lookup that defaulted to 15 rows. The adapter now proves its
+  complete bounded result before projection, preserving explicit paging. A
+  separate 16-existing-tag regression passed on PGlite (103.63 seconds including
+  fixture setup), proving preserved identities, retrieval and no duplicate events.
+- Strict authored adapter and Currency compatibility typechecking passed;
+  source/promotion guards passed 37 tests and portable bundles checked 628 inputs.
+  Both required reviewers accepted the correction. No shared-core source or
+  migration changed, and no deadline was raised.
+- PostgreSQL passed all 18 Product conformance cases (109.85 seconds), including
+  the 16-tag regression, category-write denial, null/nested projections and
+  positive/negative same-row filtering. Its five pure-test files also passed.
+  An earlier native run timed out one insert at the existing one-second
+  statement deadline; its dependent replacement check consequently failed.
+  The two affected cases passed on a fresh targeted run, followed by the full
+  18-case pass above. Limits and assertions were retained.
+- Currency preservation passed all 19 live PGlite cases (62.94 seconds) and
+  18 ordinary-role PostgreSQL cases (32.30 seconds), with its one PGlite-only
+  interruption case skipped in the native lane.
 
 ## Following Capabilities
 
@@ -229,3 +253,7 @@ The original 1000-image ordering case remains a separate scale capability beyond
 the current 256-row bound. Preserve its input size and assertions. None of these
 follow-ups imply production activation, durable events, mutable Module Links,
 general Product parity or general Payload parity.
+
+[Record 31](./31-medusa-keyed-updates-and-remaining-product-tests.md) owns the
+next preflight: shared keyed updates proved by four unchanged tag/type cases,
+and the dependencies for the remaining Product test groups.

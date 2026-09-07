@@ -68,22 +68,25 @@ function registerFixture() {
 
 const execute = Effect.fn("ProductUpstream.call")(function* (method: string, args: readonly unknown[]) {
   const { fixture, runtime } = get();
-  const contextIndex = method === "createProducts" ? 1 : 2;
+  const createCommands = { createProducts: runtime.commands.create, createProductTags: runtime.commands.createTags,
+    createProductTypes: runtime.commands.createTypes, createProductCollections: runtime.commands.createCollections, createProductImages: runtime.commands.createImages };
+  const createCommand = Object.entries(createCommands).find(([name]) => name === method)?.[1];
+  const contextIndex = createCommand === undefined ? 2 : 1;
   if (args.length > contextIndex + 1 || args[contextIndex] !== undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-  const input = yield* Effect.fromResult(captureCommerceInput(method === "createProducts" ? args[0]
+  const input = yield* Effect.fromResult(captureCommerceInput(createCommand !== undefined ? args[0]
     : method === "retrieveProduct" ? { id: args[0], config: args[1] } : { filters: args[0], config: args[1] }));
-  if (method === "createProducts") return yield* fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, input);
+  if (createCommand !== undefined) return yield* fixture.host.run(fixture.host.newRequestKey(), createCommand, input);
   return yield* fixture.host.read(method === "retrieveProduct" ? runtime.commands.retrieve
     : method === "listProducts" ? runtime.commands.list : runtime.commands.count, input);
 });
 
 /** Original test callback contract, backed only by admitted host commands. The
- * proxy admits four methods and refuses every other property access.
+ * proxy admits eight methods and refuses every other property access.
  * Results are the unchanged service's host-captured DTOs, inspected by upstream
  * assertions. This test proxy is not a production DTO adapter or public service. */
 const service = new Proxy<object>({}, {
   get(_target, property) {
-    if (typeof property !== "string" || !["createProducts", "retrieveProduct", "listProducts", "listAndCountProducts"].includes(property)) {
+    if (typeof property !== "string" || !["createProducts", "createProductTags", "createProductTypes", "createProductCollections", "createProductImages", "retrieveProduct", "listProducts", "listAndCountProducts"].includes(property)) {
       throw new Error("Unadmitted Product test service method: " + String(property));
     }
     return (...args: readonly unknown[]): Promise<Json> => Effect.runPromise(execute(property, args).pipe(

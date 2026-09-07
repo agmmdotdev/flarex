@@ -5,7 +5,7 @@ its unchanged service through Flarex-owned installation, initialization,
 transactions and shared relational publication. Core metadata is reusable;
 Currency fields, query grammar and the 123-row default dataset belong here.
 
-The seven private `@medusajs/*` packages preserve selected fork semantics at
+The promoted private `@medusajs/*` packages preserve selected fork semantics at
 version 2.13.4. Their `source` export condition supports the portable graph;
 default exports select local checked Node builds for the comparison lane. Broad
 root framework/utils imports and runtime source-island aliases are absent.
@@ -48,5 +48,23 @@ profile. Preserved fork code keeps its original compiler policy.
 The live profile is deliberately bounded: one table, one text primary key,
 256 catalog rows, selected Currency queries and no domain-event family. Native
 contention uses distinct connections; the PGlite publication barrier is a
-separate cancellation proof. Product, stored Module Links, arbitrary module
-queries and public/production adapters remain subsequent capabilities.
+separate cancellation proof. Product has its own profile below; stored Module
+Links, arbitrary module queries and public/production adapters remain gated.
+
+## Private Product compatibility
+
+Product now uses its complete ten-model/thirteen-table DML installation and a
+bounded local create/read profile. The unchanged service supports nested Product
+creation, tag/type/collection creation, standalone images, existing associations
+and selected relation filters/population through shared Flarex transactions.
+Category writes, updates, replacement, delete/restore and general scale remain
+unadmitted. Business events use the authenticated in-memory test buffer after
+acknowledged commit; no durable provider or query sync is activated.
+
+Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
+root. It runs eleven exact original cases from two unchanged files and reports
+46 exclusions. Set `FLAREX_TEST_DRIVER=postgres` and
+`FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
+Both files share one installed fixture per driver and clear business rows
+between cases. The case inventory and records 29-31 in the framework-integration
+roadmap distinguish current coverage from the remaining module capabilities.

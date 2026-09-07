@@ -35,8 +35,8 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
       "title": "should emit PRODUCT_TAG_CREATED event on createProductTags",
-      "status": "blocked",
-      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+      "status": "admitted",
+      "reason": "Record 30: related creation, associations and bounded reads"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -53,8 +53,8 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
       "title": "should emit PRODUCT_TYPE_CREATED event on createProductTypes",
-      "status": "blocked",
-      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+      "status": "admitted",
+      "reason": "Record 30: related creation, associations and bounded reads"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -95,8 +95,8 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
       "title": "should emit PRODUCT_COLLECTION_CREATED event on createProductCollections",
-      "status": "blocked",
-      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+      "status": "admitted",
+      "reason": "Record 30: related creation, associations and bounded reads"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -263,8 +263,8 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
       "title": "should create a product",
-      "status": "blocked",
-      "reason": "Creates tags and populates tags/categories"
+      "status": "admitted",
+      "reason": "Record 30: related creation, associations and bounded reads"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
@@ -293,20 +293,20 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
       "title": "should return a list of products scoped by collection id",
-      "status": "blocked",
-      "reason": "Requires collection or variant-option filters and related setup"
+      "status": "admitted",
+      "reason": "Record 30: related creation, associations and bounded reads"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
       "title": "should return a list of products scoped by variant options",
-      "status": "blocked",
-      "reason": "Requires collection or variant-option filters and related setup"
+      "status": "admitted",
+      "reason": "Record 30: related creation, associations and bounded reads"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
       "title": "should return empty array when querying for a collection that doesnt exist",
-      "status": "blocked",
-      "reason": "Requires collection or variant-option filters and related setup"
+      "status": "admitted",
+      "reason": "Record 30: related creation, associations and bounded reads"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
@@ -335,8 +335,8 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
       "title": "should retrieve images ordered by rank",
-      "status": "blocked",
-      "reason": "Requires standalone image creation or image update"
+      "status": "admitted",
+      "reason": "Record 30: related creation, associations and bounded reads"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",

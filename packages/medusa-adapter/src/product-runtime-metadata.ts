@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { compileProductValueProfile } from "./product-value-profile";
-import { describeToManyRelation, type ToManyRelation } from "@medusajs/drizzle/relation-query";
-import type { CommerceRelations } from "./commerce-relations";
-import { Product, ProductOption, ProductOptionValue, ProductVariant, ProductImage } from "@medusajs/product/models";
+import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
+import type { CommerceRelations, CommerceRelation } from "./commerce-relations";
+import { Product, ProductOption, ProductOptionValue, ProductVariant, ProductImage, ProductTag, ProductType, ProductCollection, ProductCategory } from "@medusajs/product/models";
 import { buildModuleResourceEventName, camelToSnakeCase, CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { productModels, type captureProductSchema } from "./product-schema";
@@ -22,7 +22,13 @@ export interface ProductRuntimeMetadata {
   readonly value: ProductEntityMetadata;
   readonly variant: ProductEntityMetadata;
   readonly image: ProductEntityMetadata;
+  readonly tag: ProductEntityMetadata;
+  readonly type: ProductEntityMetadata;
+  readonly collection: ProductEntityMetadata;
+  readonly category: ProductEntityMetadata;
   readonly entities: readonly ProductEntityMetadata[];
+  readonly tables: readonly Table[];
+  readonly writablePivots: readonly Table[];
   readonly foreignKeys: { readonly option: string; readonly value: string; readonly variant: string; readonly image: string };
   readonly pivot: { readonly table: Table; readonly variantColumn: string; readonly valueColumn: string };
   readonly queryRelations: CommerceRelations;
@@ -46,6 +52,10 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
   const value = yield* entity(ProductOptionValue);
   const variant = yield* entity(ProductVariant);
   const image = yield* entity(ProductImage);
+  const tag = yield* entity(ProductTag);
+  const type = yield* entity(ProductType);
+  const collection = yield* entity(ProductCollection);
+  const category = yield* entity(ProductCategory);
   const foreignKey = Effect.fn("ProductAdapter.foreignKey")(function* (from: ProductEntityMetadata, to: ProductEntityMetadata) {
     const joins = from.table.relationships.filter(relation => relation.type === "belongsTo" && relation.targetModel === to.model);
     const columns = joins[0]?.foreignKeyNames;
@@ -55,25 +65,37 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
   const link = variant.table.relationships.find(relation => relation.name === "options" && relation.type === "manyToMany" && relation.targetModel === value.model);
   const pivot = metadata.tables.find(table => table.name === link?.pivotTable);
   if (pivot === undefined || link?.joinColumns?.length !== 1 || link.inverseJoinColumns?.length !== 1 || link.joinColumns[0] === undefined || link.inverseJoinColumns[0] === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const queryRelations = new Map<string, Map<string, ToManyRelation>>();
+  const queryRelations = new Map<string, Map<string, CommerceRelation>>();
   for (const path of productRelations) {
     let source = product.table;
     for (const name of path.split(".")) {
-      const descriptor = describeToManyRelation(source, name, metadata.tables);
+      const relation = source.relationships.find(item => item.name === name);
+      const targetEntity = [collection, type].find(item => item.model === relation?.targetModel);
+      const descriptor: CommerceRelation | undefined = relation?.type === "belongsTo" && targetEntity !== undefined
+        ? { name, sourcePrimaryKeys: ["id"], targetTable: targetEntity.table.name, targetPrimaryKeys: ["id"],
+          join: { type: "belongsTo", foreignKeys: [yield* foreignKey(product, targetEntity)] } }
+        : describeToManyRelation(source, name, metadata.tables);
       const target = metadata.tables.find(table => table.name === descriptor?.targetTable);
       if (descriptor === undefined || target === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      const declared = queryRelations.get(source.name) ?? new Map<string, ToManyRelation>();
+      const declared = queryRelations.get(source.name) ?? new Map<string, CommerceRelation>();
       declared.set(name, descriptor);
       queryRelations.set(source.name, declared);
       source = target;
     }
   }
-  return { product, option, value, variant, image, entities: [product, option, value, variant, image],
-    valueProfile: compileProductValueProfile({ product, option, value, variant, image }),
+  const tagRelation = queryRelations.get(product.table.name)?.get("tags");
+  const categoryRelation = queryRelations.get(product.table.name)?.get("categories");
+  const tagPivot = metadata.tables.find(table => tagRelation?.join.type === "manyToMany" && table.name === tagRelation.join.pivotTable);
+  const categoryPivot = metadata.tables.find(table => categoryRelation?.join.type === "manyToMany" && table.name === categoryRelation.join.pivotTable);
+  if (tagPivot === undefined || categoryPivot === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const entities = [product, option, value, variant, image, tag, type, collection];
+  return { product, option, value, variant, image, tag, type, collection, category, entities,
+    tables: [...entities.map(item => item.table), category.table, pivot, tagPivot, categoryPivot], writablePivots: [pivot, tagPivot],
+    valueProfile: compileProductValueProfile({ product, option, value, variant, image, tag, type, collection }),
     foreignKeys: { option: yield* foreignKey(option, product), value: yield* foreignKey(value, option), variant: yield* foreignKey(variant, product), image: yield* foreignKey(image, product) },
     pivot: { table: pivot, variantColumn: link.joinColumns[0], valueColumn: link.inverseJoinColumns[0] }, queryRelations,
   } satisfies ProductRuntimeMetadata;
 });
 
 /** Supported service query paths are capability policy, not a second schema. */
-export const productRelations = Object.freeze(["images", "options", "options.values", "variants", "variants.options"]);
+export const productRelations = Object.freeze(["images", "options", "options.values", "variants", "variants.options", "tags", "categories", "collection", "type"]);

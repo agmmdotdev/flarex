@@ -18,7 +18,7 @@ import { productRepository } from "./product-repository";
 import { validateProductCreate } from "./product-graph";
 
 function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata) {
-  const { repository, persistence, refuse, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata);
+  const { repository, persistence, refuse, relatedRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata);
   const blocked = { ...repository, find: refuse, findAndCount: refuse, create: refuse };
   const internal = <Model extends { readonly name: string }>(model: Model, selected: DAL.RepositoryService = blocked) => new (MedusaInternalService(model))<object, Model>({
     [lowerCaseFirst(model.name) + "Repository"]: selected, [ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER]: persistence,
@@ -40,10 +40,10 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
     productVariantService: internal(ProductVariant),
     productOptionService: internal(ProductOption),
     productOptionValueService: internal(ProductOptionValue),
-    productImageService: internal(ProductImage),
+    productImageService: internal(ProductImage, relatedRepository(metadata.image)),
     productCategoryService: internal(ProductCategory),
-    productCollectionService: internal(ProductCollection),
-    productTagService: internal(ProductTag), productTypeService: internal(ProductType),
+    productCollectionService: internal(ProductCollection, relatedRepository(metadata.collection)),
+    productTagService: internal(ProductTag, relatedRepository(metadata.tag)), productTypeService: internal(ProductType, relatedRepository(metadata.type)),
     productImageProductService: internal(ProductImage),
     productVariantProductImageService: internal(ProductVariantProductImage),
     [Modules.EVENT_BUS]: eventBus,
@@ -78,5 +78,22 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       ? service.retrieveProduct(copied.id as string, find, context)
       : kind === "count" ? service.listAndCountProducts(filters, find, context) : service.listProducts(filters, find, context));
   }));
-  return { commands: Object.freeze({ create, list: read("list"), retrieve: read("retrieve"), count: read("count") }), withService };
+  const related = (kind: "tag" | "type" | "collection" | "image") => defineCommerceCommand("productCreate" + kind, "write", Effect.fn("ProductAdapter.createRelated")(function* (ctx, input) {
+    yield* Effect.fromResult(metadata.valueProfile.validateRelatedCreate(metadata[kind].table.name, input))
+      .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const copied = structuredClone(Array.isArray(input) ? input : [input]);
+    // SAFETY: the DML-derived command decoder restricts fields before Medusa;
+    // the selected repository and core validate normalized rows and authority.
+    const result = yield* withService(ctx, ({ service, context }) => {
+      switch (kind) {
+        case "tag": return service.createProductTags(copied as ProductTypes.CreateProductTagDTO[], context);
+        case "type": return service.createProductTypes(copied as ProductTypes.CreateProductTypeDTO[], context);
+        case "collection": return service.createProductCollections(copied as ProductTypes.CreateProductCollectionDTO[], context);
+        case "image": return service.createProductImages(copied, context);
+      }
+    });
+    return Array.isArray(input) ? result : Array.isArray(result) ? result[0] : result;
+  }));
+  return { commands: Object.freeze({ create, list: read("list"), retrieve: read("retrieve"), count: read("count"),
+    createTags: related("tag"), createTypes: related("type"), createCollections: related("collection"), createImages: related("image") }), withService };
 });

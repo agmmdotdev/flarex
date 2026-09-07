@@ -143,7 +143,7 @@ describe("local Product service through shared Flarex core", () => {
     expect(Exit.isFailure(failed)).toBe(true);
     expect(await fixture.persistence.drizzle.select().from(fxSystemCommitRelationalChanges)).toEqual(before);
     expect(array(await run(fixture.host.read(runtime.commands.list, { filters: { handle: "duplicate-option-rollback" } })))).toHaveLength(0);
-    expect(Exit.isFailure(await run(Effect.exit(fixture.host.read(runtime.commands.list, { config: { relations: ["tags"] } }))))).toBe(true);
+    expect(Exit.isFailure(await run(Effect.exit(fixture.host.read(runtime.commands.list, { config: { relations: ["variants.images"] } }))))).toBe(true);
     expect(Exit.isFailure(await run(Effect.exit(makeCommerceHost(fixture.hostInput))))).toBe(true);
     expect(received).toHaveLength(12);
   });
@@ -235,7 +235,7 @@ describe("local Product service through shared Flarex core", () => {
   it("refuses unadmitted tables and valid-looking forged events after pending inserts", async () => {
     const table = defineCommerceCommand("productUnadmittedTable", "write", Effect.fn("ProductTest.unadmittedTable")(function* (ctx) {
       yield* ctx.nested(runtime.commands.create, { title: "Unadmitted table rollback" });
-      yield* Effect.result(ctx.table("product_tag"));
+      yield* Effect.result(ctx.table("product_variant_product_image"));
       return null;
     }));
     const forged = defineCommerceCommand("productForgedEvent", "write", Effect.fn("ProductTest.forgedEvent")(function* (ctx) {
@@ -243,10 +243,17 @@ describe("local Product service through shared Flarex core", () => {
       yield* ctx.captureLocalEvent({ name: "product.product.created", metadata: { source: "product", object: "product", action: "created" }, data: { id: "prod_not_written" } });
       return null;
     }));
-    const local = await localHost([table, forged]);
+    const category = defineCommerceCommand("productReadTableWrite", "write", Effect.fn("ProductTest.readTableWrite")(function* (ctx) {
+      const store = yield* ctx.table(catalog.category.table.name);
+      yield* store.write(ctx.manager, "insert", [{ id: "pcat_refused", name: "Unadmitted", handle: "unadmitted", mpath: "pcat_refused" }]);
+      return null;
+    }));
+    const local = await localHost([table, forged, category]);
     const before = await commerceInventory(fixture);
     const count = received.length;
     for (const command of [table, forged]) expect(Exit.isFailure(await run(Effect.exit(local.host.run(local.host.newRequestKey(), command, null))))).toBe(true);
+    expect(await run(Effect.result(local.host.run(local.host.newRequestKey(), category, null))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
     expect(await commerceInventory(fixture)).toEqual(before);
     expect(received).toHaveLength(count);
   });
@@ -386,5 +393,101 @@ describe("local Product service through shared Flarex core", () => {
     await expireCommerceResult(fixture, key);
     expect(await run(Effect.result(local.host.run(key, runtime.commands.create, input)))).toMatchObject({ _tag: "Failure", failure: { reason: "resultUnavailable" } });
     expect(received).toHaveLength(eventCount + 1);
+  });
+
+  it("preserves related identities, exact creation events, explicit ranks and nested projections", async () => {
+    const write = (command: CommerceCommand, input: Json) => run(fixture.host.run(fixture.host.newRequestKey(), command, input));
+    const tag = object(await write(runtime.commands.createTags, { value: "related-tag" }));
+    const type = object(await write(runtime.commands.createTypes, { value: "related-type" }));
+    const collection = object(await write(runtime.commands.createCollections, { id: "pcol_related", title: "Related Collection" }));
+    if (typeof tag.id !== "string" || typeof type.id !== "string" || typeof collection.id !== "string") throw new Error("Missing related identity");
+    expect(collection).toMatchObject({ id: "pcol_related", handle: "related-collection" });
+    const before = received.length;
+    const key = fixture.host.newRequestKey();
+    const input = { title: "Related Product", tag_ids: [tag.id], type_id: type.id, collection_id: collection.id };
+    const product = object(await run(fixture.host.run(key, runtime.commands.create, input)));
+    if (typeof product.id !== "string") throw new Error("Missing Product identity");
+    expect(product.tags).toEqual([tag]);
+    expect(product.collection).toEqual(collection);
+    expect(product.type).toEqual(type);
+    expect(product.categories).toEqual([]);
+    expect(received.slice(before)).toEqual([{ name: "product.product.created", metadata: { source: "product", object: "product", action: "created" }, data: { id: product.id } }]);
+    expect(await run(fixture.host.run(key, runtime.commands.create, input))).toEqual(product);
+    expect(received).toHaveLength(before + 1);
+    await write(runtime.commands.createImages, [ { product_id: product.id, url: "later", rank: 2 }, { product_id: product.id, url: "first", rank: 0 } ]);
+    const selected = object(await run(fixture.host.read(runtime.commands.retrieve, { id: product.id,
+      config: { select: ["title", "collection.title", "type.value"], relations: ["collection", "type", "images"] },
+    })));
+    expect(selected.collection).toEqual({ title: "Related Collection" });
+    expect(selected.type).toEqual({ value: "related-type" });
+    expect(Object.keys(selected).sort()).toEqual(["collection", "images", "title", "type"]);
+    expect(array(selected.images).map(row => object(row).rank)).toEqual([0, 2]);
+    expect(received.filter(event => object(event).name === "product.product-collection.created" && object(object(event).data).id === collection.id)).toHaveLength(1);
+  });
+
+  it("rolls back related batches and refuses replacement, category writes and missing associations", async () => {
+    const before = await commerceInventory(fixture);
+    const eventCount = received.length;
+    const failures: readonly [CommerceCommand, Json][] = [
+      [runtime.commands.createCollections, { id: "pcol_related", title: "Overwrite" }],
+      [runtime.commands.createCollections, { title: "Reassignment", product_ids: ["prod_missing"] }],
+      [runtime.commands.createTags, [{ id: "ptag_rollback", value: "batch-one" }, { id: "ptag_rollback", value: "batch-two" }]],
+      [runtime.commands.createImages, [{ product_id: "prod_missing", url: "orphan" }]],
+      [runtime.commands.create, { title: "Missing association", tag_ids: ["ptag_missing"] }],
+      [runtime.commands.create, { title: "Missing collection", collection_id: "pcol_missing" }],
+      [runtime.commands.create, { title: "Missing type", type_id: "ptyp_missing" }],
+      [runtime.commands.create, { title: "Category writes blocked", category_ids: ["pcat_missing"] }],
+    ];
+    for (const [command, input] of failures) expect(Exit.isFailure(await run(Effect.exit(fixture.host.run(fixture.host.newRequestKey(), command, input))))).toBe(true);
+    expect(await commerceInventory(fixture)).toEqual(before);
+    expect(received).toHaveLength(eventCount);
+  });
+
+  it("correlates relation filters before paging and counting and validates empty-result projections", async () => {
+    const products = array(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, [
+      { id: "prod_filter_a", title: "Filter A", options: [{ title: "size", values: ["slice-small", "slice-large"] }],
+        variants: [{ title: "Small", options: { size: "slice-small" } }, { title: "Large", options: { size: "slice-large" } }] },
+      { id: "prod_filter_b", title: "Filter B", options: [{ title: "size", values: ["slice-small"] }, { title: "region", values: ["only-b"] }],
+        variants: [{ title: "Small", options: { size: "slice-small", region: "only-b" } }] },
+    ])));
+    const optionId = object(array(object(products[0]).options)[0]).id;
+    if (typeof optionId !== "string") throw new Error("Missing option identity");
+    const matching = { variants: { options: { value: "slice-small" } } };
+    const counted = array(await run(fixture.host.read(runtime.commands.count, { filters: matching, config: { skip: 1, take: 1 } })));
+    expect(counted[1]).toBe(2);
+    expect(array(counted[0]).map(row => object(row).id)).toEqual(["prod_filter_b"]);
+    const correlated = array(await run(fixture.host.read(runtime.commands.list, { filters: { variants: { options: { option_id: optionId, value: "slice-small" } } } })));
+    expect(correlated.map(row => object(row).id)).toEqual(["prod_filter_a"]);
+    expect(await run(fixture.host.read(runtime.commands.list, { filters: { variants: { options: { option_id: optionId, value: "only-b" } } } }))).toEqual([]);
+    expect(object(products[0]).collection).toBeNull();
+    const deduplicated = array(await run(fixture.host.read(runtime.commands.count, {
+      filters: { variants: { options: { option_id: optionId } } },
+    })));
+    expect(deduplicated[1]).toBe(1);
+    expect(array(deduplicated[0])).toHaveLength(1);
+    const missing = { categories: { id: ["pcat_missing"] } };
+    expect(await run(fixture.host.read(runtime.commands.list, { filters: missing, config: { select: ["title", "collection.title"], relations: ["collection"] } }))).toEqual([]);
+    expect(await run(Effect.result(fixture.host.read(runtime.commands.list, { filters: missing,
+      config: { select: ["collection.secret"], relations: ["collection"] },
+    })))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("loads every existing tag beyond the ordinary 15-row page without recreating tags", async () => {
+    const tags = array(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTags,
+      Array.from({ length: 16 }, (_, index) => ({ id: "ptag_many_" + index, value: "many-tag-" + index })))));
+    const ids = tags.map(value => {
+      const id = object(value).id;
+      if (typeof id !== "string") throw new Error("Missing tag identity");
+      return id;
+    });
+    const before = received.length;
+    const product = object(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create,
+      { title: "Many existing tags", tag_ids: ids })));
+    if (typeof product.id !== "string") throw new Error("Missing Product identity");
+    expect(array(product.tags).map(value => object(value).id).sort()).toEqual([...ids].sort());
+    expect(received).toHaveLength(before + 1);
+    expect(object(received.at(-1)).name).toBe("product.product.created");
+    const read = object(await run(fixture.host.read(runtime.commands.retrieve, { id: product.id, config: { relations: ["tags"] } })));
+    expect(read.tags).toEqual(product.tags);
   });
 });

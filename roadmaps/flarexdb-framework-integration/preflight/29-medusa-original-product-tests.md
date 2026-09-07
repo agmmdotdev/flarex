@@ -23,20 +23,19 @@ only after acknowledged commit. Failed local delivery fails the harness.
 ## Explicit Coverage
 
 The [case inventory](./product-upstream-test-cases.json) enumerates all 57 cases
-in those two files. Three are admitted: nested creation with its exact 12 events,
-image creation rank, and the original missing-variant-option error. One case is
-already skipped upstream; 53 require capabilities outside the current profile.
+in those two files. At this gate three were admitted: nested creation with its exact 12 events,
+image creation rank, and the original missing-variant-option error. One case was
+already skipped upstream; 53 required capabilities outside that profile.
 Other Product suite files are not registered by this capability.
 
-[Record 30](./30-medusa-product-related-create-and-reads.md) is the next preflight:
-related creation, associations and bounded reads targeting eight more original
-cases. Its proposed total of eleven is not current acceptance. This record's
-three-case baseline and the inventory statuses remain unchanged until that
-implementation passes both drivers.
+[Record 30](./30-medusa-product-related-create-and-reads.md) now implements related
+creation, associations and bounded reads, bringing current admission to eleven
+original cases. The inventory reflects that newer gate; the three-case results
+below retain this runner's historical acceptance evidence.
 
-Original read cases require collection/variant-option filtering, standalone image
+At that gate, original read cases required collection/variant-option filtering, standalone image
 writes, unadmitted relations, or 1000 images beyond the existing 256-row bound.
-Their assertions remain intact and excluded explicitly. Existing record 28 tests
+Their assertions remained intact and excluded explicitly. Existing record 28 tests
 continue to cover the bounded read/population behavior. A selected original case
 must fail normally when behavior disagrees; never adapt the expected result.
 
@@ -46,8 +45,9 @@ Run pnpm --filter @flarex/medusa-adapter test:product:upstream for PGlite.
 For ordinary-role PostgreSQL set FLAREX_TEST_DRIVER=postgres and
 FLAREX_POSTGRES_DATABASE_URL before running the same command.
 The existing 90-second installation/cold-open deadline and 120-second cleanup
-hook remain. Test selection must execute exactly the three admitted cases,
-report all 54 skips, and remain tied to byte-verified pinned source.
+hook remain. The original runner acceptance required exactly three admitted
+cases and 54 skips, tied to byte-verified pinned source. Current admission follows
+record 30's eleven-case inventory and coverage assertion.
 
 Acceptance requires both database lanes, strict authored-runner typechecking and Currency source compatibility,
 Currency runner preservation, promotion/browser guards, focused source-guard
@@ -58,8 +58,8 @@ compatibility tests. They are not added to the strict authored-code typecheck:
 the pinned tests contain historical class-style DML type uses, unused locals,
 and methods absent from the published Product interface. Their bytes and runtime
 assertions are preserved rather than changing them for a different compiler
-contract. The private full-service test proxy only dispatches four admitted
-methods; every other property access fails. This is not a public or complete
+contract. This gate's private full-service test proxy dispatched four admitted
+methods; record 30 expands that to eight. Other property access fails. This is not a public or complete
 IProductModuleService implementation.
 
 ## Observed Acceptance (2026-09-08)

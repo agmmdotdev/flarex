@@ -6,7 +6,31 @@ import {
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 
-export type CommerceRelations = ReadonlyMap<string, ReadonlyMap<string, ToManyRelation>>;
+export type CommerceRelation = ToManyRelation | {
+  readonly name: string; readonly sourcePrimaryKeys: readonly string[];
+  readonly targetTable: string; readonly targetPrimaryKeys: readonly string[];
+  readonly join: { readonly type: "belongsTo"; readonly foreignKeys: readonly string[] };
+};
+export type CommerceRelations = ReadonlyMap<string, ReadonlyMap<string, CommerceRelation>>;
+
+/** Prove completeness before using a limited result as a relationship set. */
+export const readCommerceRelationRows = Effect.fn("MedusaAdapter.readRelationRows")(function* (
+  ctx: Pick<CommerceCommandContext, "manager" | "table">, table: string, predicate: Json, order: string = "id",
+) {
+  const store = yield* ctx.table(table);
+  const query = { take: 256, order: { column: order, direction: "asc" }, predicate } satisfies JsonObject;
+  const count = yield* store.count(ctx.manager, query);
+  if (count > 256) return yield* Effect.fail(commerceError("limitExceeded"));
+  const rows = yield* store.find(ctx.manager, query);
+  if (rows.length !== count) return yield* Effect.fail(commerceError("storedCorruption"));
+  return rows;
+});
+
+/** Pinned loadToOneRelation's tuple-key attachment, over already owned rows. */
+function attachToOne(rows: Array<Record<string, Json>>, name: string, related: readonly JsonObject[], keys: readonly string[], foreignKeys: readonly string[]) {
+  const byKey = new Map(related.map(row => [tupleKey(row, keys), row]));
+  for (const row of rows) row[name] = byKey.get(tupleKey(row, foreignKeys)) ?? null;
+}
 
 /** Core owns the session, bounds and row decoding. Medusa owns relation grouping.
  * This instance is local to one call and never acquires a second manager. */
@@ -34,9 +58,11 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
     const values: string[] = [];
     for (const parent of parents) {
       const value = parent[parentColumn];
+      if (value === null) continue;
       if (typeof value !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
       values.push(value);
     }
+    if (values.length === 0) return [];
     const cacheKey = JSON.stringify([targetTable, softDelete, order]);
     const previous = fetched.get(cacheKey);
     if (column === "id" && previous !== undefined) {
@@ -44,13 +70,9 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
       const matching = previous.filter(row => typeof row.id === "string" && ids.has(row.id));
       if (matching.length === ids.size) return matching;
     }
-    const store = yield* ctx.table(targetTable);
     const children: Json[] = [{ kind: "in", column, values: [...new Set(values)] }];
     if (softDelete) children.push({ kind: "isNull", column: "deleted_at" });
-    const loaded = yield* store.find(ctx.manager, {
-      take: 256, order: { column: order, direction: "asc" },
-      predicate: { kind: "and", children },
-    });
+    const loaded = yield* readCommerceRelationRows(ctx, targetTable, { kind: "and", children }, order);
     fetched.set(cacheKey, loaded);
     return loaded;
   });
@@ -63,6 +85,11 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
       if (descriptor === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const order = ordering.get(descriptor.targetTable) ?? "id";
       const join = descriptor.join;
+      if (join.type === "belongsTo") {
+        const related = yield* read(descriptor.targetTable, descriptor.targetPrimaryKeys, rows, join.foreignKeys, true, order);
+        attachToOne(result, name, yield* populate(descriptor.targetTable, related, nested), descriptor.targetPrimaryKeys, join.foreignKeys);
+        continue;
+      }
       const pivotRows = join.type === "manyToMany"
         ? yield* read(join.pivotTable, join.sourceColumns, rows, descriptor.sourcePrimaryKeys, false, join.targetColumns[0] ?? "id")
         : [];
@@ -92,6 +119,10 @@ export function assembleCommerceRelations(
       if (descriptor === undefined) throw new Error("Missing admitted Medusa relation");
       const related = assemble(descriptor.targetTable, nested);
       const join = descriptor.join;
+      if (join.type === "belongsTo") {
+        attachToOne(result, name, related, descriptor.targetPrimaryKeys, join.foreignKeys);
+        continue;
+      }
       const grouped = join.type === "hasMany"
         ? groupHasManyRows(related, join.foreignKeys)
         : groupManyToManyRows(related, rows.get(join.pivotTable) ?? [], descriptor.targetPrimaryKeys, join.sourceColumns, join.targetColumns);

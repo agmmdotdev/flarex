@@ -4,7 +4,7 @@ import { groupHasManyRows, groupManyToManyRows, projectRowFields, toPopulateTree
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/product-runtime-metadata";
 import { decodeProductQuery } from "../src/product-query-profile";
-import { assembleCommerceRelations, populateCommerceRelations } from "../src/commerce-relations";
+import { assembleCommerceRelations, populateCommerceRelations, readCommerceRelationRows } from "../src/commerce-relations";
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
 
@@ -78,7 +78,7 @@ describe("Medusa relation query extraction", () => {
             reads.push(table);
             return rows.get(table) ?? [];
           })),
-          count: unused, write: unused, delete: unused,
+          count: () => Effect.succeed((rows.get(table) ?? []).length), write: unused, delete: unused,
         }),
       }, catalog.product.table.name, [{ id: "p" }], selected.relations, catalog.queryRelations, new Map()).pipe(Effect.ensuring(lifetime.close));
       expect(reads.filter(table => table === catalog.value.table.name)).toHaveLength(1);
@@ -89,7 +89,7 @@ describe("Medusa relation query extraction", () => {
   });
 
   it.each([
-    [{ options: { populate: ["tags"] } }, "unsupportedProfile"],
+    [{ options: { populate: ["variants.images"] } }, "unsupportedProfile"],
     [{ options: { fields: ["variants.title"] } }, "unsupportedProfile"],
     [{ options: { fields: [] } }, "unsupportedProfile"],
     [{ options: { limit: 257 } }, "limitExceeded"],
@@ -101,5 +101,20 @@ describe("Medusa relation query extraction", () => {
     const outcome = await Effect.runPromise(Effect.result(decodeProductQuery(catalog, input)));
     expect(Result.isFailure(outcome)).toBe(true);
     if (Result.isFailure(outcome)) expect(outcome.failure.reason).toBe(reason);
+  });
+
+  it("refuses an overflowing relationship set before consuming a partial page", async () => {
+    let reads = 0;
+    await Effect.runPromise(Effect.gen(function* () {
+      const lifetime = yield* makeBoundedRequestLifetime(() => commerceError("invalidAuthority"),
+        { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "query-limit", "read");
+      const unused = () => Effect.fail(commerceError("unsupportedProfile"));
+      const result = yield* Effect.result(readCommerceRelationRows({ manager: lifetime.context,
+        table: () => Effect.succeed({ count: () => Effect.succeed(257),
+          find: () => Effect.sync(() => { reads++; return []; }), write: unused, delete: unused }),
+      }, catalog.value.table.name, { kind: "and", children: [] }).pipe(Effect.ensuring(lifetime.close)));
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+      expect(reads).toBe(0);
+    }));
   });
 });

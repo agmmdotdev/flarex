@@ -144,9 +144,10 @@ Use these sources in order:
 30. [`preflight/29-medusa-original-product-tests.md`](./preflight/29-medusa-original-product-tests.md)
     records the original Product test runner and its explicit admitted/blocked case inventory.
 31. [`preflight/30-medusa-product-related-create-and-reads.md`](./preflight/30-medusa-product-related-create-and-reads.md)
-    proposes related creation and bounded reads targeting eight more original
-    Product cases; runtime admission remains at three until implementation passes.
-32. Current code, migrations, any source snapshot already admitted by its own
+    records related creation and bounded reads with eleven admitted original Product cases.
+32. [`preflight/31-medusa-keyed-updates-and-remaining-product-tests.md`](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md)
+    proposes shared keyed updates proved by tag/type mutations and maps remaining Product dependencies.
+33. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -210,7 +211,8 @@ Preflight records:
 | [`preflight/26-medusa-product-schema-and-relationships.md`](./preflight/26-medusa-product-schema-and-relationships.md) | Fresh Product schema and physical relationships implemented | Ten pinned models produce thirteen tables through shared schema/install/readiness machinery; the bounded private service proof is recorded separately in record 28 |
 | [`preflight/28-medusa-product-create-and-event-delivery.md`](./preflight/28-medusa-product-create-and-event-delivery.md) | Implemented privately with PGlite and ordinary-role PostgreSQL proof | Actual pinned Product service creates and reads nested graphs; 14 conformance cases pass per database, shared Currency/Core checks and required reviews complete; durable event storage/dispatch deferred |
 | [`preflight/29-medusa-original-product-tests.md`](./preflight/29-medusa-original-product-tests.md) | Original-test runner proven on PGlite and PostgreSQL | Two byte-identical Product suites; three original cases pass per driver, 54 skips explicitly inventoried; one installed fixture per driver |
-| [`preflight/30-medusa-product-related-create-and-reads.md`](./preflight/30-medusa-product-related-create-and-reads.md) | Preflight complete; implementation proposed | Eight additional original cases targeted through related creation, associations and bounded reads; no new runtime admission or core schema |
+| [`preflight/30-medusa-product-related-create-and-reads.md`](./preflight/30-medusa-product-related-create-and-reads.md) | Related creation and reads implemented privately | Eleven original cases pass per driver, 46 exclusions inventoried; existing identities, bounded relation filtering and local events; no new core schema |
+| [`preflight/31-medusa-keyed-updates-and-remaining-product-tests.md`](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md) | Next capability preflight | Shared keyed-update admission and exact tag/type event proofs proposed; category setup, replacement, lifecycle and scale dependencies recorded |
 
 ## Current Architecture
 

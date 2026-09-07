@@ -35,7 +35,7 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
         if (row.operation !== "insert") return yield* Effect.fail(commerceError("unadmittedEvent"));
         const key = yield* decodeRelationalRowKey(descriptor.layout, row.tableId, row.keyBytes, row.codecVersion)
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        if (row.tableId === catalog.pivot.table.name) continue;
+        if (catalog.writablePivots.some(table => table.name === row.tableId)) continue;
         const object = catalog.entities.find(entity => entity.table.name === row.tableId);
         const id = key.components[0];
         if (object === undefined || key.components.length !== 1 || id?.columnId !== "id" || typeof id.value !== "string") return yield* Effect.fail(commerceError("receiptMismatch"));

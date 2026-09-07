@@ -10,9 +10,10 @@ export const prepareLocalProductProfile = Effect.fn("ProductAdapter.prepareLocal
   const prepared = yield* prepareProductSchemaProfile(...args);
   const metadata = yield* productRuntimeMetadata(prepared.metadata.frame);
   const capabilities: { tableId: string; keyId: string }[] = [];
-  for (const tableId of [...metadata.entities.map(entity => entity.table.name), metadata.pivot.table.name]) {
+  for (const selected of metadata.tables) {
+    const tableId = selected.name;
     const table = prepared.layout.frame.tables.find(candidate => candidate.identity.tableId === tableId);
-    const key = table?.keys.find(candidate => candidate.kind === (tableId === metadata.pivot.table.name ? "unique" : "primary"));
+    const key = table?.keys.find(candidate => candidate.kind === (selected.columns.some(column => column.primaryKey) ? "primary" : "unique"));
     if (key === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
     capabilities.push({ tableId, keyId: key.identity.keyId });
   }

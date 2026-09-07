@@ -15,11 +15,13 @@ constraint conformance. The implemented private
 [nested Product creation and local event contract](./preflight/28-medusa-product-create-and-event-delivery.md)
 owns the first multi-table service proof with an injected, transaction-buffered
 in-memory test adapter. The [original Product runner](./preflight/29-medusa-original-product-tests.md)
-proves three pinned cases on both database drivers. The next
+established three pinned cases on both database drivers. The implemented
 [related creation and read preflight](./preflight/30-medusa-product-related-create-and-reads.md)
-targets eight more cases; it does not yet expand runtime admission.
+adds eight more cases, for eleven total. The next
+[keyed-update preflight](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md)
+proposes tag/type updates through an explicit shared-core capability extension.
 Durable event storage/dispatch are deferred. Product
-mutations beyond the admitted nested-create profile, stored Links and production
+mutations beyond the admitted create/read profile, stored Links and production
 activation remain unadmitted.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
@@ -50,7 +52,8 @@ and bounded Payload gates have passed. Exact Currency source promotion is also
 complete, as are private Flarex-backed Currency installation and service
 execution. Product schema/relationship installation, private nested creation,
 bounded population and local event conformance are complete. Related creation
-and bounded reads follow under record 30. General Payload
+and bounded reads are implemented under record 30; keyed updates follow under
+record 31. General Payload
 compatibility is separate.
 
 [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md)
@@ -371,7 +374,7 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
 
 - [Record 29](./preflight/29-medusa-original-product-tests.md) proves three original
   cases using one installed fixture per driver. [Record 30](./preflight/30-medusa-product-related-create-and-reads.md)
-  proposes related creation and reads targeting eight more: tags, types,
+  implements related creation and reads admitting eight more: tags, types,
   create-only collections, standalone images, associations and bounded relation
   predicates/population. Updates, replacement, category mutations and scale
   remain separate. Admission changes only after the original assertions pass.
