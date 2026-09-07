@@ -436,9 +436,12 @@ records the implemented private source relocation, actual DML compatibility and
 unchanged baseline. The bounded private Payload scalar and non-reactive
 relation prerequisites are implemented, including the separate fresh-only
 reverse-join profile. Currency's source/type/build/test graph is manifest-admitted.
-The next Flarex-backed service needs explicit installation/provenance, richer
-bounded queries and transaction/event authority. Those owners require the
-commerce-host preflight; general module migration remains gated.
+The [Currency host/publication proposal](./25-medusa-currency-host-and-publication.md)
+now defines the next coherent capability, pending approval: exact live fresh
+installation, seed-gated serving, bounded queries, authenticated managers and
+shared commerce row publication. Currency's read-only public interface requires
+no domain events; event attempts remain rejected. General module migration
+remains gated.
 
 Both consumer constraint records, the private value-only `RelationalSchema`,
 and installation/migration checkpoints 1 and 2 are complete. The complete

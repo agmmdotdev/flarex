@@ -180,6 +180,10 @@ normalization, error messages and result shape remain Medusa-owned.
 
 These are deliberate current capability boundaries, not newly discovered core
 defects. They require a commerce-host/finalization preflight before being changed.
+The [Currency host and publication proposal](./25-medusa-currency-host-and-publication.md)
+now supplies that concrete plan, pending approval. It admits Currency row facts
+for bootstrap/private repository writes; the read-only public service requires
+no domain events, so nonempty event attempts remain rejected.
 No generic relational mutation family, arbitrary SQL port, second commit owner
 or automatic cross-framework transaction is proposed.
 

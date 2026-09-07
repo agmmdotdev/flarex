@@ -4,9 +4,11 @@
 
 Status: accepted source-backed sequence with the inert fork source island and
 exact package/capability audit complete. The core-first and bounded private
-Payload prerequisites are complete. The [Currency convergence/schema preflight](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
-defines the next private implementation capability. Active package promotion
-and the Flarex-backed adapter remain unimplemented; production is unauthorized.
+Payload prerequisites are complete. The [Currency convergence/schema record](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
+records implemented private package promotion and actual DML compatibility.
+The [Currency host/publication proposal](./preflight/25-medusa-currency-host-and-publication.md)
+defines the next complete service capability, pending approval. Flarex-backed
+serving and commerce publication remain unimplemented; production is unauthorized.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,
@@ -32,8 +34,9 @@ adapter graph.
 [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md)
 owns the prerequisite order before any such package promotion. Source mapping
 and inert fixture extraction may proceed early. The shared-core, Flarex Application,
-and bounded Payload gates have passed; the current boundary is the exact Currency
-promotion and adapter capability, not further general Payload compatibility.
+and bounded Payload gates have passed. Exact Currency source promotion is also
+complete; the current boundary is Flarex-backed Currency installation and service
+execution. General Payload compatibility is separate.
 
 [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md)
 now owns the exact fork-pin capability audit, the reproducibly measured
@@ -46,7 +49,9 @@ The admitted island now pins fork commit
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f` as 8,496 exact tracked regular
 files under [`third_party/medusa`](../../third_party/medusa). Its checksum and
 boundary verifiers are root-owned admission tooling, not a Medusa runtime
-dependency. No root `@medusajs/*` package or Flarex adapter exists yet.
+dependency. Seven private root `@medusajs/*` packages and the private
+`@flarex/medusa-adapter` value translator now exist under the exact Currency
+promotion manifest; their presence does not authorize live serving.
 
 ## Current Source Findings
 
@@ -270,6 +275,10 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
 
 ### Commerce transaction-host admission
 
+- [Record 25](./preflight/25-medusa-currency-host-and-publication.md) combines
+  this host, fresh seed-gated installation, bounded DAL and Currency row
+  publication into one proposed capability. Approval covers those owners
+  together; ordinary implementation details do not create new approval gates.
 - Apply the accepted [execution-profile contract](./preflight/14-transaction-execution-profiles.md):
   preserve service transaction-manager reuse while Flarex owns the outer
   physical transaction. Workflow orchestration is a separate execution profile.
@@ -288,6 +297,10 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
 
 ### Commerce-row commit and event-intent admission
 
+- Currency first proves row facts from seed/private repository writes. Its
+  declared public service is read-only; it admits no domain-event family and
+  rejects nonempty event handoffs. Event identity and durable delivery below
+  remain obligations for the first selected module operation requiring them.
 - Complete the separate commit-owner preflight before any Currency write.
 - Add typed commerce-row mutation receipts and facts to the common finalizer.
 - Add only the pinned typed Medusa event-intent contracts required by the

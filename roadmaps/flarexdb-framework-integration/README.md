@@ -128,7 +128,11 @@ Use these sources in order:
     records the implemented Currency source relocation and actual DML compatibility
     capability, its unchanged baseline, exact promotion manifest and the
     explicit remaining Flarex commerce-host boundaries.
-26. Current code, migrations, any source snapshot already admitted by its own
+27. [`preflight/25-medusa-currency-host-and-publication.md`](./preflight/25-medusa-currency-host-and-publication.md)
+    proposes the complete private Flarex-backed Currency service: live fresh
+    installation, seed-gated serving, bounded DAL, authenticated transactions
+    and typed row publication. Capability approval is pending.
+28. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -477,6 +481,9 @@ implements one CMS transaction for root, edge and source reads, with first-windo
 results and bounded population. This completes the bounded private non-reactive
 Payload prerequisite. The [Currency preflight](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
 records private source relocation and actual DML compatibility as implemented.
-Flarex-backed Currency installation, bounded repository queries and commerce
-publication form the next coherent capability; general Payload parity is a separate gate.
+The [Currency host/publication proposal](./preflight/25-medusa-currency-host-and-publication.md)
+defines Flarex-backed installation, bounded repository queries and commerce row
+publication as one capability pending approval. It preserves the read-only
+public Currency interface and rejects unadmitted domain events. General Payload
+parity is a separate gate.
 Public framework adapters, SDKs, runtime routes and production remain gated.
