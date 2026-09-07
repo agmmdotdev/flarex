@@ -3,9 +3,10 @@
 ## Status And Scope
 
 Status: accepted source-backed sequence with the inert fork source island and
-exact package/capability audit complete; active package promotion and the
-Flarex-backed Medusa adapter remain unimplemented, gated by the core-first
-three-lane proof, and production-unauthorized
+exact package/capability audit complete. The core-first and bounded private
+Payload prerequisites are complete. The [Currency convergence/schema preflight](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
+defines the next private implementation capability. Active package promotion
+and the Flarex-backed adapter remain unimplemented; production is unauthorized.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,
@@ -30,8 +31,9 @@ adapter graph.
 
 [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md)
 owns the prerequisite order before any such package promotion. Source mapping
-and inert fixture extraction may proceed early; package convergence waits for
-the shared-core, Flarex Application, and Payload gates named there.
+and inert fixture extraction may proceed early. The shared-core, Flarex Application,
+and bounded Payload gates have passed; the current boundary is the exact Currency
+promotion and adapter capability, not further general Payload compatibility.
 
 [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md)
 now owns the exact fork-pin capability audit, the reproducibly measured

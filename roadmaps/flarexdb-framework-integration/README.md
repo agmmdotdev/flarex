@@ -124,6 +124,10 @@ Use these sources in order:
 25. [`preflight/23-payload-bounded-reverse-joins.md`](./preflight/23-payload-bounded-reverse-joins.md)
     records the implemented request-bound native reverse-read capability, fixed Payload join
     windows and depth-one response contract for the private fresh-only profile.
+26. [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
+    defines the next Currency source-relocation and actual DML compatibility
+    capability, its unchanged baseline, measured runtime inventory and the
+    explicit remaining Flarex commerce-host boundaries.
 26. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
@@ -183,6 +187,7 @@ Preflight records:
 | [`preflight/21-payload-many-transition-and-bounded-population.md`](./preflight/21-payload-many-transition-and-bounded-population.md) | Private depth-one forward population implemented; many-transition direction proposed | Request-bound identity batching and consistent bounded reads; many-valued existing-row conversion requires a separate migration-host decision; bounded reverse joins use the separate profile in preflight 23 |
 | [`preflight/22-payload-many-installation-and-migration-boundary.md`](./preflight/22-payload-many-installation-and-migration-boundary.md) | Private fresh-install many conformance implemented | Ordered many CRUD, bounded population, exact binding and retained recovery; existing-row conversion separately needs authenticated transformation, serving exclusion and durable progress |
 | [`preflight/23-payload-bounded-reverse-joins.md`](./preflight/23-payload-bounded-reverse-joins.md) | Private fresh-only reverse joins implemented | Same-transaction CMS incoming-source reads and bounded Payload virtual joins over both native relations; closes the bounded non-reactive Payload prerequisite |
+| [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md) | Researched Currency implementation preflight | Actual DML, private source relocation and unchanged compatibility baseline first; live installation, richer relational queries and typed commerce publication require the later Currency host capability |
 
 ## Current Architecture
 
@@ -469,6 +474,7 @@ implements fresh-install many conformance; existing-row conversion remains
 a separate authority and recovery capability. The [bounded reverse-join capability](./preflight/23-payload-bounded-reverse-joins.md)
 implements one CMS transaction for root, edge and source reads, with first-window
 results and bounded population. This completes the bounded private non-reactive
-Payload prerequisite. The next slice is the Medusa Currency package-convergence
-and source-closure preflight; general Payload parity is a separate gate.
+Payload prerequisite. The [Currency preflight](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
+now defines the next private source-relocation and actual DML compatibility
+capability; general Payload parity is a separate gate.
 Public framework adapters, SDKs, runtime routes and production remain gated.

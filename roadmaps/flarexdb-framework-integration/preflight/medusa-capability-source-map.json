@@ -24,9 +24,10 @@
     },
     {
       "id": "currencyStaticManifest",
-      "evidenceStatus": "exploratoryUnreproducedSnapshot",
-      "observedInputCount": 76,
-      "observedCategories": {
+      "evidenceStatus": "reproducedRuntimeInputsWithExplicitSourceAliases",
+      "runtimeInventory": "medusa-currency-runtime-inventory.json",
+      "inputCount": 76,
+      "categories": {
         "currency": 5,
         "modulesSdk": 2,
         "matureCoreUtils": 68,
@@ -296,7 +297,8 @@
   ],
   "promotion": {
     "authorized": false,
-    "nextBehaviorSlice": "frameworkInstallationReadinessBindingAndMigrationCoordinationPreflight",
+    "nextBehaviorSlice": "privateCurrencyConvergenceAndActualSchemaCompatibility",
+    "preflight": "24-medusa-currency-convergence-and-schema-compatibility.md",
     "blockedBefore": [
       "activeMedusaPackage",
       "islandRuntimeImport",

@@ -1,0 +1,597 @@
+{
+  "kind": "MedusaCurrencyRuntimeInventory",
+  "status": "measuredPreflightNotPromotionAuthority",
+  "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
+  "sourceRoot": "third_party/medusa/upstream",
+  "preflight": "24-medusa-currency-convergence-and-schema-compatibility.md",
+  "recipe": {
+    "baseAudit": "apps/medusa-cloudflare/scripts/audit-real-module-imports.mjs",
+    "bundler": "esbuild",
+    "version": "0.28.1",
+    "node": "v24.16.0",
+    "workingDirectory": "repositoryRoot",
+    "aliasBase": "sourceRoot",
+    "sourceAliases": {
+      "@models": "packages/modules/currency/src/models/index.ts",
+      "@medusajs/framework/utils": "packages/core/framework/src/utils/index.ts",
+      "@medusajs/framework/types": "packages/core/framework/src/types/index.ts",
+      "@medusajs/types": "packages/core/types/src/index.ts",
+      "@medusajs/utils": "packages/core/utils/src/index.ts",
+      "@medusajs/utils/dml/model": "packages/core/utils/src/dml/entity-builder.ts",
+      "@medusajs/utils/modules-sdk/medusa-service": "packages/core/utils/src/modules-sdk/medusa-service.ts",
+      "@medusajs/modules-sdk/definitions": "packages/core/modules-sdk/src/definitions.ts",
+      "@medusajs/utils/modules-sdk/portable-joiner-config-builder": "packages/core/utils/src/modules-sdk/portable-joiner-config-builder.ts",
+      "@medusajs/utils/common/container": "packages/core/utils/src/common/container.ts",
+      "@medusajs/utils/common/upper-case-first": "packages/core/utils/src/common/upper-case-first.ts",
+      "@medusajs/utils/modules-sdk/definition": "packages/core/utils/src/modules-sdk/definition.ts"
+    },
+    "staticEntry": "packages/modules/currency/src/static-manifest.ts",
+    "serviceEntry": "packages/modules/currency/src/services/currency-module-service.ts",
+    "bundle": true,
+    "platform": "browser",
+    "format": "esm",
+    "metafile": true,
+    "write": false,
+    "externalPolicy": "Node builtins and node-prefixed builtins plus better-sqlite3, libsql, mariadb/callback; reject if present in output",
+    "sourcePolicy": "No first-party dist inputs admitted"
+  },
+  "observed": {
+    "serviceInputs": 65,
+    "staticInputs": 76,
+    "staticSourceCounts": {
+      "currency": 5,
+      "modulesSdk": 2,
+      "matureUtils": 68
+    },
+    "externalOutputImports": 0,
+    "workerBlockersUnderBaseAuditPolicy": 0
+  },
+  "dependency": {
+    "name": "bignumber.js",
+    "version": "9.3.1",
+    "license": "MIT",
+    "source": "island lockfile and installed package"
+  },
+  "excludedFromCompletenessClaim": [
+    "erased type imports",
+    "declaration and build closure",
+    "static application bootstrap",
+    "repository and test backend",
+    "compatibility harness and Node-only comparison imports",
+    "live Flarex schema installation",
+    "commerce transaction and publication"
+  ],
+  "inputs": [
+    {
+      "source": "third_party/medusa/upstream/node_modules/bignumber.js/bignumber.mjs",
+      "sha256": "476d669a2d8bcc169bce832bdb0e5a531b3c5bac127e94422a56bbff65f6d2b0",
+      "inServiceGraph": true,
+      "classification": "externalDependency"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/modules-sdk/src/definitions.ts",
+      "sha256": "a062d18a14f10c6d6a56754ccda388bd88a82efbe00083c5f2e69f1cb9a0b582",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-modules-sdk/src/definitions.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/modules-sdk/src/types/index.ts",
+      "sha256": "a4bf7c8ef98a4c1d5e183a4a0f422527bd0a7191fac1f022564b58aa6d9b74ff",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-modules-sdk/src/types/index.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/camel-to-snake-case.ts",
+      "sha256": "dc6ec4600d970df3882d5427733111f636249c5aeb3ad8bc918b9f6c47ef8d31",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/camel-to-snake-case.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/container.ts",
+      "sha256": "5f67c6f0649bcf450c60f02ec3710451504e786105a8c7adbe5716ef9911ea5e",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/container.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/is-big-number.ts",
+      "sha256": "24e530ef84aafde5b9dd1957174e9bbd8a33cbe0636199d01b12f5f4264f6e85",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/is-big-number.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/is-boolean.ts",
+      "sha256": "e6f87eb1162613f3d8ef2c5ac778a6ce4e775576f7022c23152c4776c978e451",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/is-boolean.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/is-defined.ts",
+      "sha256": "04d123f36e45efa3f8b3abfb1f3a75743b088bab09309b5cc780fb50c8326362",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/is-defined.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/is-object.ts",
+      "sha256": "807b3e8da71e5d4aec36dc82085bb47115cf87df4b316a84249d15e13a3020fe",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/is-object.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/is-present.ts",
+      "sha256": "31b12bd5ffbf822fd2d57f39c9449223a1b7942735c54404c1c7c8e474c5c3b4",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/is-present.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/is-string.ts",
+      "sha256": "e4cc26fbdcee6ea54d4ed1deab1e7e4313fd5c678ed7c585f58004510e084e42",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/is-string.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/lower-case-first.ts",
+      "sha256": "2817a278f1d8e45c443b7c3983e2c460ba87f2327a752031246873faa2f7ba46",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/lower-case-first.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/map-object-to.ts",
+      "sha256": "b1630cd9a04bdc8bbe9860863c4c4ad6ab5d0ac74343a0dde71d4583cad53e08",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/map-object-to.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/plurailze.ts",
+      "sha256": "3f82f1f50f0ea39125f2c83d92694970e4e741b580ac1b73dbcd7204c2b4fff3",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/plurailze.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/to-camel-case.ts",
+      "sha256": "23272dbc19eea74c722433a514ad2adc68cc2c2d7d94b481e4cb0e4016082ba0",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/to-camel-case.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/to-kebab-case.ts",
+      "sha256": "d0b8bc800e3fe5e7e9a568f06705570a635d2fb4d5dfcc9994efd8e33a05c843",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/to-kebab-case.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/to-pascal-case.ts",
+      "sha256": "cf7d81af79c1bb8593f0d8b049d317a45bb9f85f401b33f823a523550c0b89fd",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-utils/src/common/to-pascal-case.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/trim-zeros.ts",
+      "sha256": "6bbe92d922492b033f268574eb54a63d8e91a970b60110a219112a41a6bb60b7",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/trim-zeros.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/common/upper-case-first.ts",
+      "sha256": "0b0172b5b295579b808a81074a6d52a7c3317b5f983178f154a84eec58ff5367",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/common/upper-case-first.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/entity-builder.ts",
+      "sha256": "0557ce0bdde871470730e9dea8557dc01b9b1bfb4eb376c195bb5e9d5d21fbf0",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/entity-builder.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/entity.ts",
+      "sha256": "289183dc16f8ceda8c11cdb2ce0dd8af8787520ee8a69e01ad83bc3417ac4e24",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/entity.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/create-graphql.ts",
+      "sha256": "7f97ad379ae8e738d78e654b358c6be0051981d67428c61e47ce1bfc70825bc7",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-utils/src/dml/helpers/create-graphql.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/entity-builder/build-indexes.ts",
+      "sha256": "1478f297cd7cc633c8f081b36cd9676f99b70a688cc3090bf7db4ea603c39045",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/helpers/entity-builder/build-indexes.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/entity-builder/create-big-number-properties.ts",
+      "sha256": "ab7a263fa8f6e55eae7d3a33bae3be5eddb604aed6b2b6158ce7dfa5c11060c5",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/helpers/entity-builder/create-big-number-properties.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/entity-builder/create-default-properties.ts",
+      "sha256": "d61d87ce8f0e001384e10890afe4057d670a2af55e61220ad25b8216fa34bc2c",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/helpers/entity-builder/create-default-properties.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/entity-builder/parse-entity-name.ts",
+      "sha256": "a618d2e545d1a69720d769e3f26ab905e864d6570c84dc7ee79fa91bf9c80892",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-utils/src/dml/helpers/entity-builder/parse-entity-name.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/entity-builder/query-builder.ts",
+      "sha256": "7dd801c9f9c9b4712c62ff849252cec3476182395984ca3700f7bf608609fb4e",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/helpers/entity-builder/query-builder.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/entity-builder/relationship-helpers.ts",
+      "sha256": "5fa3053b79991defa6dc1c425a9a23b4ac2f60b8aab3df3a1d5e65c430d4e8c5",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-utils/src/dml/helpers/entity-builder/relationship-helpers.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/graphql-builder/get-attribute.ts",
+      "sha256": "ac3c3e71ae89219fe468febfefb4633b67753cd236f70f3d4ffb19a1d47410db",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-utils/src/dml/helpers/graphql-builder/get-attribute.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/helpers/graphql-builder/set-relationship.ts",
+      "sha256": "a564d1607c310d40e3d8225f11e7da797663841b4b168e9ae3c44ed5a09be275",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-utils/src/dml/helpers/graphql-builder/set-relationship.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/array.ts",
+      "sha256": "173be4d7034a44cb1837e55fc9c69755208c88493e24cb66a5044a5eebf7d1d9",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/array.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/autoincrement.ts",
+      "sha256": "5d6e756f1a7bc382641b4e23f6dcf44336f5d8a2527c7e0f2631036afe86b297",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/autoincrement.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/base.ts",
+      "sha256": "36e3bac119dc823caabe6e93d75ead2d6635a48dd153b6094c11f825a21037cd",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/base.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/big-number.ts",
+      "sha256": "53ed5f5abe328d810fe78808e584bbd25f9542b33907e7c1c42d62628969ccda",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/big-number.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/boolean.ts",
+      "sha256": "d133d4ae02e83b67944e0ad36a40b9aec2268a03a9e802b31820775b5c098f05",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/boolean.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/computed.ts",
+      "sha256": "15c5e366c0cf7760cd33df756484c3deeafca365cde2be9a470f0b2e95ba9cbb",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/computed.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/date-time.ts",
+      "sha256": "a648a89ea722f90bf9755062be29c0595339d64ccf31a03b0f75ec2fd25e9418",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/date-time.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/enum.ts",
+      "sha256": "fdc773cc3e8546fb8b014917a728d3c40501f0d67067a1513b0e1a05faa1de95",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/enum.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/float.ts",
+      "sha256": "b90ea33e94bfb5e2f69615cb1cf5c3bd928cdbeb9db2ce6e0033e81dae916c5d",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/float.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/id.ts",
+      "sha256": "b0a09f616b34b5895d8358d9f5bf29c94c26607be5948e3dd93d747591ff770e",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/id.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/index.ts",
+      "sha256": "22c7b9d4c718bedfbca3a099029022c3cafbd817ea690b27a5e7bf88986763d0",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/index.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/json.ts",
+      "sha256": "3c1dd88f5e430d2987a03895fff3f38a88d9485ae8963861ce93702d3047789c",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/json.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/nullable.ts",
+      "sha256": "3597e33ef8ccd062508980c7216045ba1c8dd63131e232bfe1da40ec8d02111d",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/nullable.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/number.ts",
+      "sha256": "d2f9f1cb3bcb4fc5df5a0d6fb0a9ce0e030fa61328cfa5bbf47abfe1d156b661",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/number.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/primary-key.ts",
+      "sha256": "49706c136cb9020295f6a26ae3b657f7fde571d298c6d86102d5c1ae5415f293",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/primary-key.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/properties/text.ts",
+      "sha256": "5096b7fd58cbfbbf97aeef0a6a59b3768b32ba4f6e44d34cf8bbc227d7e1ae6e",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/properties/text.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/relations/base.ts",
+      "sha256": "2d7e9cca21f5b677b0bc1e70fa80bbcc7610fdc2c64552e35c5f1104a4fc920d",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/relations/base.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/relations/belongs-to.ts",
+      "sha256": "7b9752fe3381ccc68ba7fda42984e98c53dcf09e7107fa33dd07d2ebcd5743af",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/relations/belongs-to.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/relations/has-many.ts",
+      "sha256": "dd6cb63b50d0ba0237e2bbca852a0dc5ee255ecafe6fe9feb2a6e4e808c99d90",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/relations/has-many.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/relations/has-one-fk.ts",
+      "sha256": "28ded43379e45d30d3dc0266be7f8d4f88c8084b538ddc554a4ebc8e6f332f34",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/relations/has-one-fk.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/relations/has-one.ts",
+      "sha256": "1fa67e6adb2c3aeb0e59d90f55e9232239aabe619bca3dc10ebdacc6431a290f",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/relations/has-one.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/relations/many-to-many.ts",
+      "sha256": "f6d88f0571bb4f03a6913a2251defe5073dec04d8b352e53ff2a68bf0c289270",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/relations/many-to-many.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/dml/relations/nullable.ts",
+      "sha256": "d6687ae4a5ba7e10553be5f2b4f0a9864f4ce68421891dc821d49dc1159a0f4c",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/dml/relations/nullable.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/event-bus/build-event-messages.ts",
+      "sha256": "f2e1476f9a8aad92dc8a4a26cadda82675b841ff84aceb11e72175cb9a424748",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/event-bus/build-event-messages.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/event-bus/common-events.ts",
+      "sha256": "e7dd8ede62551986f144ed5d8eae9c6a43adfad5231ba58313410012a3e57d46",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/event-bus/common-events.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/event-bus/message-aggregator.ts",
+      "sha256": "5a18ac6a0b1f6cd99c176791d33a06815c29591f078aee19ca857cb55ae109a0",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/event-bus/message-aggregator.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/event-bus/utils.ts",
+      "sha256": "a94209f6771b150f617e8181073184db4cbe4815cdaae62f44eb8cfee9c49be8",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/event-bus/utils.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/build-models-name-to-linkable-keys-map.ts",
+      "sha256": "7138d662cead4db96633ea2448b72d6e2cf472b2b3a1edeaae06eb8e37346125",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/build-models-name-to-linkable-keys-map.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/decorators/context-parameter.ts",
+      "sha256": "a75039e62587c7e22d74154f7d7b1a1e11eeeae198c24ef2bcaa3f6723d88cb7",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/decorators/context-parameter.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/decorators/emit-events.ts",
+      "sha256": "aa5a59209235cbc4c3e7a405da89ae5468255a207d7b206563c3692ff6ea2dd1",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/decorators/emit-events.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/decorators/index.ts",
+      "sha256": "f9b7c84600107c34968c5ee7c71854fbb268caabfee7cfe2cc0d5d03329a6abe",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/decorators/index.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/decorators/inject-into-context.ts",
+      "sha256": "5fac7933fefc96f811feff96ce806d310480e07c8748c7f0c37782c401255d85",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/decorators/inject-into-context.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/decorators/inject-manager.ts",
+      "sha256": "150cfa1932f5dc559a0cbc53cdc5ab503287b1608e58376c3d17b075cc13af80",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/decorators/inject-manager.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/decorators/inject-shared-context.ts",
+      "sha256": "84745b53ea53f896abffc7e63469d557e1e2597457771e395f56a067b74dec1e",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/decorators/inject-shared-context.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/decorators/inject-transaction-manager.ts",
+      "sha256": "9e59ebcc80c46cdb5ddbf83e04aea9e1e278a5d3e56576d1b8de7456b1ae4aad",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/decorators/inject-transaction-manager.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/definition.ts",
+      "sha256": "39d8def0e853e6553863017f2d3d7b53fb8ccbd6d8893051313c5d48bc6c921d",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/definition.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/event-builder-factory.ts",
+      "sha256": "6d9bf107cbc1311dd4a0171190beb849ed96229b1c8cba3565e070b72af940af",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/event-builder-factory.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service-marker.ts",
+      "sha256": "31881644b9440f78bbf669fb9817917ff6b73c8b61d123ab97427f0d2770d257",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/medusa-internal-service-marker.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-service.ts",
+      "sha256": "e86afe04537205bdccfa13cf28ffe0bf27ad8e1e38793e128da985ce70dea5e7",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/medusa-service.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/portable-joiner-config-builder.ts",
+      "sha256": "23b59d4e14119a7952f67f4ec70bb0aabdfcb50674608f808fc02dc0ef456d64",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-utils/src/modules-sdk/portable-joiner-config-builder.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/core/utils/src/totals/big-number.ts",
+      "sha256": "c40689a8319984d790dba9b10e7630e9cf7cd9d0d4590753cb68f79f1a4433fb",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-utils/src/totals/big-number.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/currency/src/models/currency.ts",
+      "sha256": "f9b51f7f157fc3802c23603594dc4a55108f7d57c232c243175d879ed44a9427",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-currency/src/models/currency.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/currency/src/models/index.ts",
+      "sha256": "48b6d03aefd8ca203038b6d6d4df87a60623bf521dc305cfa89495b309a6be83",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-currency/src/models/index.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/currency/src/services/currency-module-service.ts",
+      "sha256": "00122a7c2ad9f7715ffc74d0872fcaf34869bcd70a46bfb2c5e95670b420ed62",
+      "inServiceGraph": true,
+      "proposedTarget": "packages/medusa-currency/src/services/currency-module-service.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/currency/src/services/index.ts",
+      "sha256": "54bc5b4f040f4f99e8dad1362a88b2f84c762b429b15df2d95b63f2db89dead3",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-currency/src/services/index.ts",
+      "classification": "keepSemanticSource"
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/currency/src/static-manifest.ts",
+      "sha256": "96112e8ab86fe5d700b5d820806a7f1a2fa7fd33ce8b047d2f67a8e2ba2c3e88",
+      "inServiceGraph": false,
+      "proposedTarget": "packages/medusa-currency/src/static-manifest.ts",
+      "classification": "keepSemanticSource"
+    }
+  ]
+}

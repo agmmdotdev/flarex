@@ -430,12 +430,14 @@ Stop and open the owning preflight if a slice would:
 
 ## Next Gated Slice
 
-The next framework slice is the Medusa Currency package-convergence and
-source-closure preflight. The bounded private Payload scalar and non-reactive
+The [Currency preflight](./24-medusa-currency-convergence-and-schema-compatibility.md)
+defines the next private source-relocation, actual DML compatibility and unchanged
+baseline capability. The bounded private Payload scalar and non-reactive
 relation prerequisites are implemented, including the separate fresh-only
-reverse-join profile. The preflight must identify the exact admitted package
-closure, unchanged compatibility baseline and transaction/event authority before
-Medusa service promotion; it does not authorize general module migration.
+reverse-join profile. The Currency capability must close the exact source/type/
+build/test manifest before active imports. Its later Flarex-backed service needs
+explicit installation, query and transaction/event authority; neither capability
+authorizes general module migration.
 
 Both consumer constraint records, the private value-only `RelationalSchema`,
 and installation/migration checkpoints 1 and 2 are complete. The complete

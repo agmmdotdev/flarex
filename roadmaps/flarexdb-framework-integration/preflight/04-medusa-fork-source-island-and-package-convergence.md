@@ -563,8 +563,11 @@ owns current cross-lane status. Native acceptance, upgrades, binding,
 transaction and consumer proofs remain ordered by
 [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md).
 
-Medusa package work remains source-only. It must stop before creating an active
-root `@medusajs/*` package or any Flarex adapter/core/runtime integration.
-Package promotion remains blocked until every prerequisite named by
+Medusa package work remains source-only. The prerequisites named by
 [`05-core-first-three-lane-readiness.md`](./05-core-first-three-lane-readiness.md)
-passes.
+are complete for the bounded private scope. The
+[Currency convergence/schema preflight](./24-medusa-currency-convergence-and-schema-compatibility.md)
+now defines the proposed first active capability. Exact source/type/build/test
+manifest acceptance and capability approval remain required before target
+`@medusajs/*` packages or adapter translation enter the root workspace. Live
+commerce installation, transaction and publication are separate owner decisions.
