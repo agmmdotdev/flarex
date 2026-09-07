@@ -35,7 +35,7 @@ import {
   type RuntimeProbeHarness,
 } from "./runtimeHarness";
 
-describe.sequential("P07B campaign coordinator", () => {
+describe("P07B campaign coordinator", { concurrent: false }, () => {
   it("freezes one deployment manifest across races, conflicts, and restart", async () => {
     const first = await createRuntimeProbeHarness({
       removePersistPathOnDispose: false,

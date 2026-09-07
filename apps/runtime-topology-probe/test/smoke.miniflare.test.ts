@@ -36,7 +36,7 @@ const localTarget = {
   compatibilityDate: "2026-06-14",
 } as const;
 
-describe.sequential("P08 resumable production flow", () => {
+describe("P08 resumable production flow", { concurrent: false }, () => {
   it("smokes every scenario once and resumes the same campaign to completion", async () => {
     const harness = await createRuntimeProbeHarness();
     try {

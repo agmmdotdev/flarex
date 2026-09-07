@@ -57,7 +57,7 @@ import {
   type RuntimeProbeHarness,
 } from "./runtimeHarness";
 
-describe.sequential("P07B resumable facet purge", () => {
+describe("P07B resumable facet purge", { concurrent: false }, () => {
   it("prepares, aborts, and deletes retained facets one at a time", async () => {
     const harness = await createRuntimeProbeHarness();
     try {

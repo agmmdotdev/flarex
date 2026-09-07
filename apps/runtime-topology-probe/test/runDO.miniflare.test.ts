@@ -45,7 +45,7 @@ import {
 } from "./runtimeHarness";
 import { runEffectTestSync } from "./effectTest";
 
-describe.sequential("P07A ProbeRunDO state machine", () => {
+describe("P07A ProbeRunDO state machine", { concurrent: false }, () => {
   it("registers one immutable cell idempotently and rejects conflicts", async () => {
     const harness = await createRuntimeProbeHarness();
     try {

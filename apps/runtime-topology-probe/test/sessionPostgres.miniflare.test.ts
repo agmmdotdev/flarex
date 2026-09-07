@@ -33,8 +33,9 @@ const WORKER_BUNDLE_PATH =
 
 describe.skipIf(
   SESSION_POSTGRES_TEST_DISABLED,
-).sequential(
+)(
   "P33 SessionDO-owned Postgres in Miniflare",
+  { concurrent: false },
   () => {
     let miniflare: Miniflare;
 

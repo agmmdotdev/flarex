@@ -66,7 +66,7 @@ import {
 } from "./runtimeHarness";
 import { runEffectTest, runEffectTestSync } from "./effectTest";
 
-describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
+describe("P02 gateway and ProbeSessionDO in Miniflare", { concurrent: false }, () => {
   let harness: RuntimeProbeHarness;
 
   beforeEach(async () => {

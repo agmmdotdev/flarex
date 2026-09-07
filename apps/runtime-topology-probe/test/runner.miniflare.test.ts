@@ -29,7 +29,7 @@ import {
   type RuntimeProbeHarness,
 } from "./runtimeHarness";
 
-describe.sequential("P07B bounded matrix runner", () => {
+describe("P07B bounded matrix runner", { concurrent: false }, () => {
   let harness: RuntimeProbeHarness;
 
   beforeAll(async () => {

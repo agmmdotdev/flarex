@@ -40,7 +40,7 @@ import {
   type RuntimeProbeHarness,
 } from "./runtimeHarness";
 
-describe.sequential("P07B runner recovery", () => {
+describe("P07B runner recovery", { concurrent: false }, () => {
   it("retries a campaign registration whose body stream fails after headers", async () => {
     const harness = await createRuntimeProbeHarness();
     try {
