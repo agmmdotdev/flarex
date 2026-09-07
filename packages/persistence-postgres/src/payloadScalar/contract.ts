@@ -10,13 +10,16 @@ export const payloadScalarFields = Object.freeze(([
   { name: "updatedAt", kind: "date" },
 ] as const).map(field => Object.freeze(field)));
 
-export type PayloadContentProfile = "payload.scalar" | "payload.content-relations";
+export type PayloadContentProfile = PayloadConfiguration["profile"];
 export const payloadRelatedPostField = Object.freeze({ name: "relatedPost", kind: "relationship", target: "posts",
   cardinality: "one", required: false, localized: false, onTargetDelete: "restrict" } as const);
 export const payloadRelationFields = Object.freeze([...payloadScalarFields, payloadRelatedPostField].toSorted((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+export const payloadRelatedPostsField = Object.freeze({ name: "relatedPosts", kind: "relationship", target: "posts",
+  cardinality: "many", minItems: 0, maxItems: 32, localized: false, onTargetDelete: "restrict" } as const);
+export const payloadManyFields = Object.freeze([...payloadRelationFields, payloadRelatedPostsField].toSorted((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 export function payloadContentConfiguration(profile: PayloadContentProfile, provenanceSha256: string): PayloadConfiguration {
   return { format: "flarex.payload-configuration", version: 1, profile, provenanceSha256,
-    tables: [{ logicalTableName: "posts", fields: profile === "payload.scalar" ? payloadScalarFields : payloadRelationFields }] };
+    tables: [{ logicalTableName: "posts", fields: profile === "payload.scalar" ? payloadScalarFields : profile === "payload.content-many" ? payloadManyFields : payloadRelationFields }] };
 }
 
 export const payloadScalarProvenance: PayloadProvenance = Object.freeze({

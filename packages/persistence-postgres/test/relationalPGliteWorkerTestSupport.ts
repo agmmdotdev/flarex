@@ -1,4 +1,7 @@
 import { Worker } from "node:worker_threads";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { onTestFinished } from "vitest";
 import { Cause, Effect, Exit } from "effect";
 import { createPGlitePersistence } from "../src/pglite";
@@ -12,9 +15,12 @@ import {
 } from "../src/relationalTransaction/model";
 
 /** One Wasm instance, one lease, with an external watchdog that can stop active SQL. */
-export async function createRelationalPGliteFixture() {
+export async function createRelationalPGliteFixture(options: { readonly fileBacked?: boolean } = {}) {
+  // Only this fixture-created directory is removed by its registered cleanup.
+  const dataDir = options.fileBacked === true ? await mkdtemp(join(tmpdir(), "flarex-relational-")) : undefined;
   const worker = new Worker(
     new URL("./relationalPGliteWorker.mjs", import.meta.url),
+    { workerData: { dataDir } },
   );
   let id = 0;
   let timeoutMs = 30_000;
@@ -64,9 +70,12 @@ export async function createRelationalPGliteFixture() {
         );
     },
   );
-  onTestFinished(() => terminate(new Error("Fixture closed")));
+  onTestFinished(async () => {
+    await terminate(new Error("Fixture closed"));
+    if (dataDir !== undefined) await rm(dataDir, { recursive: true, force: true });
+  });
   const request = (
-    method: "query" | "exec",
+    method: "query" | "exec" | "reopen",
     query: string,
     params?: readonly unknown[],
     rowMode?: string,
@@ -193,6 +202,11 @@ export async function createRelationalPGliteFixture() {
   return {
     persistence,
     session,
+    reopen: () => serialized(async () => {
+      if (dataDir === undefined) throw new Error("Reopen requires a file-backed fixture");
+      timeoutMs = 30_000;
+      await request("reopen", "");
+    }),
     isQuarantined: () => dead,
     blockNextStoreRead: () => {
       blockNext = true;

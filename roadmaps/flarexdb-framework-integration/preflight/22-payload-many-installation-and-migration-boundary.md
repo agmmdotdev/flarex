@@ -1,14 +1,14 @@
 # Payload Many Installation And Migration Boundary
 
-## Status And Recommendation
+## Status And Scope
 
-Status: researched proposal; implementation requires capability approval.
-The optional-one successor and standalone depth-one population remain the
-implemented profiles. No many profile or data-migration authority is enabled.
+Status: approved private fresh-install many profile implemented. The scalar and
+optional-one profiles remain supported by the private conformance surface.
+Existing-row many upgrades and data-migration authority remain disabled.
 
-Recommend one private **fresh-install many-relation conformance capability**
-next. Prove the actual Payload operation path through the shared Application
-row, relation, transaction, publication and binding owners. Keep an existing-row
+The private **fresh-install many-relation conformance capability** proves the
+actual Payload operation path through the shared Application row, relation,
+transaction, publication and binding owners. Keep an existing-row
 upgrade separate until an explicit supported upgrade or durable-data obligation
 justifies its conversion authority.
 
@@ -16,9 +16,12 @@ This refines the ordering proposed in
 [the many-transition preflight](./21-payload-many-transition-and-bounded-population.md).
 That document correctly identifies a conversion requirement for an existing-row
 successor. It does not establish that every many-valued consumer proof needs
-such a successor. An empty installation alone proves little; the proposed
-capability must create real posts through Payload, mutate populated arrays,
-reopen retained state and prove native invariants on both drivers.
+such a successor. The capability creates real posts through Payload, mutates
+populated arrays and proves native invariants on both drivers. PGlite also
+closes and reopens the file-backed data store before rebuilding the Payload
+runtime and activation admission from retained evidence. PostgreSQL proves
+competing transactions and uncertain settlement; this does not claim a server
+restart or hosted deployment proof.
 
 ## Why This Order
 
@@ -60,11 +63,11 @@ remain primary consumer evidence. Flarex's duplicate rejection, canonical IDs
 and narrower null/input policy are explicit profile constraints. Payload's
 migration method surface does not authenticate a Flarex migration capability.
 
-## Proposed Implementation Capability
+## Implemented Capability
 
 ### Exact Profile And Admission
 
-Add an explicitly discriminated private configuration profile,
+The explicitly discriminated private configuration profile is
 `payload.content-many`, preserving the old scalar and optional-one canonical
 bytes and decoder meanings. Keep the stable Payload owner/policy identity;
 configuration and write-policy digests change. The new profile contains the
@@ -106,8 +109,8 @@ one behavior within this profile. Native reverse identity reads independently
 prove many edges; Payload reverse-join configuration remains a subsequent
 response/query capability and is not claimed by those native reads.
 
-Extend the existing request population ledger to account for both relation
-fields and preserve each array's order. The existing aggregate ceiling of 32
+The request population ledger accounts for both relation fields and preserves
+each array's order. The existing aggregate ceiling of 32
 distinct targets is per request across all roots and fields, not per array.
 Also bound occurrence accounting before allocation; 32 roots with up to 32 many
 references plus one optional-one reference each allow at most 1,056 references.
@@ -116,6 +119,14 @@ Keep the existing page, document-size, loaded-identity, time and native commit
 limits. Fail the request before an over-budget target fetch; do not silently
 truncate or raise budgets to make a fixture pass. Writes and nested reads stay
 at depth zero; standalone reads may use depth one.
+
+Payload's after-read hook assigns populated documents into array slots. The
+adapter validates and copies each stored array at the foreign document boundary;
+it never lends Payload the immutable CMS array or mutates the request's canonical
+row cache. Input checks reject unsupported shapes before Payload normalization;
+the existing request-bound posts batch capability authenticates target table
+identity before invoking Payload. Native finalization still owns liveness and
+the complete pending-write relation delta.
 
 ### Change Classification
 
@@ -203,7 +214,7 @@ later conversion capability's approval.
 | Temporary active schema permits both shapes | Defer: requires another authenticated profile, activation/binding transition, writer policy and retention obligation; it is not a free workaround. |
 | Operator stops one Payload process | Insufficient as a reusable fence: Application readers, other writers and restarts must also be accounted for. A genuinely exclusive offline target must be established and tested explicitly. |
 
-## Completion Proof For The Recommended Capability
+## Completion Contract And Evidence Boundaries
 
 - Pure profile/input/ledger tests establish deterministic identity, exact old
   profile preservation, omission versus clear, rejected shapes, ordering and
@@ -229,6 +240,15 @@ later conversion capability's approval.
   quality and TypeScript reviewer passes for implementation. Reconcile this
   preflight, the three-lane plan, adoption roadmap and capability map to actual
   results. Fresh-only evidence must remain labeled fresh-only.
+
+The focused lanes are `framework-payload-many-pglite` and
+`framework-payload-many-postgres`. They share the populated consumer and
+empty-history refusal scenarios. The latter creates and deletes a real scalar
+post, proves there are no live posts, and refuses many ownership changes from
+both scalar and optional-one heads. Tombstone history remains authoritative.
+The output-bound scenario uses supported indexed titles and 32-target arrays,
+with short request batches that stay within existing command budgets. It does
+not enlarge index keys, document limits or transaction budgets to create load.
 
 The next remaining consumer gate after this capability is bounded Payload
 reverse-join behavior and reconciliation of the complete non-reactive relation

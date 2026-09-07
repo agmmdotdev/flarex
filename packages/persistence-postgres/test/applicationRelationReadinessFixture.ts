@@ -420,6 +420,7 @@ export interface RelationReadinessFixtureOptions {
   readonly writePolicy?: boolean;
   readonly cmsIndexes?: boolean;
   readonly cmsFields?: Parameters<typeof policyManifestFixture>[2];
+  readonly cmsManifest?: Awaited<ReturnType<typeof policyManifestFixture>>;
   /** Compose the database-authenticated session target for DataBinding admission. */
   readonly bindingAdmission?: boolean;
   readonly includeFunction?: boolean;
@@ -517,7 +518,8 @@ export async function relationReadinessFixture(
     relationBuild,
   );
   let relationInput = options.writePolicy === true
-    ? { ...await policyManifestFixture(undefined, options.cmsIndexes, options.cmsFields), deploymentId, decisions: [] }
+    ? { ...(options.cmsManifest ?? await policyManifestFixture(undefined, options.cmsIndexes, options.cmsFields)), deploymentId,
+      decisions: options.cmsManifest?.manifest.schema.relations.map(relation => ({ relationOrdinal: relation.relationOrdinal, evolution: { kind: "new" as const } })) ?? [] }
     : await relationApplicationInput(
     deploymentId,
     fixtureOrdinal,
@@ -790,6 +792,9 @@ export async function prepareReadinessEvidence(
     await settleRelationSemanticReadiness(fixture);
   } else {
     await enableRelationPhysicalBuilds(fixture);
+    if (fixture.relation.binding.relationBindings.some(binding => binding.evolution.kind === "preserve" && binding.evolution.physical === "reuse")) {
+      await settleRelationSemanticReadiness(fixture);
+    }
   }
 }
 
@@ -1101,6 +1106,8 @@ export async function enableRelationPhysicalBuildsFor(
     definitions === null || definitions.definitions.length !== expectedCount
   ) throw new Error("Expected the complete relation physical definition set.");
   for (const definition of definitions.definitions) {
+    // Reused physical state retains its origin binding; validate the new semantic binding separately.
+    if (definition.binding.evolution.kind === "preserve" && definition.binding.evolution.physical === "reuse") continue;
     for (let step = 0; step < 128; step += 1) {
       const result = await runEffect(relationBuild.advance({
         deploymentId,

@@ -49,11 +49,12 @@ export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function*
   const active = yield* application.readActive();
   const selection = yield* Effect.fromResult(claimApplicationExecutableActiveSelection(active.selection));
   if (selection.kind !== "relation" || selection.basis.deploymentId !== deploymentId ||
-    selection.basis.writeOwnership === null || selection.basis.relationCount > 1) {
+    selection.basis.writeOwnership === null || selection.basis.relationCount > 2) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   }
   const manifest = selection.basis.manifest;
-  if (manifest.version !== 3 || (selection.basis.relationCount === 1 && manifest.schema.writePolicies.configuration.profile !== "payload.content-relations")) {
+  if (manifest.version !== 3 || selection.basis.relationCount !==
+    ({ "payload.scalar": 0, "payload.content-relations": 1, "payload.content-many": 2 }[manifest.schema.writePolicies.configuration.profile])) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   }
   const schema = yield* createApplicationRelationSchemaAuthorityPort(controlDb).resolve({
@@ -87,7 +88,7 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
   if (!sameBindingValue(projection, frame.application)) return yield* Effect.fail(cmsError("bindingChanged"));
   if (frame.payloadContent === null || (frame.payloadLifecycle !== null && preferenceTarget === undefined) ||
     (frame.payloadLifecycle === null && preferenceTarget !== undefined) || frame.commerce !== null ||
-    projection.readiness.kind !== "policy" || projection.readiness.relationCount > 1) {
+    projection.readiness.kind !== "policy" || projection.readiness.relationCount > 2) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   }
   const schema = application.schema;

@@ -24,8 +24,8 @@ export const verifyPayloadPreferenceBinding = Effect.fn("PayloadPreferences.veri
   const content = frame.payloadContent;
   if (binding === null || content === null || frame.commerce !== null) return yield* Effect.fail(bindingError("unsupportedProfile"));
   const count = frame.application.readiness.kind === "policy" ? frame.application.readiness.relationCount : -1;
-  if (count !== 0 && count !== 1) return yield* Effect.fail(bindingError("unsupportedProfile"));
-  const expected = yield* capturePayloadPreferenceProfile(binding.installation.artifact.deploymentId, count === 0 ? "payload.scalar" : "payload.content-relations");
+  if (count !== 0 && count !== 1 && count !== 2) return yield* Effect.fail(bindingError("unsupportedProfile"));
+  const expected = yield* capturePayloadPreferenceProfile(binding.installation.artifact.deploymentId, count === 0 ? "payload.scalar" : count === 1 ? "payload.content-relations" : "payload.content-many");
   if (content.configSha256 !== expected.configSha256 || content.provenanceSha256 !== expected.provenanceSha256 ||
     !sameBindingValue(binding.installation.artifact, { ...expected.artifact.identity }) ||
     binding.profiles.length !== 1 || binding.profiles[0] === undefined || !sameBindingValue(binding.profiles[0], expected.profile) ||

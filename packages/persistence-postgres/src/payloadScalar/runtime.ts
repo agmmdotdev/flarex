@@ -5,8 +5,9 @@ import { capturePrivateJsonData } from "../privateJsonData";
 import { cmsError, CmsTransactionError } from "../cmsTransaction/model";
 import { defineCmsCommand, makeCmsHost, type CmsHost, type CmsHostInput, type CmsCommandContext } from "../cmsTransaction/host";
 import { makePayloadScalarAdapter, UnsupportedPayloadScalarCapability } from "./adapter";
-import { scalarPostsCollection, payloadScalarContentIdentity, payloadRelationContentIdentity } from "./profile";
+import { scalarPostsCollection, payloadScalarContentIdentity, payloadRelationContentIdentity, payloadManyContentIdentity } from "./profile";
 import type { PayloadContentProfile } from "./contract";
+import { payloadManyIds } from "./many";
 
 const projectPayloadFailure = (cause: unknown): Effect.Effect<never, CmsTransactionError> => {
   if (cause instanceof CmsTransactionError) return Effect.fail(cause);
@@ -84,7 +85,7 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
     if (Object.keys(args).some(key => !allowed.includes(key))) return yield* Effect.fail(cmsError("unsupportedProfile"));
     const depth = args.depth === undefined ? 0 : args.depth;
     if ((depth !== 0 && depth !== 1) ||
-      (depth === 1 && (profile !== "payload.content-relations" || !context.standaloneRead))) return yield* Effect.fail(cmsError("unsupportedProfile"));
+      (depth === 1 && (profile === "payload.scalar" || !context.standaloneRead))) return yield* Effect.fail(cmsError("unsupportedProfile"));
     if (args.where !== undefined && (!isJsonObject(args.where) || Object.entries(args.where).some(([key, value]) =>
       !["id", "title"].includes(key) || !isJsonObject(value) || Object.keys(value).join() !== "equals" || typeof value.equals !== "string"))) {
       return yield* Effect.fail(cmsError("invalidInput", new UnsupportedPayloadScalarCapability("where")));
@@ -97,11 +98,17 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
     const common = { collection: "posts", req, depth, overrideAccess: false } as const;
     const data = args.data;
     if ((operation === "create" || operation === "update") && (!isJsonObject(data) || Object.keys(data).some(key =>
-      !["title", "score", "enabled", "publishedAt", ...(profile === "payload.content-relations" ? ["relatedPost"] : [])].includes(key)))) {
+      !["title", "score", "enabled", "publishedAt", ...(profile !== "payload.scalar" ? ["relatedPost"] : []), ...(profile === "payload.content-many" ? ["relatedPosts"] : [])].includes(key)))) {
       return yield* Effect.fail(cmsError("unsupportedProfile", new UnsupportedPayloadScalarCapability("input fields")));
     }
     if (isJsonObject(data) && data.relatedPost !== undefined && data.relatedPost !== null && typeof data.relatedPost !== "string") {
       return yield* Effect.fail(cmsError("relationInvalid", new UnsupportedPayloadScalarCapability("relationship input")));
+    }
+    if (profile === "payload.content-many" && isJsonObject(data) && Object.hasOwn(data, "relatedPosts")) {
+      const ids = yield* Effect.fromResult(payloadManyIds(data.relatedPosts));
+      // Authenticate each canonical ID against the request's posts table before Payload normalization.
+      // Native finalization still owns target liveness and the complete pending-write relation delta.
+      if (ids.length > 0) yield* context.documents.getMany(context.context, context.transactionId, "posts", ids);
     }
     let call: () => Promise<unknown>;
     switch (operation) {
@@ -147,7 +154,7 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
   };
   const bind = Effect.fn("PayloadScalar.bind")(function* <Failure>(input: Omit<CmsHostInput<Failure>, "commands" | "expectedContentIdentity">): Effect.fn.Return<CmsHost, CmsTransactionError> {
     if (!live) return yield* Effect.fail(cmsError("closed"));
-    const host = yield* makeCmsHost({ ...input, commands: Object.values(commands), expectedContentIdentity: profile === "payload.scalar" ? payloadScalarContentIdentity : payloadRelationContentIdentity });
+    const host = yield* makeCmsHost({ ...input, commands: Object.values(commands), expectedContentIdentity: profile === "payload.scalar" ? payloadScalarContentIdentity : profile === "payload.content-many" ? payloadManyContentIdentity : payloadRelationContentIdentity });
     return {
       newRequestKey: host.newRequestKey,
       run: (key, command, args) => Effect.suspend(() => live ? host.run(key, command, args) : Effect.fail(cmsError("closed"))),

@@ -114,12 +114,12 @@ Use these sources in order:
 22. [`preflight/20-payload-content-relations-and-rebinding.md`](./preflight/20-payload-content-relations-and-rebinding.md)
     owns the implemented private optional-one Payload relation capability, including the
     missing same-owner configuration transition, exact combined rebinding and
-    native CMS relation publication. Many behavior remains gated.
+    native CMS relation publication. Existing-row many upgrades remain gated.
 23. [`preflight/21-payload-many-transition-and-bounded-population.md`](./preflight/21-payload-many-transition-and-bounded-population.md)
     owns implemented standalone depth-one forward population and the native
     distinction between an empty many array and an absent field.
 24. [`preflight/22-payload-many-installation-and-migration-boundary.md`](./preflight/22-payload-many-installation-and-migration-boundary.md)
-    proposes fresh-install many conformance and records the separate existing-row
+    implements fresh-install many conformance and records the separate existing-row
     conversion authority, serving exclusion and recovery gate.
 25. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
@@ -178,7 +178,7 @@ Preflight records:
 | [`preflight/18-application-table-write-policy.md`](./preflight/18-application-table-write-policy.md) | Private denial capability implemented | Policy-bearing canonical Application identity, new managed-table activation, retained ownership, authoring restrictions and authoritative denial before any CMS writer is admitted |
 | [`preflight/20-payload-content-relations-and-rebinding.md`](./preflight/20-payload-content-relations-and-rebinding.md) | Private optional-one Payload relation capability implemented | Authenticated scalar successor, exact combined binding, native relation integrity/publication and bounded cold ownership recovery |
 | [`preflight/21-payload-many-transition-and-bounded-population.md`](./preflight/21-payload-many-transition-and-bounded-population.md) | Private depth-one forward population implemented; many-transition direction proposed | Request-bound identity batching and consistent bounded reads; many-valued existing-row conversion requires a separate migration-host decision, and reverse joins remain gated |
-| [`preflight/22-payload-many-installation-and-migration-boundary.md`](./preflight/22-payload-many-installation-and-migration-boundary.md) | Researched proposal; implementation pending approval | Fresh-install many consumer proof next; existing-row conversion separately needs authenticated transformation, complete serving exclusion, durable progress and recovery |
+| [`preflight/22-payload-many-installation-and-migration-boundary.md`](./preflight/22-payload-many-installation-and-migration-boundary.md) | Private fresh-install many conformance implemented | Ordered many CRUD, bounded population, exact binding and retained recovery; existing-row conversion separately needs authenticated transformation, serving exclusion and durable progress |
 
 ## Current Architecture
 
@@ -356,7 +356,7 @@ has private Application-only and synthetic Medusa acceptance.
 | Application preservation | Post-core complete native mutation/OCC/replay/publication, query, SV-R Core and RQ01 scenarios pass on PGlite and ordinary-role PostgreSQL | Rerun after shared publication changes; Action/Task, live sync and hosted claims remain separate |
 | CMS request host and Application publication | Private CMS host, pending documents, row/relation materialization and publication implemented | Pinned Payload scalar CRUD and atomic preference cleanup publication proven under combined binding |
 | Application table write policy | Private denial capability implemented | Canonical ownership and ordinary Application journal/commit denial preserved; the separate private CMS participant owns managed writes |
-| Payload scalar and non-reactive relation proofs | Private pinned scalar/optional-one CRUD, depth-one standalone population, preference cleanup/publication and nested requests implemented | Optional-one relation CRUD, authenticated scalar successor, exact combined rebinding, native publication and bounded forward reads implemented. Many/Payload reverse joins and general parity remain gated |
+| Payload scalar and non-reactive relation proofs | Private pinned scalar/optional-one/fresh-many CRUD, depth-one standalone population, preference cleanup/publication and nested requests implemented | Native relation constraints, ordered many values and retained recovery proven privately. Existing-row many upgrades, Payload reverse joins and general parity remain gated |
 | Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
@@ -461,8 +461,8 @@ implements authenticated configuration advancement, exact rebinding and native
 CMS publication. The [bounded population capability](./preflight/21-payload-many-transition-and-bounded-population.md)
 implements depth-one standalone forward reads over that relation. The
 [migration-host assessment](./preflight/22-payload-many-installation-and-migration-boundary.md)
-proposes fresh-install many conformance next; existing-row conversion remains
-a separate authority and recovery capability. Reverse joins retain their own
-query and response gate. This ordering does not complete
+implements fresh-install many conformance; existing-row conversion remains
+a separate authority and recovery capability. Bounded Payload reverse joins
+are the next consumer preflight, with their own query and response gate. This does not complete
 the broader Payload relation prerequisite for Medusa.
 Public framework adapters, SDKs, runtime routes and production remain gated.

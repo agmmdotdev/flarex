@@ -8,6 +8,7 @@ import { cmsError, type CmsTransactionError, type CmsPresentedTransactionId } fr
 import type { CmsCommandContext } from "../cmsTransaction/host";
 import type { PayloadContentProfile } from "./contract";
 import { makePayloadPopulation, payloadPopulationIds } from "./population";
+import { payloadManyIds } from "./many";
 
 export class UnsupportedPayloadScalarCapability extends APIError {
   constructor(readonly capability: string) { super(`Unsupported private Payload scalar capability: ${capability}`, 400); }
@@ -55,7 +56,13 @@ const where = (input: unknown): ScalarPredicate => {
 const payloadDocument = (value: Json, profile: PayloadContentProfile): Record<string, Json> & { id: string } => {
   if (!isJsonObject(value) || typeof value._id !== "string") throw new Error("Invalid admitted CMS document");
   const { _id, _creationTime, ...fields } = value;
-  return { ...fields, ...(profile === "payload.content-relations" ? { relatedPost: fields.relatedPost ?? null } : {}), id: _id };
+  const document = { ...fields, ...(profile !== "payload.scalar" ? { relatedPost: fields.relatedPost ?? null } : {}), id: _id };
+  if (profile === "payload.content-many") {
+    // Payload populates array slots in place. Give it an owned copy, never the immutable CMS value.
+    // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - The foreign document projection throws typed corruption for invalid stored relation values.
+    return { ...document, relatedPosts: [...Result.getOrThrow(payloadManyIds(fields.relatedPosts).pipe(Result.mapError(cause => cmsError("storedCorruption", cause))))] };
+  }
+  return document;
 };
 const payloadFields = (profile: PayloadContentProfile, input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => {
   const normalized: Record<string, unknown> = {};
@@ -64,10 +71,15 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
       if (value !== undefined && value !== expectedId) throw new UnsupportedPayloadScalarCapability("caller-selected identity");
       continue;
     }
-    if (key === "relatedPost" && profile === "payload.content-relations") {
+    if (key === "relatedPost" && profile !== "payload.scalar") {
       if (value === null || value === undefined) continue;
       if (typeof value !== "string") throw new UnsupportedPayloadScalarCapability("relation identity");
       normalized[key] = value;
+      continue;
+    }
+    if (key === "relatedPosts" && profile === "payload.content-many") {
+      // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload's adapter requires a throwing parser over the owned array decoder.
+      normalized[key] = Result.getOrThrow(payloadManyIds(value));
       continue;
     }
     if (!["title", "score", "enabled", "publishedAt", "createdAt", "updatedAt"].includes(key)) throw new UnsupportedPayloadScalarCapability("document fields");
@@ -78,6 +90,7 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
     } else normalized[key] = value;
   }
   if (creationTimestamp !== undefined) {
+    if (profile === "payload.content-many") normalized.relatedPosts ??= [];
     normalized.createdAt ??= creationTimestamp;
     normalized.updatedAt ??= creationTimestamp;
   }
@@ -187,7 +200,7 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
     updateOne: async args => { const state = admit(args); const prior = args.id === undefined ? await one(args) : null;
       const id = args.id ?? prior?.id;
       if (typeof id !== "string") return unsupported("missing update identity");
-      if (profile === "payload.content-relations" && args.data.relatedPost === null) {
+      if (profile !== "payload.scalar" && args.data.relatedPost === null) {
         const priorDocument = await run(state, state.context.documents.get(state.context.context, transactionId(state), id));
         if (priorDocument === null) throw new Error("Payload update lost its admitted document");
         const { _id, _creationTime, relatedPost: _relatedPost, ...retained } = priorDocument;
@@ -208,9 +221,9 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
     updateGlobal: deferred, updateGlobalVersion: deferred, updateJobs: deferred, updateMany: deferred, updateVersion: deferred, upsert: deferred,
   } satisfies BaseDatabaseAdapter) };
   const within = async <Value>(context: CmsCommandContext, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>, populate = false) => {
-    if (populate && (!context.standaloneRead || profile !== "payload.content-relations")) throw new UnsupportedPayloadScalarCapability("population request");
+    if (populate && (!context.standaloneRead || profile === "payload.scalar")) throw new UnsupportedPayloadScalarCapability("population request");
     const state: RequestBridge = { context, request, signal, live: !signal.aborted,
-      population: populate ? makePayloadPopulation() : null, semaphore: Semaphore.makeUnsafe(1) };
+      population: populate ? makePayloadPopulation(profile) : null, semaphore: Semaphore.makeUnsafe(1) };
     const abort = () => { state.live = false; };
     signal.addEventListener("abort", abort, { once: true });
     try { return await current.run(state, work); } finally { state.live = false; signal.removeEventListener("abort", abort); }

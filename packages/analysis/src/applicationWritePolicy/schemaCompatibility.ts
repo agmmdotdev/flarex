@@ -16,8 +16,12 @@ export function validateApplicationWritePolicySchema(
       configured.fields.some(field => {
         if (!Object.hasOwn(validator.value, field.name)) return true;
         const declared = validator.value[field.name];
-        if (field.kind === "relationship") return declared === undefined || !declared.optional ||
-          declared.fieldType.type !== "id" || declared.fieldType.tableName !== field.target;
+        if (field.kind === "relationship") {
+          if (field.cardinality === "one") return declared === undefined || !declared.optional ||
+            declared.fieldType.type !== "id" || declared.fieldType.tableName !== field.target;
+          return declared === undefined || declared.optional || declared.fieldType.type !== "array" ||
+            declared.fieldType.value.type !== "id" || declared.fieldType.value.tableName !== field.target;
+        }
         const expected = field.kind === "text" || field.kind === "date" ? "string" : field.kind;
         return declared === undefined || declared.optional || declared.fieldType.type !== expected;
       })) {
@@ -26,13 +30,22 @@ export function validateApplicationWritePolicySchema(
       }));
     }
   }
-  if (policies.configuration.profile === "payload.content-relations") {
+  if (policies.configuration.profile !== "payload.scalar") {
     const declaration = relations[0]?.declaration;
-    if (relations.length !== 1 || declaration?.source.table !== "posts" || declaration.source.path[0].name !== "relatedPost" ||
+    if (relations.length !== (policies.configuration.profile === "payload.content-many" ? 2 : 1) || declaration?.source.table !== "posts" || declaration.source.path[0].name !== "relatedPost" ||
       declaration.source.forwardName !== "relatedPost" || declaration.target.table !== "posts" ||
       declaration.value.cardinality !== "one" || declaration.value.required || declaration.localized ||
       declaration.inverse.cardinality !== "many" || declaration.inverse.name !== null || declaration.onTargetDelete !== "restrict") {
       return Result.fail(new ApplicationWritePolicyError({ reason: "configurationMismatch", path: "configuration.relations" }));
+    }
+    if (policies.configuration.profile === "payload.content-many") {
+      const many = relations[1]?.declaration;
+      if (many?.source.table !== "posts" || many.source.path.length !== 1 || many.source.path[0]?.name !== "relatedPosts" ||
+        many.source.forwardName !== "relatedPosts" || many.target.table !== "posts" || many.value.cardinality !== "many" ||
+        many.value.minItems !== 0 || many.value.maxItems !== 32 || !many.value.ordered || many.localized || many.inverse.cardinality !== "many" ||
+        many.inverse.name !== null || many.onTargetDelete !== "restrict") {
+        return Result.fail(new ApplicationWritePolicyError({ reason: "configurationMismatch", path: "configuration.relations" }));
+      }
     }
   } else if (relations.some(relation => policies.configuration.tables.some(table => table.logicalTableName === relation.declaration.source.table))) {
     return Result.fail(new ApplicationWritePolicyError({ reason: "configurationMismatch", path: "configuration.relations" }));

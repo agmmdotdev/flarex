@@ -38,6 +38,7 @@ export async function payloadRelationScenario(input: {
   hostInput: Omit<CmsHostInput<unknown>, "commands">;
   seed: (id: string, preferences: readonly string[]) => Promise<void>;
   inventory: () => Promise<unknown>;
+  reopen?: () => Promise<void>;
 }) {
   const { fixture, bindings, hostInput } = input;
   const db = fixture.persistence.drizzle;

@@ -15,7 +15,8 @@ export function scalarPostsCollection(profile: PayloadContentProfile = "payload.
       { name: "score", type: "number", required: true, defaultValue: 0 },
       { name: "enabled", type: "checkbox", required: true, defaultValue: false },
       { name: "publishedAt", type: "date", required: true },
-      ...(profile === "payload.content-relations" ? [{ name: "relatedPost", type: "relationship", relationTo: "posts", hasMany: false, required: false } as const] : []),
+      ...(profile !== "payload.scalar" ? [{ name: "relatedPost", type: "relationship", relationTo: "posts", hasMany: false, required: false } as const] : []),
+      ...(profile === "payload.content-many" ? [{ name: "relatedPosts", type: "relationship", relationTo: "posts", hasMany: true, required: false, maxRows: 32, defaultValue: [] } as const] : []),
     ] };
 }
 
@@ -28,3 +29,5 @@ export const payloadScalarConfiguration: PayloadConfiguration = {
 export const payloadScalarContentIdentity = Object.freeze({ configSha256: digest(payloadScalarConfiguration), provenanceSha256 });
 export const payloadRelationConfiguration = payloadContentConfiguration("payload.content-relations", provenanceSha256);
 export const payloadRelationContentIdentity = Object.freeze({ configSha256: digest(payloadRelationConfiguration), provenanceSha256 });
+export const payloadManyConfiguration = payloadContentConfiguration("payload.content-many", provenanceSha256);
+export const payloadManyContentIdentity = Object.freeze({ configSha256: digest(payloadManyConfiguration), provenanceSha256 });

@@ -2,6 +2,7 @@ import { Result } from "effect";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { cmsError, cmsLimits, type CmsTransactionError } from "../cmsTransaction/model";
 import { capturePrivateJsonData } from "../privateJsonData";
+import { payloadRelatedPostsField, type PayloadContentProfile } from "./contract";
 
 export const maximumPayloadPopulationTargets = 32;
 
@@ -25,7 +26,7 @@ export function payloadPopulationIds(input: unknown): Result.Result<readonly str
 }
 
 /** One root read owns this ledger; it is never shared across requests or writes. */
-export function makePayloadPopulation() {
+export function makePayloadPopulation(profile: PayloadContentProfile = "payload.content-relations") {
   let registered = false;
   const references = new Map<string, number>();
   let rootBytes = 0;
@@ -37,11 +38,18 @@ export function makePayloadPopulation() {
         if (documents.length > cmsLimits.pageRows) return yield* Result.fail(cmsError("limitExceeded"));
         for (const document of documents) {
           rootBytes += (yield* capturePrivateJsonData(document, cmsLimits.documentBytes, cmsError)).bytes;
-          const id = document.relatedPost;
-          if (id === null || id === undefined) continue;
-          if (typeof id !== "string") return yield* Result.fail(cmsError("storedCorruption", "invalid forward identity"));
-          references.set(id, (references.get(id) ?? 0) + 1);
-          if (references.size > maximumPayloadPopulationTargets) return yield* Result.fail(cmsError("limitExceeded"));
+          const many = profile === "payload.content-many" ? document.relatedPosts : [];
+          if (!Array.isArray(many) || many.length > payloadRelatedPostsField.maxItems || new Set(many).size !== many.length) {
+            return yield* Result.fail(cmsError("storedCorruption", "invalid many identities"));
+          }
+          const single = document.relatedPost;
+          const ids = single === null || single === undefined ? many : [single, ...many];
+          // At most 32 roots, each with 32 many occurrences and one optional-one occurrence.
+          for (const id of ids) {
+            if (typeof id !== "string") return yield* Result.fail(cmsError("storedCorruption", "invalid forward identity"));
+            references.set(id, (references.get(id) ?? 0) + 1);
+            if (references.size > maximumPayloadPopulationTargets) return yield* Result.fail(cmsError("limitExceeded"));
+          }
         }
         if (rootBytes > cmsLimits.commandBytes) return yield* Result.fail(cmsError("limitExceeded"));
       });

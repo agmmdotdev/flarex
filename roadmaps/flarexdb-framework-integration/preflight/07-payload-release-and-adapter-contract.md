@@ -284,7 +284,9 @@ one or `hasMany` values, row bounds, population depth, and dynamic
 
 The implemented first relation slice is top-level, nonlocalized, monomorphic
 optional-one `posts.relatedPost`, at depth zero. The broader one/many milestone
-remains incomplete. See the [exact successor contract](./20-payload-content-relations-and-rebinding.md). Polymorphism, reverse join fields, arbitrary population/depth, dynamic
+now also has [fresh-install ordered many conformance](./22-payload-many-installation-and-migration-boundary.md)
+and bounded standalone depth-one population. Existing-row many upgrades and
+Payload reverse joins remain incomplete. See the [exact optional-one successor contract](./20-payload-content-relations-and-rebinding.md). Polymorphism, reverse join fields, arbitrary population/depth, dynamic
 filters, localization, arrays/blocks, and relationship query ordering/counting
 remain deferred.
 
@@ -402,8 +404,9 @@ field paths and uniqueness, pending reads, nested rollback and retained replay
 are exercised through actual Local API calls. Positive `limit` remains bounded
 when `pagination: false`, matching the pinned [find implementation](https://github.com/payloadcms/payload/blob/fea6f8a47a50ff1330d8a5071b43e7dcffb97b22/packages/drizzle/src/find/findMany.ts).
 Caller-supplied limit zero, broader operators and projections remain refused.
-The relation profile additionally admits depth-one standalone `findByID`/`find`
-through the [bounded population contract](./21-payload-many-transition-and-bounded-population.md).
+The relation profiles additionally admit depth-one standalone `findByID`/`find`
+through the [bounded population contract](./21-payload-many-transition-and-bounded-population.md)
+and its [fresh many extension](./22-payload-many-installation-and-migration-boundary.md).
 Only its request-authenticated loader may use the pinned internal `id.in`,
 unpaginated limit-zero form; this does not widen caller query arguments.
 
@@ -462,7 +465,9 @@ The [content-relation preflight](./20-payload-content-relations-and-rebinding.md
 implements an optional-one, depth-zero `posts` self-relation with authenticated
 scalar-to-relation activation, combined rebinding and native CMS publication.
 The [many-transition and population proposal](./21-payload-many-transition-and-bounded-population.md)
-implements bounded depth-one standalone reads. Many-valued existing-row
+implements bounded depth-one standalone reads. The [many installation contract](./22-payload-many-installation-and-migration-boundary.md)
+implements fresh-only many CRUD, ordering, native constraints and population.
+Many-valued existing-row
 conversion requires a migration-host decision; reverse joins need their own
 query/response contract. Many conversion and reverse joins remain unimplemented.
 

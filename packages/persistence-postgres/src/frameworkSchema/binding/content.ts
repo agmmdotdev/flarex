@@ -14,7 +14,7 @@ export const verifyPayloadContentBinding = Effect.fn("DataBindingContent.verify"
     if (content === null) return;
     if (
       frame.application.readiness.kind !== "policy" ||
-      frame.application.readiness.relationCount > 1 ||
+      frame.application.readiness.relationCount > 2 ||
       !sameBindingValue(content.application, frame.application)
     ) {
       return yield* Effect.fail(bindingError("unsupportedProfile"));

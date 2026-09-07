@@ -39,15 +39,22 @@ const OptionalPostRelationField = Schema.Struct({
   onTargetDelete: Schema.Literal("restrict"),
 }).annotate(StrictStructOptions);
 
+const ManyPostRelationField = Schema.Struct({
+  name: Schema.Literal("relatedPosts"), kind: Schema.Literal("relationship"),
+  target: Schema.Literal("posts"), cardinality: Schema.Literal("many"),
+  minItems: Schema.Literal(0), maxItems: Schema.Literal(32),
+  localized: Schema.Literal(false), onTargetDelete: Schema.Literal("restrict"),
+}).annotate(StrictStructOptions);
+
 /** A private declarative profile, never a serialized executable Payload config. */
 export const PayloadConfigurationSchema = Schema.Struct({
   format: Schema.Literal("flarex.payload-configuration"),
   version: Schema.Literal(1),
-  profile: Schema.Literals(["payload.scalar", "payload.content-relations"]),
+  profile: Schema.Literals(["payload.scalar", "payload.content-relations", "payload.content-many"]),
   provenanceSha256: Digest,
   tables: Schema.Array(Schema.Struct({
     logicalTableName: Identity,
-    fields: Schema.Array(Schema.Union([ScalarField, OptionalPostRelationField])).check(Schema.isMaxLength(64)),
+    fields: Schema.Array(Schema.Union([ScalarField, OptionalPostRelationField, ManyPostRelationField])).check(Schema.isMaxLength(64)),
   }).annotate(StrictStructOptions)).check(
     Schema.isMinLength(1),
     Schema.isMaxLength(APPLICATION_WRITE_POLICY_MAXIMUM_TABLES),
@@ -56,8 +63,11 @@ export const PayloadConfigurationSchema = Schema.Struct({
   const relations = config.tables.flatMap(table => table.fields.filter(field => field.kind === "relationship"));
   return config.profile === "payload.scalar"
     ? relations.length === 0 ? undefined : "Scalar profile cannot declare relationships"
-    : config.tables.length === 1 && config.tables[0]?.logicalTableName === "posts" && relations.length === 1
-      ? undefined : "Expected the single optional posts relationship";
+    : config.tables.length === 1 && config.tables[0]?.logicalTableName === "posts" &&
+      relations.length === (config.profile === "payload.content-many" ? 2 : 1) &&
+      relations.filter(field => field.name === "relatedPost").length === 1 &&
+      relations.filter(field => field.name === "relatedPosts").length === (config.profile === "payload.content-many" ? 1 : 0)
+      ? undefined : "Expected the exact posts relationship profile";
 }));
 export type PayloadConfiguration = typeof PayloadConfigurationSchema.Type;
 

@@ -122,7 +122,7 @@ exact fencing or evidence mechanics only through its own preflight. No family
 shares one giant step union or compatibility classifier.
 
 The [Payload many installation/migration assessment](./preflight/22-payload-many-installation-and-migration-boundary.md)
-proposes fresh many-relation conformance without extending this structural
+implements fresh many-relation conformance without extending this structural
 coordinator. It separately records the requirements for a later scope-bound
 document conversion: serving exclusion, authenticated old/final validators,
 normal row publication, atomic progress and recovery through exact rebinding.

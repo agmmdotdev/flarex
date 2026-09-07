@@ -1,6 +1,6 @@
 {
   "kind": "PayloadReleaseCapabilityMap",
-  "status": "privateScalarAndOptionalOneConformanceImplemented",
+  "status": "privateScalarOptionalOneAndFreshManyConformanceImplemented",
   "release": {
     "package": "payload",
     "version": "3.88.0",
@@ -159,7 +159,7 @@
     "firstImplementation": "optionalOnePostsSelfRelationWithAuthenticatedSuccessorRebindingAndNativePublication",
     "firstDepth": 0,
     "manyUpgradeRequiresExistingRowTransition": true,
-    "manyFreshInstallationProposal": "22-payload-many-installation-and-migration-boundary.md",
+    "manyFreshInstallationContract": "22-payload-many-installation-and-migration-boundary.md",
     "admittedShape": [
       "topLevel",
       "nonlocalized",
@@ -168,7 +168,7 @@
       "depthZero"
     ],
     "deferredShape": [
-      "many",
+      "manyExistingRowUpgrade",
       "requiredRelations",
       "polymorphic",
       "reverseJoin",
@@ -192,6 +192,22 @@
     "manyTransition": "separatePayloadMigrationHostDecisionRequired",
     "reverseJoin": "deferred"
   },
+  "manyProfile": {
+    "status": "privateFreshInstallImplemented",
+    "preflight": "22-payload-many-installation-and-migration-boundary.md",
+    "configurationProfile": "payload.content-many",
+    "field": "posts.relatedPosts",
+    "maximumItems": 32,
+    "ordered": true,
+    "duplicates": "forbid",
+    "createOmission": "emptyArray",
+    "updateOmission": "preserve",
+    "explicitEmptyArray": "clear",
+    "maximumStandalonePopulationDepth": 1,
+    "maximumDistinctPopulationTargetsPerRequest": 32,
+    "existingRowUpgrade": "refusedIncludingEmptyRetainedOwnership",
+    "dataMigrationAuthority": false
+  },
   "rejectedBehavior": [
     "developerWritesToCmsOwnedTables",
     "payloadDbCallsAsCmsCommands",
@@ -209,7 +225,7 @@
   },
   "activation": {
     "authorized": false,
-    "nextBehaviorSlice": "freshInstallManyConformancePendingApproval",
+    "nextBehaviorSlice": "boundedPayloadReverseJoinPreflight",
     "payloadContentUsesRelationalSchema": false
   },
   "privateRuntimeEvidence": {
@@ -228,7 +244,7 @@
     ],
     "delete": "atomicContentAndBoundedPreferenceDeletionWithExactCombinedBinding",
     "completeCrud": true,
-    "nextOwnerProposal": "22-payload-many-installation-and-migration-boundary.md",
+    "currentRelationContract": "22-payload-many-installation-and-migration-boundary.md",
     "publicExport": false,
     "production": false,
     "preferenceLifecycle": "privateStorageBindingCleanupAtomicPublicationAndRetentionImplemented",

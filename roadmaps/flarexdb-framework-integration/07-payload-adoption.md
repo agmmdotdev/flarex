@@ -14,8 +14,11 @@ routing. The [content-relation preflight](./preflight/20-payload-content-relatio
 implements optional `posts.relatedPost` at depth zero, authenticated same-owner
 configuration advancement, exact combined rebinding and native CMS publication.
 The [population contract](./preflight/21-payload-many-transition-and-bounded-population.md)
-implements bounded depth-one standalone forward reads over that relation.
-Many-valued existing-row conversion remains gated. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
+implements bounded depth-one standalone forward reads over that relation. The
+[fresh many profile](./preflight/22-payload-many-installation-and-migration-boundary.md)
+adds ordered `relatedPosts` CRUD and depth-one population with exact fresh
+ownership/binding and native publication. Existing-row conversion and Payload
+reverse joins remain gated. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation
@@ -310,9 +313,11 @@ implements depth-one standalone reads. An existing-row many-valued successor
 requires explicit conversion and migration-host authority; adapter defaults and
 edge backfill cannot supply that authority. The [installation/migration
 assessment](./preflight/22-payload-many-installation-and-migration-boundary.md)
-proposes fresh-install many conformance next, with existing-row upgrades deferred
+implements fresh-install many conformance, with existing-row upgrades deferred
 until their supported obligation and authority are established. Many-valued
-fields and reverse joins remain follow-ups within the broader milestone below.
+fields are supported by the fresh profile; reverse joins remain a follow-up
+within the broader milestone below.
+
 - Capture a new independently digestible relation-bearing Payload
   configuration/provenance artifact. The stable Payload policy ID and ordinary
   write-owner mode may remain unchanged, but the configuration digest must
@@ -334,8 +339,9 @@ fields and reverse joins remain follow-ups within the broader milestone below.
 
 ### Native relation adoption
 
-Optional-one self-relations are implemented through Payload CRUD, with native
-committed reverse identity reads as an independent storage proof. The remaining
+Optional-one and fresh-install many self-relations are implemented through
+Payload CRUD and bounded forward population, with native committed reverse
+identity reads as independent storage proof. The remaining
 adoption milestone must establish these wider guarantees:
 
 - top-level, nonlocalized, monomorphic one/many values;
@@ -345,6 +351,11 @@ adoption milestone must establish these wider guarantees:
 - bounded forward identity reads; and
 - bounded reverse identity reads without unsupported filtering, sorting,
   counting, or orderability.
+
+These native behaviors have private fresh-many consumer evidence. Completing
+the broader milestone still requires Payload reverse-join configuration,
+admission and response shaping; native incoming-source reads alone do not
+establish that adapter behavior.
 
 The Payload adapter separately composes bounded forward population, reverse
 join behavior, authorization, and response shaping over those native

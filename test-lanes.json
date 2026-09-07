@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "testFileGroups": {
+    "framework-payload-many-pglite": ["test/payloadMany.test.ts", "test/payloadManyUpgrade.test.ts", "test/payloadManyValues.test.ts"],
+    "framework-payload-many-postgres": ["test/payloadMany.postgres.test.ts"],
     "framework-payload-population-postgres": ["test/payloadPopulation.postgres.test.ts"],
     "framework-payload-population-pglite": ["test/payloadPopulation.test.ts", "test/payloadPopulationValues.test.ts"],
     "framework-payload-relations-postgres": ["test/payloadRelation.postgres.test.ts"],
@@ -138,6 +140,8 @@
     ]
   },
   "selectors": {
+    "framework-payload-many-pglite": ["framework-payload-many-pglite"],
+    "framework-payload-many-postgres": ["framework-payload-many-postgres"],
     "framework-payload-population-postgres": ["framework-payload-population-postgres"],
     "framework-payload-population-pglite": ["framework-payload-population-pglite"],
     "framework-payload-relations-postgres": ["framework-payload-relations-postgres"],
@@ -249,6 +253,67 @@
     ]
   },
   "lanes": [
+    {
+      "id": "framework-payload-many-pglite",
+      "category": "pglite",
+      "proof": "Private fresh-install Payload many relations: populated CRUD, ordered bounded population, native invariants, exact binding and retained recovery. Existing-row upgrades remain unsupported.",
+      "prerequisites": [
+        {
+          "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER",
+          "equals": "true"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-payload-many-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-payload-many-pglite"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "framework-payload-many-postgres",
+      "category": "postgres",
+      "proof": "Private fresh-install Payload many relations: populated CRUD, ordered bounded population, native invariants, exact binding and retained recovery. Existing-row upgrades remain unsupported.",
+      "prerequisites": [
+        {
+          "name": "PAYLOAD_DISABLE_DEPENDENCY_CHECKER",
+          "equals": "true"
+        },
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-framework-payload-many-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "framework-payload-many-postgres"
+            },
+            "--no-file-parallelism",
+            "--maxWorkers=1",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
     {
       "id": "framework-payload-population-pglite",
       "category": "pglite",
