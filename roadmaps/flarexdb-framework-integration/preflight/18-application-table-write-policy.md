@@ -9,6 +9,14 @@ This is the concrete write-policy prerequisite of the
 It closes the policy decision in one capability, without another preliminary
 value-only or storage-only approval gate.
 
+The implemented policy intentionally rejects changes to an established managed
+claim's configuration/provenance/policy digests. Consequently, a relation-bearing
+successor cannot currently activate even with the same Payload owner. The
+[content-relation proposal](./20-payload-content-relations-and-rebinding.md#authenticated-successor-and-rebinding)
+defines the separately proposed bounded same-owner transition and its history,
+recovery and denial proofs. It does not relax current admission until approved
+and implemented; arbitrary configuration changes and owner transfers stay closed.
+
 The private source producer, Manifest V3 analysis, durable binding/publication,
 readiness and activation now preserve canonical `writePolicies` evidence and
 `writePolicySetSha256`. Activation installs authenticated retained ownership in

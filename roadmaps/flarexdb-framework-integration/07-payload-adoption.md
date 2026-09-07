@@ -10,7 +10,10 @@ Delete uses exact `payload-preferences` cleanup with atomic lifecycle facts.
 Content-only composition still rejects cleanup with full rollback. The [focused lifecycle proposal](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
 now implements private preference storage, binding, and bounded CMS cleanup
 with authenticated receipts, atomic publication, and exact Payload delete
-routing. The next gate is the bounded content-relation preflight. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
+routing. The [content-relation preflight](./preflight/20-payload-content-relations-and-rebinding.md)
+proposes one optional self-relation with authenticated same-owner configuration
+advancement, exact rebinding and native CMS publication as one capability.
+Implementation awaits approval. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation
@@ -293,6 +296,15 @@ This gate must pass before the first CMS-managed write is accepted:
   first profile. Later admission must resolve their effect/retry semantics.
 
 ### Relation-bearing Application candidate and overlay rebinding
+
+The [focused preflight](./preflight/20-payload-content-relations-and-rebinding.md)
+owns the proposed first implementation and its prerequisite owner change.
+Current retained ownership rejects changed configuration/policy digests, and
+preference binding pins the scalar content digest. Neither currently admits
+this successor. The proposed capability preserves owner identity and old encoded
+contracts while authenticating one additive optional relationship transition.
+It includes the first real relation CRUD proof; many-valued fields and population
+remain follow-ups within the broader milestone below.
 
 - Capture a new independently digestible relation-bearing Payload
   configuration/provenance artifact. The stable Payload policy ID and ordinary

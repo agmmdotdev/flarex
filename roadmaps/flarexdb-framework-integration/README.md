@@ -111,7 +111,11 @@ Use these sources in order:
     records the real Payload delete blocker and accepted private lifecycle
     storage/binding, bounded cleanup/receipts, atomic lifecycle publication and
     exact Payload delete routing.
-22. Current code, migrations, any source snapshot already admitted by its own
+22. [`preflight/20-payload-content-relations-and-rebinding.md`](./preflight/20-payload-content-relations-and-rebinding.md)
+    proposes the first optional-one Payload relation capability, including the
+    missing same-owner configuration transition, exact combined rebinding and
+    native CMS relation publication. Implementation awaits approval.
+23. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -342,7 +346,7 @@ has private Application-only and synthetic Medusa acceptance.
 | Application preservation | Post-core complete native mutation/OCC/replay/publication, query, SV-R Core and RQ01 scenarios pass on PGlite and ordinary-role PostgreSQL | Rerun after shared publication changes; Action/Task, live sync and hosted claims remain separate |
 | CMS request host and Application publication | Private scalar host, pending documents, materialization and publication implemented on both drivers | Pinned Payload scalar CRUD and atomic preference cleanup publication proven under combined binding |
 | Application table write policy | Private denial capability implemented | Canonical ownership and ordinary Application journal/commit denial preserved; the separate private CMS participant owns managed writes |
-| Payload scalar and non-reactive relation proofs | Private pinned scalar CRUD, preference cleanup/publication and nested hooks proven on both drivers | Advance to the bounded content-relation preflight and candidate/rebinding proof; general Payload parity remains gated |
+| Payload scalar and non-reactive relation proofs | Private pinned scalar CRUD, preference cleanup/publication and nested hooks proven on both drivers | Optional-one relation preflight proposed; same-owner configuration advancement, combined rebinding and native CMS publication await approval. Many/population/reverse behavior and general parity remain gated |
 | Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
@@ -442,5 +446,7 @@ CRUD and nested hooks. Combined content/lifecycle admission enables
 actual delete with atomic preference facts. The [lifecycle contract](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
 implements lifecycle storage, binding, bounded cleanup receipts, atomic
 publication and exact adapter routing. Content-only composition still refuses
-cleanup. The next behavior gate is the bounded content-relation preflight.
+cleanup. The [next proposed capability](./preflight/20-payload-content-relations-and-rebinding.md)
+adds one optional content relation, including authenticated configuration
+advancement, exact rebinding and native CMS publication. It awaits approval.
 Public framework adapters, SDKs, runtime routes and production remain gated.

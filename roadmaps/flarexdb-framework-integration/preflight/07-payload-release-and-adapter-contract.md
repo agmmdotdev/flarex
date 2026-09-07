@@ -443,6 +443,12 @@ Stop for a new preflight if implementation would:
 
 ## Remaining Integration Gates
 
+The [content-relation preflight](./20-payload-content-relations-and-rebinding.md)
+proposes an optional-one, depth-zero `posts` self-relation with scalar-to-relation
+activation and combined rebinding. It records the current configuration-retention,
+preference-digest and CMS publication blockers. This is a proposal, not current
+relationship conformance; many-valued fields, population and joins remain deferred.
+
 This audit, the exact Medusa source/capability audit, and the private value-only
 `RelationalSchema` contract are complete. Payload content does not compile into
 that contract, as recorded by
