@@ -114,8 +114,14 @@ Use these sources in order:
 22. [`preflight/20-payload-content-relations-and-rebinding.md`](./preflight/20-payload-content-relations-and-rebinding.md)
     owns the implemented private optional-one Payload relation capability, including the
     missing same-owner configuration transition, exact combined rebinding and
-    native CMS relation publication. Many/population behavior remains gated.
-23. Current code, migrations, any source snapshot already admitted by its own
+    native CMS relation publication. Many behavior remains gated.
+23. [`preflight/21-payload-many-transition-and-bounded-population.md`](./preflight/21-payload-many-transition-and-bounded-population.md)
+    owns implemented standalone depth-one forward population and the native
+    distinction between an empty many array and an absent field.
+24. [`preflight/22-payload-many-installation-and-migration-boundary.md`](./preflight/22-payload-many-installation-and-migration-boundary.md)
+    proposes fresh-install many conformance and records the separate existing-row
+    conversion authority, serving exclusion and recovery gate.
+25. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -172,6 +178,7 @@ Preflight records:
 | [`preflight/18-application-table-write-policy.md`](./preflight/18-application-table-write-policy.md) | Private denial capability implemented | Policy-bearing canonical Application identity, new managed-table activation, retained ownership, authoring restrictions and authoritative denial before any CMS writer is admitted |
 | [`preflight/20-payload-content-relations-and-rebinding.md`](./preflight/20-payload-content-relations-and-rebinding.md) | Private optional-one Payload relation capability implemented | Authenticated scalar successor, exact combined binding, native relation integrity/publication and bounded cold ownership recovery |
 | [`preflight/21-payload-many-transition-and-bounded-population.md`](./preflight/21-payload-many-transition-and-bounded-population.md) | Private depth-one forward population implemented; many-transition direction proposed | Request-bound identity batching and consistent bounded reads; many-valued existing-row conversion requires a separate migration-host decision, and reverse joins remain gated |
+| [`preflight/22-payload-many-installation-and-migration-boundary.md`](./preflight/22-payload-many-installation-and-migration-boundary.md) | Researched proposal; implementation pending approval | Fresh-install many consumer proof next; existing-row conversion separately needs authenticated transformation, complete serving exclusion, durable progress and recovery |
 
 ## Current Architecture
 
@@ -452,8 +459,10 @@ publication and exact adapter routing. Content-only composition still refuses
 cleanup. The [optional-one capability](./preflight/20-payload-content-relations-and-rebinding.md)
 implements authenticated configuration advancement, exact rebinding and native
 CMS publication. The [bounded population capability](./preflight/21-payload-many-transition-and-bounded-population.md)
-implements depth-one standalone forward reads over that relation. Many-valued
-existing-row conversion requires a separate migration-host decision; reverse
-joins retain their own query and response gate. This ordering does not complete
+implements depth-one standalone forward reads over that relation. The
+[migration-host assessment](./preflight/22-payload-many-installation-and-migration-boundary.md)
+proposes fresh-install many conformance next; existing-row conversion remains
+a separate authority and recovery capability. Reverse joins retain their own
+query and response gate. This ordering does not complete
 the broader Payload relation prerequisite for Medusa.
 Public framework adapters, SDKs, runtime routes and production remain gated.

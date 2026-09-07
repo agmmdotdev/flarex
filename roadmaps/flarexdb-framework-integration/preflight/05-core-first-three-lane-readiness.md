@@ -336,6 +336,14 @@ sidecar fact requires its own later commit-owner preflight.
 
 ### Payload native one/many relations
 
+The optional-one successor and depth-one population are implemented privately.
+The [many installation/migration assessment](./22-payload-many-installation-and-migration-boundary.md)
+proposes proving a fresh many-valued profile next. Its populated-row conformance
+must use the real Payload operations and shared native owners on both drivers.
+It does not prove an upgrade of existing optional-one rows. Such an upgrade
+retains a separate conversion-authority, serving-fence and recovery gate; it is
+not an additional Medusa prerequisite without a recorded supported obligation.
+
 First capture a new independently digestible relation-bearing Payload
 configuration/provenance artifact. Its stable policy ID and ordinary write-
 owner mode may remain unchanged, but its configuration digest must differ from

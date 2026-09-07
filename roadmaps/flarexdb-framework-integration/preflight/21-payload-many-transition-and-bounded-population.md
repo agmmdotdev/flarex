@@ -3,7 +3,9 @@
 ## Status And Recommendation
 
 Status: bounded forward population is implemented privately. The optional-many
-migration-host direction remains a proposal. The private
+migration-host direction remains deferred. The [installation and migration
+boundary](./22-payload-many-installation-and-migration-boundary.md) proposes a
+fresh private many consumer before an existing-row conversion host. The private
 optional-one capability in [preflight 20](./20-payload-content-relations-and-rebinding.md)
 is implemented. Its scalar successor, combined preference binding and depth-zero
 CRUD remain compatible serving contracts.
@@ -108,8 +110,12 @@ The migration-host preflight must make these decisions concrete before code:
    Prove both race orders with a writer and enforce the existing history budget.
 
 No migration-host implementation, new persisted progress record or native
-absence-policy change is authorized by this document. These unresolved owner
-decisions are why the next implementation uses the already-admitted relation.
+absence-policy change is authorized by this document. The [migration-host
+assessment](./22-payload-many-installation-and-migration-boundary.md#existing-row-conversion-contract-deferred)
+records the conversion authority, serving exclusion, progress and recovery
+requirements. It recommends fresh-install many conformance next because no
+supported deployed-data obligation is recorded. Fresh-only evidence must never
+be presented as an existing-row successor proof.
 
 ## Implemented Capability: Bounded Forward Population
 

@@ -158,7 +158,8 @@
     "preflight": "20-payload-content-relations-and-rebinding.md",
     "firstImplementation": "optionalOnePostsSelfRelationWithAuthenticatedSuccessorRebindingAndNativePublication",
     "firstDepth": 0,
-    "manyRequiresExistingRowTransition": true,
+    "manyUpgradeRequiresExistingRowTransition": true,
+    "manyFreshInstallationProposal": "22-payload-many-installation-and-migration-boundary.md",
     "admittedShape": [
       "topLevel",
       "nonlocalized",
@@ -208,7 +209,7 @@
   },
   "activation": {
     "authorized": false,
-    "nextBehaviorSlice": "optionalManyMigrationHostPreflight",
+    "nextBehaviorSlice": "freshInstallManyConformancePendingApproval",
     "payloadContentUsesRelationalSchema": false
   },
   "privateRuntimeEvidence": {
@@ -227,7 +228,7 @@
     ],
     "delete": "atomicContentAndBoundedPreferenceDeletionWithExactCombinedBinding",
     "completeCrud": true,
-    "nextOwnerProposal": "21-payload-many-transition-and-bounded-population.md",
+    "nextOwnerProposal": "22-payload-many-installation-and-migration-boundary.md",
     "publicExport": false,
     "production": false,
     "preferenceLifecycle": "privateStorageBindingCleanupAtomicPublicationAndRetentionImplemented",

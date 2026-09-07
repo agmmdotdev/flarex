@@ -306,10 +306,13 @@ revalidates the transition through retained authenticated catalog evidence.
 Application activation invalidates the old content overlay; exact combined
 content/lifecycle rebinding restores serving without a dual-writer interval.
 The [many-transition and population preflight](./preflight/21-payload-many-transition-and-bounded-population.md)
-implements depth-one standalone reads. Many-valued fields require an explicit
-existing-row conversion and migration-host authority; adapter defaults and edge
-backfill cannot supply that authority. Many-valued fields and reverse joins
-remain follow-ups within the broader milestone below.
+implements depth-one standalone reads. An existing-row many-valued successor
+requires explicit conversion and migration-host authority; adapter defaults and
+edge backfill cannot supply that authority. The [installation/migration
+assessment](./preflight/22-payload-many-installation-and-migration-boundary.md)
+proposes fresh-install many conformance next, with existing-row upgrades deferred
+until their supported obligation and authority are established. Many-valued
+fields and reverse joins remain follow-ups within the broader milestone below.
 - Capture a new independently digestible relation-bearing Payload
   configuration/provenance artifact. The stable Payload policy ID and ordinary
   write-owner mode may remain unchanged, but the configuration digest must
@@ -361,12 +364,17 @@ PostgreSQL evidence. This step makes no subscription or reconnect claim.
 
 ### Broader schema evolution and lifecycle migrations
 
-The first proposed many-valued content field needs this owner decision even
-though its Payload input is optional: native storage requires a present array.
+An existing-row upgrade to the first proposed many-valued content field needs
+this owner decision even though its Payload input is optional: native storage
+requires a present array. Fresh-install many conformance can be proved separately
+and cannot be used as evidence of such an upgrade.
 The [transition contract](./preflight/21-payload-many-transition-and-bounded-population.md#optional-many-existing-row-decision)
 records the serving fence, candidate validation, normal row publication,
 resumable conversion and recovery decisions that must precede implementation.
-No general migration engine or permanent dual writer is implied.
+The [migration-host assessment](./preflight/22-payload-many-installation-and-migration-boundary.md#existing-row-conversion-contract-deferred)
+also requires coverage of Application readers, candidate/prior validation,
+durable progress and recovery across activation and rebinding. No general
+migration engine or permanent dual writer is implied or currently authorized.
 
 - Publish content changes only through the authenticated Application
   Analysis/publication chain as Application schema candidates.
