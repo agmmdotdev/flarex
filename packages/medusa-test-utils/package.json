@@ -7,6 +7,11 @@
       "types": "./dist/pglite-module-test-persistence-adapter.d.ts",
       "source": "./src/pglite-module-test-persistence-adapter.ts",
       "default": "./dist/pglite-module-test-persistence-adapter.js"
+    },
+    "./mock-event-bus-service": {
+      "types": "./dist/mock-event-bus-service.d.ts",
+      "source": "./src/mock-event-bus-service.ts",
+      "default": "./dist/mock-event-bus-service.js"
     }
   },
   "license": "MIT",

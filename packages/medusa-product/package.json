@@ -16,13 +16,17 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@medusajs/deps": "workspace:*",
     "@medusajs/framework": "workspace:*",
-    "@medusajs/utils": "workspace:*",
     "@medusajs/types": "workspace:*",
-    "@medusajs/deps": "workspace:*"
+    "@medusajs/utils": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/faker": "5.5.9",
+    "faker": "5.5.3"
   }
 }

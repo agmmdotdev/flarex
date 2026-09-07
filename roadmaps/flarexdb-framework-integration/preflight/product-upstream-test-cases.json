@@ -1,0 +1,348 @@
+{
+  "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
+  "scope": "Two complete Product module-service test files; other Product suites are not registered.",
+  "cases": [
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit all related events when creating a product with full relations",
+      "status": "admitted",
+      "reason": "Admitted nested-create profile"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit cascade events when updating product with relations",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit all cascade delete events when soft deleting a product",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_VARIANT_CREATED event only when creating standalone variant",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_VARIANT_UPDATED event only when updating variant",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_TAG_CREATED event on createProductTags",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_TAG_UPDATED event on updateProductTags",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit appropriate events on upsertProductTags",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_TYPE_CREATED event on createProductTypes",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_TYPE_UPDATED event on updateProductTypes",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit appropriate events on upsertProductTypes",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_OPTION_CREATED event on createProductOptions",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_OPTION_UPDATED event on updateProductOptions",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit appropriate events on upsertProductOptions",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_OPTION_VALUE_UPDATED event on updateProductOptionValues",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_COLLECTION_CREATED event on createProductCollections",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_COLLECTION_UPDATED event on updateProductCollections",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit appropriate events on upsertProductCollections",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_CATEGORY_CREATED event on createProductCategories",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit PRODUCT_CATEGORY_UPDATED event on updateProductCategories",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit appropriate events on upsertProductCategories",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "title": "should emit delete events for all entity types via base service",
+      "status": "blocked",
+      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "test update performance",
+      "status": "upstream-skip",
+      "reason": "Skipped by pinned upstream suite"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should update multiple products",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should update a product and upsert relations that are not created yet",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should upsert variants (update one and create one)",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should preserve option and value identity on update",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should add relationships to a product",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should upsert a product type when type object is passed",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should replace relationships of a product",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should remove relationships of a product",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should throw an error when product ID does not exist",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should update, create and delete variants",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should do a partial update on the options of a variant successfully",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should create a variant with id that was passed if it does not exist",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should simultaneously update options and variants",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should throw an error when some tag id does not exist",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should throw an error when some category id does not exist",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should throw an error when collection id does not exist",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should throw an error when type id does not exist",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should throw if two variants have the same options combination",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should throw if a variant doesn't have all options set",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should throw if a variant uses a non-existing option",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should create a product",
+      "status": "blocked",
+      "reason": "Creates tags and populates tags/categories"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should throw because variant doesn't have all options set",
+      "status": "admitted",
+      "reason": "Admitted nested-create profile"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should soft delete a product and its cascaded relations",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should retrieve soft-deleted products if filtered on deleted_at",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should restore a soft deleted product and its cascaded relations",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should return a list of products scoped by collection id",
+      "status": "blocked",
+      "reason": "Requires collection or variant-option filters and related setup"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should return a list of products scoped by variant options",
+      "status": "blocked",
+      "reason": "Requires collection or variant-option filters and related setup"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should return empty array when querying for a collection that doesnt exist",
+      "status": "blocked",
+      "reason": "Requires collection or variant-option filters and related setup"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should create images with correct rank",
+      "status": "admitted",
+      "reason": "Admitted nested-create profile"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should update images with correct rank",
+      "status": "blocked",
+      "reason": "Requires standalone image creation or image update"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should delete images if empty array is passed on update",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should retrieve images in the correct order consistently",
+      "status": "blocked",
+      "reason": "Requires 1000-image graph beyond the 256-row bound"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should retrieve images ordered by rank",
+      "status": "blocked",
+      "reason": "Requires standalone image creation or image update"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "title": "should populate variant.images when variants.images relation is requested",
+      "status": "blocked",
+      "reason": "Requires unadmitted mutations, associations, or relation paths"
+    }
+  ]
+}

@@ -141,7 +141,9 @@ Use these sources in order:
     records implemented private nested Product creation, bounded population and transaction-buffered
     local event conformance. It records dispatcher ownership and defers the
     durable event storage/provider decision.
-30. Current code, migrations, any source snapshot already admitted by its own
+30. [`preflight/29-medusa-original-product-tests.md`](./preflight/29-medusa-original-product-tests.md)
+    records the original Product test runner and its explicit admitted/blocked case inventory.
+31. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -204,6 +206,7 @@ Preflight records:
 | [`preflight/25-medusa-currency-host-and-publication.md`](./preflight/25-medusa-currency-host-and-publication.md) | Implemented private Currency service and relational publication | Shared initialization/change metadata, live installation, borrowed managers, bounded queries, atomic publication/recovery and retention; broader modules and public activation remain gated |
 | [`preflight/26-medusa-product-schema-and-relationships.md`](./preflight/26-medusa-product-schema-and-relationships.md) | Fresh Product schema and physical relationships implemented | Ten pinned models produce thirteen tables through shared schema/install/readiness machinery; the bounded private service proof is recorded separately in record 28 |
 | [`preflight/28-medusa-product-create-and-event-delivery.md`](./preflight/28-medusa-product-create-and-event-delivery.md) | Implemented privately with PGlite and ordinary-role PostgreSQL proof | Actual pinned Product service creates and reads nested graphs; 14 conformance cases pass per database, shared Currency/Core checks and required reviews complete; durable event storage/dispatch deferred |
+| [`preflight/29-medusa-original-product-tests.md`](./preflight/29-medusa-original-product-tests.md) | Original-test runner proven on PGlite and PostgreSQL | Two byte-identical Product suites; three original cases pass per driver, 54 skips explicitly inventoried; one installed fixture per driver |
 
 ## Current Architecture
 

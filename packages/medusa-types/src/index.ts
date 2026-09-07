@@ -59,3 +59,5 @@ export { MedusaContainer } from "./common/medusa-container";
 export { IModuleService } from "./modules-sdk/index";
 export * as ProductTypes from "./product/index";
 export { ModulePersistenceMutationService } from "./modules-sdk/index";
+
+export { Subscriber } from "./event-bus/common";

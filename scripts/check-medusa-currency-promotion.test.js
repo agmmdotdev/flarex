@@ -59,7 +59,7 @@ describe("exact Currency promotion", () => {
 
   it("retains byte-identical original compatibility assertions", () => {
     const tests = promotion.files.filter((file) => file.classification === "unchangedTest");
-    expect(tests).toHaveLength(3);
+    expect(tests).toHaveLength(5);
     for (const file of tests) {
       if (!file.source) throw new Error("Missing original test source");
       expect(readFileSync(file.target)).toEqual(readFileSync(file.source));

@@ -9,3 +9,7 @@ export { flattenObjectToKeyValuePairs } from "@medusajs/utils/common/flatten-obj
 export { isPresent } from "@medusajs/utils/common/is-present";
 export { loadModels } from "@medusajs/utils/modules-sdk/loaders/load-models";
 export { normalizeImportPathWithSource } from "@medusajs/utils/common/normalize-import-path-with-source";
+
+export { CommonEvents, ProductStatus, kebabCase, toHandle } from "./portable";
+export { composeMessage } from "@medusajs/utils/event-bus/build-event-messages";
+export { ProductEvents } from "@medusajs/utils/product/events";

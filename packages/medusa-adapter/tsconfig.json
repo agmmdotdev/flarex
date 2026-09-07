@@ -11,6 +11,10 @@
     "src/**/*.ts",
     "test/**/*.ts",
     "vitest.config.ts",
-    "vitest.postgres.config.ts"
+    "vitest.postgres.config.ts",
+    "vitest.product-upstream.config.ts"
+  ],
+  "exclude": [
+    "test/product-upstream.test.ts"
   ]
 }

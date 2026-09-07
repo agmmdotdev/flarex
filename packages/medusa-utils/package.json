@@ -282,6 +282,16 @@
       "types": "./dist/common/lower-case-first.d.ts",
       "source": "./src/common/lower-case-first.ts",
       "default": "./dist/common/lower-case-first.js"
+    },
+    "./product/events": {
+      "types": "./dist/product/events.d.ts",
+      "source": "./src/product/events.ts",
+      "default": "./dist/product/events.js"
+    },
+    "./event-bus/build-event-messages": {
+      "types": "./dist/event-bus/build-event-messages.d.ts",
+      "source": "./src/event-bus/build-event-messages.ts",
+      "default": "./dist/event-bus/build-event-messages.js"
     }
   },
   "license": "MIT",

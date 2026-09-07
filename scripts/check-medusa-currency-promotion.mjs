@@ -79,13 +79,16 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     throw new Error("Currency promotion must enumerate exactly the approved private packages");
   }
   const files = new Set(promotion.files.map((file) => file.target));
-  if (promotion.testAliases.length !== 1 || promotion.testAliases.some((alias) =>
-    alias.importer !== "packages/medusa-currency/integration-tests/__tests__/currency-module-service.spec.ts"
-    || alias.specifier !== "@medusajs/test-utils"
-    || alias.target !== "packages/medusa-adapter/test/support/runner.ts"
-    || alias.configuration !== "packages/medusa-adapter/vitest.config.ts"
-    || ![alias.importer, alias.target, alias.configuration].every((file) => files.has(file)))) {
-    throw new Error("Unadmitted Currency test harness alias");
+  const expectedAliases = [
+    { importer: "packages/medusa-currency/integration-tests/__tests__/currency-module-service.spec.ts", configuration: "packages/medusa-adapter/vitest.config.ts" },
+    ...["events.spec.ts", "products.spec.ts"].map(name => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/" + name, configuration: "packages/medusa-adapter/vitest.product-upstream.config.ts" })),
+  ];
+  if (promotion.testAliases.length !== expectedAliases.length || expectedAliases.some(expected =>
+    promotion.testAliases.filter(alias => alias.importer === expected.importer
+      && alias.configuration === expected.configuration && alias.specifier === "@medusajs/test-utils"
+      && alias.target === "packages/medusa-adapter/test/support/runner.ts"
+      && [alias.importer, alias.target, alias.configuration].every(file => files.has(file))).length !== 1)) {
+    throw new Error("Unadmitted module test harness alias");
   }
   if (files.size !== promotion.files.length) throw new Error("Duplicate promotion target");
   const sourceHashes = new Map(readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"), "utf8")
