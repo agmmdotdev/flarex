@@ -170,18 +170,19 @@ Query, workflows and production activation remain outside this fresh-schema proo
 
 ## Next Service Boundary
 
-After the schema proof, admit a coherent nested Product service capability:
-multi-table transaction-bound repositories, filtering/population/replacement,
-complete row facts for explicit and cascading changes, and the exact typed
-event intents emitted by the selected unchanged operations. Prove rollback,
-lost-commit recovery and common outbox delivery together. SQL cascade success
+After the schema proof, [record 28](./28-medusa-product-create-and-event-delivery.md)
+proposes nested creation, bounded population and complete entity/pivot row facts
+through transaction-bound repositories. Its selected unchanged service messages
+are captured in a local-only in-memory adapter and released after confirmed
+commit. Prove row rollback and lost-commit recovery while explicitly preserving
+the local notification crash-loss limitation.
+
+Durable event storage and dispatch are deferred to a separate reviewed contract;
+the local proof does not implement that guarantee. Replacement and lifecycle/
+cascade publication follow as another coherent capability. SQL cascade success
 alone cannot prove that every deleted child has a published change fact.
 
-[Record 28](./28-medusa-product-create-and-event-delivery.md) proposes creation,
-bounded population and durable event delivery as the first complete runtime
-proof. Replacement and lifecycle/cascade publication follow together; neither
-is implied by successful nested creation.
-
-That next transaction/event contract must be reviewed before Product mutation
-admission. It must reuse shared relational publication and readiness receipts;
-there will be no per-module core change tables, commit counters or seed rules.
+Runtime admission must remain explicit and reuse shared relational publication
+and readiness receipts. There will be no per-module core change tables, commit
+counters or seed rules. Query-sync production wiring and legacy dispatch are
+not prerequisites or integration shortcuts for this local service proof.

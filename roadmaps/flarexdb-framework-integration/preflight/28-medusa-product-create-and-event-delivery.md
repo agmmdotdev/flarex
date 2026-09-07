@@ -1,17 +1,21 @@
-# Product Nested Creation And Durable Event Delivery
+# Product Nested Creation And Local Event Conformance
 
 ## Status And Outcome
 
-Status: proposed transaction and event contract for discussion; runtime admission
-is not implemented. The complete Product schema is implemented under
+Status: revised preflight for discussion; runtime admission is not implemented.
+This record narrows the earlier combined persistence/durable-delivery proposal
+to a private local Product proof. Durable event storage and dispatch remain
+undecided and deferred. The complete Product schema is implemented under
 [record 26](./26-medusa-product-schema-and-relationships.md), with shared
 installation reconstruction bounded by [record 27](./27-product-installation-reconstruction-cost.md).
 
 The next coherent capability should execute the pinned, unchanged
 `ProductModuleService.createProducts` through Flarex, read the committed nested
-graph through that service, and recover and deliver its exact business events.
+graph through that service, and verify its exact business events with an injected,
+transaction-buffered in-memory test adapter.
 This closes the first real multi-table commerce command rather than attempting
-all Product CRUD at once. Product remains a private, fresh-install profile.
+all Product CRUD at once. Product remains a private, fresh-install test profile;
+successful database recovery does not imply durable event recovery.
 
 Admit creation of products with images, options, option values and variants,
 including the implicit variant/option-value pairs. Admit bounded retrieval and
@@ -26,6 +30,8 @@ variant-specific image associations, update/upsert/replacement, soft delete,
 restore and hard delete remain unadmitted. Their installed tables do not grant
 repository authority. Stored Module Links, Query, workflows, arbitrary custom
 repositories, public `ctx.commerce` and production dispatch remain later gates.
+This capability adds no event-intent table, event header fields, outbox event
+kind, dispatcher, Redis/Cloudflare event provider or query-sync routing.
 Replacement and cascade publication are deferred together: physical FK cascade
 conformance alone cannot establish complete child change facts.
 
@@ -58,7 +64,7 @@ The source authority remains fork
 
 Current Flarex boundaries to extend are `commerceTransaction/profile.ts`,
 `host.ts`, `store.ts`, `commitPublication/relationalFacts.ts`,
-`pointCommitTransaction.ts`, `schema.ts` and `commitWakeOutbox.ts` under
+and the existing `pointCommitTransaction.ts` finalizer under
 `packages/persistence-postgres/src`, plus the private Medusa adapter.
 
 Three assumptions need explicit correction. Runtime admission currently requires
@@ -70,11 +76,42 @@ the 12 domain messages. Neither the older deployment-document `outbox` nor an
 in-memory after-commit callback closes that crash window.
 
 The accepted [storage architecture](../../../design-notes/flarexdb-framework-storage-architecture.md#commit-feed-and-outbox)
-requires typed, transaction-bound event intents and crash-resumable delivery.
+requires typed, transaction-bound event intents and crash-resumable delivery for
+the durable destination. The local-only proof here deliberately does not satisfy
+that exit gate and cannot authorize general event-bearing commerce serving.
 The [Medusa authority design](../../../design-notes/flarexdb-medusa-commerce-adapter.md#transaction-and-workflow-authority)
 keeps services in control of behavior and the existing Flarex finalizer in
 control of settlement. Those requirements rule out a Product-owned commit log,
 raw ORM managers and direct event-bus delivery during service execution.
+
+## Dispatcher And Query-Sync Audit
+
+The audited owners must not be treated as one existing event dispatcher:
+
+| Owner | Verified boundary | Consequence for this capability |
+| --- | --- | --- |
+| `packages/query-sync` | Portable query state, evaluation and publication orchestration; `ResultPublisher` accepts `PendingQueryPublication`, including query key, generation and result digest | Preserve this query-result contract; do not encode business events as query results |
+| `flarex-backend/deploymentSync` and `deploymentSyncDO.ts` | SQLite state and authenticated Postgres catch-up composition; the DO exposes a private catch-up probe | Some host integration is implemented, but normal client registration/evaluation/delivery is not connected to the new engine |
+| `flarex-backend/deliveryDO.ts`, existing delivery routes, executor outbox/freshness APIs | Older delivery path uses legacy live-query delivery records and deployment/timestamp outbox identities | Leave those callers untouched; do not extend or route Product through this displaced architecture |
+| `persistence-postgres/commitWakeOutbox.ts` | Current foundation's fixed-kind `fx_system_outbox` repository implements fenced claim/retry/settlement; runtime dispatch is absent | Keep it distinct from the legacy outbox. Repository operations are candidate reuse for later dispatch work, not proof of an implemented dispatcher |
+
+Evidence owners are the [query-sync status matrix](../../query-sync-engine/README.md#status-and-scope),
+[host composition contract](../../query-sync-engine/preflight/13-qsync-fx02-postgres-host-composition.md),
+[query-result publisher port](../../../packages/query-sync/src/orchestration/publication/Ports.ts),
+[current DO](../../../packages/flarex-backend/src/deploymentSyncDO.ts),
+[existing client delivery routes](../../../packages/flarex-backend/src/worker.ts),
+and [fixed-kind repository](../../../packages/persistence-postgres/src/commitWakeOutbox.ts).
+The audit checked source and callers, not deployed traffic. Merely sharing a
+scope commit does not make Product rows query-sync-compatible: the current
+Flarex source projection covers Application rows and document adjacency;
+commerce dependency/change mapping requires its own compatibility proof.
+
+Medusa already has an injected event-bus boundary. The pinned
+`packages/modules/event-bus-local/src/services/event-bus-local.ts` can schedule
+listeners during `emit`; it does not know when Flarex's outer transaction commits.
+Use the selected Medusa `emit` contract with a request-owned test buffer, not a
+direct provider call during database work. Full provider/package promotion is
+unnecessary for a bounded recording adapter.
 
 ## Proposed Shared Contracts
 
@@ -85,7 +122,9 @@ raw ORM managers and direct event-bus delivery during service execution.
    initialization checks and public read facade compatible. Represent a profile
    with no required initialization explicitly; Product needs structural readiness
    and runtime admission, not a synthetic empty seed receipt. Bind the new table,
-   key and event capabilities into the runtime contract digest.
+   key and explicit local-test event policy into the runtime contract digest.
+   Issue the local composition only through private test support; request data
+   cannot turn on an in-memory event mode for an ordinary commerce host.
 2. **One transaction and one adapter lifecycle.** All generated repositories,
    persistence subscribers and the event capture adapter share the authenticated
    request manager and cancellation owner. Nested decorators borrow that owner;
@@ -105,52 +144,64 @@ raw ORM managers and direct event-bus delivery during service execution.
    omit, duplicate or replay them across transactions. A create fixture with 12
    entities and four pairs must account for all 16 inserted rows independently
    of its 12 business messages.
-4. **Typed event capture with generic storage.** Preserve the pinned subscribers,
+4. **Typed local event capture.** Preserve the pinned subscribers,
    message builders and aggregator. The injected event-bus adapter captures the
    exact allowed `*.created` messages for the five admitted entity kinds, rather
    than sending them. It checks names, metadata, IDs, options and the corresponding
    authenticated create observations. Unsupported event families or options
-   poison the command even if service code catches the error. Flarex stores a
-   bounded canonical envelope containing contract/codec identity, installation,
-   artifact and payload digest; Medusa owns the business-message codec. A trusted
-   profile capability validates the payload, not arbitrary caller JSON. The outer
-   owner authenticates and consumes the complete event receipt collection once.
-5. **One commit authority and durable batch delivery.** Add a shared
-   `fx_system_commit_event_intent` child table, keyed by scope, commit and ordinal,
-   with epoch, installation/artifact, contract/codec identity, canonical bytes
-   and digest. Add generic event count and aggregate digest evidence to the commit
-   header so deletion or substitution cannot silently shorten a batch. Currency
-   and Application commits use canonical empty-event evidence. No Product-named table,
-   header column, fixed count or event-name constraint belongs in core storage.
-   Publish rows, row facts, intents, retained result and outbox records atomically
-   through the current finalizer. Preserve the current sync wake and add one
-   generic event-batch kind in the same `fx_system_outbox` for a nonempty batch.
-   Reserve the required outbox sequence range under the existing scope lock;
-   do not add a separate counter or commit sequence. Existing wake consumers
-   remain restricted to their kind and must tolerate sequence gaps belonging
-   to another kind.
-6. **Delivery, recovery and retention.** Reuse the existing fenced claim, expiry,
-   retry and settlement mechanics behind operation-specific facades. A private
-   batch dispatcher reads and authenticates committed intents before invoking
-   its injected destination. Give each message a stable delivery identity based
-   on scope, epoch, commit and ordinal, separate from unchanged Medusa payload
-   bytes. Delivery is at least once: a crash after destination acceptance but
-   before acknowledgement can repeat the batch, so the destination must dedupe
-   by those identities. Retain payload and authentication evidence while pending,
-   claimed or dead-lettered; result expiry and commit pruning must not discard
-   undelivered events. Explicit disposal/replay policy remains required for
-   production. Lost COMMIT response recovery reads the retained command result
-   without rerunning the service or minting new message identities.
+   poison the command even if service code catches the error. Medusa owns the
+   message codec. Keep captured messages detached, count/byte bounded and isolated
+   per outer request; seal and validate the complete buffer before finalization.
+   No core event child records are persisted. The local test composition must
+   not weaken ordinary hosts' refusal of unadmitted events.
+5. **One row commit and release after confirmation.** Publish business rows,
+   complete relational facts, retained result and the existing fixed-kind wake
+   atomically through the current finalizer. Only the local outer composition,
+   after successful database settlement, may release its sealed buffer to the
+   injected in-memory recording/listener destination. Nested calls cannot release
+   it. Rollback or unresolved COMMIT outcome releases nothing. Release happens
+   outside the SQL transaction and closed repository lifetime; destination work
+   has a separate bounded test lifetime and no borrowed database manager.
+6. **Explicit local failure and recovery limits.** Lost-response recovery still
+   proves database result/row idempotency. Release a retained in-memory buffer at
+   most once only after its own attempt is confirmed committed. A replay that
+   merely reads a stored result must not reconstruct or emit messages. Process
+   loss, cancellation between commit and release, or loss of the buffer can
+   permanently lose local notifications. This profile makes no at-least-once or
+   exactly-once delivery claim. A local listener failure after commit cannot roll
+   back rows or change the stored successful result: report it separately in the
+   test harness, without rerunning the mutation or adding automatic delivery retry.
 
-The new child family, header evidence, key codec and second outbox kind are
-material persistence/transaction contract changes proposed for approval here.
-They are shared capabilities even while only this Product command admits events.
-Keep current Currency and Application semantics and canonical contracts intact;
-broadening a SQL check without matching readers and recovery is insufficient.
-Verify whether any authoritative retained deployment needs a metadata upgrade
-before defining one. Without that evidence, rebaseline the private fresh schema
-instead of inventing a legacy migration or dual reader. No live routing or
-external destination is activated by this proof.
+The new multi-table runtime admission and row-key codec remain the material
+contracts proposed here. Core schema metadata, commit header fields, outbox
+allocation, wake kinds and retention policy do not change for local events.
+Preserve current Currency/Application semantics and canonical contracts.
+
+## Deferred Durable Event Decision
+
+The earlier `fx_system_commit_event_intent` table, event header evidence and
+second outbox kind are withdrawn from this capability. They remain possible
+designs, not accepted requirements. Durable event storage is necessary for a
+database-to-provider crash-safe handoff, but a separate table is not inevitable.
+The later preflight must compare extending shared outbox payload storage with
+separate immutable intent storage, against actual authority, retention, ordering,
+integrity and delivery-consumer requirements. Redis or another external provider
+alone cannot make its enqueue atomic with a Flarex database commit.
+
+That capability must identify the real dispatch owner, review overlap with the
+new query-sync wake/publication work, and prove any reusable claim/settlement
+mechanics before extracting shared code. Do not copy the legacy dispatcher,
+turn query-result publication into a general event bus, add another commit log,
+or require query-sync production activation merely to prove Product persistence.
+Provider integration, delivery identities, uncertain acceptance, retry, claims,
+dead letters, retention and crash recovery belong in that later coherent proof.
+
+The local buffer is a temporary test bridge whose only consumer is this private
+conformance harness. Replace its role in any future serving composition with the
+accepted durable capture/dispatch path before event-bearing serving is admitted;
+it may remain an explicit test double. Production cannot silently fall back to
+memory. Verify actual retained-data obligations before prescribing a metadata
+migration; fixtures alone do not justify dual storage or legacy readers.
 
 ## Implementation Ownership And Order
 
@@ -161,7 +212,10 @@ external destination is activated by this proof.
 | Currency manager authentication and Promise lifecycle | Keep behavior; consolidate the connected shared adapter machinery instead of cloning it for Product |
 | Scalar commerce profile/store restrictions | Rewrite admission and storage into bounded table capabilities; preserve Currency's tested path and identity |
 | Shared schema/readiness and relational fact storage | Keep owners; extend generic key codec and runtime readiness admission |
-| Point commit finalizer and common outbox | Keep settlement authority; extend typed intent contributions, allocation, readers, retention and fenced delivery |
+| Point commit finalizer and common outbox | Keep row settlement, retained result and fixed-kind wake behavior; extend only connected generic row-key handling |
+| Local event buffer and recording destination | Temporary test bridge in the private adapter/host harness; confirmed-commit release and explicit crash-loss limitation |
+| New query-sync engine and current commit-wake repository | Keep unchanged; consult their owners for the later durable-delivery capability |
+| Legacy delivery/outbox/freshness path | Keep current callers untouched; exclude from new Product integration |
 | ORM/database acquisition and test-specific runtime adapters | Keep as reference only; no temporary raw SQL or independent publication bridge |
 
 Implement the connected contracts, source promotion, adapter and end-to-end
@@ -177,16 +231,20 @@ failures and required review fixes do not create further micro approval gates.
 - Prove pending reads through borrowed managers, committed nested population,
   scope/binding isolation, duplicate graph identity refusal, cancellation and
   late/overlapping DAL work. Reject forged table, row and event receipts and
-  cross-request replay. Include a differently named synthetic profile/key/event
-  codec to expose accidental Product-specific core rules without widening live
-  framework admission.
+  cross-request replay. Include a differently named synthetic table/key profile
+  to expose accidental Product-specific core rules without widening framework
+  admission. Prove a request flag cannot enable the local-only composition.
 - Inject failures after child inserts, during event capture and finalization;
-  assert no rows, facts, intents, result or outbox records survive rollback.
+  assert no rows, facts, result or wake records survive rollback and no local
+  subscriber observes a message.
   Prove lost-response recovery, request-key conflicts and retained-result expiry.
-- Prove no delivery before commit, event corruption/missing-child refusal,
-  dispatcher crash/reclaim, stale acknowledgements, destination deduplication,
-  retry and dead-letter retention. Native PostgreSQL supplies concurrent request,
-  uniqueness and competing claim proofs; PGlite alone cannot prove those.
+- Prove the 12 captured messages release only after confirmed commit, with
+  subscriber reads observing all 16 rows. Test nested buffering, malformed/late
+  events, rollback disposal, uncertain settlement, retained-result replay without
+  re-emission, listener failure after commit and deliberate buffer-loss behavior.
+  Database durability must remain distinct from local event delivery. Native
+  PostgreSQL supplies concurrent request and uniqueness proofs; PGlite alone
+  cannot prove those. Dispatcher claims/retry/retention are deferred, not passed.
 - Use one parameterized conformance body and an installed baseline per database
   lane, with isolated/reset case data. Do not reinstall 13 Product tables for
   every assertion or add independent PGlite engines for the same fixture. Run

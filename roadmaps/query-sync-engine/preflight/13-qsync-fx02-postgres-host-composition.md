@@ -5,8 +5,10 @@
 **Preflight status:** accepted on 2026-09-01. FX02-A exited on 2026-09-01 after
 its focused local matrix, clean implementation reviews, and isolated real-
 Postgres 18.3 receipt passed. FX02-B exited on 2026-09-01 after its local,
-Workerd, and isolated hosted controlled-restart receipts passed. FX02-C and
-FX02-D have not started, so FX02 as a whole remains incomplete.
+Workerd, and isolated hosted controlled-restart receipts passed. The private
+FX02-C1 application-query evidence producer is complete under
+[record 14](./14-qsync-fx02-c-application-query-evidence.md); C2 and remaining
+C/D host composition are pending, so FX02 as a whole remains incomplete.
 
 This record accepts the ordered FX02 architecture and authorizes only the
 bounded implementation slices defined below. It does not activate the existing
@@ -73,7 +75,12 @@ FX02 consumes current owners rather than reopening them:
 - `b94abbb0` began the private Cloudflare SQLite adapter; and
 - `f49c5677` completed its nine-operation generation-4 exit.
 
-Current code also proves these negative facts:
+The following findings describe the original preflight baseline; completed
+FX02-A/B work below supersedes its source-read and empty-shell findings.
+`DeploymentSyncDO` now exposes the private catch-up probe. Production evaluator,
+publisher and wake dispatch integration remain absent.
+
+Original baseline findings:
 
 - [`deploymentSyncDO.ts`](../../../packages/flarex-backend/src/deploymentSyncDO.ts)
   is still an empty production-inert placement shell;
@@ -386,9 +393,12 @@ and recovery after recreation.
 
 ### FX02-D — Wake recovery and semantic publication processing
 
-Compose the existing commit-wake dispatcher, conservative fenced checkpoint
-mirror and lag sweep, plus publication work through an injected accepted
-publisher port. Before CF01 this remains conformance/probe-only. Prove lost
+Implement the commit-wake dispatch host over the existing fixed-kind fenced
+repository; the repository is implemented, a runtime dispatcher is not. Compose
+the conservative fenced checkpoint mirror and lag sweep, plus publication work
+through an injected accepted publisher port. Do not reuse the legacy timestamp
+outbox or client-delivery pipeline as this host. Before CF01 this remains
+conformance/probe-only. Prove lost
 direct wake, expired wake claim, lagging mirror, duplicate wake, publisher
 outcome uncertainty, terminal refusal, retry, and exact completion.
 

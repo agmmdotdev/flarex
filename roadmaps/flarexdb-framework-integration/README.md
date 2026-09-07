@@ -137,7 +137,11 @@ Use these sources in order:
 28. [`preflight/26-medusa-product-schema-and-relationships.md`](./preflight/26-medusa-product-schema-and-relationships.md)
     records the implemented fresh Product schema and physical constraints, with
     [bounded shared reconstruction](./preflight/27-product-installation-reconstruction-cost.md).
-29. Current code, migrations, any source snapshot already admitted by its own
+29. [`preflight/28-medusa-product-create-and-event-delivery.md`](./preflight/28-medusa-product-create-and-event-delivery.md)
+    proposes nested Product creation, bounded population and transaction-buffered
+    local event conformance. It records dispatcher ownership and defers the
+    durable event storage/provider decision.
+30. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -199,7 +203,7 @@ Preflight records:
 | [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md) | Implemented private Currency source/value compatibility | Actual DML, manifest-admitted source/build/type closure and unchanged PGlite/MikroORM comparison baseline; live Flarex installation, bounded relational queries and typed commerce publication are owned by record 25 |
 | [`preflight/25-medusa-currency-host-and-publication.md`](./preflight/25-medusa-currency-host-and-publication.md) | Implemented private Currency service and relational publication | Shared initialization/change metadata, live installation, borrowed managers, bounded queries, atomic publication/recovery and retention; broader modules and public activation remain gated |
 | [`preflight/26-medusa-product-schema-and-relationships.md`](./preflight/26-medusa-product-schema-and-relationships.md) | Fresh Product schema and physical relationships implemented | Ten pinned models produce thirteen tables through shared schema/install/readiness machinery; Product service mutations remain unadmitted |
-| [`preflight/28-medusa-product-create-and-event-delivery.md`](./preflight/28-medusa-product-create-and-event-delivery.md) | Proposed; transaction and event contract awaits approval | Nested Product creation, bounded population, complete entity/pivot facts and shared durable event delivery; no Product runtime admission yet |
+| [`preflight/28-medusa-product-create-and-event-delivery.md`](./preflight/28-medusa-product-create-and-event-delivery.md) | Revised preflight; runtime implementation pending | Nested creation, bounded population, complete entity/pivot facts and buffered in-memory events for local tests; durable event storage/dispatch undecided and deferred |
 
 ## Current Architecture
 
@@ -331,7 +335,9 @@ The smallest safe sequence is:
     and typed finalization before the fresh Currency baseline may write.
 14. Product's complete fresh schema and physical relationships are implemented
     under record 26. Record 28 proposes nested creation, bounded population and
-    durable event delivery as the first service transaction proof. Replacement
+    transaction-buffered local events as the first service transaction proof.
+    Durable event storage and dispatch require their own later decision and proof.
+    Replacement
     and lifecycle/cascade publication remain a subsequent coherent capability.
     Follow with both endpoints and the
     typed link/event contracts for one real stored Module Link with database-

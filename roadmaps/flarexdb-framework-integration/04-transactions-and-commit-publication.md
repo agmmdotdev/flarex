@@ -6,8 +6,9 @@ Status: private CMS row, optional-one relation and preference publication are
 implemented through the existing Application commit owner. Private Currency
 publication is implemented through the shared finalizer and relational facts.
 Synthetic relational receipts still reject finalization; multi-table Product
-commands and domain-event publication are proposed under
+commands with local event conformance are proposed under
 [record 28](./preflight/28-medusa-product-create-and-event-delivery.md).
+Durable domain-event storage and dispatch remain a separate undecided contract.
 
 This plan owns the framework-facing transaction-host shape and the safe
 participation of accepted framework mutations in the existing Flarex scope
