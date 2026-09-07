@@ -17,6 +17,11 @@ This closes the first real Payload consumer of the native relation core. It does
 not complete the broader one/many, population, and reverse-join milestone required
 by the adoption plan, or advance Medusa past its remaining prerequisites.
 
+The [next preflight](./21-payload-many-transition-and-bounded-population.md)
+recommends bounded forward population over this existing relation first. It
+records why optional-many admission over existing rows requires an explicit
+Payload migration-host decision, and keeps reverse joins separately gated.
+
 ## Evidence And Design Challenges
 
 Repository paths below are relative to the workspace root.

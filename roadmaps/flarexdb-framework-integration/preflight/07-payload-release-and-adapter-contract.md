@@ -316,7 +316,8 @@ part of this profile.
 | Supported | Unique conflict projected to the pinned Payload validation family; trusted unexpected failures remain non-public with causes retained |
 | Deferred | Auth operations, general preference/internal collection operations, KV operations, `updateMany`, general `deleteMany`, `upsert`, `findDistinct`, globals, drafts, versions, jobs, and migration commands |
 | Deferred | General hooks/access callbacks, uploads/file work, remote effects, rich text, arrays, blocks, localization, and arbitrary JSON shapes |
-| Deferred | Monomorphic one/many relations as the next content slice |
+| Supported privately | Optional-one `posts.relatedPost` at depth zero with authenticated scalar successor and exact combined rebinding |
+| Deferred | Many-valued relations over existing rows; explicit conversion and migration-host admission required |
 | Deferred | Polymorphic relations, reverse joins, population/depth, arbitrary `JoinQuery`, and repeated targets |
 | Deferred | Authenticated Admin UI, REST/GraphQL, and public/generated `ctx.cms` |
 | Rejected | Direct developer `db.insert`, `db.update`, or `db.delete` against a CMS-owned table |
@@ -453,10 +454,12 @@ Stop for a new preflight if implementation would:
 ## Remaining Integration Gates
 
 The [content-relation preflight](./20-payload-content-relations-and-rebinding.md)
-proposes an optional-one, depth-zero `posts` self-relation with scalar-to-relation
-activation and combined rebinding. It records the current configuration-retention,
-preference-digest and CMS publication blockers. This is a proposal, not current
-relationship conformance; many-valued fields, population and joins remain deferred.
+implements an optional-one, depth-zero `posts` self-relation with authenticated
+scalar-to-relation activation, combined rebinding and native CMS publication.
+The [many-transition and population proposal](./21-payload-many-transition-and-bounded-population.md)
+recommends bounded depth-one standalone reads next. Many-valued existing-row
+conversion requires a migration-host decision; reverse joins need their own
+query/response contract. These three broader behaviors remain unimplemented.
 
 This audit, the exact Medusa source/capability audit, and the private value-only
 `RelationalSchema` contract are complete. Payload content does not compile into

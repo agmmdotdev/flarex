@@ -171,6 +171,7 @@ Preflight records:
 | [`preflight/17-cms-request-transactions-and-application-publication.md`](./preflight/17-cms-request-transactions-and-application-publication.md) | Private scalar CMS host and Application publication implemented | Bounded pending documents, authenticated materialization, one publication, retained-result recovery and preserved Application driver lanes; Payload compatibility remains separate |
 | [`preflight/18-application-table-write-policy.md`](./preflight/18-application-table-write-policy.md) | Private denial capability implemented | Policy-bearing canonical Application identity, new managed-table activation, retained ownership, authoring restrictions and authoritative denial before any CMS writer is admitted |
 | [`preflight/20-payload-content-relations-and-rebinding.md`](./preflight/20-payload-content-relations-and-rebinding.md) | Private optional-one Payload relation capability implemented | Authenticated scalar successor, exact combined binding, native relation integrity/publication and bounded cold ownership recovery |
+| [`preflight/21-payload-many-transition-and-bounded-population.md`](./preflight/21-payload-many-transition-and-bounded-population.md) | Researched proposal; implementation pending approval | Bounded depth-one forward population next; many-valued existing-row conversion requires a separate migration-host decision, and reverse joins remain gated |
 
 ## Current Architecture
 
@@ -448,7 +449,11 @@ CRUD and nested hooks. Combined content/lifecycle admission enables
 actual delete with atomic preference facts. The [lifecycle contract](./preflight/19-payload-preference-cleanup-and-delete-publication.md)
 implements lifecycle storage, binding, bounded cleanup receipts, atomic
 publication and exact adapter routing. Content-only composition still refuses
-cleanup. The [next proposed capability](./preflight/20-payload-content-relations-and-rebinding.md)
-adds one optional content relation, including authenticated configuration
-advancement, exact rebinding and native CMS publication. It awaits approval.
+cleanup. The [optional-one capability](./preflight/20-payload-content-relations-and-rebinding.md)
+implements authenticated configuration advancement, exact rebinding and native
+CMS publication. The [next proposed capability](./preflight/21-payload-many-transition-and-bounded-population.md)
+adds bounded depth-one forward population over that relation. Many-valued
+existing-row conversion requires a separate migration-host decision; reverse
+joins retain their own query and response gate. This ordering does not complete
+the broader Payload relation prerequisite for Medusa.
 Public framework adapters, SDKs, runtime routes and production remain gated.

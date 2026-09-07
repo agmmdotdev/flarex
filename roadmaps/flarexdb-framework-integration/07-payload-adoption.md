@@ -13,7 +13,9 @@ with authenticated receipts, atomic publication, and exact Payload delete
 routing. The [content-relation preflight](./preflight/20-payload-content-relations-and-rebinding.md)
 implements optional `posts.relatedPost` at depth zero, authenticated same-owner
 configuration advancement, exact combined rebinding and native CMS publication.
-Many-valued relationships and population remain later capabilities. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
+The [next preflight](./preflight/21-payload-many-transition-and-bounded-population.md)
+proposes bounded forward population over that relation before many-valued
+existing-row conversion. Both remain unimplemented. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation
@@ -303,8 +305,11 @@ old scalar bytes, verifies unchanged scalar/index/unique definitions, and
 revalidates the transition through retained authenticated catalog evidence.
 Application activation invalidates the old content overlay; exact combined
 content/lifecycle rebinding restores serving without a dual-writer interval.
-Many-valued fields and population remain follow-ups within the broader milestone
-below.
+The [many-transition and population preflight](./preflight/21-payload-many-transition-and-bounded-population.md)
+proposes depth-one standalone reads next. Many-valued fields require an explicit
+existing-row conversion and migration-host authority; adapter defaults and edge
+backfill cannot supply that authority. Both remain follow-ups within the broader
+milestone below.
 - Capture a new independently digestible relation-bearing Payload
   configuration/provenance artifact. The stable Payload policy ID and ordinary
   write-owner mode may remain unchanged, but the configuration digest must
@@ -355,6 +360,13 @@ Run the claimed upstream relationship behavior plus PGlite and genuine
 PostgreSQL evidence. This step makes no subscription or reconnect claim.
 
 ### Broader schema evolution and lifecycle migrations
+
+The first proposed many-valued content field needs this owner decision even
+though its Payload input is optional: native storage requires a present array.
+The [transition contract](./preflight/21-payload-many-transition-and-bounded-population.md#optional-many-existing-row-decision)
+records the serving fence, candidate validation, normal row publication,
+resumable conversion and recovery decisions that must precede implementation.
+No general migration engine or permanent dual writer is implied.
 
 - Publish content changes only through the authenticated Application
   Analysis/publication chain as Application schema candidates.
