@@ -2,10 +2,10 @@
 
 ## Decision And Scope
 
-Status: researched implementation preflight. The shared-core, Application and
-bounded private Payload prerequisites are complete. The next capability is a
-private Currency source relocation, actual DML-to-`RelationalSchema` compatibility
-proof and unchanged framework baseline. This record does not activate a live
+Status: implemented privately. Currency source relocation, actual DML-to-
+`RelationalSchema` value compatibility and the unchanged framework baseline are
+available after the shared-core, Application and bounded private Payload
+prerequisites. This record does not activate a live
 Medusa installation, commerce writes or a public adapter.
 
 This is one implementation unit: close the source, type, build and test graphs;
@@ -15,7 +15,7 @@ file or test-harness adjustment into another preflight. Source preservation and
 schema translation belong together because a fixture copied from Currency does
 not prove that the real framework supplies the same schema.
 
-After that capability, the next coherent outcome is a Flarex-backed Currency
+The next coherent outcome is a Flarex-backed Currency
 service with exact fresh installation, binding, transaction propagation and
 typed commerce publication. Product relationships and one stored Module Link
 follow Currency. General Payload compatibility does not precede these proofs.
@@ -30,6 +30,33 @@ inputs, hashes and proposed owners; it is explicitly not a complete promotion
 manifest or declaration/build closure.
 
 ## Source And Current Evidence
+
+The [promotion manifest](./medusa-currency-promotion.json) is the exact active
+source/type/build/test map. Seven private `@medusajs/*` packages retain version
+`2.13.4`; `@flarex/medusa-adapter` owns the strict, closed Currency translator and
+comparison harness. Package barrels expose only selected names. The static
+manifest has a source-condition browser graph free of Node, ORM, database and
+island runtime imports; default exports select checked local Node build outputs
+for comparison tooling. This is bundle evidence, not deployed Worker evidence.
+
+The copied fork compiler profile preserves its original TypeScript 5 defaults
+and explicit strict-null/function/this checks. New adapter and harness code uses
+the strict Flarex profile. There is no blanket migration of preserved legacy
+types. The build map authenticates emitted JavaScript, declarations and maps when
+present; source verification also works before dependencies or outputs exist.
+
+The unchanged tests retain their original source bytes. Their test-only runner
+alias selects instance-owned composition, the original seed loader and the
+original PGlite or MikroORM/PostgreSQL repository semantics. One seed/connection
+is shared by the thirteen read assertions in each lane. An additional two-instance
+test proves state/container/service isolation. Node comparison entity preparation
+retains fork behavior; no global `MedusaModule` registry is activated.
+
+`translateCurrencySchema` consumes every actual property parser and rejects
+unadmitted model, property, key, default, index, cascade and capability shapes.
+`captureCurrencySchema` reproduces the existing Currency value fixture's canonical
+artifact and pinned source provenance. The private persistence value export grants
+no live installation, binding, storage or publication authority.
 
 Use fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, package baseline `2.13.4`,
 under `third_party/medusa/upstream`. Source verification authenticates the entire

@@ -98,8 +98,8 @@ independent base-backed acceptance. The following mechanisms remain absent:
 - production target/runner resolution and general lineage scale proof;
 - framework operation profiles beyond the private synthetic scalar transaction/store;
 - admitted relational fact families and successful typed publication;
-- Payload configuration/content overlays and adapter behavior; and
-- promoted Medusa packages or a Flarex-backed Medusa adapter.
+- general Payload configuration/content overlays and adapter behavior; and
+- a Flarex-backed Medusa commerce adapter beyond private Currency value translation.
 
 The [Application projection and binding capability](./13-application-projection-and-data-bindings.md)
 is implemented privately for Application-only and synthetic Medusa evidence,
@@ -348,8 +348,9 @@ The [bounded Payload reverse-join capability](./23-payload-bounded-reverse-joins
 implements both virtual fields in a separate fresh-only profile, using one CMS
 transaction for root, incoming edges and source documents. First-window native
 identity order, depth-one population, strict refusals and both-driver conformance
-complete the bounded private non-reactive relation milestone. Medusa Currency
-package convergence and source closure are the next preflight.
+complete the bounded private non-reactive relation milestone. The private Medusa
+Currency closure, actual DML value translation and unchanged comparison baseline
+are implemented under the Currency owner.
 
 Each relation profile captures an independently digestible relation-bearing Payload
 configuration/provenance artifact. Its stable policy ID and ordinary write-
@@ -431,13 +432,13 @@ Stop and open the owning preflight if a slice would:
 ## Next Gated Slice
 
 The [Currency preflight](./24-medusa-currency-convergence-and-schema-compatibility.md)
-defines the next private source-relocation, actual DML compatibility and unchanged
-baseline capability. The bounded private Payload scalar and non-reactive
+records the implemented private source relocation, actual DML compatibility and
+unchanged baseline. The bounded private Payload scalar and non-reactive
 relation prerequisites are implemented, including the separate fresh-only
-reverse-join profile. The Currency capability must close the exact source/type/
-build/test manifest before active imports. Its later Flarex-backed service needs
-explicit installation, query and transaction/event authority; neither capability
-authorizes general module migration.
+reverse-join profile. Currency's source/type/build/test graph is manifest-admitted.
+The next Flarex-backed service needs explicit installation/provenance, richer
+bounded queries and transaction/event authority. Those owners require the
+commerce-host preflight; general module migration remains gated.
 
 Both consumer constraint records, the private value-only `RelationalSchema`,
 and installation/migration checkpoints 1 and 2 are complete. The complete

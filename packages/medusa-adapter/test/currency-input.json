@@ -1,0 +1,240 @@
+{
+  "owner": "medusa",
+  "lineageId": "commerce",
+  "tables": [
+    {
+      "tableId": "currency",
+      "origin": {
+        "kind": "authored",
+        "sourceId": "packages/modules/currency/src/models/currency.ts#currency"
+      },
+      "columns": [
+        {
+          "columnId": "code",
+          "type": "text",
+          "nullable": false,
+          "default": {
+            "kind": "none"
+          },
+          "origin": {
+            "kind": "authored",
+            "sourceId": "packages/modules/currency/src/models/currency.ts#currency.code"
+          }
+        },
+        {
+          "columnId": "symbol",
+          "type": "text",
+          "nullable": false,
+          "default": {
+            "kind": "none"
+          },
+          "origin": {
+            "kind": "authored",
+            "sourceId": "packages/modules/currency/src/models/currency.ts#currency.symbol"
+          }
+        },
+        {
+          "columnId": "symbol_native",
+          "type": "text",
+          "nullable": false,
+          "default": {
+            "kind": "none"
+          },
+          "origin": {
+            "kind": "authored",
+            "sourceId": "packages/modules/currency/src/models/currency.ts#currency.symbol_native"
+          }
+        },
+        {
+          "columnId": "name",
+          "type": "text",
+          "nullable": false,
+          "default": {
+            "kind": "none"
+          },
+          "origin": {
+            "kind": "authored",
+            "sourceId": "packages/modules/currency/src/models/currency.ts#currency.name"
+          }
+        },
+        {
+          "columnId": "decimal_digits",
+          "type": "integer",
+          "nullable": false,
+          "default": {
+            "kind": "integerLiteral",
+            "value": 0
+          },
+          "origin": {
+            "kind": "authored",
+            "sourceId": "packages/modules/currency/src/models/currency.ts#currency.decimal_digits"
+          }
+        },
+        {
+          "columnId": "rounding",
+          "type": "numeric",
+          "nullable": false,
+          "default": {
+            "kind": "exactNumericLiteral",
+            "value": "0"
+          },
+          "origin": {
+            "kind": "authored",
+            "sourceId": "packages/modules/currency/src/models/currency.ts#currency.rounding"
+          }
+        },
+        {
+          "columnId": "raw_rounding",
+          "type": "jsonb",
+          "nullable": false,
+          "default": {
+            "kind": "exactNumericRawLiteral",
+            "value": "0",
+            "precision": 20
+          },
+          "origin": {
+            "kind": "derived",
+            "sourceId": "dml.big-number.raw_rounding"
+          }
+        },
+        {
+          "columnId": "created_at",
+          "type": "timestamptz",
+          "nullable": false,
+          "default": {
+            "kind": "currentTimestamp"
+          },
+          "origin": {
+            "kind": "implicit",
+            "sourceId": "packages/core/utils/src/dml/helpers/entity-builder/create-default-properties.ts#created_at"
+          }
+        },
+        {
+          "columnId": "updated_at",
+          "type": "timestamptz",
+          "nullable": false,
+          "default": {
+            "kind": "currentTimestamp"
+          },
+          "origin": {
+            "kind": "implicit",
+            "sourceId": "packages/core/utils/src/dml/helpers/entity-builder/create-default-properties.ts#updated_at"
+          }
+        },
+        {
+          "columnId": "deleted_at",
+          "type": "timestamptz",
+          "nullable": true,
+          "default": {
+            "kind": "none"
+          },
+          "origin": {
+            "kind": "implicit",
+            "sourceId": "packages/core/utils/src/dml/helpers/entity-builder/create-default-properties.ts#deleted_at"
+          }
+        }
+      ],
+      "keys": [
+        {
+          "keyId": "currency.primary",
+          "kind": "primary",
+          "columns": [
+            "code"
+          ],
+          "origin": {
+            "kind": "authored",
+            "sourceId": "packages/modules/currency/src/models/currency.ts#currency.code.primaryKey"
+          }
+        }
+      ],
+      "indexes": [
+        {
+          "indexId": "currency.active",
+          "kind": "btree",
+          "columns": [
+            "deleted_at"
+          ],
+          "predicate": {
+            "kind": "isNull",
+            "columnId": "deleted_at"
+          },
+          "origin": {
+            "kind": "implicit",
+            "sourceId": "dml.deleted_at.active-index"
+          }
+        }
+      ],
+      "constraints": [],
+      "relationships": []
+    }
+  ],
+  "capabilities": [
+    {
+      "capabilityId": "currency.searchable",
+      "kind": "searchableText",
+      "columns": [
+        {
+          "tableId": "currency",
+          "columnId": "code"
+        },
+        {
+          "tableId": "currency",
+          "columnId": "name"
+        }
+      ],
+      "origin": {
+        "kind": "authored",
+        "sourceId": "packages/modules/currency/src/models/currency.ts#currency.searchable"
+      }
+    },
+    {
+      "capabilityId": "currency.exact-number",
+      "kind": "exactNumericCompanion",
+      "numericColumn": {
+        "tableId": "currency",
+        "columnId": "rounding"
+      },
+      "rawColumn": {
+        "tableId": "currency",
+        "columnId": "raw_rounding"
+      },
+      "origin": {
+        "kind": "derived",
+        "sourceId": "dml.big-number.companion"
+      }
+    },
+    {
+      "capabilityId": "currency.timestamps",
+      "kind": "managedTimestamps",
+      "createdAtColumn": {
+        "tableId": "currency",
+        "columnId": "created_at"
+      },
+      "updatedAtColumn": {
+        "tableId": "currency",
+        "columnId": "updated_at"
+      },
+      "updateBehavior": "currentTimestampOnUpdate",
+      "origin": {
+        "kind": "implicit",
+        "sourceId": "dml.managed-timestamps"
+      }
+    },
+    {
+      "capabilityId": "currency.soft-delete",
+      "kind": "softDelete",
+      "deletedAtColumn": {
+        "tableId": "currency",
+        "columnId": "deleted_at"
+      },
+      "activeRowsIndex": {
+        "tableId": "currency",
+        "indexId": "currency.active"
+      },
+      "origin": {
+        "kind": "implicit",
+        "sourceId": "dml.soft-delete"
+      }
+    }
+  ]
+}

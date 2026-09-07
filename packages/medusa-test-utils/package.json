@@ -1,0 +1,22 @@
+{
+  "name": "@medusajs/test-utils",
+  "version": "2.13.4",
+  "private": true,
+  "exports": {
+    "./pglite-module-test-persistence-adapter": {
+      "types": "./dist/pglite-module-test-persistence-adapter.d.ts",
+      "source": "./src/pglite-module-test-persistence-adapter.ts",
+      "default": "./dist/pglite-module-test-persistence-adapter.js"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.4",
+    "@medusajs/framework": "workspace:*",
+    "ulid": "2.4.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

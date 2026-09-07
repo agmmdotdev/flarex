@@ -1,10 +1,11 @@
 # Medusa Fork Source Island And Incremental Package Convergence
 
-Status: accepted architecture preflight with the inert source island imported
-and verified and the exact capability audit complete; package promotion and
-Flarex-backed adapter implementation pending
+Status: accepted architecture with the inert source island and exact capability
+audit retained. The first private Currency closure and value compatibility are
+implemented under the [Currency owner](./24-medusa-currency-convergence-and-schema-compatibility.md).
+Flarex-backed commerce serving remains pending.
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-07
 
 ## Decision
 
@@ -33,16 +34,17 @@ and compatibility evidence. It is not the source candidate that Flarex will
 adapt because it does not contain the fork's Worker-safe and runtime-agnostic
 refactors.
 
-The inert source island and its verification boundary are now implemented.
-This preflight does not authorize:
+The source-island boundary admits only the exact Currency promotion manifest,
+including source, test, package and available build-output hashes. The selected
+comparison backends remain test-only. The following remain gated:
 
-- a root-workspace `@medusajs/*` package;
+- root-workspace Medusa packages outside that selected closure;
 - a Flarex-backed Medusa adapter;
 - `RelationalSchema`, migration, transaction-host, or commit-owner code;
 - a Medusa import from the Flarex kernel;
 - a Flarex import from the pinned fork snapshot;
 - runtime routing, a deployment binding, `ctx.commerce`, or a public export;
-- database migration, dual write, comparison write, fallback, or activation;
+- Flarex database migration, dual write, production fallback, or activation;
   or
 - a claim of Medusa, Worker, hosted, or production parity.
 

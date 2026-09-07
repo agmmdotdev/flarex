@@ -1,0 +1,52 @@
+{
+  "name": "@medusajs/framework",
+  "version": "2.13.4",
+  "private": true,
+  "exports": {
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "source": "./src/utils/index.ts",
+      "default": "./dist/utils/index.js"
+    },
+    "./modules-sdk/definition": {
+      "types": "./dist/modules-sdk/definition.d.ts",
+      "source": "./src/modules-sdk/definition.ts",
+      "default": "./dist/modules-sdk/definition.js"
+    },
+    "./modules-sdk/module": {
+      "types": "./dist/modules-sdk/module.d.ts",
+      "source": "./src/modules-sdk/module.ts",
+      "default": "./dist/modules-sdk/module.js"
+    },
+    "./awilix": {
+      "types": "./dist/deps/awilix.d.ts",
+      "source": "./src/deps/awilix.ts",
+      "default": "./dist/deps/awilix.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "source": "./src/types/index.ts",
+      "default": "./dist/types/index.js"
+    },
+    "./common/container": {
+      "types": "./dist/common/container.d.ts",
+      "source": "./src/common/container.ts",
+      "default": "./dist/common/container.js"
+    },
+    "./defaults/currencies": {
+      "types": "./dist/defaults/currencies.d.ts",
+      "source": "./src/defaults/currencies.ts",
+      "default": "./dist/defaults/currencies.js"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@medusajs/deps": "workspace:*",
+    "@medusajs/types": "workspace:*",
+    "@medusajs/utils": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

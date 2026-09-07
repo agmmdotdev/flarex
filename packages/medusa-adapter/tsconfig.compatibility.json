@@ -1,0 +1,18 @@
+{
+  "extends": "../../tools/medusa/tsconfig.fork.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node", "vitest/globals"],
+    "paths": {
+      "@services": ["../medusa-currency/src/services/index.ts"],
+      "@medusajs/test-utils": ["./test/support/runner.ts"]
+    }
+  },
+  "include": [
+    "../medusa-currency/src/**/__tests__/**/*.ts",
+    "../medusa-currency/integration-tests/**/*.spec.ts",
+    "test/legacy-test-globals.d.ts"
+  ]
+}

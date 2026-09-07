@@ -1,0 +1,32 @@
+{
+  "name": "@medusajs/deps",
+  "version": "2.13.4",
+  "private": true,
+  "exports": {
+    "./mikro-orm/core": {
+      "types": "./dist/mikro-orm-core.d.ts",
+      "source": "./src/mikro-orm-core.ts",
+      "default": "./dist/mikro-orm-core.js"
+    },
+    "./mikro-orm/postgresql": {
+      "types": "./dist/mikro-orm-postgresql.d.ts",
+      "source": "./src/mikro-orm-postgresql.ts",
+      "default": "./dist/mikro-orm-postgresql.js"
+    },
+    "./awilix": {
+      "types": "./dist/awilix.d.ts",
+      "source": "./src/awilix.ts",
+      "default": "./dist/awilix.js"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@mikro-orm/core": "6.4.16",
+    "@mikro-orm/postgresql": "6.4.16",
+    "awilix": "8.0.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

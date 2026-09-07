@@ -1,0 +1,86 @@
+{
+  "name": "@medusajs/types",
+  "version": "2.13.4",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./dal/index": {
+      "types": "./dist/dal/index.d.ts",
+      "source": "./src/dal/index.ts",
+      "default": "./dist/dal/index.js"
+    },
+    "./totals/big-number": {
+      "types": "./dist/totals/big-number.d.ts",
+      "source": "./src/totals/big-number.ts",
+      "default": "./dist/totals/big-number.js"
+    },
+    "./pricing/common/price-set": {
+      "types": "./dist/pricing/common/price-set.d.ts",
+      "source": "./src/pricing/common/price-set.ts",
+      "default": "./dist/pricing/common/price-set.js"
+    },
+    "./modules-sdk/index": {
+      "types": "./dist/modules-sdk/index.d.ts",
+      "source": "./src/modules-sdk/index.ts",
+      "default": "./dist/modules-sdk/index.js"
+    },
+    "./shared-context": {
+      "types": "./dist/shared-context.d.ts",
+      "source": "./src/shared-context.ts",
+      "default": "./dist/shared-context.js"
+    },
+    "./currency/index": {
+      "types": "./dist/currency/index.d.ts",
+      "source": "./src/currency/index.ts",
+      "default": "./dist/currency/index.js"
+    },
+    "./currency/common/currency": {
+      "types": "./dist/currency/common/currency.d.ts",
+      "source": "./src/currency/common/currency.ts",
+      "default": "./dist/currency/common/currency.js"
+    },
+    "./common/common": {
+      "types": "./dist/common/common.d.ts",
+      "source": "./src/common/common.ts",
+      "default": "./dist/common/common.js"
+    },
+    "./currency/service": {
+      "types": "./dist/currency/service.d.ts",
+      "source": "./src/currency/service.ts",
+      "default": "./dist/currency/service.js"
+    },
+    "./logger/index": {
+      "types": "./dist/logger/index.d.ts",
+      "source": "./src/logger/index.ts",
+      "default": "./dist/logger/index.js"
+    },
+    "./dal/repository-service": {
+      "types": "./dist/dal/repository-service.d.ts",
+      "source": "./src/dal/repository-service.ts",
+      "default": "./dist/dal/repository-service.js"
+    },
+    "./pricing/common/price-list": {
+      "types": "./dist/pricing/common/price-list.d.ts",
+      "source": "./src/pricing/common/price-list.ts",
+      "default": "./dist/pricing/common/price-list.js"
+    },
+    "./pricing/common/price-rule": {
+      "types": "./dist/pricing/common/price-rule.d.ts",
+      "source": "./src/pricing/common/price-rule.ts",
+      "default": "./dist/pricing/common/price-rule.js"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@medusajs/deps": "workspace:*",
+    "bignumber.js": "9.3.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

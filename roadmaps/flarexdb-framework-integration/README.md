@@ -125,8 +125,8 @@ Use these sources in order:
     records the implemented request-bound native reverse-read capability, fixed Payload join
     windows and depth-one response contract for the private fresh-only profile.
 26. [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
-    defines the next Currency source-relocation and actual DML compatibility
-    capability, its unchanged baseline, measured runtime inventory and the
+    records the implemented Currency source relocation and actual DML compatibility
+    capability, its unchanged baseline, exact promotion manifest and the
     explicit remaining Flarex commerce-host boundaries.
 26. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
@@ -168,9 +168,9 @@ Preflight records:
 | [`preflight/01-artifact-installation-and-binding-identity.md`](./preflight/01-artifact-installation-and-binding-identity.md) | Accepted; artifact value complete and separately gated artifact repository complete | Lifecycle/authority architecture, owner-qualified artifact value contract, and deferred installation and binding contracts |
 | [`preflight/02-artifact-repository-and-ddl.md`](./preflight/02-artifact-repository-and-ddl.md) | Accepted and implemented; private repository operations, focused PGlite repository acceptance, ordinary-role PostgreSQL migration/catalog, control-session, admission/concurrency/rollback/recovery/interruption, seven native deadline receipts, supported cross-owner deadlock-absence evidence, and native identity-list/index behavior complete | Additive private control registry, compact dependency evidence, authenticated admission, replay/collision/read/list semantics, migration compatibility, and database evidence split |
 | [`preflight/03-postgres-active-work-quarantine.md`](./preflight/03-postgres-active-work-quarantine.md) | Accepted; owner correction and native acceptance implemented | Artifact-private authenticated PostgreSQL backend cancellation, tracked-work drain, original-client discard, and fail-closed cleanup semantics for `FSA-PG-DRAIN-01` |
-| [`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md) | Accepted; inert source island imported and verified, package promotion pending | Cloudflare-oriented fork as primary source, official Medusa as provenance baseline, independent verified island, reuse classification, and separately gated package promotion |
+| [`preflight/04-medusa-fork-source-island-and-package-convergence.md`](./preflight/04-medusa-fork-source-island-and-package-convergence.md) | Accepted; inert island retained and private Currency closure admitted | Fork source authority, official provenance baseline, exact promotion boundary and reuse classifications; broader promotion remains gated |
 | [`preflight/05-core-first-three-lane-readiness.md`](./preflight/05-core-first-three-lane-readiness.md) | Accepted sequencing; consumer audits and relational value slice complete, later shared-core gates pending | Consumer-informed shared core followed by Flarex Application preservation, Payload scalar and native-relation proofs, then Medusa package convergence |
-| [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md) | Accepted exact source/capability audit; no promotion or runtime activation | Mature-DML authority, reproducible 65-input Currency semantic graph, exploratory broader graph notes, reuse classifications, retained evidence, and deferred Query/Link/workflow/lock/idempotency/event gates |
+| [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md) | Accepted source/capability audit; exact active Currency promotion owned by record 24 | Mature-DML authority, original semantic inventory, reuse classifications, and deferred Query/Link/workflow/lock/idempotency/event gates |
 | [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md) | Accepted exact `payload@3.88.0` audit and private scalar CRUD conformance under combined content/lifecycle binding | Adapter surface, request nesting, hook/transaction constraint, internal collections, first headless scalar profile, relation cutline, and migration/host boundary |
 | [`preflight/08-relational-schema-value-contract.md`](./preflight/08-relational-schema-value-contract.md) | Implemented privately; value evidence complete and no DDL/runtime activation | Exact first-slice relational value vocabulary, deterministic normalization, framework-artifact composition, Currency and synthetic fixtures, and closed downstream gates |
 | [`preflight/09-relational-installation-and-migration-coordination.md`](./preflight/09-relational-installation-and-migration-coordination.md) | Accepted; value/storage checkpoints and bounded private fresh/additive PGlite and native acceptance complete; general scale, binding and runtime remain pending | Cycle-free identities, collision domain, physical lowering, structural plan/ledger values, readiness/availability and upgrade/database proof matrix |
@@ -187,7 +187,7 @@ Preflight records:
 | [`preflight/21-payload-many-transition-and-bounded-population.md`](./preflight/21-payload-many-transition-and-bounded-population.md) | Private depth-one forward population implemented; many-transition direction proposed | Request-bound identity batching and consistent bounded reads; many-valued existing-row conversion requires a separate migration-host decision; bounded reverse joins use the separate profile in preflight 23 |
 | [`preflight/22-payload-many-installation-and-migration-boundary.md`](./preflight/22-payload-many-installation-and-migration-boundary.md) | Private fresh-install many conformance implemented | Ordered many CRUD, bounded population, exact binding and retained recovery; existing-row conversion separately needs authenticated transformation, serving exclusion and durable progress |
 | [`preflight/23-payload-bounded-reverse-joins.md`](./preflight/23-payload-bounded-reverse-joins.md) | Private fresh-only reverse joins implemented | Same-transaction CMS incoming-source reads and bounded Payload virtual joins over both native relations; closes the bounded non-reactive Payload prerequisite |
-| [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md) | Researched Currency implementation preflight | Actual DML, private source relocation and unchanged compatibility baseline first; live installation, richer relational queries and typed commerce publication require the later Currency host capability |
+| [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md) | Implemented private Currency source/value compatibility | Actual DML, manifest-admitted source/build/type closure and unchanged PGlite/MikroORM comparison baseline; live Flarex installation, richer relational queries and typed commerce publication require the later Currency host capability |
 
 ## Current Architecture
 
@@ -312,8 +312,9 @@ The smallest safe sequence is:
     through the existing non-reactive native Application relation path.
     `R03-B` remains required only for reactive/reconnectable claims.
 12. Only after steps 3 through 11 pass, promote the exact private, test-only
-    Currency-connected Medusa closure, establish unchanged compatibility, and
-    adapt it to the already-proven shared mechanisms.
+    Currency-connected Medusa closure and establish unchanged compatibility.
+    This source/value capability is implemented; adapt its service to the
+    already-proven shared mechanisms under the following host gate.
 13. Admit Currency transaction propagation, commerce-row/event-intent receipts,
     and typed finalization before the fresh Currency baseline may write.
 14. Add Product and its intra-module relationships, then both endpoints and the
@@ -366,7 +367,7 @@ has private Application-only and synthetic Medusa acceptance.
 | CMS request host and Application publication | Private CMS host, pending documents, row/relation materialization and publication implemented | Pinned Payload scalar CRUD and atomic preference cleanup publication proven under combined binding |
 | Application table write policy | Private denial capability implemented | Canonical ownership and ordinary Application journal/commit denial preserved; the separate private CMS participant owns managed writes |
 | Payload scalar and non-reactive relation proofs | Private pinned scalar/optional-one/fresh-many CRUD, fresh-only reverse joins, depth-one standalone population, preference cleanup/publication and nested requests implemented | Bounded non-reactive consumer milestone complete on both drivers. Existing-row many upgrades, general join parity and public/production activation remain gated |
-| Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
+| Medusa Currency, Product and Module Link proofs | Private Currency source/type/build closure, actual DML value/canonical artifact compatibility and unchanged comparison baseline implemented | Live Flarex Currency installation, repository/query conformance, transaction propagation and typed commerce/event publication remain gated; Product and stored Links follow |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
 
@@ -475,6 +476,7 @@ a separate authority and recovery capability. The [bounded reverse-join capabili
 implements one CMS transaction for root, edge and source reads, with first-window
 results and bounded population. This completes the bounded private non-reactive
 Payload prerequisite. The [Currency preflight](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
-now defines the next private source-relocation and actual DML compatibility
-capability; general Payload parity is a separate gate.
+records private source relocation and actual DML compatibility as implemented.
+Flarex-backed Currency installation, bounded repository queries and commerce
+publication form the next coherent capability; general Payload parity is a separate gate.
 Public framework adapters, SDKs, runtime routes and production remain gated.

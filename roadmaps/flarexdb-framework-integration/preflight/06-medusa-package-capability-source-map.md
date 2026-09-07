@@ -1,20 +1,19 @@
 # Medusa Package And Capability Source Map
 
-Status: accepted source audit for the pinned inert fork; private relational
-value admission and framework-neutral coordinator checkpoints 1 and 2 are
-complete, while a live Medusa installation/candidate, package promotion,
-adapter implementation, runtime imports, writes, and production activation
-remain unauthorized
+Status: accepted source audit for the pinned inert fork. The private Currency
+closure and DML value adapter are implemented under the Currency owner; live
+Flarex installation, commerce serving/writes and production activation remain gated.
 
 Last reviewed: 2026-09-07
 
 The bounded private Payload prerequisites are now complete. The
 [Currency convergence/schema preflight](./24-medusa-currency-convergence-and-schema-compatibility.md)
-defines the next private capability and records a fresh source-alias runtime
-inventory. Its static-manifest graph reproduces 76 inputs with no first-party
-`dist` files; erased declarations, bootstrap, repository and test graphs are
-explicitly outside that count. This refresh does not activate package promotion
-or turn the earlier source constraint map into a complete promotion manifest.
+owns the implemented source/type/build/test promotion manifest, closed DML value
+translation and unchanged comparison baseline. The earlier island runtime
+inventory measured 76 static-manifest inputs and excluded erased declarations,
+bootstrap, repositories and tests. The promoted source-condition graph narrows
+that facade closure. This source audit remains semantic evidence; the separate
+promotion manifest owns exact active files and allowed imports.
 
 ## Decision
 

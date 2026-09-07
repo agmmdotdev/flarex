@@ -10,6 +10,7 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@typescript/typescript6";
+import { admitsCurrencyImport, verifyCurrencyPromotion } from "./check-medusa-currency-promotion.mjs";
 
 const sourceExtensions = new Set([
   ".cjs",
@@ -46,6 +47,7 @@ const islandPrefix = "third_party/medusa/upstream/";
  *   readonly islandWorkspaceText?: string,
  *   readonly rootWorkspaceText: string,
  *   readonly rootScripts: Readonly<Record<string, unknown>>,
+ *   readonly currencyPromotion?: import("./check-medusa-currency-promotion.mjs").Promotion,
  * }} BoundaryInput
  */
 
@@ -53,8 +55,9 @@ const islandPrefix = "third_party/medusa/upstream/";
 export function analyzeMedusaSourceIslandBoundary(input) {
   /** @type {string[]} */
   const errors = [];
+  const promotion = input.currencyPromotion;
   const rootPackageNames = new Set(input.rootManifests.flatMap(({ manifest }) =>
-    typeof manifest.name === "string" ? [manifest.name] : []
+    typeof manifest.name === "string" && !promotion?.packages.some((pkg) => pkg.name === manifest.name && isMedusaPackage(pkg.name)) ? [manifest.name] : []
   ));
 
   if (workspaceIncludesIsland(input.rootWorkspaceText)) {
@@ -142,7 +145,9 @@ export function analyzeMedusaSourceIslandBoundary(input) {
   analyzeManifests(
     input.rootManifests,
     errors,
-    isForbiddenRootDependency,
+    (name, value, relativePath) => (isForbiddenRootDependency(name, value) || promotion?.packages.some((pkg) => pkg.name === name) === true)
+      && !(value === "workspace:*" && promotion?.packages.some((pkg) =>
+        relativePath === `${pkg.path}/package.json` && pkg.dependencies[name] === value)),
     "must not reference Medusa source-island dependency",
     escapesIntoIsland,
     "must not use a path dependency into the Medusa source island",
@@ -190,6 +195,18 @@ export function analyzeMedusaSourceIslandBoundary(input) {
   );
 
   analyzeSources(input.rootSources, errors, (specifier, relativePath) => {
+    if ((specifier.toLowerCase().startsWith("file:") || isPortableAbsolutePath(specifier)) && normalized(specifier).toLowerCase().includes("/packages/medusa-")) {
+      return `must not bypass Currency exports through "${specifier}"`;
+    }
+    if (admitsCurrencyImport(promotion, relativePath, specifier)) return undefined;
+    if (promotion?.packages.some((pkg) => specifier === pkg.name || specifier.startsWith(`${pkg.name}/`))) {
+      return `must not import unadmitted promoted Currency module "${specifier}"`;
+    }
+    if (specifier.startsWith(".")) {
+      const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(relativePath), normalized(specifier))).toLowerCase();
+      const target = promotion?.packages.find((pkg) => resolved.startsWith(`${pkg.path.toLowerCase()}/`));
+      if (target && !relativePath.toLowerCase().startsWith(`${target.path.toLowerCase()}/`)) return `must not cross Currency package ownership through "${specifier}"`;
+    }
     if (isForbiddenRootSpecifier(specifier, relativePath)) {
       return `must not import Medusa source-island module "${specifier}"`;
     }
@@ -302,6 +319,9 @@ export function discoverRootConfigs(repoRoot) {
 /** @param {string} repoRoot */
 export function discoverRootToolSources(repoRoot) {
   const excluded = new Set([
+    "scripts/check-medusa-currency-promotion.mjs",
+    "scripts/check-medusa-currency-promotion.test.js",
+    "scripts/check-medusa-currency-portable.mjs",
     "scripts/check-medusa-source-island-boundary.mjs",
     "scripts/check-medusa-source-island-boundary.test.js",
   ]);
@@ -440,7 +460,7 @@ function admittedIslandPaths(repoRoot) {
 /**
  * @param {readonly ManifestInput[]} manifests
  * @param {string[]} errors
- * @param {(name: string, value: string) => boolean} forbiddenDependency
+ * @param {(name: string, value: string, relativePath: string) => boolean} forbiddenDependency
  * @param {string} dependencyMessage
  * @param {(value: string, relativePath: string) => boolean} forbiddenPath
  * @param {string} pathMessage
@@ -459,7 +479,7 @@ function analyzeManifests(
       if (!isRecord(dependencies)) continue;
       for (const [name, value] of Object.entries(dependencies)) {
         if (typeof value !== "string") continue;
-        if (forbiddenDependency(name, value)) {
+        if (forbiddenDependency(name, value, relativePath)) {
           errors.push(
             `${relativePath}: ${field} ${dependencyMessage} "${name}".`,
           );
@@ -1109,6 +1129,7 @@ export function verifyMedusaSourceIslandBoundary(repoRoot) {
   const rootPackage = readJsonRecord(path.join(repoRoot, "package.json"));
   const scripts = isRecord(rootPackage.scripts) ? rootPackage.scripts : {};
   const input = {
+    currencyPromotion: verifyCurrencyPromotion(repoRoot),
     rootManifests: discoverRootManifests(repoRoot),
     rootSources: discoverRootSources(repoRoot),
     rootConfigs: discoverRootConfigs(repoRoot),

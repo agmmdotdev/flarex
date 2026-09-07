@@ -1,0 +1,27 @@
+{
+  "name": "@flarex/medusa-adapter",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./internal/currency-schema": "./src/currency-schema.ts"
+  },
+  "dependencies": {
+    "@medusajs/currency": "workspace:*",
+    "@medusajs/utils": "workspace:*",
+    "@flarex/persistence-postgres": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@medusajs/deps": "workspace:*",
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/types": "workspace:*",
+    "@medusajs/modules-sdk": "workspace:*",
+    "@medusajs/test-utils": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json",
+    "test": "vitest run --config vitest.config.ts"
+  }
+}

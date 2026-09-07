@@ -1,0 +1,147 @@
+{
+  "name": "@medusajs/utils",
+  "version": "2.13.4",
+  "private": true,
+  "exports": {
+    "./modules-sdk/definition": {
+      "types": "./dist/modules-sdk/definition.d.ts",
+      "source": "./src/modules-sdk/definition.ts",
+      "default": "./dist/modules-sdk/definition.js"
+    },
+    "./modules-sdk/portable-joiner-config-builder": {
+      "types": "./dist/modules-sdk/portable-joiner-config-builder.d.ts",
+      "source": "./src/modules-sdk/portable-joiner-config-builder.ts",
+      "default": "./dist/modules-sdk/portable-joiner-config-builder.js"
+    },
+    "./common/container": {
+      "types": "./dist/common/container.d.ts",
+      "source": "./src/common/container.ts",
+      "default": "./dist/common/container.js"
+    },
+    "./common/upper-case-first": {
+      "types": "./dist/common/upper-case-first.d.ts",
+      "source": "./src/common/upper-case-first.ts",
+      "default": "./dist/common/upper-case-first.js"
+    },
+    "./modules-sdk/module": {
+      "types": "./dist/modules-sdk/module.d.ts",
+      "source": "./src/modules-sdk/module.ts",
+      "default": "./dist/modules-sdk/module.js"
+    },
+    "./modules-sdk/medusa-service": {
+      "types": "./dist/modules-sdk/medusa-service.d.ts",
+      "source": "./src/modules-sdk/medusa-service.ts",
+      "default": "./dist/modules-sdk/medusa-service.js"
+    },
+    "./defaults/currencies": {
+      "types": "./dist/defaults/currencies.d.ts",
+      "source": "./src/defaults/currencies.ts",
+      "default": "./dist/defaults/currencies.js"
+    },
+    "./dml/model": {
+      "types": "./dist/dml/entity-builder.d.ts",
+      "source": "./src/dml/entity-builder.ts",
+      "default": "./dist/dml/entity-builder.js"
+    },
+    "./totals/big-number": {
+      "types": "./dist/totals/big-number.d.ts",
+      "source": "./src/totals/big-number.ts",
+      "default": "./dist/totals/big-number.js"
+    },
+    "./dal/filter-keys": {
+      "types": "./dist/dal/filter-keys.d.ts",
+      "source": "./src/dal/filter-keys.ts",
+      "default": "./dist/dal/filter-keys.js"
+    },
+    "./totals/math": {
+      "types": "./dist/totals/math.d.ts",
+      "source": "./src/totals/math.ts",
+      "default": "./dist/totals/math.js"
+    },
+    "./common/errors": {
+      "types": "./dist/common/errors.d.ts",
+      "source": "./src/common/errors.ts",
+      "default": "./dist/common/errors.js"
+    },
+    "./common/flatten-object-to-key-value-pairs": {
+      "types": "./dist/common/flatten-object-to-key-value-pairs.d.ts",
+      "source": "./src/common/flatten-object-to-key-value-pairs.ts",
+      "default": "./dist/common/flatten-object-to-key-value-pairs.js"
+    },
+    "./common/is-present": {
+      "types": "./dist/common/is-present.d.ts",
+      "source": "./src/common/is-present.ts",
+      "default": "./dist/common/is-present.js"
+    },
+    "./modules-sdk/loaders/load-models": {
+      "types": "./dist/modules-sdk/loaders/load-models.d.ts",
+      "source": "./src/modules-sdk/loaders/load-models.ts",
+      "default": "./dist/modules-sdk/loaders/load-models.js"
+    },
+    "./common/normalize-import-path-with-source": {
+      "types": "./dist/common/normalize-import-path-with-source.d.ts",
+      "source": "./src/common/normalize-import-path-with-source.ts",
+      "default": "./dist/common/normalize-import-path-with-source.js"
+    },
+    "./modules-sdk/medusa-internal-service": {
+      "types": "./dist/modules-sdk/medusa-internal-service.d.ts",
+      "source": "./src/modules-sdk/medusa-internal-service.ts",
+      "default": "./dist/modules-sdk/medusa-internal-service.js"
+    },
+    "./dal/mikro-orm/mikro-orm-repository": {
+      "types": "./dist/dal/mikro-orm/mikro-orm-repository.d.ts",
+      "source": "./src/dal/mikro-orm/mikro-orm-repository.ts",
+      "default": "./dist/dal/mikro-orm/mikro-orm-repository.js"
+    },
+    "./dml/helpers/create-mikro-orm-entity": {
+      "types": "./dist/dml/helpers/create-mikro-orm-entity.d.ts",
+      "source": "./src/dml/helpers/create-mikro-orm-entity.ts",
+      "default": "./dist/dml/helpers/create-mikro-orm-entity.js"
+    },
+    "./dml/entity": {
+      "types": "./dist/dml/entity.d.ts",
+      "source": "./src/dml/entity.ts",
+      "default": "./dist/dml/entity.js"
+    },
+    "./dml/properties/big-number": {
+      "types": "./dist/dml/properties/big-number.d.ts",
+      "source": "./src/dml/properties/big-number.ts",
+      "default": "./dist/dml/properties/big-number.js"
+    },
+    "./dml/properties/number": {
+      "types": "./dist/dml/properties/number.d.ts",
+      "source": "./src/dml/properties/number.ts",
+      "default": "./dist/dml/properties/number.js"
+    },
+    "./dml/properties/primary-key": {
+      "types": "./dist/dml/properties/primary-key.d.ts",
+      "source": "./src/dml/properties/primary-key.ts",
+      "default": "./dist/dml/properties/primary-key.js"
+    },
+    "./dml/properties/text": {
+      "types": "./dist/dml/properties/text.d.ts",
+      "source": "./src/dml/properties/text.ts",
+      "default": "./dist/dml/properties/text.js"
+    },
+    "./modules-sdk/types/medusa-service": {
+      "types": "./dist/modules-sdk/types/medusa-service.d.ts",
+      "source": "./src/modules-sdk/types/medusa-service.ts",
+      "default": "./dist/modules-sdk/types/medusa-service.js"
+    },
+    "./common/medusa-container": {
+      "types": "./dist/common/medusa-container.d.ts",
+      "source": "./src/common/medusa-container.ts",
+      "default": "./dist/common/medusa-container.js"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@medusajs/deps": "workspace:*",
+    "@medusajs/types": "workspace:*",
+    "bignumber.js": "9.3.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@medusajs/modules-sdk",
+  "version": "2.13.4",
+  "private": true,
+  "exports": {
+    "./definitions": {
+      "types": "./dist/definitions.d.ts",
+      "source": "./src/definitions.ts",
+      "default": "./dist/definitions.js"
+    },
+    ".": {
+      "types": "./dist/definitions.d.ts",
+      "source": "./src/definitions.ts",
+      "default": "./dist/definitions.js"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@medusajs/types": "workspace:*",
+    "@medusajs/utils": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

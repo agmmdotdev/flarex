@@ -17,6 +17,7 @@ on:
       - "*.config.*"
       - "tsconfig*.json"
       - "third_party/medusa/**"
+      - "roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json"
   push:
     branches:
       - main
@@ -35,6 +36,7 @@ on:
       - "*.config.*"
       - "tsconfig*.json"
       - "third_party/medusa/**"
+      - "roadmaps/flarexdb-framework-integration/preflight/medusa-currency-promotion.json"
 
 permissions:
   contents: read
@@ -55,6 +57,8 @@ jobs:
       - run: corepack enable
       - run: corepack pnpm@10.33.2 install --frozen-lockfile
       - run: corepack pnpm@10.33.2 medusa:source:typecheck
-      - run: corepack pnpm@10.33.2 test:medusa-source-island-boundary
-      - run: corepack pnpm@10.33.2 check:medusa-source-island-boundary
+      - run: corepack pnpm@10.33.2 medusa:currency:build
+      - run: corepack pnpm@10.33.2 medusa:currency:test:guards
+      - run: corepack pnpm@10.33.2 medusa:currency:verify
+      - run: corepack pnpm@10.33.2 medusa:currency:test:pglite
       - run: corepack pnpm@10.33.2 medusa:source:verify

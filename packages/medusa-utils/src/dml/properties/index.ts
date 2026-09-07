@@ -1,0 +1,1 @@
+export { FloatProperty } from "./float";

@@ -7,6 +7,7 @@
     "src"
   ],
   "exports": {
+    "./internal/relational-schema-values": "./src/relationalSchemaValues.ts",
     ".": "./src/index.ts",
     "./internal/application-task-bindings": "./src/applicationTaskBindings.ts",
     "./internal/application-schema-authority": "./src/applicationSchemaAuthority.ts",

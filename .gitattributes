@@ -1,3 +1,11 @@
 * text=auto eol=lf
 third_party/medusa/upstream/** -text whitespace=-trailing-space,-blank-at-eof
 third_party/medusa/SOURCE_COMMIT -text
+packages/medusa-currency/src/** -text whitespace=-trailing-space,-blank-at-eof
+packages/medusa-currency/integration-tests/** -text whitespace=-trailing-space,-blank-at-eof
+packages/medusa-deps/src/** -text whitespace=-trailing-space,-blank-at-eof
+packages/medusa-framework/src/** -text whitespace=-trailing-space,-blank-at-eof
+packages/medusa-modules-sdk/src/** -text whitespace=-trailing-space,-blank-at-eof
+packages/medusa-test-utils/src/** -text whitespace=-trailing-space,-blank-at-eof
+packages/medusa-types/src/** -text whitespace=-trailing-space,-blank-at-eof
+packages/medusa-utils/src/** -text whitespace=-trailing-space,-blank-at-eof
