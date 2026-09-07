@@ -177,6 +177,11 @@ event intents emitted by the selected unchanged operations. Prove rollback,
 lost-commit recovery and common outbox delivery together. SQL cascade success
 alone cannot prove that every deleted child has a published change fact.
 
+[Record 28](./28-medusa-product-create-and-event-delivery.md) proposes creation,
+bounded population and durable event delivery as the first complete runtime
+proof. Replacement and lifecycle/cascade publication follow together; neither
+is implied by successful nested creation.
+
 That next transaction/event contract must be reviewed before Product mutation
 admission. It must reuse shared relational publication and readiness receipts;
 there will be no per-module core change tables, commit counters or seed rules.

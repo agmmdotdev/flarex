@@ -199,6 +199,7 @@ Preflight records:
 | [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md) | Implemented private Currency source/value compatibility | Actual DML, manifest-admitted source/build/type closure and unchanged PGlite/MikroORM comparison baseline; live Flarex installation, bounded relational queries and typed commerce publication are owned by record 25 |
 | [`preflight/25-medusa-currency-host-and-publication.md`](./preflight/25-medusa-currency-host-and-publication.md) | Implemented private Currency service and relational publication | Shared initialization/change metadata, live installation, borrowed managers, bounded queries, atomic publication/recovery and retention; broader modules and public activation remain gated |
 | [`preflight/26-medusa-product-schema-and-relationships.md`](./preflight/26-medusa-product-schema-and-relationships.md) | Fresh Product schema and physical relationships implemented | Ten pinned models produce thirteen tables through shared schema/install/readiness machinery; Product service mutations remain unadmitted |
+| [`preflight/28-medusa-product-create-and-event-delivery.md`](./preflight/28-medusa-product-create-and-event-delivery.md) | Proposed; transaction and event contract awaits approval | Nested Product creation, bounded population, complete entity/pivot facts and shared durable event delivery; no Product runtime admission yet |
 
 ## Current Architecture
 
@@ -329,8 +330,10 @@ The smallest safe sequence is:
 13. Admit Currency transaction propagation, commerce-row/event-intent receipts,
     and typed finalization before the fresh Currency baseline may write.
 14. Product's complete fresh schema and physical relationships are implemented
-    under record 26. Next admit its service transaction/event contracts and
-    runtime relationship behavior. Follow with both endpoints and the
+    under record 26. Record 28 proposes nested creation, bounded population and
+    durable event delivery as the first service transaction proof. Replacement
+    and lifecycle/cascade publication remain a subsequent coherent capability.
+    Follow with both endpoints and the
     typed link/event contracts for one real stored Module Link with database-
     enforced uniqueness/cardinality and genuine-PostgreSQL concurrency proof.
 15. Add custom repositories, Query, workflows, locks, idempotency, events, and

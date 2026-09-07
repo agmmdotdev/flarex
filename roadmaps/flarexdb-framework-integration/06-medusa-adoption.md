@@ -8,11 +8,13 @@ Payload prerequisites are complete. The [Currency convergence/schema record](./p
 records implemented private package promotion and actual DML compatibility.
 The [Currency host/publication capability](./preflight/25-medusa-currency-host-and-publication.md)
 implements fresh installation, seed-gated serving and shared relational publication
-through the unchanged Currency service. The proposed next capability is
-[Product schema and physical relationships](./preflight/26-medusa-product-schema-and-relationships.md),
-from complete actual DML to fresh installation and constraint conformance.
-Product service mutations, stored Links and production activation remain
-separate gates.
+through the unchanged Currency service.
+[Product schema and physical relationships](./preflight/26-medusa-product-schema-and-relationships.md)
+are also implemented, from complete actual DML to fresh installation and
+constraint conformance. The proposed
+[nested Product creation and event-delivery contract](./preflight/28-medusa-product-create-and-event-delivery.md)
+owns the first multi-table service proof. Product service mutations, stored
+Links and production activation remain unadmitted.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,
@@ -40,7 +42,8 @@ owns the prerequisite order before any such package promotion. Source mapping
 and inert fixture extraction may proceed early. The shared-core, Flarex Application,
 and bounded Payload gates have passed. Exact Currency source promotion is also
 complete, as are private Flarex-backed Currency installation and service
-execution. Product schema/relationship admission is next. General Payload
+execution. Product schema/relationship installation is complete; nested creation,
+bounded population and durable event delivery are next. General Payload
 compatibility is separate.
 
 [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md)

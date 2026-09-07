@@ -3,8 +3,11 @@
 ## Status And Scope
 
 Status: private CMS row, optional-one relation and preference publication are
-implemented through the existing Application commit owner. Synthetic relational
-receipts still reject finalization; commerce publication remains separately gated.
+implemented through the existing Application commit owner. Private Currency
+publication is implemented through the shared finalizer and relational facts.
+Synthetic relational receipts still reject finalization; multi-table Product
+commands and domain-event publication are proposed under
+[record 28](./preflight/28-medusa-product-create-and-event-delivery.md).
 
 This plan owns the framework-facing transaction-host shape and the safe
 participation of accepted framework mutations in the existing Flarex scope
@@ -39,7 +42,8 @@ It requires the implemented Application write policy and exact content-overlay
 admission. The pinned Payload runtime also composes native relation planning,
 final-target liveness, edge/adjacency maintenance and restrict checks in that same
 transaction. Row, relation and preference facts share one commit/result/wake;
-commerce and synthetic relational publication retain their separate gates.
+Currency contributes shared relational facts under its own admitted profile.
+Product domain events and synthetic relational publication retain separate gates.
 
 ## Transaction Hosts
 
