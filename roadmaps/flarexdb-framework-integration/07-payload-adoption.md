@@ -17,8 +17,10 @@ The [population contract](./preflight/21-payload-many-transition-and-bounded-pop
 implements bounded depth-one standalone forward reads over that relation. The
 [fresh many profile](./preflight/22-payload-many-installation-and-migration-boundary.md)
 adds ordered `relatedPosts` CRUD and depth-one population with exact fresh
-ownership/binding and native publication. Existing-row conversion and Payload
-reverse joins remain gated. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
+ownership/binding and native publication. The separate fresh-only
+[join profile](./preflight/23-payload-bounded-reverse-joins.md) implements bounded
+reverse identities and depth-one source population in the same CMS transaction.
+Existing-row conversion and general join parity remain gated. See the [exact profile](./preflight/07-payload-release-and-adapter-contract.md#current-private-conformance).
 
 This plan owns the ordered adoption of Payload over Flarex application storage
 and adapter-owned lifecycle state. It does not redefine native relation
@@ -315,8 +317,8 @@ edge backfill cannot supply that authority. The [installation/migration
 assessment](./preflight/22-payload-many-installation-and-migration-boundary.md)
 implements fresh-install many conformance, with existing-row upgrades deferred
 until their supported obligation and authority are established. Many-valued
-fields are supported by the fresh profile; reverse joins remain a follow-up
-within the broader milestone below.
+fields are supported by the fresh profile; the separate fresh-only join profile
+completes the bounded reverse consumer contract below.
 
 - Capture a new independently digestible relation-bearing Payload
   configuration/provenance artifact. The stable Payload policy ID and ordinary
@@ -340,9 +342,9 @@ within the broader milestone below.
 ### Native relation adoption
 
 Optional-one and fresh-install many self-relations are implemented through
-Payload CRUD and bounded forward population, with native committed reverse
-identity reads as independent storage proof. The remaining
-adoption milestone must establish these wider guarantees:
+Payload CRUD and bounded forward population. The separate fresh-only join
+profile adds actual Payload reverse fields. The completed bounded private
+adoption milestone establishes these guarantees:
 
 - top-level, nonlocalized, monomorphic one/many values;
 - duplicate rejection;
@@ -352,13 +354,14 @@ adoption milestone must establish these wider guarantees:
 - bounded reverse identity reads without unsupported filtering, sorting,
   counting, or orderability.
 
-These native behaviors have private fresh-many consumer evidence. Completing
-the broader milestone still requires Payload reverse-join configuration,
-admission and response shaping; native incoming-source reads alone do not
-establish that adapter behavior. The [bounded reverse-join proposal](./preflight/23-payload-bounded-reverse-joins.md)
-recommends implementing both virtual reverse fields through a request-bound CMS
-read capability, with first-window identities and depth-one population. Its
-implementation approval is pending; no new write or migration owner is proposed.
+These native behaviors have private consumer evidence on both drivers. The
+[bounded reverse-join capability](./preflight/23-payload-bounded-reverse-joins.md)
+implements both virtual fields through a request-bound CMS read capability,
+with first-window identities and depth-one population. Root, edge and source
+reads share admission and locking. No new write or migration owner is introduced.
+This closes the bounded non-reactive prerequisite for the Medusa Currency
+package-convergence preflight. General join pagination and dynamic access remain
+outside the supported profile.
 
 The Payload adapter separately composes bounded forward population, reverse
 join behavior, authorization, and response shaping over those native

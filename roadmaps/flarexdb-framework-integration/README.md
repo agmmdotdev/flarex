@@ -122,8 +122,8 @@ Use these sources in order:
     implements fresh-install many conformance and records the separate existing-row
     conversion authority, serving exclusion and recovery gate.
 25. [`preflight/23-payload-bounded-reverse-joins.md`](./preflight/23-payload-bounded-reverse-joins.md)
-    proposes the request-bound native reverse-read capability, fixed Payload join
-    windows and depth-one response contract. Implementation approval is pending.
+    records the implemented request-bound native reverse-read capability, fixed Payload join
+    windows and depth-one response contract for the private fresh-only profile.
 26. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
@@ -180,9 +180,9 @@ Preflight records:
 | [`preflight/17-cms-request-transactions-and-application-publication.md`](./preflight/17-cms-request-transactions-and-application-publication.md) | Private scalar CMS host and Application publication implemented | Bounded pending documents, authenticated materialization, one publication, retained-result recovery and preserved Application driver lanes; Payload compatibility remains separate |
 | [`preflight/18-application-table-write-policy.md`](./preflight/18-application-table-write-policy.md) | Private denial capability implemented | Policy-bearing canonical Application identity, new managed-table activation, retained ownership, authoring restrictions and authoritative denial before any CMS writer is admitted |
 | [`preflight/20-payload-content-relations-and-rebinding.md`](./preflight/20-payload-content-relations-and-rebinding.md) | Private optional-one Payload relation capability implemented | Authenticated scalar successor, exact combined binding, native relation integrity/publication and bounded cold ownership recovery |
-| [`preflight/21-payload-many-transition-and-bounded-population.md`](./preflight/21-payload-many-transition-and-bounded-population.md) | Private depth-one forward population implemented; many-transition direction proposed | Request-bound identity batching and consistent bounded reads; many-valued existing-row conversion requires a separate migration-host decision, and reverse joins remain gated |
+| [`preflight/21-payload-many-transition-and-bounded-population.md`](./preflight/21-payload-many-transition-and-bounded-population.md) | Private depth-one forward population implemented; many-transition direction proposed | Request-bound identity batching and consistent bounded reads; many-valued existing-row conversion requires a separate migration-host decision; bounded reverse joins use the separate profile in preflight 23 |
 | [`preflight/22-payload-many-installation-and-migration-boundary.md`](./preflight/22-payload-many-installation-and-migration-boundary.md) | Private fresh-install many conformance implemented | Ordered many CRUD, bounded population, exact binding and retained recovery; existing-row conversion separately needs authenticated transformation, serving exclusion and durable progress |
-| [`preflight/23-payload-bounded-reverse-joins.md`](./preflight/23-payload-bounded-reverse-joins.md) | Researched proposal; implementation approval pending | Same-transaction CMS incoming-source reads and bounded Payload virtual joins over both native relations |
+| [`preflight/23-payload-bounded-reverse-joins.md`](./preflight/23-payload-bounded-reverse-joins.md) | Private fresh-only reverse joins implemented | Same-transaction CMS incoming-source reads and bounded Payload virtual joins over both native relations; closes the bounded non-reactive Payload prerequisite |
 
 ## Current Architecture
 
@@ -360,7 +360,7 @@ has private Application-only and synthetic Medusa acceptance.
 | Application preservation | Post-core complete native mutation/OCC/replay/publication, query, SV-R Core and RQ01 scenarios pass on PGlite and ordinary-role PostgreSQL | Rerun after shared publication changes; Action/Task, live sync and hosted claims remain separate |
 | CMS request host and Application publication | Private CMS host, pending documents, row/relation materialization and publication implemented | Pinned Payload scalar CRUD and atomic preference cleanup publication proven under combined binding |
 | Application table write policy | Private denial capability implemented | Canonical ownership and ordinary Application journal/commit denial preserved; the separate private CMS participant owns managed writes |
-| Payload scalar and non-reactive relation proofs | Private pinned scalar/optional-one/fresh-many CRUD, depth-one standalone population, preference cleanup/publication and nested requests implemented | Native relation constraints, ordered many values and retained recovery proven privately. Existing-row many upgrades, Payload reverse joins and general parity remain gated |
+| Payload scalar and non-reactive relation proofs | Private pinned scalar/optional-one/fresh-many CRUD, fresh-only reverse joins, depth-one standalone population, preference cleanup/publication and nested requests implemented | Bounded non-reactive consumer milestone complete on both drivers. Existing-row many upgrades, general join parity and public/production activation remain gated |
 | Medusa Currency, Product and Module Link proofs | Inert source island and exact capability map available | Package promotion, transaction propagation, typed commerce/event publication and actual service conformance pending after preceding core/Application/Payload gates |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
@@ -466,9 +466,9 @@ CMS publication. The [bounded population capability](./preflight/21-payload-many
 implements depth-one standalone forward reads over that relation. The
 [migration-host assessment](./preflight/22-payload-many-installation-and-migration-boundary.md)
 implements fresh-install many conformance; existing-row conversion remains
-a separate authority and recovery capability. The [bounded reverse-join proposal](./preflight/23-payload-bounded-reverse-joins.md)
-now specifies the next consumer implementation: one CMS transaction for root,
-edge and source reads, with first-window results and bounded population. Approval
-is pending. This does not complete
-the broader Payload relation prerequisite for Medusa.
+a separate authority and recovery capability. The [bounded reverse-join capability](./preflight/23-payload-bounded-reverse-joins.md)
+implements one CMS transaction for root, edge and source reads, with first-window
+results and bounded population. This completes the bounded private non-reactive
+Payload prerequisite. The next slice is the Medusa Currency package-convergence
+and source-closure preflight; general Payload parity is a separate gate.
 Public framework adapters, SDKs, runtime routes and production remain gated.

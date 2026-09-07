@@ -17,9 +17,16 @@ export const payloadRelationFields = Object.freeze([...payloadScalarFields, payl
 export const payloadRelatedPostsField = Object.freeze({ name: "relatedPosts", kind: "relationship", target: "posts",
   cardinality: "many", minItems: 0, maxItems: 32, localized: false, onTargetDelete: "restrict" } as const);
 export const payloadManyFields = Object.freeze([...payloadRelationFields, payloadRelatedPostsField].toSorted((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+export const payloadHasMany = (profile: PayloadContentProfile): boolean => profile === "payload.content-many" || profile === "payload.content-joins";
+export const payloadJoins = Object.freeze([
+  Object.freeze({ name: "referencedBy", collection: "posts", on: "relatedPost", orderable: false, localized: false, maxDepth: 1, defaultLimit: 8, maximumLimit: 16 } as const),
+  Object.freeze({ name: "referencedByMany", collection: "posts", on: "relatedPosts", orderable: false, localized: false, maxDepth: 1, defaultLimit: 8, maximumLimit: 16 } as const),
+] as const);
 export function payloadContentConfiguration(profile: PayloadContentProfile, provenanceSha256: string): PayloadConfiguration {
+  const tables = [{ logicalTableName: "posts", fields: profile === "payload.scalar" ? payloadScalarFields : payloadHasMany(profile) ? payloadManyFields : payloadRelationFields }];
+  if (profile === "payload.content-joins") return { format: "flarex.payload-configuration", version: 1, profile, provenanceSha256, tables, joins: payloadJoins };
   return { format: "flarex.payload-configuration", version: 1, profile, provenanceSha256,
-    tables: [{ logicalTableName: "posts", fields: profile === "payload.scalar" ? payloadScalarFields : profile === "payload.content-many" ? payloadManyFields : payloadRelationFields }] };
+    tables };
 }
 
 export const payloadScalarProvenance: PayloadProvenance = Object.freeze({

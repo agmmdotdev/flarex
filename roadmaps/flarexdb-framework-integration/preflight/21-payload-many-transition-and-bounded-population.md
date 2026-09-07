@@ -18,9 +18,10 @@ conformance. It requires no new content schema or ownership successor.
 
 Do not make optional-many admission a prerequisite for this read capability.
 Existing-row conversion needs a distinct Payload migration-host decision, and
-native reverse identities do not yet establish Payload join compatibility.
-Neither remaining gate is satisfied by forward population. The broader Payload
-relation milestone remains a prerequisite for the planned Medusa consumer proof.
+native reverse identities alone do not establish Payload join compatibility.
+Neither gate is satisfied by forward population. The separate
+[fresh join profile](./23-payload-bounded-reverse-joins.md) now completes the
+bounded reverse-consumer prerequisite for the planned Medusa consumer proof.
 
 ## Current Evidence And Challenged Assumptions
 
@@ -208,10 +209,10 @@ contract; it is not implemented by this fixed-policy proof.
 The existing native query path proves committed reverse identities with its
 authenticated snapshot and bounded window contract. It does not supply Payload
 join pagination, totals, arbitrary order, access-filtered completeness or pending
-reverse reads. Forward depth-one completion must leave `join` disabled. A later
-join proposal must map the actual pinned join query/result shape to those native
-capabilities or explicitly limit the exposed behavior; never invent a total from
-one window or scan all sources in the adapter.
+reverse reads. The forward-only profiles leave `join` disabled. The separate
+fresh-only [join profile](./23-payload-bounded-reverse-joins.md) now maps the pinned
+query/result shape to native first-window identities and depth-one population.
+It does not invent a total from one window or scan all sources in the adapter.
 
 ## Execution And Completion Evidence
 
@@ -246,5 +247,5 @@ and conformance form one capability. Its maintained proof contract is:
 
 Completion means real depth-one forward population with bounded database and
 response work, exact request consistency, fail-closed admission and both-driver
-proof. Many conversion, reverse joins, general access, public packages, dashboard,
+proof. Many conversion, general reverse-join parity, general access, public packages, dashboard,
 live sync, hosted and production serving remain explicit subsequent gates.

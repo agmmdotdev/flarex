@@ -1,3 +1,6 @@
+import { payloadJoinQuery } from "./joins";
+import { payloadJoinContentIdentity } from "./profile";
+import { payloadHasMany } from "./contract";
 import { APIError, ValidationError, BasePayload, buildConfig, type Where, type PayloadRequest, type CollectionAfterChangeHook } from "payload";
 import { Effect } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
@@ -82,6 +85,7 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
     if (!live) return yield* Effect.fail(cmsError("closed"));
     if (!isJsonObject(args)) return yield* Effect.fail(cmsError("invalidInput"));
     const allowed = operation === "create" ? ["data"] : operation === "update" ? ["id", "data"] : operation === "find" ? ["where", "page", "limit", "pagination", "sort", "depth"] : operation === "count" ? ["where"] : operation === "findByID" ? ["id", "depth"] : ["id"];
+    if (profile === "payload.content-joins" && ["find", "findByID"].includes(operation)) allowed.push("joins");
     if (Object.keys(args).some(key => !allowed.includes(key))) return yield* Effect.fail(cmsError("unsupportedProfile"));
     const depth = args.depth === undefined ? 0 : args.depth;
     if ((depth !== 0 && depth !== 1) ||
@@ -95,16 +99,22 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
       if (isJsonObject(value) && typeof value.equals === "string") query[key] = { equals: value.equals };
     }
     const req: Partial<PayloadRequest> = ["create", "update", "delete"].includes(operation) ? { transactionID: context.transactionId } : {};
-    const common = { collection: "posts", req, depth, overrideAccess: false } as const;
+    const joinRead = profile === "payload.content-joins" && context.standaloneRead && ["find", "findByID"].includes(operation);
+    if (args.joins !== undefined && !joinRead) return yield* Effect.fail(cmsError("unsupportedProfile"));
+    const joins = yield* Effect.fromResult(payloadJoinQuery(joinRead ? args.joins : false));
+    // Payload sanitizes join options in place; retain the canonical query in the bridge.
+    const foreignJoins = { referencedBy: joins.referencedBy === false ? false as const : { ...joins.referencedBy },
+      referencedByMany: joins.referencedByMany === false ? false as const : { ...joins.referencedByMany } };
+    const common = { ...(profile === "payload.content-joins" ? { joins: joinRead ? foreignJoins : false as const } : {}), collection: "posts", req, depth, overrideAccess: false } as const;
     const data = args.data;
     if ((operation === "create" || operation === "update") && (!isJsonObject(data) || Object.keys(data).some(key =>
-      !["title", "score", "enabled", "publishedAt", ...(profile !== "payload.scalar" ? ["relatedPost"] : []), ...(profile === "payload.content-many" ? ["relatedPosts"] : [])].includes(key)))) {
+      !["title", "score", "enabled", "publishedAt", ...(profile !== "payload.scalar" ? ["relatedPost"] : []), ...(payloadHasMany(profile) ? ["relatedPosts"] : [])].includes(key)))) {
       return yield* Effect.fail(cmsError("unsupportedProfile", new UnsupportedPayloadScalarCapability("input fields")));
     }
     if (isJsonObject(data) && data.relatedPost !== undefined && data.relatedPost !== null && typeof data.relatedPost !== "string") {
       return yield* Effect.fail(cmsError("relationInvalid", new UnsupportedPayloadScalarCapability("relationship input")));
     }
-    if (profile === "payload.content-many" && isJsonObject(data) && Object.hasOwn(data, "relatedPosts")) {
+    if (payloadHasMany(profile) && isJsonObject(data) && Object.hasOwn(data, "relatedPosts")) {
       const ids = yield* Effect.fromResult(payloadManyIds(data.relatedPosts));
       // Authenticate each canonical ID against the request's posts table before Payload normalization.
       // Native finalization still owns target liveness and the complete pending-write relation delta.
@@ -139,7 +149,7 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
       default: return yield* Effect.fail(cmsError("unsupportedProfile"));
     }
     executions += 1;
-    const result = yield* Effect.tryPromise({ try: signal => bridge.within(context, req, signal, call, depth === 1), catch: cause => cause }).pipe(
+    const result = yield* Effect.tryPromise({ try: signal => bridge.within(context, req, signal, call, depth === 1, joins), catch: cause => cause }).pipe(
       // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: compatibility - This Payload Promise boundary classifies every unknown rejection and preserves unknown causes as defects.
       Effect.catch(projectPayloadFailure));
     return (yield* Effect.fromResult(capturePrivateJsonData(result, 1_048_576, cmsError))).value;
@@ -154,7 +164,7 @@ export const makePayloadScalarRuntime = Effect.fn("PayloadScalar.makeRuntime")(f
   };
   const bind = Effect.fn("PayloadScalar.bind")(function* <Failure>(input: Omit<CmsHostInput<Failure>, "commands" | "expectedContentIdentity">): Effect.fn.Return<CmsHost, CmsTransactionError> {
     if (!live) return yield* Effect.fail(cmsError("closed"));
-    const host = yield* makeCmsHost({ ...input, commands: Object.values(commands), expectedContentIdentity: profile === "payload.scalar" ? payloadScalarContentIdentity : profile === "payload.content-many" ? payloadManyContentIdentity : payloadRelationContentIdentity });
+    const host = yield* makeCmsHost({ ...input, commands: Object.values(commands), expectedContentIdentity: profile === "payload.content-joins" ? payloadJoinContentIdentity : profile === "payload.scalar" ? payloadScalarContentIdentity : payloadHasMany(profile) ? payloadManyContentIdentity : payloadRelationContentIdentity });
     return {
       newRequestKey: host.newRequestKey,
       run: (key, command, args) => Effect.suspend(() => live ? host.run(key, command, args) : Effect.fail(cmsError("closed"))),

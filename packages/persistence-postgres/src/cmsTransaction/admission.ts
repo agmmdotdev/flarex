@@ -54,7 +54,7 @@ export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function*
   }
   const manifest = selection.basis.manifest;
   if (manifest.version !== 3 || selection.basis.relationCount !==
-    ({ "payload.scalar": 0, "payload.content-relations": 1, "payload.content-many": 2 }[manifest.schema.writePolicies.configuration.profile])) {
+    ({ "payload.scalar": 0, "payload.content-relations": 1, "payload.content-many": 2, "payload.content-joins": 2 }[manifest.schema.writePolicies.configuration.profile])) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   }
   const schema = yield* createApplicationRelationSchemaAuthorityPort(controlDb).resolve({

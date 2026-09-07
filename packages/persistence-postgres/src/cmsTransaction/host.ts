@@ -1,5 +1,8 @@
+import type { AppRelationEdgeQueryObservation } from "../appRelationEdges";
+import { prepareCmsRelations, makeCmsRelations, type CmsRelations } from "./relations";
+import { hasApplicationRelationReadPortAuthorityForControlDb, hasApplicationRelationReadPortAuthorityForPointCommit, type ApplicationRelationReadPort } from "../applicationRelationRead";
 import { hasFrameworkMigrationTargetDatabase, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
-import { Cause, Clock, Effect, Schema } from "effect";
+import { Cause, Clock, Effect, Option, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
@@ -38,6 +41,7 @@ export interface CmsCommandContext {
   readonly reserveOutput: (bytes: number) => Effect.Effect<void, CmsTransactionError>;
   readonly transactionId: string;
   readonly documents: CmsDocuments;
+  readonly relations: CmsRelations;
   readonly preferences: PayloadPreferenceCleanup;
   readonly begin: (id?: CmsPresentedTransactionId) => Effect.Effect<string, CmsTransactionError>;
   readonly commit: (id: CmsPresentedTransactionId) => Effect.Effect<never, CmsTransactionError>;
@@ -73,6 +77,7 @@ export interface CmsHostInput<Failure> {
   /** Authenticated by the private composition root; never adapter command input. */
   readonly identityAndAccessPolicy: Json;
   readonly materialization: PointCommitTransactionProofOptionsV1;
+  readonly relationReads?: ApplicationRelationReadPort;
   /** Exact preference binding required by the operation-specific cleanup port. */
   readonly payloadPreferenceTarget?: FrameworkMigrationTarget;
   /** Optional closed-consumer restriction, checked under the admitted scope lock. */
@@ -85,6 +90,7 @@ export interface CmsHost {
 }
 export interface CmsHostTestHooks extends CmsMaterializationTestHooks {
   readonly documentReads?: CmsDocumentReadTestHooks;
+  readonly observeIncomingQuery?: (query: AppRelationEdgeQueryObservation) => void;
   /** Physical-driver conformance only; never passed to a registered operation. */
   readonly afterAdmission?: (tx: FlarexMetadataTransaction) => Effect.Effect<void, CmsTransactionError>;
 }
@@ -108,6 +114,9 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
   hooks?: CmsHostTestHooks,
 ): Effect.fn.Return<CmsHost, CmsTransactionError> {
   const { database, session, deploymentId, controlDatabase, application, pointCommitAuthority } = input;
+  const relationReads = input.relationReads;
+  if (relationReads !== undefined && (!hasApplicationRelationReadPortAuthorityForControlDb(relationReads, controlDatabase) ||
+    !hasApplicationRelationReadPortAuthorityForPointCommit(relationReads, pointCommitAuthority))) return yield* Effect.fail(cmsError("invalidAuthority"));
   const compositionAuthority = input.authority;
   const preferenceTarget = input.payloadPreferenceTarget;
   if (preferenceTarget !== undefined && !hasFrameworkMigrationTargetDatabase(preferenceTarget, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
@@ -146,6 +155,8 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
       const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
       const prepared = yield* prepareCmsApplication(application, compositionAuthority, controlDatabase, deploymentId);
+      // Reverse reads are standalone-only; writes and retained replay need no read-capability preparation.
+      const relations = requestKey === null ? yield* prepareCmsRelations(prepared, relationReads) : Option.none();
       const commit = requestKey === null ? null : yield* prepareCmsApplicationCommit(prepared, located.authority, pointCommitAuthority, materialization);
       return yield* runRelationalSession(session, tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`),
@@ -179,14 +190,15 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
             yield* Effect.fromResult(lifetime.charge(captured.bytes + evidence.canonicalBytes.byteLength));
             const participant = commit === null ? null : yield* enterCmsApplicationCommit(commit, admission, lifetime);
             const working = yield* makeCmsDocuments(admission, lifetime, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), participant?.uniqueDefinitions ?? [], testHooks?.documentReads);
+            const incoming = yield* makeCmsRelations(relations, admission, lifetime, working.documents, key === null, testHooks?.observeIncomingQuery);
             const preferences = yield* makePayloadPreferenceCleanup(admission, lifetime, working.pendingDeletions);
             const invoke = Effect.fn("CmsHost.invoke")(function* (context: CmsRequestContext, child: CmsCommand, childArgs: Json): Effect.fn.Return<Json, CmsTransactionError> {
               const definition = commands.get(child);
               if (definition === undefined || !allowed.has(child) || (key === null && definition.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
               const childInput = yield* Effect.fromResult(capturePrivateJsonData(childArgs, lifetime.remainingBytes(), cmsError));
               yield* Effect.fromResult(lifetime.charge(childInput.bytes));
-              const commandContext = Object.freeze({ context, standaloneRead: key === null, reserveOutput: bytes => lifetime.operation(context, transactionId, "read", Effect.suspend(() => Effect.fromResult(lifetime.charge(bytes)))),
-                transactionId, documents: working.documents, preferences: preferences.cleanup,
+              const commandContext = Object.freeze({ context, standaloneRead: key === null && context === lifetime.context, reserveOutput: bytes => lifetime.operation(context, transactionId, "read", Effect.suspend(() => Effect.fromResult(lifetime.charge(bytes)))),
+                transactionId, documents: working.documents, relations: incoming, preferences: preferences.cleanup,
                 begin: id => lifetime.begin(context, id), commit: id => lifetime.adapterCommit(context, id), rollback: id => lifetime.rollback(context, id),
                 nested: (next, nextArgs) => lifetime.nested(context, transactionId, nested => invoke(nested, next, nextArgs)) } satisfies CmsCommandContext);
               const value = yield* Effect.suspend(() => definition.run(commandContext, childInput.value));

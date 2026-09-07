@@ -47,10 +47,9 @@ const ManyPostRelationField = Schema.Struct({
 }).annotate(StrictStructOptions);
 
 /** A private declarative profile, never a serialized executable Payload config. */
-export const PayloadConfigurationSchema = Schema.Struct({
+const ConfigurationFields = {
   format: Schema.Literal("flarex.payload-configuration"),
   version: Schema.Literal(1),
-  profile: Schema.Literals(["payload.scalar", "payload.content-relations", "payload.content-many"]),
   provenanceSha256: Digest,
   tables: Schema.Array(Schema.Struct({
     logicalTableName: Identity,
@@ -59,14 +58,26 @@ export const PayloadConfigurationSchema = Schema.Struct({
     Schema.isMinLength(1),
     Schema.isMaxLength(APPLICATION_WRITE_POLICY_MAXIMUM_TABLES),
   ),
-}).annotate(StrictStructOptions).check(Schema.makeFilter(config => {
+};
+const Join = (name: "referencedBy" | "referencedByMany", on: "relatedPost" | "relatedPosts") => Schema.Struct({
+  name: Schema.Literal(name), collection: Schema.Literal("posts"), on: Schema.Literal(on),
+  orderable: Schema.Literal(false), localized: Schema.Literal(false), maxDepth: Schema.Literal(1),
+  defaultLimit: Schema.Literal(8), maximumLimit: Schema.Literal(16),
+}).annotate(StrictStructOptions);
+export const PayloadConfigurationSchema = Schema.Union([
+  Schema.Struct({ ...ConfigurationFields, profile: Schema.Literals(["payload.scalar", "payload.content-relations", "payload.content-many"]) }).annotate(StrictStructOptions),
+  Schema.Struct({ ...ConfigurationFields, profile: Schema.Literal("payload.content-joins"),
+    joins: Schema.Tuple([Join("referencedBy", "relatedPost"), Join("referencedByMany", "relatedPosts")]),
+  }).annotate(StrictStructOptions),
+]).check(Schema.makeFilter(config => {
+  const many = config.profile === "payload.content-many" || config.profile === "payload.content-joins";
   const relations = config.tables.flatMap(table => table.fields.filter(field => field.kind === "relationship"));
   return config.profile === "payload.scalar"
     ? relations.length === 0 ? undefined : "Scalar profile cannot declare relationships"
     : config.tables.length === 1 && config.tables[0]?.logicalTableName === "posts" &&
-      relations.length === (config.profile === "payload.content-many" ? 2 : 1) &&
+      relations.length === (many ? 2 : 1) &&
       relations.filter(field => field.name === "relatedPost").length === 1 &&
-      relations.filter(field => field.name === "relatedPosts").length === (config.profile === "payload.content-many" ? 1 : 0)
+      relations.filter(field => field.name === "relatedPosts").length === (many ? 1 : 0)
       ? undefined : "Expected the exact posts relationship profile";
 }));
 export type PayloadConfiguration = typeof PayloadConfigurationSchema.Type;

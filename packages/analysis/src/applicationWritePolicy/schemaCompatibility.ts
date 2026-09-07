@@ -30,15 +30,16 @@ export function validateApplicationWritePolicySchema(
       }));
     }
   }
+  const manyProfile = policies.configuration.profile === "payload.content-many" || policies.configuration.profile === "payload.content-joins";
   if (policies.configuration.profile !== "payload.scalar") {
     const declaration = relations[0]?.declaration;
-    if (relations.length !== (policies.configuration.profile === "payload.content-many" ? 2 : 1) || declaration?.source.table !== "posts" || declaration.source.path[0].name !== "relatedPost" ||
+    if (relations.length !== (manyProfile ? 2 : 1) || declaration?.source.table !== "posts" || declaration.source.path[0].name !== "relatedPost" ||
       declaration.source.forwardName !== "relatedPost" || declaration.target.table !== "posts" ||
       declaration.value.cardinality !== "one" || declaration.value.required || declaration.localized ||
       declaration.inverse.cardinality !== "many" || declaration.inverse.name !== null || declaration.onTargetDelete !== "restrict") {
       return Result.fail(new ApplicationWritePolicyError({ reason: "configurationMismatch", path: "configuration.relations" }));
     }
-    if (policies.configuration.profile === "payload.content-many") {
+    if (manyProfile) {
       const many = relations[1]?.declaration;
       if (many?.source.table !== "posts" || many.source.path.length !== 1 || many.source.path[0]?.name !== "relatedPosts" ||
         many.source.forwardName !== "relatedPosts" || many.target.table !== "posts" || many.value.cardinality !== "many" ||

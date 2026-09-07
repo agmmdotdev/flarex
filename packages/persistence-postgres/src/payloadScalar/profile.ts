@@ -1,3 +1,4 @@
+import { payloadHasMany, payloadJoins } from "./contract";
 import { payloadScalarFields, payloadScalarProvenance, payloadContentConfiguration, type PayloadContentProfile } from "./contract";
 export { payloadScalarFields } from "./contract";
 import { createHash } from "node:crypto";
@@ -16,7 +17,8 @@ export function scalarPostsCollection(profile: PayloadContentProfile = "payload.
       { name: "enabled", type: "checkbox", required: true, defaultValue: false },
       { name: "publishedAt", type: "date", required: true },
       ...(profile !== "payload.scalar" ? [{ name: "relatedPost", type: "relationship", relationTo: "posts", hasMany: false, required: false } as const] : []),
-      ...(profile === "payload.content-many" ? [{ name: "relatedPosts", type: "relationship", relationTo: "posts", hasMany: true, required: false, maxRows: 32, defaultValue: [] } as const] : []),
+      ...(payloadHasMany(profile) ? [{ name: "relatedPosts", type: "relationship", relationTo: "posts", hasMany: true, required: false, maxRows: 32, defaultValue: [] } as const] : []),
+      ...(profile === "payload.content-joins" ? payloadJoins.map(({ maximumLimit: _maximum, ...join }) => ({ ...join, type: "join" as const })) : []),
     ] };
 }
 
@@ -31,3 +33,6 @@ export const payloadRelationConfiguration = payloadContentConfiguration("payload
 export const payloadRelationContentIdentity = Object.freeze({ configSha256: digest(payloadRelationConfiguration), provenanceSha256 });
 export const payloadManyConfiguration = payloadContentConfiguration("payload.content-many", provenanceSha256);
 export const payloadManyContentIdentity = Object.freeze({ configSha256: digest(payloadManyConfiguration), provenanceSha256 });
+
+export const payloadJoinConfiguration = payloadContentConfiguration("payload.content-joins", provenanceSha256);
+export const payloadJoinContentIdentity = Object.freeze({ configSha256: digest(payloadJoinConfiguration), provenanceSha256 });

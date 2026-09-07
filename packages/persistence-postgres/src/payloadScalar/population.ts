@@ -1,3 +1,4 @@
+import { payloadHasMany, payloadJoins } from "./contract";
 import { Result } from "effect";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { cmsError, cmsLimits, type CmsTransactionError } from "../cmsTransaction/model";
@@ -38,13 +39,21 @@ export function makePayloadPopulation(profile: PayloadContentProfile = "payload.
         if (documents.length > cmsLimits.pageRows) return yield* Result.fail(cmsError("limitExceeded"));
         for (const document of documents) {
           rootBytes += (yield* capturePrivateJsonData(document, cmsLimits.documentBytes, cmsError)).bytes;
-          const many = profile === "payload.content-many" ? document.relatedPosts : [];
+          const many = payloadHasMany(profile) ? document.relatedPosts : [];
           if (!Array.isArray(many) || many.length > payloadRelatedPostsField.maxItems || new Set(many).size !== many.length) {
             return yield* Result.fail(cmsError("storedCorruption", "invalid many identities"));
           }
           const single = document.relatedPost;
-          const ids = single === null || single === undefined ? many : [single, ...many];
-          // At most 32 roots, each with 32 many occurrences and one optional-one occurrence.
+          const reverse: string[] = [];
+          if (profile === "payload.content-joins") for (const join of payloadJoins) {
+            const value = document[join.name];
+            if (value === undefined) continue;
+            if (!isJsonObject(value) || !Array.isArray(value.docs) || value.docs.length > join.maximumLimit ||
+              value.docs.some(id => typeof id !== "string") || new Set(value.docs).size !== value.docs.length) return yield* Result.fail(cmsError("storedCorruption"));
+            for (const id of value.docs) { if (typeof id !== "string") return yield* Result.fail(cmsError("storedCorruption")); reverse.push(id); }
+          }
+          const ids = [...(single === null || single === undefined ? many : [single, ...many]), ...reverse];
+          // At most 32 roots with 33 forward and 32 reverse occurrences each.
           for (const id of ids) {
             if (typeof id !== "string") return yield* Result.fail(cmsError("storedCorruption", "invalid forward identity"));
             references.set(id, (references.get(id) ?? 0) + 1);

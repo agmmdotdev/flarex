@@ -1,6 +1,6 @@
 {
   "kind": "PayloadReleaseCapabilityMap",
-  "status": "privateScalarOptionalOneAndFreshManyConformanceImplemented",
+  "status": "privateScalarOptionalOneFreshManyAndReverseJoinConformanceImplemented",
   "release": {
     "package": "payload",
     "version": "3.88.0",
@@ -171,7 +171,7 @@
       "manyExistingRowUpgrade",
       "requiredRelations",
       "polymorphic",
-      "reverseJoin",
+      "reverseJoinBeyondBoundedFirstWindow",
       "populationBeyondDepthOne",
       "dynamicFilterOptions",
       "localized",
@@ -190,7 +190,7 @@
     "maximumDistinctTargetsPerRequest": 32,
     "readConsistency": "existingCmsRequestAndScopeClockShareLock",
     "manyTransition": "separatePayloadMigrationHostDecisionRequired",
-    "reverseJoin": "deferred"
+    "reverseJoin": "separateFreshJoinProfileImplemented"
   },
   "manyProfile": {
     "status": "privateFreshInstallImplemented",
@@ -208,8 +208,8 @@
     "existingRowUpgrade": "refusedIncludingEmptyRetainedOwnership",
     "dataMigrationAuthority": false
   },
-  "reverseJoinProposal": {
-    "status": "proposedPendingApproval",
+  "reverseJoinProfile": {
+    "status": "privateFreshInstallImplemented",
     "preflight": "23-payload-bounded-reverse-joins.md",
     "configurationProfile": "payload.content-joins",
     "installation": "freshOnly",
@@ -229,7 +229,7 @@
     "order": "nativeSourceRowIdentity",
     "consistency": "sameCmsAdmissionTransactionAndScopeClockShareLock",
     "writeRequests": false,
-    "implementationAuthorized": false
+    "implementationAuthorized": true
   },
   "rejectedBehavior": [
     "developerWritesToCmsOwnedTables",
@@ -248,7 +248,7 @@
   },
   "activation": {
     "authorized": false,
-    "nextBehaviorSlice": "boundedPayloadReverseJoinsPendingApproval",
+    "nextBehaviorSlice": "medusaCurrencyPackageConvergencePreflight",
     "payloadContentUsesRelationalSchema": false
   },
   "privateRuntimeEvidence": {
@@ -267,7 +267,7 @@
     ],
     "delete": "atomicContentAndBoundedPreferenceDeletionWithExactCombinedBinding",
     "completeCrud": true,
-    "currentRelationContract": "22-payload-many-installation-and-migration-boundary.md",
+    "currentRelationContract": "23-payload-bounded-reverse-joins.md",
     "publicExport": false,
     "production": false,
     "preferenceLifecycle": "privateStorageBindingCleanupAtomicPublicationAndRetentionImplemented",

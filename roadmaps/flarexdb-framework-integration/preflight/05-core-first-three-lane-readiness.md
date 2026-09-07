@@ -344,12 +344,14 @@ ordered arrays, target constraints, bounded forward population and recovery.
 It does not prove an upgrade of existing optional-one rows. Such an upgrade
 retains a separate conversion-authority, serving-fence and recovery gate; it is
 not an additional Medusa prerequisite without a recorded supported obligation.
-The [bounded Payload reverse-join proposal](./23-payload-bounded-reverse-joins.md)
-defines the next consumer capability before reconciling the complete non-reactive
-relation milestone. It needs approval for the standalone CMS incoming-source
-read boundary, then proves both virtual joins on the existing native owners.
+The [bounded Payload reverse-join capability](./23-payload-bounded-reverse-joins.md)
+implements both virtual fields in a separate fresh-only profile, using one CMS
+transaction for root, incoming edges and source documents. First-window native
+identity order, depth-one population, strict refusals and both-driver conformance
+complete the bounded private non-reactive relation milestone. Medusa Currency
+package convergence and source closure are the next preflight.
 
-First capture a new independently digestible relation-bearing Payload
+Each relation profile captures an independently digestible relation-bearing Payload
 configuration/provenance artifact. Its stable policy ID and ordinary write-
 owner mode may remain unchanged, but its configuration digest must differ from
 the scalar candidate. Compile that exact configuration through the existing
@@ -361,8 +363,8 @@ stable table/relation identities, stable policy ID/write-owner mode, and new
 configuration digest. The previous overlay must stop serving after head
 movement; no second content schema or dual-writer interval is allowed.
 
-Then enable only top-level, nonlocalized, monomorphic one/many relations from
-the completed non-reactive Application relation profile. Prove target liveness,
+The implemented profiles enable only top-level, nonlocalized, monomorphic one/many relations from
+the completed non-reactive Application relation profile. Conformance proves target liveness,
 duplicate rejection, cleanup, restrict deletion, retarget, reorder, removal,
 bounded forward population, bounded reverse identity behavior, authorization,
 and Payload-compatible result shaping in PGlite and genuine PostgreSQL.
@@ -427,6 +429,13 @@ Stop and open the owning preflight if a slice would:
 - expose public, hosted, or production behavior.
 
 ## Next Gated Slice
+
+The next framework slice is the Medusa Currency package-convergence and
+source-closure preflight. The bounded private Payload scalar and non-reactive
+relation prerequisites are implemented, including the separate fresh-only
+reverse-join profile. The preflight must identify the exact admitted package
+closure, unchanged compatibility baseline and transaction/event authority before
+Medusa service promotion; it does not authorize general module migration.
 
 Both consumer constraint records, the private value-only `RelationalSchema`,
 and installation/migration checkpoints 1 and 2 are complete. The complete

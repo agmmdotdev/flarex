@@ -1,3 +1,5 @@
+import { payloadJoinQuery, type PayloadJoinQuery } from "./joins";
+import { payloadHasMany, payloadJoins } from "./contract";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { APIError, ValidationError, type BaseDatabaseAdapter, type DatabaseAdapterObj,
   type PayloadRequest, type TypeWithID, type PaginatedDocs } from "payload";
@@ -19,6 +21,7 @@ interface RequestBridge {
   readonly signal: AbortSignal;
   readonly population: ReturnType<typeof makePayloadPopulation> | null;
   readonly semaphore: Semaphore.Semaphore;
+  readonly joins: PayloadJoinQuery;
   live: boolean;
 }
 
@@ -57,7 +60,7 @@ const payloadDocument = (value: Json, profile: PayloadContentProfile): Record<st
   if (!isJsonObject(value) || typeof value._id !== "string") throw new Error("Invalid admitted CMS document");
   const { _id, _creationTime, ...fields } = value;
   const document = { ...fields, ...(profile !== "payload.scalar" ? { relatedPost: fields.relatedPost ?? null } : {}), id: _id };
-  if (profile === "payload.content-many") {
+  if (payloadHasMany(profile)) {
     // Payload populates array slots in place. Give it an owned copy, never the immutable CMS value.
     // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - The foreign document projection throws typed corruption for invalid stored relation values.
     return { ...document, relatedPosts: [...Result.getOrThrow(payloadManyIds(fields.relatedPosts).pipe(Result.mapError(cause => cmsError("storedCorruption", cause))))] };
@@ -67,6 +70,8 @@ const payloadDocument = (value: Json, profile: PayloadContentProfile): Record<st
 const payloadFields = (profile: PayloadContentProfile, input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => {
   const normalized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
+    // Payload may materialize absent virtual keys while traversing fields.
+    if (profile === "payload.content-joins" && payloadJoins.some(join => join.name === key) && value === undefined) continue;
     if (key === "id") {
       if (value !== undefined && value !== expectedId) throw new UnsupportedPayloadScalarCapability("caller-selected identity");
       continue;
@@ -77,12 +82,12 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
       normalized[key] = value;
       continue;
     }
-    if (key === "relatedPosts" && profile === "payload.content-many") {
+    if (key === "relatedPosts" && payloadHasMany(profile)) {
       // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload's adapter requires a throwing parser over the owned array decoder.
       normalized[key] = Result.getOrThrow(payloadManyIds(value));
       continue;
     }
-    if (!["title", "score", "enabled", "publishedAt", "createdAt", "updatedAt"].includes(key)) throw new UnsupportedPayloadScalarCapability("document fields");
+    if (!["title", "score", "enabled", "publishedAt", "createdAt", "updatedAt"].includes(key)) throw new UnsupportedPayloadScalarCapability(`document field: ${key} (${typeof value})`);
     if (value === undefined && ["createdAt", "updatedAt"].includes(key)) continue;
     if (["createdAt", "updatedAt", "publishedAt"].includes(key)) {
       if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new UnsupportedPayloadScalarCapability("date");
@@ -90,7 +95,7 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
     } else normalized[key] = value;
   }
   if (creationTimestamp !== undefined) {
-    if (profile === "payload.content-many") normalized.relatedPosts ??= [];
+    if (payloadHasMany(profile)) normalized.relatedPosts ??= [];
     normalized.createdAt ??= creationTimestamp;
     normalized.updatedAt ??= creationTimestamp;
   }
@@ -124,11 +129,28 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
     returning?: boolean; draft?: boolean; draftsEnabled?: boolean }, projected = false) => {
     const state = stateFor(args.req, projected);
     if (args.collection !== "posts" || args.locale !== undefined || args.returning === false || args.draft || args.draftsEnabled ||
-      [args.select, args.joins].some(value => value !== undefined && (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).length !== 0))) {
+      [args.select, ...(profile === "payload.content-joins" ? [] : [args.joins])].some(value => value !== undefined && (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).length !== 0))) {
       throw new UnsupportedPayloadScalarCapability("collection or projection");
+    }
+    if (profile === "payload.content-joins") {
+      // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing adapter argument parser.
+      Result.getOrThrow(payloadJoinQuery(args.joins, true));
     }
     touched.add(args.collection);
     return state;
+  };
+  const roots = async (state: RequestBridge, values: ReturnType<typeof document>[], queryInput: unknown) => {
+    const sanitized = profile === "payload.content-joins" ? await run(state, Effect.fromResult(payloadJoinQuery(queryInput, true))) : null;
+    if (profile === "payload.content-joins") for (const value of values) for (const join of payloadJoins) {
+      const query = state.joins[join.name];
+      const admitted = sanitized?.[join.name];
+      if (query === false || admitted === false) continue;
+      if (admitted === undefined || admitted.limit !== query.limit) return unsupported("join query changed");
+      const page = await run(state, state.context.relations.incoming(state.context.context, transactionId(state), join.on, value.id, query.limit));
+      value[join.name] = { docs: [...page.docs], hasNextPage: page.hasNextPage };
+    }
+    if (state.population !== null) await run(state, Effect.fromResult(state.population.roots(values)));
+    return values;
   };
   const one = async (args: Parameters<BaseDatabaseAdapter["findOne"]>[0]) => {
     const state = admit(args, true);
@@ -136,12 +158,12 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
     if (predicate._id !== undefined) {
       const value = await run(state, state.context.documents.get(state.context.context, transactionId(state), predicate._id));
       const found = value === null || (predicate.title !== undefined && value.title !== predicate.title) ? null : document(value);
-      if (state.population !== null) await run(state, Effect.fromResult(state.population.roots(found === null ? [] : [found])));
+      await roots(state, found === null ? [] : [found], args.joins);
       return found;
     }
     const result = await run(state, state.context.documents.find(state.context.context, transactionId(state), "posts", { where: where(args.where), offset: 0, limit: 1 }));
     const found = result.docs[0] === undefined ? null : document(result.docs[0]);
-    if (state.population !== null) await run(state, Effect.fromResult(state.population.roots(found === null ? [] : [found])));
+    await roots(state, found === null ? [] : [found], args.joins);
     return found;
   };
   const adapter: DatabaseAdapterObj = { name: "flarex-private-scalar", defaultIDType: "text", init: ({ payload }) => ({
@@ -189,8 +211,7 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
       const paginated = args.pagination !== false;
       const totalDocs = paginated ? found.total : found.docs.length;
       const totalPages = paginated ? Math.max(1, Math.ceil(totalDocs / limit)) : 1;
-      const values = found.docs.map(document);
-      if (state.population !== null) await run(state, Effect.fromResult(state.population.roots(values)));
+      const values = await roots(state, found.docs.map(document), args.joins);
       // SAFETY: same closed Payload collection-generic boundary as findOne.
       const docs = values as T[];
       return { docs, totalDocs, limit, totalPages, page, pagingCounter: paginated ? (page - 1) * limit + 1 : 1,
@@ -220,9 +241,9 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
     migrateFresh: deferred, migrateRefresh: deferred, migrateReset: deferred, migrateStatus: deferred, queryDrafts: deferred,
     updateGlobal: deferred, updateGlobalVersion: deferred, updateJobs: deferred, updateMany: deferred, updateVersion: deferred, upsert: deferred,
   } satisfies BaseDatabaseAdapter) };
-  const within = async <Value>(context: CmsCommandContext, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>, populate = false) => {
+  const within = async <Value>(context: CmsCommandContext, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }) => {
     if (populate && (!context.standaloneRead || profile === "payload.scalar")) throw new UnsupportedPayloadScalarCapability("population request");
-    const state: RequestBridge = { context, request, signal, live: !signal.aborted,
+    const state: RequestBridge = { context, request, signal, joins, live: !signal.aborted,
       population: populate ? makePayloadPopulation(profile) : null, semaphore: Semaphore.makeUnsafe(1) };
     const abort = () => { state.live = false; };
     signal.addEventListener("abort", abort, { once: true });

@@ -1,17 +1,17 @@
 # Payload Bounded Reverse Joins
 
-## Status And Recommendation
+## Status And Scope
 
-Status: researched implementation proposal; capability approval pending.
+Status: approved private fresh-install capability implemented.
 The [fresh many profile](./22-payload-many-installation-and-migration-boundary.md)
-is implemented. Payload join fields remain disabled in executable profiles.
+is implemented. The separate `payload.content-joins` profile enables bounded
+virtual joins; the three earlier profiles retain their exact behavior.
 
-Recommend one private capability: actual Payload standalone `findByID` and
+The private capability lets actual Payload standalone `findByID` and
 `find` return bounded virtual reverse fields for both optional-one and many
 references, with identities at depth zero and source documents at depth one.
-Include the CMS relation-read capability, exact configuration/binding, adapter
-response shaping and both-driver consumer proof in the same implementation.
-Do not split these into successive research gates.
+The implementation includes the CMS relation-read capability, exact
+configuration/binding, adapter response shaping and both-driver consumer proof.
 
 This closes the remaining bounded reverse-consumer gap in the
 [non-reactive Payload relation milestone](./05-core-first-three-lane-readiness.md#payload-native-onemany-relations).
@@ -50,11 +50,11 @@ The rejected shortcuts are significant: a posts scan duplicates native relation
 query logic; a second connection separates edge and row visibility; stored
 reverse arrays create another write owner; sorting a truncated native window
 cannot establish a globally sorted first page; and one window cannot establish
-`totalDocs`. None is needed for the proposed capability.
+`totalDocs`. None is needed for this capability.
 
 ## Exact Private Profile
 
-Introduce `payload.content-joins` as a fresh-only configuration profile. Retain
+`payload.content-joins` is a fresh-only configuration profile. Retain
 the exact bytes and decoder meanings of the scalar, optional-one and fresh-many
 profiles. Its stored posts fields and two native relations match fresh-many.
 Add strictly decoded virtual join declarations to this profile's canonical
@@ -80,7 +80,7 @@ An upgrade path is deferred alongside the existing conversion boundary.
 
 ## Query And Response Contract
 
-| Dimension | Proposed contract |
+| Dimension | Implemented contract |
 | --- | --- |
 | Entry | Existing standalone `findByID` and `find`, depth 0 or 1, on the new profile. Root CRUD/query semantics remain unchanged. |
 | Selection | Omitted `joins` enables both fixed fields; `joins: false` disables both. A known field may be `false` or an object containing only admitted options. Unknown fields fail before Payload execution. |
@@ -114,13 +114,15 @@ exact profile / active selection / combined binding
   -> bounded depth-one result / request cleanup
 ```
 
-Add a narrow CMS relation-read owner and command-context capability. It accepts
+The CMS relation-read owner exposes a narrow command-context capability. It accepts
 only the live request context/transaction identity, a fixed admitted source
 reference, target posts ID and bounded limit. Derive scope, table IDs, physical
 definition and transaction internally; never accept them from Payload arguments.
 
 Prepare native relation-read capabilities from the same Application selection
 used for CMS admission, using the existing read port and exact composition.
+Writes and replay skip reverse-read preparation. Invalid reverse-read attempts
+still enter the request lifetime so a caught refusal leaves writes rollback-only.
 Validate them again inside the admitted transaction against its scope clock and
 selection before reading. Require live admission and standalone root-read
 authority on every call. A command-context Boolean alone cannot issue authority;
@@ -147,6 +149,9 @@ loader's authenticated internal batch must suppress reverse expansion and omit
 virtual fields at the frontier even though Payload regenerates join arguments.
 This internal suppression must not admit caller `id.in`, unbounded limits or
 foreign request objects. Do not solve it by globally disabling hooks/access.
+The runtime copies canonical join options before Payload's sanitizer mutates
+them. Only sanitizer-added empty predicates and absent virtual keys with
+`undefined` values are accepted internally; caller virtual writes remain refused.
 
 ## Resource And Failure Contract
 
@@ -174,14 +179,13 @@ foreign request objects. Do not solve it by globally disabling hooks/access.
 | Owner | Classification and work |
 | --- | --- |
 | Analysis configuration / compatibility | **Port** strict virtual metadata into a fourth explicit profile; preserve two native declarations and old profiles. |
-| CMS admission / host / lifetime / new relation-read module | **Port** existing authenticated native read capabilities into one standalone CMS read context. This is the material capability boundary proposed for approval. |
+| CMS admission / host / lifetime / new relation-read module | **Port** existing authenticated native read capabilities into one standalone CMS read context, within the approved private capability boundary. |
 | Private Payload contract / profile / runtime / adapter / population | **Port** the fixed join envelope, sanitation, input refusal, loader frontier and aggregate accounting. |
 | Native relation read / edge repository / scope-clock transaction owner | **Keep** existing readiness, validation, paging, SQL, lock and failure contracts. A discovered defect requires the owning boundary decision. |
 | Native commit / ownership successor / migration coordinator | **Keep** mutation and migration authority unchanged. |
 | Existing profile fixtures and lanes | **Keep** old meaning and reuse the file-scoped database lifecycle and shared two-driver scenarios. No legacy path or temporary bridge is required. |
 
-Completion must exercise actual pinned Payload operations, not manually assembled
-join results:
+The focused conformance exercises actual pinned Payload operations:
 
 1. Pure exact-profile and query tests cover old digests, sanitized metadata,
    unsupported options, virtual writes, fresh-only admission and all aggregate
@@ -203,8 +207,14 @@ join results:
    Application/old Payload preservation once, bounded typecheck and required
    lint/reviewer gates. Add no per-case database bootstrap or broad compiler run.
 
-On completion, reconcile this record, the three-lane plan, Payload adoption and
-capability map against observed behavior. The bounded non-reactive relation
-milestone may then close if its declared guarantees pass; broader pagination,
-dynamic access, upgrades, public packages, hosted operation and production remain
-separate. Medusa promotion still requires its own service/conformance approval.
+The shared scenario also exercises activation invalidating the old combined
+binding, exact rebinding and cold runtime admission. The output-limit scenario
+asserts that the internal loader batch fails before returning source documents
+to Payload. Typed native authority mismatches remain distinct from storage and
+corruption failures.
+
+This completes the bounded private non-reactive Payload relation milestone.
+Broader pagination, dynamic access, upgrades, public packages, hosted operation
+and production remain separate. The next framework slice is the Medusa Currency
+package-convergence and source-closure preflight; service promotion still
+requires its own conformance and authority decision.

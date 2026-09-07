@@ -106,7 +106,7 @@ exact new configuration -> Application analysis/publication
 Exercise create, update, retarget, reorder, clear and delete, including nested
 request rollback and atomic preference cleanup. Preserve the existing optional-
 one behavior within this profile. Native reverse identity reads independently
-prove many edges; Payload reverse-join configuration remains a subsequent
+prove many edges; the separate Payload reverse-join configuration has its own
 response/query capability and is not claimed by those native reads.
 
 The request population ledger accounts for both relation fields and preserves
@@ -250,7 +250,8 @@ The output-bound scenario uses supported indexed titles and 32-target arrays,
 with short request batches that stay within existing command budgets. It does
 not enlarge index keys, document limits or transaction budgets to create load.
 
-The [bounded reverse-join proposal](./23-payload-bounded-reverse-joins.md) defines
-the next consumer capability and its pending approval. Completion should reconcile
-the complete non-reactive relation milestone. Existing-row upgrades stay visibly deferred; public/production and
-Medusa promotion still require their owning gates.
+The separate [bounded reverse-join capability](./23-payload-bounded-reverse-joins.md)
+is implemented and completes the bounded private non-reactive relation milestone.
+Medusa Currency package convergence and source closure are the next preflight.
+Existing-row upgrades stay deferred; public/production and Medusa promotion
+still require their owning gates.

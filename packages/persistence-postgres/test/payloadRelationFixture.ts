@@ -1,14 +1,14 @@
 import { verifyApplicationManifestV3, type ApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { createHash } from "node:crypto";
 import { publishApplicationRelationBindingEffect, type RelationEvolutionDecision } from "../src/applicationRelationBinding";
-import { payloadRelationConfiguration, payloadManyConfiguration } from "../src/payloadScalar/profile";
+import { payloadRelationConfiguration, payloadManyConfiguration, payloadJoinConfiguration } from "../src/payloadScalar/profile";
 import { hashPolicyFixture } from "./applicationWritePolicyFixture";
 import { prepareAdditionalRelationRevision, relationBindingRepository, type relationReadinessFixture } from "./applicationRelationReadinessFixture";
 import { prepareCmsFixtureReadiness } from "./cmsHostFixture";
 import { runEffect } from "./effectTestRuntime";
 
-export async function payloadRelationManifest(prior: ApplicationManifestV3, many = false) {
-  const configuration = many ? payloadManyConfiguration : payloadRelationConfiguration;
+export async function payloadRelationManifest(prior: ApplicationManifestV3, many = false, joins = false) {
+  const configuration = joins ? payloadJoinConfiguration : many ? payloadManyConfiguration : payloadRelationConfiguration;
   const writePolicies = { ...prior.schema.writePolicies, configuration,
     tables: prior.schema.writePolicies.tables.map(table => table.owner === "payload" ? { ...table, configSha256: hashPolicyFixture(configuration) } : table) };
   const posts = prior.schema.tables.find(table => table.name === "posts");
@@ -63,7 +63,7 @@ export async function preparePayloadRelationRevision(fixture: Awaited<ReturnType
   }));
   const input = { deploymentId: fixture.deploymentId, manifest: canonical.manifest,
     manifestSha256: createHash("sha256").update(canonical.canonicalBytes).digest("hex"),
-    decisions: [{ relationOrdinal: 1, evolution: { kind: "preserve" as const, fromSchemaVersionId: fixture.relation.binding.schemaVersionId, fromRelationOrdinal: 1, physical: "reuse" as const } }],
+    decisions: fixture.manifest.schema.relations.map(relation => ({ relationOrdinal: relation.relationOrdinal, evolution: { kind: "preserve" as const, fromSchemaVersionId: fixture.relation.binding.schemaVersionId, fromRelationOrdinal: relation.relationOrdinal, physical: "reuse" as const } })),
   };
   const relation = await runEffect(publishApplicationRelationBindingEffect(relationBindingRepository(fixture.control.drizzle), input));
   if (fixture.control !== fixture.persistence) await runEffect(publishApplicationRelationBindingEffect(relationBindingRepository(fixture.persistence.drizzle), input));

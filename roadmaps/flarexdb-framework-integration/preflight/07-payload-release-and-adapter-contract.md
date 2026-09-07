@@ -285,8 +285,10 @@ one or `hasMany` values, row bounds, population depth, and dynamic
 The implemented first relation slice is top-level, nonlocalized, monomorphic
 optional-one `posts.relatedPost`, at depth zero. The broader one/many milestone
 now also has [fresh-install ordered many conformance](./22-payload-many-installation-and-migration-boundary.md)
-and bounded standalone depth-one population. Existing-row many upgrades and
-Payload reverse joins remain incomplete. See the [exact optional-one successor contract](./20-payload-content-relations-and-rebinding.md). Polymorphism, reverse join fields, arbitrary population/depth, dynamic
+and bounded standalone depth-one population. The separate fresh-only
+[join profile](./23-payload-bounded-reverse-joins.md) implements first-window
+reverse identities and depth-one source documents. Existing-row many upgrades
+remain deferred. See the [exact optional-one successor contract](./20-payload-content-relations-and-rebinding.md). Polymorphism, general join queries, arbitrary population/depth, dynamic
 filters, localization, arrays/blocks, and relationship query ordering/counting
 remain deferred.
 
@@ -303,8 +305,8 @@ The scalar profile remains supported with its original bytes. A separate strict
 Actual Local API operations preserve omission, clear explicit null, return
 identity/null at depth zero, and reject populated objects before Payload can
 normalize them. Native final-document liveness, restrict and adjacency publication
-remain the shared-core authority. Population and Payload reverse joins are not
-part of this profile.
+remain the shared-core authority. Bounded forward population is implemented;
+reverse joins require the separate exact `payload.content-joins` profile.
 
 ## First Private Compatibility Profile
 
@@ -321,7 +323,8 @@ part of this profile.
 | Supported privately | Optional-one `posts.relatedPost` at depth zero with authenticated scalar successor and exact combined rebinding |
 | Deferred | Many-valued relations over existing rows; explicit conversion and migration-host admission required |
 | Supported privately | Depth-one standalone `findByID`/`find` over `posts.relatedPost`, with request-bound batching and aggregate limits |
-| Deferred | Polymorphic relations, reverse joins, deeper/nested population, arbitrary `JoinQuery`, and repeated targets |
+| Supported privately | Fresh-only `payload.content-joins`: fixed reverse fields, native identity order, first window of up to 16 sources and depth-one population in one CMS transaction |
+| Deferred | Polymorphic relations, reverse joins beyond the bounded first window, deeper/nested population, arbitrary `JoinQuery`, and repeated targets |
 | Deferred | Authenticated Admin UI, REST/GraphQL, and public/generated `ctx.cms` |
 | Rejected | Direct developer `db.insert`, `db.update`, or `db.delete` against a CMS-owned table |
 | Rejected | Direct application use of `payload.db.*` as a CMS command |
@@ -467,9 +470,10 @@ scalar-to-relation activation, combined rebinding and native CMS publication.
 The [many-transition and population proposal](./21-payload-many-transition-and-bounded-population.md)
 implements bounded depth-one standalone reads. The [many installation contract](./22-payload-many-installation-and-migration-boundary.md)
 implements fresh-only many CRUD, ordering, native constraints and population.
-Many-valued existing-row
-conversion requires a migration-host decision; reverse joins need their own
-query/response contract. Many conversion and reverse joins remain unimplemented.
+Many-valued existing-row conversion requires a migration-host decision. The
+separate [fresh join profile](./23-payload-bounded-reverse-joins.md) implements
+bounded first-window reverse reads and depth-one source population. Many
+conversion and general join parity remain deferred.
 
 This audit, the exact Medusa source/capability audit, and the private value-only
 `RelationalSchema` contract are complete. Payload content does not compile into

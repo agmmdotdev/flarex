@@ -1,3 +1,4 @@
+import { payloadJoinScenario } from "./payloadJoinScenario";
 import { projectScopeIdUuidV1Result, ScopeIdSchema, ScopeEpochSchema, StorageGenerationSchema } from "flarex-protocol/storage-authority";
 import { isJsonObject } from "flarex-protocol/json";
 import { ne } from "drizzle-orm";
@@ -49,10 +50,10 @@ import { policyManifestFixture } from "./applicationWritePolicyFixture";
 import { createHash } from "node:crypto";
 const decodeGeneration = Schema.decodeUnknownEffect(StorageGenerationSchema);
 
-export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession, relationOnly: boolean | "population" | "many" | "many-upgrade" = false, reopen?: () => Promise<void>) {
+export async function payloadPreferenceBindingScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession, relationOnly: boolean | "population" | "many" | "many-upgrade" | "joins" = false, reopen?: () => Promise<void>) {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
-  const many = relationOnly === "many" ? await payloadRelationManifest((await policyManifestFixture(undefined, true, payloadScalarFields)).manifest, true) : null;
+  const many = (relationOnly === "many" || relationOnly === "joins") ? await payloadRelationManifest((await policyManifestFixture(undefined, true, payloadScalarFields)).manifest, true, relationOnly === "joins") : null;
   const { fixture, target, bindings, reference, candidate: contentCandidate } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields,
     ...(many === null ? {} : { cmsManifest: { manifest: many.manifest, manifestSha256: createHash("sha256").update(many.canonicalBytes).digest("hex") } }),
     physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
@@ -118,7 +119,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
     clocks: await persistence.drizzle.select().from(fxSystemScopeClocks), unique: await persistence.drizzle.select().from(fxAppUniqueKeys), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent) });
 
   if (relationOnly) {
-    const scenario = relationOnly === "many-upgrade" ? payloadManyUpgradeScenario : relationOnly === "many" ? payloadManyScenario : relationOnly === "population" ? payloadPopulationScenario : payloadRelationScenario;
+    const scenario = relationOnly === "joins" ? payloadJoinScenario : relationOnly === "many-upgrade" ? payloadManyUpgradeScenario : relationOnly === "many" ? payloadManyScenario : relationOnly === "population" ? payloadPopulationScenario : payloadRelationScenario;
     await scenario({ persistence, fixture, bindings, hostInput: { ...hostInput, payloadPreferenceTarget: target }, inventory, ...(reopen === undefined ? {} : { reopen }),
       seed: async (id, preferenceIds) => { await persistence.drizzle.insert(table).values(preferenceIds.map(preferenceId => ({
         scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration,
