@@ -6,7 +6,7 @@ const RegistrySqlOperation = Schema.Union([
   Schema.Literal("listDeployments"),
 ]);
 
-export class RegistrySqlError extends Schema.TaggedErrorClass<RegistrySqlError>()(
+export class RegistrySqlError extends Schema.TaggedError<RegistrySqlError>()(
   "RegistrySqlError",
   {
     operation: RegistrySqlOperation,

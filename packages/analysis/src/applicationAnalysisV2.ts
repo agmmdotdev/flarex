@@ -1,7 +1,6 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   Effect,
-  Option,
   Result,
   Schema,
   SchemaGetter,
@@ -101,10 +100,11 @@ const OwnedApplicationManifestV2Schema = Schema.declare<ApplicationManifestV2>(
 export const ApplicationManifestV2Schema = Schema.Unknown.pipe(
   Schema.decodeTo(OwnedApplicationManifestV2Schema, {
     decode: SchemaGetter.transformOrFail<ApplicationManifestV2, unknown>(
-      (value) => Result.match(decodeApplicationManifestV2(value), {
+      (value, options) => Result.match(decodeApplicationManifestV2(value), {
         onFailure: (failure) => Effect.fail(new SchemaIssue.InvalidValue(
-          Option.some(value),
           { message: `Invalid Application Manifest V2: ${failure.reason}` },
+          value,
+          options,
         )),
         onSuccess: Effect.succeed,
       }),

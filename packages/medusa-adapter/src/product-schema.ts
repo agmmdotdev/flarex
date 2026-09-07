@@ -31,7 +31,7 @@ import {
   registerCommerceSchemaProfile,
 } from "@flarex/persistence-postgres/internal/commerce-profile";
 
-export class ProductSchemaError extends Schema.TaggedErrorClass<ProductSchemaError>()(
+export class ProductSchemaError extends Schema.TaggedError<ProductSchemaError>()(
   "ProductSchemaError",
   { cause: Schema.Unknown },
 ) {}

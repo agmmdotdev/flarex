@@ -229,7 +229,7 @@ describe("RegistryApiHandlers", () => {
   });
 });
 
-type RegistryApiGroupId = HttpApiGroup.ApiGroup<"flarex-registry", "registry">;
+type RegistryApiGroupId = HttpApiGroup.Service<"flarex-registry", "registry">;
 
 const RegistryApiGroupContext = Context.Service<RegistryApiGroupId, {
   readonly handlers: ReadonlyMap<string, unknown>;

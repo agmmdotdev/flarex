@@ -750,6 +750,8 @@ function steppingClock(timestamps: ReadonlyArray<bigint>): Clock.Clock {
     currentTimeMillis: Effect.sync(() => Number(next() / 1_000_000n)),
     currentTimeNanosUnsafe: () => current,
     currentTimeNanos: Effect.sync(next),
+    monotonicTimeNanosUnsafe: () => current,
+    monotonicTimeNanos: Effect.sync(() => current),
     sleep: () => Effect.void,
   });
 }

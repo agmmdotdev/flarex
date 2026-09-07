@@ -67,6 +67,8 @@ describe("reference transition-state conformance", () => {
       currentTimeMillis: Effect.succeed(Number.NaN),
       currentTimeNanosUnsafe: () => 0n,
       currentTimeNanos: Effect.succeed(0n),
+      monotonicTimeNanosUnsafe: () => 0n,
+      monotonicTimeNanos: Effect.succeed(0n),
       sleep: () => Effect.void,
     };
     const exit = await runEffect(Effect.gen(function* () {

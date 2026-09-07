@@ -23,7 +23,7 @@ export class RegistryStorageErrorResponse extends Schema.Class<RegistryStorageEr
 
 export const RegistryStorageError = RegistryStorageErrorResponse.pipe(HttpApiSchema.status(500));
 
-export class ProtocolValidationError extends Schema.TaggedErrorClass<ProtocolValidationError>()(
+export class ProtocolValidationError extends Schema.TaggedError<ProtocolValidationError>()(
   "ProtocolValidationError",
   {
     schema: Schema.String,

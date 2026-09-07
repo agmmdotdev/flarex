@@ -13,7 +13,7 @@ export interface CurrencyDmlSource {
   };
 }
 
-export class CurrencySchemaError extends Schema.TaggedErrorClass<CurrencySchemaError>()(
+export class CurrencySchemaError extends Schema.TaggedError<CurrencySchemaError>()(
   "CurrencySchemaError", { cause: Schema.Unknown },
 ) {}
 

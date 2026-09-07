@@ -37,7 +37,8 @@ Apply these sources in order:
    Effect exports and types.
 2. The repo-local `.agents/skills/effect-ts-patterns/SKILL.md` skill and its
    optional pattern and example references.
-3. The local Effect-smol snapshot at
+3. The installed Effect source and the canonical `Effect-TS/effect` repository.
+   The historical local Effect-smol snapshot at
    `opensrc/repos/github.com/effect-TS/effect-smol`, especially `LLMS.md`,
    `.patterns/`, migration notes, and representative source.
 4. The repo-local `.agents/skills/effect-ts-error-handling/SKILL.md` skill for
@@ -45,7 +46,8 @@ Apply these sources in order:
 5. Curated T3 Code application evidence under
    `opensrc/repos/github.com/pingdotgg/t3code`.
 
-Effect-smol is the API and library-style authority. T3 Code is application
+Current Effect source is the API and library-style authority; the Effect-smol
+snapshot predates the current release candidate. T3 Code is application
 evidence, not a uniformly correct standard: its
 `docs/operations/effect-fn-checklist.md` records unfinished wrapper debt. Never
 copy version-specific syntax until it agrees with Flarex's installed Effect
@@ -53,11 +55,11 @@ version.
 
 ## Installed Effect v4 Facts
 
-Flarex currently installs Effect v4 beta.90. Re-check the lockfile and exports
+Flarex currently installs Effect v4 `4.0.0-rc.112`. Re-check the lockfile and exports
 when the dependency changes.
 
 - Use `Result`, not v3 `Either`, and `Effect.result`, not `Effect.either`.
-- Beta.90 provides `Option.gen`, `Result.gen`, and `Effect.gen`. Its `Exit`
+- RC.112 provides `Option.gen`, `Result.gen`, and `Effect.gen`. Its `Exit`
   module has `map` and `match`, but no `gen`, `all`, or `flatMap`; keep ordinary
   sequencing in `Effect` and retain `Exit` for completed-outcome boundaries.
 - `Result.gen` and `Option.gen` short-circuit before later yielded decoder calls.
@@ -92,9 +94,17 @@ when the dependency changes.
   fields do not imply runtime deep freezing. Persistent Effect collections and
   the `Ref` family solve different functional-update and managed-state needs.
 - Effect HTTP client modules are exported from `effect/unstable/http` in this
-  beta. Ordinary fetch transport is provided by `FetchHttpClient.layer`; typed
+  release candidate. Ordinary fetch transport is provided by `FetchHttpClient.layer`; typed
   request/response helpers live in `HttpClientRequest` and
   `HttpClientResponse`. Re-check this unstable API on every Effect upgrade.
+- Schema error constructors are `Schema.TaggedError` and `Schema.Error`;
+  `Schema.ErrorInstance` describes a JavaScript Error instance.
+- `SchemaIssue.InvalidValue` takes annotations, input, and parse options.
+  Pass the getter's parse options through so input is retained only when
+  `reportInput` is explicitly enabled.
+- Custom `Clock.Clock` implementations provide `monotonicTimeNanosUnsafe` and
+  `monotonicTimeNanos` as well as wall-clock methods. Test clocks must not
+  consume scripted wall-clock ticks merely for tracing's monotonic reads.
 
 ## Flarex Contract Rules
 

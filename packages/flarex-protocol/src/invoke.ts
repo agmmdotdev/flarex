@@ -2,7 +2,7 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { Effect, Schema } from "effect";
 import { JsonValue, type Json } from "./json";
 
-export class InvokeProtocolValidationError extends Schema.TaggedErrorClass<InvokeProtocolValidationError>()(
+export class InvokeProtocolValidationError extends Schema.TaggedError<InvokeProtocolValidationError>()(
   "InvokeProtocolValidationError",
   {
     schema: Schema.String,

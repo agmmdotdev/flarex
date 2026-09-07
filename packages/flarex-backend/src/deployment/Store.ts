@@ -33,7 +33,7 @@ const DeploymentSqlOperation = Schema.Union([
 
 type DeploymentStoreWriteOperation = "startPush" | "finishPush" | "abandonPush";
 
-export class DeploymentSqlError extends Schema.TaggedErrorClass<DeploymentSqlError>()(
+export class DeploymentSqlError extends Schema.TaggedError<DeploymentSqlError>()(
   "DeploymentSqlError",
   {
     operation: DeploymentSqlOperation,

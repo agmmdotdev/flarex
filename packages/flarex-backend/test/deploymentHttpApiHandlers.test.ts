@@ -1694,7 +1694,7 @@ describe("DeploymentApiHandlers", () => {
   });
 });
 
-type DeploymentApiGroupId = HttpApiGroup.ApiGroup<"flarex-deployment", "deployment">;
+type DeploymentApiGroupId = HttpApiGroup.Service<"flarex-deployment", "deployment">;
 
 const DeploymentApiGroupContext = Context.Service<DeploymentApiGroupId, {
   readonly handlers: ReadonlyMap<string, unknown>;

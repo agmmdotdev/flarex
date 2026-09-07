@@ -80,7 +80,7 @@ export class PushSourceModule extends Schema.Class<PushSourceModule>(
 }) {}
 
 export class DeploymentProtocolValidationError
-  extends Schema.TaggedErrorClass<DeploymentProtocolValidationError>()(
+  extends Schema.TaggedError<DeploymentProtocolValidationError>()(
     "DeploymentProtocolValidationError",
     {
       schema: Schema.String,

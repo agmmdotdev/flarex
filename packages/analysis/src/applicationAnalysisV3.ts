@@ -1,4 +1,4 @@
-import { Effect, Option, Result, Schema, SchemaGetter, SchemaIssue } from "effect";
+import { Effect, Result, Schema, SchemaGetter, SchemaIssue } from "effect";
 import { encodeCanonicalJson, isJson, measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 
 import {
@@ -43,11 +43,13 @@ export const ApplicationManifestV3Schema = Schema.Unknown.pipe(Schema.decodeTo(
   Schema.declare<ApplicationManifestV3>((value): value is ApplicationManifestV3 =>
     Result.isSuccess(decodeApplicationManifestV3(value))),
   {
-    decode: SchemaGetter.transformOrFail<ApplicationManifestV3, unknown>(value =>
+    decode: SchemaGetter.transformOrFail<ApplicationManifestV3, unknown>((value, options) =>
       Result.match(decodeApplicationManifestV3(value), {
         onSuccess: Effect.succeed,
         onFailure: failure => Effect.fail(new SchemaIssue.InvalidValue(
-          Option.some(value), { message: `Invalid Application V3: ${failure.reason}` },
+          { message: `Invalid Application V3: ${failure.reason}` },
+          value,
+          options,
         )),
       })),
     encode: SchemaGetter.transform(value => structuredClone(value)),

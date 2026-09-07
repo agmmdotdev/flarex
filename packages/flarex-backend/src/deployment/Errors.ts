@@ -2,7 +2,7 @@ import { Schema } from "effect";
 
 const DeploymentArtifactOperation = Schema.Literal("executionArtifactRefForSourcePackage");
 
-export class DeploymentArtifactRefError extends Schema.TaggedErrorClass<DeploymentArtifactRefError>()(
+export class DeploymentArtifactRefError extends Schema.TaggedError<DeploymentArtifactRefError>()(
   "DeploymentArtifactRefError",
   {
     operation: DeploymentArtifactOperation,
@@ -11,14 +11,14 @@ export class DeploymentArtifactRefError extends Schema.TaggedErrorClass<Deployme
   },
 ) {}
 
-export class DeploymentPushNotFoundError extends Schema.TaggedErrorClass<DeploymentPushNotFoundError>()(
+export class DeploymentPushNotFoundError extends Schema.TaggedError<DeploymentPushNotFoundError>()(
   "DeploymentPushNotFoundError",
   {
     pushId: Schema.String,
   },
 ) {}
 
-export class DeploymentPushInvalidStateError extends Schema.TaggedErrorClass<DeploymentPushInvalidStateError>()(
+export class DeploymentPushInvalidStateError extends Schema.TaggedError<DeploymentPushInvalidStateError>()(
   "DeploymentPushInvalidStateError",
   {
     action: Schema.Literal("abandon"),
@@ -27,12 +27,12 @@ export class DeploymentPushInvalidStateError extends Schema.TaggedErrorClass<Dep
   },
 ) {}
 
-export class DeploymentActiveDeploymentNotFoundError extends Schema.TaggedErrorClass<DeploymentActiveDeploymentNotFoundError>()(
+export class DeploymentActiveDeploymentNotFoundError extends Schema.TaggedError<DeploymentActiveDeploymentNotFoundError>()(
   "DeploymentActiveDeploymentNotFoundError",
   {},
 ) {}
 
-export class DeploymentActiveDeploymentInvalidError extends Schema.TaggedErrorClass<DeploymentActiveDeploymentInvalidError>()(
+export class DeploymentActiveDeploymentInvalidError extends Schema.TaggedError<DeploymentActiveDeploymentInvalidError>()(
   "DeploymentActiveDeploymentInvalidError",
   {
     message: Schema.String,
@@ -45,7 +45,7 @@ const DeploymentStoredPushOperation = Schema.Union([
   Schema.Literal("abandonPush"),
 ]);
 
-export class DeploymentStoredPushMissingError extends Schema.TaggedErrorClass<DeploymentStoredPushMissingError>()(
+export class DeploymentStoredPushMissingError extends Schema.TaggedError<DeploymentStoredPushMissingError>()(
   "DeploymentStoredPushMissingError",
   {
     operation: DeploymentStoredPushOperation,
@@ -54,7 +54,7 @@ export class DeploymentStoredPushMissingError extends Schema.TaggedErrorClass<De
   },
 ) {}
 
-export class DeploymentValidationError extends Schema.TaggedErrorClass<DeploymentValidationError>()(
+export class DeploymentValidationError extends Schema.TaggedError<DeploymentValidationError>()(
   "DeploymentValidationError",
   {
     message: Schema.String,
