@@ -1,88 +1,78 @@
-import { Result } from "effect";
-import { isNonArrayRecord } from "@flarex/utils/records";
-import { capturePrivateJsonData, commerceError, commerceLimits } from "@flarex/persistence-postgres/internal/commerce-values";
-import { currencyColumns } from "./currency-query-model";
-import type { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { CurrencyColumn, CurrencyPredicate, CurrencyQuery } from "./currency-query-model";
+import { Result, Schema } from "effect";
+import { commerceError, commerceLimits, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { currencyColumns, type CurrencyPredicate, type CurrencyQuery } from "./currency-query-model";
+import { captureCommerceInput } from "./commerce-input";
+import { queryDecoder, QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
 
-const isColumn = (input: unknown): input is CurrencyColumn =>
-  currencyColumns.some(column => column === input);
-const onlyKeys = (input: Record<string, unknown>, keys: readonly string[]): boolean =>
-  Object.keys(input).every(key => keys.includes(key));
-const isCount = (input: unknown, maximum: number): input is number =>
-  typeof input === "number" && Number.isSafeInteger(input) && input >= 0 && input <= maximum;
+const decodeEnvelope = queryDecoder(QueryEnvelope, "invalidInput");
+const decodeOptions = queryDecoder(Schema.Struct({
+  fields: Schema.optionalKey(Schema.Unknown),
+  limit: Schema.optionalKey(Schema.Unknown),
+  offset: Schema.optionalKey(Schema.Unknown),
+  orderBy: Schema.optionalKey(Schema.Unknown),
+  populate: Schema.optionalKey(Schema.Unknown),
+  filters: Schema.optionalKey(Schema.Unknown),
+}), "unsupportedProfile");
+const decodePopulate = queryDecoder(Schema.Tuple([]), "unsupportedProfile");
+const decodeFieldArray = queryDecoder(Schema.Array(Schema.Unknown).check(
+  Schema.isLengthBetween(1, currencyColumns.length),
+), "invalidInput");
+const decodeFields = queryDecoder(Schema.Array(Schema.Literals(currencyColumns)).check(Schema.isUnique()), "unsupportedProfile");
+const decodeOffset = queryDecoder(QueryOffset, "limitExceeded");
+const decodeLimit = queryDecoder(QueryLimit, "limitExceeded");
+const decodeOrder = queryDecoder(Schema.Struct({ code: Schema.Literals(["ASC", "asc", "DESC", "desc"]) }), "unsupportedProfile");
+const decodeFilters = queryDecoder(Schema.Struct({
+  softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }),
+}), "unsupportedProfile");
+const decodeWhere = queryDecoder(Schema.Struct({
+  code: Schema.optionalKey(Schema.Unknown),
+  $and: Schema.optionalKey(Schema.Unknown),
+  $or: Schema.optionalKey(Schema.Unknown),
+}), "unsupportedProfile");
+const isInFilter = Schema.is(Schema.Struct({ $in: Schema.optionalKey(Schema.Unknown) }).annotate({
+  parseOptions: { onExcessProperty: "error" },
+}));
+const Code = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[^\0]*$/));
+const decodeCodes = queryDecoder(Schema.Array(Code), "invalidInput");
+const decodeBranches = queryDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(commerceLimits.filterNodes)), "invalidInput");
 
-/** Decode the selected DAL query after Medusa's own normalization/buildQuery. */
+/** Capture the Medusa boundary once, then decode the selected DAL profile.
+ * Node decoding is staged during traversal: cumulative budgets must refuse a
+ * node before inspecting its shape, preserving the established failure order. */
 export function decodeCurrencyQuery(input: unknown): Result.Result<CurrencyQuery, CommerceTransactionError> {
   return Result.gen(function* () {
-    const captured = yield* capturePrivateJsonData(input, commerceLimits.commandBytes, commerceError);
-    const value = captured.value;
-    if (!isNonArrayRecord(value) || !onlyKeys(value, ["where", "options"])) return yield* Result.fail(commerceError("invalidInput"));
-    const options = value.options ?? {};
-    if (!isNonArrayRecord(options) || !onlyKeys(options, ["fields", "limit", "offset", "orderBy", "populate", "filters"])) {
-      return yield* Result.fail(commerceError("unsupportedProfile"));
-    }
-    if (options.populate !== undefined && (!Array.isArray(options.populate) || options.populate.length !== 0)) {
-      return yield* Result.fail(commerceError("unsupportedProfile"));
-    }
-    const fields: CurrencyColumn[] = [];
-    if (options.fields === undefined) fields.push(...currencyColumns);
-    else {
-      if (!Array.isArray(options.fields) || options.fields.length === 0 || options.fields.length > currencyColumns.length) {
-        return yield* Result.fail(commerceError("invalidInput"));
-      }
-      for (const field of options.fields) {
-        if (!isColumn(field) || fields.includes(field)) return yield* Result.fail(commerceError("unsupportedProfile"));
-        fields.push(field);
-      }
-    }
-    // The raw companion is part of the selected Medusa numeric projection contract.
+    const captured = yield* captureCommerceInput(input);
+    const value = yield* decodeEnvelope(captured);
+    const options = yield* decodeOptions(value.options ?? {});
+    if (options.populate !== undefined) yield* decodePopulate(options.populate);
+    const fields = options.fields === undefined
+      ? [...currencyColumns]
+      : [...yield* decodeFields(yield* decodeFieldArray(options.fields))];
+    // Medusa's numeric projection includes its exact raw companion.
     if (fields.includes("rounding") && !fields.includes("raw_rounding")) fields.push("raw_rounding");
-    const skip = options.offset ?? 0;
-    const take = options.limit ?? commerceLimits.catalogRows;
-    if (!isCount(skip, commerceLimits.catalogRows - 1) || !isCount(take, commerceLimits.catalogRows)) {
-      return yield* Result.fail(commerceError("limitExceeded"));
-    }
-    let order: "asc" | "desc" = "asc";
-    if (options.orderBy !== undefined) {
-      if (!isNonArrayRecord(options.orderBy) || !onlyKeys(options.orderBy, ["code"])) return yield* Result.fail(commerceError("unsupportedProfile"));
-      const direction = options.orderBy.code;
-      if (direction === "ASC" || direction === "asc") order = "asc";
-      else if (direction === "DESC" || direction === "desc") order = "desc";
-      else return yield* Result.fail(commerceError("unsupportedProfile"));
-    }
-    let withDeleted = false;
-    if (options.filters !== undefined) {
-      const filters = options.filters;
-      if (!isNonArrayRecord(filters) || !onlyKeys(filters, ["softDeletable"])) return yield* Result.fail(commerceError("unsupportedProfile"));
-      const soft = filters.softDeletable;
-      if (!isNonArrayRecord(soft) || !onlyKeys(soft, ["withDeleted"]) || typeof soft.withDeleted !== "boolean") {
-        return yield* Result.fail(commerceError("unsupportedProfile"));
-      }
-      withDeleted = soft.withDeleted;
-    }
+    const skip = yield* decodeOffset(options.offset ?? 0);
+    const take = yield* decodeLimit(options.limit ?? commerceLimits.catalogRows);
+    const ordering = options.orderBy === undefined ? { code: "ASC" } : yield* decodeOrder(options.orderBy);
+    const order = ordering.code === "DESC" || ordering.code === "desc" ? "desc" : "asc";
+    const withDeleted = options.filters === undefined ? false : (yield* decodeFilters(options.filters)).softDeletable.withDeleted;
     let nodes = 0;
     let operands = 0;
-    const predicate = (where: unknown, depth: number): Result.Result<CurrencyPredicate, CommerceTransactionError> => Result.gen(function* () {
-      if (++nodes > commerceLimits.filterNodes || depth > commerceLimits.filterDepth) return yield* Result.fail(commerceError("limitExceeded"));
-      if (!isNonArrayRecord(where) || !onlyKeys(where, ["code", "$and", "$or"])) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const predicate = (inputWhere: unknown, depth: number): Result.Result<CurrencyPredicate, CommerceTransactionError> => Result.gen(function* () {
+      if (++nodes > commerceLimits.filterNodes || depth > commerceLimits.filterDepth) {
+        return yield* Result.fail(commerceError("limitExceeded"));
+      }
+      const where = yield* decodeWhere(inputWhere);
       const children: CurrencyPredicate[] = [];
       for (const [key, member] of Object.entries(where)) {
         if (key === "code") {
-          const selected = isNonArrayRecord(member) && onlyKeys(member, ["$in"]) ? member.$in : member;
+          const selected = isInFilter(member) ? member.$in : member;
           const values = Array.isArray(selected) ? selected : [selected];
           operands += values.length;
           if (operands > commerceLimits.filterOperands) return yield* Result.fail(commerceError("limitExceeded"));
-          const codes: string[] = [];
-          for (const code of values) {
-            if (typeof code !== "string" || code.length === 0 || code.length > 256 || code.includes("\0")) return yield* Result.fail(commerceError("invalidInput"));
-            codes.push(code);
-          }
-          children.push({ kind: "codes", values: Object.freeze(codes) });
+          children.push({ kind: "codes", values: Object.freeze(yield* decodeCodes(values)) });
         } else {
-          if (!Array.isArray(member) || member.length > commerceLimits.filterNodes) return yield* Result.fail(commerceError("invalidInput"));
           const nested: CurrencyPredicate[] = [];
-          for (const child of member) nested.push(yield* predicate(child, depth + 1));
+          for (const child of yield* decodeBranches(member)) nested.push(yield* predicate(child, depth + 1));
           children.push({ kind: key === "$and" ? "and" : "or", children: Object.freeze(nested) });
         }
       }

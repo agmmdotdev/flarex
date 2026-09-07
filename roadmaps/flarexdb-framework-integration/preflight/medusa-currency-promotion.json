@@ -52,12 +52,12 @@
     {
       "target": "packages/medusa-adapter/src/currency-query.ts",
       "classification": "authored",
-      "targetSha256": "b5aa4e88737c9b76961fac8194dba46e228b9211eb780813a8419ea35e301058"
+      "targetSha256": "7fa10009cdf8ab23a606672d7fd10d9063b59b66d1fb11981da94acfaa1f1355"
     },
     {
       "target": "packages/medusa-adapter/src/currency-repository.ts",
       "classification": "authored",
-      "targetSha256": "dd2eeef9e1b62073f6af2f75bf20810c281d9dc4de36f84b457c3caa80bd859f"
+      "targetSha256": "40d8015a7edf11e9351528ff714ebaaebe87888fe0f8e5fe7a5fcb08f7f86857"
     },
     {
       "target": "packages/medusa-adapter/src/currency-schema.ts",
@@ -1929,7 +1929,7 @@
     {
       "target": "packages/medusa-adapter/src/product-query-profile.ts",
       "classification": "authored",
-      "targetSha256": "cb63b2ea4cfa61fb48b8faf5689b1ab0723ce01ccebc419c1698560dea331ee2"
+      "targetSha256": "362e971305f8893cef7b05594e2bdec99183bfb2896c2113db4ff4b66e94a675"
     },
     {
       "target": "packages/medusa-adapter/test/product-query.test.ts",
@@ -1939,7 +1939,7 @@
     {
       "target": "packages/medusa-adapter/vitest.product-query.config.ts",
       "classification": "authored",
-      "targetSha256": "0a494b171c803b0b40455c4734cee84dfed90dbee3faa33722e7688fdcbede5e"
+      "targetSha256": "77c9aecb7cfa241eba3bfaea6caf046354d301822d846ee9f6753c31077a2a5f"
     },
     {
       "target": "packages/medusa-drizzle/src/relation-query.ts",
@@ -1948,6 +1948,16 @@
       "source": "third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts",
       "sourceSha256": "5a0703b1af3a35dfa98998cbb91c484e60835bd8edbb07e97fcdb4dc551547d9",
       "transformation": "Extract selected to-many metadata resolution, populate tree, tuple grouping and row projection; replace SQL descriptors with metadata-only types, return groups without mutating parents, preserve own scalar fields, and retain caller-owned read execution. No to-one, versioned, wildcard or nested-field capability is admitted."
+    },
+    {
+      "target": "packages/medusa-adapter/src/query-decoder.ts",
+      "classification": "authored",
+      "targetSha256": "d3c003053cd3a91d66064b4a743cf380b20e80c3bdc9ec2965ad7c0014c6bf0c"
+    },
+    {
+      "target": "packages/medusa-adapter/test/query-profile.test.ts",
+      "classification": "authored",
+      "targetSha256": "04e2f71053430406400449b36872448ee78880ac4c5ee7116669065ad3668600"
     }
   ],
   "dependencies": {

@@ -13,8 +13,7 @@ const translatePredicate = (predicate: CurrencyPredicate): JsonObject => predica
   ? { kind: "in", column: "code", values: predicate.values }
   : { kind: predicate.kind, children: predicate.children.map(translatePredicate) };
 const query = Effect.fn("CurrencyRepository.query")(function* (input: unknown) {
-  const captured = yield* Effect.fromResult(captureCurrencyInput(input ?? {}));
-  const value = yield* Effect.fromResult(decodeCurrencyQuery(captured));
+  const value = yield* Effect.fromResult(decodeCurrencyQuery(input ?? {}));
   return { fields: value.fields, skip: value.skip, take: value.take,
     order: { column: "code", direction: value.order }, predicate: { kind: "and", children: [translatePredicate(value.predicate),
       ...(value.withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }])] } } satisfies JsonObject;
