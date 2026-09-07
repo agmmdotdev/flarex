@@ -1,15 +1,16 @@
 import { withCommerceService } from "./commerce-service-bridge";
 import type { CommercePromiseOwner } from "./commerce-promise-owner";
-import { Effect, Cause, Result } from "effect";
+import { Effect, Cause } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Currency } from "@medusajs/currency/models";
 import { CurrencyModuleService } from "@medusajs/currency/services";
 import { MedusaInternalService } from "@medusajs/utils/modules-sdk/medusa-internal-service";
 import type { ICurrencyModuleService, CurrencyTypes, FindConfig, FilterableCurrencyProps } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext, type CommerceHost } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { currencyRepository } from "./currency-repository";
 import { captureCurrencyInput } from "./currency-values";
+import { currencyDto, currencyDtos, currencyCountResult } from "./currency-result";
 
 const compose = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
   const repository = currencyRepository(ctx, owner);
@@ -41,21 +42,6 @@ const read = (kind: "list" | "count" | "retrieve") => defineCommerceCommand(`cur
 export const currencyCommands = Object.freeze({ list: read("list"), count: read("count"), retrieve: read("retrieve") });
 export type CurrencyReads = Pick<ICurrencyModuleService, "listCurrencies" | "listAndCountCurrencies" | "retrieveCurrency">;
 
-const isCurrencyProjection = (value: Json): value is JsonObject & Partial<CurrencyTypes.CurrencyDTO> =>
-  isNonArrayRecord(value) && ["code", "symbol", "symbol_native", "name"].every(key => value[key] === undefined || typeof value[key] === "string");
-const dto = (value: Json): Result.Result<CurrencyTypes.CurrencyDTO, CommerceTransactionError> => {
-  if (!isCurrencyProjection(value)) return Result.fail(commerceError("storedCorruption"));
-  // SAFETY: the framework promises a full DTO even for a selected projection.
-  // All declared DTO fields present in this captured service result are checked.
-  return Result.succeed(value as CurrencyTypes.CurrencyDTO);
-};
-const dtos = (value: Json) => Result.gen(function* () {
-  if (!Array.isArray(value)) return yield* Result.fail(commerceError("storedCorruption"));
-  const rows: CurrencyTypes.CurrencyDTO[] = [];
-  for (const row of value) rows.push(yield* dto(row));
-  return rows;
-});
-
 /** Public Currency read shape; its storage authority is entirely host-owned. */
 export function makeCurrencyService(host: CommerceHost): CurrencyReads {
   const run = Effect.fn("CurrencyService.read")(function* (command: typeof currencyCommands.list, input: unknown, context: unknown) {
@@ -66,11 +52,8 @@ export function makeCurrencyService(host: CommerceHost): CurrencyReads {
     Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => error.reason === "adapterFailure" && error.cause !== undefined ? error.cause : error))),
   ));
   return {
-    listCurrencies: (filters, config, context) => promise(run(currencyCommands.list, { filters, config }, context).pipe(Effect.flatMap(value => Effect.fromResult(dtos(value))))),
-    listAndCountCurrencies: (filters, config, context) => promise(run(currencyCommands.count, { filters, config }, context).pipe(Effect.flatMap(value => Effect.gen(function* () {
-      if (!Array.isArray(value) || value.length !== 2 || typeof value[1] !== "number" || value[0] === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
-      return [yield* Effect.fromResult(dtos(value[0])), value[1]] satisfies [CurrencyTypes.CurrencyDTO[], number];
-    })))),
-    retrieveCurrency: (code, config, context) => promise(run(currencyCommands.retrieve, { code, config }, context).pipe(Effect.flatMap(value => Effect.fromResult(dto(value))))),
+    listCurrencies: (filters, config, context) => promise(run(currencyCommands.list, { filters, config }, context).pipe(Effect.flatMap(value => Effect.fromResult(currencyDtos(value))))),
+    listAndCountCurrencies: (filters, config, context) => promise(run(currencyCommands.count, { filters, config }, context).pipe(Effect.flatMap(value => Effect.fromResult(currencyCountResult(value))))),
+    retrieveCurrency: (code, config, context) => promise(run(currencyCommands.retrieve, { code, config }, context).pipe(Effect.flatMap(value => Effect.fromResult(currencyDto(value))))),
   };
 }

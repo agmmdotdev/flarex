@@ -2,29 +2,30 @@ import { Effect, Schema } from "effect";
 import { productRelations, type ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
-import { queryDecoder, QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
+import { QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
+import { commerceDecoder } from "./commerce-decoder";
 
-const decodeEnvelope = queryDecoder(QueryEnvelope, "unsupportedProfile");
-const decodeWhere = queryDecoder(Schema.Record(Schema.String, Schema.Unknown), "unsupportedProfile");
-const decodeOptions = queryDecoder(Schema.Struct({
+const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
+const decodeWhere = commerceDecoder(Schema.Record(Schema.String, Schema.Unknown), "unsupportedProfile");
+const decodeOptions = commerceDecoder(Schema.Struct({
   fields: Schema.optionalKey(Schema.Unknown),
   populate: Schema.optionalKey(Schema.Unknown),
   limit: Schema.optionalKey(Schema.Unknown),
   offset: Schema.optionalKey(Schema.Unknown),
   orderBy: Schema.optionalKey(Schema.Unknown),
 }), "unsupportedProfile");
-const decodeRelations = queryDecoder(Schema.Array(Schema.Literals(productRelations)), "unsupportedProfile");
-const decodeFields = queryDecoder(Schema.Array(Schema.String).check(Schema.isMinLength(1)), "unsupportedProfile");
-const decodeOffset = queryDecoder(QueryOffset, "limitExceeded");
-const decodeLimit = queryDecoder(QueryLimit, "limitExceeded");
+const decodeRelations = commerceDecoder(Schema.Array(Schema.Literals(productRelations)), "unsupportedProfile");
+const decodeFields = commerceDecoder(Schema.Array(Schema.String).check(Schema.isMinLength(1)), "unsupportedProfile");
+const decodeOffset = commerceDecoder(QueryOffset, "limitExceeded");
+const decodeLimit = commerceDecoder(QueryLimit, "limitExceeded");
 const Direction = Schema.Literals(["ASC", "DESC"]);
-const decodeOrder = queryDecoder(Schema.Struct({
+const decodeOrder = commerceDecoder(Schema.Struct({
   id: Schema.optionalKey(Direction),
   handle: Schema.optionalKey(Direction),
   images: Schema.optionalKey(Schema.Struct({ rank: Schema.Literal("ASC") })),
 }).check(Schema.makeFilter(order => order.id === undefined || order.handle === undefined)), "unsupportedProfile");
-const decodeColumn = queryDecoder(Schema.Literals(["id", "handle"]), "unsupportedProfile");
-const decodeFilter = queryDecoder(Schema.Union([
+const decodeColumn = commerceDecoder(Schema.Literals(["id", "handle"]), "unsupportedProfile");
+const decodeFilter = commerceDecoder(Schema.Union([
   Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256)),
 ]), "invalidInput");
 

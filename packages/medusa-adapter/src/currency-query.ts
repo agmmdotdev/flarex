@@ -2,10 +2,11 @@ import { Result, Schema } from "effect";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { currencyColumns, type CurrencyPredicate, type CurrencyQuery } from "./currency-query-model";
 import { captureCommerceInput } from "./commerce-input";
-import { queryDecoder, QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
+import { QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
+import { commerceDecoder } from "./commerce-decoder";
 
-const decodeEnvelope = queryDecoder(QueryEnvelope, "invalidInput");
-const decodeOptions = queryDecoder(Schema.Struct({
+const decodeEnvelope = commerceDecoder(QueryEnvelope, "invalidInput");
+const decodeOptions = commerceDecoder(Schema.Struct({
   fields: Schema.optionalKey(Schema.Unknown),
   limit: Schema.optionalKey(Schema.Unknown),
   offset: Schema.optionalKey(Schema.Unknown),
@@ -13,18 +14,18 @@ const decodeOptions = queryDecoder(Schema.Struct({
   populate: Schema.optionalKey(Schema.Unknown),
   filters: Schema.optionalKey(Schema.Unknown),
 }), "unsupportedProfile");
-const decodePopulate = queryDecoder(Schema.Tuple([]), "unsupportedProfile");
-const decodeFieldArray = queryDecoder(Schema.Array(Schema.Unknown).check(
+const decodePopulate = commerceDecoder(Schema.Tuple([]), "unsupportedProfile");
+const decodeFieldArray = commerceDecoder(Schema.Array(Schema.Unknown).check(
   Schema.isLengthBetween(1, currencyColumns.length),
 ), "invalidInput");
-const decodeFields = queryDecoder(Schema.Array(Schema.Literals(currencyColumns)).check(Schema.isUnique()), "unsupportedProfile");
-const decodeOffset = queryDecoder(QueryOffset, "limitExceeded");
-const decodeLimit = queryDecoder(QueryLimit, "limitExceeded");
-const decodeOrder = queryDecoder(Schema.Struct({ code: Schema.Literals(["ASC", "asc", "DESC", "desc"]) }), "unsupportedProfile");
-const decodeFilters = queryDecoder(Schema.Struct({
+const decodeFields = commerceDecoder(Schema.Array(Schema.Literals(currencyColumns)).check(Schema.isUnique()), "unsupportedProfile");
+const decodeOffset = commerceDecoder(QueryOffset, "limitExceeded");
+const decodeLimit = commerceDecoder(QueryLimit, "limitExceeded");
+const decodeOrder = commerceDecoder(Schema.Struct({ code: Schema.Literals(["ASC", "asc", "DESC", "desc"]) }), "unsupportedProfile");
+const decodeFilters = commerceDecoder(Schema.Struct({
   softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }),
 }), "unsupportedProfile");
-const decodeWhere = queryDecoder(Schema.Struct({
+const decodeWhere = commerceDecoder(Schema.Struct({
   code: Schema.optionalKey(Schema.Unknown),
   $and: Schema.optionalKey(Schema.Unknown),
   $or: Schema.optionalKey(Schema.Unknown),
@@ -33,8 +34,8 @@ const isInFilter = Schema.is(Schema.Struct({ $in: Schema.optionalKey(Schema.Unkn
   parseOptions: { onExcessProperty: "error" },
 }));
 const Code = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPattern(/^[^\0]*$/));
-const decodeCodes = queryDecoder(Schema.Array(Code), "invalidInput");
-const decodeBranches = queryDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(commerceLimits.filterNodes)), "invalidInput");
+const decodeCodes = commerceDecoder(Schema.Array(Code), "invalidInput");
+const decodeBranches = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(commerceLimits.filterNodes)), "invalidInput");
 
 /** Capture the Medusa boundary once, then decode the selected DAL profile.
  * Node decoding is staged during traversal: cumulative budgets must refuse a
