@@ -28,6 +28,12 @@ image creation rank, and the original missing-variant-option error. One case is
 already skipped upstream; 53 require capabilities outside the current profile.
 Other Product suite files are not registered by this capability.
 
+[Record 30](./30-medusa-product-related-create-and-reads.md) is the next preflight:
+related creation, associations and bounded reads targeting eight more original
+cases. Its proposed total of eleven is not current acceptance. This record's
+three-case baseline and the inventory statuses remain unchanged until that
+implementation passes both drivers.
+
 Original read cases require collection/variant-option filtering, standalone image
 writes, unadmitted relations, or 1000 images beyond the existing 256-row bound.
 Their assertions remain intact and excluded explicitly. Existing record 28 tests
