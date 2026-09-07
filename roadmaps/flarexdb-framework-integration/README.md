@@ -133,8 +133,11 @@ Use these sources in order:
 27. [`preflight/25-medusa-currency-host-and-publication.md`](./preflight/25-medusa-currency-host-and-publication.md)
     records the implemented private Flarex-backed Currency service: live fresh
     installation, seed-gated serving, bounded DAL, authenticated transactions
-    and typed row publication. Capability approval is pending.
-28. Current code, migrations, any source snapshot already admitted by its own
+    and typed row publication.
+28. [`preflight/26-medusa-product-schema-and-relationships.md`](./preflight/26-medusa-product-schema-and-relationships.md)
+    proposes complete Product DML normalization, shared schema extensions and
+    fresh physical relationship conformance; implementation approval is pending.
+29. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -195,6 +198,7 @@ Preflight records:
 | [`preflight/23-payload-bounded-reverse-joins.md`](./preflight/23-payload-bounded-reverse-joins.md) | Private fresh-only reverse joins implemented | Same-transaction CMS incoming-source reads and bounded Payload virtual joins over both native relations; closes the bounded non-reactive Payload prerequisite |
 | [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md) | Implemented private Currency source/value compatibility | Actual DML, manifest-admitted source/build/type closure and unchanged PGlite/MikroORM comparison baseline; live Flarex installation, bounded relational queries and typed commerce publication are owned by record 25 |
 | [`preflight/25-medusa-currency-host-and-publication.md`](./preflight/25-medusa-currency-host-and-publication.md) | Implemented private Currency service and relational publication | Shared initialization/change metadata, live installation, borrowed managers, bounded queries, atomic publication/recovery and retention; broader modules and public activation remain gated |
+| [`preflight/26-medusa-product-schema-and-relationships.md`](./preflight/26-medusa-product-schema-and-relationships.md) | Proposed Product schema and physical relationships | Complete model/pivot normalization, generic schema extensions and fresh database conformance; Product service mutations require subsequent transaction/event admission |
 
 ## Current Architecture
 
@@ -324,7 +328,9 @@ The smallest safe sequence is:
     already-proven shared mechanisms under the following host gate.
 13. Admit Currency transaction propagation, commerce-row/event-intent receipts,
     and typed finalization before the fresh Currency baseline may write.
-14. Add Product and its intra-module relationships, then both endpoints and the
+14. Prove Product's complete fresh schema and physical relationships under
+    record 26, then admit its service transaction/event contracts and runtime
+    relationship behavior. Follow with both endpoints and the
     typed link/event contracts for one real stored Module Link with database-
     enforced uniqueness/cardinality and genuine-PostgreSQL concurrency proof.
 15. Add custom repositories, Query, workflows, locks, idempotency, events, and

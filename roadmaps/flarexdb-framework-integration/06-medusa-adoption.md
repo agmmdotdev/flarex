@@ -8,8 +8,11 @@ Payload prerequisites are complete. The [Currency convergence/schema record](./p
 records implemented private package promotion and actual DML compatibility.
 The [Currency host/publication capability](./preflight/25-medusa-currency-host-and-publication.md)
 implements fresh installation, seed-gated serving and shared relational publication
-through the unchanged Currency service. Product, stored Links and production
-activation remain separate gates.
+through the unchanged Currency service. The proposed next capability is
+[Product schema and physical relationships](./preflight/26-medusa-product-schema-and-relationships.md),
+from complete actual DML to fresh installation and constraint conformance.
+Product service mutations, stored Links and production activation remain
+separate gates.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,
@@ -36,8 +39,9 @@ adapter graph.
 owns the prerequisite order before any such package promotion. Source mapping
 and inert fixture extraction may proceed early. The shared-core, Flarex Application,
 and bounded Payload gates have passed. Exact Currency source promotion is also
-complete; the current boundary is Flarex-backed Currency installation and service
-execution. General Payload compatibility is separate.
+complete, as are private Flarex-backed Currency installation and service
+execution. Product schema/relationship admission is next. General Payload
+compatibility is separate.
 
 [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md)
 now owns the exact fork-pin capability audit, the reproducibly measured
@@ -327,6 +331,18 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
 - Prove each accepted write publishes its typed commerce-row fact, any admitted
   event intent, and the common outbox wake in the same commit.
 
+### Product schema and physical relationships
+
+- [Record 26](./preflight/26-medusa-product-schema-and-relationships.md) proposes
+  one complete fresh-schema capability: actual ten-model closure, derived
+  pivots, shared schema extensions, deterministic installation and physical
+  constraint conformance in PGlite and genuine PostgreSQL.
+- Preserve implicit unique-pair pivots separately from the explicit
+  VariantProductImage entity. Add no Product-specific core metadata.
+- Keep this schema proof separate from runtime mutation admission. The
+  single-table Currency runtime profile does not expand when a broader
+  structural artifact becomes admissible.
+
 ### Product event-intent expansion
 
 - Before the first Product create, update, delete, relation replacement, or
@@ -336,12 +352,14 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
   contracts into the existing durable intent/finalizer path.
 - Reject the Product mutation vertical until this admission is active.
 
-### Product relationships
+### Product service relationships
 
-- Normalize the current Drizzle compiler's existing physical foreign-key and
-  implicit many-to-many pivot behavior into a Medusa-owned artifact.
-- Prove its deterministic Flarex lowering, filtering, population, replacement,
-  deletion, and migration behavior.
+- Consume the complete schema proved above; admit the multi-table repository
+  and transaction profile together with the required typed event contracts.
+- Prove filtering, population, replacement, deletion and restore through the
+  unchanged selected service behavior. Include complete relational facts for
+  cascading changes; physical FK success does not prove publication coverage.
+- Existing-row module-set upgrades retain their separate migration obligation.
 - Keep Query and cross-module links outside this step.
 
 ### First Link endpoint candidate

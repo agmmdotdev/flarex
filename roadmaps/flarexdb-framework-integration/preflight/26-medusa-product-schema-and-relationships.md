@@ -1,0 +1,179 @@
+# Product Schema And Physical Relationships
+
+Status: researched proposal; implementation approval pending. Currency host and
+shared relational publication are implemented under [record 25](./25-medusa-currency-host-and-publication.md).
+This record proposes the next complete schema capability, not Product service
+parity or permission to serve Product mutations.
+
+## Recommended Outcome
+
+Compile the complete pinned Product model set into a Medusa-owned relational
+artifact, freshly install it through the existing Flarex coordinator, and prove
+its physical constraints in PGlite and ordinary-role PostgreSQL. Extend shared
+schema mechanisms together where that real model set requires them. Keep
+Product names, model interpretation and relationship navigation in the adapter.
+
+This is one capability from actual DML through database readiness, including
+source promotion, normalization, closed value contracts, physical lowering,
+catalog verification and failure recovery. Do not split boolean support,
+indexes and join tables into separate approval rounds.
+
+The nearest subsequent milestone is an unchanged Product service operation
+with nested relationships and atomic row/event publication. Establishing the
+complete schema first makes that operation's storage contract explicit. It
+does not establish repository population, relation replacement, soft-delete
+cascades, restore, category tree behavior or event delivery.
+
+## Source Evidence And Corrections
+
+All paths below refer to the admitted fork at
+`48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, beneath
+[`third_party/medusa/upstream`](../../../third_party/medusa/upstream).
+
+- `packages/modules/product/src/static-manifest.ts` declares ten module models.
+  Its nine-model Joiner list omits the explicit `ProductVariantProductImage`
+  entity; that list must not be mistaken for the complete physical schema.
+- `packages/modules/product/src/models/` declares Product, Variant, Option,
+  OptionValue, Type, Tag, Collection, Category, Image and VariantProductImage.
+  ProductImage explicitly uses table name `image`.
+- Product tags, categories and variant options declare three implicit pivots:
+  `product_tags`, `product_category_product`, `product_variant_option`.
+  Ten entities plus three pivots is the expected 13-table inventory from source
+  inspection; this turn has not executed that compiler or measured its output.
+- `packages/database/drizzle/src/schema.ts` and `schema.spec.ts` define physical
+  FK and pivot normalization. An implicit pivot has non-null endpoint columns,
+  endpoint indexes, an unconditional unique pair and cascading endpoint FKs.
+  It has no primary key, surrogate ID or entity lifecycle columns. Explicit
+  `pivotEntity` relationships skip this factory: VariantProductImage retains
+  its own ID and entity lifecycle; do not invent pair uniqueness for it.
+- The same compiler emits delete cascade where the inverse DML declaration
+  requires it and otherwise omits the referential action. Preserve that
+  distinction; PostgreSQL's default `NO ACTION` is not the existing core's
+  explicit `RESTRICT` contract.
+- Product has boolean defaults and a status enum; active-row unique indexes
+  cover handles, variant identifiers and option/value combinations. Nullable
+  unique values must retain PostgreSQL's ordinary null behavior. Category has
+  a self-reference; its `mpath` and rank algorithms remain service/repository
+  behavior, not a consequence of that FK.
+- `packages/core/utils/src/dml/helpers/entity-builder/define-property.ts`
+  maps the current mature DML `number` to PostgreSQL `integer`, boolean to
+  `boolean`, and bigNumber to `numeric`. Product dimensions are text; Variant
+  dimensions and ranks use `number`. The initial Product migration used
+  numeric fields, but later migrations changed these to integer. Use current
+  DML and its pinned mapping for the fresh baseline, not the initial archive
+  or SQLite's permissive type behavior. Enum membership needs a closed typed
+  check in Flarex; do not pass a source SQL expression through as authority.
+- `packages/modules/product/integration-tests/__tests__/product-module-service/events.spec.ts`
+  expects twelve events for its nested create fixture: one Product, two
+  Options, five OptionValues, two Variants and two Images. Currency currently
+  rejects all nonempty event handoffs. Product writes cannot use that gate
+  unchanged or suppress events and claim compatibility.
+
+Current Flarex definitions in
+[`relationalSchema/model.ts`](../../../packages/persistence-postgres/src/relationalSchema/model.ts)
+and its policy/lowering owners lack boolean values/defaults, typed text-set
+checks, partial unique indexes and the required FK actions. Admission requires
+one primary key per table. The commerce runtime also admits only a single
+bounded scalar table; expanding schema admission must not widen that runtime
+profile implicitly.
+
+## Shared Contract Direction
+
+1. Add generic boolean/default, text-membership-check, partial-unique-index and
+   explicit referential-action representations. Retain closed predicate and
+   constraint values; normalize the admitted `deleted_at IS NULL` form in the
+   adapter and reject unsupported expressions.
+2. Preserve physical keys accurately. Permit a table without a primary key only
+   when its admitted shape has an unconditional, non-null unique key suitable
+   for identifying every row. The implicit pivot's ordered endpoint pair meets
+   that requirement. Do not silently turn it into a primary key or add an ID.
+   A future mutation profile must explicitly authenticate its chosen row key;
+   current single-primary-key commerce admission remains unchanged here.
+3. Represent physical joins through tables and owning FKs. Keep inverse names,
+   many-to-many navigation, translatable markers, Joiner aliases and business
+   cascade intent in immutable Medusa-owned normalized metadata. Their retention
+   does not grant runtime support for translation or relationship queries.
+4. Lower all FK endpoints through the same scope-qualified installation map,
+   including self-references. Install tables before cyclic/self FK constraints
+   as needed, with deterministic names and exact structural verification.
+5. Carry every newly admitted semantic distinction through canonical capture,
+   digesting, artifact rehydration, physical planning, execution and catalog
+   readiness. Existing Currency/Payload artifact bytes and digests must remain
+   valid; do not rewrite stored artifacts or bump a global version as incidental
+   cleanup. New features must be present in their canonical evidence and reject
+   unsupported execution profiles.
+6. Use shared installation/readiness metadata. Product's empty fresh catalog
+   does not require Currency's initialization dataset or a Product-specific
+   metadata table/count. Structural readiness here does not produce a Product
+   service binding or authenticate new transaction capabilities.
+
+Native commerce FKs deliberately follow the accepted
+[commerce storage design](../../../design-notes/flarexdb-medusa-commerce-adapter.md),
+not Application document-edge storage. The checked-in Convex
+`crates/database/src/transaction.rs` (relative to the outer repository),
+especially `FinalTransaction::new`, remains reference evidence for outer
+transaction finalization after nested work. This capability changes no
+Application OCC, transaction ownership, publication ordering or commit owner.
+
+## Owners And Reuse
+
+| Path or concern | Classification and action |
+| --- | --- |
+| Pinned Product model definitions | Keep semantics; promote the exact model dependency closure with provenance and unchanged source assertions |
+| Mature DML and pure Drizzle schema helpers | Port only the connected normalization needed by actual models; preserve compiler relationship tests; no eager ORM/Node migration graph |
+| Medusa adapter normalization | Extend under `packages/medusa-adapter`; replace duplicated Currency scalar mapping with shared adapter helpers where equivalent, retain Currency-specific admission and dataset policy |
+| Core schema, physical plan and catalog readiness | Extend generic closed contracts in `packages/persistence-postgres`; no Product-named core contracts or metadata |
+| Coordinator, installation identity and scope isolation | Keep authority and recovery; exercise existing owners with the complete Product artifact |
+| Historical migrations | Keep as compatibility evidence; no replay or legacy database import in this fresh-only capability |
+| Product service, repositories, events and live commerce host | Keep unchanged and unadmitted for Product execution in this capability |
+
+The existing promoted framework package has no `utils/portable` export used by
+Product models. Measure and manifest the exact added source/build/type closure;
+do not add a broad export or promote the full Product service just to load DML.
+No runtime dependency may point into the inert source island. No temporary
+storage or publication bridge is proposed.
+
+## Completion Evidence
+
+- Reproduce the exact complete model and derived-pivot inventory from actual
+  promoted DML, independently compare it with the pinned compiler, and retain
+  source hashes and a Worker-safe model bundle graph. Assert the explicit
+  pivot's distinct identity/lifecycle and `image` name.
+- Prove deterministic normalization despite input ordering; reject missing
+  endpoints, unsupported expressions, nullable/nonunique proposed row keys,
+  malformed values and unsupported runtime profiles before activation.
+- Freshly install Product in isolated scopes through the shared coordinator.
+  Verify catalog types, defaults, enum checks, index uniqueness/predicates,
+  FK targets/actions, implicit keys and explicit entity keys. Exercise cold
+  rehydration, interrupted installation/retry and tampered readiness evidence.
+- Use one shared conformance body for PGlite and ordinary-role PostgreSQL:
+  active duplicate rejection, null uniqueness, reuse after soft delete,
+  invalid enum/FK rejection, cross-scope rejection, self-FKs, physical hard-delete
+  cascades and unique pivot pairs. Fixture DML is test-only physical proof,
+  not a Product repository or service mutation path. Native PostgreSQL supplies
+  the concurrent duplicate/constraint proof.
+- Reuse the existing database test core and installed baselines. Run pure
+  compiler tests first; avoid a database/process per assertion. Run focused
+  Currency, Payload and artifact/coordinator preservation lanes once after
+  integration; rerun only affected failures or changed owners.
+- Complete package typechecks, source/promotion guards, required lint and both
+  repository diff reviewers. Reconcile this record and the master matrix with
+  exact evidence, then commit the capability together.
+
+No PGlite or PostgreSQL test was run for this proposal; these are implementation
+exit criteria, not current passing results. Existing-row Currency-to-Product
+upgrade, live Product serving, Module Links, Query, workflows and production
+activation remain outside this fresh-schema proof.
+
+## Next Service Boundary
+
+After the schema proof, admit a coherent nested Product service capability:
+multi-table transaction-bound repositories, filtering/population/replacement,
+complete row facts for explicit and cascading changes, and the exact typed
+event intents emitted by the selected unchanged operations. Prove rollback,
+lost-commit recovery and common outbox delivery together. SQL cascade success
+alone cannot prove that every deleted child has a published change fact.
+
+That next transaction/event contract must be reviewed before Product mutation
+admission. It must reuse shared relational publication and readiness receipts;
+there will be no per-module core change tables, commit counters or seed rules.
