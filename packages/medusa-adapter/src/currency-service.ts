@@ -11,6 +11,7 @@ import { commerceError, CommerceTransactionError } from "@flarex/persistence-pos
 import { currencyRepository } from "./currency-repository";
 import { captureCurrencyInput } from "./currency-values";
 import { currencyDto, currencyDtos, currencyCountResult } from "./currency-result";
+import { decodeCurrencyRead } from "./currency-input";
 
 const compose = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
   const repository = currencyRepository(ctx, owner);
@@ -23,11 +24,10 @@ export const withCurrencyService = Effect.fn("CurrencyAdapter.withService")((ctx
   withCommerceService(ctx, owner => compose(ctx, owner), work));
 
 const read = (kind: "list" | "count" | "retrieve") => defineCommerceCommand(`currency${kind}`, "read", Effect.fn(`CurrencyAdapter.${kind}`)(function* (ctx, value) {
-  if (!isNonArrayRecord(value) || Object.keys(value).some(key => !["code", "filters", "config"].includes(key)) ||
-    (value.code !== undefined && typeof value.code !== "string")) return yield* ctx.refuse(commerceError("invalidInput"));
+  const decoded = yield* Effect.fromResult(decodeCurrencyRead(value)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
   // The captured plain JSON is copied because Medusa mutates query options. Its
   // broad framework types are checked at the selected DAL query boundary before SQL.
-  const args = structuredClone(value);
+  const args = structuredClone(decoded);
   const config = args.config as FindConfig<CurrencyTypes.CurrencyDTO> | undefined;
   const filters = args.filters as FilterableCurrencyProps | undefined;
   return yield* withCurrencyService(ctx, ({ service, context }) => {

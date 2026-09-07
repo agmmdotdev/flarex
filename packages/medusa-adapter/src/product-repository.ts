@@ -3,7 +3,8 @@ import { Effect } from "effect";
 import type { Context, DAL, ModulePersistenceAdapter } from "@medusajs/framework/types";
 import { registerDrizzleEventSubscriber, dispatchCreatedMutations } from "@medusajs/drizzle/mutation-events";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, isJsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { decodeProductProjection, decodeProductCount } from "./product-value-profile";
 import { commerceRepositoryContext } from "./commerce-repository-context";
 import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { captureCommerceInput } from "./commerce-input";
@@ -27,14 +28,15 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(Effect.gen(function* () {
       if (options !== undefined) return yield* root.refuse(commerceError("unsupportedProfile"));
       const value = yield* bridge.checked(root, Effect.fromResult(captureCommerceInput(input)));
-      if (!isJsonObject(value) && (!Array.isArray(value) || value.some(row => !isJsonObject(row)))) return yield* root.refuse(commerceError("storedCorruption"));
+      const decoded = yield* bridge.checked(root, Effect.fromResult(decodeProductProjection(value)));
       // SAFETY: repository results are core-decoded scalar rows and the bounded
       // acyclic projection. Medusa also promises complete DTOs for partial selects.
-      return value as Output;
+      return decoded as Output;
     })),
     find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProducts(ctx, metadata, input, false)).pipe(Effect.map(value => value.rows))),
     findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProducts(ctx, metadata, input, true)).pipe(Effect.flatMap(value =>
-      value.count === undefined ? ctx.refuse(commerceError("storedCorruption")) : Effect.succeed([value.rows, value.count] satisfies [typeof value.rows, number])))),
+      bridge.checked(ctx, Effect.fromResult(decodeProductCount(value))).pipe(Effect.map(decoded =>
+        [[...decoded.rows], decoded.count] satisfies [Array<typeof decoded.rows[number]>, number]))))),
     create: (input: unknown[], shared?: Context) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       const graph = yield* captureProductGraph(metadata, input);
       const rows = yield* insertProductGraph(ctx, metadata, graph);

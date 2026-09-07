@@ -1,7 +1,13 @@
-import { Result } from "effect";
+import { Result, Schema } from "effect";
+import { commerceDecoder } from "./commerce-decoder";
 import type { CurrencyTypes } from "@medusajs/framework/types";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { currencyValueProfile } from "./currency-value-profile";
+
+const decodeKeys = commerceDecoder(Schema.Array(Schema.StructWithRest(
+  Schema.Struct({ code: Schema.String }), [Schema.Record(Schema.String, Schema.Json)],
+)), "storedCorruption");
+export const currencyKeys = (rows: readonly Json[]) => decodeKeys(rows).pipe(Result.map(values => values.map(row => row.code)));
 
 // SAFETY: Medusa promises a full DTO even for selected projections. Validate
 // each declared field when present, preserving additional serialized columns.

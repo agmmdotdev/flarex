@@ -27,6 +27,16 @@ initially cover IDs and handles, with deterministic pagination and explicit
 projection checks. Input fields and query options outside the proven profile
 must fail before writes, not be silently ignored or return incomplete DTOs.
 
+Creation and normalized graph decoders are compiled once from checked Product
+runtime metadata. The service-input profile preserves validation before Medusa
+normalization; the graph profile decodes nodes in traversal order. Medusa's HTTP
+`CreateProduct` validator also coerces/defaults values and accepts workflow
+associations outside this module-service profile, so it is not a drop-in decoder.
+Scalar names come from DML; supported nested shapes remain adapter policy.
+Service/repository and local event envelopes use structural schemas. Duplicate
+IDs, parent ownership, variant-reference equality, row budgets and event receipt
+matching remain explicit behavioral checks.
+
 Existing-entity associations to tags, categories, types and collections,
 variant-specific image associations, update/upsert/replacement, soft delete,
 restore and hard delete remain unadmitted. Their installed tables do not grant

@@ -7,7 +7,9 @@ import { MedusaInternalService } from "@medusajs/utils/modules-sdk/medusa-intern
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils/portable";
 import type { DAL, FindConfig, ProductTypes, IEventBusModuleService } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { decodeProductRead, decodeProductFindConfig, decodeProductCreateInput } from "./product-service-input";
+import { decodeLocalEventOptions, decodeLocalEventBatch } from "./product-local-events";
 import { captureCommerceInput } from "./commerce-input";
 import { withCommerceService } from "./commerce-service-bridge";
 import type { CommercePromiseOwner } from "./commerce-promise-owner";
@@ -24,10 +26,9 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
   const eventBus: IEventBusModuleService = {
     emit: (input, options) => owner.run(Effect.gen(function* () {
       const settings = yield* Effect.fromResult(captureCommerceInput(options));
-      if (!isJsonObject(settings) || Object.keys(settings).length !== 1 || settings.internal !== true) return yield* rejectLocalEvent(commerceError("unadmittedEvent"));
+      yield* Effect.fromResult(decodeLocalEventOptions(settings));
       const messages = yield* Effect.fromResult(captureCommerceInput(input));
-      if (!Array.isArray(messages)) return yield* rejectLocalEvent(commerceError("unadmittedEvent"));
-      for (const message of messages) yield* captureLocalEvent(message);
+      for (const message of yield* Effect.fromResult(decodeLocalEventBatch(messages))) yield* captureLocalEvent(message);
     }).pipe(Effect.catchTag("CommerceTransactionError", rejectLocalEvent))),
     subscribe: () => owner.reject(commerceError("unsupportedProfile")),
     unsubscribe: () => owner.reject(commerceError("unsupportedProfile")),
@@ -60,18 +61,15 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     yield* validateProductCreate(metadata, input).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     // SAFETY: the external graph is checked before the unchanged service, then its
     // normalized values are checked against DML columns by the DAL and core.
-    if (!Array.isArray(input) && !isJsonObject(input)) return yield* ctx.refuse(commerceError("invalidInput"));
-    if (isJsonObject(input) && typeof input.title !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
-    return yield* withService(ctx, ({ service, context }) => Array.isArray(input)
-      ? service.createProducts(structuredClone(input) as ProductTypes.CreateProductDTO[], context)
-      : service.createProducts({ ...structuredClone(input), title: input.title } as ProductTypes.CreateProductDTO, context));
+    const decoded = yield* Effect.fromResult(decodeProductCreateInput(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    return yield* withService(ctx, ({ service, context }) => Array.isArray(decoded)
+      ? service.createProducts(structuredClone(decoded) as ProductTypes.CreateProductDTO[], context)
+      : service.createProducts(structuredClone(decoded) as ProductTypes.CreateProductDTO, context));
   }));
   const read = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("product" + kind, "read", Effect.fn("ProductAdapter." + kind)(function* (ctx, input) {
-    if (!isJsonObject(input) || Object.keys(input).some(key => !["id", "filters", "config"].includes(key)) || (input.id !== undefined && typeof input.id !== "string")) return yield* ctx.refuse(commerceError("invalidInput"));
-    const config = input.config ?? {};
-    if (!isJsonObject(config) || Object.keys(config).some(key => !["select", "relations", "skip", "take", "order"].includes(key)) ||
-      [config.skip, config.take].some(value => value !== undefined && (typeof value !== "number" || !Number.isSafeInteger(value)))) return yield* ctx.refuse(commerceError("unsupportedProfile"));
-    const copied = structuredClone(input);
+    const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const copied = structuredClone(decoded);
     // SAFETY: the selected DAL decoder validates all filters, projections,
     // pagination and relations after Medusa builds its query and before SQL.
     const find = copied.config as FindConfig<ProductTypes.ProductDTO> | undefined;

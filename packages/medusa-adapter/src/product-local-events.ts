@@ -4,17 +4,21 @@ import { commerceError, type CommerceTransactionError, type Json } from "@flarex
 import { captureCommerceInput } from "./commerce-input";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductRuntimeMetadata } from "./product-runtime-metadata";
+import { commerceDecoder } from "./commerce-decoder";
+
+export const decodeLocalEventOptions = commerceDecoder(Schema.Struct({ internal: Schema.Literal(true) }), "unadmittedEvent");
+export const decodeLocalEventBatch = commerceDecoder(Schema.Array(Schema.Json), "unadmittedEvent");
 
 const Message = Schema.Struct({
   name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PRODUCT), object: Schema.String, action: Schema.Literal(CommonEvents.CREATED) }),
-  data: Schema.Struct({ id: Schema.String }),
+  data: Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }),
 });
 const decode = Schema.decodeUnknownEffect(Message, { onExcessProperty: "error" });
 const captureMessage = Effect.fn("ProductEvents.capture")(function* (catalog: ProductRuntimeMetadata, input: unknown) {
   const value = yield* Effect.fromResult(captureCommerceInput(input));
   const message = yield* decode(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
-  if (!catalog.entities.some(entity => entity.eventObject === message.metadata.object && entity.createdEvent === message.name) || message.data.id.length === 0 || message.data.id.length > 256) return yield* Effect.fail(commerceError("unadmittedEvent"));
+  if (!catalog.entities.some(entity => entity.eventObject === message.metadata.object && entity.createdEvent === message.name)) return yield* Effect.fail(commerceError("unadmittedEvent"));
   return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
 });
 
