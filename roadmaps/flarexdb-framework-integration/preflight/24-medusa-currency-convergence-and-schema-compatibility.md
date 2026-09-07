@@ -58,6 +58,13 @@ unadmitted model, property, key, default, index, cascade and capability shapes.
 artifact and pinned source provenance. The private persistence value export grants
 no live installation, binding, storage or publication authority.
 
+Persistence translation and Currency value decoding share one checked DML
+metadata reader. The value profile derives DTO text fields and writable/stored
+field names from the admitted Medusa model and compiles its decoders once.
+Partial projections, write-key restrictions and numeric consistency remain
+adapter policies; ordinary write-column validation remains persistence-owned.
+This reuses the closed model profile rather than admitting arbitrary DML changes.
+
 Use fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, package baseline `2.13.4`,
 under `third_party/medusa/upstream`. Source verification authenticates the entire
 island. The original island stays unchanged and excluded from normal root

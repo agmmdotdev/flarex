@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { normalizeRelationalSchema, captureRelationalSchemaArtifact } from "@flarex/persistence-postgres/internal/relational-schema-values";
 
 /** Foreign parser surface; every returned member is checked before lowering. */
@@ -20,12 +20,12 @@ export class CurrencySchemaError extends Schema.TaggedError<CurrencySchemaError>
 const empty = Schema.Tuple([]);
 const emptyRecord = Schema.Record(Schema.String, Schema.Never);
 const base = { computed: Schema.Literal(false), indexes: empty, relationships: empty };
-const text = (fieldName: string, searchable: boolean) => Schema.Struct({
+const text = <const Name extends string>(fieldName: Name, searchable: boolean) => Schema.Struct({
   ...base, fieldName: Schema.Literal(fieldName), nullable: Schema.Literal(false),
   dataType: Schema.Struct({ name: Schema.Literal("text"), options: Schema.Struct({ searchable: Schema.Literal(searchable) }) }),
   defaultValue: Schema.Undefined,
 });
-const timestamp = (fieldName: string, nullable: boolean) => Schema.Struct({
+const timestamp = <const Name extends string>(fieldName: Name, nullable: boolean) => Schema.Struct({
   ...base, fieldName: Schema.Literal(fieldName), nullable: Schema.Literal(nullable),
   dataType: Schema.Struct({ name: Schema.Literal("dateTime") }), defaultValue: Schema.Undefined,
 });
@@ -44,7 +44,18 @@ const CurrencyMetadata = Schema.Struct({
     created_at: timestamp("created_at", false), updated_at: timestamp("updated_at", false), deleted_at: timestamp("deleted_at", true),
   }),
 });
-const decodeMetadata = Schema.decodeUnknownEffect(CurrencyMetadata, { onExcessProperty: "error" });
+const decodeMetadata = Schema.decodeUnknownResult(CurrencyMetadata, { onExcessProperty: "error" });
+
+/** One checked Medusa metadata boundary for persistence and value profiles. */
+export const readCurrencyMetadata = (model: CurrencyDmlSource) => Result.try({
+  try: () => {
+    const parsed = model.parse();
+    return { ...parsed, schema: Object.fromEntries(Object.entries(parsed.schema).map(
+      ([name, property]) => [name, property.parse(name)],
+    )) };
+  },
+  catch: cause => cause,
+}).pipe(Result.flatMap(decodeMetadata), Result.mapError(cause => new CurrencySchemaError({ cause })));
 const modelSource = "packages/modules/currency/src/models/currency.ts#currency";
 const implicitSource = "packages/core/utils/src/dml/helpers/entity-builder/create-default-properties.ts";
 const authored = (sourceId: string) => ({ kind: "authored", sourceId });
@@ -55,21 +66,13 @@ const column = (columnId: string) => ({ tableId: "currency", columnId });
 /** Closed Currency profile. Physical defaults/indexes follow the pinned DML lowering. */
 const currencySchemaInput = Effect.fn("MedusaAdapter.currencySchemaInput")(
   function* (model: CurrencyDmlSource) {
-    const metadata = yield* Effect.try({
-      try: () => {
-        const parsed = model.parse();
-        return { ...parsed, schema: Object.fromEntries(Object.entries(parsed.schema).map(
-          ([name, property]) => [name, property.parse(name)],
-        )) };
-      },
-      catch: (cause) => cause,
-    }).pipe(Effect.flatMap(decodeMetadata), Effect.mapError((cause) => new CurrencySchemaError({ cause })));
+    const metadata = yield* Effect.fromResult(readCurrencyMetadata(model));
     const fields = metadata.schema;
-    const scalar = (field: typeof fields.symbol) => ({
+    const scalar = (field: typeof fields.code | typeof fields.symbol | typeof fields.symbol_native | typeof fields.name) => ({
       columnId: field.fieldName, type: field.dataType.name, nullable: field.nullable,
       default: { kind: "none" }, origin: authored(`${modelSource}.${field.fieldName}`),
     });
-    const time = (field: typeof fields.deleted_at) => ({
+    const time = (field: typeof fields.created_at | typeof fields.updated_at | typeof fields.deleted_at) => ({
       columnId: field.fieldName, type: "timestamptz", nullable: field.nullable,
       default: { kind: field.nullable ? "none" : "currentTimestamp" },
       origin: implicit(`${implicitSource}#${field.fieldName}`),

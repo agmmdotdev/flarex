@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { currencyWriteRows, serializeCurrency } from "../src/currency-values";
 import { currencyDto, currencyDtos, currencyCountResult } from "../src/currency-result";
+import { Currency } from "@medusajs/currency/models";
+import { compileCurrencyValueProfile } from "../src/currency-value-profile";
+import { readCurrencyMetadata } from "../src/currency-schema";
 import type { CommerceTransactionError, Json } from "@flarex/persistence-postgres/internal/commerce-values";
 
 const outcome = <Value>(result: Result.Result<Value, CommerceTransactionError>) => Result.match(result, {
@@ -73,6 +76,33 @@ describe("Currency value decoding", () => {
 });
 
 describe("Currency service result decoding", () => {
+  it("derives text validation and stored keys from the checked Medusa model once", () => {
+    let parses = 0;
+    const profile = Result.getOrThrow(compileCurrencyValueProfile({ parse: () => {
+      parses += 1;
+      return Currency.parse();
+    } }));
+    const metadata = Result.getOrThrow(readCurrencyMetadata(Currency));
+    for (const field of Object.values(metadata.schema)) {
+      expect(outcome(profile.decodeStoredRow({ [field.fieldName]: null }))).toHaveProperty("value");
+      if (field.dataType.name === "text") {
+        expect(outcome(profile.decodeProjection({ [field.fieldName]: "value" }))).toHaveProperty("value");
+        expect(outcome(profile.decodeProjection({ [field.fieldName]: 1 }))).toEqual({ reason: "storedCorruption" });
+      }
+    }
+    expect(parses).toBe(1);
+  });
+
+  it("rejects an unsupported model before compiling a permissive fallback", () => {
+    const changed = compileCurrencyValueProfile({ parse: () => {
+      const parsed = Currency.parse();
+      return { ...parsed, schema: { ...parsed.schema, symbol: { parse: () => ({ dataType: { name: "number" } }) } } };
+    } });
+    expect(outcome(changed)).toEqual({ reason: "unsupportedProfile" });
+    expect(outcome(compileCurrencyValueProfile({ parse: () => { throw new Error("broken DML"); } })))
+      .toEqual({ reason: "unsupportedProfile" });
+  });
+
   it("preserves selected DTOs, extra serialized columns and list/count shape", () => {
     const row = { code: "usd", rounding: 0.125, raw_rounding: { value: "0.125", precision: 20 } };
     expect(outcome(currencyDto(row))).toEqual({ value: row });
