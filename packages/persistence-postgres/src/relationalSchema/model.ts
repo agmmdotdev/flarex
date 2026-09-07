@@ -107,12 +107,14 @@ export type RelationalDefinitionOrigin = Readonly<{
 
 export type RelationalColumnType =
   | "text"
+  | "boolean"
   | "integer"
   | "numeric"
   | "jsonb"
   | "timestamptz";
 
 export type RelationalColumnDefault =
+  | (Readonly<{ readonly kind: "booleanLiteral"; readonly value: boolean }> & JsonObject)
   | (Readonly<{ readonly kind: "none" }> & JsonObject)
   | (Readonly<{
       readonly kind: "textLiteral";
@@ -157,7 +159,7 @@ export type RelationalIndexPredicate =
 
 export type RelationalIndexDefinition = Readonly<{
   readonly identity: RelationalIndexIdentity;
-  readonly kind: "btree";
+  readonly kind: "btree" | "uniqueBtree";
   readonly columns: readonly RelationalColumnIdentity[];
   readonly predicate: RelationalIndexPredicate;
   readonly origin: RelationalDefinitionOrigin;
@@ -168,8 +170,8 @@ export type RelationalForeignKeyConstraint = Readonly<{
   readonly kind: "foreignKey";
   readonly sourceColumns: readonly RelationalColumnIdentity[];
   readonly targetColumns: readonly RelationalColumnIdentity[];
-  readonly onDelete: "restrict";
-  readonly onUpdate: "restrict";
+  readonly onDelete: "restrict" | "noAction" | "cascade";
+  readonly onUpdate: "restrict" | "noAction";
   readonly origin: RelationalDefinitionOrigin;
 }> & JsonObject;
 
@@ -182,7 +184,16 @@ export type RelationalIntegerRangeConstraint = Readonly<{
   readonly origin: RelationalDefinitionOrigin;
 }> & JsonObject;
 
+export type RelationalTextSetConstraint = Readonly<{
+  readonly identity: RelationalConstraintIdentity;
+  readonly kind: "textSet";
+  readonly column: RelationalColumnIdentity;
+  readonly values: readonly string[];
+  readonly origin: RelationalDefinitionOrigin;
+}> & JsonObject;
+
 export type RelationalConstraintDefinition =
+  | RelationalTextSetConstraint
   | RelationalForeignKeyConstraint
   | RelationalIntegerRangeConstraint;
 

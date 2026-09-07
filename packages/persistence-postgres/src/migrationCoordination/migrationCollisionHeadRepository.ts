@@ -1,4 +1,5 @@
 import { withFrameworkGraphReadPass } from "./graphReadPass";
+import { readFrameworkMigrationStepReceiptPrefixInTransactionEffect } from "./migrationStepReceiptRepository";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -271,6 +272,29 @@ export const readFrameworkMigrationCollisionHeadForUpdateInTransactionEffect =
     ));
   });
 
+/** Claim-specific read: the head lock/read is fresh; its immutable event graph
+ * and complete receipt inventory are restored together before returning. */
+export const readFrameworkMigrationClaimGraphForUpdateInTransactionEffect = Effect.fn(
+  "FrameworkMigrationCollisionHeadRepository.readClaimGraphForUpdate",
+)(function* (transaction: FlarexMetadataTransaction, collision: RestoredFrameworkMigrationCollisionDomain) {
+  const operation = "readCollisionHead" as const;
+  const storedCollision = yield* corroborateCollision(transaction, collision, operation);
+  const row = yield* loadCollisionHeadRoot(transaction, storedCollision.storageId, operation, true);
+  if (Option.isNone(row)) return Option.none();
+  return Option.some(yield* restoreClaimGraph(transaction, row.value, storedCollision));
+});
+
+const restoreClaimGraph = Effect.fn("FrameworkMigrationCollisionHeadRepository.restoreClaimGraph")(
+  function* (transaction: FlarexMetadataTransaction, row: FrameworkMigrationCollisionHeadDriverRow,
+    collision: RestoredFrameworkMigrationCollisionDomain) {
+    const head = yield* restoreCollisionHeadOccupant(transaction, row, collision, "readCollisionHead");
+    const attempt = restoredFrameworkMigrationCollisionHeadAuthority(head)?.currentAttempt;
+    const receipts = attempt === null || attempt === undefined ? undefined :
+      yield* readFrameworkMigrationStepReceiptPrefixInTransactionEffect(transaction, attempt);
+    return Object.freeze({ head, receipts });
+  }, withFrameworkGraphReadPass,
+);
+
 export const compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect =
   Effect.fn("FrameworkMigrationCollisionHeadRepository.compareAndSwap")(
     function* (
@@ -303,49 +327,13 @@ export const compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect =
         expected.head,
         operation,
       );
-      const expectedDependencies = yield* corroborateCollisionHeadDependencies(
-        transaction,
-        preparedExpected,
-        operation,
+      // Read the mutable root freshly, outside graph reuse. Authenticate its
+      // immutable prerequisites and both sides of the proposed swap together;
+      // that read-only pass settles before the guarded UPDATE below.
+      const currentRow = yield* loadCollisionHeadRoot(transaction, expected.collision.storageId, operation);
+      const { current, prepared, dependencies } = yield* prepareStoredHeadSwap(
+        transaction, currentRow, preparedExpected, nextAdmission, nextCurrentAttempt, nextLastEvent, nextHead, operation,
       );
-      const current = yield* loadRestoredCollisionHead(
-        transaction,
-        expectedDependencies.collision,
-        operation,
-      );
-      if (
-        Option.isNone(current) ||
-        !collisionHeadExactlyMatches(
-          current.value,
-          expectedDependencies,
-          preparedExpected.head,
-        )
-      ) {
-        return yield* Effect.fail(
-          FrameworkMigrationRepositoryError.staleHead(operation),
-        );
-      }
-
-      const prepared = yield* prepareExpectedCollisionHead(
-        current.value.collision,
-        nextAdmission,
-        nextCurrentAttempt,
-        nextLastEvent,
-        nextHead,
-        operation,
-      );
-      const dependencies = yield* corroborateCollisionHeadDependencies(
-        transaction,
-        prepared,
-        operation,
-      );
-      if (
-        dependencies.collision.storageId !== current.value.collision.storageId
-      ) {
-        return yield* Effect.fail(
-          FrameworkMigrationRepositoryError.referenceRefusal(operation),
-        );
-      }
       const expectedSha256Bytes = yield* decodeAuthenticatedSha256(
         expected.head.sha256,
       );
@@ -356,7 +344,7 @@ export const compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect =
         ).where(and(
           eq(
             fxSystemFrameworkMigrationCollisionHeads.collisionStorageId,
-            current.value.collision.storageId,
+            current.collision.storageId,
           ),
           eq(
             fxSystemFrameworkMigrationCollisionHeads.headRevision,
@@ -388,7 +376,7 @@ export const compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect =
           () => FrameworkMigrationRepositoryError.storedCorruption(operation),
         ),
       );
-      if (updatedCollisionStorageId !== current.value.collision.storageId) {
+      if (updatedCollisionStorageId !== current.collision.storageId) {
         return yield* Effect.fail(
           FrameworkMigrationRepositoryError.storedCorruption(operation),
         );
@@ -413,6 +401,32 @@ export const compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect =
       return restored.value;
     },
   );
+
+const prepareStoredHeadSwap = Effect.fn("FrameworkMigrationCollisionHeadRepository.prepareStoredSwap")(
+  function* (
+    transaction: FlarexMetadataTransaction,
+    currentRow: Option.Option<FrameworkMigrationCollisionHeadDriverRow>,
+    expected: PreparedFrameworkMigrationCollisionHead,
+    nextAdmission: RestoredFrameworkMigrationPlanAdmission,
+    nextAttempt: RestoredFrameworkMigrationAttemptStart | null,
+    nextEvent: RestoredFrameworkMigrationEvent | null,
+    nextHead: FrameworkMigrationCollisionHead,
+    operation: CollisionHeadRepositoryOperation,
+  ) {
+    const expectedDependencies = yield* corroborateCollisionHeadDependencies(transaction, expected, operation);
+    if (Option.isNone(currentRow)) return yield* Effect.fail(FrameworkMigrationRepositoryError.staleHead(operation));
+    const current = yield* restoreCollisionHeadOccupant(transaction, currentRow.value, expectedDependencies.collision, operation);
+    if (!collisionHeadExactlyMatches(current, expectedDependencies, expected.head)) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.staleHead(operation));
+    }
+    const prepared = yield* prepareExpectedCollisionHead(current.collision, nextAdmission, nextAttempt, nextEvent, nextHead, operation);
+    const dependencies = yield* corroborateCollisionHeadDependencies(transaction, prepared, operation);
+    if (dependencies.collision.storageId !== current.collision.storageId) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+    }
+    return { current, prepared, dependencies };
+  }, withFrameworkGraphReadPass,
+);
 
 const prepareExpectedCollisionHead = Effect.fn(
   "FrameworkMigrationCollisionHeadRepository.prepareExpected",
@@ -568,7 +582,7 @@ const corroborateCollisionHeadDependencies = Effect.fn(
     currentAttempt,
     lastEvent,
   });
-});
+}, withFrameworkGraphReadPass);
 
 function collisionHeadWriteValues(
   prepared: PreparedFrameworkMigrationCollisionHead,

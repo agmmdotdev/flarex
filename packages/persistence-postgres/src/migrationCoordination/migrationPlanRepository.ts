@@ -1,3 +1,5 @@
+import { captureMigrationCanonicalValue, currentPlanVerification } from "./planVerificationScope";
+import { copyBytes } from "@flarex/utils/bytes";
 import { withAdditiveMigrationGraphLimits } from "./additiveLimits";
 import { reaffirmCapturedPlanAdmissionAuthority } from "./authority";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
@@ -7,9 +9,6 @@ import { Effect, Encoding, Option } from "effect";
 
 import { detachDriverRows } from "../detachDriverRows";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import {
-  capturePrivateCanonicalValue,
-} from "../frameworkSchema/privateCanonicalValue";
 import {
   decodeStoredCanonicalMetadataResult,
   decodeStoredStorageIdResult,
@@ -27,6 +26,8 @@ import {
   isCapturedFreshRelationalMigrationPlan,
   MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES,
   verifyStoredFrameworkMigrationValue,
+  isVerifiedStoredMigrationPlanFrame,
+  withFrameworkMigrationPlanVerification,
 } from "./canonical";
 import type { FrameworkMigrationValueError } from "./errors";
 import type { FrameworkMigrationPlanSha256 } from "./identity";
@@ -65,7 +66,6 @@ import {
   type StoredFrameworkMigrationPlanStepRow,
 } from "./storedRestoration";
 import {
-  isStoredFreshRelationalMigrationPlanFrame,
 } from "./storedValidation";
 import {
   readFrameworkMigrationCollisionDomainForOperationInTransactionEffect,
@@ -457,6 +457,7 @@ export const corroborateRestoredFreshRelationalMigrationPlanInTransactionEffect 
  * Source-private restoration for a plan referenced by stored aggregate state.
  * Missing or mismatched parent rows are corruption, never ordinary absence.
  */
+const readPlanReference = makeFrameworkGraphReferenceRead<RestoredFreshRelationalMigrationPlan>();
 export const restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffect =
   Effect.fn(
     "FrameworkMigrationPlanRepository.restoreStoredReference",
@@ -496,7 +497,7 @@ export const restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffe
       preferredCollision,
       operation,
     );
-  }, makeFrameworkGraphReferenceRead<RestoredFreshRelationalMigrationPlan>());
+  }, (read, transaction, collision, storageId, sha256) => readPlanReference(read, transaction, collision, storageId, sha256));
 
 const prepareExpectedPlan = Effect.fn(
   "FrameworkMigrationPlanRepository.prepareExpected",
@@ -509,7 +510,7 @@ const prepareExpectedPlan = Effect.fn(
       FrameworkMigrationRepositoryError.referenceRefusal(operation),
     );
   }
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     input.frame,
     MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES,
     {
@@ -528,10 +529,40 @@ const prepareExpectedPlan = Effect.fn(
     );
   }
 
+  const { steps, dependencies } = yield* preparePlanSidecars(input.frame, operation);
+
+  return Object.freeze({
+    plan: input,
+    migrationPlanSha256Bytes: captured.copySha256Bytes(),
+    artifactSha256Bytes: yield* decodeAuthenticatedSha256(
+      input.frame.artifact.artifactSha256,
+    ),
+    requiredStepSetSha256Bytes: yield* decodeAuthenticatedSha256(
+      input.requiredStepSetSha256,
+    ),
+    physicalLayoutSha256Bytes: yield* decodeAuthenticatedSha256(
+      input.frame.physicalLayoutSha256,
+    ),
+    canonicalBytes: captured.copyCanonicalBytes(),
+    steps: Object.freeze(steps),
+    dependencies: Object.freeze(dependencies),
+  });
+});
+
+type PreparedPlanSidecars = Pick<PreparedMigrationPlan, "steps" | "dependencies">;
+const purePlanSidecars = new WeakMap<object, { readonly frame: RelationalMigrationPlanFrame; readonly value: PreparedPlanSidecars }>();
+
+const preparePlanSidecars = Effect.fn("FrameworkMigrationPlanRepository.prepareSidecars")(function* (
+  frame: RelationalMigrationPlanFrame, operation: MigrationPlanAggregateRepositoryOperation,
+): Effect.fn.Return<PreparedPlanSidecars, FrameworkMigrationRepositoryError> {
+  const state = yield* currentPlanVerification;
+  const eligible = state?.active === true && state.entry?.frame === frame;
+  const prior = eligible ? purePlanSidecars.get(state) : undefined;
+  if (prior?.frame === frame) return prior.value;
   const steps: PreparedMigrationPlanStep[] = [];
   const dependencies: PreparedMigrationPlanDependency[] = [];
-  for (let stepOrdinal = 0; stepOrdinal < input.frame.steps.length; stepOrdinal += 1) {
-    const step = input.frame.steps[stepOrdinal];
+  for (let stepOrdinal = 0; stepOrdinal < frame.steps.length; stepOrdinal += 1) {
+    const step = frame.steps[stepOrdinal];
     if (step === undefined) {
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.referenceRefusal(operation),
@@ -575,22 +606,14 @@ const prepareExpectedPlan = Effect.fn(
     }
   }
 
-  return Object.freeze({
-    plan: input,
-    migrationPlanSha256Bytes: captured.copySha256Bytes(),
-    artifactSha256Bytes: yield* decodeAuthenticatedSha256(
-      input.frame.artifact.artifactSha256,
-    ),
-    requiredStepSetSha256Bytes: yield* decodeAuthenticatedSha256(
-      input.requiredStepSetSha256,
-    ),
-    physicalLayoutSha256Bytes: yield* decodeAuthenticatedSha256(
-      input.frame.physicalLayoutSha256,
-    ),
-    canonicalBytes: captured.copyCanonicalBytes(),
-    steps: Object.freeze(steps),
-    dependencies: Object.freeze(dependencies),
-  });
+  const value = Object.freeze({ steps: Object.freeze(steps), dependencies: Object.freeze(dependencies) });
+  // One pure projection, derived only from the exact verified plan. The source
+  // plan's byte bound also bounds these fixed-width digest projections.
+  if (eligible && state.active) {
+    if (!purePlanSidecars.has(state)) state.releases.add(() => { purePlanSidecars.delete(state); });
+    purePlanSidecars.set(state, { frame, value });
+  }
+  return value;
 });
 
 const requireStoredPlanCollision = Effect.fn(
@@ -627,6 +650,7 @@ const requireStoredPlanCollision = Effect.fn(
   return stored.value;
 });
 
+const readPlanAssignments = makeFrameworkGraphReferenceRead<readonly RestoredRelationalPhysicalNameAssignment[]>();
 export const readFreshRelationalMigrationPlanAssignmentsForOperationInTransactionEffect =
   Effect.fn(
     "FrameworkMigrationPlanRepository.readAssignments",
@@ -646,7 +670,7 @@ export const readFreshRelationalMigrationPlanAssignmentsForOperationInTransactio
       readonly canonicalJson: string;
     }>> = [];
     for (const frame of frames) {
-      const captured = yield* capturePrivateCanonicalValue(
+      const captured = yield* captureMigrationCanonicalValue(
         frame,
         MAX_RELATIONAL_PHYSICAL_ASSIGNMENT_CANONICAL_BYTES,
         {
@@ -673,6 +697,7 @@ export const readFreshRelationalMigrationPlanAssignmentsForOperationInTransactio
         expectations.map(value => value.frame.spelling),
         mode,
         operation,
+        expectations,
       );
     const occupantsBySpelling = new Map<
       string,
@@ -719,7 +744,7 @@ export const readFreshRelationalMigrationPlanAssignmentsForOperationInTransactio
       restored.push(occupant);
     }
     return Object.freeze(restored);
-  });
+  }, (read, transaction, collision, frames, mode) => readPlanAssignments(read, transaction, collision, frames, mode));
 
 const insertPlanSidecars = Effect.fn(
   "FrameworkMigrationPlanRepository.insertSidecars",
@@ -783,7 +808,20 @@ const loadPlanRootByDigest = Effect.fn(
   Option.Option<MigrationPlanDriverRow>,
   FrameworkMigrationRepositoryError
 > {
-  const query = transaction.select(migrationPlanReadSelection).from(
+  const verification = yield* currentPlanVerification;
+  const expected = verification?.active ? verification.entry : undefined;
+  // Compare exact bytes in this read's database snapshot. A digest or cached
+  // occupant is insufficient evidence. Keep every projection and read sidecars
+  // normally; a mismatch still transfers bounded bytes for full verification.
+  const sameBytes = expected === undefined ? sql<boolean>`false` : sql<boolean>`
+    ${fxSystemFrameworkMigrationPlans.canonicalBytes} =
+      convert_to(${new TextDecoder().decode(expected.bytes)}::text, 'UTF8')
+  `;
+  const query = transaction.select({ ...migrationPlanReadSelection,
+    matchesExpectedBytes: sameBytes,
+    canonicalBytes: sql<Uint8Array | null>`case when ${sameBytes} then null
+      else ${migrationPlanReadSelection.canonicalBytes} end`,
+  }).from(
     fxSystemFrameworkMigrationPlans,
   ).where(eq(
     fxSystemFrameworkMigrationPlans.migrationPlanSha256,
@@ -792,7 +830,18 @@ const loadPlanRootByDigest = Effect.fn(
   const rows = yield* runRepositoryStatement(operation, query).pipe(
     Effect.map(detachDriverRows),
   );
-  return rows[0] === undefined ? Option.none() : Option.some(rows[0]);
+  const row = rows[0];
+  if (row === undefined) return Option.none();
+  if (typeof row.matchesExpectedBytes !== "boolean") {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+  }
+  if (row.matchesExpectedBytes) {
+    if (expected === undefined || row.canonicalBytes !== null) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    return Option.some({ ...row, canonicalBytes: copyBytes(expected.bytes) });
+  }
+  return Option.some(row);
 });
 
 const restorePlanOccupant = Effect.fn(
@@ -830,6 +879,7 @@ const restorePlanOccupant = Effect.fn(
   const sidecars = yield* loadPlanSidecars(
     transaction,
     decoded.storageId,
+    collision.storageId,
     decoded.frame,
     operation,
   );
@@ -844,7 +894,7 @@ const restorePlanOccupant = Effect.fn(
     collision,
     nameAssignments: assignments,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-}, withFrameworkGraphReadPass, (effect, _transaction, row) =>
+}, withFrameworkGraphReadPass, withFrameworkMigrationPlanVerification, (effect, _transaction, row) =>
   row.frameVersion === 2 ? withAdditiveMigrationGraphLimits(effect) : effect);
 
 const decodePlanRoot = Effect.fn(
@@ -875,7 +925,7 @@ const decodePlanRoot = Effect.fn(
     canonicalBytes: stored.canonicalBytes,
     sha256Hex: stored.sha256Hex,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-  if (!isStoredFreshRelationalMigrationPlanFrame(frame) || frame.version !== row.frameVersion) {
+  if (!isVerifiedStoredMigrationPlanFrame(frame) || frame.version !== row.frameVersion) {
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
     );
@@ -943,65 +993,49 @@ const resolvePlanOccupantCollision = Effect.fn(
   return collision.value;
 });
 
-const loadPlanSidecars = Effect.fn(
-  "FrameworkMigrationPlanRepository.loadSidecars",
-)(function* (
-  transaction: FlarexMetadataTransaction,
-  planStorageId: bigint,
-  frame: RelationalMigrationPlanFrame,
-  operation: MigrationPlanAggregateRepositoryOperation,
-): Effect.fn.Return<
-  Readonly<{
-    readonly steps: readonly MigrationPlanStepDriverRow[];
-    readonly dependencies: readonly MigrationPlanDependencyDriverRow[];
-  }>,
-  FrameworkMigrationRepositoryError
-> {
-  const stepQuery = transaction.select(migrationPlanStepReadSelection).from(
-    fxSystemFrameworkMigrationPlanSteps,
-  ).where(eq(
-    fxSystemFrameworkMigrationPlanSteps.planStorageId,
-    planStorageId,
-  )).orderBy(asc(
-    fxSystemFrameworkMigrationPlanSteps.stepOrdinal,
-  )).limit(frame.steps.length + 1);
-  const steps = yield* runRepositoryStatement(operation, stepQuery).pipe(
-    Effect.map(detachDriverRows),
-  );
-
-  let dependencyCount = 0;
-  for (const step of frame.steps) dependencyCount += step.dependencies.length;
-  if (!Number.isSafeInteger(dependencyCount)) {
-    return yield* Effect.fail(
-      FrameworkMigrationRepositoryError.storedCorruption(operation),
-    );
+const loadPlanSidecars = Effect.fn("FrameworkMigrationPlanRepository.loadSidecars")(function* (
+  transaction: FlarexMetadataTransaction, planStorageId: bigint, collisionStorageId: bigint,
+  frame: RelationalMigrationPlanFrame, operation: MigrationPlanAggregateRepositoryOperation,
+): Effect.fn.Return<Readonly<{ steps: readonly MigrationPlanStepDriverRow[]; dependencies: readonly MigrationPlanDependencyDriverRow[] }>, FrameworkMigrationRepositoryError> {
+  const prepared = yield* preparePlanSidecars(frame, operation);
+  const steps = prepared.steps.map(step => ({ ...step, planStorageId, collisionStorageId }));
+  const dependencies = prepared.dependencies.map(dependency => ({ ...dependency, planStorageId }));
+  const expectedSteps = steps.map(step => [String(step.planStorageId), String(step.collisionStorageId), step.stepOrdinal,
+    step.stepId, Encoding.encodeHex(step.stepSha256), Encoding.encodeHex(step.preconditionSha256),
+    Encoding.encodeHex(step.postconditionSha256), step.phase, step.operationFormat, step.operationVersion, step.dependencyCount]);
+  const expectedDependencies = dependencies.map(dependency => [String(dependency.planStorageId), dependency.sourceStepId,
+    dependency.dependencyOrdinal, dependency.dependencyStepId, Encoding.encodeHex(dependency.dependencyStepSha256)]);
+  const step = fxSystemFrameworkMigrationPlanSteps;
+  const dependency = fxSystemFrameworkMigrationPlanStepDependencies;
+  // Compare every persisted sidecar member and the complete bounded inventory
+  // in the current database snapshot. Expected values come only from the fully
+  // verified plan, never from a previous database read. Return one Boolean
+  // instead of repeatedly decoding hundreds of bytea driver cells.
+  const stepQuery = transaction.select({
+    ordinal: step.stepOrdinal,
+    projection: sql`jsonb_build_array(${step.planStorageId}::text, ${step.collisionStorageId}::text,
+      ${step.stepOrdinal}, ${step.stepId}, encode(${step.stepSha256}, 'hex'),
+      encode(${step.preconditionSha256}, 'hex'), encode(${step.postconditionSha256}, 'hex'),
+      ${step.phase}, ${step.operationFormat}, ${step.operationVersion}, ${step.dependencyCount})`.as("projection"),
+  }).from(step).where(eq(step.planStorageId, planStorageId)).orderBy(asc(step.stepOrdinal)).limit(steps.length + 1);
+  const dependencyQuery = transaction.select({
+    stepOrdinal: step.stepOrdinal,
+    ordinal: dependency.dependencyOrdinal,
+    projection: sql`jsonb_build_array(${dependency.planStorageId}::text, ${dependency.sourceStepId},
+      ${dependency.dependencyOrdinal}, ${dependency.dependencyStepId}, encode(${dependency.dependencyStepSha256}, 'hex'))`.as("projection"),
+  }).from(dependency).leftJoin(step, and(eq(dependency.planStorageId, step.planStorageId),
+    eq(dependency.sourceStepId, step.stepId))).where(eq(dependency.planStorageId, planStorageId))
+    .orderBy(asc(step.stepOrdinal), asc(dependency.dependencyOrdinal)).limit(dependencies.length + 1);
+  const rows = yield* runRepositoryStatement(operation, transaction.select({
+    stepsMatch: sql<boolean>`(select coalesce(jsonb_agg(q.projection order by q.step_ordinal), '[]'::jsonb) from (${stepQuery}) q)
+      = ${JSON.stringify(expectedSteps)}::jsonb`,
+    dependenciesMatch: sql<boolean>`(select coalesce(jsonb_agg(q.projection order by q.step_ordinal, q.dependency_ordinal), '[]'::jsonb) from (${dependencyQuery}) q)
+      = ${JSON.stringify(expectedDependencies)}::jsonb`,
+  }).from(sql`(values (1)) as sidecar_comparison(only_row)`));
+  if (rows.length !== 1 || rows[0]?.stepsMatch !== true || rows[0]?.dependenciesMatch !== true) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
   }
-  const dependencyQuery = transaction.select(
-    migrationPlanDependencyReadSelection,
-  ).from(fxSystemFrameworkMigrationPlanStepDependencies).leftJoin(
-    fxSystemFrameworkMigrationPlanSteps,
-    and(
-      eq(
-        fxSystemFrameworkMigrationPlanStepDependencies.planStorageId,
-        fxSystemFrameworkMigrationPlanSteps.planStorageId,
-      ),
-      eq(
-        fxSystemFrameworkMigrationPlanStepDependencies.sourceStepId,
-        fxSystemFrameworkMigrationPlanSteps.stepId,
-      ),
-    ),
-  ).where(eq(
-    fxSystemFrameworkMigrationPlanStepDependencies.planStorageId,
-    planStorageId,
-  )).orderBy(
-    asc(fxSystemFrameworkMigrationPlanSteps.stepOrdinal),
-    asc(fxSystemFrameworkMigrationPlanStepDependencies.dependencyOrdinal),
-  ).limit(dependencyCount + 1);
-  const dependencies = yield* runRepositoryStatement(
-    operation,
-    dependencyQuery,
-  ).pipe(Effect.map(detachDriverRows));
-  return Object.freeze({ steps, dependencies });
+  return Object.freeze({ steps: Object.freeze(steps), dependencies: Object.freeze(dependencies) });
 });
 
 function runRepositoryStatement<Value>(
@@ -1092,36 +1126,3 @@ const migrationPlanReadSelection = {
     end
   `,
 } as const satisfies Record<keyof StoredFrameworkMigrationPlanRow, unknown>;
-
-const migrationPlanStepReadSelection = {
-  planStorageId: fxSystemFrameworkMigrationPlanSteps.planStorageId,
-  collisionStorageId: fxSystemFrameworkMigrationPlanSteps.collisionStorageId,
-  stepOrdinal: fxSystemFrameworkMigrationPlanSteps.stepOrdinal,
-  stepId: fxSystemFrameworkMigrationPlanSteps.stepId,
-  stepSha256: fxSystemFrameworkMigrationPlanSteps.stepSha256,
-  preconditionSha256: fxSystemFrameworkMigrationPlanSteps.preconditionSha256,
-  postconditionSha256: fxSystemFrameworkMigrationPlanSteps.postconditionSha256,
-  phase: fxSystemFrameworkMigrationPlanSteps.phase,
-  operationFormat: fxSystemFrameworkMigrationPlanSteps.operationFormat,
-  operationVersion: fxSystemFrameworkMigrationPlanSteps.operationVersion,
-  dependencyCount: fxSystemFrameworkMigrationPlanSteps.dependencyCount,
-} as const satisfies Record<
-  keyof StoredFrameworkMigrationPlanStepRow,
-  unknown
->;
-
-const migrationPlanDependencyReadSelection = {
-  planStorageId:
-    fxSystemFrameworkMigrationPlanStepDependencies.planStorageId,
-  sourceStepId:
-    fxSystemFrameworkMigrationPlanStepDependencies.sourceStepId,
-  dependencyOrdinal:
-    fxSystemFrameworkMigrationPlanStepDependencies.dependencyOrdinal,
-  dependencyStepId:
-    fxSystemFrameworkMigrationPlanStepDependencies.dependencyStepId,
-  dependencyStepSha256:
-    fxSystemFrameworkMigrationPlanStepDependencies.dependencyStepSha256,
-} as const satisfies Record<
-  keyof StoredFrameworkMigrationPlanStepDependencyRow,
-  unknown
->;

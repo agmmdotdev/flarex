@@ -1,3 +1,4 @@
+import { bindFrameworkMigrationPlanVerification } from "./planVerificationScope";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
 
@@ -344,6 +345,7 @@ export const runFrameworkMigrationTargetTransactionEffect = Effect.fn(
         sessionIdentity,
         excludedSessionIdentity: capturedRequest.excludedSessionIdentity,
       });
+  const bindVerification = yield* bindFrameworkMigrationPlanVerification();
   return yield* driverState.runTransactionEffect(
     driverRequest,
     rawTransaction => {
@@ -357,7 +359,7 @@ export const runFrameworkMigrationTargetTransactionEffect = Effect.fn(
         active: true,
       };
       transactionStates.set(transaction, state);
-      return Effect.suspend(() => work(transaction, sessionIdentity)).pipe(
+      return bindVerification(Effect.suspend(() => work(transaction, sessionIdentity))).pipe(
         Effect.ensuring(Effect.sync(() => {
           state.active = false;
         })),

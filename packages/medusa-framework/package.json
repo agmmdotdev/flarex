@@ -37,6 +37,11 @@
       "types": "./dist/defaults/currencies.d.ts",
       "source": "./src/defaults/currencies.ts",
       "default": "./dist/defaults/currencies.js"
+    },
+    "./utils/portable": {
+      "types": "./dist/utils/portable.d.ts",
+      "source": "./src/utils/portable.ts",
+      "default": "./dist/utils/portable.js"
     }
   },
   "license": "MIT",

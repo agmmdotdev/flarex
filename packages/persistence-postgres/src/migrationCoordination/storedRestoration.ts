@@ -1,11 +1,10 @@
+import { captureMigrationCanonicalValue } from "./planVerificationScope";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isRestoredFrameworkSchemaReadiness, type RestoredFrameworkSchemaReadiness } from "../frameworkSchema/installation/storedMetadataRestoration";
 import { Brand, Effect } from "effect";
 
 import { compareFrameworkSchemaArtifactIdentities } from
   "../frameworkSchema/artifact/policy";
-import { capturePrivateCanonicalValue } from
-  "../frameworkSchema/privateCanonicalValue";
 import {
   decodeStoredCanonicalMetadataResult,
   decodeStoredNonNegativeInt64TextResult,
@@ -45,6 +44,7 @@ import {
   MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
   MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES,
   verifyStoredFrameworkMigrationValue,
+  isVerifiedStoredMigrationPlanFrame,
 } from "./canonical";
 import { FrameworkMigrationValueError } from "./errors";
 import type {
@@ -85,7 +85,6 @@ import {
   isStoredFrameworkMigrationPlanAdmissionFrame,
   isStoredFrameworkMigrationStepReceiptFrame,
   isStoredFrameworkSchemaTargetNamespaceFrame,
-  isStoredFreshRelationalMigrationPlanFrame,
 } from "./storedValidation";
 import {
   FRAMEWORK_SCHEMA_TARGET_NAMESPACE_FORMAT,
@@ -571,7 +570,7 @@ export const restoreStoredFreshRelationalMigrationPlan = Effect.fn(
     row.physicalLayoutSha256,
   );
   if (
-    !isStoredFreshRelationalMigrationPlanFrame(frame) || frame.version !== row.frameVersion ||
+    !isVerifiedStoredMigrationPlanFrame(frame) || frame.version !== row.frameVersion ||
     !sameTargetFrame(
       frame.targetNamespace,
       input.targetNamespace.targetNamespace.frame,
@@ -619,7 +618,7 @@ export const restoreStoredFreshRelationalMigrationPlan = Effect.fn(
     input.stepRows,
     input.dependencyRows,
   );
-  const requiredStepSet = yield* capturePrivateCanonicalValue(
+  const requiredStepSet = yield* captureMigrationCanonicalValue(
     Object.freeze({
       format: FRAMEWORK_MIGRATION_REQUIRED_STEP_SET_FORMAT,
       version: FRAMEWORK_MIGRATION_REQUIRED_STEP_SET_VERSION,
@@ -640,7 +639,7 @@ export const restoreStoredFreshRelationalMigrationPlan = Effect.fn(
   if (requiredStepSet.sha256Hex !== requiredStepSetSha256) {
     return yield* corrupt();
   }
-  const layoutEvidence = yield* capturePrivateCanonicalValue(
+  const layoutEvidence = yield* captureMigrationCanonicalValue(
     frame.physicalLayout,
     MAX_RELATIONAL_PHYSICAL_LAYOUT_CANONICAL_BYTES,
     {
@@ -661,8 +660,14 @@ export const restoreStoredFreshRelationalMigrationPlan = Effect.fn(
     nameAssignments: input.nameAssignments.map(value => value.assignment),
     targetNamespace: input.targetNamespace.targetNamespace,
   }).pipe(Effect.mapError(mapPhysicalRestorationError));
+  // Verification may share immutable values. Issued step handles must remain
+  // unique to this restored plan because the authority registry binds each
+  // step identity to exactly one plan.
+  const issuedFrame = Object.freeze({ ...frame,
+    steps: Object.freeze(frame.steps.map(step => Object.freeze({ ...step }))),
+  });
   const plan = Object.freeze({
-    frame,
+    frame: issuedFrame,
     migrationPlanSha256: brandPlanSha256(stored.sha256Hex),
     requiredStepSetSha256,
     canonicalJson: stored.canonicalJson,

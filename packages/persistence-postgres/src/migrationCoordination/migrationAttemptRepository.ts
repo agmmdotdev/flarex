@@ -1,5 +1,5 @@
 import { additiveMigrationGraphLimits, withFrameworkCollisionGraphLimits } from "./additiveLimits";
-import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
+import { frameworkGraphDriverRowReferences, makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import {
   epochMillisecondsFromCanonicalIsoInstant,
   type CanonicalIsoInstant,
@@ -10,8 +10,8 @@ import { Effect, Encoding, Option } from "effect";
 
 import { detachDriverRows } from "../detachDriverRows";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import { capturePrivateCanonicalValue } from
-  "../frameworkSchema/privateCanonicalValue";
+import { captureMigrationCanonicalValue } from
+  "./planVerificationScope";
 import {
   decodeStoredCanonicalMetadataResult,
   decodeStoredNonNegativeInt64TextResult,
@@ -363,6 +363,7 @@ export const corroborateRestoredFrameworkMigrationAttemptStartInTransactionEffec
  * Source-private restoration for an attempt referenced by stored aggregate
  * state. Missing or mismatched rows are corruption, never ordinary absence.
  */
+const readAttemptReference = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStart>();
 export const restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect =
   Effect.fn(
     "FrameworkMigrationAttemptStartRepository.restoreStoredReference",
@@ -403,9 +404,10 @@ export const restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEf
       );
     }
     return occupant.value;
-  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStart>());
+  }, (read, transaction, collision, storageId, attemptId) => readAttemptReference(read, transaction, collision, storageId, attemptId));
 
 /** Source-private restoration of an attempt-start digest reference. */
+const readAttemptDigestReference = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStart>();
 export const restoreStoredFrameworkMigrationAttemptStartReferenceBySha256InTransactionEffect =
   Effect.fn(
     "FrameworkMigrationAttemptStartRepository.restoreReferenceBySha256",
@@ -461,9 +463,10 @@ export const restoreStoredFrameworkMigrationAttemptStartReferenceBySha256InTrans
       );
     }
     return occupant.value;
-  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStart>());
+  }, (read, transaction, collision, sha256) => readAttemptDigestReference(read, transaction, collision, sha256));
 
 /** Source-private restoration of a lease event's attempt identity. */
+const readAttemptIdentityReference = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStart>();
 export const restoreStoredFrameworkMigrationAttemptStartReferenceByIdentityInTransactionEffect =
   Effect.fn(
     "FrameworkMigrationAttemptStartRepository.restoreReferenceByIdentity",
@@ -515,7 +518,7 @@ export const restoreStoredFrameworkMigrationAttemptStartReferenceByIdentityInTra
       );
     }
     return occupant.value;
-  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStart>());
+  }, (read, transaction, collision, attemptId, fence) => readAttemptIdentityReference(read, transaction, collision, attemptId, fence));
 
 const prepareExpectedAttemptStart = Effect.fn(
   "FrameworkMigrationAttemptStartRepository.prepareExpected",
@@ -557,7 +560,7 @@ const prepareExpectedAttemptStart = Effect.fn(
       FrameworkMigrationRepositoryError.referenceRefusal(operation),
     );
   }
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     attempt.frame,
     MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
     {
@@ -755,6 +758,8 @@ const loadAttemptStartRootByStorageId = Effect.fn(
   return rows[0] === undefined ? Option.none() : Option.some(rows[0]);
 });
 
+const readAttemptLineage = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStartOccupant>();
+
 const restoreAttemptStartLineage = Effect.fn(
   "FrameworkMigrationAttemptStartRepository.restoreLineage",
 )(function* (
@@ -932,7 +937,10 @@ const restoreAttemptStartLineage = Effect.fn(
     value: restoredRoot,
     previousAttempt: rootPreviousAttempt,
   });
-}, withFrameworkGraphReadPass, (read, transaction, _root, preferredCollision, operation, _previous?: RestoredFrameworkMigrationAttemptStart | null, _admission?: RestoredFrameworkMigrationPlanAdmission) =>
+}, (read, transaction, root, collision, operation, previous?: RestoredFrameworkMigrationAttemptStart | null, admission?: RestoredFrameworkMigrationPlanAdmission) =>
+  readAttemptLineage(read, transaction, collision, previous, admission,
+    ...frameworkGraphDriverRowReferences({ ...root })),
+withFrameworkGraphReadPass, (read, transaction, _root, preferredCollision, operation, _previous?: RestoredFrameworkMigrationAttemptStart | null, _admission?: RestoredFrameworkMigrationPlanAdmission) =>
   withFrameworkCollisionGraphLimits(read, transaction, preferredCollision.storageId, operation));
 
 const decodeAttemptStartRoot = Effect.fn(

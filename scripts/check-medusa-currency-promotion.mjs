@@ -9,6 +9,8 @@ const sourcePrefix = "third_party/medusa/upstream/";
 const revision = "48d5cc675e4e8bc821e22c20c88a751acc66fb5f";
 const owners = new Map([
   ["packages/medusa-currency", "@medusajs/currency"],
+  ["packages/medusa-product", "@medusajs/product"],
+  ["packages/medusa-drizzle", "@medusajs/drizzle"],
   ["packages/medusa-types", "@medusajs/types"],
   ["packages/medusa-utils", "@medusajs/utils"],
   ["packages/medusa-framework", "@medusajs/framework"],

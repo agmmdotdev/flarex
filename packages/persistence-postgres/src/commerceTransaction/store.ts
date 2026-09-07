@@ -114,6 +114,7 @@ export const makeCommerceStore = Effect.fn("CommerceStore.make")(function* (
     // NULLs are required in VALUES tables, where PostgreSQL otherwise infers text.
     if (value === null) return field.nullable ? Result.succeed(sql`cast(null as ${sql.raw(field.type)})`) : Result.fail(invalid());
     switch (field.type) {
+      case "boolean": return Result.fail(invalid());
       case "text": return isPrivateValueText(value) ? Result.succeed(sql`${value}`) : Result.fail(invalid());
       case "integer": return typeof value === "number" && Number.isSafeInteger(value) && value >= -2147483648 && value <= 2147483647
         ? Result.succeed(sql`${value}::integer`) : Result.fail(invalid());

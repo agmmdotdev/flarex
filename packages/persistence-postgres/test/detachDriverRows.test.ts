@@ -204,6 +204,19 @@ describe("detachDriverRows", () => {
     expect(() => detachDriverRows([{ impostor }])).toThrow("plain records");
   });
 
+  it("does not invoke custom Date tag getters or trust spoofed tags", () => {
+    const date = new Date(456);
+    Object.defineProperty(date, Symbol.toStringTag, { get: () => { throw new Error("Tag getter must not run"); } });
+    expect(detachDriverRows([{ date }])[0]?.date.getTime()).toBe(456);
+    const tagged = {};
+    Object.defineProperty(tagged, Symbol.toStringTag, { get: () => { throw new Error("Tag getter must not run"); } });
+    expect(() => detachDriverRows([{ tagged }])).toThrow("string keys");
+    const spoofed = {};
+    Object.setPrototypeOf(spoofed, Date.prototype);
+    Object.defineProperty(spoofed, Symbol.toStringTag, { value: "Date" });
+    expect(() => detachDriverRows([{ spoofed }])).toThrow("plain records");
+  });
+
   it("preserves the platform structured-clone failure", () => {
     const rows = [{ uncloneable: () => undefined }];
     const detachedUnknown = detachUnknownDriverRows([{ value: 1 }]);

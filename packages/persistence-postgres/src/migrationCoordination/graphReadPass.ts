@@ -1,4 +1,5 @@
-import { Context, Effect, Option } from "effect";
+import { Context, Effect, Encoding, Option } from "effect";
+import { isUint8Array } from "@flarex/utils/bytes";
 import { additiveMigrationGraphLimits } from "./additiveLimits";
 
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
@@ -71,7 +72,10 @@ type FrameworkGraphReferenceRead<Value> = ((
 
 export function makeFrameworkGraphReferenceRead<Value>(): FrameworkGraphReferenceRead<Value> {
   const roots = new WeakMap<GraphReadPass, ReferenceNode<Value>>();
-  const readReference = Effect.fn("FrameworkMigrationGraphReadPass.reference")(
+  // These per-node lookup wrappers are a measured reconstruction hot path.
+  // Repository operations retain their named spans and typed error boundaries;
+  // avoid allocating another stack capture for every memo lookup and peek.
+  const readReference = Effect.fnUntraced(
     function* (
       read: Effect.Effect<Value, FrameworkMigrationRepositoryError>,
       transaction: FlarexMetadataTransaction,
@@ -103,7 +107,7 @@ export function makeFrameworkGraphReferenceRead<Value>(): FrameworkGraphReferenc
       return value;
     },
   );
-  const peek = Effect.fn("FrameworkMigrationGraphReadPass.peek")(
+  const peek = Effect.fnUntraced(
     function* (transaction: FlarexMetadataTransaction,
       ...references: readonly unknown[]): Effect.fn.Return<Option.Option<Value>> {
       const pass = yield* currentPass;
@@ -123,4 +127,14 @@ export function makeFrameworkGraphReferenceRead<Value>(): FrameworkGraphReferenc
 
 function referenceNode<Value>(): ReferenceNode<Value> {
   return { children: new Map(), value: Option.none() };
+}
+
+/** Exact projections of already-detached scalar driver rows. Mutable byte/date
+ * objects become typed value keys; unexpected objects keep their identity and
+ * must still pass the caller's full decoder before any success is retained. */
+export function frameworkGraphDriverRowReferences(row: Readonly<Record<string, unknown>>): readonly unknown[] {
+  return Object.entries(row).flatMap(([key, value]) =>
+    isUint8Array(value) ? [key, "bytes", Encoding.encodeHex(value)] :
+      value instanceof Date ? [key, "date", Date.prototype.getTime.call(value)] :
+        [key, typeof value, value]);
 }

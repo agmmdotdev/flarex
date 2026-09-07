@@ -359,13 +359,13 @@ export interface CapturedFrameworkMigrationValue<Frame extends JsonObject, Sha> 
 }
 
 export interface CaptureFreshRelationalMigrationPlanInput {
-  readonly commerceProfile?: import("../commerceTransaction/profile").CommerceProfile;
+  readonly commerceProfile?: import("../commerceTransaction/profile").CommerceInstallationProfile;
   readonly artifact: FrameworkSchemaArtifact;
   readonly physicalLayout: RelationalPhysicalLayout;
 }
 
 export interface CaptureFrameworkMigrationPlanAdmissionInput {
-  readonly commerceProfile?: import("../commerceTransaction/profile").CommerceProfile;
+  readonly commerceProfile?: import("../commerceTransaction/profile").CommerceInstallationProfile;
   readonly plan: RelationalMigrationPlan;
   readonly nameAssignments: readonly RelationalPhysicalNameAssignment[];
   readonly previousPlanSha256: FrameworkMigrationPlanSha256 | null;

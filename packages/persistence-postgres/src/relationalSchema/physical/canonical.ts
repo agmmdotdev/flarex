@@ -1,3 +1,6 @@
+import { captureMigrationCanonicalValue, currentPlanVerification,
+  retainOwnedMigrationFrame } from "../../migrationCoordination/planVerificationScope";
+import { bytesEqual, copyBytes, isUint8Array, uint8ArrayByteLength } from "@flarex/utils/bytes";
 import { compareUtf16Strings, isNonBlankString } from "@flarex/utils/strings";
 import { Brand, Effect, Result } from "effect";
 import type { JsonObject } from "flarex-protocol/json";
@@ -13,7 +16,6 @@ import {
 import type { FrameworkSchemaArtifact } from
   "../../frameworkSchema/artifact/model";
 import {
-  capturePrivateCanonicalValue,
   verifyStoredPrivateCanonicalValue,
 } from
   "../../frameworkSchema/privateCanonicalValue";
@@ -58,7 +60,7 @@ import {
   type RelationalPhysicalDefault,
   type RelationalPhysicalForeignKey,
   type RelationalPhysicalIndex,
-  type RelationalPhysicalIntegerRangeCheck,
+  type RelationalPhysicalCheck,
   type RelationalPhysicalKey,
   type RelationalPhysicalLayout,
   type RelationalPhysicalLayoutFrame,
@@ -196,6 +198,7 @@ export const captureRelationalPhysicalLayout = Effect.fn(
           );
           break;
         case "integerRange":
+        case "textSet":
           break;
         default:
           unreachablePhysicalVocabulary(constraint);
@@ -238,6 +241,7 @@ export const captureRelationalPhysicalLayout = Effect.fn(
           )));
           break;
         case "integerRange":
+        case "textSet":
           break;
         default:
           unreachablePhysicalVocabulary(constraint);
@@ -306,7 +310,7 @@ export const captureRelationalPhysicalLayout = Effect.fn(
     relationships: Object.freeze(relationships),
     requiredPhysicalCapabilities: Object.freeze(requiredPhysicalCapabilities),
   } satisfies RelationalPhysicalLayoutFrame);
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     frame,
     MAX_RELATIONAL_PHYSICAL_LAYOUT_CANONICAL_BYTES,
     physicalErrorPolicy("captureLayout"),
@@ -383,9 +387,20 @@ export const verifyStoredRelationalPhysicalValue = Effect.fn(
 )(function* (
   input: VerifyStoredRelationalPhysicalValueInput,
 ): Effect.fn.Return<JsonObject, RelationalPhysicalValueError> {
+  const state = input.kind === "nameAssignment" ? yield* currentPlanVerification : undefined;
+  let ownedBytes: Uint8Array | undefined;
+  if (state?.active && isUint8Array(input.canonicalBytes) && typeof input.sha256Hex === "string" &&
+    /^[0-9a-f]{64}$/.test(input.sha256Hex)) {
+    const length = uint8ArrayByteLength(input.canonicalBytes);
+    if (length !== undefined && length > 0 && length <= MAX_RELATIONAL_PHYSICAL_ASSIGNMENT_CANONICAL_BYTES) {
+      ownedBytes = copyBytes(input.canonicalBytes);
+      const prior = state.assignments.get(input.sha256Hex);
+      if (prior !== undefined && bytesEqual(prior.bytes, ownedBytes)) return prior.frame;
+    }
+  }
   const contract = storedPhysicalContract(input.kind);
   const frame = yield* verifyStoredPrivateCanonicalValue({
-    canonicalBytes: input.canonicalBytes,
+    canonicalBytes: ownedBytes ?? input.canonicalBytes,
     sha256Hex: input.sha256Hex,
     expectedFormat: contract.format,
     expectedVersion: contract.version,
@@ -402,6 +417,13 @@ export const verifyStoredRelationalPhysicalValue = Effect.fn(
   const valid = yield* validateStoredPhysicalFrame(input.kind, frame);
   if (!valid) {
     return yield* Effect.fail(RelationalPhysicalValueError.storedStateCorrupt());
+  }
+  yield* retainOwnedMigrationFrame(frame);
+  if (state?.active && ownedBytes !== undefined && typeof input.sha256Hex === "string" &&
+    !state.assignments.has(input.sha256Hex) && state.assignments.size < 512 &&
+    state.assignmentBytes + ownedBytes.byteLength <= 2_097_152) {
+    state.assignments.set(input.sha256Hex, { bytes: ownedBytes, sha256: input.sha256Hex, frame });
+    state.assignmentBytes += ownedBytes.byteLength;
   }
   return frame;
 });
@@ -453,7 +475,7 @@ const validateStoredNameAssignment = Effect.fn(
     typeof input.nameCanonicalJson !== "string" ||
     typeof input.spelling !== "string"
   ) return false;
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     input.name,
     MAX_RELATIONAL_PHYSICAL_NAME_CANONICAL_BYTES,
     {
@@ -512,7 +534,7 @@ const captureRelationalPhysicalName = Effect.fn(
     subject,
     physicalNamespaceProfile: RELATIONAL_PHYSICAL_NAMESPACE_PROFILE,
   } satisfies RelationalPhysicalNameFrame);
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     frame,
     MAX_RELATIONAL_PHYSICAL_NAME_CANONICAL_BYTES,
     physicalErrorPolicy("captureName"),
@@ -549,7 +571,7 @@ const captureRelationalPhysicalNameAssignment = Effect.fn(
     nameCanonicalJson: name.canonicalJson,
     spelling: name.spelling,
   } satisfies RelationalPhysicalNameAssignmentFrame);
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     frame,
     MAX_RELATIONAL_PHYSICAL_ASSIGNMENT_CANONICAL_BYTES,
     physicalErrorPolicy("captureName"),
@@ -713,12 +735,13 @@ function lowerTable(
         columns: Object.freeze(physicalColumns),
       }));
     }
-    const checks: RelationalPhysicalIntegerRangeCheck[] = [];
+    const checks: RelationalPhysicalCheck[] = [];
     for (const constraint of table.constraints) {
       switch (constraint.kind) {
         case "foreignKey":
           break;
-        case "integerRange": {
+        case "integerRange":
+        case "textSet": {
           const physicalName = findNameBySubject(
             names,
             "checkConstraint",
@@ -733,13 +756,13 @@ function lowerTable(
           checks.push(Object.freeze({
             identity: copyConstraintIdentity(constraint.identity),
             name: physicalName,
-            kind: "integerRange",
             column: yield* required(
               columnNames,
               columnIdentityKey(constraint.column),
             ),
-            minimum: constraint.minimum,
-            maximum: constraint.maximum,
+            ...(constraint.kind === "integerRange"
+              ? { kind: constraint.kind, minimum: constraint.minimum, maximum: constraint.maximum }
+              : { kind: constraint.kind, values: Object.freeze([...constraint.values]) }),
           }));
           break;
         }
@@ -993,6 +1016,7 @@ function physicalColumnType(
   type: RelationalSchema["tables"][number]["columns"][number]["type"],
 ): RelationalPhysicalColumnType {
   switch (type) {
+    case "boolean":
     case "text":
     case "integer":
     case "numeric":
@@ -1012,6 +1036,8 @@ function copyPhysicalDefault(
     case "none":
     case "currentTimestamp":
       return Object.freeze({ kind: value.kind });
+    case "booleanLiteral":
+      return Object.freeze({ kind: value.kind, value: value.value });
     case "textLiteral":
       return Object.freeze({ kind: value.kind, value: value.value });
     case "integerLiteral":
@@ -1038,6 +1064,7 @@ function physicalConstraintNameSubject(
         kind: "foreignKey",
         identity: copyConstraintIdentity(constraint.identity),
       });
+    case "textSet":
     case "integerRange":
       return Object.freeze({
         kind: "checkConstraint",
@@ -1065,6 +1092,7 @@ function physicalIndexKind(
 ): RelationalPhysicalIndex["kind"] {
   switch (kind) {
     case "btree":
+    case "uniqueBtree":
       return kind;
     default:
       return unreachablePhysicalVocabulary(kind);
@@ -1087,14 +1115,14 @@ function physicalIndexPredicate(
   }
 }
 
-function physicalForeignKeyAction(
-  action: Extract<
+function physicalForeignKeyAction<Action extends Extract<
     RelationalTableDefinition["constraints"][number],
     { readonly kind: "foreignKey" }
-  >["onDelete" | "onUpdate"],
-): "restrict" {
+  >["onDelete" | "onUpdate"]>(action: Action): Action {
   switch (action) {
     case "restrict":
+    case "noAction":
+    case "cascade":
       return action;
     default:
       return unreachablePhysicalVocabulary(action);
@@ -1207,6 +1235,8 @@ function columnCapabilityId(
   type: RelationalTableDefinition["columns"][number]["type"],
 ): string {
   switch (type) {
+    case "boolean":
+      return "relational-schema.column.boolean";
     case "text":
       return "relational-schema.column.text";
     case "integer":
@@ -1228,6 +1258,8 @@ function defaultCapabilityId(
   switch (value.kind) {
     case "none":
       return null;
+    case "booleanLiteral":
+      return "relational-schema.default.booleanLiteral";
     case "textLiteral":
       return "relational-schema.default.textLiteral";
     case "integerLiteral":
@@ -1260,6 +1292,8 @@ function indexCapabilityId(
   kind: RelationalTableDefinition["indexes"][number]["kind"],
 ): string {
   switch (kind) {
+    case "uniqueBtree":
+      return "relational-schema.index.uniqueBtree";
     case "btree":
       return "relational-schema.index.btree";
     default:
@@ -1284,6 +1318,8 @@ function constraintCapabilityId(
       physicalForeignKeyAction(constraint.onDelete);
       physicalForeignKeyAction(constraint.onUpdate);
       return "relational-schema.constraint.foreignKey";
+    case "textSet":
+      return "relational-schema.constraint.textSet";
     case "integerRange":
       return "relational-schema.constraint.integerRange";
     default:

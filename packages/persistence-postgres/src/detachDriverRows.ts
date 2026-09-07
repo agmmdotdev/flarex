@@ -147,6 +147,13 @@ function assertEnumerableDataProperty<T extends object>(
 }
 
 function isIntrinsicDate<T extends object>(value: T): boolean {
+  // Plain result records dominate graph reconstruction. Without a custom tag,
+  // the intrinsic tag rules out Dates without throwing. A custom/inherited tag
+  // takes the original brand probe, so no tag getter runs and spoofed tags gain
+  // no authority. This also retains cross-realm and re-prototyped Dates.
+  if (!(Symbol.toStringTag in value) && Object.prototype.toString.call(value) !== "[object Date]") {
+    return false;
+  }
   try {
     Date.prototype.valueOf.call(value);
     return true;

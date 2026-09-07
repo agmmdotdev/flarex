@@ -379,7 +379,8 @@ function decodeIndex(
       `${path}.indexId`,
       brandIndexId,
     );
-    if (fields.at(1) !== "btree") {
+    const kind = fields.at(1);
+    if (kind !== "btree" && kind !== "uniqueBtree") {
       return yield* unsupported(`${path}.kind`, fields.at(1));
     }
     const columns = yield* decodeLocalColumnIdentities(
@@ -399,7 +400,7 @@ function decodeIndex(
     const origin = yield* decodeOrigin(fields.at(4), `${path}.origin`);
     return Object.freeze({
       identity: indexIdentity(coordinate, tableId, indexId),
-      kind: "btree",
+      kind,
       columns,
       predicate,
       origin,
@@ -471,10 +472,12 @@ function decodeConstraint(
         false,
         budget,
       );
-      if (fields.at(4) !== "restrict") {
+      const onDelete = fields.at(4);
+      const onUpdate = fields.at(5);
+      if (onDelete !== "restrict" && onDelete !== "noAction" && onDelete !== "cascade") {
         return yield* unsupported(`${path}.onDelete`, fields.at(4));
       }
-      if (fields.at(5) !== "restrict") {
+      if (onUpdate !== "restrict" && onUpdate !== "noAction") {
         return yield* unsupported(`${path}.onUpdate`, fields.at(5));
       }
       const origin = yield* decodeOrigin(fields.at(6), `${path}.origin`);
@@ -483,10 +486,29 @@ function decodeConstraint(
         kind: "foreignKey",
         sourceColumns,
         targetColumns,
-        onDelete: "restrict",
-        onUpdate: "restrict",
+        onDelete,
+        onUpdate,
         origin,
       });
+    }
+    if (kind === "textSet") {
+      const fields = yield* exactRecord(input, ["constraintId", "kind", "columnId", "values", "origin"], path);
+      const constraintId = yield* decodeIdentityString(fields.at(0), path + ".constraintId", brandConstraintId);
+      const columnId = yield* decodeIdentityString(fields.at(2), path + ".columnId", brandColumnId);
+      yield* consumeDecodeUnit(budget, path + ".columnId");
+      const inputs = yield* denseArray(fields.at(3), path + ".values", 256);
+      const values: string[] = [];
+      for (const value of inputs) {
+        yield* consumeDecodeUnit(budget, path + ".values");
+        values.push(yield* decodeText(value, path + ".values"));
+      }
+      if (values.length === 0 || new Set(values).size !== values.length) {
+        return yield* Result.fail(RelationalSchemaError.invalidInput(path + ".values"));
+      }
+      values.sort(compareUtf16Strings);
+      const origin = yield* decodeOrigin(fields.at(4), path + ".origin");
+      return Object.freeze({ identity: constraintIdentity(coordinate, tableId, constraintId), kind,
+        column: columnIdentity(coordinate, tableId, columnId), values: Object.freeze(values), origin });
     }
     if (kind === "integerRange") {
       const fields = yield* exactRecord(input, [
@@ -762,7 +784,9 @@ function validateRelationalSchema(
         `${tablePath}.relationships`,
       );
       const primaryKeys = table.keys.filter(key => key.kind === "primary");
-      if (primaryKeys.length !== 1) {
+      if (primaryKeys.length > 1 || (primaryKeys.length === 0 && !table.keys.some(key =>
+        key.kind === "unique" && key.columns.every(reference => columns.get(reference.columnId)?.nullable === false)
+      ))) {
         return yield* Result.fail(RelationalSchemaError.invalidInput(
           `${tablePath}.keys`,
         ));
@@ -799,13 +823,6 @@ function validateRelationalSchema(
             index.predicate.column,
             `${tablePath}.indexes[${index.identity.indexId}].predicate`,
           );
-          if (!index.columns.some(column =>
-            column.columnId === index.predicate?.column.columnId
-          )) {
-            return yield* Result.fail(RelationalSchemaError.invalidInput(
-              `${tablePath}.indexes[${index.identity.indexId}].predicate`,
-            ));
-          }
         }
       }
       tables.set(table.identity.tableId, {
@@ -822,6 +839,13 @@ function validateRelationalSchema(
       for (const constraint of lookup.table.constraints) {
         const constraintPath =
           `${tablePath}.constraints[${constraint.identity.constraintId}]`;
+        if (constraint.kind === "textSet") {
+          const column = yield* requireColumn(lookup.columns, constraint.column, constraintPath + ".column");
+          if (column.type !== "text" || (column.default.kind === "textLiteral" && !constraint.values.includes(column.default.value))) {
+            return yield* Result.fail(RelationalSchemaError.invalidInput(constraintPath + ".column"));
+          }
+          continue;
+        }
         if (constraint.kind === "integerRange") {
           const column = yield* requireColumn(
             lookup.columns,
@@ -941,6 +965,15 @@ function validateRelationalSchema(
 
     const capabilityIds = new Set<string>();
     const derivedColumns = new Set<string>();
+    // A validated FK explains its generated source columns, including implicit
+    // pivot endpoints. Numeric companions retain their own capability proof.
+    for (const table of schema.tables) {
+      for (const constraint of table.constraints) {
+        if (constraint.kind === "foreignKey") {
+          for (const column of constraint.sourceColumns) derivedColumns.add(columnKey(column));
+        }
+      }
+    }
     const implicitColumns = new Set<string>();
     for (const capability of schema.capabilities) {
       const capabilityPath =
@@ -1095,6 +1128,7 @@ function validateColumnDefault(
   const defaultValue = column.default;
   if (defaultValue.kind === "none") return Result.succeed(undefined);
   const valid =
+    (defaultValue.kind === "booleanLiteral" && column.type === "boolean") ||
     (defaultValue.kind === "textLiteral" && column.type === "text") ||
     (defaultValue.kind === "integerLiteral" && column.type === "integer") ||
     (defaultValue.kind === "exactNumericLiteral" && column.type === "numeric") ||
@@ -1121,6 +1155,12 @@ function decodeColumnDefault(
     if (kind === "none" || kind === "currentTimestamp") {
       yield* exactRecord(input, ["kind"], path);
       return Object.freeze({ kind });
+    }
+    if (kind === "booleanLiteral") {
+      const fields = yield* exactRecord(input, ["kind", "value"], path);
+      const value = fields.at(1);
+      if (typeof value !== "boolean") return yield* Result.fail(RelationalSchemaError.invalidInput(path + ".value"));
+      return Object.freeze({ kind, value });
     }
     if (kind === "textLiteral") {
       const fields = yield* exactRecord(input, ["kind", "value"], path);
@@ -1180,6 +1220,7 @@ function decodeColumnType(
   path: string,
 ): Result.Result<RelationalColumnType, RelationalSchemaError> {
   switch (input) {
+    case "boolean":
     case "text":
     case "integer":
     case "numeric":

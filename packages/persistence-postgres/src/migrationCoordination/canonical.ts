@@ -1,8 +1,12 @@
+import { captureMigrationCanonicalValue } from "./planVerificationScope";
+import { currentPlanVerification, retainOwnedMigrationFrame } from "./planVerificationScope";
+export { withFrameworkMigrationPlanVerification } from "./planVerificationScope";
 import { capturePayloadPreferenceArtifact } from "../payloadPreferences/schema";
 import { matchesCommerceProfile, matchesCommerceMigrationPlan } from "../commerceTransaction/profile";
 import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
 import { compareUtf16Strings, isNonBlankString } from "@flarex/utils/strings";
 import { Brand, Effect, Result } from "effect";
+import { bytesEqual, copyBytes, isUint8Array, uint8ArrayByteLength } from "@flarex/utils/bytes";
 import {
   isJsonObjectFromUnknown,
   type JsonObject,
@@ -13,7 +17,6 @@ import { copyCapturedFrameworkSchemaArtifactEvidence } from
 import type { FrameworkSchemaArtifactIdentity } from
   "../frameworkSchema/artifact/model";
 import {
-  capturePrivateCanonicalValue,
   verifyStoredPrivateCanonicalValue,
 } from
   "../frameworkSchema/privateCanonicalValue";
@@ -103,7 +106,7 @@ import {
   FRAMEWORK_SCHEMA_TARGET_NAMESPACE_VERSION,
   MAX_FRAMEWORK_SCHEMA_TARGET_NAMESPACE_CANONICAL_BYTES,
 } from "./targetNamespace";
-import { isStoredMigrationNonEventFrame } from "./storedValidation";
+import { isStoredMigrationNonEventFrame, isStoredFreshRelationalMigrationPlanFrame } from "./storedValidation";
 
 export const MAX_FRAMEWORK_MIGRATION_PLAN_STEPS = 66_000;
 export const MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES = 8_388_608;
@@ -342,7 +345,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
     ));
   }
 
-  const requiredStepSet = yield* capturePrivateCanonicalValue(
+  const requiredStepSet = yield* captureMigrationCanonicalValue(
     Object.freeze({
       format: FRAMEWORK_MIGRATION_REQUIRED_STEP_SET_FORMAT,
       version: FRAMEWORK_MIGRATION_REQUIRED_STEP_SET_VERSION,
@@ -364,7 +367,7 @@ export const captureFreshRelationalMigrationPlan = Effect.fn(
     physicalLayoutSha256: layout.layoutSha256,
     steps: Object.freeze(steps),
   } satisfies RelationalMigrationPlanFrame);
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     frame,
     MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES,
     migrationErrorPolicy("capturePlan"),
@@ -812,6 +815,10 @@ export const captureFrameworkMigrationEvent = Effect.fn(
       "captureLedgerValue",
     ));
   }
+  const verification = yield* currentPlanVerification;
+  if (verification?.active && verification.ownedFrames.has(input)) {
+    return yield* captureLedgerValue(input, brandEventSha256);
+  }
   const common = {
     format: FRAMEWORK_MIGRATION_EVENT_FORMAT,
     version: FRAMEWORK_MIGRATION_EVENT_VERSION,
@@ -900,14 +907,35 @@ export interface VerifyStoredFrameworkMigrationValueInput {
   readonly sha256Hex: unknown;
 }
 
+const verifiedPlanFrames = new WeakSet<object>();
+
+/** Narrows only an owned, deeply frozen frame that passed full stored verification. */
+export function isVerifiedStoredMigrationPlanFrame(input: JsonObject): input is JsonObject & RelationalMigrationPlanFrame {
+  return verifiedPlanFrames.has(input);
+}
+
 export const verifyStoredFrameworkMigrationValue = Effect.fn(
   "FrameworkMigrationValue.verifyStored",
 )(function* (
   input: VerifyStoredFrameworkMigrationValueInput,
 ): Effect.fn.Return<JsonObject, FrameworkMigrationValueError> {
+  const reusable = input.kind !== "collisionHead" && input.kind !== "targetNamespace";
+  const state = reusable ? yield* currentPlanVerification : undefined;
   const contract = storedMigrationContract(input.kind);
+  let ownedPlanBytes: Uint8Array | undefined;
+  if (state?.active && isUint8Array(input.canonicalBytes) &&
+    typeof input.sha256Hex === "string" && LOWERCASE_SHA256.test(input.sha256Hex)) {
+    const length = uint8ArrayByteLength(input.canonicalBytes);
+    if (length !== undefined && length > 0 && length <= contract.maximumBytes) {
+      ownedPlanBytes = copyBytes(input.canonicalBytes);
+      const prior = input.kind === "plan" ? state.entry : state.ledger.get(input.kind + ":" + input.sha256Hex);
+      if (prior?.sha256 === input.sha256Hex && bytesEqual(prior.bytes, ownedPlanBytes)) {
+        return prior.frame;
+      }
+    }
+  }
   const frame = yield* verifyStoredPrivateCanonicalValue({
-    canonicalBytes: input.canonicalBytes,
+    canonicalBytes: ownedPlanBytes ?? input.canonicalBytes,
     sha256Hex: input.sha256Hex,
     expectedFormat: contract.format,
     expectedVersion: input.kind === "plan" || input.kind === "planAdmission"
@@ -924,20 +952,30 @@ export const verifyStoredFrameworkMigrationValue = Effect.fn(
       cause,
     ),
   });
-  if (input.kind === "event" && !isStoredEventFrame(frame)) {
-    return yield* Effect.fail(FrameworkMigrationValueError.storedStateCorrupt());
-  }
-  if (
-    input.kind !== "event" &&
-    !isStoredMigrationNonEventFrame(input.kind, frame)
-  ) {
-    return yield* Effect.fail(FrameworkMigrationValueError.storedStateCorrupt());
-  }
   if (
     input.kind === "plan" &&
     !(yield* validateStoredMigrationPlanDigests(frame))
   ) {
     return yield* Effect.fail(FrameworkMigrationValueError.storedStateCorrupt());
+  }
+  if (input.kind === "plan") {
+    if (!isStoredFreshRelationalMigrationPlanFrame(frame)) {
+      return yield* Effect.fail(FrameworkMigrationValueError.storedStateCorrupt());
+    }
+    verifiedPlanFrames.add(frame);
+    yield* retainOwnedMigrationFrame(frame);
+      if (state?.active && ownedPlanBytes !== undefined && typeof input.sha256Hex === "string") {
+        for (const release of state.releases) release();
+        state.releases.clear();
+        state.entry = { bytes: ownedPlanBytes, sha256: input.sha256Hex, frame };
+    }
+  } else if (state?.active && ownedPlanBytes !== undefined && typeof input.sha256Hex === "string") {
+    yield* retainOwnedMigrationFrame(frame);
+    const key = input.kind + ":" + input.sha256Hex;
+    if (!state.ledger.has(key) && state.ledger.size < 512 && state.ledgerBytes + ownedPlanBytes.byteLength <= 2_097_152) {
+      state.ledger.set(key, { bytes: ownedPlanBytes, sha256: input.sha256Hex, frame });
+      state.ledgerBytes += ownedPlanBytes.byteLength;
+    }
   }
   return frame;
 });
@@ -952,7 +990,7 @@ const validateStoredMigrationPlanDigests = Effect.fn(
     !isSha256(frame.physicalLayoutSha256) ||
     !Array.isArray(frame.steps)
   ) return false;
-  const layout = yield* capturePrivateCanonicalValue(
+  const layout = yield* captureMigrationCanonicalValue(
     frame.physicalLayout,
     MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES,
     storedMigrationHashPolicy(),
@@ -984,12 +1022,12 @@ const validateStoredMigrationStepDigests = Effect.fn(
     !isSha256(step.preconditionSha256) ||
     !isSha256(step.postconditionSha256)
   ) return false;
-  const precondition = yield* capturePrivateCanonicalValue(
+  const precondition = yield* captureMigrationCanonicalValue(
     step.precondition,
     4_096,
     storedMigrationHashPolicy(),
   );
-  const postcondition = yield* capturePrivateCanonicalValue(
+  const postcondition = yield* captureMigrationCanonicalValue(
     step.postcondition,
     4_096,
     storedMigrationHashPolicy(),
@@ -1003,7 +1041,7 @@ const validateStoredMigrationStepDigests = Effect.fn(
     ))
   ) return false;
   const { stepId: _stepId, stepSha256: _stepSha256, ...body } = step;
-  const capturedStep = yield* capturePrivateCanonicalValue(
+  const capturedStep = yield* captureMigrationCanonicalValue(
     Object.freeze(body),
     MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
     storedMigrationHashPolicy(),
@@ -1025,7 +1063,7 @@ const validateStoredOperationProjection = Effect.fn(
   }
   if (format === "flarex.relational-verify-base-structure") {
     if (!isJsonObjectFromUnknown(operation.physicalLayout)) return false;
-    const base = yield* capturePrivateCanonicalValue(operation.physicalLayout,
+    const base = yield* captureMigrationCanonicalValue(operation.physicalLayout,
       MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES, storedMigrationHashPolicy());
     return base.sha256Hex === operation.expectedLayoutSha256;
   }
@@ -1055,7 +1093,7 @@ const validateStoredOperationProjection = Effect.fn(
     !isJsonObjectFromUnknown(projection) ||
     !isSha256(expected)
   ) return false;
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     Object.freeze({ kind: projectionKind, value: projection }),
     MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
     storedMigrationHashPolicy(),
@@ -1216,7 +1254,7 @@ export const captureRelationalMigrationStep = Effect.fn("FrameworkMigrationStep.
       checkpointPolicy: "afterStep",
       operation,
     } as const satisfies JsonObject);
-    const captured = yield* capturePrivateCanonicalValue(
+    const captured = yield* captureMigrationCanonicalValue(
       body,
       MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
       migrationErrorPolicy("capturePlan"),
@@ -1241,7 +1279,7 @@ const hashProjection = Effect.fn("FrameworkMigrationPlan.hashProjection")(
     FrameworkMigrationValueError
   > {
     const frame = Object.freeze({ kind, value } satisfies JsonObject);
-    const captured = yield* capturePrivateCanonicalValue(
+    const captured = yield* captureMigrationCanonicalValue(
       frame,
       MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
       migrationErrorPolicy("capturePlan"),
@@ -1257,7 +1295,7 @@ const hashCondition = Effect.fn("FrameworkMigrationPlan.hashCondition")(
     FrameworkMigrationConditionSha256,
     FrameworkMigrationValueError
   > {
-    const captured = yield* capturePrivateCanonicalValue(
+    const captured = yield* captureMigrationCanonicalValue(
       condition,
       4_096,
       migrationErrorPolicy("capturePlan"),
@@ -1274,7 +1312,7 @@ function captureLedgerValue<Frame extends JsonObject, Sha>(
   FrameworkMigrationValueError
 > {
   return Effect.map(
-    capturePrivateCanonicalValue(
+    captureMigrationCanonicalValue(
       frame,
       MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
       migrationErrorPolicy("captureLedgerValue"),

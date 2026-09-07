@@ -135,8 +135,8 @@ Use these sources in order:
     installation, seed-gated serving, bounded DAL, authenticated transactions
     and typed row publication.
 28. [`preflight/26-medusa-product-schema-and-relationships.md`](./preflight/26-medusa-product-schema-and-relationships.md)
-    proposes complete Product DML normalization, shared schema extensions and
-    fresh physical relationship conformance; implementation approval is pending.
+    records the implemented fresh Product schema and physical constraints, with
+    [bounded shared reconstruction](./preflight/27-product-installation-reconstruction-cost.md).
 29. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
@@ -198,7 +198,7 @@ Preflight records:
 | [`preflight/23-payload-bounded-reverse-joins.md`](./preflight/23-payload-bounded-reverse-joins.md) | Private fresh-only reverse joins implemented | Same-transaction CMS incoming-source reads and bounded Payload virtual joins over both native relations; closes the bounded non-reactive Payload prerequisite |
 | [`preflight/24-medusa-currency-convergence-and-schema-compatibility.md`](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md) | Implemented private Currency source/value compatibility | Actual DML, manifest-admitted source/build/type closure and unchanged PGlite/MikroORM comparison baseline; live Flarex installation, bounded relational queries and typed commerce publication are owned by record 25 |
 | [`preflight/25-medusa-currency-host-and-publication.md`](./preflight/25-medusa-currency-host-and-publication.md) | Implemented private Currency service and relational publication | Shared initialization/change metadata, live installation, borrowed managers, bounded queries, atomic publication/recovery and retention; broader modules and public activation remain gated |
-| [`preflight/26-medusa-product-schema-and-relationships.md`](./preflight/26-medusa-product-schema-and-relationships.md) | Proposed Product schema and physical relationships | Complete model/pivot normalization, generic schema extensions and fresh database conformance; Product service mutations require subsequent transaction/event admission |
+| [`preflight/26-medusa-product-schema-and-relationships.md`](./preflight/26-medusa-product-schema-and-relationships.md) | Fresh Product schema and physical relationships implemented | Ten pinned models produce thirteen tables through shared schema/install/readiness machinery; Product service mutations remain unadmitted |
 
 ## Current Architecture
 
@@ -328,9 +328,9 @@ The smallest safe sequence is:
     already-proven shared mechanisms under the following host gate.
 13. Admit Currency transaction propagation, commerce-row/event-intent receipts,
     and typed finalization before the fresh Currency baseline may write.
-14. Prove Product's complete fresh schema and physical relationships under
-    record 26, then admit its service transaction/event contracts and runtime
-    relationship behavior. Follow with both endpoints and the
+14. Product's complete fresh schema and physical relationships are implemented
+    under record 26. Next admit its service transaction/event contracts and
+    runtime relationship behavior. Follow with both endpoints and the
     typed link/event contracts for one real stored Module Link with database-
     enforced uniqueness/cardinality and genuine-PostgreSQL concurrency proof.
 15. Add custom repositories, Query, workflows, locks, idempotency, events, and
@@ -380,7 +380,7 @@ has private Application-only and synthetic Medusa acceptance.
 | CMS request host and Application publication | Private CMS host, pending documents, row/relation materialization and publication implemented | Pinned Payload scalar CRUD and atomic preference cleanup publication proven under combined binding |
 | Application table write policy | Private denial capability implemented | Canonical ownership and ordinary Application journal/commit denial preserved; the separate private CMS participant owns managed writes |
 | Payload scalar and non-reactive relation proofs | Private pinned scalar/optional-one/fresh-many CRUD, fresh-only reverse joins, depth-one standalone population, preference cleanup/publication and nested requests implemented | Bounded non-reactive consumer milestone complete on both drivers. Existing-row many upgrades, general join parity and public/production activation remain gated |
-| Medusa Currency, Product and Module Link proofs | Private Currency source/type/build closure, fresh actual-DML installation, seeded serving, unchanged service conformance and shared relational publication implemented | Product, stored Links, required domain-event families and general module compatibility follow |
+| Medusa Currency, Product and Module Link proofs | Private Currency service and shared publication implemented; Product's complete fresh schema installs through the shared core | Product services, stored Links, required domain-event families and general module compatibility follow |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
 

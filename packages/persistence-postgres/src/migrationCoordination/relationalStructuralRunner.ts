@@ -15,6 +15,7 @@ import type {
   RelationalPhysicalForeignKey,
   RelationalPhysicalIndex,
   RelationalPhysicalIntegerRangeCheck,
+  RelationalPhysicalCheck,
   RelationalPhysicalKey,
   RelationalPhysicalLayout,
   RelationalPhysicalTable,
@@ -931,7 +932,8 @@ const observeTable = Effect.fn(
         order by key_column.ordinality
       ) as column_names,
       pg_get_expr(constraint_row.conbin, constraint_row.conrelid)
-        as check_expression
+        as check_expression,
+      current_setting('standard_conforming_strings') as standard_conforming_strings
     from pg_constraint as constraint_row
     where constraint_row.conrelid = ${relationOid}::oid
       and constraint_row.contype in ('p', 'u', 'c')
@@ -1074,7 +1076,7 @@ const observeIndex = Effect.fn(
       tableName: sourceTable.name,
       indexName: index.name,
       columns: index.columns,
-      unique: false,
+      unique: index.kind === "uniqueBtree",
       primary: false,
       predicateColumn: index.predicate?.column ?? null,
     }),
@@ -1241,12 +1243,12 @@ const observeForeignKey = Effect.fn(
       row,
       "update_action",
       context,
-    ))) === "r" &&
+    ))) === foreignKeyActionCode(foreignKey.onUpdate) &&
     (yield* Effect.fromResult(textMemberResult(
       row,
       "delete_action",
       context,
-    ))) === "r" &&
+    ))) === foreignKeyActionCode(foreignKey.onDelete) &&
     !(yield* Effect.fromResult(booleanMemberResult(
       row,
       "is_deferrable",
@@ -1737,7 +1739,7 @@ const keyConstraintMatches = Effect.fn(
 
 function checkConstraintMatchesResult(
   actual: Readonly<Record<string, unknown>>,
-  expected: RelationalPhysicalIntegerRangeCheck,
+  expected: RelationalPhysicalCheck,
   context: CatalogContext,
 ): Result.Result<boolean, RelationalStructuralRunnerError> {
   return Result.gen(function* () {
@@ -1765,14 +1767,10 @@ function checkConstraintMatchesResult(
         yield* stringArrayMemberResult(actual, "column_names", context),
         [expected.column],
       ) &&
-      rangeConstraintExpressionMatches(
-        yield* nullableTextMemberResult(
-          actual,
-          "check_expression",
-          context,
-        ),
-        expected,
-      );
+      (expected.kind === "textSet"
+        ? (yield* nullableTextMemberResult(actual, "check_expression", context)) ===
+          textSetCatalogExpression(expected, (yield* textMemberResult(actual, "standard_conforming_strings", context)) === "on")
+        : rangeConstraintExpressionMatches(yield* nullableTextMemberResult(actual, "check_expression", context), expected));
   });
 }
 
@@ -1828,7 +1826,7 @@ const buildTableDdl = Effect.fn(
       "table",
       table.name,
     ));
-    const expression = yield* Effect.fromResult(rangeExpressionResult(
+    const expression = yield* Effect.fromResult(checkExpressionResult(
       check,
       "execute",
       "table",
@@ -1891,7 +1889,7 @@ const buildIndexDdl = Effect.fn(
       "index",
       index.name,
     ))} IS NULL`;
-  return `CREATE INDEX ${indexName} ON ${schemaName}.${tableName} ` +
+  return `CREATE ${index.kind === "uniqueBtree" ? "UNIQUE " : ""}INDEX ${indexName} ON ${schemaName}.${tableName} ` +
     `USING btree (${columns.join(", ")})${predicate}`;
 });
 
@@ -1952,7 +1950,7 @@ const buildForeignKeyDdl = Effect.fn(
   return `ALTER TABLE ${schemaName}.${sourceTableName} ` +
     `ADD CONSTRAINT ${constraintName} FOREIGN KEY (${sourceColumns}) ` +
     `REFERENCES ${schemaName}.${targetTableName} (${targetColumns}) ` +
-    "MATCH SIMPLE ON DELETE RESTRICT ON UPDATE RESTRICT NOT DEFERRABLE";
+    `MATCH SIMPLE ON DELETE ${foreignKeyActionSql(foreignKey.onDelete)} ON UPDATE ${foreignKeyActionSql(foreignKey.onUpdate)} NOT DEFERRABLE`;
 });
 
 const columnDefinition = Effect.fn(
@@ -1981,6 +1979,8 @@ const defaultSql = Effect.fn(
   switch (column.default.kind) {
     case "none":
       return "";
+    case "booleanLiteral":
+      return ` DEFAULT ${column.default.value ? "true" : "false"}`;
     case "textLiteral":
       return ` DEFAULT ${yield* Effect.fromResult(dollarQuotedLiteralResult(
         column.default.value,
@@ -2047,8 +2047,8 @@ const quotedIdentifierList = Effect.fn(
   return quoted.join(", ");
 });
 
-function rangeExpressionResult(
-  check: RelationalPhysicalIntegerRangeCheck,
+function checkExpressionResult(
+  check: RelationalPhysicalCheck,
   operation: RelationalStructuralRunnerError["operation"],
   objectKind: StructuralObjectKind,
   objectName: string | null,
@@ -2060,6 +2060,14 @@ function rangeExpressionResult(
       objectKind,
       objectName,
     );
+    if (check.kind === "textSet") {
+      const clauses: string[] = [];
+      for (const value of check.values) {
+        const literal = yield* dollarQuotedLiteralResult(value, operation, objectKind, objectName);
+        clauses.push(`${column} = ${literal}::text`);
+      }
+      return clauses.join(" OR ");
+    }
     const clauses: string[] = [];
     if (check.minimum !== null) clauses.push(`${column} >= ${check.minimum}`);
     if (check.maximum !== null) clauses.push(`${column} <= ${check.maximum}`);
@@ -2085,6 +2093,8 @@ const defaultExpressionMatches = Effect.fn(
   switch (expected.default.kind) {
     case "none":
       return actual === null;
+    case "booleanLiteral":
+      return actual === String(expected.default.value);
     case "textLiteral":
       return samePostgresTextLiteralExpression(
         actual,
@@ -2168,6 +2178,35 @@ function normalizedTypedNumericDefault(
     normalized = normalized.slice(1, -1);
   }
   return validNumericLiteral(normalized) ? normalized : null;
+}
+
+function foreignKeyActionCode(action: RelationalPhysicalForeignKey["onDelete" | "onUpdate"]): string {
+  switch (action) {
+    case "restrict": return "r";
+    case "noAction": return "a";
+    case "cascade": return "c";
+  }
+}
+
+function foreignKeyActionSql(action: RelationalPhysicalForeignKey["onDelete" | "onUpdate"]): string {
+  switch (action) {
+    case "restrict": return "RESTRICT";
+    case "noAction": return "NO ACTION";
+    case "cascade": return "CASCADE";
+  }
+}
+
+function textSetCatalogExpression(
+  check: Extract<RelationalPhysicalCheck, { kind: "textSet" }>, standardConformingStrings: boolean,
+): string {
+  // pg_get_expr uses ordinary literals, escaping backslashes only when the
+  // current session treats them as escapes. quote_literal always uses E'' for
+  // backslashes and therefore is not the catalog deparser's spelling.
+  const clauses = check.values.map(value => {
+    const escaped = (standardConformingStrings ? value : value.replaceAll("\\", "\\\\")).replaceAll("'", "''");
+    return `(${check.column} = '${escaped}'::text)`;
+  });
+  return clauses.length === 1 ? clauses[0] ?? "" : `(${clauses.join(" OR ")})`;
 }
 
 function samePostgresTextLiteralExpression(

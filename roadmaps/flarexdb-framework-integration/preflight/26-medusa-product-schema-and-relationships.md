@@ -1,22 +1,23 @@
 # Product Schema And Physical Relationships
 
-Status: researched proposal; implementation approval pending. Currency host and
-shared relational publication are implemented under [record 25](./25-medusa-currency-host-and-publication.md).
-This record proposes the next complete schema capability, not Product service
-parity or permission to serve Product mutations.
+Status: private fresh-schema capability implemented.
+The ten actual models compile to thirteen tables and an 85-step fresh plan.
+Shared reconstruction is corrected under [record 27](./27-product-installation-reconstruction-cost.md).
+Currency host and shared relational publication are implemented under
+[record 25](./25-medusa-currency-host-and-publication.md). Product service
+mutations remain unadmitted.
 
-## Recommended Outcome
+## Capability
 
-Compile the complete pinned Product model set into a Medusa-owned relational
-artifact, freshly install it through the existing Flarex coordinator, and prove
-its physical constraints in PGlite and ordinary-role PostgreSQL. Extend shared
-schema mechanisms together where that real model set requires them. Keep
-Product names, model interpretation and relationship navigation in the adapter.
+The complete pinned Product model set compiles into a Medusa-owned relational
+artifact and installs through the existing Flarex coordinator. Its physical
+constraints are covered by the same PGlite and ordinary-role PostgreSQL
+conformance body. Generic schema mechanisms carry the required features;
+Product names, model interpretation and navigation stay in the adapter.
 
 This is one capability from actual DML through database readiness, including
 source promotion, normalization, closed value contracts, physical lowering,
-catalog verification and failure recovery. Do not split boolean support,
-indexes and join tables into separate approval rounds.
+catalog verification and failure recovery.
 
 The nearest subsequent milestone is an unchanged Product service operation
 with nested relationships and atomic row/event publication. Establishing the
@@ -38,8 +39,8 @@ All paths below refer to the admitted fork at
   ProductImage explicitly uses table name `image`.
 - Product tags, categories and variant options declare three implicit pivots:
   `product_tags`, `product_category_product`, `product_variant_option`.
-  Ten entities plus three pivots is the expected 13-table inventory from source
-  inspection; this turn has not executed that compiler or measured its output.
+  The promoted compiler produces exactly ten entity tables and these three
+  pivots; the static manifest, model exports and compiler agree on the inventory.
 - `packages/database/drizzle/src/schema.ts` and `schema.spec.ts` define physical
   FK and pivot normalization. An implicit pivot has non-null endpoint columns,
   endpoint indexes, an unconditional unique pair and cascading endpoint FKs.
@@ -71,15 +72,15 @@ All paths below refer to the admitted fork at
 
 Current Flarex definitions in
 [`relationalSchema/model.ts`](../../../packages/persistence-postgres/src/relationalSchema/model.ts)
-and its policy/lowering owners lack boolean values/defaults, typed text-set
-checks, partial unique indexes and the required FK actions. Admission requires
-one primary key per table. The commerce runtime also admits only a single
-bounded scalar table; expanding schema admission must not widen that runtime
-profile implicitly.
+and its policy/lowering owners carry boolean values/defaults, typed text-set
+checks, partial unique indexes and explicit FK actions. Keyless tables require
+an unconditional non-null unique key. The opaque schema-only commerce profile
+admits the complete structural plan without widening the single-table runtime
+profile.
 
-## Shared Contract Direction
+## Shared Contracts
 
-1. Add generic boolean/default, text-membership-check, partial-unique-index and
+1. Use generic boolean/default, text-membership-check, partial-unique-index and
    explicit referential-action representations. Retain closed predicate and
    constraint values; normalize the admitted `deleted_at IS NULL` form in the
    adapter and reject unsupported expressions.
@@ -121,19 +122,19 @@ Application OCC, transaction ownership, publication ordering or commit owner.
 | --- | --- |
 | Pinned Product model definitions | Keep semantics; promote the exact model dependency closure with provenance and unchanged source assertions |
 | Mature DML and pure Drizzle schema helpers | Port only the connected normalization needed by actual models; preserve compiler relationship tests; no eager ORM/Node migration graph |
-| Medusa adapter normalization | Extend under `packages/medusa-adapter`; replace duplicated Currency scalar mapping with shared adapter helpers where equivalent, retain Currency-specific admission and dataset policy |
+| Medusa adapter normalization | Extend under `packages/medusa-adapter`; interpret the pinned Product compiler through closed schema values while retaining Currency-specific admission and dataset policy |
 | Core schema, physical plan and catalog readiness | Extend generic closed contracts in `packages/persistence-postgres`; no Product-named core contracts or metadata |
 | Coordinator, installation identity and scope isolation | Keep authority and recovery; exercise existing owners with the complete Product artifact |
 | Historical migrations | Keep as compatibility evidence; no replay or legacy database import in this fresh-only capability |
 | Product service, repositories, events and live commerce host | Keep unchanged and unadmitted for Product execution in this capability |
 
-The existing promoted framework package has no `utils/portable` export used by
-Product models. Measure and manifest the exact added source/build/type closure;
-do not add a broad export or promote the full Product service just to load DML.
+The promoted framework exposes only the two portable utilities required by
+Product models. The exact source/build/type closure is manifested; loading DML
+does not promote Product services or a broad framework runtime.
 No runtime dependency may point into the inert source island. No temporary
 storage or publication bridge is proposed.
 
-## Completion Evidence
+## Correctness Gates
 
 - Reproduce the exact complete model and derived-pivot inventory from actual
   promoted DML, independently compare it with the pinned compiler, and retain
@@ -160,10 +161,12 @@ storage or publication bridge is proposed.
   repository diff reviewers. Reconcile this record and the master matrix with
   exact evidence, then commit the capability together.
 
-No PGlite or PostgreSQL test was run for this proposal; these are implementation
-exit criteria, not current passing results. Existing-row Currency-to-Product
-upgrade, live Product serving, Module Links, Query, workflows and production
-activation remain outside this fresh-schema proof.
+The shared conformance harness exercises both database drivers with one isolated
+installation per file. Installation runs in a cancellable setup hook so dependent
+assertions cannot run against an incomplete schema. Existing coordinator recovery
+and corruption tests cover receipt/head restoration and refusal before readiness.
+Existing-row Currency-to-Product upgrades, live Product serving, Module Links,
+Query, workflows and production activation remain outside this fresh-schema proof.
 
 ## Next Service Boundary
 

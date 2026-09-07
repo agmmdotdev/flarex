@@ -17,7 +17,7 @@
     {
       "target": "packages/medusa-adapter/package.json",
       "classification": "authored",
-      "targetSha256": "b2a9d21a78dc706e884cfbcc646abf1659f6e8483d8d9c40dc02a323f3047b36"
+      "targetSha256": "bae6c0ff558f208f9ea1503e85b403f9e8661fbe78a3c05dff71276217282b24"
     },
     {
       "target": "packages/medusa-adapter/src/currency-contract.ts",
@@ -60,6 +60,11 @@
       "targetSha256": "c8dee098c80ed64fcfbc6e22042ae4e7a7c7ab17e68fe68cb3ee2470ec4d13b5"
     },
     {
+      "target": "packages/medusa-adapter/src/product-schema.ts",
+      "classification": "authored",
+      "targetSha256": "8c7faf2a0a2ff14290eed9ba3c976283fab8fa93af2766ba7270054e08e35094"
+    },
+    {
       "target": "packages/medusa-adapter/test/currency-input.json",
       "classification": "authored",
       "targetSha256": "ff81bc56229f1ffcc78642515d5d1ee8fdfc88ef7b967e735bfb5a673218b1ed"
@@ -78,6 +83,16 @@
       "target": "packages/medusa-adapter/test/legacy-test-globals.d.ts",
       "classification": "authored",
       "targetSha256": "f3d1b21920b70416b86f7b6c555e6f20b303dd328fe4f7860fca4f5ee757179e"
+    },
+    {
+      "target": "packages/medusa-adapter/test/product-installation.test.ts",
+      "classification": "authored",
+      "targetSha256": "4834efedd9377c5b7790b55cb18324f1b995e2daa358572428693cbc9958c01a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/product-schema.test.ts",
+      "classification": "authored",
+      "targetSha256": "0f61487e33fe11c187c752b63c2323caafed11c30e8d6dc90066af340944b49d"
     },
     {
       "target": "packages/medusa-adapter/test/support/fixture.ts",
@@ -143,6 +158,11 @@
       "target": "packages/medusa-adapter/vitest.postgres.config.ts",
       "classification": "authored",
       "targetSha256": "6c47f09214ff154b8b58721975d6f53137051076e406fa9c8353070dc5289ae9"
+    },
+    {
+      "target": "packages/medusa-adapter/vitest.product.config.ts",
+      "classification": "authored",
+      "targetSha256": "016026c204a9f32c6413e6db1834683f995966b4228894f2a428bda43d2a7a71"
     },
     {
       "source": "third_party/medusa/upstream/LICENSE",
@@ -271,6 +291,44 @@
     },
     {
       "source": "third_party/medusa/upstream/LICENSE",
+      "target": "packages/medusa-drizzle/LICENSE",
+      "sourceSha256": "f792b19e548b936c2a9a8e489e2f21e3b5a91e482910c57d9c9508f8933789af",
+      "classification": "preserved",
+      "targetSha256": "f792b19e548b936c2a9a8e489e2f21e3b5a91e482910c57d9c9508f8933789af"
+    },
+    {
+      "target": "packages/medusa-drizzle/package.json",
+      "classification": "authored",
+      "targetSha256": "8dfabec233fd2c22ee11f8b8bcf7de7817bef474ef5fc66e6262e77c31a59c8d"
+    },
+    {
+      "target": "packages/medusa-drizzle/src/dml-types.ts",
+      "source": "third_party/medusa/upstream/packages/core/dml/src/types.ts",
+      "sourceSha256": "62f418b8bcc56999989bd2477a24c7442e69d4d9a06e0842cde06c438fe7e08d",
+      "classification": "unchanged",
+      "targetSha256": "62f418b8bcc56999989bd2477a24c7442e69d4d9a06e0842cde06c438fe7e08d"
+    },
+    {
+      "target": "packages/medusa-drizzle/src/schema.ts",
+      "source": "third_party/medusa/upstream/packages/database/drizzle/src/schema.ts",
+      "sourceSha256": "5585c929dc7fcb764ce87e201da996c77c749e28f9a29454e1b26274b1865f26",
+      "classification": "importRelocation",
+      "targetSha256": "0b68c62ef00beee7f06bb57acbeecaf85aa35e3ddcf464aefcb45e4b922d060e"
+    },
+    {
+      "target": "packages/medusa-drizzle/test/schema.test.ts",
+      "source": "third_party/medusa/upstream/packages/database/drizzle/src/schema.spec.ts",
+      "sourceSha256": "73ee740ef1779bc764798bb6b9dfbf0b90edad49c199deb5fafd557f287713e1",
+      "classification": "testHarnessPort",
+      "targetSha256": "9ef8a025a0df3e954ddbd2d7ac9db6dd4656c513d96ff9779b16e5c216ef64d5"
+    },
+    {
+      "target": "packages/medusa-drizzle/tsconfig.json",
+      "classification": "authored",
+      "targetSha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+    },
+    {
+      "source": "third_party/medusa/upstream/LICENSE",
       "target": "packages/medusa-framework/LICENSE",
       "sourceSha256": "f792b19e548b936c2a9a8e489e2f21e3b5a91e482910c57d9c9508f8933789af",
       "classification": "preserved",
@@ -279,7 +337,7 @@
     {
       "target": "packages/medusa-framework/package.json",
       "classification": "authored",
-      "targetSha256": "c85516fa4270aa5e64bc2aa2e44048e1f2810e7ef39f7f6a21fcab7850a735f6"
+      "targetSha256": "43862172a6c9f83841d038b56b0ef1333eb17d9b927ebd3985a45f4f3e180577"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/framework/src/common/container.ts",
@@ -331,6 +389,13 @@
       "targetSha256": "3fd4e8945c94e434b80d42c5337263cd80b24d718efe0bd7879c15fdf985a875"
     },
     {
+      "target": "packages/medusa-framework/src/utils/portable.ts",
+      "source": "third_party/medusa/upstream/packages/core/framework/src/utils/portable.ts",
+      "sourceSha256": "1a954761dfacae14b333977eca1eb16d919c4a71c2b520d3bb954867354e2cd8",
+      "classification": "selectedExportFacade",
+      "targetSha256": "9c406e0d7332f281266805fa22ffae5105051980002d6489dc373829902e83ce"
+    },
+    {
       "target": "packages/medusa-framework/tsconfig.json",
       "classification": "authored",
       "targetSha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
@@ -363,6 +428,100 @@
     },
     {
       "target": "packages/medusa-modules-sdk/tsconfig.json",
+      "classification": "authored",
+      "targetSha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+    },
+    {
+      "source": "third_party/medusa/upstream/LICENSE",
+      "target": "packages/medusa-product/LICENSE",
+      "sourceSha256": "f792b19e548b936c2a9a8e489e2f21e3b5a91e482910c57d9c9508f8933789af",
+      "classification": "preserved",
+      "targetSha256": "f792b19e548b936c2a9a8e489e2f21e3b5a91e482910c57d9c9508f8933789af"
+    },
+    {
+      "target": "packages/medusa-product/package.json",
+      "classification": "authored",
+      "targetSha256": "c5a2fae60d3bea9fda0c57e16ab39850195b9688deadd5d72cd335789e4aa199"
+    },
+    {
+      "target": "packages/medusa-product/src/models/index.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/index.ts",
+      "sourceSha256": "98a5cbd32dd258ba02b123128b5fcdbf7d9144f0822c876c76dc53c4767c7e86",
+      "classification": "unchanged",
+      "targetSha256": "98a5cbd32dd258ba02b123128b5fcdbf7d9144f0822c876c76dc53c4767c7e86"
+    },
+    {
+      "target": "packages/medusa-product/src/models/product-category.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/product-category.ts",
+      "sourceSha256": "facdb2c7fa321d5ac7081b0d8f0d8d2a699153062f8ef12a0bbfef6135f6f0e5",
+      "classification": "unchanged",
+      "targetSha256": "facdb2c7fa321d5ac7081b0d8f0d8d2a699153062f8ef12a0bbfef6135f6f0e5"
+    },
+    {
+      "target": "packages/medusa-product/src/models/product-collection.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/product-collection.ts",
+      "sourceSha256": "a768725367d4b74f5995125173f072223e632a5b0451c35623325c9aa31c0849",
+      "classification": "unchanged",
+      "targetSha256": "a768725367d4b74f5995125173f072223e632a5b0451c35623325c9aa31c0849"
+    },
+    {
+      "target": "packages/medusa-product/src/models/product-image.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/product-image.ts",
+      "sourceSha256": "db714c7fb4b05f4746491eccc23dd1d23db982e7e99017d01f0d03054e9c1f96",
+      "classification": "unchanged",
+      "targetSha256": "db714c7fb4b05f4746491eccc23dd1d23db982e7e99017d01f0d03054e9c1f96"
+    },
+    {
+      "target": "packages/medusa-product/src/models/product-option-value.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/product-option-value.ts",
+      "sourceSha256": "ad159baa9ea1f6aafe17bea0cf849e81f3580c0898588f4372e03c04c51ef85b",
+      "classification": "unchanged",
+      "targetSha256": "ad159baa9ea1f6aafe17bea0cf849e81f3580c0898588f4372e03c04c51ef85b"
+    },
+    {
+      "target": "packages/medusa-product/src/models/product-option.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/product-option.ts",
+      "sourceSha256": "f9e50e367af0a76ce8f86366c3ecc4180f93c462b98a98961489700ec5e049fd",
+      "classification": "unchanged",
+      "targetSha256": "f9e50e367af0a76ce8f86366c3ecc4180f93c462b98a98961489700ec5e049fd"
+    },
+    {
+      "target": "packages/medusa-product/src/models/product-tag.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/product-tag.ts",
+      "sourceSha256": "0f9ef9c0b8db6ec7a54aa96561b7675cec5fe3a7e7d8095f9c97326e0e807304",
+      "classification": "unchanged",
+      "targetSha256": "0f9ef9c0b8db6ec7a54aa96561b7675cec5fe3a7e7d8095f9c97326e0e807304"
+    },
+    {
+      "target": "packages/medusa-product/src/models/product-type.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/product-type.ts",
+      "sourceSha256": "c982c123fcb590b81938c3b25e4f6d0f34606e18b1ce10753b860838f908e1b4",
+      "classification": "unchanged",
+      "targetSha256": "c982c123fcb590b81938c3b25e4f6d0f34606e18b1ce10753b860838f908e1b4"
+    },
+    {
+      "target": "packages/medusa-product/src/models/product-variant-product-image.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/product-variant-product-image.ts",
+      "sourceSha256": "47e35a8b7f7f6c6fb05e42b6585d99aab0a45ae41641db9ddf2f0c84e0695b37",
+      "classification": "unchanged",
+      "targetSha256": "47e35a8b7f7f6c6fb05e42b6585d99aab0a45ae41641db9ddf2f0c84e0695b37"
+    },
+    {
+      "target": "packages/medusa-product/src/models/product-variant.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/product-variant.ts",
+      "sourceSha256": "d7b4400413cc50573e46acc03b74c9d8f521b9821bb8fbe446183dbb61ccd3df",
+      "classification": "unchanged",
+      "targetSha256": "d7b4400413cc50573e46acc03b74c9d8f521b9821bb8fbe446183dbb61ccd3df"
+    },
+    {
+      "target": "packages/medusa-product/src/models/product.ts",
+      "source": "third_party/medusa/upstream/packages/modules/product/src/models/product.ts",
+      "sourceSha256": "087c32b1aa0ce3cf092545d5fd441ca4e69bae524692f4f15a069ec36d0c7f3f",
+      "classification": "unchanged",
+      "targetSha256": "087c32b1aa0ce3cf092545d5fd441ca4e69bae524692f4f15a069ec36d0c7f3f"
+    },
+    {
+      "target": "packages/medusa-product/tsconfig.json",
       "classification": "authored",
       "targetSha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
     },
@@ -753,7 +912,7 @@
     {
       "target": "packages/medusa-utils/package.json",
       "classification": "authored",
-      "targetSha256": "4c217c20229b1616aa9ff8ab17da2eeced5718b94597a49e2f4f9b1eddd1ac3f"
+      "targetSha256": "70e0884a21e40939b2e36caa0aea5aad2eae5ec162a74d38853f6337c7288efd"
     },
     {
       "source": "third_party/medusa/upstream/packages/core/utils/src/common/array-difference.ts",
@@ -1505,6 +1664,13 @@
       "targetSha256": "a1e6f0fc17f9fa3e9605b40162ba1c43fc8034d461b6c492bba33eea729b8f44"
     },
     {
+      "target": "packages/medusa-utils/src/product/enums.ts",
+      "source": "third_party/medusa/upstream/packages/core/utils/src/product/enums.ts",
+      "sourceSha256": "e2c6eebfdfc9e0cfe4239d65b8a7f4550e194fe02c4d47a91717a6180a41530d",
+      "classification": "unchanged",
+      "targetSha256": "e2c6eebfdfc9e0cfe4239d65b8a7f4550e194fe02c4d47a91717a6180a41530d"
+    },
+    {
       "source": "third_party/medusa/upstream/packages/core/utils/src/totals/big-number.ts",
       "target": "packages/medusa-utils/src/totals/big-number.ts",
       "sourceSha256": "c40689a8319984d790dba9b10e7630e9cf7cd9d0d4590753cb68f79f1a4433fb",
@@ -1603,7 +1769,8 @@
         "./awilix",
         "./types",
         "./common/container",
-        "./defaults/currencies"
+        "./defaults/currencies",
+        "./utils/portable"
       ]
     },
     {
@@ -1688,7 +1855,17 @@
         "./dml/properties/primary-key",
         "./dml/properties/text",
         "./modules-sdk/types/medusa-service",
-        "./common/medusa-container"
+        "./common/medusa-container",
+        "./product/enums",
+        "./dml/properties/boolean",
+        "./dml/properties/enum",
+        "./dml/properties/id",
+        "./dml/properties/json",
+        "./dml/properties/nullable",
+        "./dml/relations/belongs-to",
+        "./dml/relations/has-many",
+        "./dml/relations/many-to-many",
+        "./dml/relations/nullable"
       ]
     },
     {
@@ -1700,6 +1877,8 @@
         "@medusajs/utils": "workspace:*",
         "@flarex/persistence-postgres": "workspace:*",
         "effect": "catalog:",
+        "@medusajs/product": "workspace:*",
+        "@medusajs/drizzle": "workspace:*",
         "@medusajs/deps": "workspace:*",
         "@medusajs/framework": "workspace:*",
         "@medusajs/types": "workspace:*",
@@ -1709,7 +1888,30 @@
       "exports": [
         "./internal/currency-schema",
         "./internal/currency",
-        "./internal/currency-profile"
+        "./internal/currency-profile",
+        "./internal/product-schema"
+      ]
+    },
+    {
+      "path": "packages/medusa-product",
+      "name": "@medusajs/product",
+      "dependencies": {
+        "@medusajs/framework": "workspace:*",
+        "@medusajs/utils": "workspace:*",
+        "@medusajs/types": "workspace:*"
+      },
+      "exports": [
+        "./models"
+      ]
+    },
+    {
+      "path": "packages/medusa-drizzle",
+      "name": "@medusajs/drizzle",
+      "dependencies": {
+        "@medusajs/utils": "workspace:*"
+      },
+      "exports": [
+        "./schema"
       ]
     }
   ],
@@ -1915,6 +2117,46 @@
       "input": "packages/medusa-deps/src/mikro-orm-postgresql.ts"
     },
     {
+      "target": "packages/medusa-drizzle/dist/dml-types.d.ts",
+      "targetSha256": "48d9c9c09f3bfe0f288d608308db3c73ee8d39f1c257062c9060a57a7dfa5cd6",
+      "input": "packages/medusa-drizzle/src/dml-types.ts"
+    },
+    {
+      "target": "packages/medusa-drizzle/dist/dml-types.d.ts.map",
+      "targetSha256": "6e7ae3fe9f0d1da3d376ccabad4ca25e4411472ed93e68e1740e65627b6084c0",
+      "input": "packages/medusa-drizzle/src/dml-types.ts"
+    },
+    {
+      "target": "packages/medusa-drizzle/dist/dml-types.js",
+      "targetSha256": "51f5507f17235660fef1a79423e51ce1b5b6e389df6b49572a583bb4689bbef4",
+      "input": "packages/medusa-drizzle/src/dml-types.ts"
+    },
+    {
+      "target": "packages/medusa-drizzle/dist/dml-types.js.map",
+      "targetSha256": "205cc54ba4058ca445e5fed11486c912c9aa81adf892a0274093b64123fe8809",
+      "input": "packages/medusa-drizzle/src/dml-types.ts"
+    },
+    {
+      "target": "packages/medusa-drizzle/dist/schema.d.ts",
+      "targetSha256": "21c09964c4101560f0c088b77f6a9cd12a3a8d4e21996f9df0de35deea5d981e",
+      "input": "packages/medusa-drizzle/src/schema.ts"
+    },
+    {
+      "target": "packages/medusa-drizzle/dist/schema.d.ts.map",
+      "targetSha256": "47fc2032ec4f385e067b4ed6d2f498986d1489222ed1e029ac53f1048667d8d5",
+      "input": "packages/medusa-drizzle/src/schema.ts"
+    },
+    {
+      "target": "packages/medusa-drizzle/dist/schema.js",
+      "targetSha256": "e512a5c6e1658ed30fa8908d0e59e5693bfb9de3cb5241e4f5585b40c1096629",
+      "input": "packages/medusa-drizzle/src/schema.ts"
+    },
+    {
+      "target": "packages/medusa-drizzle/dist/schema.js.map",
+      "targetSha256": "37f1c57a2556a84328a6fe8bf719bbf1a21055cc1e240cbfab4ae238b43e139e",
+      "input": "packages/medusa-drizzle/src/schema.ts"
+    },
+    {
       "target": "packages/medusa-framework/dist/common/container.d.ts",
       "targetSha256": "4c60f32267ef0857481e18b6deabac9bb6e20205484e6196d7b9fba841f3812c",
       "input": "packages/medusa-framework/src/common/container.ts"
@@ -2055,6 +2297,26 @@
       "input": "packages/medusa-framework/src/utils/index.ts"
     },
     {
+      "target": "packages/medusa-framework/dist/utils/portable.d.ts",
+      "targetSha256": "8d2091b0c74cfbc65ef41b05ac4d3c66699a45759bb4924e282696eb146e66ed",
+      "input": "packages/medusa-framework/src/utils/portable.ts"
+    },
+    {
+      "target": "packages/medusa-framework/dist/utils/portable.d.ts.map",
+      "targetSha256": "941de695f6adb05959f7497e0da9106740a5593b36ac3e78f1820a1ee7ad33fd",
+      "input": "packages/medusa-framework/src/utils/portable.ts"
+    },
+    {
+      "target": "packages/medusa-framework/dist/utils/portable.js",
+      "targetSha256": "c1faa16e6de1003edd24fa274f1cb90ecd7c9fe43115b1c1acb9047a33f875a5",
+      "input": "packages/medusa-framework/src/utils/portable.ts"
+    },
+    {
+      "target": "packages/medusa-framework/dist/utils/portable.js.map",
+      "targetSha256": "03524b6559e191db578925cf46b6333295284e1a819a3dfe427b6ab6aabadb4c",
+      "input": "packages/medusa-framework/src/utils/portable.ts"
+    },
+    {
       "target": "packages/medusa-modules-sdk/dist/definitions.d.ts",
       "targetSha256": "0c52f250b69cfc5f67a9c765afd6f1fbc1af696959190bf3f1009270b238fb49",
       "input": "packages/medusa-modules-sdk/src/definitions.ts"
@@ -2093,6 +2355,226 @@
       "target": "packages/medusa-modules-sdk/dist/types/index.js.map",
       "targetSha256": "d9f710758dbc6f0cea11211d8ffba7b5705c933fa1ffcdfcc293d93822993645",
       "input": "packages/medusa-modules-sdk/src/types/index.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/index.d.ts",
+      "targetSha256": "64bf4ae24f6e2a8c2c2af6b29a9bf25e92915eafc517f1ced84c9b771be7c135",
+      "input": "packages/medusa-product/src/models/index.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/index.d.ts.map",
+      "targetSha256": "71af42c15087ed124fc5a308cd511f78ceb5af2214c6c67269a1774fb59bd36f",
+      "input": "packages/medusa-product/src/models/index.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/index.js",
+      "targetSha256": "1138b71d849c9e6c40a4555e318ec33a0e187a62cc32c3c7201a68075a53d18e",
+      "input": "packages/medusa-product/src/models/index.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/index.js.map",
+      "targetSha256": "c1eeda4d7c655ee2c592e44602ab6d3982990e37adc163eb4341b1d2d549cebb",
+      "input": "packages/medusa-product/src/models/index.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-category.d.ts",
+      "targetSha256": "66955ba5623682694a812455446b30502b7fffa89ceccfe83cec13993f5fb13e",
+      "input": "packages/medusa-product/src/models/product-category.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-category.d.ts.map",
+      "targetSha256": "13aea8b567de9c9013039811da22c2a51eadff2ff505ab23b01f8f933d180d92",
+      "input": "packages/medusa-product/src/models/product-category.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-category.js",
+      "targetSha256": "e5440a8f858d106c24c048485183eb0004993ba37ab53bc54290795cde44c9c9",
+      "input": "packages/medusa-product/src/models/product-category.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-category.js.map",
+      "targetSha256": "bd819eadcd3f358bdfe4233974dc10ce0e9f720299f37f0affed8b2e1d1a1a58",
+      "input": "packages/medusa-product/src/models/product-category.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-collection.d.ts",
+      "targetSha256": "1598127113c2471ba2857a89239be055f0d3cab3bb8cebf106557ab212242fe3",
+      "input": "packages/medusa-product/src/models/product-collection.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-collection.d.ts.map",
+      "targetSha256": "2664ab634872d8ee86afdb7b6c0082b342cbf22129375ffcb86c94be08c464a4",
+      "input": "packages/medusa-product/src/models/product-collection.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-collection.js",
+      "targetSha256": "bfaf3f4574d897721ce8a5a07f2037e5066ec08ceebc3c4bfb2d4b5713d9cea0",
+      "input": "packages/medusa-product/src/models/product-collection.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-collection.js.map",
+      "targetSha256": "eacb963a5162396523c574e6c42d7d14e54f4ddde549ec3e97a9b86b4f160273",
+      "input": "packages/medusa-product/src/models/product-collection.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-image.d.ts",
+      "targetSha256": "5b97de68355494b59d7d060d74172925bddc5cc3896492ce649fea5826a83627",
+      "input": "packages/medusa-product/src/models/product-image.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-image.d.ts.map",
+      "targetSha256": "2a0a81e27949f12684edf936c1613608e2417c5ba3a9b6736c3446f38ec4d226",
+      "input": "packages/medusa-product/src/models/product-image.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-image.js",
+      "targetSha256": "0cc5d82c6cb0165c5731d4fa6f6b124f13626890f50714c8295645af80150148",
+      "input": "packages/medusa-product/src/models/product-image.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-image.js.map",
+      "targetSha256": "0d12495128bcb59e7bc2701ff8e8fdec389208cf4d4e25d40b0b2f042eb17828",
+      "input": "packages/medusa-product/src/models/product-image.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-option-value.d.ts",
+      "targetSha256": "258b22daff2818e32b002c649418152f513eb6fb8ea567c31c7fa1c18fe06d01",
+      "input": "packages/medusa-product/src/models/product-option-value.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-option-value.d.ts.map",
+      "targetSha256": "9a79958a5a49b4e041c7261057a62665ff9523c91d4df5c32dc077368f4fa31b",
+      "input": "packages/medusa-product/src/models/product-option-value.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-option-value.js",
+      "targetSha256": "1aa7d60990d64677773b61727236c159b9c37e1c6f6b16043ade5a3e923a1edf",
+      "input": "packages/medusa-product/src/models/product-option-value.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-option-value.js.map",
+      "targetSha256": "d47e1ae61ab2102a54a87f20494012798c9fe5608262c1c2adf567d372c5df88",
+      "input": "packages/medusa-product/src/models/product-option-value.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-option.d.ts",
+      "targetSha256": "7ac662d636342760a2b743edb9601f1538d3a87d122a5f76734ba37e51e60529",
+      "input": "packages/medusa-product/src/models/product-option.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-option.d.ts.map",
+      "targetSha256": "d23860861154ccf9afd563fec0d8a284cce3dce64e98f8a7df1b02bd4815b57c",
+      "input": "packages/medusa-product/src/models/product-option.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-option.js",
+      "targetSha256": "2f079e5ac396207b0c23f25a5a8da1232e0229397bfedc673396a5630bee45c2",
+      "input": "packages/medusa-product/src/models/product-option.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-option.js.map",
+      "targetSha256": "b777097ac3aa7c02d524d790c937a73318b347b476ee66bc2821da6ee52c546e",
+      "input": "packages/medusa-product/src/models/product-option.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-tag.d.ts",
+      "targetSha256": "a245f874d8cb09174d5c9f240657f18e7082362e05dbabcedd30b6d3e954f9a0",
+      "input": "packages/medusa-product/src/models/product-tag.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-tag.d.ts.map",
+      "targetSha256": "7e177c532109e5108704e267d4b84c83559525d781ca1a26b53aef625b10753a",
+      "input": "packages/medusa-product/src/models/product-tag.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-tag.js",
+      "targetSha256": "cc5b58e4ae02e1c2cfa5d2e69e13c5c21fffc3375a2d728823c31f9d63560462",
+      "input": "packages/medusa-product/src/models/product-tag.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-tag.js.map",
+      "targetSha256": "2d1f7ee2ce1941eab2c4c11aa27dd7366a1fc7f4ed11e405e8f43b4ab26a8396",
+      "input": "packages/medusa-product/src/models/product-tag.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-type.d.ts",
+      "targetSha256": "d180aab63234779a3eb36245c61c8f7748b26ebdf285dd5860a02acc7f1c8c8c",
+      "input": "packages/medusa-product/src/models/product-type.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-type.d.ts.map",
+      "targetSha256": "a4117653604760088b307fa8f55b062dc608080e8394f254bc31188283791821",
+      "input": "packages/medusa-product/src/models/product-type.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-type.js",
+      "targetSha256": "ee37e71e94c7ddd0973f6597a4c7f51f9c27b91037421aaf4a3601a29ce84a0d",
+      "input": "packages/medusa-product/src/models/product-type.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-type.js.map",
+      "targetSha256": "1680d907c36b152a1acd64ef8cf18c59b69f70ec40ae5a87cc584ad82c524fb6",
+      "input": "packages/medusa-product/src/models/product-type.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-variant-product-image.d.ts",
+      "targetSha256": "55c729afcef63167351bbb36414215ab07b6d3d3f1417d6f83027ebba37a4cc6",
+      "input": "packages/medusa-product/src/models/product-variant-product-image.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-variant-product-image.d.ts.map",
+      "targetSha256": "f35c06cb80feba1ad8e6457c8ce1f6e103f7197130ece4ae0fab6a1d908be099",
+      "input": "packages/medusa-product/src/models/product-variant-product-image.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-variant-product-image.js",
+      "targetSha256": "311da7a86f98d355edf4815dde94672ee55e8dddab6f7ceedccac1cbec647e88",
+      "input": "packages/medusa-product/src/models/product-variant-product-image.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-variant-product-image.js.map",
+      "targetSha256": "3e6e68ba1cbcca0d9c8b4e4c8c57b196a77b207dc92897e63a441b102e66d404",
+      "input": "packages/medusa-product/src/models/product-variant-product-image.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-variant.d.ts",
+      "targetSha256": "e4ace5e5fbb38df6d24b8b35e20918b533cb18a94965f478df7cbf1279523fb2",
+      "input": "packages/medusa-product/src/models/product-variant.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-variant.d.ts.map",
+      "targetSha256": "a230e5fd8138f6fb0f29e725d104080a9decf33899b34ae3a13d87315ddfc9c9",
+      "input": "packages/medusa-product/src/models/product-variant.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-variant.js",
+      "targetSha256": "4577e7219bde05b0dbb575ce6c9d269919243555782ab60536dc6066b45d05dc",
+      "input": "packages/medusa-product/src/models/product-variant.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product-variant.js.map",
+      "targetSha256": "0e7d52cd99ef94093fdd1072d089bf065f8253a78f34a8fad0cc682fa26f9608",
+      "input": "packages/medusa-product/src/models/product-variant.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product.d.ts",
+      "targetSha256": "4838734a08eeb716cfe842e55cc4e66b21d02009b39c903e5ab7ebc971b42710",
+      "input": "packages/medusa-product/src/models/product.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product.d.ts.map",
+      "targetSha256": "6cec1feac48478202596e68b32686815577ebbc3a06839308286a91d43b3e95c",
+      "input": "packages/medusa-product/src/models/product.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product.js",
+      "targetSha256": "e8d78fa975abb3dda945e177deb0a8d13fb44c4f06de58784c120f273ec7453e",
+      "input": "packages/medusa-product/src/models/product.ts"
+    },
+    {
+      "target": "packages/medusa-product/dist/models/product.js.map",
+      "targetSha256": "c1d85051ba90d38b31791e1ef3dad111d6834a4ad514bb1ec95990a8a2cfc12f",
+      "input": "packages/medusa-product/src/models/product.ts"
     },
     {
       "target": "packages/medusa-test-utils/dist/module-test-persistence-adapter.d.ts",
@@ -5213,6 +5695,26 @@
       "target": "packages/medusa-utils/dist/modules-sdk/types/medusa-service.js.map",
       "targetSha256": "0061407d535584fa28e95522554d70d4a9255d43bb09d173491387eeac0da3cb",
       "input": "packages/medusa-utils/src/modules-sdk/types/medusa-service.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/product/enums.d.ts",
+      "targetSha256": "b0f3768f5c665c6fa3c4cb4f33ea5b08eb312e5a954ab1304f1df666445a4fa9",
+      "input": "packages/medusa-utils/src/product/enums.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/product/enums.d.ts.map",
+      "targetSha256": "08fe4f8f31a6108540258a3c866f9d7c82e098efe1a97dde9f9cab4131d5d229",
+      "input": "packages/medusa-utils/src/product/enums.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/product/enums.js",
+      "targetSha256": "6d66c3537fe4e1ab9b3f038f379692f1a4cc10dbc05f976e868752d40303ed70",
+      "input": "packages/medusa-utils/src/product/enums.ts"
+    },
+    {
+      "target": "packages/medusa-utils/dist/product/enums.js.map",
+      "targetSha256": "7d66b2cc8a873913bceafe46beed4ce210e9b6c8f0b34c1226c49033b2c69948",
+      "input": "packages/medusa-utils/src/product/enums.ts"
     },
     {
       "target": "packages/medusa-utils/dist/totals/big-number.d.ts",

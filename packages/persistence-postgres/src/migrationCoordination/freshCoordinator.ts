@@ -1,3 +1,4 @@
+import { withFrameworkMigrationPlanVerification } from "./canonical";
 import { withAdditiveMigrationGraphLimits } from "./additiveLimits";
 import { isStoredMigrationBaseInstallation } from "./storedValidation";
 import {
@@ -5,6 +6,8 @@ import {
   type CanonicalIsoInstant,
 } from "@flarex/time/iso-instant";
 import { compareUtf16Strings } from "@flarex/utils/strings";
+import { readFrameworkMigrationClaimGraphForUpdateInTransactionEffect } from "./migrationCollisionHeadRepository";
+import { commerceSchemaPlanStepLimit } from "../commerceTransaction/profile";
 import { Brand, Data, Effect, Option } from "effect";
 import { eq, sql } from "drizzle-orm";
 import { captureAdditiveRelationalMigrationPlan } from "./additivePlan";
@@ -197,7 +200,7 @@ export type FrameworkMigrationCoordinatorFailure =
   | FrameworkMigrationSessionFailure;
 
 export interface RunFreshFrameworkMigrationCoordinatorInput {
-  readonly commerceProfile?: import("../commerceTransaction/profile").CommerceProfile;
+  readonly commerceProfile?: import("../commerceTransaction/profile").CommerceInstallationProfile;
   readonly artifactRepository: FrameworkSchemaArtifactRepository;
   readonly artifactIdentity: FrameworkSchemaArtifactIdentity;
   readonly target: FrameworkMigrationTarget;
@@ -355,7 +358,7 @@ const runCoordinatorEffect = Effect.fn("FrameworkMigrationCoordinator.run")((inp
     Effect.sleep(timeout).pipe(Effect.andThen(Effect.fail(coordinatorError(
       "prepare", "resourceFailure", "Fresh coordinator run deadline expired; resume from durable state",
     )))));
-}));
+}), withFrameworkMigrationPlanVerification);
 
 const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
   "FreshFrameworkMigrationCoordinator.runWithinBudget",
@@ -428,9 +431,10 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
       baseInstallation: readiness.installation.installation, baseReadiness: readiness.readiness });
     if (plan.frame.steps.length > 8) return yield* Effect.fail(coordinatorError("prepare", "invalidInput", "Additive plan exceeds eight steps"));
   }
-  if (plan.frame.steps.length > 15) {
+  const planStepLimit = commerceSchemaPlanStepLimit(input.commerceProfile);
+  if (plan.frame.steps.length > planStepLimit) {
     return yield* Effect.fail(coordinatorError("prepare", "invalidInput",
-      "Fresh coordinator execution supports at most 15 plan steps"));
+      `Fresh coordinator execution supports at most ${planStepLimit} plan steps`));
   }
   const structuralRunner = yield*
     issueRelationalStructuralRunnerTokenEffect(input.target, plan);
@@ -524,7 +528,7 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
 )(function* (
   transaction: FlarexMetadataTransaction,
   planValue: RelationalMigrationPlan,
-  commerceProfile?: import("../commerceTransaction/profile").CommerceProfile,
+  commerceProfile?: import("../commerceTransaction/profile").CommerceInstallationProfile,
 ): Effect.fn.Return<PreparedCoordinatorGraph, FrameworkMigrationCoordinatorFailure> {
   const target = yield* ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
     transaction,
@@ -1686,7 +1690,7 @@ const loadLockedClaimState = Effect.fn(
   requireUnexpiredLease = true,
 ): Effect.fn.Return<LockedClaimState, FrameworkMigrationCoordinatorFailure> {
   const head = yield*
-    readFrameworkMigrationCollisionHeadForUpdateInTransactionEffect(
+    readFrameworkMigrationClaimGraphForUpdateInTransactionEffect(
       raw,
       state.collision,
     );
@@ -1699,8 +1703,9 @@ const loadLockedClaimState = Effect.fn(
   return yield* validateLockedClaimHead(
     raw,
     state,
-    head.value,
+    head.value.head,
     requireUnexpiredLease,
+    head.value.receipts,
   );
 });
 
@@ -1734,6 +1739,7 @@ const validateLockedClaimHead = Effect.fn(
   state: FrameworkMigrationClaimState,
   head: RestoredFrameworkMigrationCollisionHead,
   requireUnexpiredLease = true,
+  restoredReceipts?: readonly RestoredFrameworkMigrationStepReceipt[],
 ): Effect.fn.Return<LockedClaimState, FrameworkMigrationCoordinatorFailure> {
   yield* requireExactPlan(head.plan.plan, state.plan, "step");
   yield* requireAdmissibleBase(raw, head.collision, head.plan.plan);
@@ -1766,8 +1772,8 @@ const validateLockedClaimHead = Effect.fn(
       "Framework migration claim lease has expired",
     ));
   }
-  const receipts = yield*
-    readFrameworkMigrationStepReceiptPrefixInTransactionEffect(raw, attempt);
+  const receipts = restoredReceipts ?? (yield*
+    readFrameworkMigrationStepReceiptPrefixInTransactionEffect(raw, attempt));
   const plan = attempt.plan.plan;
   const structuralRunner = yield*
     issueRelationalStructuralRunnerTokenEffect(state.target, plan);

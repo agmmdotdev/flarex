@@ -1,8 +1,7 @@
+import { captureMigrationCanonicalValue } from "../../migrationCoordination/planVerificationScope";
 import { Effect } from "effect";
 import type { JsonObject } from "flarex-protocol/json";
 
-import { capturePrivateCanonicalValue } from
-  "../../frameworkSchema/privateCanonicalValue";
 import type { FrameworkSchemaTargetNamespace } from
   "../../migrationCoordination/targetNamespace";
 import type {
@@ -108,7 +107,7 @@ const verifyStoredCanonicalEvidence = Effect.fn(
   expectedSha256: string,
   expectedCanonicalJson: string,
 ): Effect.fn.Return<void, RelationalPhysicalValueError> {
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     frame,
     maximumCanonicalBytes,
     {

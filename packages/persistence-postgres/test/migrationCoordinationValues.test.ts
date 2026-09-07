@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { Effect, Result } from "effect";
+import { bindFrameworkMigrationPlanVerification, captureMigrationCanonicalValue,
+  retainOwnedMigrationFrame, currentPlanVerification } from "../src/migrationCoordination/planVerificationScope";
 
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { encodeCanonicalJson } from "flarex-protocol/json";
@@ -15,6 +18,8 @@ import {
   captureFreshRelationalMigrationPlan,
   classifyFrameworkMigrationPlanReplay,
   verifyStoredFrameworkMigrationValue,
+  withFrameworkMigrationPlanVerification,
+  isVerifiedStoredMigrationPlanFrame,
 } from "../src/migrationCoordination/canonical";
 import { captureRelationalPhysicalLayout } from
   "../src/relationalSchema/physical/canonical";
@@ -43,6 +48,134 @@ const T1 = "2026-09-02T00:01:00.000Z";
 const EVIDENCE_SHA256 = "ab".repeat(32);
 
 describe("private migration coordination values", () => {
+  it("shares only deeply frozen captures and preserves byte limits and interruption cleanup", async () => {
+    const errors = { invalidInput: () => "bounded", hashFailure: () => "hash failed" };
+    const frozen = Object.freeze({ value: "original" });
+    let interruptedBinder: (<Value, Failure>(effect: Effect.Effect<Value, Failure>) => Effect.Effect<Value, Failure>) | undefined;
+    const interrupted = await Effect.runPromiseExit(withFrameworkMigrationPlanVerification(Effect.gen(function* () {
+      yield* retainOwnedMigrationFrame(frozen);
+      const first = yield* captureMigrationCanonicalValue(frozen, 100, errors);
+      const repeated = yield* captureMigrationCanonicalValue(frozen, 100, errors);
+      expect(repeated.copyCanonicalBytes).toBe(first.copyCanonicalBytes);
+      expect(Result.isFailure(yield* Effect.result(captureMigrationCanonicalValue(frozen, 1, errors)))).toBe(true);
+      for (const invalidBudget of [NaN, Infinity, -1, 1.5]) {
+        const invalid = yield* Effect.exit(captureMigrationCanonicalValue(frozen, invalidBudget, errors));
+        expect(invalid._tag).toBe("Failure");
+      }
+      const mutable = { value: "before" };
+      const shallow = Object.freeze({ child: mutable });
+      yield* retainOwnedMigrationFrame(shallow);
+      const before = yield* captureMigrationCanonicalValue(shallow, 100, errors);
+      mutable.value = "after";
+      expect((yield* captureMigrationCanonicalValue(shallow, 100, errors)).canonicalJson).not.toBe(before.canonicalJson);
+      interruptedBinder = yield* bindFrameworkMigrationPlanVerification();
+      return yield* Effect.interrupt;
+    })));
+    expect(interrupted._tag).toBe("Failure");
+    if (interruptedBinder === undefined) throw new Error("Missing interrupted context");
+    const state = await runEffect(interruptedBinder(currentPlanVerification));
+    expect(state?.active).toBe(false);
+    expect(state?.entry).toBeUndefined();
+    expect(state?.assignments.size).toBe(0);
+    expect(state?.ledger.size).toBe(0);
+    expect(state?.captures.has(frozen)).toBe(false);
+  });
+
+  it("bounds canonical capture retention without bypassing uncached work", async () => {
+    await runEffect(withFrameworkMigrationPlanVerification(Effect.gen(function* () {
+      const errors = { invalidInput: () => "bounded", hashFailure: () => "hash failed" };
+      for (let index = 0; index < 4100; index++) {
+        const frame = Object.freeze({ index });
+        yield* retainOwnedMigrationFrame(frame);
+        const captured = yield* captureMigrationCanonicalValue(frame, 100, errors);
+        expect(captured.frame.index).toBe(index);
+      }
+      const state = yield* currentPlanVerification;
+      expect(state?.captureCount).toBe(4096);
+      expect(state?.captureBytes).toBeLessThanOrEqual(4_194_304);
+    })));
+  });
+
+  it("reuses exact owned plan bytes only within a verification lifetime", async () => {
+    const { plan } = await planFixture();
+    const bytes = new TextEncoder().encode(plan.canonicalJson);
+    const verify = () => verifyStoredFrameworkMigrationValue({ kind: "plan", canonicalBytes: bytes, sha256Hex: plan.migrationPlanSha256 });
+    const first = await runEffect(withFrameworkMigrationPlanVerification(Effect.gen(function* () {
+      const initial = yield* verify();
+      expect(isVerifiedStoredMigrationPlanFrame(initial)).toBe(true);
+      expectDeeplyFrozen(initial);
+      expect(yield* withFrameworkMigrationPlanVerification(verify())).toBe(initial);
+      bytes[0] = 32;
+      expect(Result.isFailure(yield* Effect.result(verify()))).toBe(true);
+      bytes[0] = 123;
+      expect(yield* verify()).toBe(initial);
+      expect(Result.isFailure(yield* Effect.result(verifyStoredFrameworkMigrationValue({
+        kind: "plan", canonicalBytes: bytes, sha256Hex: "0".repeat(64),
+      })))).toBe(true);
+      expect(Result.isFailure(yield* Effect.result(verifyStoredFrameworkMigrationValue({
+        kind: "collisionHead", canonicalBytes: bytes, sha256Hex: plan.migrationPlanSha256,
+      })))).toBe(true);
+      return initial;
+    })));
+    const cold = await runEffect(withFrameworkMigrationPlanVerification(verify()));
+    expect(cold).toEqual(first);
+    expect(cold).not.toBe(first);
+  });
+
+  it("retains at most one plan and releases verification state after failure", async () => {
+    const { plan } = await planFixture();
+    const artifact = await syntheticSystemArtifact(1);
+    const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: artifact.artifact,
+      physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }));
+    const second = await runEffect(captureFreshRelationalMigrationPlan({ artifact: artifact.artifact, physicalLayout: layout }));
+    const verify = (value: typeof plan) => verifyStoredFrameworkMigrationValue({ kind: "plan",
+      canonicalBytes: new TextEncoder().encode(value.canonicalJson), sha256Hex: value.migrationPlanSha256 });
+    const first = await runEffect(withFrameworkMigrationPlanVerification(Effect.gen(function* () {
+      const initial = yield* verify(plan);
+      yield* verify(second);
+      expect(yield* verify(plan)).not.toBe(initial);
+      return initial;
+    })));
+    await runEffectFailure(withFrameworkMigrationPlanVerification(Effect.gen(function* () {
+      yield* verify(plan);
+      return yield* Effect.fail("expected failure");
+    })));
+    expect(await runEffect(withFrameworkMigrationPlanVerification(verify(plan)))).not.toBe(first);
+  });
+
+  it("bounds exact ledger verification and rejects changed bytes, digest and kind while warm", async () => {
+    const { plan } = await planFixture();
+    const admission = await runEffect(captureFrameworkMigrationPlanAdmission({
+      plan, nameAssignments: plan.physicalLayout.nameAssignments, previousPlanSha256: null, admittedAt: T0,
+    }));
+    const bytes = new TextEncoder().encode(admission.canonicalJson);
+    const verify = () => verifyStoredFrameworkMigrationValue({ kind: "planAdmission", canonicalBytes: bytes, sha256Hex: admission.sha256 });
+    const first = await runEffect(withFrameworkMigrationPlanVerification(Effect.gen(function* () {
+      const initial = yield* verify();
+      expect(yield* verify()).toBe(initial);
+      bytes[0] = 32;
+      expect(Result.isFailure(yield* Effect.result(verify()))).toBe(true);
+      bytes[0] = 123;
+      expect(yield* verify()).toBe(initial);
+      for (const input of [
+        { kind: "planAdmission" as const, canonicalBytes: bytes, sha256Hex: "0".repeat(64) },
+        { kind: "attemptStart" as const, canonicalBytes: bytes, sha256Hex: admission.sha256 },
+      ]) expect(Result.isFailure(yield* Effect.result(verifyStoredFrameworkMigrationValue(input)))).toBe(true);
+      // Distinct valid frames exercise capacity without retaining database rows.
+      for (let index = 0; index < 513; index += 1) {
+        const frame = { ...admission.frame, admittedAt: new Date(Date.parse(T0) + index + 1).toISOString() };
+        const json = encodeCanonicalJson(frame, cause => { throw cause; });
+        yield* verifyStoredFrameworkMigrationValue({ kind: "planAdmission", canonicalBytes: new TextEncoder().encode(json),
+          sha256Hex: createHash("sha256").update(json).digest("hex") });
+      }
+      const state = yield* currentPlanVerification;
+      expect(state?.ledger.size).toBeLessThanOrEqual(512);
+      expect(state?.ledgerBytes).toBeLessThanOrEqual(2_097_152);
+      return initial;
+    })));
+    expect(await runEffect(withFrameworkMigrationPlanVerification(verify()))).not.toBe(first);
+  });
+
   it("keeps the value family private", async () => {
     expectTypeOf<PublicMigrationValueExport>().toEqualTypeOf<never>();
     const packageJson = await import("../package.json", {

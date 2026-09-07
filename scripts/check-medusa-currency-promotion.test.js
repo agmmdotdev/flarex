@@ -10,7 +10,7 @@ const source = "packages/medusa-currency/src/models/currency.ts";
 
 describe("exact Currency promotion", () => {
   it("authenticates source, transformed inputs, package exports, and available build outputs", () => {
-    expect(promotion.packages).toHaveLength(8);
+    expect(promotion.packages).toHaveLength(10);
     expect(promotion.files.some((file) => file.target === source && file.classification === "unchanged")).toBe(true);
   });
   it.each([
@@ -38,6 +38,9 @@ describe("exact Currency promotion", () => {
 
   it.each([
     "@medusajs/currency/models",
+    "@medusajs/product/models",
+    "@medusajs/drizzle/schema",
+    "@flarex/medusa-adapter/internal/product-schema",
     "@flarex/medusa-adapter/internal/currency-schema",
     "../../medusa-currency/src/models/currency",
     "../../Medusa-Currency/dist/models/index.js",

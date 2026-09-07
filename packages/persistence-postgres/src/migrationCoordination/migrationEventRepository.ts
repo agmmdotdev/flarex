@@ -1,6 +1,6 @@
 import { additiveMigrationGraphLimits, withFrameworkCollisionGraphLimits } from "./additiveLimits";
-import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
-import { and, eq, sql } from "drizzle-orm";
+import { frameworkGraphDriverRowReferences, makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
+import { and, desc, eq, lte, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
 import { detachDriverRows } from "../detachDriverRows";
@@ -47,6 +47,7 @@ import {
   restoreStoredFrameworkMigrationPlanAdmissionReferenceBySha256InTransactionEffect,
 } from "./migrationPlanAdmissionRepository";
 import {
+  restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect,
   corroborateRestoredFrameworkMigrationStepReceiptInTransactionEffect,
   restoreStoredFrameworkMigrationStepReceiptReferenceBySha256InTransactionEffect,
 } from "./migrationStepReceiptRepository";
@@ -156,26 +157,9 @@ interface FrameworkMigrationEventOccupantLookups {
 
 const UTF8 = new TextEncoder();
 
-export const appendFrameworkMigrationEventInTransactionEffect = Effect.fn(
-  "FrameworkMigrationEventRepository.append",
-)(function* (
-  transaction: FlarexMetadataTransaction,
-  collision: RestoredFrameworkMigrationCollisionDomain,
-  previous: RestoredFrameworkMigrationEvent | null,
-  subject: RestoredFrameworkMigrationEventSubject,
-  event: FrameworkMigrationEvent,
-): Effect.fn.Return<
-  RestoredFrameworkMigrationEvent,
-  FrameworkMigrationRepositoryError
-> {
-  const operation = "appendEvent" as const;
-  const prepared = yield* prepareExpectedEvent(
-    collision,
-    previous,
-    subject,
-    event,
-    operation,
-  );
+const corroboratePreparedEvent = Effect.fn("FrameworkMigrationEventRepository.corroboratePrepared")(function* (
+  transaction: FlarexMetadataTransaction, prepared: PreparedFrameworkMigrationEvent, operation: FrameworkMigrationRepositoryOperation,
+) {
   const storedCollision = yield* corroborateCollision(
     transaction,
     prepared.collision,
@@ -202,6 +186,30 @@ export const appendFrameworkMigrationEventInTransactionEffect = Effect.fn(
       FrameworkMigrationRepositoryError.referenceRefusal(operation),
     );
   }
+  return { storedCollision, storedPrevious, storedSubject };
+}, withFrameworkGraphReadPass);
+
+export const appendFrameworkMigrationEventInTransactionEffect = Effect.fn(
+  "FrameworkMigrationEventRepository.append",
+)(function* (
+  transaction: FlarexMetadataTransaction,
+  collision: RestoredFrameworkMigrationCollisionDomain,
+  previous: RestoredFrameworkMigrationEvent | null,
+  subject: RestoredFrameworkMigrationEventSubject,
+  event: FrameworkMigrationEvent,
+): Effect.fn.Return<
+  RestoredFrameworkMigrationEvent,
+  FrameworkMigrationRepositoryError
+> {
+  const operation = "appendEvent" as const;
+  const prepared = yield* prepareExpectedEvent(
+    collision,
+    previous,
+    subject,
+    event,
+    operation,
+  );
+  const { storedCollision, storedPrevious, storedSubject } = yield* corroboratePreparedEvent(transaction, prepared, operation);
 
   const lease = prepared.event.frame.kind === "leaseRenewed"
     ? Object.freeze({
@@ -292,32 +300,7 @@ export const readFrameworkMigrationEventInTransactionEffect = Effect.fn(
     event,
     operation,
   );
-  const storedCollision = yield* corroborateCollision(
-    transaction,
-    prepared.collision,
-    operation,
-  );
-  const storedPrevious = prepared.previous === null
-    ? null
-    : yield* corroborateRestoredFrameworkMigrationEventInTransactionEffect(
-      transaction,
-      prepared.previous,
-      operation,
-    );
-  const storedSubject = yield* corroborateEventSubject(
-    transaction,
-    prepared.subject,
-    operation,
-  );
-  if (
-    (storedPrevious !== null &&
-      storedPrevious.collision.storageId !== storedCollision.storageId) ||
-    !eventSubjectBelongsToCollision(storedSubject, storedCollision)
-  ) {
-    return yield* Effect.fail(
-      FrameworkMigrationRepositoryError.referenceRefusal(operation),
-    );
-  }
+  const { storedCollision, storedPrevious, storedSubject } = yield* corroboratePreparedEvent(transaction, prepared, operation);
   return yield* resolveExpectedEvent(
     transaction,
     storedCollision,
@@ -747,6 +730,7 @@ const loadEventOccupantByDigest = Effect.fn(
     ));
 });
 
+const readVerifiedEventNode = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationEventOccupant>();
 const restoreEventChain = Effect.fn(
   "FrameworkMigrationEventRepository.restoreChain",
 )(function* (
@@ -788,6 +772,7 @@ const restoreEventChain = Effect.fn(
   const seenDigests = new Set<string>();
   let anchoredPrevious: RestoredFrameworkMigrationEvent | null | undefined;
   let row = root;
+  let predecessorRows = new Map<bigint, FrameworkMigrationEventDriverRow>();
   while (true) {
     const decoded = rows.length === 0
       ? rootDecoded
@@ -802,6 +787,16 @@ const restoreEventChain = Effect.fn(
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.storedCorruption(operation),
       );
+    }
+    // A previously verified node includes its authenticated predecessor chain.
+    // Preserve the bounded traversal limit even when that prefix is reused.
+    const shared = !bounded || BigInt(decoded.frame.sequence) + 1n <= BigInt(128 - rows.length)
+      ? yield* readVerifiedEventNode.peek(transaction, collision, ...frameworkGraphDriverRowReferences({ ...row }))
+      : Option.none();
+    if (Option.isSome(shared)) {
+      if (rows.length === 0) return shared.value;
+      anchoredPrevious = shared.value.value;
+      break;
     }
     seenStorageIds.add(decoded.storageId);
     seenSequences.add(decoded.frame.sequence);
@@ -822,11 +817,22 @@ const restoreEventChain = Effect.fn(
     }
     if (decoded.previousEventStorageId === null) break;
     if (bounded && rows.length >= 128) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
-    const previous = yield* loadEventRootByStorageId(
-      transaction,
-      decoded.previousEventStorageId,
-      operation,
-    );
+    if (!predecessorRows.has(decoded.previousEventStorageId)) {
+      const batch = yield* runRepositoryStatement(operation,
+        transaction.select(eventReadSelection).from(fxSystemFrameworkMigrationEvents)
+          .where(and(
+            eq(fxSystemFrameworkMigrationEvents.collisionStorageId, collision.storageId),
+            lte(fxSystemFrameworkMigrationEvents.eventSequence, BigInt(decoded.frame.sequence)),
+          )).orderBy(desc(fxSystemFrameworkMigrationEvents.eventSequence)).limit(32),
+      ).pipe(Effect.map(detachDriverRows));
+      predecessorRows = new Map(batch.map(value => [value.eventStorageId, value]));
+    }
+    // The batch is transport only: follow and validate the stored predecessor
+    // reference, including references outside this collision or sequence window.
+    const batchedPrevious = predecessorRows.get(decoded.previousEventStorageId);
+    const previous = batchedPrevious === undefined
+      ? yield* loadEventRootByStorageId(transaction, decoded.previousEventStorageId, operation)
+      : Option.some(batchedPrevious);
     if (Option.isNone(previous)) {
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.storedCorruption(operation),
@@ -835,6 +841,9 @@ const restoreEventChain = Effect.fn(
     row = previous.value;
   }
 
+  yield* restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, collision,
+    decodedRows.toReversed().flatMap(decoded => decoded.frame.kind === "stepCompleted" ? [decoded.frame.stepReceiptSha256] : []),
+    operation);
   let previous: RestoredFrameworkMigrationEvent | null =
     anchoredPrevious ?? null;
   let rootOccupant: RestoredFrameworkMigrationEventOccupant | undefined;
@@ -864,6 +873,8 @@ const restoreEventChain = Effect.fn(
       previous,
       subject,
     });
+    yield* readVerifiedEventNode(Effect.succeed(occupant), transaction, collision,
+      ...frameworkGraphDriverRowReferences({ ...eventRow }));
     if (index === 0) rootOccupant = occupant;
     previous = value;
   }

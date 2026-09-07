@@ -9,6 +9,29 @@ import { capturePrivateCanonicalValue } from "../frameworkSchema/privateCanonica
 
 declare const commerceProfileBrand: unique symbol;
 export interface CommerceProfile { readonly [commerceProfileBrand]: true }
+declare const commerceSchemaProfileBrand: unique symbol;
+export interface CommerceSchemaProfile { readonly [commerceSchemaProfileBrand]: true }
+export type CommerceInstallationProfile = CommerceProfile | CommerceSchemaProfile;
+const schemaProfiles = new WeakMap<object, Readonly<{ artifact: FrameworkSchemaArtifact; layout: RelationalPhysicalLayout }>>();
+
+export function commerceSchemaPlanStepLimit(profile: CommerceInstallationProfile | undefined): number {
+  return profile !== undefined && schemaProfiles.has(profile) ? 128 : 15;
+}
+
+/** Trusted schema composition; this token grants no command, binding or seed authority. */
+export const registerCommerceSchemaProfile = Effect.fn("CommerceProfile.registerSchema")(function* (
+  artifact: FrameworkSchemaArtifact, layout: RelationalPhysicalLayout,
+) {
+  if (copyCapturedFrameworkSchemaArtifactEvidence(artifact) === undefined || !isCapturedRelationalPhysicalLayout(layout) ||
+    artifact.identity.owner !== "medusa" || artifact.provenance.kind !== "sourceSnapshot" || artifact.dependencies.length !== 0 ||
+    !sameArtifactIdentity(artifact.identity, layout.frame.artifact)) {
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
+  }
+  // SAFETY: only this registry authenticates the opaque schema-installation token.
+  const profile = Object.freeze({}) as CommerceSchemaProfile;
+  schemaProfiles.set(profile, Object.freeze({ artifact, layout }));
+  return profile;
+});
 export interface CommerceProfileState {
   readonly artifact: FrameworkSchemaArtifact;
   readonly layout: RelationalPhysicalLayout;
@@ -41,6 +64,8 @@ export const registerCommerceProfile = Effect.fn("CommerceProfile.register")(fun
     artifact.provenance.kind !== "sourceSnapshot" || artifact.dependencies.length !== 0 ||
     !sameArtifactIdentity(artifact.identity, layout.frame.artifact) || layout.frame.tables.length !== 1 ||
     table === undefined || table.columns.length === 0 || table.columns.length > 16 ||
+    table.columns.some(column => column.type === "boolean") || table.checks.some(check => check.kind !== "integerRange") ||
+    table.indexes.some(index => index.kind !== "btree") || table.keys.filter(key => key.kind === "primary").length !== 1 ||
     layout.frame.relationships.length !== 0 || layout.frame.foreignKeys.some(key => key.kind !== "scopeAuthorityForeignKey")) {
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   }
@@ -60,12 +85,12 @@ export const requireCommerceProfile = Effect.fn("CommerceProfile.require")(funct
   return state;
 });
 
-export function matchesCommerceProfile(profile: CommerceProfile | undefined, artifact: FrameworkSchemaArtifact, layout: RelationalPhysicalLayout): boolean {
-  const state = profile === undefined ? undefined : profiles.get(profile);
+export function matchesCommerceProfile(profile: CommerceInstallationProfile | undefined, artifact: FrameworkSchemaArtifact, layout: RelationalPhysicalLayout): boolean {
+  const state = profile === undefined ? undefined : profiles.get(profile) ?? schemaProfiles.get(profile);
   return state !== undefined && state.artifact.canonicalJson === artifact.canonicalJson && state.layout.canonicalJson === layout.canonicalJson;
 }
-export function matchesCommerceMigrationPlan(profile: CommerceProfile | undefined, plan: RelationalMigrationPlan): boolean {
-  const state = profile === undefined ? undefined : profiles.get(profile);
+export function matchesCommerceMigrationPlan(profile: CommerceInstallationProfile | undefined, plan: RelationalMigrationPlan): boolean {
+  const state = profile === undefined ? undefined : profiles.get(profile) ?? schemaProfiles.get(profile);
   return state !== undefined && plan.frame.version === 1 &&
     sameArtifactIdentity(state.artifact.identity, plan.frame.artifact) && state.layout.canonicalJson === plan.physicalLayout.canonicalJson;
 }

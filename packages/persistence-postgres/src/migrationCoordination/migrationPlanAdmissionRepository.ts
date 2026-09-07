@@ -6,8 +6,8 @@ import { detachDriverRows } from "../detachDriverRows";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { compareFrameworkSchemaArtifactIdentities } from
   "../frameworkSchema/artifact/policy";
-import { capturePrivateCanonicalValue } from
-  "../frameworkSchema/privateCanonicalValue";
+import { captureMigrationCanonicalValue } from
+  "./planVerificationScope";
 import {
   decodeStoredCanonicalMetadataResult,
   decodeStoredSha256HexResult,
@@ -474,6 +474,7 @@ export const corroborateRestoredFrameworkMigrationPlanAdmissionInTransactionEffe
  * Source-private restoration for an admission referenced by stored aggregate
  * state. Missing or mismatched parent rows are corruption, never absence.
  */
+const readAdmissionReference = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationPlanAdmission>();
 export const restoreStoredFrameworkMigrationPlanAdmissionReferenceInTransactionEffect =
   Effect.fn(
     "FrameworkMigrationPlanAdmissionRepository.restoreStoredReference",
@@ -515,9 +516,10 @@ export const restoreStoredFrameworkMigrationPlanAdmissionReferenceInTransactionE
       preferredCollision,
       operation,
     );
-  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationPlanAdmission>());
+  }, (read, transaction, collision, storageId, sha256) => readAdmissionReference(read, transaction, collision, storageId, sha256));
 
 /** Source-private restoration of a committed admission digest reference. */
+const readAdmissionDigestReference = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationPlanAdmission>();
 export const restoreStoredFrameworkMigrationPlanAdmissionReferenceBySha256InTransactionEffect =
   Effect.fn(
     "FrameworkMigrationPlanAdmissionRepository.restoreReferenceBySha256",
@@ -556,7 +558,7 @@ export const restoreStoredFrameworkMigrationPlanAdmissionReferenceBySha256InTran
       preferredCollision,
       operation,
     );
-  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationPlanAdmission>());
+  }, (read, transaction, collision, sha256) => readAdmissionDigestReference(read, transaction, collision, sha256));
 
 const prepareExpectedAdmission = Effect.fn(
   "FrameworkMigrationPlanAdmissionRepository.prepareExpected",
@@ -595,7 +597,7 @@ const prepareExpectedAdmission = Effect.fn(
       FrameworkMigrationRepositoryError.referenceRefusal(operation),
     );
   }
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     admission.frame,
     MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
     {

@@ -443,9 +443,9 @@ describe("private relational schema values", () => {
     Reflect.set(malformedOwner, "owner", 42);
     expectInvalid(malformedOwner, "$.owner");
 
-    const booleanColumn = minimalInput();
-    Reflect.set(booleanColumn.tables[0]?.columns[0] ?? {}, "type", "boolean");
-    expectUnsupported(booleanColumn, "$.tables[0].columns[0].type", "boolean");
+    const unsupportedColumn = minimalInput();
+    Reflect.set(unsupportedColumn.tables[0]?.columns[0] ?? {}, "type", "float");
+    expectUnsupported(unsupportedColumn, "$.tables[0].columns[0].type", "float");
 
     const malformedColumnType = minimalInput();
     Reflect.set(malformedColumnType.tables[0]?.columns[0] ?? {}, "type", null);
@@ -464,11 +464,11 @@ describe("private relational schema values", () => {
     );
 
     const cascade = syntheticInput();
-    Reflect.set(cascade.tables[0]?.constraints[0] ?? {}, "onDelete", "cascade");
+    Reflect.set(cascade.tables[0]?.constraints[0] ?? {}, "onDelete", "setNull");
     expectUnsupported(
       cascade,
       "$.tables[0].constraints[0].onDelete",
-      "cascade",
+      "setNull",
     );
   });
 

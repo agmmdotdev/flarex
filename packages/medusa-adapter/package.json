@@ -6,14 +6,17 @@
   "exports": {
     "./internal/currency-schema": "./src/currency-schema.ts",
     "./internal/currency": "./src/currency-service.ts",
-    "./internal/currency-profile": "./src/currency-contract.ts"
+    "./internal/currency-profile": "./src/currency-contract.ts",
+    "./internal/product-schema": "./src/product-schema.ts"
   },
   "dependencies": {
     "@flarex/utils": "workspace:*",
     "@medusajs/currency": "workspace:*",
     "@medusajs/utils": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "@medusajs/product": "workspace:*",
+    "@medusajs/drizzle": "workspace:*"
   },
   "devDependencies": {
     "@medusajs/deps": "workspace:*",

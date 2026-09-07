@@ -8,11 +8,13 @@ import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import {
   MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES,
   captureFreshRelationalMigrationPlan,
+  withFrameworkMigrationPlanVerification,
 } from "../src/migrationCoordination/canonical";
 import {
   ensureFreshRelationalMigrationPlanInTransactionEffect,
   readFreshRelationalMigrationPlanInTransactionEffect,
   resolveAuthenticatedFreshRelationalMigrationPlanOccupantEffect,
+  restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffect,
 } from "../src/migrationCoordination/migrationPlanRepository";
 import {
   ensureRelationalPhysicalNameAssignmentInTransactionEffect,
@@ -35,10 +37,69 @@ import {
   syntheticSystemArtifact,
 } from "./frameworkMigrationValueFixtures";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
+import { bindFrameworkMigrationPlanVerification } from "../src/migrationCoordination/planVerificationScope";
+import { capturedPlanForStep } from "../src/migrationCoordination/authority";
+import { withFrameworkGraphReadPass } from "../src/migrationCoordination/graphReadPass";
 
 const PGLITE_TEST_TIMEOUT = 30_000;
 
 describe("framework coordinator migration-plan repository", () => {
+  it("shares successful references across diagnostic operations and retries failures under the current operation", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const values = await freshPlanRepositoryValues();
+    await persistence.drizzle.transaction(async transaction => {
+      const { collision } = await ensurePlanPrerequisites(transaction, values);
+      const plan = await runEffect(ensureFreshRelationalMigrationPlanInTransactionEffect(transaction, collision, values.plan));
+      await runEffect(withFrameworkGraphReadPass(Effect.gen(function* () {
+        const first = yield* restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffect(
+          transaction, collision, plan.storageId, plan.plan.migrationPlanSha256, "readPlan");
+        const otherOperation = yield* restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffect(
+          transaction, collision, plan.storageId, plan.plan.migrationPlanSha256, "readEvent");
+        expect(otherOperation).toBe(first);
+        for (const operation of ["readPlan", "readEvent"] as const) {
+          const error = yield* Effect.flip(restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffect(
+            transaction, collision, plan.storageId + 1n, plan.plan.migrationPlanSha256, operation));
+          expect(error).toMatchObject({ operation, reason: "storedCorruption" });
+        }
+      }), transaction));
+    });
+  }, PGLITE_TEST_TIMEOUT);
+
+  it("rechecks stored bytes and projections across transactions with warm verification", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const values = await freshPlanRepositoryValues();
+    const initial = await persistence.drizzle.transaction(async transaction => {
+      const { collision } = await ensurePlanPrerequisites(transaction, values);
+      const plan = await runEffect(ensureFreshRelationalMigrationPlanInTransactionEffect(transaction, collision, values.plan));
+      return { collision, plan };
+    });
+    await runEffect(withFrameworkMigrationPlanVerification(Effect.gen(function* () {
+      const bind = yield* bindFrameworkMigrationPlanVerification();
+      const read = () => persistence.drizzle.transaction(transaction => runEffect(bind(
+        readFreshRelationalMigrationPlanInTransactionEffect(transaction, initial.collision, values.plan),
+      )));
+      const first = Option.getOrThrow(yield* Effect.promise(read));
+      const second = Option.getOrThrow(yield* Effect.promise(read));
+      expect(first.plan.canonicalJson).toBe(second.plan.canonicalJson);
+      const firstStep = first.plan.frame.steps[0];
+      const secondStep = second.plan.frame.steps[0];
+      if (firstStep === undefined || secondStep === undefined) throw new Error("Missing test steps");
+      expect(firstStep).not.toBe(secondStep);
+      expect(capturedPlanForStep(firstStep)).toBe(first.plan);
+      expect(capturedPlanForStep(secondStep)).toBe(second.plan);
+
+      yield* Effect.promise(() => persistence.drizzle.update(fxSystemFrameworkMigrationPlans).set({
+        locatorDatabaseKey: "tampered",
+      }).where(eq(fxSystemFrameworkMigrationPlans.planStorageId, first.storageId)));
+      yield* Effect.promise(() => expect(read()).rejects.toMatchObject({ reason: "storedCorruption" }));
+      yield* Effect.promise(() => persistence.drizzle.update(fxSystemFrameworkMigrationPlans).set({
+        locatorDatabaseKey: values.plan.frame.physicalLocator.databaseKey,
+        canonicalBytes: new TextEncoder().encode(values.plan.canonicalJson.replace("deployment-a", "deployment-b")),
+      }).where(eq(fxSystemFrameworkMigrationPlans.planStorageId, first.storageId)));
+      yield* Effect.promise(() => expect(read()).rejects.toMatchObject({ reason: "storedCorruption" }));
+    })));
+  }, PGLITE_TEST_TIMEOUT);
+
   it("keeps transaction kernels source-private", async () => {
     expect(
       "ensureFreshRelationalMigrationPlanInTransactionEffect" in

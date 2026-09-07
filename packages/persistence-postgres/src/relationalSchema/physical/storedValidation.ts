@@ -33,7 +33,7 @@ import {
   type RelationalPhysicalColumnReference,
   type RelationalPhysicalForeignKey,
   type RelationalPhysicalIndex,
-  type RelationalPhysicalIntegerRangeCheck,
+  type RelationalPhysicalCheck,
   type RelationalPhysicalKey,
   type RelationalPhysicalLayoutFrame,
   type RelationalPhysicalNameAssignmentFrame,
@@ -332,7 +332,9 @@ function validatePhysicalLayoutSemantics(
         }
       }
     }
-    if (primaryKeyCount !== 1) return false;
+    if (primaryKeyCount > 1 || (primaryKeyCount === 0 && !table.keys.some(key =>
+      key.kind === "unique" && key.columns.slice(1).every(name => columnsByName.get(name)?.nullable === false)
+    ))) return false;
 
     const constraints = new Set<string>();
     let previousConstraintId: string | undefined;
@@ -341,13 +343,7 @@ function validatePhysicalLayoutSemantics(
       const column = columnsByName.get(check.column);
       if (!sameTableIdentity(check.identity, table.identity) ||
         !strictlyAfter(previousConstraintId, constraintId) ||
-        column === undefined || column.type !== "integer" ||
-        (check.minimum === null && check.maximum === null) ||
-        (column.default.kind === "integerLiteral" &&
-          ((check.minimum !== null &&
-            column.default.value < check.minimum) ||
-            (check.maximum !== null &&
-              column.default.value > check.maximum))) ||
+        column === undefined || !checkMatchesColumn(check, column) ||
         !recordExpectedName(
           expectedNames,
           expectedSpellings,
@@ -367,8 +363,7 @@ function validatePhysicalLayoutSemantics(
         !strictlyAfter(previousIndexId, indexId) ||
         !validateScopedColumns(index.columns, columnsByName) ||
         (index.predicate !== null &&
-          (!index.columns.includes(index.predicate.column) ||
-            !columnsByName.has(index.predicate.column))) ||
+          !columnsByName.has(index.predicate.column)) ||
         !recordExpectedName(
           expectedNames,
           expectedSpellings,
@@ -643,6 +638,7 @@ function samePhysicalDefault(
     case "currentTimestamp":
       return true;
     case "textLiteral":
+    case "booleanLiteral":
     case "integerLiteral":
     case "exactNumericLiteral":
       return right.kind === left.kind && left.value === right.value;
@@ -939,7 +935,7 @@ function isPhysicalColumn(input: unknown): input is RelationalPhysicalColumn {
   ]) &&
     isColumnIdentity(input.identity) &&
     isPhysicalIdentifier(input.name) &&
-    (input.type === "text" || input.type === "integer" ||
+    (input.type === "boolean" || input.type === "text" || input.type === "integer" ||
       input.type === "numeric" || input.type === "jsonb" ||
       input.type === "timestamp with time zone") &&
     typeof input.nullable === "boolean" &&
@@ -952,7 +948,8 @@ function isPhysicalDefault(input: unknown): boolean {
     return input.kind === "none" || input.kind === "currentTimestamp";
   }
   if (isExactPrivateValueRecord(input, ["kind", "value"])) {
-    return (input.kind === "textLiteral" && isPrivateValueText(input.value)) ||
+    return (input.kind === "booleanLiteral" && typeof input.value === "boolean") ||
+      (input.kind === "textLiteral" && isPrivateValueText(input.value)) ||
       (input.kind === "integerLiteral" && isPostgresInteger(input.value)) ||
       (input.kind === "exactNumericLiteral" && isExactNumeric(input.value));
   }
@@ -976,6 +973,8 @@ function physicalDefaultMatchesType(
   switch (input.kind) {
     case "none":
       return true;
+    case "booleanLiteral":
+      return columnType === "boolean";
     case "textLiteral":
       return columnType === "text";
     case "integerLiteral":
@@ -1018,7 +1017,7 @@ export function isStoredRelationalPhysicalIndex(
     isDefinitionIdentity(input.identity, "indexId") &&
     isTableIdentity(input.table) &&
     isPhysicalIdentifier(input.name) &&
-    input.kind === "btree" &&
+    (input.kind === "btree" || input.kind === "uniqueBtree") &&
     isScopePrefixedColumns(input.columns) &&
     (input.predicate === null ||
       (isExactPrivateValueRecord(input.predicate, ["kind", "column"]) &&
@@ -1028,7 +1027,14 @@ export function isStoredRelationalPhysicalIndex(
 
 function isPhysicalCheck(
   input: unknown,
-): input is RelationalPhysicalIntegerRangeCheck {
+): input is RelationalPhysicalCheck {
+  if (isExactPrivateValueRecord(input, ["identity", "name", "kind", "column", "values"]) && input.kind === "textSet") {
+    const values = input.values;
+    return isDefinitionIdentity(input.identity, "constraintId") && isPhysicalIdentifier(input.name)
+      && isPhysicalIdentifier(input.column) && isPrivateValueStringArray(values)
+      && values.length > 0 && values.length <= 256 && values.every(isPrivateValueText)
+      && values.every((value, index) => { const previous = values[index - 1]; return index === 0 || (previous !== undefined && compareUtf16Strings(previous, value) < 0); });
+  }
   return isExactPrivateValueRecord(input, [
     "identity",
     "name",
@@ -1081,7 +1087,8 @@ export function isStoredRelationalPhysicalForeignKey(
       isScopePrefixedColumns(input.sourceColumns) &&
       isScopePrefixedColumns(input.targetColumns) &&
       input.sourceColumns.length === input.targetColumns.length &&
-      input.onDelete === "restrict" && input.onUpdate === "restrict";
+      (input.onDelete === "restrict" || input.onDelete === "noAction" || input.onDelete === "cascade") &&
+      (input.onUpdate === "restrict" || input.onUpdate === "noAction");
   }
   return input.kind === "scopeAuthorityForeignKey" &&
     isTableIdentity(input.table) &&
@@ -1304,5 +1311,17 @@ function isBoundedArrayOf<Value>(
     return enumerableKeys === input.length;
   } catch {
     return false;
+  }
+}
+
+function checkMatchesColumn(check: RelationalPhysicalCheck, column: RelationalPhysicalColumn): boolean {
+  switch (check.kind) {
+    case "textSet":
+      return column.type === "text" && (column.default.kind !== "textLiteral" || check.values.includes(column.default.value));
+    case "integerRange":
+      return column.type === "integer" && (check.minimum !== null || check.maximum !== null)
+        && (column.default.kind !== "integerLiteral" ||
+          ((check.minimum === null || column.default.value >= check.minimum)
+            && (check.maximum === null || column.default.value <= check.maximum)));
   }
 }

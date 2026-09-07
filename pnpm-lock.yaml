@@ -828,6 +828,12 @@ importers:
       '@medusajs/currency':
         specifier: workspace:*
         version: link:../medusa-currency
+      '@medusajs/drizzle':
+        specifier: workspace:*
+        version: link:../medusa-drizzle
+      '@medusajs/product':
+        specifier: workspace:*
+        version: link:../medusa-product
       '@medusajs/utils':
         specifier: workspace:*
         version: link:../medusa-utils
@@ -878,6 +884,12 @@ importers:
         specifier: 8.0.1
         version: 8.0.1
 
+  packages/medusa-drizzle:
+    devDependencies:
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
   packages/medusa-framework:
     dependencies:
       '@medusajs/deps':
@@ -892,6 +904,18 @@ importers:
 
   packages/medusa-modules-sdk:
     dependencies:
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
+  packages/medusa-product:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
       '@medusajs/types':
         specifier: workspace:*
         version: link:../medusa-types

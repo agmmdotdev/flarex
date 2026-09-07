@@ -1,5 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
+import { makeFrameworkGraphReferenceRead } from "./graphReadPass";
 
 import { detachDriverRows } from "../detachDriverRows";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
@@ -249,6 +250,7 @@ export const lockFrameworkMigrationCollisionDomainInTransactionEffect =
     return stored.value;
   });
 
+const readCollisionReference = makeFrameworkGraphReferenceRead<Option.Option<RestoredFrameworkMigrationCollisionDomain>>();
 export const readFrameworkMigrationCollisionDomainForOperationInTransactionEffect =
   Effect.fn(
     "FrameworkMigrationCollisionRepository.readForOperation",
@@ -273,18 +275,17 @@ export const readFrameworkMigrationCollisionDomainForOperationInTransactionEffec
         FrameworkMigrationRepositoryError.referenceRefusal(operation),
       );
     }
-    const storedTargetNamespace = yield* requireStoredTargetNamespace(
-      transaction,
-      targetNamespace,
-      operation,
-    );
-    return yield* loadExactCollisionDomain(
-      transaction,
-      storedTargetNamespace,
-      coordinate,
-      operation,
-    );
+    return yield* readCollisionReference(readValidatedCollision(transaction, targetNamespace, coordinate, operation),
+      transaction, targetNamespace, coordinate.owner, coordinate.lineageId, coordinate.physicalNamespaceProfile);
   });
+
+const readValidatedCollision = Effect.fn("FrameworkMigrationCollisionRepository.readValidated")(
+  function* (transaction: FlarexMetadataTransaction, targetNamespace: RestoredFrameworkSchemaTargetNamespace,
+    coordinate: FrameworkMigrationCollisionCoordinate, operation: FrameworkMigrationRepositoryOperation) {
+    const storedTargetNamespace = yield* requireStoredTargetNamespace(transaction, targetNamespace, operation);
+    return yield* loadExactCollisionDomain(transaction, storedTargetNamespace, coordinate, operation);
+  },
+);
 
 const authenticateTargetNamespace = Effect.fn(
   "FrameworkMigrationTargetRepository.authenticate",

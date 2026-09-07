@@ -110,6 +110,7 @@ export interface RelationalPhysicalNameAssignment {
 
 export type RelationalPhysicalColumnType =
   | "text"
+  | "boolean"
   | "integer"
   | "numeric"
   | "jsonb"
@@ -143,7 +144,7 @@ export type RelationalPhysicalIndex = Readonly<{
   readonly identity: RelationalIndexIdentity;
   readonly table: RelationalTableIdentity;
   readonly name: string;
-  readonly kind: "btree";
+  readonly kind: "btree" | "uniqueBtree";
   readonly columns: readonly string[];
   readonly predicate: RelationalPhysicalIndexPredicate;
 }> & JsonObject;
@@ -157,6 +158,14 @@ export type RelationalPhysicalIntegerRangeCheck = Readonly<{
   readonly maximum: number | null;
 }> & JsonObject;
 
+export type RelationalPhysicalCheck = RelationalPhysicalIntegerRangeCheck | (Readonly<{
+  readonly identity: RelationalConstraintIdentity;
+  readonly name: string;
+  readonly kind: "textSet";
+  readonly column: string;
+  readonly values: readonly string[];
+}> & JsonObject);
+
 export type RelationalPhysicalTable = Readonly<{
   readonly identity: RelationalTableIdentity;
   readonly name: string;
@@ -167,7 +176,7 @@ export type RelationalPhysicalTable = Readonly<{
   }> & JsonObject;
   readonly columns: readonly RelationalPhysicalColumn[];
   readonly keys: readonly RelationalPhysicalKey[];
-  readonly checks: readonly RelationalPhysicalIntegerRangeCheck[];
+  readonly checks: readonly RelationalPhysicalCheck[];
   readonly indexes: readonly RelationalPhysicalIndex[];
 }> & JsonObject;
 
@@ -191,8 +200,8 @@ export type RelationalPhysicalForeignKey =
       readonly targetTable: RelationalTableIdentity;
       readonly targetTableName: string;
       readonly targetColumns: readonly string[];
-      readonly onDelete: "restrict";
-      readonly onUpdate: "restrict";
+      readonly onDelete: "restrict" | "noAction" | "cascade";
+      readonly onUpdate: "restrict" | "noAction";
     }> & JsonObject);
 
 export type RelationalPhysicalRelationshipEvidence = Readonly<{

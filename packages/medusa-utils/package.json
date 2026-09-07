@@ -132,6 +132,56 @@
       "types": "./dist/common/medusa-container.d.ts",
       "source": "./src/common/medusa-container.ts",
       "default": "./dist/common/medusa-container.js"
+    },
+    "./product/enums": {
+      "types": "./dist/product/enums.d.ts",
+      "source": "./src/product/enums.ts",
+      "default": "./dist/product/enums.js"
+    },
+    "./dml/properties/boolean": {
+      "types": "./dist/dml/properties/boolean.d.ts",
+      "source": "./src/dml/properties/boolean.ts",
+      "default": "./dist/dml/properties/boolean.js"
+    },
+    "./dml/properties/enum": {
+      "types": "./dist/dml/properties/enum.d.ts",
+      "source": "./src/dml/properties/enum.ts",
+      "default": "./dist/dml/properties/enum.js"
+    },
+    "./dml/properties/id": {
+      "types": "./dist/dml/properties/id.d.ts",
+      "source": "./src/dml/properties/id.ts",
+      "default": "./dist/dml/properties/id.js"
+    },
+    "./dml/properties/json": {
+      "types": "./dist/dml/properties/json.d.ts",
+      "source": "./src/dml/properties/json.ts",
+      "default": "./dist/dml/properties/json.js"
+    },
+    "./dml/properties/nullable": {
+      "types": "./dist/dml/properties/nullable.d.ts",
+      "source": "./src/dml/properties/nullable.ts",
+      "default": "./dist/dml/properties/nullable.js"
+    },
+    "./dml/relations/belongs-to": {
+      "types": "./dist/dml/relations/belongs-to.d.ts",
+      "source": "./src/dml/relations/belongs-to.ts",
+      "default": "./dist/dml/relations/belongs-to.js"
+    },
+    "./dml/relations/has-many": {
+      "types": "./dist/dml/relations/has-many.d.ts",
+      "source": "./src/dml/relations/has-many.ts",
+      "default": "./dist/dml/relations/has-many.js"
+    },
+    "./dml/relations/many-to-many": {
+      "types": "./dist/dml/relations/many-to-many.d.ts",
+      "source": "./src/dml/relations/many-to-many.ts",
+      "default": "./dist/dml/relations/many-to-many.js"
+    },
+    "./dml/relations/nullable": {
+      "types": "./dist/dml/relations/nullable.d.ts",
+      "source": "./src/dml/relations/nullable.ts",
+      "default": "./dist/dml/relations/nullable.js"
     }
   },
   "license": "MIT",

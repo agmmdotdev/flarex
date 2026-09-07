@@ -194,6 +194,10 @@ function sourceConstraintInputFromStoredConstraint(input: unknown) {
       origin: input.origin,
     };
   }
+  if (input.kind === "textSet") {
+    return { constraintId: input.identity.constraintId, kind: input.kind,
+      columnId: storedColumnId(input.column), values: input.values, origin: input.origin };
+  }
   if (input.kind === "integerRange") {
     return {
       constraintId: input.identity.constraintId,

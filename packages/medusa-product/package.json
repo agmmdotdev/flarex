@@ -1,0 +1,22 @@
+{
+  "name": "@medusajs/product",
+  "version": "2.13.4",
+  "private": true,
+  "exports": {
+    "./models": {
+      "types": "./dist/models/index.d.ts",
+      "source": "./src/models/index.ts",
+      "default": "./dist/models/index.js"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/utils": "workspace:*",
+    "@medusajs/types": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

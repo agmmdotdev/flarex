@@ -61,6 +61,12 @@ type PhysicalNameAssignmentRepositoryOperation =
 
 const PHYSICAL_NAME_ASSIGNMENT_READ_BATCH_SIZE = 512;
 
+export interface PhysicalNameAssignmentReadExpectation {
+  readonly frame: RelationalPhysicalNameAssignmentFrame;
+  readonly assignmentSha256: string;
+  readonly canonicalJson: string;
+}
+
 interface PreparedPhysicalNameAssignment {
   readonly assignment: RelationalPhysicalNameAssignment;
   readonly assignmentSha256Bytes: Uint8Array;
@@ -540,6 +546,7 @@ export const readRelationalPhysicalNameAssignmentOccupantsBySpellingInTransactio
     spellings: readonly string[],
     mode: "prerequisite" | "stored",
     operation: PhysicalNameAssignmentRepositoryOperation,
+    expectations?: readonly PhysicalNameAssignmentReadExpectation[],
   ): Effect.fn.Return<
     readonly RestoredRelationalPhysicalNameAssignment[],
     FrameworkMigrationRepositoryError
@@ -566,6 +573,9 @@ export const readRelationalPhysicalNameAssignmentOccupantsBySpellingInTransactio
         offset + PHYSICAL_NAME_ASSIGNMENT_READ_BATCH_SIZE,
       );
       if (batch.length === 0) continue;
+      const exactRows = expectations === undefined ? Option.none<readonly StoredRelationalPhysicalNameAssignmentRow[]>() :
+        yield* readExactAssignmentRows(transaction, collision, batch,
+          expectations.slice(offset, offset + batch.length), operation);
       const query = transaction.select(assignmentReadSelection).from(
         fxSystemRelationalPhysicalNameAssignments,
       ).where(and(
@@ -582,7 +592,7 @@ export const readRelationalPhysicalNameAssignmentOccupantsBySpellingInTransactio
           batch,
         ),
       )).limit(batch.length + 1);
-      const rows = yield* runRepositoryStatement(operation, query).pipe(
+      const rows = Option.isSome(exactRows) ? exactRows.value : yield* runRepositoryStatement(operation, query).pipe(
         Effect.map(detachDriverRows),
       );
       if (rows.length > batch.length) {
@@ -611,6 +621,58 @@ export const readRelationalPhysicalNameAssignmentOccupantsBySpellingInTransactio
     }
     return Object.freeze(restored);
   });
+
+/** An exact database comparison reduces transport, without retaining occupants.
+ * Nonmatching inventories use the ordinary authenticated read so collision and
+ * corruption classification still derives from the actual stored values. */
+const readExactAssignmentRows = Effect.fn("RelationalPhysicalNameAssignmentRepository.readExactRows")(function* (
+  transaction: FlarexMetadataTransaction, collision: RestoredFrameworkMigrationCollisionDomain,
+  spellings: readonly string[], expectations: readonly PhysicalNameAssignmentReadExpectation[],
+  operation: PhysicalNameAssignmentRepositoryOperation,
+): Effect.fn.Return<Option.Option<readonly StoredRelationalPhysicalNameAssignmentRow[]>, FrameworkMigrationRepositoryError> {
+  if (expectations.length !== spellings.length || expectations.some((value, index) => value.frame.spelling !== spellings[index])) return Option.none();
+  const table = fxSystemRelationalPhysicalNameAssignments;
+  const expected = expectations.map(value => ({ spelling: value.frame.spelling, canonical_json: value.canonicalJson,
+    assignment_sha256: value.assignmentSha256, name_sha256: value.frame.nameSha256,
+    frame_format: value.frame.format, frame_version: value.frame.version }));
+  const exact = sql<boolean>`
+    ${table.collisionStorageId} = ${collision.storageId}
+    and ${table.physicalDatabaseIdentity} = ${collision.coordinate.targetNamespace.physicalDatabaseIdentity}
+    and ${table.schemaName} = ${collision.coordinate.targetNamespace.schemaName}
+    and ${table.assignmentSha256} = decode(expected.assignment_sha256, 'hex')
+    and ${table.nameSha256} = decode(expected.name_sha256, 'hex')
+    and ${table.frameFormat} = expected.frame_format and ${table.frameVersion} = expected.frame_version
+    and ${table.canonicalBytes} = convert_to(expected.canonical_json, 'UTF8')
+    and ${table.canonicalByteLength} = octet_length(convert_to(expected.canonical_json, 'UTF8'))
+  `;
+  const candidates = yield* runRepositoryStatement(operation, transaction.select({
+    storageId: table.assignmentStorageId, spelling: table.spelling, matchesExpected: exact,
+  }).from(table).leftJoin(sql`jsonb_to_recordset(${JSON.stringify(expected)}::jsonb) as expected(
+    spelling text, canonical_json text, assignment_sha256 text, name_sha256 text, frame_format text, frame_version integer)`,
+    sql`${table.spelling} = expected.spelling`).where(and(
+      eq(table.physicalDatabaseIdentity, collision.coordinate.targetNamespace.physicalDatabaseIdentity),
+      eq(table.schemaName, collision.coordinate.targetNamespace.schemaName), inArray(table.spelling, [...spellings]),
+    )).limit(spellings.length + 1)).pipe(Effect.map(detachDriverRows));
+  if (candidates.length !== spellings.length || candidates.some(value => value.matchesExpected !== true) ||
+    new Set(candidates.map(value => value.spelling)).size !== spellings.length) return Option.none();
+  const bySpelling = new Map(expectations.map(value => [value.frame.spelling, value]));
+  const rows: StoredRelationalPhysicalNameAssignmentRow[] = [];
+  for (const candidate of candidates) {
+    const value = bySpelling.get(candidate.spelling);
+    if (value === undefined) return Option.none();
+    const bytes = new TextEncoder().encode(value.canonicalJson);
+    const assignmentSha256 = yield* Effect.fromResult(Encoding.decodeHex(value.assignmentSha256)).pipe(
+      Effect.mapError(() => FrameworkMigrationRepositoryError.referenceRefusal(operation)));
+    const nameSha256 = yield* Effect.fromResult(Encoding.decodeHex(value.frame.nameSha256)).pipe(
+      Effect.mapError(() => FrameworkMigrationRepositoryError.referenceRefusal(operation)));
+    rows.push({ assignmentStorageId: candidate.storageId, collisionStorageId: collision.storageId,
+      physicalDatabaseIdentity: collision.coordinate.targetNamespace.physicalDatabaseIdentity,
+      schemaName: collision.coordinate.targetNamespace.schemaName, spelling: candidate.spelling,
+      assignmentSha256, nameSha256, frameFormat: value.frame.format, frameVersion: value.frame.version,
+      canonicalByteLength: bytes.byteLength, observedCanonicalByteLength: bytes.byteLength, canonicalBytes: bytes });
+  }
+  return Option.some(Object.freeze(rows));
+});
 
 function runRepositoryStatement<Value>(
   operation: PhysicalNameAssignmentRepositoryOperation,

@@ -1,12 +1,12 @@
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
 import { detachDriverRows } from "../detachDriverRows";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import { capturePrivateCanonicalValue } from
-  "../frameworkSchema/privateCanonicalValue";
+import { captureMigrationCanonicalValue } from
+  "./planVerificationScope";
 import {
   decodeStoredCanonicalMetadataResult,
   decodeStoredNonNegativeInt64TextResult,
@@ -405,9 +405,73 @@ export const corroborateRestoredFrameworkMigrationStepReceiptInTransactionEffect
       );
     }
     return occupant.value;
-  });
+  }, withFrameworkGraphReadPass);
 
 /** Source-private restoration of a committed receipt digest reference. */
+const readReceiptDigestReference = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationStepReceipt>();
+/** Read-only event aggregates may restore their known receipt subjects together.
+ * Queries still cover the global digest namespace, so duplicate/missing roots
+ * cannot be hidden by a collision filter. Only fully restored successes enter
+ * the existing pass; no raw inventory survives this call or any write. */
+export const restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect = Effect.fn(
+  "FrameworkMigrationStepReceiptRepository.restoreEventSubjects",
+)(function* (transaction: FlarexMetadataTransaction,
+  collision: RestoredFrameworkMigrationCollisionDomain,
+  digests: readonly FrameworkMigrationStepReceiptSha256[],
+  operation: StepReceiptAggregateRepositoryOperation) {
+  if (!isRestoredFrameworkMigrationCollisionDomain(collision)) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+  }
+  const pending: FrameworkMigrationStepReceiptSha256[] = [];
+  for (const digest of new Set(digests)) {
+    if (Option.isNone(yield* readReceiptDigestReference.peek(transaction, collision, digest))) pending.push(digest);
+  }
+  for (let offset = 0; offset < pending.length; offset += 32) {
+    const batch = pending.slice(offset, offset + 32);
+    const digestBytes: Uint8Array[] = [];
+    for (const digest of batch) {
+      digestBytes.push(yield* Effect.fromResult(Encoding.decodeHex(digest)).pipe(
+        Effect.mapError(() => FrameworkMigrationRepositoryError.storedCorruption(operation))));
+    }
+    const rows = yield* runRepositoryStatement(operation,
+      transaction.select(receiptReadSelection).from(fxSystemFrameworkMigrationStepReceipts)
+        .where(inArray(fxSystemFrameworkMigrationStepReceipts.stepReceiptSha256, digestBytes))
+        .limit(batch.length + 1),
+    ).pipe(Effect.map(detachDriverRows));
+    if (rows.length !== batch.length) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    const byDigest = new Map<string, FrameworkMigrationStepReceiptDriverRow>();
+    for (const row of rows) {
+      const digest = yield* decodeStoredSha256(row.stepReceiptSha256, operation);
+      if (byDigest.has(digest)) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      byDigest.set(digest, row);
+    }
+    for (const digest of batch) {
+      const row = byDigest.get(digest);
+      if (row === undefined) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      yield* readReceiptDigestReference(restoreReceiptDigestRow(transaction, row, collision, digest, operation),
+        transaction, collision, digest);
+    }
+  }
+});
+
+const restoreReceiptDigestRow = Effect.fn("FrameworkMigrationStepReceiptRepository.restoreDigestRow")(
+  function* (transaction: FlarexMetadataTransaction, row: FrameworkMigrationStepReceiptDriverRow,
+    collision: RestoredFrameworkMigrationCollisionDomain, digest: FrameworkMigrationStepReceiptSha256,
+    operation: StepReceiptAggregateRepositoryOperation) {
+    const occupant = yield* restoreReceiptDependencyClosure(transaction, row, collision, operation,
+      undefined, makeReceiptRestorationContext());
+    if (occupant.value.receipt.sha256 !== digest) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    return occupant.value;
+  },
+);
 export const restoreStoredFrameworkMigrationStepReceiptReferenceBySha256InTransactionEffect =
   Effect.fn(
     "FrameworkMigrationStepReceiptRepository.restoreReferenceBySha256",
@@ -459,7 +523,7 @@ export const restoreStoredFrameworkMigrationStepReceiptReferenceBySha256InTransa
       );
     }
     return occupant.value;
-  }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationStepReceipt>());
+  }, (read, transaction, collision, sha256) => readReceiptDigestReference(read, transaction, collision, sha256));
 
 /**
  * Source-private restoration of the exact ordinal receipt prefix referenced by
@@ -738,7 +802,7 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
   return Object.freeze(restored);
 }, withFrameworkGraphReadPass, (read, transaction, attempt, tail, operation) =>
   readCompleteReceiptPrefix(read, transaction, attempt, tail === null,
-    tail?.storageId, tail?.sha256, operation));
+    tail?.storageId, tail?.sha256));
 
 const prepareExpectedStepReceipt = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.prepareExpected",
@@ -797,7 +861,7 @@ const prepareExpectedStepReceipt = Effect.fn(
     }));
   }
 
-  const captured = yield* capturePrivateCanonicalValue(
+  const captured = yield* captureMigrationCanonicalValue(
     receipt.frame,
     MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
     {
@@ -1062,7 +1126,7 @@ const restoreReceiptDependencyClosure = Effect.fn(
   }
 
   const sharedRoot = yield* readVerifiedReceiptNode.peek(transaction, attempt,
-    rootDecoded.storageId, rootDecoded.stepReceiptSha256, operation);
+    rootDecoded.storageId, rootDecoded.stepReceiptSha256);
   const cachedRoot = context.restoredByStorageId.get(rootDecoded.storageId) ?? Option.getOrUndefined(sharedRoot);
   if (cachedRoot !== undefined) {
     if (!restoredAttemptExactlyMatches(cachedRoot.value.attempt, attempt)) {
@@ -1134,7 +1198,7 @@ const restoreReceiptDependencyClosure = Effect.fn(
       pending.seenDependencyStorageIds.add(dependencyStorageId);
       pending.dependencyStorageIds.push(dependencyStorageId);
       const sharedDependency = yield* readVerifiedReceiptNode.peek(transaction, attempt,
-        dependencyStorageId, reference.stepReceiptSha256, operation);
+        dependencyStorageId, reference.stepReceiptSha256);
       const restoredDependency = context.restoredByStorageId.get(dependencyStorageId) ?? Option.getOrUndefined(sharedDependency);
       if (restoredDependency !== undefined) {
         if (!restoredAttemptExactlyMatches(
@@ -1216,7 +1280,7 @@ const restoreReceiptDependencyClosure = Effect.fn(
       dependencyReceipts: Object.freeze(dependencies),
     });
     yield* readVerifiedReceiptNode(Effect.succeed(occupant), transaction, attempt,
-      pending.decoded.storageId, restored.receipt.sha256, operation);
+      pending.decoded.storageId, restored.receipt.sha256);
     context.restoredByStorageId.set(pending.decoded.storageId, occupant);
     visiting.delete(pending.decoded.storageId);
     stack.pop();
@@ -1259,6 +1323,7 @@ const preparePendingReceiptRestoration = Effect.fn(
     decoded.storageId,
     decoded.frame,
     operation,
+    attempt.storageId,
   );
   return {
     row,
@@ -1471,10 +1536,16 @@ const loadReceiptDependencySidecars = Effect.fn(
   receiptStorageId: bigint,
   frame: FrameworkMigrationStepReceiptFrame,
   operation: StepReceiptAggregateRepositoryOperation,
+  attemptStorageId: bigint,
 ): Effect.fn.Return<
   readonly FrameworkMigrationStepReceiptDependencyDriverRow[],
   FrameworkMigrationRepositoryError
 > {
+  const batch = yield* loadAttemptReceiptSidecars(transaction, attemptStorageId, operation);
+  if (batch.length <= 4096) {
+    return batch.filter(row => row.receiptStorageId === receiptStorageId)
+      .slice(0, frame.dependencyReceipts.length + 1);
+  }
   const query = transaction.select(receiptDependencyReadSelection).from(
     fxSystemFrameworkMigrationStepReceiptDependencies,
   ).where(eq(
@@ -1487,6 +1558,31 @@ const loadReceiptDependencySidecars = Effect.fn(
     Effect.map(detachDriverRows),
   );
 });
+
+// Raw transport reuse is confined to the enclosing read-only graph pass. Join
+// through each receipt's owner so a corrupt sidecar owner is still returned and
+// rejected by the existing projection decoder. Oversized histories retain the
+// original bounded per-receipt query.
+const readAttemptSidecars = makeFrameworkGraphReferenceRead<readonly FrameworkMigrationStepReceiptDependencyDriverRow[]>();
+const loadAttemptReceiptSidecars = Effect.fn(
+  "FrameworkMigrationStepReceiptRepository.loadAttemptSidecars",
+)(function* (
+  transaction: FlarexMetadataTransaction,
+  attemptStorageId: bigint,
+  operation: StepReceiptAggregateRepositoryOperation,
+): Effect.fn.Return<readonly FrameworkMigrationStepReceiptDependencyDriverRow[], FrameworkMigrationRepositoryError> {
+  return yield* runRepositoryStatement(operation,
+    transaction.select(receiptDependencyReadSelection)
+      .from(fxSystemFrameworkMigrationStepReceiptDependencies)
+      .innerJoin(fxSystemFrameworkMigrationStepReceipts, eq(
+        fxSystemFrameworkMigrationStepReceiptDependencies.receiptStorageId,
+        fxSystemFrameworkMigrationStepReceipts.receiptStorageId,
+      ))
+      .where(eq(fxSystemFrameworkMigrationStepReceipts.attemptStorageId, attemptStorageId))
+      .orderBy(asc(fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal))
+      .limit(4097),
+  ).pipe(Effect.map(detachDriverRows));
+}, (read, transaction, attemptStorageId) => readAttemptSidecars(read, transaction, attemptStorageId));
 
 const insertReceiptDependencySidecars = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.insertDependencySidecars",
