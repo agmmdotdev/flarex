@@ -1,4 +1,6 @@
 import { Effect } from "effect";
+import { describeToManyRelation, type ToManyRelation } from "@medusajs/drizzle/relation-query";
+import type { CommerceRelations } from "./commerce-relations";
 import { Product, ProductOption, ProductOptionValue, ProductVariant, ProductImage } from "@medusajs/product/models";
 import { buildModuleResourceEventName, camelToSnakeCase, CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -22,6 +24,7 @@ export interface ProductRuntimeMetadata {
   readonly entities: readonly ProductEntityMetadata[];
   readonly foreignKeys: { readonly option: string; readonly value: string; readonly variant: string; readonly image: string };
   readonly pivot: { readonly table: Table; readonly variantColumn: string; readonly valueColumn: string };
+  readonly queryRelations: CommerceRelations;
 }
 
 /** Select admitted model objects; identities, columns, prefixes and joins stay
@@ -50,9 +53,22 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
   const link = variant.table.relationships.find(relation => relation.name === "options" && relation.type === "manyToMany" && relation.targetModel === value.model);
   const pivot = metadata.tables.find(table => table.name === link?.pivotTable);
   if (pivot === undefined || link?.joinColumns?.length !== 1 || link.inverseJoinColumns?.length !== 1 || link.joinColumns[0] === undefined || link.inverseJoinColumns[0] === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const queryRelations = new Map<string, Map<string, ToManyRelation>>();
+  for (const path of productRelations) {
+    let source = product.table;
+    for (const name of path.split(".")) {
+      const descriptor = describeToManyRelation(source, name, metadata.tables);
+      const target = metadata.tables.find(table => table.name === descriptor?.targetTable);
+      if (descriptor === undefined || target === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      const declared = queryRelations.get(source.name) ?? new Map<string, ToManyRelation>();
+      declared.set(name, descriptor);
+      queryRelations.set(source.name, declared);
+      source = target;
+    }
+  }
   return { product, option, value, variant, image, entities: [product, option, value, variant, image],
     foreignKeys: { option: yield* foreignKey(option, product), value: yield* foreignKey(value, option), variant: yield* foreignKey(variant, product), image: yield* foreignKey(image, product) },
-    pivot: { table: pivot, variantColumn: link.joinColumns[0], valueColumn: link.inverseJoinColumns[0] },
+    pivot: { table: pivot, variantColumn: link.joinColumns[0], valueColumn: link.inverseJoinColumns[0] }, queryRelations,
   } satisfies ProductRuntimeMetadata;
 });
 

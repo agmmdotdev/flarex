@@ -8,6 +8,11 @@
       "source": "./src/schema.ts",
       "default": "./dist/schema.js"
     },
+    "./relation-query": {
+      "types": "./dist/relation-query.d.ts",
+      "source": "./src/relation-query.ts",
+      "default": "./dist/relation-query.js"
+    },
     "./mutation-events": {
       "types": "./dist/mutation-events.d.ts",
       "source": "./src/mutation-events.ts",

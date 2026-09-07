@@ -1,3 +1,4 @@
+import { assembleCommerceRelations } from "./commerce-relations";
 import { Effect } from "effect";
 import { generateEntityId } from "@medusajs/framework/utils/portable";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
@@ -104,17 +105,7 @@ export const insertProductGraph = Effect.fn("ProductAdapter.insertGraph")(functi
   return inserted;
 });
 
-/** Acyclic projection. Relationship queries remain scope bound in the core. */
+/** Reuse Medusa's relation grouping for the newly inserted, acyclic graph. */
 export function assembleProducts(catalog: ProductRuntimeMetadata, rows: ReadonlyMap<ProductTable, readonly JsonObject[]>, relations: readonly string[]): JsonObject[] {
-  const group = (table: ProductTable) => rows.get(table) ?? [];
-  const wants = (name: string) => relations.some(relation => relation === name || relation.startsWith(name + "."));
-  return group(catalog.product.table.name).map(product => ({ ...product,
-    ...(wants("images") ? { images: group(catalog.image.table.name).filter(image => image[catalog.foreignKeys.image] === product.id) } : {}),
-    ...(wants("options") ? { options: group(catalog.option.table.name).filter(option => option[catalog.foreignKeys.option] === product.id).map(option => ({ ...option,
-      ...(wants("options.values") ? { values: group(catalog.value.table.name).filter(value => value[catalog.foreignKeys.value] === option.id) } : {}),
-    })) } : {}),
-    ...(wants("variants") ? { variants: group(catalog.variant.table.name).filter(variant => variant[catalog.foreignKeys.variant] === product.id).map(variant => ({ ...variant,
-      ...(wants("variants.options") ? { options: group(catalog.value.table.name).filter(value => group(catalog.pivot.table.name).some(pair => pair[catalog.pivot.variantColumn] === variant.id && pair[catalog.pivot.valueColumn] === value.id)) } : {}),
-    })) } : {}),
-  }));
+  return assembleCommerceRelations(catalog.product.table.name, rows, relations, catalog.queryRelations);
 }

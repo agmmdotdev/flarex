@@ -106,6 +106,20 @@ describe("local Product service through shared Flarex core", () => {
     if (typeof product.id !== "string") throw new Error("Missing Product id");
     const result = await run(fixture.host.read(runtime.commands.retrieve, { id: product.id, config: { select: ["title"] } }));
     expect(result).toEqual({ title: "Test Product" });
+    const nested = object(await run(fixture.host.read(runtime.commands.retrieve, {
+      id: product.id, config: { select: ["title"], relations: ["variants.options", "variants.options"] },
+    })));
+    expect(Object.keys(nested).sort()).toEqual(["title", "variants"]);
+    expect(nested.variants).toEqual(product.variants);
+    for (const variant of array(nested.variants)) {
+      const selected = object(variant);
+      const values = array(selected.options).map(value => object(value).value).sort();
+      expect(values).toEqual(selected.sku === "small-red" ? ["red", "small"] : ["blue", "medium"]);
+    }
+    const counted = array(await run(fixture.host.read(runtime.commands.count, {
+      filters: { handle: "test-product" }, config: { take: 0, relations: ["variants.options"] },
+    })));
+    expect(counted).toEqual([[], 1]);
     expect(received).toHaveLength(12);
   });
 

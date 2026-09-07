@@ -1,0 +1,105 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { Effect, Result } from "effect";
+import { groupHasManyRows, groupManyToManyRows, projectRowFields, toPopulateTree, tupleKey } from "@medusajs/drizzle/relation-query";
+import { captureProductSchema } from "../src/product-schema";
+import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/product-runtime-metadata";
+import { decodeProductQuery } from "../src/product-query-profile";
+import { assembleCommerceRelations, populateCommerceRelations } from "../src/commerce-relations";
+import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
+
+describe("Medusa relation query extraction", () => {
+  let catalog: ProductRuntimeMetadata;
+  beforeAll(async () => {
+    catalog = await Effect.runPromise(captureProductSchema("query-test").pipe(
+      Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame)),
+    ));
+  });
+
+  it("shares prefix paths and preserves selected scalar values", () => {
+    const tree = toPopulateTree(["options", "options.values", "options.values", "variants.options"]);
+    expect([...tree.keys()]).toEqual(["options", "variants"]);
+    expect([...tree.get("options")?.keys() ?? []]).toEqual(["values"]);
+    expect(projectRowFields({ id: "p", title: "", enabled: false, metadata: null }, new Set(["title", "enabled", "metadata"])) )
+      .toEqual({ title: "", enabled: false, metadata: null });
+  });
+
+  it("groups composite keys without delimiter collisions and ignores missing pivot targets", () => {
+    const first = { a: "a:b", b: "c", id: "one" };
+    const second = { a: "a", b: "b:c", id: "two" };
+    const grouped = groupHasManyRows([first, second], ["a", "b"]);
+    expect(grouped.size).toBe(2);
+    expect(grouped.get(tupleKey(first, ["a", "b"]))).toEqual([first]);
+    const linked = groupManyToManyRows([first, second], [
+      { source: "p", target: "two" }, { source: "p", target: "missing" }, { source: "q", target: "one" },
+    ], ["id"], ["source"], ["target"]);
+    expect(linked.get(tupleKey({ id: "p" }, ["id"]))).toEqual([second]);
+    expect(linked.get(tupleKey({ id: "q" }, ["id"]))).toEqual([first]);
+  });
+
+  it("assembles only requested paths without mutating or leaking another parent's children", () => {
+    const rows = new Map<string, readonly JsonObject[]>([
+      [catalog.product.table.name, [Object.freeze({ id: "p1" }), Object.freeze({ id: "p2" })]],
+      [catalog.variant.table.name, [Object.freeze({ id: "v1", [catalog.foreignKeys.variant]: "p1" })]],
+      [catalog.value.table.name, [Object.freeze({ id: "value1", value: "red" }), Object.freeze({ id: "value2", value: "blue" })]],
+      [catalog.pivot.table.name, [Object.freeze({ [catalog.pivot.variantColumn]: "v1", [catalog.pivot.valueColumn]: "value1" })]],
+    ]);
+    expect(assembleCommerceRelations(catalog.product.table.name, rows, ["variants.options"], catalog.queryRelations)).toEqual([
+      { id: "p1", variants: [{ id: "v1", [catalog.foreignKeys.variant]: "p1", options: [{ id: "value1", value: "red" }] }] },
+      { id: "p2", variants: [] },
+    ]);
+    expect(rows.get(catalog.product.table.name)).toEqual([{ id: "p1" }, { id: "p2" }]);
+  });
+
+  it.each([
+    ["options.values", "variants.options"],
+    ["variants.options", "options.values"],
+  ])("reads overlapping values once with %s first", async (first, second) => {
+    const rows = new Map<string, readonly JsonObject[]>([
+      [catalog.option.table.name, [{ id: "o", [catalog.foreignKeys.option]: "p" }]],
+      [catalog.variant.table.name, [{ id: "v", [catalog.foreignKeys.variant]: "p" }]],
+      [catalog.value.table.name, [
+        { id: "value1", [catalog.foreignKeys.value]: "o", value: "red" },
+        { id: "value2", [catalog.foreignKeys.value]: "o", value: "blue" },
+      ]],
+      [catalog.pivot.table.name, [{ [catalog.pivot.variantColumn]: "v", [catalog.pivot.valueColumn]: "value1" }]],
+    ]);
+    const reads: string[] = [];
+    await Effect.runPromise(Effect.gen(function* () {
+      const lifetime = yield* makeBoundedRequestLifetime(() => commerceError("invalidAuthority"),
+        { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "query-test", "read");
+      const selected = yield* decodeProductQuery(catalog, { options: { populate: [first, second] } });
+      const unused = () => Effect.fail(commerceError("unsupportedProfile"));
+      const result = yield* populateCommerceRelations({
+        manager: lifetime.context,
+        table: table => Effect.succeed({
+          find: Effect.fn("QueryTest.find")((manager) => Effect.sync(() => {
+            expect(manager).toBe(lifetime.context);
+            reads.push(table);
+            return rows.get(table) ?? [];
+          })),
+          count: unused, write: unused, delete: unused,
+        }),
+      }, catalog.product.table.name, [{ id: "p" }], selected.relations, catalog.queryRelations, new Map()).pipe(Effect.ensuring(lifetime.close));
+      expect(reads.filter(table => table === catalog.value.table.name)).toHaveLength(1);
+      expect(result).toMatchObject([{ options: [{ values: [{ value: "red" }, { value: "blue" }] }],
+        variants: [{ options: [{ value: "red" }] }] }]);
+      expect(rows.get(catalog.option.table.name)).toEqual([{ id: "o", [catalog.foreignKeys.option]: "p" }]);
+    }));
+  });
+
+  it.each([
+    [{ options: { populate: ["tags"] } }, "unsupportedProfile"],
+    [{ options: { fields: ["variants.title"] } }, "unsupportedProfile"],
+    [{ options: { fields: [] } }, "unsupportedProfile"],
+    [{ options: { limit: 257 } }, "limitExceeded"],
+    [{ options: { offset: -1 } }, "limitExceeded"],
+    [{ options: { orderBy: { images: { rank: "DESC" } } } }, "unsupportedProfile"],
+    [{ where: { id: [1] } }, "invalidInput"],
+    [{ where: { title: "unadmitted" } }, "unsupportedProfile"],
+  ])("retains the profile refusal for %j", async (input, reason) => {
+    const outcome = await Effect.runPromise(Effect.result(decodeProductQuery(catalog, input)));
+    expect(Result.isFailure(outcome)).toBe(true);
+    if (Result.isFailure(outcome)) expect(outcome.failure.reason).toBe(reason);
+  });
+});

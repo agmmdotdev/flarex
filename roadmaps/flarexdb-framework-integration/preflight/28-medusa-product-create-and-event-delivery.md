@@ -39,6 +39,27 @@ conformance alone cannot establish complete child change facts.
 
 ## Source Evidence And Design Challenges
 
+### Product query reuse
+
+The Product read adapter now consumes the selected storage-independent parts
+of the pinned Drizzle Medusa repository through the private
+`@medusajs/drizzle/relation-query` export. The extraction includes populate
+trees, to-many descriptor resolution, tuple grouping and scalar projection.
+It is a reviewed selection of the fork's algorithms, not the complete Drizzle
+repository: SQL execution, wildcard/to-one/versioned relations and nested
+field selection are not promoted by this change.
+
+`commerce-relations.ts` executes the admitted tree with the current Flarex
+manager and bounded stores. Product retains its query grammar, supported paths
+and image-rank ordering. The same extracted grouping assembles newly inserted
+rows without a database re-read. Variant option reads traverse the declared
+pivot directly; target-key ordering retains the private profile's option order.
+No new mutation, serving or transaction authority is introduced.
+
+Focused validation is `pnpm --filter @flarex/medusa-adapter exec vitest run
+--config vitest.product-query.config.ts`; this includes the existing local
+Product conformance suite, runtime metadata checks and extraction regressions.
+
 The source authority remains fork
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f` under
 `third_party/medusa/upstream`. Relevant paths relative to that island are:
