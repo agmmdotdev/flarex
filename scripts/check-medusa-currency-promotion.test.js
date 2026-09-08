@@ -59,13 +59,13 @@ describe("exact Currency promotion", () => {
 
   it("retains byte-identical original compatibility assertions", () => {
     const tests = promotion.files.filter((file) => file.classification === "unchangedTest");
-    expect(tests).toHaveLength(5);
+    expect(tests).toHaveLength(6);
     for (const file of tests) {
       if (!file.source) throw new Error("Missing original test source");
       expect(readFileSync(file.target)).toEqual(readFileSync(file.source));
     }
   });
-  it("admits only the verified two-file Product wrapper across the test package boundary", () => {
+  it("admits only the verified Product wrappers across the test package boundary", () => {
     const wrapper = "packages/medusa-adapter/test/product-upstream.test.ts";
     const specifier = "../../medusa-product/integration-tests/__tests__/product-module-service/events.spec";
     /** @param {string} file @param {string} imported @param {import("./check-medusa-currency-promotion.mjs").Promotion} manifest */
@@ -76,7 +76,9 @@ describe("exact Currency promotion", () => {
     }).errors;
     expect(check(wrapper, specifier)).toEqual([]);
     expect(check(wrapper, specifier.replace("events.spec", "products.spec"))).toEqual([]);
-    for (const [file, imported] of [["packages/medusa-adapter/test/product-query.test.ts", specifier], ["packages/medusa-adapter/src/product-service.ts", specifier],
+    expect(check(wrapper, specifier.replace("events.spec", "product-types.spec"))).toEqual([]);
+    expect(check("packages/medusa-adapter/test/product-types-upstream.test.ts", specifier.replace("events.spec", "product-types.spec"))).toEqual([]);
+    for (const [file, imported] of [["packages/medusa-adapter/test/product-types-upstream.test.ts", specifier], ["packages/medusa-adapter/test/product-query.test.ts", specifier], ["packages/medusa-adapter/src/product-service.ts", specifier],
       [wrapper, specifier.replace("events.spec", "variants.spec")], [wrapper, specifier + ".ts"]]) {
       expect(check(file, imported)).toHaveLength(1);
     }

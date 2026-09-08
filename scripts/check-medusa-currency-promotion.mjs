@@ -81,7 +81,8 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const files = new Set(promotion.files.map((file) => file.target));
   const expectedAliases = [
     { importer: "packages/medusa-currency/integration-tests/__tests__/currency-module-service.spec.ts", configuration: "packages/medusa-adapter/vitest.config.ts" },
-    ...["events.spec.ts", "products.spec.ts"].map(name => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/" + name, configuration: "packages/medusa-adapter/vitest.product-upstream.config.ts" })),
+    ...["events.spec.ts", "products.spec.ts", "product-types.spec.ts"].map(name => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/" + name, configuration: "packages/medusa-adapter/vitest.product-upstream.config.ts" })),
+    { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts", configuration: "packages/medusa-adapter/vitest.product-types.config.ts" },
   ];
   if (promotion.testAliases.length !== expectedAliases.length || expectedAliases.some(expected =>
     promotion.testAliases.filter(alias => alias.importer === expected.importer
@@ -158,15 +159,19 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
 export function admitsCurrencyImport(promotion, file, specifier) {
   if (!promotion || ![...promotion.files, ...promotion.buildFiles].some((entry) => entry.target === file)) return false;
   if (promotion.testAliases.some((alias) => alias.importer === file && alias.specifier === specifier)) return true;
-  // This single verified wrapper registers both complete pinned test files in
-  // one fixture. It is not a runtime export or a general cross-package edge.
-  if (file === "packages/medusa-adapter/test/product-upstream.test.ts") {
-    for (const name of ["events", "products"]) {
+  // Exact verified wrappers register complete pinned files in their fixture.
+  // This is not a runtime export or a general cross-package edge.
+  const wrapper = file === "packages/medusa-adapter/test/product-upstream.test.ts"
+    ? { names: ["events", "products", "product-types"], configuration: "vitest.product-upstream.config.ts" }
+    : file === "packages/medusa-adapter/test/product-types-upstream.test.ts"
+      ? { names: ["product-types"], configuration: "vitest.product-types.config.ts" } : undefined;
+  if (wrapper !== undefined) {
+    for (const name of wrapper.names) {
       const target = `packages/medusa-product/integration-tests/__tests__/product-module-service/${name}.spec.ts`;
       if (specifier === `../../medusa-product/integration-tests/__tests__/product-module-service/${name}.spec`
         && promotion.files.some((entry) => entry.target === target && entry.classification === "unchangedTest")
         && promotion.testAliases.some((alias) => alias.importer === target
-          && alias.configuration === "packages/medusa-adapter/vitest.product-upstream.config.ts")) return true;
+          && alias.configuration === "packages/medusa-adapter/" + wrapper.configuration)) return true;
     }
   }
   const importer = promotion.packages.find((pkg) => file.startsWith(pkg.path + "/"));

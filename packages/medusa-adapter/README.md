@@ -41,8 +41,11 @@ input, review its transformation and update its exact target/build hashes. New
 paths or exports require explicit manifest admission; do not expand a wildcard
 or copy a new framework barrel to make a missing dependency resolve.
 
-The original tests also receive a separate compatibility typecheck using Vitest's
-module-resolution model. New adapter/harness code keeps the strict Flarex compiler
+The original Currency tests also receive a separate compatibility typecheck using
+Vitest's module-resolution model. Unchanged Product test sources are runtime-tested
+and excluded from compilation; their authored adapters, boundary checks and
+configurations remain typechecked. Record 37 documents the original Type test
+diagnostics that prevent extending the Currency compiler lane to that file. New adapter/harness code keeps the strict Flarex compiler
 profile. Preserved fork code keeps its original compiler policy. The relocated
 Currency/CMS/Application composite fixture retains its original persistence
 test compiler settings in `tsconfig.composite.json`; build and typecheck run
@@ -74,12 +77,12 @@ Business events use the authenticated in-memory test buffer after
 acknowledged commit; no durable provider or query sync is activated.
 
 Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
-root. It uses the explicit private Product scale profile and runs 56 exact
-original cases from two unchanged files, including the 1000-image ordering case.
+root. It uses the explicit private Product scale profile and runs 69 exact
+original cases from three unchanged files, including the 1000-image ordering case.
 Only the original upstream performance skip remains. Set `FLAREX_TEST_DRIVER=postgres` and
 `FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
-Both files share one installed fixture per driver and clear business rows
-between cases. The case inventory and records 29-35 in the framework-integration
+All three files share one installed fixture per driver and clear business rows
+between cases. The case inventory and records 29-37 in the framework-integration
 roadmap distinguish current coverage from the remaining module capabilities.
 
 Record 35 keeps the original profile and its hashes unchanged. Its explicit scale
@@ -94,3 +97,12 @@ The focused `vitest.product-scale.config.ts` lane combines the unchanged scale
 case with complete facts/events/replay, write-boundary, late-failure,
 cancellation, and oversized-value checks using one installed fixture. Its
 telemetry observes the real request owner and awaited Drizzle queries.
+
+Record 37 adds complete Product Types compatibility: authenticated list, count
+and retrieve commands, scalar value filtering, and Type primary-key retention
+when projecting selected fields. The unchanged 13-case file covers reads,
+pagination/count, not-found errors, creation, updates and deletion.
+Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-types.config.ts`
+for those 13 originals plus two focused scope-isolation and input-refusal checks.
+The same driver environment selects PostgreSQL. Tags and other related entities
+retain their existing query limits; the next separate slice is the 15-case Tags file.

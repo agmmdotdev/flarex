@@ -8,7 +8,7 @@ import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils/po
 import type { DAL, FindConfig, ProductTypes, IEventBusModuleService } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { decodeProductRead, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
+import { decodeProductRead, decodeProductTypeRead, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
 import { decodeLocalEventOptions, decodeLocalEventBatch } from "./product-local-events";
 import { captureCommerceInput } from "./commerce-input";
 import { withCommerceService } from "./commerce-service-bridge";
@@ -83,6 +83,24 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     return yield* withService(ctx, ({ service, context }) => kind === "retrieve"
       ? service.retrieveProduct(copied.id as string, find, context)
       : kind === "count" ? service.listAndCountProducts(filters, find, context) : service.listProducts(filters, find, context));
+  }));
+  const readType = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("productType" + kind, "read", Effect.fn("ProductAdapter.type." + kind)(function* (ctx, input) {
+    const decoded = yield* Effect.fromResult(decodeProductTypeRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const copied = structuredClone(decoded);
+    // SAFETY: Medusa owns query normalization; the table-bound related reader
+    // validates filters, fields, paging and relations before calling the store.
+    const find = copied.config as FindConfig<ProductTypes.ProductTypeDTO> | undefined;
+    if (kind === "retrieve") {
+      if (copied.id === undefined || copied.filters !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+      const id = copied.id;
+      return yield* withService(ctx, ({ service, context }) => service.retrieveProductType(id, find, context));
+    }
+    if (copied.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+    const { id, ...scalars } = copied.filters ?? {};
+    const filters = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
+    return yield* withService(ctx, ({ service, context }) => kind === "count"
+      ? service.listAndCountProductTypes(filters, find, context) : service.listProductTypes(filters, find, context));
   }));
   const related = (kind: "tag" | "type" | "collection" | "image" | "option" | "variant" | "category" | "assignment") => defineCommerceCommand("productCreate" + kind, "write", Effect.fn("ProductAdapter.createRelated")(function* (ctx, input) {
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedCreate(metadata[kind].table.name, input))
@@ -193,6 +211,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       ? await service.restoreProducts(ids, {}, context) : await service.softDeleteProducts(ids, {}, context)) ?? null);
   }));
   return { commands: Object.freeze({ create, list: read("list"), retrieve: read("retrieve"), count: read("count"),
+    listTypes: readType("list"), retrieveType: readType("retrieve"), countTypes: readType("count"),
     delete: remove("product"), deleteTags: remove("tag"), deleteTypes: remove("type"), deleteCategories: remove("category"), deleteCollections: remove("collection"),
     softDelete: lifecycle("softDelete"), restore: lifecycle("restore"),
     createTags: related("tag"), createTypes: related("type"), createCollections: related("collection"), createImages: related("image"),

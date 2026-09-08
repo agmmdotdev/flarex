@@ -153,4 +153,20 @@ describe("Medusa relation query extraction", () => {
       expect(result).toEqual({ rows: [{ value: "red" }], count: 1 });
     }));
   });
+  it("keeps Type value filtering unadmitted for tags and option values", async () => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const lifetime = yield* makeBoundedRequestLifetime(() => commerceError("invalidAuthority"),
+        { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "type-filter-policy", "read");
+      let reads = 0;
+      const ctx = { manager: lifetime.context, resources: defaultCommerceResources,
+        table: () => Effect.sync(() => { reads++; }).pipe(Effect.andThen(Effect.fail(commerceError("invalidAuthority")))) };
+      yield* Effect.gen(function* () {
+        for (const entity of [catalog.tag, catalog.value]) {
+          expect(yield* Effect.result(findProductRelated(ctx, catalog, entity, { where: { value: "text" } }, false)))
+            .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+        }
+        expect(reads).toBe(0);
+      }).pipe(Effect.ensuring(lifetime.close));
+    }));
+  });
 });

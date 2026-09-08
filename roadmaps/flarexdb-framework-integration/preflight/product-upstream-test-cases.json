@@ -1,6 +1,6 @@
 {
   "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
-  "scope": "Two complete Product module-service test files; other Product suites are not registered.",
+  "scope": "Three complete Product module-service test files (events, products, product types); other Product suites are not registered.",
   "cases": [
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -343,6 +343,84 @@
       "title": "should populate variant.images when variants.images relation is requested",
       "status": "admitted",
       "reason": "Records 32 and 33: bounded Product graph replacement, references, images and exact mutation events"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > listTypes > should return types and count queried by ID",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > listTypes > should return types and count based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > listTypes > should return only requested fields for types",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > listAndCountTypes > should return types and count queried by ID",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > listAndCountTypes > should return types and count based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > listAndCountTypes > should return only requested fields for types",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > retrieveType > should return the requested type",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > retrieveType > should return requested attributes when requested through config",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > retrieveType > should throw an error when a type with ID does not exist",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > deleteTypes > should delete the product type given an ID successfully",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > updateTypes > should update the value of the type successfully",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > updateTypes > should throw an error when an id does not exist",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "title": "ProductModuleService product types > createTypes > should create a type successfully",
+      "status": "admitted",
+      "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
     }
   ]
 }

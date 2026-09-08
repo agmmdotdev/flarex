@@ -170,8 +170,8 @@ Use these sources in order:
     owns the implemented common publisher and framework recovery routing while
     preserving native OCC, bounded SQL and participant-specific completion.
 38. [`preflight/37-medusa-remaining-product-suite-preflight.md`](./preflight/37-medusa-remaining-product-suite-preflight.md)
-    inventories the eight remaining Product integration files and preflights the
-    complete Product Types suite as the next bounded admission.
+    inventories the remaining Product integration files and records complete
+    Product Types admission: 69 originals per driver; Tags is the next family.
 39. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
@@ -243,7 +243,7 @@ Preflight records:
 | [`preflight/34-medusa-product-lifecycle.md`](./preflight/34-medusa-product-lifecycle.md) | Implemented privately with both-driver original-test proof | 55 originals pass per driver; managed transitions, complete cascade facts, deleted-row reads and authenticated local events; one scale case and one upstream skip remain |
 | [`preflight/35-medusa-product-scale.md`](./preflight/35-medusa-product-scale.md) | Implemented privately with both-driver proof | 56 originals pass per driver, including unchanged 1000-image ordering; explicit resource contract, complete facts/events and atomic batches; upstream performance skip remains |
 | [`preflight/36-shared-publication-and-request-recovery.md`](./preflight/36-shared-publication-and-request-recovery.md) | Private ownership consolidation implemented | One common publisher and one framework uncertain-outcome router; trusted commerce finalization, retained CMS materialization, unchanged execution profiles and no schema replacement |
-| [`preflight/37-medusa-remaining-product-suite-preflight.md`](./preflight/37-medusa-remaining-product-suite-preflight.md) | Preflight complete; implementation pending | 149 unregistered declarations across eight files; next bounded target is the complete 13-case Product Types suite |
+| [`preflight/37-medusa-remaining-product-suite-preflight.md`](./preflight/37-medusa-remaining-product-suite-preflight.md) | Product Types implemented privately on both drivers | Complete 13-case Type file brings the gate to 69 originals plus one upstream skip; focused Type lane passes 15; 136 declarations across seven files remain, with Tags next |
 
 ## Current Architecture
 

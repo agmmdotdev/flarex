@@ -1,7 +1,23 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import type { Reporter } from "vitest/node";
+export const admittedProductTypeCases = [
+  "Product service > ProductModuleService product types > listTypes > should return types and count queried by ID",
+  "Product service > ProductModuleService product types > listTypes > should return types and count based on the options and filter parameter",
+  "Product service > ProductModuleService product types > listTypes > should return only requested fields for types",
+  "Product service > ProductModuleService product types > listAndCountTypes > should return types and count queried by ID",
+  "Product service > ProductModuleService product types > listAndCountTypes > should return types and count based on the options and filter parameter",
+  "Product service > ProductModuleService product types > listAndCountTypes > should return only requested fields for types",
+  "Product service > ProductModuleService product types > retrieveType > should return the requested type",
+  "Product service > ProductModuleService product types > retrieveType > should return requested attributes when requested through config",
+  "Product service > ProductModuleService product types > retrieveType > should throw an error when a type with ID does not exist",
+  "Product service > ProductModuleService product types > deleteTypes > should delete the product type given an ID successfully",
+  "Product service > ProductModuleService product types > updateTypes > should update the value of the type successfully",
+  "Product service > ProductModuleService product types > updateTypes > should throw an error when an id does not exist",
+  "Product service > ProductModuleService product types > createTypes > should create a type successfully"
+];
 export const admittedProductCases = [
+  ...admittedProductTypeCases,
   "Product injected event bus > ProductModuleService Events > Product Deletion > should emit all cascade delete events when soft deleting a product",
   "Product injected event bus > ProductModuleService Events > Delete Operations - Base Service Automatic Events > should emit delete events for all entity types via base service",
   "Product service > ProductModuleService products > softDelete > should soft delete a product and its cascaded relations",
@@ -59,16 +75,17 @@ export const admittedProductCases = [
   "Product service > ProductModuleService products > images > should retrieve images ordered by rank",
   "Product service > ProductModuleService products > images > should populate variant.images when variants.images relation is requested",
 ];
-const admittedTitles = admittedProductCases.map(name => name.slice(name.indexOf("should ")).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-const executed: string[] = [];
-const coverage: Reporter = {
-  onTestRunStart() { executed.length = 0; },
-  onTestCaseResult(test) { if (test.result().state !== "skipped") executed.push(test.fullName); },
-  onTestRunEnd() {
-    if (executed.length !== admittedProductCases.length || admittedProductCases.some(name => executed.filter(value => value === name).length !== 1)) {
-      throw new Error("Product upstream coverage mismatch: expected all " + admittedProductCases.length + " admitted cases to execute");
-    }
-  },
+export const productCoverage = (expected: readonly string[]): Reporter => {
+  const executed: string[] = [];
+  return {
+    onTestRunStart() { executed.length = 0; },
+    onTestCaseResult(test) { if (test.result().state !== "skipped") executed.push(test.fullName); },
+    onTestRunEnd() {
+      if (executed.length !== expected.length || expected.some(name => executed.filter(value => value === name).length !== 1)) {
+        throw new Error("Product upstream coverage mismatch: expected all " + expected.length + " admitted cases to execute");
+      }
+    },
+  };
 };
 export default defineConfig({
   resolve: { alias: [
@@ -78,8 +95,7 @@ export default defineConfig({
     { find: "cloudflare:workers", replacement: fileURLToPath(new URL("../persistence-postgres/test/cloudflareWorkersStub.ts", import.meta.url)) },
   ] },
   test: { env: { FLAREX_PRODUCT_RESOURCES: "scale" }, globals: true, maxWorkers: 1, fileParallelism: false, include: ["test/product-upstream.test.ts"],
-    reporters: ["default", coverage],
-    testNamePattern: new RegExp("(?:" + admittedTitles.join("|") + ")$"),
+    reporters: ["default", productCoverage(admittedProductCases)],
     hookTimeout: 120000, testTimeout: 100000,
   },
 });

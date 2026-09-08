@@ -12,6 +12,7 @@ import { projectRowFields } from "@medusajs/drizzle/relation-query";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
+const decodeTypeValue = commerceDecoder(Schema.String, "unsupportedProfile");
 const decodeFilter = commerceDecoder(Schema.Union([Schema.Null, Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))]), "unsupportedProfile");
 const decodeOr = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String })).check(Schema.isMinLength(1), Schema.isMaxLength(256)), "unsupportedProfile");
 const decodeOptions = commerceDecoder(Schema.Struct({
@@ -31,13 +32,21 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   const envelope = yield* Effect.fromResult(decodeEnvelope(captured));
   const where = yield* Effect.fromResult(decodeWhere(envelope.where ?? {}));
   const options = yield* Effect.fromResult(decodeOptions(envelope.options ?? {}));
-  const fields = options.fields ?? entity.table.columns.map(column => column.name);
+  // Pinned Type projections retain primary keys even when select omits them.
+  const fields = options.fields === undefined ? entity.table.columns.map(column => column.name)
+    : entity === metadata.type ? [...new Set([...entity.table.columns.filter(column => column.primaryKey).map(column => column.name), ...options.fields])]
+      : options.fields;
   if (fields.some(name => !entity.table.columns.some(column => column.name === name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const relations = options.populate ?? [];
   if (relations.some(name => !metadata.queryRelations.get(entity.table.name)?.has(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const withDeleted = options.filters?.softDeletable.withDeleted ?? false;
   const children: Json[] = !withDeleted && entity.table.columns.some(column => column.name === "deleted_at") ? [{ kind: "isNull", column: "deleted_at" }] : [];
   for (const [name, value] of Object.entries(where)) {
+    if (entity === metadata.type && name === "value" && entity.table.columns.some(column => column.name === name)) {
+      const text = yield* Effect.fromResult(decodeTypeValue(value));
+      children.push({ kind: "in", column: name, values: [text] });
+      continue;
+    }
     if (name === "$or") {
       const selectors = yield* Effect.fromResult(decodeOr(value));
       children.push({ kind: "in", column: "id", values: [...new Set(selectors.map(selector => selector.id))] });

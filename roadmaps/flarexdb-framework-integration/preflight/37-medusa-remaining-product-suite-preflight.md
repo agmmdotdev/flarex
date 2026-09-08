@@ -1,11 +1,24 @@
 # Remaining Product Integration Suites
 
-## Status And Decision
+## Current Implementation
+
+The approved Product Types slice is implemented. It promotes the complete
+13-case file byte-for-byte and adds authenticated Type list/count/retrieve
+commands, scalar value filtering and primary-key retention for Type projections.
+The focused lane passes all 13 originals plus two scope/input guards on PGlite
+and ordinary-role PostgreSQL 18.3. The combined Product gate passes 69 originals
+plus the original upstream skip on each driver.
+The next separate family is Tags (15 cases); 136 declarations across seven
+files remain unregistered. This does not admit workflows, stored Module Links,
+durable event dispatch, general Payload integration or public serving.
+
+## Original Preflight Status And Decision
 
 Preflight completed on 2026-09-08 against Flarex `747e1c4c` and pinned Medusa
-`48d5cc675e4e8bc821e22c20c88a751acc66fb5f`. This record inventories the next work;
-it does not admit new methods, copy source, modify assertions or claim new test
-passes. Implementation of the recommended slice is the next approval boundary.
+`48d5cc675e4e8bc821e22c20c88a751acc66fb5f`. The original preflight inventoried
+the next work without admitting new methods, copying source or claiming new
+test passes. The following preflight analysis is retained at that baseline;
+the approved implementation and its receipts appear above and below.
 
 The recommended next slice is the **complete 13-case Product Types module-service
 file**. Add its three read commands and its tested scalar `value` filter, retaining
@@ -18,7 +31,7 @@ Product cases pass per driver, with one original performance skip. Currency's li
 lane has 20 PGlite passes and 19 PostgreSQL passes plus one driver-specific skip.
 These are existing receipts, not reruns in this documentation-only preflight.
 
-## Exact Inventory
+## Exact Inventory At The Preflight Baseline
 
 [The machine-readable inventory](./product-remaining-test-inventory.json) records
 all 149 declarations across the eight files: 95 public module-service cases and
@@ -231,3 +244,74 @@ All preflight file links and 17 gap IDs resolve. Verification receipts:
 
 No new original suite was executed and no runtime code, test registration or
 source-island file was changed by this preflight.
+
+## Product Types Implementation And Validation
+
+Implementation completed after the separately approved preflight. The exact
+13-case source is now in the promotion manifest and both the focused Types
+entry and the combined Product entry. Each runner gate checks full case names
+and exact multiplicity; the old suffix filter is removed because all three
+combined files are complete admissions. The focused gate expects 15 cases; the
+combined gate expects 69 originals and retains the original performance skip.
+
+The new commands call the existing ProductModuleService and Type internal
+service through the authenticated command owner. The adapter captures and
+validates the bounded inputs; checked DML metadata and the existing table store
+own SQL projection and predicates. Type-only value filtering and automatic
+primary-key selection do not expand Tag/OptionValue query behavior. Existing
+Medusa Type create/update/delete behavior and not-found messages are preserved.
+No shared transaction, committer, publication, resource or schema owner changed.
+
+The foreign-scope check uses matching values and an overlapping ID in another
+scope, proves list/count/retrieve isolation and confirms reads leave the full
+commerce inventory unchanged. The refusal check covers scope/table injection,
+invalid envelopes, unsupported filters/operators, projection, relations and
+paging. A focused query unit check retains rejection of the same value filter
+for Tags and OptionValues before store access.
+
+### Compiler Coverage Adjustment
+
+The proposed extension of the original-source compatibility compiler was tried
+and is not adopted. The unchanged pinned Type fixture supplies `id` in
+`createProductTypes` at line 13, while its public CreateProductTypeDTO declares
+only value/metadata (TS2769). Its unused `res` at line 236 also violates the
+fork's noUnusedLocals setting (TS6133). These are original fixture/compiler
+disagreements; the original assertions and pinned DTO remain unchanged.
+
+As for the existing Product originals, this file receives exact source-hash and
+runtime coverage and is excluded from compilation. Authored Type adapter code,
+focused boundary checks and configurations remain under the strict adapter
+compiler. The existing Currency original-source and composite compiler projects
+remain unchanged. All three adapter compiler projects pass. This is an explicit
+adjustment to step 1 of the preflight, not a claim of Product original-source
+typecheck success.
+
+### Receipts
+
+Validation runs span 2026-09-08 to 2026-09-09. Heavy suites and compiler projects
+run serially on this host. Database regressions and focused checks are complete.
+
+- Focused Product Types: 15 passed on PGlite; 15 passed on PostgreSQL 18.3.
+- Combined Product gate: 69 passed plus one original upstream skip on each driver,
+  including the unchanged 1000-image case. Vitest durations: PGlite 132.59 s;
+  PostgreSQL 110.12 s. Original defaults and deadlines remain unchanged.
+- PostgreSQL role: superuser, createdb, createrole and bypassrls are all false.
+- Currency live regression: 20 passed on PGlite; 19 passed plus the existing
+  driver-specific skip on PostgreSQL. Vitest durations: 46.73 s and 40.22 s.
+- Focused Product query unit suite: 22 passed.
+- Promotion/source-island guard tests: 38 passed.
+- Adapter typecheck: all three projects passed.
+- Promotion verification: 324 files across ten private packages; Type source
+  SHA-256 `dbab7a7b4202ad277f70c7f8d208923eeb21401ed3ad4ce96e4f0bf3af7a3a58`.
+- Source island: 8496 files, zero symlinks, exact pinned commit verified.
+- Source/import boundary and portable browser bundles: passed across 632 bundle
+  inputs, with no Node, ORM, database or source-island runtime imports.
+- Source-guard JavaScript typecheck, main lint:core and lint:diff: passed.
+- Both required final-diff reviewers: no findings; TypeScript reviewer also
+  independently passed lint:core and lint:diff.
+
+The 149-case remaining inventory retains its historical `747e1c4c` baseline.
+The current admitted-case inventory adds these 13 Type cases; the remaining
+136 cases are Tags 15, Collections 18, Options 13, Variants 15, public Categories
+21 and the two internal suites 54. Tags requires its own bounded implementation
+and complete-file proof; this completion does not authorize those next changes.

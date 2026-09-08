@@ -99,6 +99,9 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
     deleteProductTypes: runtime.commands.deleteTypes, deleteProductCategories: runtime.commands.deleteCategories,
     deleteProductCollections: runtime.commands.deleteCollections, softDeleteProducts: runtime.commands.softDelete, restoreProducts: runtime.commands.restore };
   const lifecycleCommand = Object.entries(lifecycleCommands).find(([name]) => name === method)?.[1];
+  const readCommands = { retrieveProduct: runtime.commands.retrieve, listProducts: runtime.commands.list, listAndCountProducts: runtime.commands.count,
+    retrieveProductType: runtime.commands.retrieveType, listProductTypes: runtime.commands.listTypes, listAndCountProductTypes: runtime.commands.countTypes };
+  const readCommand = Object.entries(readCommands).find(([name]) => name === method)?.[1];
   if (lifecycleCommand !== undefined) {
     const isManaged = method === "softDeleteProducts" || method === "restoreProducts";
     if (args.length > (isManaged ? 3 : 2) || args[isManaged ? 2 : 1] !== undefined || (isManaged && args[1] !== undefined)) return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -108,11 +111,12 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
   if (args.length > contextIndex + 1 || args[contextIndex] !== undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const input = yield* Effect.fromResult(captureCommerceInput(createCommand !== undefined ? args[0]
     : updateCommand !== undefined ? { id: args[0], data: args[1] }
-      : method === "retrieveProduct" ? { id: args[0], config: args[1] } : { filters: args[0], config: args[1] }));
+      : method === "retrieveProduct" || method === "retrieveProductType" ? { id: args[0], config: args[1] } : { filters: args[0], config: args[1] }));
   if (createCommand !== undefined) return yield* fixture.host.run(fixture.host.newRequestKey(), createCommand, input);
   if (updateCommand !== undefined) return yield* fixture.host.run(fixture.host.newRequestKey(), updateCommand, input);
-  return yield* fixture.host.read(method === "retrieveProduct" ? runtime.commands.retrieve
-    : method === "listProducts" ? runtime.commands.list : runtime.commands.count, yield* Effect.fromResult(prepareProductReadInput(input)));
+  if (readCommand === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+  return yield* fixture.host.read(readCommand, method.endsWith("Types") || method === "retrieveProductType"
+    ? input : yield* Effect.fromResult(prepareProductReadInput(input)));
 });
 
 /** Original test callback contract, backed only by admitted host commands. The
@@ -124,7 +128,8 @@ const service = new Proxy<object>({}, {
     if (typeof property !== "string" || !["createProducts", "createProductTags", "createProductTypes", "createProductCollections", "createProductImages", "retrieveProduct", "listProducts", "listAndCountProducts", "updateProductTags", "updateProductTypes", "upsertProductTags", "upsertProductTypes",
       "createProductOptions", "createProductVariants", "createProductCategories", "upsertProductOptions", "upsertProductCollections", "upsertProductCategories", "addImageToVariant",
       "updateProductOptions", "updateProductVariants", "updateProductOptionValues", "updateProductCollections", "updateProductCategories", "updateProducts", "upsertProducts", "upsertProductVariants",
-      "deleteProducts", "deleteProductTags", "deleteProductTypes", "deleteProductCategories", "deleteProductCollections", "softDeleteProducts", "restoreProducts"].includes(property)) {
+      "deleteProducts", "deleteProductTags", "deleteProductTypes", "deleteProductCategories", "deleteProductCollections", "softDeleteProducts", "restoreProducts",
+      "listProductTypes", "listAndCountProductTypes", "retrieveProductType"].includes(property)) {
       throw new Error("Unadmitted Product test service method: " + String(property));
     }
     return (...args: readonly unknown[]): Promise<Json> => Effect.runPromise(execute(property, args).pipe(

@@ -32,12 +32,15 @@ The implemented [lifecycle milestone](./preflight/34-medusa-product-lifecycle.md
 adds physical deletion, soft deletion, restore and deleted-row reads, with 55
 original cases passing on both drivers. The implemented
 [scale milestone](./preflight/35-medusa-product-scale.md) adds the unchanged
-1000-image ordering case through an explicit resource contract: 56 originals
-now pass per driver, with only the upstream performance skip remaining.
+1000-image ordering case through an explicit resource contract, reaching 56 originals
+per driver, with only the upstream performance skip remaining.
 The [remaining-suite preflight](./preflight/37-medusa-remaining-product-suite-preflight.md)
-inventories 149 unregistered declarations in eight files. The next bounded target
-is the complete 13-case Product Types suite, adding related reads and the tested
-value filter; it is not yet admitted or executed on Flarex.
+inventories 149 declarations at its preflight baseline and now records the
+implemented complete 13-case Product Types suite. Type reads and the tested
+value filter bring the combined gate to 69 original passes plus one upstream
+skip per driver. The focused Type lane passes 15 checks on each driver.
+There are 136 declarations in seven unregistered files; the next separate
+bounded target is the complete 15-case Tags suite.
 Durable event storage/dispatch are deferred. Product
 mutations beyond the admitted graph/related-entity and lifecycle profile,
 stored Links and production
