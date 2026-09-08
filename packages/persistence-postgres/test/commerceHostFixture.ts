@@ -22,6 +22,7 @@ import { installationBindingReference, bindingProfiles } from "./frameworkDataBi
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 export interface CommerceHostTestFixture {
+  readonly cms: Awaited<ReturnType<typeof cmsHostFixture>>;
   readonly persistence: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly session: RelationalSession;
   readonly bindings: DataBindingHost<unknown>;
@@ -41,10 +42,11 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
   commands: readonly CommerceCommand[],
   controlPersistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   localPolicy?: (descriptor: CommerceProfileState) => LocalCommerceEventPolicy,
+  cmsOptions: Parameters<typeof cmsHostFixture>[1] = {},
 ): Promise<CommerceHostTestFixture> {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
-  const base = await cmsHostFixture(persistence, { controlPersistence, physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
+  const base = await cmsHostFixture(persistence, { ...cmsOptions, controlPersistence, physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
   const snapshot = frameworkMigrationTargetSnapshot(base.target);
   if (snapshot === undefined) throw new Error("Missing authenticated target");
   const prepared = await runEffect(prepare(base.fixture.deploymentId, { physicalLocator: snapshot.physicalLocator, targetNamespace: snapshot.namespace }));
@@ -95,6 +97,6 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
   const prior = await runEffect(base.bindings.withCurrent(readAdmittedDataBinding));
   const candidate = await runEffect(bindings.prepare(frame));
   await runEffect(bindings.activate(dataBindingActivationRequest(base.reference.scopeId, base.reference.storageGeneration, "commerce-activate", candidate.sha256, prior.head)));
-  return { persistence, session, bindings, bindingsInput, host, hostInput, prepared, descriptor, installation, candidate,
+  return { cms: base, persistence, session, bindings, bindingsInput, host, hostInput, prepared, descriptor, installation, candidate,
     takeDeliveries: local?.takeDeliveries ?? (() => []) };
 }

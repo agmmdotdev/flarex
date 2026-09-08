@@ -27,10 +27,10 @@ interface AdmissionState {
 }
 const admissions = new WeakMap<object, AdmissionState>();
 
-export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransaction")(function* <Value, Failure>(
+export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransaction")(function* <Value, Failure, Requirements>(
   profile: CommerceProfile, target: FrameworkMigrationTarget, reference: InstallationBindingReference,
   selection: ApplicationActiveSelection, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-  clock: ScopeClockRecord, bootstrap: boolean, work: (admission: CommerceAdmission) => Effect.Effect<Value, Failure>,
+  clock: ScopeClockRecord, bootstrap: boolean, work: (admission: CommerceAdmission) => Effect.Effect<Value, Failure, Requirements>,
 ) {
   const snapshot = frameworkMigrationTargetSnapshot(target);
   if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||

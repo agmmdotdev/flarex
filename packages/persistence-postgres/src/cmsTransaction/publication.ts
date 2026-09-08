@@ -1,96 +1,29 @@
-import {
-  allocatePointCommitKernelResult,
-  readPointCommitDatabaseTime,
-  writeScopePublicationPrefix,
-  advanceScopePublicationClock,
-} from "../commitPublication/pointCommitProjection";
-import {
-  ApplicationDocumentMaterializationOptions,
-  PointCommitDependencyV1,
-  ApplicationDocumentDefinitionCommand,
-  ApplicationDocumentMaterializationCommand,
-  PreparedPointCommitCandidateSchemaWriteGuard,
-  PreparedPointCommitApplicationRelations,
-} from "../applicationDocumentMaterialization/model";
+import { validateCmsDocumentContribution } from "./contribution";
+import { prepareApplicationDocumentParticipant, enterApplicationDocumentParticipant } from "../applicationDocumentMaterialization/participant";
+import { allocatePointCommitKernelResult, readPointCommitDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock } from "../commitPublication/pointCommitProjection";
+import type { ApplicationDocumentMaterializationOptions } from "../applicationDocumentMaterialization/model";
 import type { CmsMaterializationTestHooks } from "./testSupport";
-import { hasApplicationRelationCommitAuthorityForPointCommit } from "../applicationRelationCommit";
-import { hasAppSchemaCandidateWriteGuardComposition } from "../appSchemaCandidateValidation";
-import {
-  prepareIntrinsicIndexDefinitions,
-  prepareDeveloperIndexDefinitions,
-  MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
-  prepareUniqueConstraintDefinitions,
-  validateApplicationUniqueTransitionBudget,
-  prepareCandidateSchemaWriteGuard,
-  prepareApplicationRelationDefinitions,
-  lockPointCommitIntrinsicIndexBuilds,
-  lockPointCommitDeveloperIndexBuilds,
-  loadPointCommitHeads,
-  validatePointCommitDependenciesResult,
-  preparePointCommitApplicationRelationPlan,
-  preparePointCommitDeveloperIndexActions,
-  preparePointCommitUniqueKeyActions,
-  runCandidateSchemaWriteGuard,
-  materializeApplicationDocumentRows,
-  maintainPointCommitApplicationRelationsEffect,
-  resetPointCommitDeveloperIndexValidation,
-} from "../applicationDocumentMaterialization/materialization";
-import {
-  PointCommitSqlFailureMarkerV1,
-  PointCommitSqlErrorV1,
-  mapTransactionFailure,
-} from "../pointCommitErrors";
 
-import {
-  type ScopePublicationContribution,
-  type ScopePublicationKernel,
-} from "../commitPublication/scopePublicationModel";
-import { SnapshotTokenSchema } from "flarex-protocol/storage-authority";
-import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
+import { PointCommitSqlErrorV1, mapTransactionFailure } from "../pointCommitErrors";
+
+import { type ScopePublicationContribution, type ScopePublicationKernel } from "../commitPublication/scopePublicationModel";
+
 import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
-import {
-  requireCmsAdmission,
-  type CmsAdmission,
-  type PreparedCmsApplication,
-} from "../cmsTransaction/admission";
-import {
-  consumeCmsDocumentClosure,
-  type CmsDocumentClosure,
-} from "../cmsTransaction/documents";
+import { requireCmsAdmission, type CmsAdmission, type PreparedCmsApplication } from "../cmsTransaction/admission";
+import { consumeCmsDocumentClosure, type CmsDocumentClosure } from "../cmsTransaction/documents";
 import type { CmsRequestLifetime } from "../cmsTransaction/lifetime";
-import {
-  consumePayloadPreferenceCleanup,
-  type PayloadPreferenceCleanupClosure,
-} from "../payloadPreferences/cleanup";
+import { consumePayloadPreferenceCleanup, type PayloadPreferenceCleanupClosure } from "../payloadPreferences/cleanup";
 import { fxSystemCommitPayloadPreferenceDeletions } from "../payloadPreferences/factsSchema";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { cmsError, type CmsTransactionError } from "../cmsTransaction/model";
 
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 
-import {
-  appRowIdHexV1ToBytes,
-  decodeAppDocumentIdentityV1Result,
-} from "flarex-protocol/app-document-id";
+import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 
-import {
-  projectScopeEpochUuidV1Result,
-  projectScopeIdUuidV1Result,
-  type CommitSeq,
-} from "flarex-protocol/storage-authority";
-
-import { type LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
+import { projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
 
 import { AppUniqueKeyConflictError } from "../appUniqueKeys";
-
-import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
-
-import {
-  ApplicationRelationCommitResourceExhaustionError,
-  ApplicationRelationConstraintError,
-  ApplicationRelationTargetDeleteRestrictedError,
-  ApplicationRelationTargetNotLiveError,
-} from "../applicationRelationCommit";
 
 import { type ResolveCommittedPointOutcomeInputV1 } from "../committedPointOutcome";
 
@@ -102,143 +35,22 @@ import type { ScopePublicationOptions } from "../commitPublication/scopePublicat
 export type CmsMaterializationOptions =
   ApplicationDocumentMaterializationOptions & ScopePublicationOptions;
 
-interface PreparedCmsCommit {
-  readonly application: PreparedCmsApplication;
-  readonly command: ApplicationDocumentDefinitionCommand;
-  readonly intrinsic: readonly LocatedAppIndexDefinitionV1[];
-  readonly developer: readonly LocatedAppIndexDefinitionV1[];
-  readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
-  readonly candidate: PreparedPointCommitCandidateSchemaWriteGuard;
-  readonly relations: PreparedPointCommitApplicationRelations | null;
-  readonly options: CmsMaterializationOptions;
-}
-
-const cmsPreparations = new WeakSet<object>();
-
-const decodeCmsDeploymentId = Schema.decodeUnknownResult(
-  TransactionGrantDeploymentIdV1Schema,
-);
-
-/** Source-private second participant. It never manufactures executor/session authority. */
 export const prepareCmsApplicationCommit = Effect.fn("CmsCommit.prepare")(
-  function* (
-    application: PreparedCmsApplication,
-    authority: TrustedScopeAuthority,
-    ports: PointMutationSessionAuthorityResolutionPortsV1,
-    options: CmsMaterializationOptions,
-  ) {
-    if (
-      options.intrinsicCreationTimeIndexes === undefined ||
-      options.developerIndexes === undefined ||
-      options.uniqueConstraints === undefined ||
-      options.candidateSchemaWriteGuard === undefined
-    ) {
-      return yield* Effect.fail(cmsError("invalidAuthority"));
-    }
-    const tableIds =
-      application.schema.writePolicy?.writePolicies
-        .filter((policy) => policy.owner === "payload")
-        .map((policy) => policy.tableId) ?? [];
-    const scope = yield* Effect.fromResult(
-      projectScopeIdUuidV1Result(authority.scopeId),
-    );
-    const deploymentId = yield* Effect.fromResult(
-      decodeCmsDeploymentId(application.schema.deploymentId),
-    );
-    const command: ApplicationDocumentDefinitionCommand = {
-      authorityPins: {
-        deploymentId,
-        scopeId: scope.scopeId,
-        schemaVersionId: application.schema.schemaVersionId,
-      },
-      rowIntents: tableIds
-        .toSorted((a, b) => a - b)
-        .map((tableId) => ({ tableId })),
-    };
-    const intrinsic = yield* prepareIntrinsicIndexDefinitions(command, options);
-    const developer = yield* prepareDeveloperIndexDefinitions(command, options);
-    const unique = yield* prepareUniqueConstraintDefinitions(command, options);
-    const candidate = yield* prepareCandidateSchemaWriteGuard(
-      command,
-      {
-        hasRelationAuthority: (port) =>
-          hasApplicationRelationCommitAuthorityForPointCommit(port, ports),
-        hasCandidateGuardAuthority: (port) =>
-          hasAppSchemaCandidateWriteGuardComposition(port, ports),
-      },
-      options,
-    );
-    if (candidate === null)
-      return yield* Effect.fail(cmsError("invalidAuthority"));
-    const relations =
-      application.schema.relations.length === 0
-        ? null
-        : yield* prepareApplicationRelationDefinitions(
-            command,
-            {
-              hasRelationAuthority: (port) =>
-                hasApplicationRelationCommitAuthorityForPointCommit(
-                  port,
-                  ports,
-                ),
-              hasCandidateGuardAuthority: (port) =>
-                hasAppSchemaCandidateWriteGuardComposition(port, ports),
-            },
-            options,
-          );
-    if (
-      application.schema.relations.length > 0 &&
-      (relations?.definitions === null ||
-        relations === null ||
-        relations.definitions.applicationSchemaSha256 !==
-          application.schema.applicationSchemaSha256 ||
-        relations.definitions.schemaManifestSha256 !==
-          application.schema.schemaManifestSha256 ||
-        relations.definitions.boundPublicationSha256 !==
-          application.schema.boundPublicationSha256 ||
-        relations.definitions.definitions.length !==
-          application.schema.relations.length)
-    )
-      return yield* Effect.fail(cmsError("invalidAuthority"));
-    const prepared: PreparedCmsCommit = Object.freeze({
-      application,
-      command,
-      intrinsic,
-      developer,
-      unique,
-      candidate,
-      relations,
-      options,
-    });
+  function* (application: PreparedCmsApplication, authority: TrustedScopeAuthority,
+    ports: PointMutationSessionAuthorityResolutionPortsV1, options: CmsMaterializationOptions) {
+    const core = yield* prepareApplicationDocumentParticipant(application.schema, authority, ports, options,
+      application.schema.writePolicy?.writePolicies.filter(policy => policy.owner === "payload").map(policy => policy.tableId) ?? [])
+      .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
+    const prepared = Object.freeze({ application, core, options });
     cmsPreparations.add(prepared);
     return prepared;
-  },
-);
-
-/** Only the physical owner calls this bridge into its existing Promise-based kernel. */
-function projectCmsKernelFailure(cause: unknown): CmsTransactionError {
-  if (cause instanceof ApplicationRelationConstraintError)
-    return cmsError("relationInvalid", cause);
-  if (cause instanceof ApplicationRelationTargetNotLiveError)
-    return cmsError("relationTargetMissing", cause);
-  if (cause instanceof ApplicationRelationTargetDeleteRestrictedError)
-    return cmsError("relationDeleteRestricted", cause);
-  if (cause instanceof ApplicationRelationCommitResourceExhaustionError)
-    return cmsError("limitExceeded", cause);
+  });
+const cmsPreparations = new WeakSet<object>();
+type PreparedCmsCommit = Effect.Success<ReturnType<typeof prepareCmsApplicationCommit>>;
+const cmsKernel = <Value>(work: () => Promise<Value>) => Effect.tryPromise({ try: work, catch: cause => {
   const failure = mapTransactionFailure(cause);
-  return cmsError(
-    failure instanceof PointCommitSqlErrorV1
-      ? "statementFailure"
-      : failure instanceof AppUniqueKeyConflictError
-        ? "uniqueConflict"
-        : "storedCorruption",
-    failure,
-  );
-}
-
-/** Participant boundary over the existing shared Promise transaction kernel. */
-const cmsKernel = <Value,>(work: () => Promise<Value>) =>
-  Effect.tryPromise({ try: work, catch: projectCmsKernelFailure });
+  return cmsError(failure instanceof PointCommitSqlErrorV1 ? "statementFailure" : failure instanceof AppUniqueKeyConflictError ? "uniqueConflict" : "storedCorruption", failure);
+}});
 
 export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
   function* (
@@ -250,7 +62,7 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
     if (
       !cmsPreparations.has(prepared) ||
       state.schema !== prepared.application.schema ||
-      state.authority.scopeId !== prepared.command.authorityPins.scopeId
+      state.authority.scopeId !== prepared.core.command.authorityPins.scopeId
     )
       return yield* Effect.fail(cmsError("invalidAuthority"));
     const scope = yield* Effect.fromResult(
@@ -264,35 +76,8 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
       scopeUuid: scope.scopeUuid,
       epochUuid: epoch.epochUuid,
     };
-    const authorityPins = {
-      ...prepared.command.authorityPins,
-      snapshotToken: SnapshotTokenSchema.make({
-        scopeId: state.authority.scopeId,
-        epoch: state.clock.epoch,
-        commitSeq: state.clock.lastCommitSeq,
-      }),
-    };
-    const empty: ApplicationDocumentMaterializationCommand = {
-      authorityPins,
-      rowIntents: [],
-      dependencies: [],
-    };
-    const intrinsic = yield* cmsKernel(() =>
-      lockPointCommitIntrinsicIndexBuilds(
-        state.tx,
-        clock,
-        prepared.intrinsic,
-        empty,
-      ),
-    );
-    const developer = yield* cmsKernel(() =>
-      lockPointCommitDeveloperIndexBuilds(
-        state.tx,
-        clock,
-        prepared.developer,
-        empty,
-      ),
-    );
+    const core = yield* enterApplicationDocumentParticipant(prepared.core, state.tx, state.authority, state.clock, state.schema)
+      .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
     let finalized = false;
     const finalize = Effect.fn("CmsCommit.finalize")(function* (
       closure: CmsDocumentClosure,
@@ -347,100 +132,9 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
             contentRowId: appRowIdHexV1ToBytes(content.rowId),
           });
       }
-      const allowed = new Set(
-        state.frame.payloadContent?.tables.map((table) => table.tableId),
-      );
-      const noFinal = yield* Effect.forEach(closed.noFinalRows, (documentId) =>
-        Effect.fromResult(decodeAppDocumentIdentityV1Result(documentId)).pipe(
-          Effect.mapError((cause) => cmsError("storedCorruption", cause)),
-          Effect.map(
-            (row) =>
-              ({
-                documentId: row.id,
-                tableId: row.tableId,
-                rowId: row.rowId,
-                dependency: {
-                  kind: "appRowPoint",
-                  documentId: row.id,
-                  observed: {
-                    kind: "missing",
-                    basis: { kind: "noVisibleRevision" },
-                  },
-                },
-              }) satisfies PointCommitDependencyV1,
-          ),
-        ),
-      );
-      const dependencies = [...closed.changes, ...noFinal].toSorted(
-        (a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId),
-      );
-      const dispositions = new Map(
-        dependencies.map((row) => [row.documentId, row]),
-      );
-      if (
-        dispositions.size !== dependencies.length ||
-        dependencies.some((row) => !allowed.has(row.tableId.toString())) ||
-        closed.attempts.some(
-          (attempt, index) =>
-            attempt.ordinal !== index || !dispositions.has(attempt.documentId),
-        ) ||
-        dependencies.some(
-          (row) =>
-            !closed.attempts.some(
-              (attempt) => attempt.documentId === row.documentId,
-            ),
-        )
-      ) {
-        return yield* Effect.fail(cmsError("invalidAuthority"));
-      }
-      const command: ApplicationDocumentMaterializationCommand = {
-        authorityPins,
-        rowIntents: closed.changes,
-        dependencies,
-      };
-      yield* Effect.fromResult(
-        validateApplicationUniqueTransitionBudget(
-          closed.changes,
-          prepared.unique,
-        ),
-      ).pipe(Effect.mapError((cause) => cmsError("limitExceeded", cause)));
-      const minimumIndexRevisions = prepared.developer.reduce(
-        (total, definition) =>
-          total +
-          closed.changes.filter(
-            (row) => row.tableId === definition.access.tableId,
-          ).length,
-        0,
-      );
-      if (
-        minimumIndexRevisions >
-        MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1
-      )
-        return yield* Effect.fail(cmsError("limitExceeded"));
-      const heads = yield* cmsKernel(() =>
-        loadPointCommitHeads(state.tx, clock, command, prepared.options),
-      );
-      yield* Effect.fromResult(
-        validatePointCommitDependenciesResult(command, heads),
-      ).pipe(Effect.mapError((cause) => cmsError("storedCorruption", cause)));
-      const relationDefinitions = prepared.relations?.definitions;
-      const relationPlan = yield* cmsKernel(() =>
-        preparePointCommitApplicationRelationPlan(
-          state.tx,
-          command,
-          heads,
-          relationDefinitions === undefined ||
-            relationDefinitions === null ||
-            prepared.relations === null
-            ? null
-            : {
-                port: prepared.relations.port,
-                definitions: relationDefinitions,
-              },
-          state.clock.lastCommitSeq,
-          prepared.options,
-        ),
-      );
+      const { dependencies } = yield* validateCmsDocumentContribution(admission, closed);
+      const delta = yield* core.prepareDelta(closed.changes, dependencies)
+        .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
       const now = yield* cmsKernel(() =>
         readPointCommitDatabaseTime(state.tx, scope.scopeId, prepared.options),
       );
@@ -449,82 +143,8 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
       ).pipe(Effect.mapError((cause) => cmsError("resourceFailure", cause)));
       if (allocation.outboxSeq === null)
         return yield* Effect.fail(cmsError("storedCorruption"));
-      const changed = new Set(closed.changes.map((row) => row.tableId));
-      const selectedDeveloper = developer.filter((index) =>
-        changed.has(index.definition.access.tableId),
-      );
-      const indexActions = yield* cmsKernel(() =>
-        preparePointCommitDeveloperIndexActions(
-          state.tx,
-          command,
-          heads,
-          selectedDeveloper,
-        ),
-      );
-      const uniqueActions = yield* cmsKernel(() =>
-        preparePointCommitUniqueKeyActions(
-          state.tx,
-          command,
-          heads,
-          prepared.unique.filter((definition) =>
-            changed.has(definition.tableId),
-          ),
-        ),
-      );
-      yield* runCandidateSchemaWriteGuard(
-        state.tx,
-        prepared.candidate,
-        state.authority,
-        state.clock,
-        allocation.commitSeq,
-        closed.changes.flatMap((row) =>
-          row.kind === "live"
-            ? [
-                {
-                  tableId: row.tableId,
-                  rowId: row.rowId,
-                  document: row.document,
-                },
-              ]
-            : [],
-        ),
-      ).pipe(Effect.mapError(projectCmsKernelFailure));
-      yield* cmsKernel(() =>
-        materializeApplicationDocumentRows(
-          state.tx,
-          command,
-          allocation.commitSeq,
-          state.clock.epoch,
-          heads,
-          intrinsic.filter((index) =>
-            changed.has(index.definition.access.tableId),
-          ),
-          indexActions,
-          uniqueActions,
-          prepared.options,
-        ),
-      );
-      if (relationPlan !== null)
-        yield* maintainPointCommitApplicationRelationsEffect(
-          state.tx,
-          command,
-          allocation.commitSeq,
-          relationPlan,
-          prepared.options,
-        ).pipe(
-          Effect.mapError((cause) =>
-            cause instanceof ApplicationRelationTargetDeleteRestrictedError
-              ? cmsError("relationDeleteRestricted", cause)
-              : cause instanceof PointCommitSqlFailureMarkerV1
-                ? cmsError("statementFailure", cause)
-                : cmsError("storedCorruption", cause),
-          ),
-        );
-      for (const index of selectedDeveloper)
-        yield* cmsKernel(() =>
-          resetPointCommitDeveloperIndexValidation(state.tx, index.build),
-        );
-
+      const adjacency = yield* delta.lower(allocation.commitSeq)
+        .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
       // Positive receipts exist only after checked Application lowering. This issuer
       // and registry are unique to this physical transaction, admission and closure.
       const receipts = closed.attempts.map((attempt) =>
@@ -572,7 +192,7 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
         clock,
         ...allocation,
         outboxSeq: allocation.outboxSeq,
-        relationAdjacencyChanges: relationPlan?.prepared.adjacencyChanges ?? [],
+        relationAdjacencyChanges: adjacency,
       };
       yield* cmsKernel(() =>
         writeScopePublicationPrefix(
@@ -619,6 +239,6 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
       );
       return allocation.commitSeq;
     });
-    return Object.freeze({ uniqueDefinitions: prepared.unique, finalize });
+    return Object.freeze({ uniqueDefinitions: core.uniqueDefinitions, finalize });
   },
 );

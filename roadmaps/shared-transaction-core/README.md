@@ -4,8 +4,9 @@
 
 Status: ownership audit complete and R1/R2 ownership replacements implemented.
 Shared publication and framework recovery extraction is complete for its bounded
-contract. Broader measured validation remains open; cross-domain command
-participation is a separately proposed capability.
+contract. The private Currency + scalar CMS + Application command is
+implemented with one shared lifetime and settlement. Broader measured validation
+and additional composition profiles remain open.
 
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;
@@ -134,14 +135,16 @@ include their consumer switches and logic cleanup; neither requires DDL.
 | [R2 CMS participant/materialization](./04-implementation-proposal.md#r2-cms-participant-and-application-materialization) | Implemented | CMS orchestration leaves native OCC; both participants use one shared materializer; displaced paths removed |
 | [Replacement and cleanup](./02-migration-and-cleanup.md) | R1/R2 logic cleanup complete; no DDL | Each approved replacement completes its consumer switch and logic cleanup; retained state justified |
 | [Performance and conformance](./03-validation-and-completion.md) | Focused extraction proof exists; broader measurement pending | Representative costs and concurrency meet explicit criteria; affected semantics preserved |
+| [Named cross-domain command](./05-named-command-preflight.md) | Private Currency + scalar CMS + Application profile implemented | Actual domain paths, complete atomic publication, rollback and retained recovery proven |
 | Overall redesign reconciliation | Open | All required audit findings resolved; retained boundaries justified; independent capabilities explicitly deferred |
 
-For the next shared-core implementation, the
-[named-command preflight](./05-named-command-preflight.md) recommends one private
-Application + scalar CMS + Currency command with borrowed participants and one
-finalizer. This is a proposed capability, not another required ownership repair
-or permission to begin implementation. Its first proof excludes additional
-relational installations, public APIs and general mixed OCC.
+The [named-command contract](./05-named-command-preflight.md) is implemented
+privately: real Currency, scalar Payload CMS and an Application-owned insert
+share one physical transaction, aggregate lifetime, retained result and
+finalizer. Focused PGlite and genuine PostgreSQL proofs cover combined rollback,
+replay, cancellation, contention, native range conflicts and uncertain COMMIT
+recovery. Additional relational installations, domain-event delivery, public
+APIs and general mixed OCC remain separately gated.
 
 The separate completion gate is representative measured validation. Product scale remains in
 [record 35](../flarexdb-framework-integration/preflight/35-medusa-product-scale.md);

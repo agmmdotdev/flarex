@@ -19,7 +19,8 @@ Neutral physical resource ownership and the CMS participant / shared Application
 materialization split are implemented. The audited default ownership replacements
 are complete; representative performance and overall completion gates remain open.
 The [named-command preflight](../roadmaps/shared-transaction-core/05-named-command-preflight.md)
-proposes a separately approved next capability for actual cross-domain participation.
+defines the implemented private Currency + scalar CMS + Application command.
+Its no-event, single-installation profile does not admit broader composition.
 
 ## Decision: Shared Core Guarantees, Distinct Execution
 

@@ -6,9 +6,10 @@ Status: accepted architecture direction and source-backed preflight;
 the private scalar transaction/store is implemented under
 [its concrete contract](./15-scalar-relational-transaction-and-store.md).
 Current native, CMS and commerce publication paths are implemented under their
-individual admission contracts. The cross-domain command proof remains pending;
-the [named-command preflight](../../shared-transaction-core/05-named-command-preflight.md)
-defines the proposed first scope and its separate approval boundary.
+individual admission contracts. The private Currency + scalar CMS + Application
+cross-domain command is implemented under the
+[named-command contract](../../shared-transaction-core/05-named-command-preflight.md).
+Event delivery, additional installations and public composition remain gated.
 
 This decision makes shared Application, Payload, and Medusa transaction
 ownership concrete without replacing their execution semantics. It refines
@@ -124,8 +125,9 @@ Example target: update a commerce product through its service, create a CMS
 announcement, and update an Application launch record. A failure at the final
 operation rolls all database changes back and releases no success event.
 Product and CMS feature gates must pass before this example is admitted. The
-smaller first proof uses an Application row, a scalar CMS collection, and one
-supported Currency service operation.
+implemented first proof uses an Application row, a scalar CMS collection, and
+one supported Currency service operation. It admits no domain events and has
+PGlite and genuine PostgreSQL atomicity/recovery coverage.
 
 This is a separate command entry point, not an independently committing helper
 called from within today's journal-based mutation. Such a helper would commit

@@ -47,6 +47,22 @@ export interface BoundedRequestLifetime<Failure> {
   readonly remainingBytes: () => number;
 }
 
+/** Domain projection over one root lifetime; budgets, contexts and failure latch are shared. */
+export function projectBoundedRequestLifetime<Outer, Inner extends Outer>(
+  root: BoundedRequestLifetime<Outer>, project: (failure: Outer) => Inner,
+): BoundedRequestLifetime<Inner> {
+  return Object.freeze({
+    context: root.context, isClosing: root.isClosing, remainingBytes: root.remainingBytes, close: root.close,
+    begin: (context, id) => root.begin(context, id).pipe(Effect.mapError(project)),
+    adapterCommit: (context, id) => root.adapterCommit(context, id).pipe(Effect.mapError(project)),
+    rollback: (context, id) => root.rollback(context, id).pipe(Effect.mapError(project)),
+    operation: (context, id, mode, work) => root.operation(context, id, mode, work).pipe(Effect.mapError(project)),
+    nested: (context, id, work, mode) => root.nested(context, id, work, mode).pipe(Effect.mapError(project)),
+    charge: bytes => root.charge(bytes).pipe(Result.mapError(project)),
+    seal: root.seal.pipe(Effect.mapError(project)),
+  } satisfies BoundedRequestLifetime<Inner>);
+}
+
 export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime")(function* <Failure, Owner extends object, RequestIdentity extends object>(
   failure: (reason: RequestFailureReason, cause?: unknown) => Failure,
   limits: RequestLimits,

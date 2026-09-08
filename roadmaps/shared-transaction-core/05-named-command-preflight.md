@@ -2,54 +2,56 @@
 
 ## Decision And Status
 
-Proposed; implementation requires explicit approval. The recommended next
-shared-core capability is one named trusted command that changes an
-Application-owned row, creates a scalar Payload CMS announcement, and performs
-one admitted Medusa Currency write in the same scope and physical transaction.
+Implemented privately as `makeCurrencyAnnouncementHost`, with the retained
+operation identity `publishCurrencyAnnouncement`. One trusted command upserts
+Currency through the real Medusa service, creates a scalar Payload CMS post,
+and inserts one Application-owned record in one scope and physical transaction.
 It returns one retained result and settles through one outer finalizer.
 
-R1/R2 completed the audited default ownership replacements. This capability
-closes a different gap: independent framework hosts currently share mechanisms
-but cannot participate in one command. It is not a prerequisite invented to
-reopen R2, a performance project, or general cross-framework logical OCC.
+R1/R2 completed the audited default ownership replacements. This separate
+capability adds actual participation across the framework boundaries. Public
+exposure, event delivery, multiple relational installations and general mixed
+sandbox OCC retain separate admission gates.
 
 The [accepted shared-owner design](../../design-notes/flarexdb-commerce-occ-migration-preflight.md),
 [execution profiles](../flarexdb-framework-integration/preflight/14-transaction-execution-profiles.md#explicit-cross-domain-atomic-command),
 and [framework transaction gate](../flarexdb-framework-integration/04-transactions-and-commit-publication.md#explicit-cross-domain-command-gate)
-own the direction. This record proposes its concrete first admission and
-implementation scope. The original revised shared-transactions design report,
+own the direction. This record defines the implemented first admission and
+its bounded scope. The original revised shared-transactions design report,
 sections 7 and 13, separates default consolidation from optional named SQL
 composition and says not to invent a refactor when existing owners fit.
 
-## Current Evidence And Gaps
+## Current Owners And Evidence
 
-| Current source | Finding and consequence |
+| Source | Implemented responsibility |
 | --- | --- |
-| [Physical session](../../packages/persistence-postgres/src/physicalSession/postgres.ts), [relational session](../../packages/persistence-postgres/src/relationalTransaction/session.ts) | Physical transaction lifetime and settlement already have a neutral owner. Reuse them; no new driver or COMMIT state machine. |
-| [CMS host](../../packages/persistence-postgres/src/cmsTransaction/host.ts), [commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts) | Each opens its own session, locks the scope clock, resolves its own request outcome, runs domain work and finalizes. Sequential host calls cannot provide atomic composition. |
-| [CMS admission](../../packages/persistence-postgres/src/cmsTransaction/admission.ts) | Explicitly rejects a frame with commerce. Removing that condition alone would omit the new participant and finalization authority. |
-| [Binding model](../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts), [commerce admission](../../packages/persistence-postgres/src/commerceTransaction/admission.ts) | The existing frame can hold Application, Payload content and one commerce binding. Commerce verifies its installation and Application projection; composition must authenticate one common frame/head and placement for all participants. |
-| [CMS publication](../../packages/persistence-postgres/src/cmsTransaction/publication.ts) | Authenticates closures and receipts, allocates a sequence, lowers Application data, and publishes. R2 separated ownership, but did not expose a borrowed contribution that waits for another domain. |
-| [Commerce publication](../../packages/persistence-postgres/src/commerceTransaction/publication.ts) | Consumes its own row closure, allocates and publishes. Split participant contribution from root finalization without creating a second publication algorithm. |
-| [Application materializer](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts), [scope execution](../../packages/persistence-postgres/src/scopeExecution/ScopeExecution.ts) | Row/index/unique/relation lowering and scoped execution exist. Neither alone is an authenticated Application business-write capability. A narrow Application participant is new work. |
-| [Publication model](../../packages/persistence-postgres/src/commitPublication/scopePublicationModel.ts) | Already represents Application row intents and relational facts together. Reuse this representation after participant authentication; its structural type is not authority. |
-| [Relational fact reader](../../packages/persistence-postgres/src/commitPublication/relationalFacts.ts) | Validates every relational fact against one installation/layout. Scalar CMS content is Application data, so one Currency installation fits; multi-installation consumption is unnecessary for this scope. |
-| [Request recovery](../../packages/persistence-postgres/src/relationalTransaction/requestRecovery.ts) | One recovery-only re-entry after an uncertain decision; it does not retry business work. Reuse it for the whole command. |
+| [Composite host](../../packages/persistence-postgres/src/crossDomainCommand/host.ts) | One fixed command, admitted domain contexts, aggregate lifetime, retained lookup, combined contribution and outer publication. |
+| [Composite binding](../../packages/persistence-postgres/src/crossDomainCommand/binding.ts) | Live commerce proof bound to the exact transaction, scope-clock object, frame and head; standalone CMS continues rejecting commerce bindings. |
+| [Physical session](../../packages/persistence-postgres/src/physicalSession/postgres.ts), [relational session](../../packages/persistence-postgres/src/relationalTransaction/session.ts) | Existing acquisition, physical settlement and cleanup state machines. |
+| [Document participant](../../packages/persistence-postgres/src/applicationDocumentMaterialization/participant.ts) | Shared preparation, index/head/dependency validation and combined lowering; CMS-specific closure and receipt authority stays with CMS. |
+| [Application insert participant](../../packages/persistence-postgres/src/applicationDocumentMaterialization/insertParticipant.ts) | One schema-validated Application-owned insert, pending read and authenticated once-only closure. |
+| [CMS publication](../../packages/persistence-postgres/src/cmsTransaction/publication.ts), [commerce publication](../../packages/persistence-postgres/src/commerceTransaction/publication.ts) | Existing standalone roots reuse participant preparation or contribution consumption while retaining their own finalization contracts. |
+| [Publication](../../packages/persistence-postgres/src/commitPublication/publication.ts), [request recovery](../../packages/persistence-postgres/src/relationalTransaction/requestRecovery.ts) | One sequence/header, all Application and Currency facts, one retained result/wake/clock advance, and recovery-only re-entry. |
+| [Currency service](../../packages/medusa-adapter/src/currency-service.ts) | Private write command uses the existing internal upsert and module retrieve with the same manager. |
 
-Existing regression anchors include the CMS host and participant-admission
-scenarios, Payload scalar scenarios, commerce publication scenario, and
-[actual Currency service publication proof](../../packages/medusa-adapter/test/support/live-checks.ts).
-They establish the available individual paths and assertions, not combined-command
-conformance. This preflight is source inspection; it does not claim a new test run.
+The [combined scenario](../../packages/persistence-postgres/test/currencyAnnouncement.test.ts)
+exercises real Currency and Payload operations, rollback inventories, retained
+replay, authority and closure refusals, native range overlap and physical
+PostgreSQL failures. [Lifetime tests](../../packages/persistence-postgres/test/compositeLifetime.test.ts)
+cover shared budgets and rollback-only state; [failure projection tests](../../packages/persistence-postgres/test/compositeFailure.test.ts)
+preserve publication corruption/resource categories. Existing standalone
+CMS, scalar Payload, relation/preference, native transaction and Currency proofs
+remain regression obligations. Detailed execution receipts live outside the
+roadmap.
 
 ## First Command Contract
 
 Use a private `publishCurrencyAnnouncement` command as the bounded integration
 proof: upsert one Currency through the existing private Medusa internal service
 path, create one scalar CMS post through Payload's Local API, then create one
-Application-owned announcement record. Return the Currency code and both row
-identities. The final Application step is the decisive late-failure case.
-This command name is a proposal, not a shipped API or a claim of product demand.
+Application-owned announcement record. Return the Currency service result,
+the CMS result (including its row identity), and `applicationId`. The final Application step is the decisive late-failure case.
+This remains a source-private integration command, with no public application API.
 
 Use the existing Currency `internal.upsert` followed by
 `service.retrieveCurrency` with the same admitted manager, as the publication
@@ -121,14 +123,16 @@ Keep current bounded SQL isolation. This is not native snapshot/journal/OCC
 execution. Verify that its Application writes remain visible to, and conflict
 correctly with, existing native attempts through normal revision/index facts.
 
-Proposed aggregate limits retain the current framework envelope: 10 seconds
-for command execution, 1 second per statement, 500 ms lock wait, and 2 seconds
+Aggregate limits retain the current framework envelope: 10 seconds
+for admitted command execution, 1 second per statement, 500 ms lock wait, and 2 seconds
 for cleanup. Share at most 64 charged operations and 1 MiB captured command,
 working-state, receipt and result budget across participants; retain 64 KiB
 individual row/document ceilings and existing domain-specific tighter limits.
 Nested calls do not reset the deadline or receive another full budget. Reuse
 the existing separate bounded recovery attempt. No automatic callback retry,
-savepoint recovery or new timeout/cleanup policy is admitted.
+savepoint recovery or new timeout/cleanup policy is admitted. Authority
+preparation before physical session entry is outside this execution envelope,
+as in the existing framework hosts; these limits are not latency measurements.
 
 ## Source Compatibility And Challenges
 
@@ -167,17 +171,17 @@ adapter access uses the existing private boundary, not a public package root.
 The accepted notes previously still described R2 as awaiting approval and all
 commit-family work as pending. Those statements are stale and are reconciled
 with current source. Conversely, the broader framework gate mentions typed
-event intents: this first proposed profile admits no domain events and therefore
+event intents: this first implemented profile admits no domain events and therefore
 does not complete that broader delivery gate. Performance and Product scale
 remain independent; neither is the implementation selected by this preflight.
 
 ## Implementation Order And Completion Proof
 
-Implement this as one coherent capability: participant closure seams and root
+The implementation forms one coherent capability: participant closure seams and root
 adapter reuse; composite binding/lifetime/replay admission; explicit Application
 capability and combined lowering; fixed Payload/Currency command integration;
-then failure/concurrency/recovery conformance and removal of displaced code.
-These are implementation steps, not separate research or approval turns.
+failure/concurrency/recovery conformance and removal of displaced mechanics.
+Broader event and production acceptance remain separate capabilities.
 
 | Proof | Required evidence |
 | --- | --- |

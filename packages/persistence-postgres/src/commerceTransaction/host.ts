@@ -1,3 +1,4 @@
+import { makeCommerceCommandContext } from "./context";
 import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
 import { getCommerceCommand, type CommerceCommand, type CommerceCommandContext, type CommerceHost } from "./commands";
 export { defineCommerceCommand } from "./commands";
@@ -154,14 +155,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
             const invoke = Effect.fn("CommerceHost.invoke")(function* (context: BoundedRequestContext, command: CommerceCommand, inputArgs: Json): Effect.fn.Return<Json, CommerceTransactionError> {
               const definition = getCommerceCommand(command);
               if (definition === undefined || !allowed.has(command) || (key === null && definition.mode !== "read")) return yield* Effect.fail(commerceError("invalidAuthority"));
-              const contextFor = (manager: BoundedRequestContext): CommerceCommandContext => Object.freeze({ manager, store: working.store,
-                table: (tableId: string) => working.table(manager, tableId),
-                captureLocalEvent: (event: unknown) => captureEvent(manager, event),
-                nested: (child: CommerceCommand, childArgs: Json) => lifetime.nested(manager, id, next => invoke(next, child, childArgs), getCommerceCommand(child)?.mode),
-                rejectEvent: lifetime.operation(manager, id, "write", Effect.fail(commerceError("unadmittedEvent"))),
-                refuse: (error: CommerceTransactionError) => lifetime.operation(manager, id, "read", Effect.fail(error)),
-                borrow: <Value>(work: (context: CommerceCommandContext) => Effect.Effect<Value, CommerceTransactionError>) => lifetime.nested(manager, id, child => work(contextFor(child))),
-              });
+              const contextFor = (manager: BoundedRequestContext) => makeCommerceCommandContext(lifetime, working, id, manager, invoke, captureEvent);
               const commandInput = yield* Effect.fromResult(capturePrivateJsonData(inputArgs, lifetime.remainingBytes(), commerceError));
               yield* Effect.fromResult(lifetime.charge(commandInput.bytes));
               const output = yield* definition.run(contextFor(context), commandInput.value);

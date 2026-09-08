@@ -1,3 +1,4 @@
+import { makeCmsCommandContext } from "./context";
 import type { CmsMaterializationTestHooks } from "./testSupport";
 import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
 import type { AppRelationEdgeQueryObservation } from "../appRelationEdges";
@@ -52,6 +53,8 @@ interface CommandDefinition {
   readonly run: (context: CmsCommandContext, args: Json) => Effect.Effect<Json, CmsTransactionError>;
 }
 const commands = new WeakMap<object, CommandDefinition>();
+/** Source-private lookup for the trusted composite host; no root transaction is started. */
+export const getCmsCommand = (command: CmsCommand): CommandDefinition | undefined => commands.get(command);
 const contentDigest = Schema.String.check(Schema.makeFilter(value => /^[0-9a-f]{64}$/.test(value) ? undefined : "Expected SHA-256"));
 const decodeContentIdentity = Schema.decodeUnknownEffect(Schema.Struct({ configSha256: contentDigest, provenanceSha256: contentDigest }));
 const decodeRequestKey = Schema.decodeUnknownResult(TransactionRequestKeyV1Schema);
@@ -195,10 +198,7 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
               if (definition === undefined || !allowed.has(child) || (key === null && definition.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
               const childInput = yield* Effect.fromResult(capturePrivateJsonData(childArgs, lifetime.remainingBytes(), cmsError));
               yield* Effect.fromResult(lifetime.charge(childInput.bytes));
-              const commandContext = Object.freeze({ context, standaloneRead: key === null && context === lifetime.context, reserveOutput: bytes => lifetime.operation(context, transactionId, "read", Effect.suspend(() => Effect.fromResult(lifetime.charge(bytes)))),
-                transactionId, documents: working.documents, relations: incoming, preferences: preferences.cleanup,
-                begin: id => lifetime.begin(context, id), commit: id => lifetime.adapterCommit(context, id), rollback: id => lifetime.rollback(context, id),
-                nested: (next, nextArgs) => lifetime.nested(context, transactionId, nested => invoke(nested, next, nextArgs)) } satisfies CmsCommandContext);
+              const commandContext = makeCmsCommandContext(lifetime, transactionId, context, { documents: working.documents, relations: incoming, preferences: preferences.cleanup }, key === null && context === lifetime.context, invoke);
               const value = yield* Effect.suspend(() => definition.run(commandContext, childInput.value));
               const output = yield* Effect.fromResult(capturePrivateJsonData(value, lifetime.remainingBytes(), cmsError));
               yield* Effect.fromResult(lifetime.charge(output.bytes));

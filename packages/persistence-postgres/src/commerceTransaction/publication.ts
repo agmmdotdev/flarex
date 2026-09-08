@@ -15,6 +15,15 @@ import type { ScopePublicationContribution, ScopePublicationKernel } from "../co
 const publishCommerceAtoms = Effect.fn("CommerceCommit.publishAtoms")(<Value>(work: (signal: AbortSignal) => Promise<Value>) =>
   runOwnedPromise(work, cause => commerceError("statementFailure", cause)));
 
+/** Authenticated domain contribution; allocation and settlement belong to the root. */
+export const consumeCommerceContribution = Effect.fn("CommerceCommit.consumeContribution")(function* (
+ admission: CommerceAdmission, lifetime: BoundedRequestLifetime<CommerceTransactionError>, closure: CommerceRowClosure,
+) {
+ const state = yield* requireCommerceAdmission(admission);
+ const facts = yield* consumeCommerceRows(closure, admission, lifetime);
+ return facts.map(fact => ({ ...fact, installationSha256: state.reference.installation.installationSha256, artifactSha256: state.descriptor.artifact.identity.artifactSha256 }));
+});
+
 export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(function* (
   admission: CommerceAdmission,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>,
@@ -27,7 +36,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(state.clock.epoch)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   if (identity.scopeUuid !== scope.scopeUuid || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
-  const facts = yield* consumeCommerceRows(closure, admission, lifetime);
+  const facts = yield* consumeCommerceContribution(admission, lifetime, closure);
   const clock = { record: state.clock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
   const now = yield* publishCommerceAtoms(() => readScopePublicationDatabaseTime(state.tx, scope.scopeId, {}));
   const allocation = yield* Effect.fromResult(allocateScopePublicationResult(clock, "publish", now))
@@ -37,8 +46,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
     authorityPins: { scopeId: scope.scopeId, requestKey: identity.requestKey, functionPath: identity.expectedFunctionPath },
     rowIntents: [], identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
     requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
-    relationalFacts: facts.map(fact => ({ ...fact,
-      installationSha256: state.reference.installation.installationSha256, artifactSha256: state.descriptor.artifact.identity.artifactSha256 })),
+    relationalFacts: facts,
   };
   const kernel: ScopePublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: [] };
   // The existing owner bridges its Promise-based publication kernel once.

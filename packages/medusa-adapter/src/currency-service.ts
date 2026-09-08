@@ -40,6 +40,15 @@ const read = (kind: "list" | "count" | "retrieve") => defineCommerceCommand(`cur
 }));
 
 export const currencyCommands = Object.freeze({ list: read("list"), count: read("count"), retrieve: read("retrieve") });
+/** Private composite-command participant; uses the existing internal service/DAL owner. */
+export const currencyAnnouncementWrite = defineCommerceCommand("currencyAnnouncementWrite", "write", Effect.fn("CurrencyAdapter.announcementWrite")(function* (ctx, value) {
+  if (!isNonArrayRecord(value) || typeof value.code !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
+  const code = value.code;
+  return yield* withCurrencyService(ctx, async ({ internal, service, context }) => {
+    await internal.upsert([value], context);
+    return service.retrieveCurrency(code, {}, context);
+  });
+}));
 export type CurrencyReads = Pick<ICurrencyModuleService, "listCurrencies" | "listAndCountCurrencies" | "retrieveCurrency">;
 
 /** Public Currency read shape; its storage authority is entirely host-owned. */

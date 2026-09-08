@@ -252,8 +252,15 @@ Prove one Application-owned row change, one scalar CMS operation, and one
 simple Medusa service operation in the same transaction. Inject failure after
 the last operation and require complete row/sidecar rollback and no published
 facts, wakes, or events. Successful execution publishes all admitted changes
-and typed event intents through one finalizer. No operation bypasses its
+and, only under an event-admitting profile, typed event intents through one finalizer. No operation bypasses its
 domain's write policy, validation, or capability boundary.
+
+The [private Currency announcement contract](../shared-transaction-core/05-named-command-preflight.md)
+implements the bounded no-event profile using real Currency and scalar Payload
+operations plus an Application-owned insert. One root settles all contributions;
+late failure, publication failure, replay, PostgreSQL contention/cancellation,
+lost COMMIT acknowledgement and backend loss have explicit conformance cases.
+Product, multiple installations and durable event delivery remain separate gates.
 
 This proof does not admit arbitrary Payload hooks, an entire Medusa workflow,
 cross-database transactions, or public callback syntax. Remote effects and
