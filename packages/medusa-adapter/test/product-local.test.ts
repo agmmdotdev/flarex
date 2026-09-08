@@ -18,7 +18,8 @@ import { defineCommerceCommand, type CommerceCommand, type CommerceCommandContex
 import { issueRelationalSession, runRelationalSession, type RelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import { fxSystemCommitRelationalChanges } from "../../persistence-postgres/src/commitPublication/relationalFactsSchema";
-import { fxSystemCommits, fxSystemOutbox } from "../../persistence-postgres/src/schema";
+import { fxSystemCommits, fxSystemOutbox, fxSystemScopeClocks } from "../../persistence-postgres/src/schema";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 const cleanup: Array<() => Promise<void>> = [];
 const received: Json[] = [];
@@ -470,6 +471,143 @@ describe("local Product service through shared Flarex core", () => {
     expect(await run(Effect.result(fixture.host.read(runtime.commands.list, { filters: missing,
       config: { select: ["collection.secret"], relations: ["collection"] },
     })))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
+
+  it("updates complete multi-ID sets with managed timestamps, metadata merging and replay", async () => {
+    const created = array(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTags,
+      Array.from({ length: 16 }, (_, index) => ({ id: "ptag_update_" + index, value: "update-before-" + index, metadata: { keep: "yes", remove: "old" } })))));
+    const before = await commerceInventory(fixture);
+    const events = received.length;
+    const request = fixture.host.newRequestKey();
+    const input = created.map((value, index) => {
+      const id = object(value).id;
+      if (typeof id !== "string") throw new Error("Missing created tag");
+      return { id, value: "update-after-" + index, metadata: { remove: "", added: true } };
+    });
+    const result = array(await run(fixture.host.run(request, runtime.commands.upsertTags, input)));
+    expect(result).toHaveLength(16);
+    for (const row of result) {
+      const changed = object(row);
+      const original = created.map(object).find(value => value.id === changed.id);
+      expect(changed.created_at).toEqual(original?.created_at);
+      expect(changed.updated_at).not.toEqual(original?.updated_at);
+      expect(changed.metadata).toEqual({ keep: "yes", added: true });
+    }
+    const after = await commerceInventory(fixture);
+    expect(after.facts.slice(before.facts.length).map(fact => fact.operation)).toEqual(Array.from({ length: 16 }, () => "update"));
+    expect(received.slice(events).map(event => object(event).name)).toEqual(Array.from({ length: 16 }, () => "product.product-tag.updated"));
+    expect(after.tables[catalog.type.table.name]).toEqual(before.tables[catalog.type.table.name]);
+    expect(await run(fixture.host.run(request, runtime.commands.upsertTags, input))).toEqual(result);
+    expect(await commerceInventory(fixture)).toEqual(after);
+    expect(received).toHaveLength(events + 16);
+    const id = object(result[0]).id;
+    if (typeof id !== "string") throw new Error("Missing updated tag");
+    const empty = object(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateTags, { id, data: {} })));
+    expect(empty.value).toEqual(object(result[0]).value);
+    expect(received).toHaveLength(events + 17);
+    expect((await commerceInventory(fixture)).facts.at(-1)?.operation).toBe("update");
+  });
+
+  it("rolls back mixed creates and updates when a later ID is missing and refuses identity/lifecycle writes", async () => {
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTypes, { id: "ptyp_update_atomic", value: "before-atomic" }));
+    const before = await commerceInventory(fixture);
+    const events = received.length;
+    const missing = await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.upsertTypes,
+      [{ value: "must-roll-back" }, { id: "ptyp_update_atomic", value: "also-roll-back" }, { id: "ptyp_absent", value: "missing" }])));
+    expect(missing).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: { message: expect.stringContaining("ptyp_absent") } } });
+    for (const data of [{ id: "ptyp_moved" }, { created_at: "2026-01-01T00:00:00.000Z" }, { updated_at: "2026-01-01T00:00:00.000Z" }, { deleted_at: null }, { products: [] }]) {
+      expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateTypes, { id: "ptyp_update_atomic", data }))))
+        .toMatchObject({ _tag: "Failure" });
+    }
+    expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.upsertTypes,
+      [{ id: "ptyp_update_atomic", value: "first" }, { id: "ptyp_update_atomic", value: "last" }])))).toMatchObject({ _tag: "Failure" });
+    expect(await commerceInventory(fixture)).toEqual(before);
+    expect(received).toHaveLength(events);
+  });
+
+  it("keeps core table update admission narrow and authenticates operation-specific events", async () => {
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTags, { id: "ptag_event_update", value: "event-before" }));
+    const clock = (await fixture.persistence.drizzle.select().from(fxSystemScopeClocks))[0];
+    if (clock === undefined) throw new Error("Missing scope clock");
+    const alienUuid = "c7aab926-7cdb-4c8b-a5f4-e520b695083e";
+    await fixture.persistence.drizzle.insert(fxSystemScopeClocks).values({
+      scopeId: ScopeIdSchema.make("scope_" + alienUuid), storageGeneration: clock.storageGeneration, epoch: clock.epoch,
+    });
+    const physical = fixture.descriptor.layout.frame.tables.find(table => table.identity.tableId === catalog.tag.table.name);
+    const idColumn = physical?.columns.find(column => column.identity.columnId === "id");
+    const valueColumn = physical?.columns.find(column => column.identity.columnId === "value");
+    if (physical === undefined || idColumn === undefined || valueColumn === undefined) throw new Error("Missing tag layout");
+    // Deliberate wrong-scope fixture: identifiers come from the compiled layout.
+    const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
+    await fixture.persistence.query(`insert into ${quote(fixture.descriptor.layout.frame.targetNamespace.schemaName)}.${quote(physical.name)}
+      ("scope_uuid", ${quote(idColumn.name)}, ${quote(valueColumn.name)}) values ($1::uuid, $2, $3)`, [alienUuid, "ptag_other_scope", "foreign-value"]);
+    const before = await commerceInventory(fixture);
+    const events = received.length;
+    const raw = defineCommerceCommand("productRawUpdateProof", "write", Effect.fn("ProductTest.rawUpdate")(function* (ctx, input) {
+      const args = object(input);
+      if (typeof args.table !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
+      const store = yield* ctx.table(args.table);
+      const rows = args.rows;
+      if (args.mode === "delete") return yield* store.delete(ctx.manager, rows);
+      const written = yield* store.write(ctx.manager, args.mode === "upsert" ? "upsert" : "update", rows);
+      if (args.message !== undefined) {
+        yield* ctx.captureLocalEvent(args.message);
+        if (args.duplicate === true) yield* ctx.captureLocalEvent(args.message);
+      }
+      return [...written];
+    }));
+    const local = await localHost([raw]);
+    const message = { name: "product.product-tag.created", metadata: { source: "product", object: "product_tag", action: "created" }, data: { id: "ptag_event_update" } };
+    const updated = { ...message, name: "product.product-tag.updated", metadata: { ...message.metadata, action: "updated" } };
+    const rows = [{ id: "ptag_event_update", value: "event-after" }];
+    for (const input of [
+      { table: catalog.tag.table.name, rows, message },
+      { table: catalog.tag.table.name, rows },
+      { table: catalog.tag.table.name, rows, message: updated, duplicate: true },
+      { table: catalog.tag.table.name, rows: [{ id: "ptag_missing_scoped", value: "absent" }], message: updated },
+      { table: catalog.tag.table.name, rows: [{ id: "ptag_other_scope", value: "must-not-change" }], message: { ...updated, data: { id: "ptag_other_scope" } } },
+      { table: catalog.tag.table.name, rows: [{ id: "ptag_event_update", created_at: "2026-01-01T00:00:00.000Z" }], message: updated },
+      { table: catalog.tag.table.name, rows: [{ id: "ptag_event_update", updated_at: "2026-01-01T00:00:00.000Z" }], message: updated },
+      { table: catalog.tag.table.name, rows: [{ id: "ptag_event_update", deleted_at: null }], message: updated },
+      { table: catalog.tag.table.name, rows, mode: "upsert" },
+      { table: catalog.tag.table.name, rows: ["ptag_event_update"], mode: "delete" },
+      { table: catalog.collection.table.name, rows: [{ id: "pcol_not_admitted", title: "no" }] },
+    ]) expect(await run(Effect.result(local.host.run(local.host.newRequestKey(), raw, input)))).toMatchObject({ _tag: "Failure" });
+    expect(await commerceInventory(fixture)).toEqual(before);
+    expect(received).toHaveLength(events);
+    const repeated = defineCommerceCommand("productRepeatedUpdateProof", "write", Effect.fn("ProductTest.repeatedUpdate")(function* (ctx) {
+      yield* ctx.nested(runtime.commands.updateTags, { id: "ptag_event_update", data: { value: "touch-one" } });
+      return yield* ctx.nested(runtime.commands.updateTags, { id: "ptag_event_update", data: { value: "touch-two" } });
+    }));
+    const repeatedHost = await localHost([repeated]);
+    expect(await run(Effect.result(repeatedHost.host.run(repeatedHost.host.newRequestKey(), repeated, {})))).toMatchObject({ _tag: "Failure" });
+    expect(await commerceInventory(fixture)).toEqual(before);
+    expect(received).toHaveLength(events);
+  });
+
+  it("recovers an ambiguous update commit without delivering or replaying the local event", async () => {
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTypes, { id: "ptyp_uncertain_update", value: "uncertain-before" }));
+    let loseAcknowledgement = true;
+    const session = issueRelationalSession(fixture.persistence.drizzle, work => runRelationalSession(fixture.session, work).pipe(
+      Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
+      Effect.flatMap(value => {
+        if (!loseAcknowledgement) return Effect.succeed(value);
+        loseAcknowledgement = false;
+        return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost update COMMIT acknowledgement") }));
+      }),
+    ));
+    const local = await localHost([], session);
+    const key = local.host.newRequestKey();
+    const input = { id: "ptyp_uncertain_update", data: { value: "uncertain-after" } };
+    const events = received.length;
+    const result = await run(local.host.run(key, runtime.commands.updateTypes, input));
+    expect(object(result).value).toBe("uncertain-after");
+    expect(received).toHaveLength(events);
+    expect(local.takeDeliveries()).toMatchObject([{ outcome: { _tag: "Failure" } }]);
+    const reopened = await localHost();
+    expect(await run(reopened.host.run(key, runtime.commands.updateTypes, input))).toEqual(result);
+    expect(received).toHaveLength(events);
+    expect(reopened.takeDeliveries()).toHaveLength(0);
   });
 
   it("loads every existing tag beyond the ordinary 15-row page without recreating tags", async () => {

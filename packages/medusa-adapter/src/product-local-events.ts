@@ -11,14 +11,16 @@ export const decodeLocalEventBatch = commerceDecoder(Schema.Array(Schema.Json), 
 
 const Message = Schema.Struct({
   name: Schema.String,
-  metadata: Schema.Struct({ source: Schema.Literal(Modules.PRODUCT), object: Schema.String, action: Schema.Literal(CommonEvents.CREATED) }),
+  metadata: Schema.Struct({ source: Schema.Literal(Modules.PRODUCT), object: Schema.String, action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED]) }),
   data: Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) }),
 });
 const decode = Schema.decodeUnknownEffect(Message, { onExcessProperty: "error" });
 const captureMessage = Effect.fn("ProductEvents.capture")(function* (catalog: ProductRuntimeMetadata, input: unknown) {
   const value = yield* Effect.fromResult(captureCommerceInput(input));
   const message = yield* decode(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
-  if (!catalog.entities.some(entity => entity.eventObject === message.metadata.object && entity.createdEvent === message.name)) return yield* Effect.fail(commerceError("unadmittedEvent"));
+  const candidates = message.metadata.action === CommonEvents.CREATED ? catalog.entities : [catalog.tag, catalog.type];
+  if (!candidates.some(entity => entity.eventObject === message.metadata.object &&
+    (message.metadata.action === CommonEvents.CREATED ? entity.createdEvent : entity.updatedEvent) === message.name)) return yield* Effect.fail(commerceError("unadmittedEvent"));
   return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
 });
 
@@ -32,20 +34,21 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
     validate: Effect.fn("ProductEvents.validate")(function* (events, rows) {
       const expected = new Set<string>();
       for (const row of rows) {
-        if (row.operation !== "insert") return yield* Effect.fail(commerceError("unadmittedEvent"));
+        if (row.operation === "delete") return yield* Effect.fail(commerceError("unadmittedEvent"));
         const key = yield* decodeRelationalRowKey(descriptor.layout, row.tableId, row.keyBytes, row.codecVersion)
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        if (catalog.writablePivots.some(table => table.name === row.tableId)) continue;
+        if (row.operation === "insert" && catalog.writablePivots.some(table => table.name === row.tableId)) continue;
         const object = catalog.entities.find(entity => entity.table.name === row.tableId);
         const id = key.components[0];
         if (object === undefined || key.components.length !== 1 || id?.columnId !== "id" || typeof id.value !== "string") return yield* Effect.fail(commerceError("receiptMismatch"));
-        const identity = object.eventObject + ":" + id.value;
+        if (row.operation === "update" && object !== catalog.tag && object !== catalog.type) return yield* Effect.fail(commerceError("unadmittedEvent"));
+        const identity = (row.operation === "insert" ? CommonEvents.CREATED : CommonEvents.UPDATED) + ":" + object.eventObject + ":" + id.value;
         if (expected.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
         expected.add(identity);
       }
       for (const event of events) {
         const message = yield* capture(event);
-        const identity = message.metadata.object + ":" + message.data.id;
+        const identity = message.metadata.action + ":" + message.metadata.object + ":" + message.data.id;
         if (!expected.delete(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
       }
       if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));

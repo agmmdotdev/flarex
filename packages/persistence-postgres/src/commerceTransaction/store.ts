@@ -102,6 +102,14 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   const target = sql`${sql.identifier(layout.targetNamespace.schemaName)}.${sql.identifier(table.name)}`;
   const scoped = sql`${sql.identifier("scope_uuid")} = ${scope.scopeUuid}::uuid`;
+  const timestamps = layout.requiredPhysicalCapabilities.flatMap(item => item.kind === "managedTimestamps" && item.updatedAtColumn.identity.tableId === capability.tableId
+    ? [{ created: item.createdAtColumn.columnName, updated: item.updatedAtColumn.columnName }] : []);
+  const managedUpdates = timestamps.map(item => item.updated);
+  const protectedUpdates = new Set([
+    ...timestamps.flatMap(item => [item.created, item.updated]),
+    ...layout.requiredPhysicalCapabilities.flatMap(item => item.kind === "softDelete" && item.deletedAtColumn.identity.tableId === capability.tableId ? [item.deletedAtColumn.columnName] : []),
+    ...layout.foreignKeys.flatMap(item => item.kind === "foreignKey" && item.sourceTable.tableId === capability.tableId ? item.sourceColumns : []),
+  ]);
   const facts = work.facts;
   const column = (name: unknown): Result.Result<RelationalPhysicalColumn, CommerceTransactionError> => {
     const found = table.columns.find(value => value.identity.columnId === name);
@@ -312,9 +320,9 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     return Object.freeze(ordered);
   });
   const write: CommerceStore["write"] = Effect.fn("CommerceStore.write")((context, mode, input) => guard(context, "write", Effect.gen(function* () {
-    if (capability.mode === "readInsert") {
-      if (mode !== "insert") return yield* Effect.fail(commerceError("unsupportedProfile"));
-      return yield* insertRows(input);
+    if (capability.mode !== "scalar") {
+      if (mode === "insert") return yield* insertRows(input);
+      if (capability.mode !== "readInsertUpdate" || mode !== "update") return yield* Effect.fail(commerceError("unsupportedProfile"));
     }
     if (!["insert", "upsert", "update"].includes(mode)) return yield* Effect.fail(invalid());
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
@@ -334,6 +342,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       const parameters: SQL[] = [];
       for (const name of Object.keys(inputRow).toSorted()) {
         const field = yield* Effect.fromResult(column(name));
+        if (capability.mode === "readInsertUpdate" && protectedUpdates.has(field.name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
         const member = yield* Effect.fromResult(capturePrivateJsonData(inputRow[name], commerceLimits.rowBytes, commerceError));
         fields.push(field); parameters.push(yield* Effect.fromResult(parameter(field, member.value)));
       }
@@ -341,6 +350,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     }
     const before = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${sql.identifier(key.name)} in (${sql.join(inputs.map(row => sql`${row.key}`), sql`, `)}) limit ${commerceLimits.catalogRows}`);
     const existing = new Map(before.map(row => [row[key.identity.columnId], row]));
+    if (capability.mode === "readInsertUpdate" && inputs.some(row => !existing.has(row.key))) return yield* Effect.fail(invalid());
     if (existing.size !== before.length || (mode === "insert" && before.length !== 0)) return yield* Effect.fail(commerceError("storedCorruption"));
     const groups = new Map<string, typeof inputs>();
     for (const row of inputs) {
@@ -358,10 +368,9 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       if (inserting) {
         query = sql`insert into ${target} (${sql.identifier("scope_uuid")}, ${sql.join(first.fields.map(field => sql.identifier(field.name)), sql`, `)}) values ${sql.join(group.map(row => sql`(${scope.scopeUuid}::uuid, ${sql.join([...row.parameters], sql`, `)})`), sql`, `)} returning ${sql.identifier(key.name)} as ${sql.identifier(key.identity.columnId)}`;
       } else {
-        const managed = layout.requiredPhysicalCapabilities.filter(item => item.kind === "managedTimestamps").map(item => item.updatedAtColumn.columnName);
-        const updates = first.fields.flatMap(field => field.name === key.name || managed.includes(field.name) ? [] :
+        const updates = first.fields.flatMap(field => field.name === key.name || managedUpdates.includes(field.name) ? [] :
           [sql`${sql.identifier(field.name)} = ${sql.identifier("incoming")}.${sql.identifier(field.name)}`]);
-        for (const name of managed) updates.push(sql`${sql.identifier(name)} = current_timestamp`);
+        for (const name of managedUpdates) updates.push(sql`${sql.identifier(name)} = current_timestamp`);
         if (updates.length === 0) {
           for (const row of group) { const retained = existing.get(row.key); if (retained !== undefined) output.set(row.key, retained); }
           continue;

@@ -41,14 +41,14 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
       "title": "should emit PRODUCT_TAG_UPDATED event on updateProductTags",
-      "status": "blocked",
-      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+      "status": "admitted",
+      "reason": "Record 31: existing primary-key update and service-owned mixed create/update with authenticated operation-specific local events"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
       "title": "should emit appropriate events on upsertProductTags",
-      "status": "blocked",
-      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+      "status": "admitted",
+      "reason": "Record 31: existing primary-key update and service-owned mixed create/update with authenticated operation-specific local events"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -59,14 +59,14 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
       "title": "should emit PRODUCT_TYPE_UPDATED event on updateProductTypes",
-      "status": "blocked",
-      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+      "status": "admitted",
+      "reason": "Record 31: existing primary-key update and service-owned mixed create/update with authenticated operation-specific local events"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
       "title": "should emit appropriate events on upsertProductTypes",
-      "status": "blocked",
-      "reason": "Requires update, delete, restore, or standalone related-entity mutations"
+      "status": "admitted",
+      "reason": "Record 31: existing primary-key update and service-owned mixed create/update with authenticated operation-specific local events"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",

@@ -15,6 +15,7 @@ export interface ProductEntityMetadata {
   readonly prefix: string | undefined;
   readonly eventObject: string;
   readonly createdEvent: string;
+  readonly updatedEvent: string;
 }
 export interface ProductRuntimeMetadata {
   readonly product: ProductEntityMetadata;
@@ -45,6 +46,7 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
     const eventObject: string = camelToSnakeCase(model.name);
     return { table, model: model.name, prefix: primary[0].options?.prefix, eventObject,
       createdEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.CREATED }),
+      updatedEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.UPDATED }),
     } satisfies ProductEntityMetadata;
   });
   const product = yield* entity(Product);

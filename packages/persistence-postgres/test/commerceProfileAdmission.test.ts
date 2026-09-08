@@ -26,6 +26,8 @@ describe("private commerce profile admission", () => {
     expect(pair.frame.components.map(component => component.columnId)).toEqual(["left_ref", "right_ref"]);
     await runEffectFailure(registerLocalCommerceProfile(artifact.artifact, layout, "test.assignment", [{ tableId: "product", keyId: "assignment.pair" }]));
     await runEffectFailure(registerLocalCommerceProfile(artifact.artifact, layout, "test.assignment", [{ tableId: "assignment", keyId: "id" }]));
+    expect(await runEffectFailure(registerLocalCommerceProfile(artifact.artifact, layout, "test.assignment", [{ tableId: "assignment", keyId: "assignment.pair", update: "existingPrimaryKey" }])))
+      .toMatchObject({ reason: "unsupportedProfile" });
     const plan = await runEffect(captureFreshRelationalMigrationPlan({ artifact: artifact.artifact, physicalLayout: layout, commerceProfile: profile }));
     expect(plan.frame.steps.length).toBeGreaterThan(0);
   });
@@ -40,6 +42,15 @@ describe("private commerce profile admission", () => {
     }));
     const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: artifact.artifact, physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }));
     const primary = await runEffect(captureRelationalPrimaryKey(layout, "currency", { code: "usd" }));
+    const declaration = { tableId: "currency", keyId: "currency.primary" };
+    const readInsert = await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.keyed", [declaration]).pipe(Effect.flatMap(requireCommerceProfile)));
+    const update = await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.keyed", [{ ...declaration, update: "existingPrimaryKey" }]).pipe(Effect.flatMap(requireCommerceProfile)));
+    expect(update.tables).toEqual([{ ...declaration, mode: "readInsertUpdate" }]);
+    expect(update.contractSha256).not.toBe(readInsert.contractSha256);
+    expect(await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.keyed", [declaration]).pipe(Effect.flatMap(requireCommerceProfile))))
+      .toEqual(readInsert);
+    expect(await runEffectFailure(registerLocalCommerceProfile(artifact.artifact, layout, "test.keyed", [{ tableId: "currency", keyId: "currency.pair", update: "existingPrimaryKey" }])))
+      .toMatchObject({ reason: "unsupportedProfile" });
     expect(primary.canonicalJson).toBe('{"components":[{"columnId":"code","type":"text","value":"usd"}],"format":"flarex.relational-primary-key","keyId":"currency.primary","version":1}');
     const pair = await runEffect(captureRelationalRowKey(layout, "currency", { code: "usd", name: "Dollar" }, "currency.pair"));
     expect(pair.frame).toEqual({ format: "flarex.relational-row-key", version: 2, keyId: "currency.pair",

@@ -16,6 +16,7 @@ import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { captureProductSchema } from "./product-schema";
 import { productRepository } from "./product-repository";
 import { validateProductCreate } from "./product-graph";
+import { decodeRelatedUpdate } from "./product-value-profile";
 
 function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata) {
   const { repository, persistence, refuse, relatedRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata);
@@ -94,6 +95,30 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     });
     return Array.isArray(input) ? result : Array.isArray(result) ? result[0] : result;
   }));
+  const changeRelated = (kind: "tag" | "type", operation: "update" | "upsert") => defineCommerceCommand("product" + operation + kind, "write", Effect.fn("ProductAdapter.changeRelated")(function* (ctx, input) {
+    if (operation === "update") {
+      const decoded = yield* Effect.fromResult(decodeRelatedUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+      yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata[kind].table.name, decoded.data))
+        .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+      const data = structuredClone(decoded.data);
+      // SAFETY: DML-derived data fields exclude identity and managed columns;
+      // repository pairs and the core revalidate normalized values before SQL.
+      return yield* withService(ctx, ({ service, context }) => kind === "tag"
+        ? service.updateProductTags(decoded.id, data as ProductTypes.UpdateProductTagDTO, context)
+        : service.updateProductTypes(decoded.id, data as ProductTypes.UpdateProductTypeDTO, context));
+    }
+    yield* Effect.fromResult(metadata.valueProfile.validateRelatedChange(metadata[kind].table.name, input))
+      .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const copied = structuredClone(Array.isArray(input) ? input : [input]);
+    // SAFETY: same DML-derived scalar boundary as creation; the unchanged
+    // service partitions creates/updates and owns missing-ID and metadata rules.
+    const result = yield* withService(ctx, ({ service, context }) => kind === "tag"
+      ? service.upsertProductTags(copied as ProductTypes.UpsertProductTagDTO[], context)
+      : service.upsertProductTypes(copied as ProductTypes.UpsertProductTypeDTO[], context));
+    return Array.isArray(input) ? result : Array.isArray(result) ? result[0] : result;
+  }));
   return { commands: Object.freeze({ create, list: read("list"), retrieve: read("retrieve"), count: read("count"),
-    createTags: related("tag"), createTypes: related("type"), createCollections: related("collection"), createImages: related("image") }), withService };
+    createTags: related("tag"), createTypes: related("type"), createCollections: related("collection"), createImages: related("image"),
+    updateTags: changeRelated("tag", "update"), updateTypes: changeRelated("type", "update"),
+    upsertTags: changeRelated("tag", "upsert"), upsertTypes: changeRelated("type", "upsert") }), withService };
 });

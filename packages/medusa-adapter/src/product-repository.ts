@@ -1,7 +1,7 @@
 import { productRelations, type ProductRuntimeMetadata, type ProductEntityMetadata } from "./product-runtime-metadata";
 import { Effect } from "effect";
 import type { Context, DAL, ModulePersistenceAdapter } from "@medusajs/framework/types";
-import { registerDrizzleEventSubscriber, dispatchCreatedMutations, dispatchDrizzleMutationEvent, emptyPerformedActions, addPerformedAction } from "@medusajs/drizzle/mutation-events";
+import { registerDrizzleEventSubscriber, dispatchCreatedMutations, dispatchDrizzleMutationRows, dispatchDrizzleMutationEvent, emptyPerformedActions, addPerformedAction } from "@medusajs/drizzle/mutation-events";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductProjection, decodeProductCount } from "./product-value-profile";
@@ -11,7 +11,7 @@ import { captureCommerceInput } from "./commerce-input";
 import { assembleProducts, captureProductGraph, insertProductGraph } from "./product-graph";
 import { findProducts } from "./product-query";
 import { populateCommerceRelations } from "./commerce-relations";
-import { findProductRelated, insertProductRelated, decodeCollectionReplacement } from "./product-related";
+import { findProductRelated, insertProductRelated, updateProductRelated, decodeCollectionReplacement } from "./product-related";
 
 /** Request-owned DAL composition; all framework transaction methods borrow core. */
 export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata) {
@@ -60,6 +60,14 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   /** Table-bound repositories share this request's bridge and subscriber set. */
   const relatedRepository = (entity: ProductEntityMetadata): DAL.RepositoryService => ({
     ...repository,
+    update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      if (entity !== metadata.tag && entity !== metadata.type) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+      const rows = yield* updateProductRelated(ctx, metadata, entity, input);
+      if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+      yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", entity.model, rows.map(row => ({ ...row })), shared), signal),
+        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      return [...rows];
+    }))),
     find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProductRelated(ctx, entity, input, false)).pipe(Effect.map(value => [...value.rows]))),
     findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProductRelated(ctx, entity, input, true)).pipe(Effect.flatMap(value =>
       bridge.checked(ctx, Effect.fromResult(decodeProductCount(value))).pipe(Effect.map(decoded =>

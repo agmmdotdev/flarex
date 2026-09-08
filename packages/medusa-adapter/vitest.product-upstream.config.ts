@@ -2,6 +2,10 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import type { Reporter } from "vitest/node";
 export const admittedProductCases = [
+  "Product injected event bus > ProductModuleService Events > Product Tag Operations > should emit PRODUCT_TAG_UPDATED event on updateProductTags",
+  "Product injected event bus > ProductModuleService Events > Product Tag Operations > should emit appropriate events on upsertProductTags",
+  "Product injected event bus > ProductModuleService Events > Product Type Operations > should emit PRODUCT_TYPE_UPDATED event on updateProductTypes",
+  "Product injected event bus > ProductModuleService Events > Product Type Operations > should emit appropriate events on upsertProductTypes",
   "Product injected event bus > ProductModuleService Events > Product Creation > should emit all related events when creating a product with full relations",
   "Product service > ProductModuleService products > create > should throw because variant doesn't have all options set",
   "Product service > ProductModuleService products > images > should create images with correct rank",

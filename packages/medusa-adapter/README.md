@@ -54,17 +54,19 @@ Links, arbitrary module queries and public/production adapters remain gated.
 ## Private Product compatibility
 
 Product now uses its complete ten-model/thirteen-table DML installation and a
-bounded local create/read profile. The unchanged service supports nested Product
+bounded local create/read and selected keyed-update profile. The unchanged service supports nested Product
 creation, tag/type/collection creation, standalone images, existing associations
 and selected relation filters/population through shared Flarex transactions.
-Category writes, updates, replacement, delete/restore and general scale remain
+Tag/type ID updates and service-owned upserts use explicit existing-primary-key
+update admission, with metadata merging and operation-authenticated events.
+Other updates, category writes, replacement, delete/restore and general scale remain
 unadmitted. Business events use the authenticated in-memory test buffer after
 acknowledged commit; no durable provider or query sync is activated.
 
 Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
-root. It runs eleven exact original cases from two unchanged files and reports
-46 exclusions. Set `FLAREX_TEST_DRIVER=postgres` and
+root. It runs fifteen exact original cases from two unchanged files and reports
+42 exclusions (41 blocked capabilities and one upstream skip). Set `FLAREX_TEST_DRIVER=postgres` and
 `FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
 Both files share one installed fixture per driver and clear business rows
-between cases. The case inventory and records 29-31 in the framework-integration
+between cases. The case inventory and records 29-32 in the framework-integration
 roadmap distinguish current coverage from the remaining module capabilities.

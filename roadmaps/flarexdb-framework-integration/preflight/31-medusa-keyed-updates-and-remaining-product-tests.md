@@ -1,19 +1,19 @@
 # Keyed Updates And Remaining Product Tests
 
-## Status And Recommended Next Capability
+## Status And Implemented Capability
 
 Preflight prepared on 2026-09-08 after the related creation/read implementation
-in [record 30](./30-medusa-product-related-create-and-reads.md). This record is a
-proposal, not additional runtime admission. The current original-test target is
-11 admitted cases, leaving 45 blocked cases and the single upstream skip.
+in [record 30](./30-medusa-product-related-create-and-reads.md). Implementation
+and acceptance are complete following the user's go-ahead. The current original-test target is
+15 admitted cases, leaving 41 blocked cases and the single upstream skip.
 
-The next foundation should be bounded updates of existing declared primary-key
+This foundation provides bounded updates of existing declared primary-key
 rows, proved through the unchanged Product tag and type services. Medusa owns
 the update/upsert behavior; Flarex owns the SQL transaction, authenticated facts
-and publication. This needs an explicit shared-core capability extension, not
-another Medusa-specific metadata table or a bypass around the insert-only gate.
+and publication. An explicit shared-core capability extension admits these
+updates without Medusa-specific metadata tables.
 
-Start with four original cases from
+The four added original cases come from
 [`events.spec.ts`](../../../packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts).
 Their full-name prefix is
 `Product injected event bus > ProductModuleService Events > `:
@@ -25,11 +25,11 @@ Their full-name prefix is
 | `Product Type Operations > should emit PRODUCT_TYPE_UPDATED event on updateProductTypes` | Existing type changes in place and emits one updated event |
 | `Product Type Operations > should emit appropriate events on upsertProductTypes` | One new type and one existing-type update commit together with exactly two corresponding events |
 
-Passing this capability would raise original coverage to **15 admitted, 41
+This capability raises original coverage to **15 admitted, 41
 blocked and 1 upstream skip**. These four tests require no category setup,
 relationship replacement, cascade deletion or increased row limits.
 
-## Current Source Evidence
+## Pre-implementation Source Evidence
 
 The shared
 [`profile issuer`](../../../packages/persistence-postgres/src/commerceTransaction/profile.ts)
@@ -65,7 +65,7 @@ The current adapter event policy admits only created events and insert facts.
 It must bind each newly admitted updated event to an authentic update of that
 same entity. A matching ID alone cannot authenticate the operation.
 
-## Proposed Contract And Owners
+## Approved Contract And Owners
 
 1. **Shared commerce profile/store:** admit a trusted, operation-specific update
    capability for selected primary-key tables. Preserve all existing profile
@@ -91,8 +91,8 @@ same entity. A matching ID alone cannot authenticate the operation.
    full-identity reporter and inventory together, and refresh reviewed source
    hashes. Keep the existing one-install-per-driver fixture lifecycle.
 
-Before implementing the shared owner, settle the exact operation-admission
-shape and authenticated-contract compatibility in this record. Record 30 did
+The operation-admission shape and authenticated-contract compatibility were
+settled below before implementing the shared owner. Record 30 did
 not authorize changing the shared insert-only profile. This proposal identifies
 that next boundary explicitly rather than treating it as a test-harness fix.
 
@@ -103,6 +103,70 @@ unchanged insert-only table refusal, event-operation matching, no-op/repeated
 touch policy, and replay/uncertain-settlement preservation. Run the affected
 shared-core and Currency preservation tests once per required driver, strict
 typechecks, source/browser guards, lint and both reviewers. Keep existing bounds.
+
+## Settled Implementation Contract
+
+Trusted local table declarations gain optional `update: "existingPrimaryKey"`.
+Omission retains `readInsert`; admission requires exactly one declared text
+primary-key component and produces `readInsertUpdate`. Inserts still use the
+existing relational insert kernel; only `update` enters the owned scalar update
+kernel. SQL upsert and delete remain refused. Missing scoped keys fail the whole
+update. Managed timestamp and soft-delete columns, and relationship foreign-key
+columns, cannot be supplied as update data. Timestamp maintenance is selected
+by the actual table identity, not by every table in a multi-table layout.
+
+Unchanged local declarations retain canonical contract version 2 and their
+existing hashes. A declaration with update authority uses version 3, with each
+table's exact mode authenticated in the contract. Currency stays version 1.
+The binding registry and host command fingerprints compare the complete
+contract hash; an old binding cannot grant the new authority, and retained
+requests are not reinterpreted under a changed contract. This is a new private
+capability envelope, with no database migration or alternate execution path.
+
+Only tag/type ID updates and array/single upserts are exposed. Update command
+data cannot contain an ID; internal repository pairs may repeat the same ID as
+their selected entity but cannot replace it. Duplicate upsert IDs are refused
+before Medusa's data-only map could silently keep only the last input. The
+internal `$or` selector is bounded and collapsed to an equivalent ID set, so
+complete lookup preserves the existing query-node budget.
+
+The pinned internal service always calls repository update for a found row;
+the module's `afterUpdate` interceptor emits `updated` without value comparison.
+An empty or equal-value update therefore maintains the managed timestamp and
+records one update fact/event. The pinned MessageAggregator deduplicates equal
+messages: this bounded profile refuses repeated same-operation touches within
+one command rather than losing their multiplicity. Insert and update of the
+same identity are distinct authenticated operations; missing, duplicate and
+operation-mismatched messages still reject publication. Lifecycle changes stay
+refused.
+
+## Implementation And Validation
+
+The shared profile/store now enforce the settled per-table contract. The
+adapter enables four commands through the unchanged tag/type services, decodes
+their normalized update pairs, and uses the pinned mutation dispatch helper.
+The exact original test reporter and case inventory admit only these four
+additional identities; original test bytes remain unchanged. No migration,
+business-specific core metadata, durable event provider or query-sync path was
+added.
+
+On 2026-09-08, the complete 15-case original target passed on PGlite (158.60s)
+and PostgreSQL 18.3 (101.52s), each with 42 exclusions. The native role
+`flarex_scalar_test` was verified non-superuser. The 22 focused conformance
+cases passed on PGlite (196.12s) and PostgreSQL (134.11s), including complete
+16-ID updates, metadata merging, managed timestamps, mixed-write rollback,
+wrong-scope refusal, immutable/lifecycle fields, unchanged table permissions,
+missing/duplicate/operation-mismatched events, repeated-touch refusal, no-op
+updates, replay and uncertain update settlement. The 72 pure adapter and three
+shared profile tests passed. Adapter/compatibility and persistence package
+typechecks, 37 source guards, the 628-input portable browser check, core/diff
+lint and both read-only reviewers passed. Currency preservation passed on
+PGlite (19 cases, 48.96s) and PostgreSQL (18 cases plus the existing PGlite-only
+skip, 36.35s). The corrected parameterized wrong-scope fixture was rerun on
+PGlite (one selected case, 111.18s); the complete native conformance run also
+used that final fixture. Timings include each process's setup and imports;
+no row, command, statement or setup deadline was increased. The next preflight is
+[record 32](./32-medusa-standalone-options-and-variants.md).
 
 ## Route To The Other Original Cases
 

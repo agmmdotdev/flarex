@@ -11,9 +11,10 @@ import { readCommerceRelationRows } from "./commerce-relations";
 import { projectRowFields } from "@medusajs/drizzle/relation-query";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
-const decodeWhere = commerceDecoder(Schema.Struct({ id: Schema.optionalKey(Schema.Union([
-  Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256)),
-])) }), "unsupportedProfile");
+const decodeWhere = commerceDecoder(Schema.Struct({
+  id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))])),
+  $or: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Schema.String })).check(Schema.isMinLength(1), Schema.isMaxLength(256))),
+}), "unsupportedProfile");
 const decodeOptions = commerceDecoder(Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
   populate: Schema.optionalKey(Schema.Array(Schema.Never)),
@@ -35,7 +36,9 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   const query = { fields, take: options.limit ?? 15, skip: options.offset ?? 0,
     order: { column: "id", direction: options.orderBy?.id === "DESC" ? "desc" : "asc" },
     predicate: { kind: "and", children: [{ kind: "isNull", column: "deleted_at" },
-      ...(where.id === undefined ? [] : [{ kind: "in", column: "id", values: typeof where.id === "string" ? [where.id] : where.id }]) ] },
+      ...(where.id === undefined ? [] : [{ kind: "in", column: "id", values: typeof where.id === "string" ? [where.id] : where.id }]),
+      ...(where.$or === undefined ? [] : [{ kind: "in", column: "id", values: [...new Set(where.$or.map(selector => selector.id))] }]),
+    ] },
   } satisfies JsonObject;
   if (options.limit === undefined && options.offset === undefined) {
     const complete = yield* readCommerceRelationRows(ctx, entity.table.name, query.predicate);
@@ -45,6 +48,15 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   }
   const store = yield* ctx.table(entity.table.name);
   return { rows: yield* store.find(ctx.manager, query), count: withCount ? yield* store.count(ctx.manager, query) : undefined };
+});
+
+export const updateProductRelated = Effect.fn("ProductAdapter.updateRelated")(function* (
+  ctx: CommerceCommandContext, metadata: ProductRuntimeMetadata, entity: ProductEntityMetadata, input: unknown,
+) {
+  const captured = yield* Effect.fromResult(captureCommerceInput(input));
+  const rows = yield* Effect.fromResult(metadata.valueProfile.decodeRelatedUpdatePairs(entity.table.name, captured));
+  const store = yield* ctx.table(entity.table.name);
+  return yield* store.write(ctx.manager, "update", rows);
 });
 
 export const insertProductRelated = Effect.fn("ProductAdapter.insertRelated")(function* (

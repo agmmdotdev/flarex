@@ -17,11 +17,14 @@ owns the first multi-table service proof with an injected, transaction-buffered
 in-memory test adapter. The [original Product runner](./preflight/29-medusa-original-product-tests.md)
 established three pinned cases on both database drivers. The implemented
 [related creation and read preflight](./preflight/30-medusa-product-related-create-and-reads.md)
-adds eight more cases, for eleven total. The next
+adds eight more cases. The implemented
 [keyed-update preflight](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md)
-proposes tag/type updates through an explicit shared-core capability extension.
+adds four tag/type update/upsert cases through explicit shared-core admission,
+for fifteen original cases on both drivers. The next
+[standalone option/variant preflight](./preflight/32-medusa-standalone-options-and-variants.md)
+proposes two create cases using the existing insert capability.
 Durable event storage/dispatch are deferred. Product
-mutations beyond the admitted create/read profile, stored Links and production
+mutations beyond the admitted create/read and tag/type update profile, stored Links and production
 activation remain unadmitted.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
@@ -52,8 +55,8 @@ and bounded Payload gates have passed. Exact Currency source promotion is also
 complete, as are private Flarex-backed Currency installation and service
 execution. Product schema/relationship installation, private nested creation,
 bounded population and local event conformance are complete. Related creation
-and bounded reads are implemented under record 30; keyed updates follow under
-record 31. General Payload
+and bounded reads are implemented under record 30; keyed tag/type updates under
+record 31. Record 32 preflights standalone options/variants. General Payload
 compatibility is separate.
 
 [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md)
@@ -376,8 +379,10 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
   cases using one installed fixture per driver. [Record 30](./preflight/30-medusa-product-related-create-and-reads.md)
   implements related creation and reads admitting eight more: tags, types,
   create-only collections, standalone images, associations and bounded relation
-  predicates/population. Updates, replacement, category mutations and scale
-  remain separate. Admission changes only after the original assertions pass.
+  predicates/population. [Record 31](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md)
+  adds four tag/type update/upsert cases. Other updates, replacement, category
+  mutations and scale remain separate. [Record 32](./preflight/32-medusa-standalone-options-and-variants.md)
+  proposes standalone option/variant creation. Admission changes only after the original assertions pass.
 - Consume the complete schema proved above. Record 28 owns the bounded
   multi-table create/read profile; later operations must expand the repository
   and transaction profile together with their required typed event contracts.

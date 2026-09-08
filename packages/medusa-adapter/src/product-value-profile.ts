@@ -12,6 +12,10 @@ export const decodeProductCount = commerceDecoder(Schema.Struct({
   rows: Schema.Array(Schema.JsonObject), count: Schema.Number,
 }), "storedCorruption");
 const decodeObject = commerceDecoder(Schema.JsonObject, "invalidInput");
+const decodeUpdatePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.JsonObject, update: Schema.JsonObject })).check(Schema.isMaxLength(256)), "invalidInput");
+export const decodeRelatedUpdate = commerceDecoder(Schema.Struct({
+  id: Schema.String.check(Schema.isLengthBetween(1, 256)), data: Schema.JsonObject,
+}), "invalidInput");
 const decodeId = commerceDecoder(Schema.UndefinedOr(Schema.String.check(Schema.isLengthBetween(1, 256))), "invalidInput");
 const decodeOptionValues = commerceDecoder(Schema.Array(Schema.String), "invalidInput");
 const decodeVariantOptions = commerceDecoder(Schema.Record(Schema.String, Schema.String), "invalidInput");
@@ -38,6 +42,9 @@ export function compileProductValueProfile(catalog: {
   const standalone = new Map([catalog.tag, catalog.type, catalog.collection, catalog.image].map(entity => [entity.table.name,
     shape([...scalarNames(entity), ...(entity === catalog.image ? ["product_id"] : [])], "unsupportedProfile"),
   ]));
+  const updateData = new Map([catalog.tag, catalog.type].map(entity => [entity.table.name,
+    shape(scalarNames(entity).filter(name => name !== "id"), "unsupportedProfile"),
+  ]));
   const createChildren = {
     options: shape(["title", "values"], "unsupportedProfile"),
     variants: shape([...scalarNames(catalog.variant), "options"], "unsupportedProfile"),
@@ -52,6 +59,42 @@ export function compileProductValueProfile(catalog: {
     shape([...entity.table.columns.map(column => column.name), ...relations.get(entity.table.name) ?? []], "invalidInput"),
   ]));
   return {
+    validateRelatedChange: (table: string, input: Json) => Result.gen(function* () {
+      const decode = standalone.get(table);
+      if (decode === undefined || !updateData.has(table)) return yield* Result.fail(commerceError("unsupportedProfile"));
+      const inputs = Array.isArray(input) ? input : [input];
+      if (inputs.length > 256) return yield* Result.fail(commerceError("limitExceeded"));
+      const ids = new Set<string>();
+      for (const row of inputs) {
+        const value = yield* decode(row);
+        const id = yield* decodeId(value.id);
+        if (id !== undefined) {
+          if (ids.has(id)) return yield* Result.fail(commerceError("invalidInput"));
+          ids.add(id);
+        }
+      }
+    }),
+    validateRelatedUpdateData: (table: string, input: Json) => {
+      const decode = updateData.get(table);
+      return decode === undefined ? Result.fail(commerceError("unsupportedProfile")) : decode(input);
+    },
+    decodeRelatedUpdatePairs: (table: string, input: Json) => Result.gen(function* () {
+      const decode = updateData.get(table);
+      const decodeEntity = graphRows.get(table);
+      if (decode === undefined || decodeEntity === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+      const rows = [];
+      const ids = new Set<string>();
+      for (const pair of yield* decodeUpdatePairs(input)) {
+        const entity = yield* decodeEntity(pair.entity);
+        const id = yield* decodeId(entity.id);
+        if (id === undefined || ids.has(id) || (pair.update.id !== undefined && pair.update.id !== id)) return yield* Result.fail(commerceError("invalidInput"));
+        ids.add(id);
+        const { id: selectedId, ...data } = pair.update;
+        yield* decode(data);
+        rows.push({ ...data, id });
+      }
+      return rows;
+    }),
     validateCreate: (input: Json) => Result.gen(function* () {
       for (const product of Array.isArray(input) ? input : [input]) {
         const root = yield* createRoot(product);

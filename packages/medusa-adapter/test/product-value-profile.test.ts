@@ -14,6 +14,20 @@ beforeAll(async () => {
 });
 
 describe("Product creation and normalized graph profiles", () => {
+  it("checks DML update pairs without allowing identity, managed or undeclared writes", () => {
+    const profile = catalog.valueProfile;
+    const table = catalog.tag.table.name;
+    expect(profile.decodeRelatedUpdatePairs(table, [{ entity: { id: "tag-a", value: "old" }, update: { id: "tag-a", value: "new", metadata: { keep: true } } }]))
+      .toMatchObject({ _tag: "Success", success: [{ id: "tag-a", value: "new", metadata: { keep: true } }] });
+    for (const update of [{ id: "tag-b" }, { updated_at: "now" }, { created_at: "now" }, { deleted_at: null }, { extra: 1 }]) {
+      expect(Result.isFailure(profile.decodeRelatedUpdatePairs(table, [{ entity: { id: "tag-a" }, update }]))).toBe(true);
+    }
+    expect(Result.isFailure(profile.validateRelatedUpdateData(table, { id: "tag-a" }))).toBe(true);
+    expect(Result.isFailure(profile.validateRelatedChange(table, [{ id: "tag-a" }, { id: "tag-a", value: "last" }]))).toBe(true);
+    expect(Result.isFailure(profile.decodeRelatedUpdatePairs(catalog.collection.table.name, []))).toBe(true);
+    expect(Result.isFailure(profile.decodeRelatedUpdatePairs(table, [{ entity: { id: "tag-a" }, update: {} }, { entity: { id: "tag-a" }, update: {} }]))).toBe(true);
+    expect(profile.decodeRelatedUpdatePairs(table, [{ entity: { id: "tag-a" }, update: {} }])).toMatchObject({ _tag: "Success", success: [{ id: "tag-a" }] });
+  });
   it.each<[Json, string]>([
     [{ title: "p", extra: true }, "unsupportedProfile"],
     [{ title: "p", created_at: "now" }, "unsupportedProfile"],
