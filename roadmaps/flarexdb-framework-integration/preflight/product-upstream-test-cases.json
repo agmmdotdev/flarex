@@ -17,8 +17,8 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
       "title": "should emit all cascade delete events when soft deleting a product",
-      "status": "blocked",
-      "reason": "Record 34 preflight: managed lifecycle transitions, visibility and authenticated lifecycle events remain unadmitted"
+      "status": "admitted",
+      "reason": "Record 34: managed lifecycle, complete cascade facts, physical deletion and deleted-row reads verified on PGlite and PostgreSQL"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -131,8 +131,8 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
       "title": "should emit delete events for all entity types via base service",
-      "status": "blocked",
-      "reason": "Record 34 preflight: managed lifecycle transitions, visibility and authenticated lifecycle events remain unadmitted"
+      "status": "admitted",
+      "reason": "Record 34: managed lifecycle, complete cascade facts, physical deletion and deleted-row reads verified on PGlite and PostgreSQL"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
@@ -275,20 +275,20 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
       "title": "should soft delete a product and its cascaded relations",
-      "status": "blocked",
-      "reason": "Record 34 preflight: managed lifecycle transitions, visibility and authenticated lifecycle events remain unadmitted"
+      "status": "admitted",
+      "reason": "Record 34: managed lifecycle, complete cascade facts, physical deletion and deleted-row reads verified on PGlite and PostgreSQL"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
       "title": "should retrieve soft-deleted products if filtered on deleted_at",
-      "status": "blocked",
-      "reason": "Record 34 preflight: managed lifecycle transitions, visibility and authenticated lifecycle events remain unadmitted"
+      "status": "admitted",
+      "reason": "Record 34: managed lifecycle, complete cascade facts, physical deletion and deleted-row reads verified on PGlite and PostgreSQL"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
       "title": "should restore a soft deleted product and its cascaded relations",
-      "status": "blocked",
-      "reason": "Record 34 preflight: managed lifecycle transitions, visibility and authenticated lifecycle events remain unadmitted"
+      "status": "admitted",
+      "reason": "Record 34: managed lifecycle, complete cascade facts, physical deletion and deleted-row reads verified on PGlite and PostgreSQL"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",

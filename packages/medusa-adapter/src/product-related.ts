@@ -19,6 +19,7 @@ const decodeOptions = commerceDecoder(Schema.Struct({
   populate: Schema.optionalKey(Schema.Array(Schema.String)),
   limit: Schema.optionalKey(QueryLimit), offset: Schema.optionalKey(QueryOffset),
   orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),
+  filters: Schema.optionalKey(Schema.Struct({ softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }) })),
 }), "unsupportedProfile");
 export const decodeCollectionReplacement = commerceDecoder(Schema.Struct({ relations: Schema.Tuple([Schema.Literal("products")]) }), "unsupportedProfile");
 
@@ -34,7 +35,8 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   if (fields.some(name => !entity.table.columns.some(column => column.name === name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const relations = options.populate ?? [];
   if (relations.some(name => !metadata.queryRelations.get(entity.table.name)?.has(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const children: Json[] = entity.table.columns.some(column => column.name === "deleted_at") ? [{ kind: "isNull", column: "deleted_at" }] : [];
+  const withDeleted = options.filters?.softDeletable.withDeleted ?? false;
+  const children: Json[] = !withDeleted && entity.table.columns.some(column => column.name === "deleted_at") ? [{ kind: "isNull", column: "deleted_at" }] : [];
   for (const [name, value] of Object.entries(where)) {
     if (name === "$or") {
       const selectors = yield* Effect.fromResult(decodeOr(value));
@@ -53,13 +55,13 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
     const complete = yield* readCommerceRelationRows(ctx, entity.table.name, query.predicate);
     const ordered = options.orderBy?.id === "DESC" ? [...complete].reverse() : complete;
     const selected = new Set(fields);
-    const populated = yield* populateCommerceRelations(ctx, entity.table.name, ordered, relations, metadata.queryRelations, new Map());
+    const populated = yield* populateCommerceRelations(ctx, entity.table.name, ordered, relations, metadata.queryRelations, new Map(), withDeleted);
     for (const relation of relations) selected.add(relation);
     return { rows: populated.map(row => projectRowFields(row, selected)), count: withCount ? complete.length : undefined };
   }
   const store = yield* ctx.table(entity.table.name);
   const rows = yield* store.find(ctx.manager, { ...query, fields: [...new Set([...fields, "id"])] });
-  const populated = yield* populateCommerceRelations(ctx, entity.table.name, rows, relations, metadata.queryRelations, new Map());
+  const populated = yield* populateCommerceRelations(ctx, entity.table.name, rows, relations, metadata.queryRelations, new Map(), withDeleted);
   const selected = new Set([...fields, ...relations]);
   return { rows: populated.map(row => projectRowFields(row, selected)), count: withCount ? yield* store.count(ctx.manager, query) : undefined };
 });

@@ -2,6 +2,11 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import type { Reporter } from "vitest/node";
 export const admittedProductCases = [
+  "Product injected event bus > ProductModuleService Events > Product Deletion > should emit all cascade delete events when soft deleting a product",
+  "Product injected event bus > ProductModuleService Events > Delete Operations - Base Service Automatic Events > should emit delete events for all entity types via base service",
+  "Product service > ProductModuleService products > softDelete > should soft delete a product and its cascaded relations",
+  "Product service > ProductModuleService products > softDelete > should retrieve soft-deleted products if filtered on deleted_at",
+  "Product service > ProductModuleService products > restore > should restore a soft deleted product and its cascaded relations",
   "Product injected event bus > ProductModuleService Events > Product Creation > should emit all related events when creating a product with full relations",
   "Product injected event bus > ProductModuleService Events > Product Update > should emit cascade events when updating product with relations",
   "Product injected event bus > ProductModuleService Events > Product Variant Operations > should emit PRODUCT_VARIANT_CREATED event only when creating standalone variant",

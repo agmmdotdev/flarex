@@ -14,15 +14,15 @@ const identities = Effect.fn("MedusaAdapter.relationIdentities")(function* (rows
   }
   return [...values];
 });
-const visible = (column: string, values: string[]) => ({ kind: "and", children: [
-  { kind: "isNull", column: "deleted_at" }, { kind: "in", column, values },
+const visible = (column: string, values: string[], withDeleted: boolean) => ({ kind: "and", children: [
+  ...(withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }]), { kind: "in", column, values },
 ] });
 
 /** Resolve an admitted existence predicate from leaf to root, before paging.
  * Every lookup stays on the same manager and proves its complete bounded set. */
 export const resolveCommerceRelationFilter = Effect.fn("MedusaAdapter.resolveRelationFilter")(function* (
   ctx: Pick<CommerceCommandContext, "manager" | "table">, source: string, path: string,
-  predicate: Json, relations: CommerceRelations,
+  predicate: Json, relations: CommerceRelations, withDeleted = false,
 ) {
   const steps: { source: string; relation: CommerceRelation }[] = [];
   let table = source;
@@ -49,7 +49,7 @@ export const resolveCommerceRelationFilter = Effect.fn("MedusaAdapter.resolveRel
     if (index > 0) {
       const key = relation.sourcePrimaryKeys[0];
       if (relation.sourcePrimaryKeys.length !== 1 || key === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      rows = yield* readCommerceRelationRows(ctx, step.source, visible(key, roots));
+      rows = yield* readCommerceRelationRows(ctx, step.source, visible(key, roots, withDeleted));
     }
   }
   return roots;

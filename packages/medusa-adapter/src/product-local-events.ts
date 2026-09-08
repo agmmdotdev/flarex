@@ -12,7 +12,7 @@ export const decodeLocalEventBatch = commerceDecoder(Schema.Array(Schema.Json), 
 const EventId = Schema.String.check(Schema.isLengthBetween(1, 256));
 const Message = Schema.Struct({
   name: Schema.String,
-  metadata: Schema.Struct({ source: Schema.Literal(Modules.PRODUCT), object: Schema.String, action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED, CommonEvents.DELETED]) }),
+  metadata: Schema.Struct({ source: Schema.Literal(Modules.PRODUCT), object: Schema.String, action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED, CommonEvents.DELETED, CommonEvents.RESTORED]) }),
   // The pinned moduleEventBuilderFactory preserves a bulk operation as one
   // message whose data.id contains every entity ID.
   data: Schema.Struct({ id: Schema.Union([EventId, Schema.Array(EventId).check(Schema.isMinLength(1), Schema.isMaxLength(commerceLimits.catalogRows))]) }),
@@ -23,7 +23,7 @@ const captureMessage = Effect.fn("ProductEvents.capture")(function* (catalog: Pr
   const message = yield* decode(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
   const candidates = catalog.entities.filter(entity => entity !== catalog.assignment);
   if (!candidates.some(entity => entity.eventObject === message.metadata.object &&
-    (message.metadata.action === CommonEvents.CREATED ? entity.createdEvent : message.metadata.action === CommonEvents.UPDATED ? entity.updatedEvent : entity.deletedEvent) === message.name)) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    (message.metadata.action === CommonEvents.CREATED ? entity.createdEvent : message.metadata.action === CommonEvents.UPDATED ? entity.updatedEvent : message.metadata.action === CommonEvents.RESTORED ? entity.restoredEvent : entity.deletedEvent) === message.name)) return yield* Effect.fail(commerceError("unadmittedEvent"));
   return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
 });
 
@@ -34,8 +34,20 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
 ): LocalCommerceEventPolicy {
   const capture = (input: unknown) => captureMessage(catalog, input);
   return { capture, deliver,
-    validate: Effect.fn("ProductEvents.validate")(function* (events, rows, commandName) {
+    validate: Effect.fn("ProductEvents.validate")(function* (events, rows, commandName, lifecycle = []) {
       const expected = new Set<string>();
+      const observations = new Map<string, typeof lifecycle[number]>();
+      for (const observation of lifecycle) {
+        const key = yield* decodeRelationalRowKey(descriptor.layout, observation.tableId, observation.keyBytes, 1)
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        const id = key.components[0]?.value;
+        if (key.components.length !== 1 || typeof id !== "string" ||
+          commandName !== (observation.operation === "restore" ? "productRestore" : "productSoftDelete") ||
+          (observation.operation === "restore" ? observation.afterDeletedAt !== null : observation.afterDeletedAt === null)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        const identity = observation.tableId + ":" + id;
+        if (observations.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        observations.set(identity, observation);
+      }
       for (const row of rows) {
         const key = yield* decodeRelationalRowKey(descriptor.layout, row.tableId, row.keyBytes, row.codecVersion)
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
@@ -44,10 +56,21 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
         const id = key.components[0];
         if (object === undefined || key.components.length !== 1 || id?.columnId !== "id" || typeof id.value !== "string") return yield* Effect.fail(commerceError("receiptMismatch"));
         if (object === catalog.assignment) {
-          if (row.operation !== "insert" || commandName !== "productCreateassignment") return yield* Effect.fail(commerceError("unadmittedEvent"));
+          if (!((row.operation === "insert" && commandName === "productCreateassignment") || (row.operation === "delete" && commandName === "productDeleteproduct"))) return yield* Effect.fail(commerceError("unadmittedEvent"));
           continue;
         }
-        const identity = (row.operation === "insert" ? CommonEvents.CREATED : row.operation === "update" ? CommonEvents.UPDATED : CommonEvents.DELETED) + ":" + object.eventObject + ":" + id.value;
+        // The pinned physical-delete internal service dispatches only root IDs;
+        // dependent removals still require complete core relational delete facts.
+        if (row.operation === "delete" && commandName === "productDeleteproduct" && [catalog.option, catalog.value, catalog.variant, catalog.image].includes(object)) continue;
+        // Pinned reference detachment emits no Product mutation callback.
+        if (row.operation === "update" && object === catalog.product && ["productDeletetype", "productDeletecollection"].includes(commandName)) continue;
+        const observationKey = row.tableId + ":" + id.value;
+        const observation = observations.get(observationKey);
+        if (observation !== undefined && row.operation !== "update") return yield* Effect.fail(commerceError("receiptMismatch"));
+        observations.delete(observationKey);
+        const action = observation !== undefined ? (observation.operation === "restore" ? CommonEvents.RESTORED : CommonEvents.DELETED)
+          : row.operation === "insert" ? CommonEvents.CREATED : row.operation === "update" ? CommonEvents.UPDATED : CommonEvents.DELETED;
+        const identity = action + ":" + object.eventObject + ":" + id.value;
         if (expected.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
         expected.add(identity);
       }
@@ -58,7 +81,7 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
           if (!expected.delete(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
         }
       }
-      if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (expected.size !== 0 || observations.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     }),
   };
 }

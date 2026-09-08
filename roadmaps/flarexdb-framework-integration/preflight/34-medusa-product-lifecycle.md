@@ -2,9 +2,9 @@
 
 ## Status And Outcome
 
-Preflight only; implementation is not admitted. This follows the completed
-50-case Product mutation profile in records 32 and 33. Deliver all five remaining
-lifecycle originals together, bringing the two-file inventory to **55 admitted,
+Implemented and validated privately on 2026-09-08.
+This follows the completed 50-case Product mutation profile in records 32 and 33.
+All five lifecycle originals pass on both drivers, bringing the two-file inventory to **55 admitted,
 one blocked scale case and one upstream performance skip** on both drivers.
 Keep the original assertions and service behavior. The exact full identities
 are the five `lifecycle` entries in `product-upstream-coverage-plan.json`.
@@ -34,7 +34,7 @@ not every reachable relation. Shared tags, types, collections and categories
 must survive Product lifecycle changes. Pivots and explicit variant-image rows
 need their actual declared behavior, not a blanket recursive deletion rule.
 
-Current Flarex seams deliberately refuse this capability: Product repository
+Before this milestone, Flarex seams deliberately refused this capability: Product repository
 `delete`, `softDelete` and `restore` are inert, normal query predicates always
 exclude deleted rows, and ordinary core updates protect managed lifecycle
 columns. Existing physical declared-key removal and bounded RETURNING kernels
@@ -100,3 +100,51 @@ batching/transport contract. The original upstream performance skip remains.
 Durable events/dispatch, query sync, workflow execution, OCC migration, stored
 Module Links, public serving and other Product test files are outside this
 lifecycle milestone.
+
+## Implemented Contract
+
+The trusted local profile captures `managedSoftDelete` permission only for
+Product, options, values, variants and images. Canonical profile contract 5
+includes that permission; declarations without it retain their prior contract
+version and bytes. Core owns selected-key validation, scoped locked before
+rows, managed timestamps, bounded RETURNING evidence and complete update facts.
+Actual lifecycle observations remain transaction-local and are charged to the
+same retained-byte budget. No database table or migration was added.
+
+The adapter follows checked DML cascade relationships and preserves shared
+business rows and pivots during managed transitions. Repeated soft deletion
+of an already deleted root selects no rows. Pinned restore includes active
+roots and repeats restored messages; already deleted children follow the
+pinned cascade selection rather than being silently omitted. Final message
+validation binds observations to the admitted root lifecycle command.
+
+Physical deletion explicitly removes dependent FK-cascade rows first so every
+removal has a core fact. The original service emits only the selected root
+delete event. Referenced type/collection deletion clears the declared nullable
+Product references through existing admitted core updates, with their normal
+managed `updated_at` behavior, complete facts and no extra Product message.
+Root category deletion preserves the pinned sibling reranking behavior;
+subtree/reparenting remains outside the profile. Explicit variant-image
+assignment FKs retain NO ACTION refusal for physical Product deletion, with
+complete rollback; managed lifecycle retains those assignment rows.
+
+`withDeleted` propagates through root, relation-filter and population reads.
+The original `deleted_at: { $gt: value }` filter is encoded as private command
+`deletedAfter` before core fingerprinting, then restored for the unchanged
+service. The adapter applies the pinned JavaScript Date convention; core admits
+only the validated canonical UTC timestamp `greaterThan` predicate. This does
+not open a general comparison grammar or permit reserved dollar-prefixed keys
+in Flarex runtime values.
+
+The next resource-contract proposal is [record 35](./35-medusa-product-scale.md).
+
+## Acceptance Result
+
+All 55 unchanged originals and all 33 authored Product conformance cases pass
+on both PGlite and ordinary-role PostgreSQL 18.3. Shared core/profile/envelope
+and Currency regressions pass, retaining only their existing driver-specific
+skips. The 120 pure adapter cases, 38 source/promotion guard cases, strict
+core/adapter/compatibility typechecks, source boundary and 631-input browser
+bundles pass. Both required reviewers cleared the final implementation and
+admission inventory. Complete chronological receipts and diagnostic runs remain
+in the task report; no failed or interrupted run is counted as acceptance.

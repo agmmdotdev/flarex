@@ -43,6 +43,7 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
   paths: readonly string[],
   relations: CommerceRelations,
   ordering: ReadonlyMap<string, string>,
+  withDeleted = false,
 ) {
   // Retain ordered scalar rows only, never a branch's mutable population. A
   // later primary-key read can reuse a complete subset of an earlier FK read.
@@ -73,7 +74,7 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
       if (matching.length === ids.size) return matching;
     }
     const children: Json[] = [{ kind: "in", column, values: [...new Set(values)] }];
-    if (softDelete) children.push({ kind: "isNull", column: "deleted_at" });
+    if (softDelete && !withDeleted) children.push({ kind: "isNull", column: "deleted_at" });
     const loaded = yield* readCommerceRelationRows(ctx, targetTable, { kind: "and", children }, order);
     fetched.set(cacheKey, loaded);
     return loaded;

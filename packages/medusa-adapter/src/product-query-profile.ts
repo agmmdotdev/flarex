@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { productRelations, type ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
@@ -13,6 +13,7 @@ const decodeOptions = commerceDecoder(Schema.Struct({
   limit: Schema.optionalKey(Schema.Unknown),
   offset: Schema.optionalKey(Schema.Unknown),
   orderBy: Schema.optionalKey(Schema.Unknown),
+  filters: Schema.optionalKey(Schema.Struct({ softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }) })),
 }), "unsupportedProfile");
 const decodeRelations = commerceDecoder(Schema.Array(Schema.Literals([...productRelations, "*", "variants.images"])), "unsupportedProfile");
 const decodeFields = commerceDecoder(Schema.Array(Schema.String).check(Schema.isMinLength(1)), "unsupportedProfile");
@@ -33,6 +34,10 @@ const decodeVariants = commerceDecoder(Schema.Struct({ options: Schema.Struct({
   option_id: Schema.optionalKey(Filter), value: Schema.optionalKey(Filter),
 }) }), "unsupportedProfile");
 const decodeCategories = commerceDecoder(Schema.Struct({ id: Filter }), "unsupportedProfile");
+const decodeDeletedComparison = commerceDecoder(Schema.Struct({ $gt: Schema.String }), "unsupportedProfile");
+// The pinned Drizzle parameter conversion uses JavaScript Date parsing. Keep
+// that foreign string convention here; core accepts canonical UTC instants only.
+const deletedInstant = (value: string) => Result.try({ try: () => new Date(value).toISOString(), catch: cause => commerceError("invalidInput", cause) });
 
 /** Decode in the existing profile order so malformed input, unsupported
  * capabilities and bounds retain their distinct first failure. */
@@ -62,15 +67,21 @@ export const decodeProductQuery = Effect.fn("ProductAdapter.decodeQuery")(functi
   const skip = yield* Effect.fromResult(decodeOffset(options.offset ?? 0));
   const take = yield* Effect.fromResult(decodeLimit(options.limit ?? 15));
   const order = yield* Effect.fromResult(decodeOrder(options.orderBy ?? { id: "ASC" }));
-  const predicates: Json[] = [{ kind: "isNull", column: "deleted_at" }];
+  const withDeleted = options.filters?.softDeletable.withDeleted ?? false;
+  const predicates: Json[] = withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }];
   const relationFilters: { path: string; predicate: Json }[] = [];
   for (const [key, inputFilter] of Object.entries(where)) {
+    if (key === "deleted_at") {
+      const comparison = yield* Effect.fromResult(decodeDeletedComparison(inputFilter));
+      predicates.push({ kind: "greaterThan", column: "deleted_at", value: yield* Effect.fromResult(deletedInstant(comparison.$gt)) });
+      continue;
+    }
     if (key === "variants" || key === "categories") {
       const values = key === "variants"
         ? (yield* Effect.fromResult(decodeVariants(inputFilter))).options
         : yield* Effect.fromResult(decodeCategories(inputFilter));
       relationFilters.push({ path: key === "variants" ? "variants.options" : "categories", predicate: {
-        kind: "and", children: [{ kind: "isNull", column: "deleted_at" }, ...Object.entries(values).map(([column, value]) => ({
+        kind: "and", children: [...(withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }]), ...Object.entries(values).map(([column, value]) => ({
           kind: "in", column, values: typeof value === "string" ? [value] : value,
         }))],
       } });
@@ -82,7 +93,7 @@ export const decodeProductQuery = Effect.fn("ProductAdapter.decodeQuery")(functi
   }
   return {
     // Canonical path order lets overlapping paths share their option-value read.
-    selected, relationFilters, relations: productRelations.filter(path => relations.includes(path)),
+    selected, relationFilters, withDeleted, relations: productRelations.filter(path => relations.includes(path)),
     query: {
       fields: [...new Set([...selected.filter(field => scalarFields.includes(field)), "id",
         ...relations.flatMap(name => { const relation = catalog.queryRelations.get(catalog.product.table.name)?.get(name);

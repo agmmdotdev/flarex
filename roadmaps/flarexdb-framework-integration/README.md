@@ -154,9 +154,12 @@ Use these sources in order:
     owns the implemented shared write-kernel efficiency correction required by Product acceptance,
     preserving existing resource limits and transaction authority.
 35. [`preflight/34-medusa-product-lifecycle.md`](./preflight/34-medusa-product-lifecycle.md)
-    proposes the next complete lifecycle milestone, targeting 55 originals with
+    owns the implemented lifecycle milestone, proving 55 originals per driver with
     explicit managed-transition authority and authenticated local events.
-36. Current code, migrations, any source snapshot already admitted by its own
+36. [`preflight/35-medusa-product-scale.md`](./preflight/35-medusa-product-scale.md)
+    proposes the remaining 1000-image case through measured shared resource
+    budgets, complete atomic batches and stable relation reads.
+37. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -224,7 +227,8 @@ Preflight records:
 | [`preflight/31-medusa-keyed-updates-and-remaining-product-tests.md`](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md) | Selected keyed updates implemented privately | Fifteen original cases pass per driver; explicit primary-key update admission, operation-specific local events, unchanged core schema and budgets; 41 blocked cases and one upstream skip remain |
 | [`preflight/32-medusa-standalone-options-and-variants.md`](./preflight/32-medusa-standalone-options-and-variants.md) | Product mutation milestone implemented privately | 50 originals pass per driver: 15 baseline, 11 related-entity and 24 graph cases; six blocked cases and one upstream skip remain |
 | [`preflight/33-commerce-write-kernel-efficiency.md`](./preflight/33-commerce-write-kernel-efficiency.md) | Approved shared-owner correction implemented | Operation-local catalog reuse and bounded insert/update RETURNING envelopes preserve limits, exact row facts, cancellation and atomicity |
-| [`preflight/34-medusa-product-lifecycle.md`](./preflight/34-medusa-product-lifecycle.md) | Proposed next milestone | Five lifecycle originals target 55 total; explicit managed transitions, cascade facts, deleted-row reads, restore conflicts and authenticated local events |
+| [`preflight/34-medusa-product-lifecycle.md`](./preflight/34-medusa-product-lifecycle.md) | Implemented privately with both-driver original-test proof | 55 originals pass per driver; managed transitions, complete cascade facts, deleted-row reads and authenticated local events; one scale case and one upstream skip remain |
+| [`preflight/35-medusa-product-scale.md`](./preflight/35-medusa-product-scale.md) | Proposed next milestone | Measure and admit bounded complete 1000-image writes/reads; target 56 originals, preserving the upstream performance skip |
 
 ## Current Architecture
 
@@ -359,8 +363,8 @@ The smallest safe sequence is:
     under record 26. Record 28 implements and validates nested creation, bounded population and
     transaction-buffered local events as the first service transaction proof.
     Durable event storage and dispatch require their own later decision and proof.
-    Replacement
-    and lifecycle/cascade publication remain a subsequent coherent capability.
+    Records 32-34 implement bounded replacement and lifecycle/cascade publication
+    with 55 originals per driver. Record 35 preflights the remaining scale case.
     Follow with both endpoints and the
     typed link/event contracts for one real stored Module Link with database-
     enforced uniqueness/cardinality and genuine-PostgreSQL concurrency proof.

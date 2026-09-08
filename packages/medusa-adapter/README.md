@@ -54,19 +54,26 @@ Links, arbitrary module queries and public/production adapters remain gated.
 ## Private Product compatibility
 
 Product now uses its complete ten-model/thirteen-table DML installation and a
-bounded local create/read and selected keyed-update profile. The unchanged service supports nested Product
-creation, tag/type/collection creation, standalone images, existing associations
-and selected relation filters/population through shared Flarex transactions.
-Tag/type ID updates and service-owned upserts use explicit existing-primary-key
-update admission, with metadata merging and operation-authenticated events.
-Other updates, category writes, replacement, delete/restore and general scale remain
-unadmitted. Business events use the authenticated in-memory test buffer after
+bounded local create/read, related-entity and graph-mutation profile. The
+unchanged service supports standalone options/values/variants, images, root
+categories, existing associations and checked relation filters/population
+through shared Flarex transactions. Keyed updates, upserts and graph replacement
+preserve retained identities, metadata merging and operation-authenticated events.
+
+Record 34 adds physical root deletion, Product soft deletion/restoration and
+deleted-row visibility. Managed lifecycle requires explicit core admission;
+the adapter selects cascades from actual DML while core owns timestamps and
+complete row facts. Shared references survive. Deleting a referenced type or
+collection clears the Product reference; root category deletion reranks siblings.
+An explicit variant-image assignment retains its physical FK refusal during
+Product deletion. General category trees and scale remain unadmitted.
+Business events use the authenticated in-memory test buffer after
 acknowledged commit; no durable provider or query sync is activated.
 
 Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
-root. It runs fifteen exact original cases from two unchanged files and reports
-42 exclusions (41 blocked capabilities and one upstream skip). Set `FLAREX_TEST_DRIVER=postgres` and
+root. It runs 55 exact original cases from two unchanged files and reports
+two exclusions (the 1000-image case and one upstream performance skip). Set `FLAREX_TEST_DRIVER=postgres` and
 `FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
 Both files share one installed fixture per driver and clear business rows
-between cases. The case inventory and records 29-32 in the framework-integration
+between cases. The case inventory and records 29-35 in the framework-integration
 roadmap distinguish current coverage from the remaining module capabilities.

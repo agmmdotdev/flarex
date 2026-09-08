@@ -8,4 +8,5 @@ export interface CommerceStore {
   readonly count: (context: BoundedRequestContext, query: unknown) => Effect.Effect<number, CommerceTransactionError>;
   readonly write: (context: BoundedRequestContext, mode: "insert" | "upsert" | "update", rows: unknown) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
   readonly delete: (context: BoundedRequestContext, keys: unknown) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
+  readonly lifecycle: (context: BoundedRequestContext, operation: "softDelete" | "restore", keys: unknown) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
 }

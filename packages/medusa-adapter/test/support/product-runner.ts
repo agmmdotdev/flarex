@@ -7,6 +7,7 @@ import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import { productLocalEventPolicy } from "../../src/product-local-events";
 import { captureCommerceInput } from "../../src/commerce-input";
+import { prepareProductReadInput } from "../../src/product-service-input";
 import { commerceError, type Json, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceHostFixture, type CommerceHostTestFixture } from "../../../persistence-postgres/test/commerceHostFixture";
 import { createRelationalPGliteFixture } from "../../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
@@ -79,6 +80,15 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
     updateProductOptions: runtime.commands.updateOptions, updateProductVariants: runtime.commands.updateVariants, updateProductOptionValues: runtime.commands.updateValues,
     updateProductCollections: runtime.commands.updateCollections, updateProductCategories: runtime.commands.updateCategories, updateProducts: runtime.commands.update };
   const updateCommand = Object.entries(updateCommands).find(([name]) => name === method)?.[1];
+  const lifecycleCommands = { deleteProducts: runtime.commands.delete, deleteProductTags: runtime.commands.deleteTags,
+    deleteProductTypes: runtime.commands.deleteTypes, deleteProductCategories: runtime.commands.deleteCategories,
+    deleteProductCollections: runtime.commands.deleteCollections, softDeleteProducts: runtime.commands.softDelete, restoreProducts: runtime.commands.restore };
+  const lifecycleCommand = Object.entries(lifecycleCommands).find(([name]) => name === method)?.[1];
+  if (lifecycleCommand !== undefined) {
+    const isManaged = method === "softDeleteProducts" || method === "restoreProducts";
+    if (args.length > (isManaged ? 3 : 2) || args[isManaged ? 2 : 1] !== undefined || (isManaged && args[1] !== undefined)) return yield* Effect.fail(commerceError("invalidAuthority"));
+    return yield* fixture.host.run(fixture.host.newRequestKey(), lifecycleCommand, yield* Effect.fromResult(captureCommerceInput(args[0])));
+  }
   const contextIndex = createCommand === undefined ? 2 : 1;
   if (args.length > contextIndex + 1 || args[contextIndex] !== undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const input = yield* Effect.fromResult(captureCommerceInput(createCommand !== undefined ? args[0]
@@ -87,7 +97,7 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
   if (createCommand !== undefined) return yield* fixture.host.run(fixture.host.newRequestKey(), createCommand, input);
   if (updateCommand !== undefined) return yield* fixture.host.run(fixture.host.newRequestKey(), updateCommand, input);
   return yield* fixture.host.read(method === "retrieveProduct" ? runtime.commands.retrieve
-    : method === "listProducts" ? runtime.commands.list : runtime.commands.count, input);
+    : method === "listProducts" ? runtime.commands.list : runtime.commands.count, yield* Effect.fromResult(prepareProductReadInput(input)));
 });
 
 /** Original test callback contract, backed only by admitted host commands. The
@@ -98,7 +108,8 @@ const service = new Proxy<object>({}, {
   get(_target, property) {
     if (typeof property !== "string" || !["createProducts", "createProductTags", "createProductTypes", "createProductCollections", "createProductImages", "retrieveProduct", "listProducts", "listAndCountProducts", "updateProductTags", "updateProductTypes", "upsertProductTags", "upsertProductTypes",
       "createProductOptions", "createProductVariants", "createProductCategories", "upsertProductOptions", "upsertProductCollections", "upsertProductCategories", "addImageToVariant",
-      "updateProductOptions", "updateProductVariants", "updateProductOptionValues", "updateProductCollections", "updateProductCategories", "updateProducts", "upsertProducts", "upsertProductVariants"].includes(property)) {
+      "updateProductOptions", "updateProductVariants", "updateProductOptionValues", "updateProductCollections", "updateProductCategories", "updateProducts", "upsertProducts", "upsertProductVariants",
+      "deleteProducts", "deleteProductTags", "deleteProductTypes", "deleteProductCategories", "deleteProductCollections", "softDeleteProducts", "restoreProducts"].includes(property)) {
       throw new Error("Unadmitted Product test service method: " + String(property));
     }
     return (...args: readonly unknown[]): Promise<Json> => Effect.runPromise(execute(property, args).pipe(

@@ -17,6 +17,7 @@ export interface ProductEntityMetadata {
   readonly createdEvent: string;
   readonly updatedEvent: string;
   readonly deletedEvent: string;
+  readonly restoredEvent: string;
 }
 export interface ProductRuntimeMetadata {
   readonly product: ProductEntityMetadata;
@@ -50,6 +51,7 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
       createdEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.CREATED }),
       updatedEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.UPDATED }),
       deletedEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.DELETED }),
+      restoredEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.RESTORED }),
     } satisfies ProductEntityMetadata;
   });
   const product = yield* entity(Product);

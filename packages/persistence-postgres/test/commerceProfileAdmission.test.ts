@@ -9,6 +9,25 @@ import { currencySchemaInput, syntheticSchemaInput, frameworkTargetNamespace, FR
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 describe("private commerce profile admission", () => {
+  it("hashes managed lifecycle permission separately and refuses tables without declared lifecycle columns", async () => {
+    const artifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
+      provenance: { kind: "sourceSnapshot", repository: "https://example.com/lifecycle", revision: "f".repeat(40), paths: ["model.ts"] },
+      schema: { ...currencySchemaInput(), owner: "medusa" },
+    }));
+    const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: artifact.artifact, physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }));
+    const declaration = { tableId: "currency", keyId: "currency.primary", update: "existingPrimaryKey" as const };
+    const original = await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.lifecycle", [declaration]).pipe(Effect.flatMap(requireCommerceProfile)));
+    const lifecycle = await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.lifecycle", [{ ...declaration, lifecycle: "managedSoftDelete" }]).pipe(Effect.flatMap(requireCommerceProfile)));
+    expect(lifecycle.tables).toEqual([{ tableId: "currency", keyId: "currency.primary", mode: "readInsertUpdate", lifecycle: "managedSoftDelete" }]);
+    expect(lifecycle.contractSha256).not.toBe(original.contractSha256);
+    expect(await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.lifecycle", [declaration]).pipe(Effect.flatMap(requireCommerceProfile)))).toEqual(original);
+    const plain = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
+      provenance: { kind: "sourceSnapshot", repository: "https://example.com/plain", revision: "f".repeat(40), paths: ["model.ts"] },
+      schema: { ...syntheticSchemaInput(), owner: "medusa" },
+    }));
+    const plainLayout = await runEffect(captureRelationalPhysicalLayout({ artifact: plain.artifact, physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }));
+    expect(await runEffectFailure(registerLocalCommerceProfile(plain.artifact, plainLayout, "test.lifecycle", [{ tableId: "child", keyId: "child.primary", lifecycle: "managedSoftDelete" }]))).toMatchObject({ reason: "unsupportedProfile" });
+  });
   it("hashes separately admitted references and removal and rejects undeclared reference authority", async () => {
     const artifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
       provenance: { kind: "sourceSnapshot", repository: "https://example.com/references", revision: "e".repeat(40), paths: ["model.ts"] },

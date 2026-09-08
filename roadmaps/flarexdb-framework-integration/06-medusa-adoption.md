@@ -28,10 +28,13 @@ assigns the five lifecycle cases and one scale case to following slices.
 The separately approved and implemented
 [bounded write-kernel correction](./preflight/33-commerce-write-kernel-efficiency.md)
 preserves resource limits, exact row evidence and bounded database transport.
-The next [lifecycle milestone](./preflight/34-medusa-product-lifecycle.md) preflights
-physical deletion, soft deletion, restore and deleted-row reads together.
+The implemented [lifecycle milestone](./preflight/34-medusa-product-lifecycle.md)
+adds physical deletion, soft deletion, restore and deleted-row reads, with 55
+original cases passing on both drivers. The next
+[scale preflight](./preflight/35-medusa-product-scale.md) targets the remaining
+1000-image ordering case through a measured shared resource contract.
 Durable event storage/dispatch are deferred. Product
-mutations beyond the admitted graph/related-entity profile, lifecycle operations,
+mutations beyond the admitted graph/related-entity and lifecycle profile,
 the 1000-image scale case, stored Links and production
 activation remain unadmitted.
 
@@ -64,8 +67,9 @@ complete, as are private Flarex-backed Currency installation and service
 execution. Product schema/relationship installation, private nested creation,
 bounded population and local event conformance are complete. Related creation
 and bounded reads are implemented under record 30; keyed tag/type updates under
-record 31. Record 32 preflights the larger Product mutation milestone, including
-explicit shared reference-update and declared-key removal capabilities. General Payload
+record 31. Records 32-34 implement the larger Product mutation and lifecycle
+milestones, including explicit shared reference-update, declared-key removal
+and managed-transition capabilities. General Payload
 compatibility is separate.
 
 [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md)

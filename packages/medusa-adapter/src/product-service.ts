@@ -8,7 +8,7 @@ import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils/po
 import type { DAL, FindConfig, ProductTypes, IEventBusModuleService } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { decodeProductRead, decodeProductFindConfig, decodeProductCreateInput } from "./product-service-input";
+import { decodeProductRead, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
 import { decodeLocalEventOptions, decodeLocalEventBatch } from "./product-local-events";
 import { captureCommerceInput } from "./commerce-input";
 import { withCommerceService } from "./commerce-service-bridge";
@@ -17,10 +17,11 @@ import { captureProductSchema } from "./product-schema";
 import { productRepository } from "./product-repository";
 import { validateProductCreate } from "./product-graph";
 import { decodeRelatedUpdate } from "./product-value-profile";
+import { decodeProductLifecycleIds } from "./product-lifecycle";
 
 function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata) {
   const { repository, persistence, refuse, relatedRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata);
-  const blocked = { ...repository, find: refuse, findAndCount: refuse, create: refuse };
+  const blocked = { ...repository, find: refuse, findAndCount: refuse, create: refuse, delete: refuse, softDelete: refuse, restore: refuse };
   const internal = <Model extends { readonly name: string }>(model: Model, selected: DAL.RepositoryService = blocked) => new (MedusaInternalService(model))<object, Model>({
     [lowerCaseFirst(model.name) + "Repository"]: selected, [ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER]: persistence,
   });
@@ -73,7 +74,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const read = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("product" + kind, "read", Effect.fn("ProductAdapter." + kind)(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    const copied = structuredClone(decoded);
+    const filtersInput = yield* Effect.fromResult(productReadFilters(decoded)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const copied = structuredClone({ ...decoded, filters: filtersInput });
     // SAFETY: the selected DAL decoder validates all filters, projections,
     // pagination and relations after Medusa builds its query and before SQL.
     const find = copied.config as FindConfig<ProductTypes.ProductDTO> | undefined;
@@ -172,7 +174,27 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       ? service.upsertProducts(structuredClone(Array.isArray(products) ? products : [products]) as ProductTypes.UpsertProductDTO[], context)
       : service.updateProducts(selected.id, structuredClone(selected.data) as ProductTypes.UpdateProductDTO, context));
   }));
+  const remove = (kind: "product" | "tag" | "type" | "category" | "collection") => defineCommerceCommand("productDelete" + kind, "write", Effect.fn("ProductAdapter.delete")(function* (ctx, input) {
+    const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    return yield* withService(ctx, async ({ service, context }) => {
+      switch (kind) {
+        case "product": await service.deleteProducts(ids, context); break;
+        case "tag": await service.deleteProductTags(ids, context); break;
+        case "type": await service.deleteProductTypes(ids, context); break;
+        case "category": await service.deleteProductCategories(ids, context); break;
+        case "collection": await service.deleteProductCollections(ids, context); break;
+      }
+      return null;
+    });
+  }));
+  const lifecycle = (operation: "softDelete" | "restore") => defineCommerceCommand(operation === "restore" ? "productRestore" : "productSoftDelete", "write", Effect.fn("ProductAdapter.lifecycleCommand")(function* (ctx, input) {
+    const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    return yield* withService(ctx, async ({ service, context }) => (operation === "restore"
+      ? await service.restoreProducts(ids, {}, context) : await service.softDeleteProducts(ids, {}, context)) ?? null);
+  }));
   return { commands: Object.freeze({ create, list: read("list"), retrieve: read("retrieve"), count: read("count"),
+    delete: remove("product"), deleteTags: remove("tag"), deleteTypes: remove("type"), deleteCategories: remove("category"), deleteCollections: remove("collection"),
+    softDelete: lifecycle("softDelete"), restore: lifecycle("restore"),
     createTags: related("tag"), createTypes: related("type"), createCollections: related("collection"), createImages: related("image"),
     updateTags: changeRelated("tag", "update"), updateTypes: changeRelated("type", "update"),
     upsertTags: changeRelated("tag", "upsert"), upsertTypes: changeRelated("type", "upsert"),

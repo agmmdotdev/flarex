@@ -1,7 +1,7 @@
 import { productRelations, type ProductRuntimeMetadata, type ProductEntityMetadata } from "./product-runtime-metadata";
 import { Effect } from "effect";
 import type { Context, DAL, ModulePersistenceAdapter } from "@medusajs/framework/types";
-import { registerDrizzleEventSubscriber, dispatchCreatedMutations, dispatchDrizzleMutationRows, dispatchDrizzleMutationEvent, emptyPerformedActions, addPerformedAction } from "@medusajs/drizzle/mutation-events";
+import { registerDrizzleEventSubscriber, dispatchCreatedMutations, dispatchDrizzleMutationRows, dispatchDrizzleMutationEvent, dispatchCascadedUpdateMutations, emptyPerformedActions, addPerformedAction } from "@medusajs/drizzle/mutation-events";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductProjection, decodeProductCount } from "./product-value-profile";
@@ -13,6 +13,7 @@ import { findProducts } from "./product-query";
 import { populateCommerceRelations } from "./commerce-relations";
 import { findProductRelated, insertProductRelated, updateProductRelated, decodeCollectionReplacement } from "./product-related";
 import { replaceProductRows } from "./product-mutation";
+import { changeProductLifecycle } from "./product-lifecycle";
 
 /** Request-owned DAL composition; all framework transaction methods borrow core. */
 export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata) {
@@ -31,6 +32,33 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     }))),
   };
   const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
+  const deleteRows = (entity: ProductEntityMetadata): DAL.RepositoryService["delete"] => (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
+    changeProductLifecycle(ctx, metadata, entity, "delete", input).pipe(Effect.flatMap(result => Effect.gen(function* () {
+      if (result.reranked.length) {
+        if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+        yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", metadata.category.model, result.reranked.map(row => ({ ...row })), shared), signal),
+          catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      }
+      const ids: string[] = [];
+      for (const row of result.roots) {
+        if (typeof row.id !== "string") return yield* ctx.refuse(commerceError("storedCorruption"));
+        ids.push(row.id);
+      }
+      return ids;
+    })))));
+  const lifecycle = (operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+    const result = yield* changeProductLifecycle(ctx, metadata, metadata.product, operation, input);
+    if (shared === undefined || (operation === "softDelete" && !subscribed.has(shared))) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+    // Preserve the pinned Drizzle subscriber's lifecycle callback convention,
+    // including restored events for selected already-active rows. Core records
+    // the actual before/after state and authenticates the managed operation.
+    // Pinned restore does not register a subscriber: the existing dispatcher
+    // uses its conventional aggregator path on that framework-owned context.
+    yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchCascadedUpdateMutations(result.cascades, shared,
+      row => ({ entity: row, originalEntity: { deleted_at: operation === "softDelete" ? null : row.updated_at } })), signal),
+      catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+    return [result.roots, result.cascades] satisfies [object[], Record<string, unknown[]>];
+  })));
   const repository: DAL.RepositoryService = {
     getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
     serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(Effect.gen(function* () {
@@ -56,12 +84,13 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
         productRelations.filter(name => !["tags", "categories", "collection", "type"].includes(name))),
       ["tags", "categories", "collection", "type"], metadata.queryRelations, new Map());
     }))),
-    update: refuse, upsert: refuse, delete: refuse, softDelete: refuse, restore: refuse,
+    update: refuse, upsert: refuse, delete: deleteRows(metadata.product), softDelete: lifecycle("softDelete"), restore: lifecycle("restore"),
     upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, replaceProductRows(ctx, metadata, metadata.product, input, config))),
   };
   /** Table-bound repositories share this request's bridge and subscriber set. */
   const relatedRepository = (entity: ProductEntityMetadata): DAL.RepositoryService => ({
     ...repository,
+    delete: deleteRows(entity), softDelete: refuse, restore: refuse,
     update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (![metadata.tag, metadata.type, metadata.collection, metadata.category, metadata.value].includes(entity)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
       const rows = yield* updateProductRelated(ctx, metadata, entity, input);

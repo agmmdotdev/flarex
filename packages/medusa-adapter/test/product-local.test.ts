@@ -564,6 +564,7 @@ describe("local Product service through shared Flarex core", () => {
       { table: catalog.tag.table.name, rows, message },
       { table: catalog.tag.table.name, rows },
       { table: catalog.tag.table.name, rows, message: updated, duplicate: true },
+      { table: catalog.tag.table.name, rows, message: { ...updated, name: "product.product-tag.restored", metadata: { ...updated.metadata, action: "restored" } } },
       { table: catalog.tag.table.name, rows: [{ id: "ptag_missing_scoped", value: "absent" }], message: updated },
       // Different column groups force a real first write before the missing
       // update or duplicate insert fails in the later group.
@@ -769,5 +770,160 @@ describe("local Product service through shared Flarex core", () => {
     expect(await commerceInventory(fixture)).toEqual(before);
     expect(received).toHaveLength(events);
     expect(host.takeDeliveries()).toEqual([]);
+  });
+  it("authenticates complete lifecycle facts, preserves shared rows and pivots, and replays without redelivery", async () => {
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTags, { id: "ptag_lifecycle", value: "Lifecycle shared" }));
+    const product = object(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, {
+      id: "prod_lifecycle", title: "Lifecycle graph", tag_ids: ["ptag_lifecycle"],
+      options: [{ title: "Size", values: ["Small", "Large"] }],
+      variants: [{ title: "Small", options: { Size: "Small" } }], images: [{ url: "lifecycle-one" }, { url: "lifecycle-two" }],
+    })));
+    if (typeof product.id !== "string") throw new Error("Missing lifecycle Product ID");
+    const before = await commerceInventory(fixture);
+    const eventStart = received.length;
+    const key = fixture.host.newRequestKey();
+    const result = await run(fixture.host.run(key, runtime.commands.softDelete, [product.id]));
+    const deleted = await commerceInventory(fixture);
+    expect(deleted.facts.slice(before.facts.length)).toHaveLength(7);
+    expect(deleted.facts.slice(before.facts.length).every(fact => fact.operation === "update")).toBe(true);
+    expect(received.slice(eventStart)).toHaveLength(7);
+    expect(received.slice(eventStart).every(event => object(object(event).metadata).action === "deleted")).toBe(true);
+    expect(deleted.tables[catalog.tag.table.name]).toEqual(before.tables[catalog.tag.table.name]);
+    for (const pivot of catalog.writablePivots) expect(deleted.tables[pivot.name]).toEqual(before.tables[pivot.name]);
+    expect(await run(fixture.host.run(key, runtime.commands.softDelete, [product.id]))).toEqual(result);
+    expect(received).toHaveLength(eventStart + 7);
+    expect(array(await run(fixture.host.read(runtime.commands.list, { filters: { id: product.id } })))).toHaveLength(0);
+    const visible = object(array(await run(fixture.host.read(runtime.commands.list, { filters: { id: product.id }, config: { withDeleted: true, relations: ["options.values", "variants.options", "images", "tags"] } })))[0]);
+    expect(visible.deleted_at).toEqual(expect.any(String));
+    expect(array(visible.options).flatMap(option => array(object(option).values)).every(value => typeof object(value).deleted_at === "string")).toBe(true);
+    expect(array(visible.tags)).toMatchObject([{ id: "ptag_lifecycle", deleted_at: null }]);
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.softDelete, [product.id]));
+    expect((await commerceInventory(fixture)).facts).toEqual(deleted.facts);
+    expect(received).toHaveLength(eventStart + 7);
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.restore, [product.id]));
+    expect(received.slice(eventStart + 7)).toHaveLength(7);
+    expect(received.slice(eventStart + 7).every(event => object(object(event).metadata).action === "restored")).toBe(true);
+    const restored = object(await run(fixture.host.read(runtime.commands.retrieve, { id: product.id, config: { relations: ["options.values", "variants.options", "images"] } })));
+    expect(restored.deleted_at).toBeNull();
+    expect(array(restored.images).map(image => object(image).id)).toEqual(array(product.images).map(image => object(image).id));
+    // The pinned restore selection includes active roots and dispatches restored
+    // events again; this is authenticated operation behavior, not a no-op claim.
+    const activeStart = received.length;
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.restore, [product.id]));
+    expect(received.slice(activeStart)).toHaveLength(7);
+    expect(received.slice(activeStart).every(event => object(object(event).metadata).action === "restored")).toBe(true);
+  });
+
+  it("rolls back the complete restore on an active uniqueness conflict and rejects foreign or arbitrary lifecycle authority", async () => {
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "prod_restore_conflict", title: "Restore conflict", images: [{ url: "conflict-image" }] }));
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.softDelete, ["prod_restore_conflict"]));
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "prod_restore_active", title: "Restore conflict" }));
+    const before = await commerceInventory(fixture);
+    const events = received.length;
+    expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.restore, ["prod_restore_conflict"])))).toMatchObject({ _tag: "Failure" });
+    expect(await commerceInventory(fixture)).toEqual(before);
+    const raw = defineCommerceCommand("productLifecycleAuthorityProof", "write", Effect.fn("ProductTest.lifecycleAuthority")(function* (ctx, input) {
+      const value = object(input);
+      const store = yield* ctx.table(typeof value.table === "string" ? value.table : catalog.product.table.name);
+      return yield* store.lifecycle(ctx.manager, "softDelete", value.keys);
+    }));
+    const local = await localHost([raw]);
+    for (const input of [
+      { keys: [{ id: "prod_restore_active", deleted_at: null }] },
+      { keys: [{ id: "prod_restore_active" }, { id: "prod_restore_active" }] },
+      { keys: [{ id: "prod_restore_active" }, { id: "prod_missing_lifecycle" }] },
+      { table: catalog.tag.table.name, keys: [{ id: "ptag_other_scope" }] },
+      // Even real core lifecycle writes cannot masquerade as an ordinary event
+      // command. The final policy binds observations to the selected root command.
+      { keys: [{ id: "prod_restore_active" }] },
+    ]) {
+      expect(await run(Effect.result(local.host.run(local.host.newRequestKey(), raw, input)))).toMatchObject({ _tag: "Failure" });
+      expect(await commerceInventory(fixture)).toEqual(before);
+    }
+    expect(received).toHaveLength(events);
+  });
+
+  it("rolls back a pending lifecycle cascade on cancellation and a late failure", async () => {
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "prod_lifecycle_rollback", title: "Lifecycle rollback", images: [{ url: "rollback-image" }] }));
+    const reached = await run(Deferred.make<void>());
+    const command = defineCommerceCommand("productLifecycleRollbackProof", "write", Effect.fn("ProductTest.lifecycleRollback")(function* (ctx, wait) {
+      yield* ctx.nested(runtime.commands.softDelete, ["prod_lifecycle_rollback"]);
+      if (wait === false) return yield* ctx.refuse(commerceError("invalidInput"));
+      yield* Deferred.succeed(reached, undefined);
+      return yield* Effect.never;
+    }));
+    const local = await localHost([command]);
+    const before = await commerceInventory(fixture);
+    const events = received.length;
+    expect(await run(Effect.result(local.host.run(local.host.newRequestKey(), command, false)))).toMatchObject({ _tag: "Failure" });
+    const controller = new AbortController();
+    const pending = Effect.runPromiseExit(local.host.run(local.host.newRequestKey(), command, true), { signal: controller.signal });
+    try {
+      await Promise.race([run(Deferred.await(reached)), pending.then(exit => { throw new Error("Lifecycle settled before cancellation: " + exit._tag); })]);
+      controller.abort(); expect(Exit.isFailure(await pending)).toBe(true);
+    } finally { controller.abort(); await pending; }
+    expect(await commerceInventory(fixture)).toEqual(before);
+    expect(received).toHaveLength(events);
+  });
+
+  it("physically removes all owned entity and pivot rows while emitting only the original root event", async () => {
+    const product = object(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, {
+      id: "prod_lifecycle_delete", title: "Lifecycle physical delete", tag_ids: ["ptag_lifecycle"],
+      options: [{ title: "Size", values: ["Small"] }], variants: [{ title: "Small", options: { Size: "Small" } }], images: [{ url: "delete-image" }],
+    })));
+    if (typeof product.id !== "string") throw new Error("Missing deleted Product ID");
+    const before = await commerceInventory(fixture);
+    const events = received.length;
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.delete, [product.id]));
+    const after = await commerceInventory(fixture);
+    expect(after.facts.slice(before.facts.length)).toHaveLength(7);
+    expect(after.facts.slice(before.facts.length).every(fact => fact.operation === "delete")).toBe(true);
+    expect(received.slice(events)).toMatchObject([{ metadata: { object: "product", action: "deleted" }, data: { id: product.id } }]);
+    expect(after.tables[catalog.tag.table.name]).toEqual(before.tables[catalog.tag.table.name]);
+    expect(array(await run(fixture.host.read(runtime.commands.list, { filters: { id: product.id }, config: { withDeleted: true } })))).toHaveLength(0);
+  });
+  it("detaches referenced types and collections with complete Product facts and root-only events", async () => {
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTypes, { id: "ptyp_detach", value: "Detach type" }));
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCollections, { id: "pcol_detach", title: "Detach collection" }));
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, {
+      id: "prod_detach", title: "Detached references", type_id: "ptyp_detach", collection_id: "pcol_detach",
+    }));
+    for (const [command, id, column] of [
+      [runtime.commands.deleteTypes, "ptyp_detach", "type_id"],
+      [runtime.commands.deleteCollections, "pcol_detach", "collection_id"],
+    ] as const) {
+      const before = await commerceInventory(fixture); const events = received.length;
+      await run(fixture.host.run(fixture.host.newRequestKey(), command, [id]));
+      const after = await commerceInventory(fixture);
+      expect(after.tables[catalog.product.table.name]?.find(row => row.id === "prod_detach")).toMatchObject({ [column]: null, deleted_at: null });
+      expect(after.facts.slice(before.facts.length).map(row => row.operation).sort()).toEqual(["delete", "update"]);
+      expect(received.slice(events)).toMatchObject([{ metadata: { action: "deleted" }, data: { id } }]);
+      expect(received.slice(events)).toHaveLength(1);
+    }
+  });
+  it("reranks remaining category roots and retains explicit assignment FK refusal during physical deletion", async () => {
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, [{ id: "pcat_delete_first", name: "Delete first" }, { id: "pcat_delete_second", name: "Delete second" }]));
+    const beforeCategory = await commerceInventory(fixture);
+    const second = beforeCategory.tables[catalog.category.table.name]?.find(row => row.id === "pcat_delete_second");
+    if (typeof second?.rank !== "number") throw new Error("Missing category rank");
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.deleteCategories, ["pcat_delete_first"]));
+    const afterCategory = await commerceInventory(fixture);
+    expect(afterCategory.tables[catalog.category.table.name]?.find(row => row.id === "pcat_delete_second")).toMatchObject({ rank: second.rank - 1 });
+    expect(afterCategory.facts.slice(beforeCategory.facts.length).map(row => row.operation).sort()).toEqual(["delete", "update"]);
+    const product = object(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, {
+      id: "prod_assignment_lifecycle", title: "Assigned lifecycle", options: [{ title: "Size", values: ["One"] }],
+      variants: [{ title: "One", options: { Size: "One" } }], images: [{ url: "assigned-lifecycle" }],
+    })));
+    const variant = object(array(product.variants)[0]); const image = object(array(product.images)[0]);
+    if (typeof product.id !== "string" || typeof variant.id !== "string" || typeof image.id !== "string") throw new Error("Missing assigned Product IDs");
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.addImageToVariant, [{ variant_id: variant.id, image_id: image.id }]));
+    const before = await commerceInventory(fixture); const events = received.length;
+    expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.delete, [product.id])))).toMatchObject({ _tag: "Failure" });
+    expect(await commerceInventory(fixture)).toEqual(before); expect(received).toHaveLength(events);
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.softDelete, [product.id]));
+    const hidden = await commerceInventory(fixture);
+    expect(hidden.tables[catalog.assignment.table.name]).toEqual(before.tables[catalog.assignment.table.name]);
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.restore, [product.id]));
+    expect((await commerceInventory(fixture)).tables[catalog.assignment.table.name]).toEqual(before.tables[catalog.assignment.table.name]);
   });
 });

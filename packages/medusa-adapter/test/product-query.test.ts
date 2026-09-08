@@ -8,6 +8,7 @@ import { findProductRelated } from "../src/product-related";
 import { assembleCommerceRelations, populateCommerceRelations, readCommerceRelationRows } from "../src/commerce-relations";
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
+import { prepareProductReadInput, productReadFilters } from "../src/product-service-input";
 
 describe("Medusa relation query extraction", () => {
   let catalog: ProductRuntimeMetadata;
@@ -79,7 +80,7 @@ describe("Medusa relation query extraction", () => {
             reads.push(table);
             return rows.get(table) ?? [];
           })),
-          count: () => Effect.succeed((rows.get(table) ?? []).length), write: unused, delete: unused,
+          count: () => Effect.succeed((rows.get(table) ?? []).length), write: unused, delete: unused, lifecycle: unused,
         }),
       }, catalog.product.table.name, [{ id: "p" }], selected.relations, catalog.queryRelations, new Map()).pipe(Effect.ensuring(lifetime.close));
       expect(reads.filter(table => table === catalog.value.table.name)).toHaveLength(1);
@@ -98,10 +99,30 @@ describe("Medusa relation query extraction", () => {
     [{ options: { orderBy: { images: { rank: "DESC" } } } }, "unsupportedProfile"],
     [{ where: { id: [1] } }, "invalidInput"],
     [{ where: { title: "unadmitted" } }, "unsupportedProfile"],
+    [{ options: { filters: { arbitrary: true } } }, "unsupportedProfile"],
+    [{ where: { deleted_at: { $gt: "not-a-date" } } }, "invalidInput"],
+    [{ where: { deleted_at: { $ne: null } } }, "unsupportedProfile"],
   ])("retains the profile refusal for %j", async (input, reason) => {
     const outcome = await Effect.runPromise(Effect.result(decodeProductQuery(catalog, input)));
     expect(Result.isFailure(outcome)).toBe(true);
     if (Result.isFailure(outcome)) expect(outcome.failure.reason).toBe(reason);
+  });
+  it("normalizes the original deleted-row timestamp comparison and retains explicit visibility", async () => {
+    const decoded = await Effect.runPromise(decodeProductQuery(catalog, { where: { deleted_at: { $gt: "01-01-2022" } }, options: { filters: { softDeletable: { withDeleted: true } } } }));
+    expect(decoded.withDeleted).toBe(true);
+    expect(decoded.query.predicate).toEqual({ kind: "and", children: [{ kind: "greaterThan", column: "deleted_at", value: new Date("01-01-2022").toISOString() }] });
+    const active = await Effect.runPromise(decodeProductQuery(catalog, {}));
+    expect(active.withDeleted).toBe(false);
+    expect(active.query.predicate).toEqual({ kind: "and", children: [{ kind: "isNull", column: "deleted_at" }] });
+  });
+  it("encodes the Medusa comparison at the command boundary without changing its service filter", () => {
+    const input = { filters: { id: "product", deleted_at: { $gt: "01-01-2022" } }, config: { withDeleted: true } };
+    const encoded = Result.getOrThrow(prepareProductReadInput(input));
+    expect(encoded).toEqual({ filters: { id: "product" }, deletedAfter: "01-01-2022", config: { withDeleted: true } });
+    expect(Result.getOrThrow(productReadFilters(encoded))).toEqual(input.filters);
+    expect(input.filters.deleted_at).toEqual({ $gt: "01-01-2022" });
+    expect(Result.isFailure(prepareProductReadInput({ filters: { deleted_at: { $gt: "date", $ne: null } } }))).toBe(true);
+    expect(Result.isFailure(productReadFilters({ filters: { deleted_at: null }, deletedAfter: "date" }))).toBe(true);
   });
 
   it("requests the complete bounded catalog and propagates core overflow before consuming a partial page", async () => {
@@ -112,7 +133,7 @@ describe("Medusa relation query extraction", () => {
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const result = yield* Effect.result(readCommerceRelationRows({ manager: lifetime.context,
         table: () => Effect.succeed({ count: unused,
-          find: (_manager, query) => Effect.sync(() => { reads++; expect(query).toMatchObject({ take: 256 }); }).pipe(Effect.andThen(Effect.fail(commerceError("limitExceeded")))), write: unused, delete: unused }),
+          find: (_manager, query) => Effect.sync(() => { reads++; expect(query).toMatchObject({ take: 256 }); }).pipe(Effect.andThen(Effect.fail(commerceError("limitExceeded")))), write: unused, delete: unused, lifecycle: unused }),
       }, catalog.value.table.name, { kind: "and", children: [] }).pipe(Effect.ensuring(lifetime.close)));
       expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
       expect(reads).toBe(1);
@@ -126,7 +147,7 @@ describe("Medusa relation query extraction", () => {
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const result = yield* findProductRelated({ manager: lifetime.context,
         table: () => Effect.succeed({ find: () => Effect.succeed([{ id: "value1", value: "red" }]),
-          count: () => Effect.succeed(1), write: unused, delete: unused }),
+          count: () => Effect.succeed(1), write: unused, delete: unused, lifecycle: unused }),
       }, catalog, catalog.value, { options: { fields: ["value"], ...options } }, true).pipe(Effect.ensuring(lifetime.close));
       expect(result).toEqual({ rows: [{ value: "red" }], count: 1 });
     }));

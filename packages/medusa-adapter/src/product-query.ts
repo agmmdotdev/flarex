@@ -15,14 +15,14 @@ export const findProducts = Effect.fn("ProductAdapter.find")(function* (
   const store = yield* ctx.table(table);
   const filters: Json[] = [selected.query.predicate];
   for (const filter of selected.relationFilters) filters.push({ kind: "in", column: "id",
-    values: yield* resolveCommerceRelationFilter(ctx, table, filter.path, filter.predicate, catalog.queryRelations),
+    values: yield* resolveCommerceRelationFilter(ctx, table, filter.path, filter.predicate, catalog.queryRelations, selected.withDeleted),
   });
   const query = { ...selected.query, predicate: { kind: "and", children: filters } };
   const roots = yield* store.find(ctx.manager, query);
   const count = withCount ? yield* store.count(ctx.manager, query) : undefined;
   const populated = yield* populateCommerceRelations(
     ctx, table, roots, selected.relations, catalog.queryRelations,
-    new Map([[catalog.image.table.name, "rank"]]),
+    new Map([[catalog.image.table.name, "rank"]]), selected.withDeleted,
   );
   const fields = new Set([...selected.selected, ...toPopulateTree(selected.relations).keys()]);
   return { rows: populated.map(row => {
