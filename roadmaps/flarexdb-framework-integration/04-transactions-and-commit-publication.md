@@ -77,6 +77,12 @@ an independently committing call inside an existing logical mutation.
 
 ## Consolidation And Optional Execution Changes
 
+Overall redesign status and remaining-work classification live in the
+[shared transaction core roadmap](../shared-transaction-core/README.md).
+The next reconciliation gate is its design-to-code ownership audit; further
+implementation scope is an audit outcome. This document retains the framework
+participation contract and its compatibility gates.
+
 The [shared-owner preflight](../../design-notes/flarexdb-commerce-occ-migration-preflight.md)
 clarifies the default: complete warranted core ownership and remove actual
 duplication while preserving native OCC and framework SQL execution. Record 36

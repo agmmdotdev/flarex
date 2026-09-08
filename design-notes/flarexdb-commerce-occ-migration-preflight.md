@@ -12,6 +12,11 @@ and [transaction roadmap](../roadmaps/flarexdb-framework-integration/04-transact
 The [workflow proposal](./flarexdb-medusa-workflow-execution.md) has independent
 compatibility and durable-execution gates.
 
+The [shared transaction core roadmap](../roadmaps/shared-transaction-core/README.md)
+tracks implementation reconciliation against this accepted direction. The
+bounded publication/recovery extraction is complete; the broader ownership
+audit, disposition of remaining work and performance gates remain open.
+
 ## Decision: Shared Core Guarantees, Distinct Execution
 
 Both framework transaction paths must delegate shared guarantees to the core.
@@ -84,10 +89,13 @@ See the [commerce host](../packages/persistence-postgres/src/commerceTransaction
 [CMS working set](../packages/persistence-postgres/src/cmsTransaction/documents.ts),
 [preference cleanup](../packages/persistence-postgres/src/payloadPreferences/cleanup.ts)
 and [commit owner](../packages/persistence-postgres/src/pointCommitTransaction.ts).
-These paths already share substantial infrastructure. A shared file alone does
-not establish a clean boundary: the commit kernel directly imports framework
-admission, closure and error types. Assess a narrow checked contribution seam
-and duplicated settlement/recovery mechanics before choosing an extraction.
+These paths already share substantial infrastructure. The
+[completed extraction](../roadmaps/flarexdb-framework-integration/preflight/36-shared-publication-and-request-recovery.md)
+gives common publication a private owner, moves commerce finalization to its
+participant and shares framework uncertain-outcome routing. The native commit
+module retains CMS preparation/materialization coupling. The broader audit
+must classify that retained boundary and the rest of the connected owners;
+neither a shared file nor this extraction alone proves complete reconciliation.
 Do not replace the entire committer or invent work when existing ownership fits.
 
 Keep existing scope-lock ordering and admitted isolation initially. Moving the

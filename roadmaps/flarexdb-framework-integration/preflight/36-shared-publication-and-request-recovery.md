@@ -12,6 +12,12 @@ bounded SQL execution profile. It introduces no schema, migration, package
 export, public API, mixed-domain atomic command or callback retry policy.
 Product scale remains separately gated by [record 35](./35-medusa-product-scale.md).
 
+This record closes only its bounded extraction. The
+[shared transaction core roadmap](../../shared-transaction-core/README.md)
+tracks broader ownership reconciliation, retained boundaries, remaining
+replacement/cleanup decisions and performance gates. Its completion audit
+remains open; this record does not establish whole-redesign completion.
+
 ## Owners And Authority
 
 `commitPublication/publication.ts` owns database publication time, sequence

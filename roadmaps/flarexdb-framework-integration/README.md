@@ -20,6 +20,12 @@ The [current gate matrix](#current-gate-status) is the cross-lane status index.
 Focused owners define exact contracts and evidence; lane documents link here
 rather than maintaining another detailed implementation-status inventory.
 
+The [shared transaction core roadmap](../shared-transaction-core/README.md)
+tracks the broader transaction/publication/recovery redesign reconciliation.
+Its next gate is the ownership completion audit. Record 36 completes one
+bounded extraction; it does not close that broader audit. This framework
+roadmap continues to own adapter capabilities and their conformance sequencing.
+
 This domain owns the extraction and admission of shared FlarexDB mechanisms
 needed by Payload and Medusa, plus the ordered adapter conformance work that
 uses them. It coordinates those consumers without replacing the existing
