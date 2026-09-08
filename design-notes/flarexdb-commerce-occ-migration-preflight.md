@@ -21,6 +21,11 @@ are complete; representative performance and overall completion gates remain ope
 The [named-command preflight](../roadmaps/shared-transaction-core/05-named-command-preflight.md)
 defines the implemented private Currency + scalar CMS + Application command.
 Its no-event, single-installation profile does not admit broader composition.
+The [application invocation preflight](../roadmaps/shared-transaction-core/06-application-command-invocation-preflight.md)
+proposes an Action-first caller boundary with explicit principal/command grants,
+a distinct shared effect-ledger branch and frozen-intent recovery. That proposal
+requires its own implementation decision; it does not enable Action or Task
+framework calls through existing native mutation callbacks.
 
 ## Decision: Shared Core Guarantees, Distinct Execution
 

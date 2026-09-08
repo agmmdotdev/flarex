@@ -52,7 +52,7 @@ before SQL begins does not replace transaction-bound admission.
 | Synthetic lifetime/store/receipts | **Intentional proof boundary** | Current consumers are focused test/support paths, with no package entry exposing a successful synthetic publisher. Preserve refusal and rollback/corruption coverage. This lifetime does not power CMS/commerce and must not become their fallback. Retirement first requires relocating its unique proofs. |
 | Artifact and migration transactions | **Intentional control/schema boundaries; R1 corrects resource dependency** | [Artifact lifecycle](../../packages/persistence-postgres/src/frameworkSchema/artifact/controlSession.ts) owns created/existing resolution and recovery after quarantine. [Migration target](../../packages/persistence-postgres/src/migrationCoordination/postgresTarget.ts) owns separately bounded DDL, statement limits and excluded recovery identity. These are not CMS/commerce business committers. R1 does not replace migration coordination. |
 | Persisted state and retention | **Retain; no DDL selected** | The [inventory](./02-migration-and-cleanup.md#persisted-state-and-cleanup-inventory) identifies active native execution, shared publication and framework control families. No dedicated CMS/commerce transaction-session family was found in inspected source schema. Runtime close, native lease cleanup and bounded history compaction remain required. |
-| Sandbox invocation and mixed atomicity | **Independent capability** | Proposed `ctx.cms`/`ctx.commerce` names do not admit sandbox serving. CMS admission explicitly refuses a frame containing commerce. Named shared commands and arbitrary mixed native OCC each need separate contracts; sequential host calls cannot join a transaction. |
+| Sandbox invocation and mixed atomicity | **Independent capability** | Proposed `ctx.cms`/`ctx.commerce` names do not admit sandbox serving. Standalone CMS admission refuses a commerce frame; the implemented [named command](./05-named-command-preflight.md) has separately authenticated composite admission. [Application invocation](./06-application-command-invocation-preflight.md) is now preflighted but unimplemented; arbitrary mixed native OCC remains separate. Sequential root-host calls cannot join a transaction. |
 | Representative performance | **Decision required: criteria; measurement pending** | Scope-level write serialization is shared across native/framework publishers. Framework business work holds that lock longer than native final publication. Validate cost, same-scope contention, independent scopes and mixed load; extraction suite duration is insufficient. |
 
 ## Why The Replacements Are Necessary
@@ -102,5 +102,5 @@ worker exists. R1/R2 introduce no new persistent cleanup obligation.
 
 Every audited responsibility now has a disposition. Overall redesign stays open
 until replacements and completion gates are resolved. Root Payload transactions,
-public APIs, mixed bindings/composition, general mixed OCC, durable events and
+public APIs, broader composition beyond the named command, general mixed OCC, durable events and
 Product scale retain independent capability decisions.

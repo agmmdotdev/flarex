@@ -21,6 +21,11 @@ its bounded scope. The original revised shared-transactions design report,
 sections 7 and 13, separates default consolidation from optional named SQL
 composition and says not to invent a refactor when existing owners fit.
 
+The [application invocation preflight](./06-application-command-invocation-preflight.md)
+now specifies the proposed caller boundary. This private host's policy digest
+is replay evidence, not an application authorization grant; its conformance
+runtime and process-local recovery do not establish an Action/Task API.
+
 ## Current Owners And Evidence
 
 | Source | Implemented responsibility |

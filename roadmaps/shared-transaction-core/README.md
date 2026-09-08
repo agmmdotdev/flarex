@@ -136,6 +136,7 @@ include their consumer switches and logic cleanup; neither requires DDL.
 | [Replacement and cleanup](./02-migration-and-cleanup.md) | R1/R2 logic cleanup complete; no DDL | Each approved replacement completes its consumer switch and logic cleanup; retained state justified |
 | [Performance and conformance](./03-validation-and-completion.md) | Focused extraction proof exists; broader measurement pending | Representative costs and concurrency meet explicit criteria; affected semantics preserved |
 | [Named cross-domain command](./05-named-command-preflight.md) | Private Currency + scalar CMS + Application profile implemented | Actual domain paths, complete atomic publication, rollback and retained recovery proven |
+| [Application command invocation](./06-application-command-invocation-preflight.md) | Preflight complete; Action-first implementation proposed | Authenticated real Action callback, frozen-intent recovery and explicit shared effect contract; Task invocation separately gated |
 | Overall redesign reconciliation | Open | All required audit findings resolved; retained boundaries justified; independent capabilities explicitly deferred |
 
 The [named-command contract](./05-named-command-preflight.md) is implemented
@@ -145,6 +146,13 @@ finalizer. Focused PGlite and genuine PostgreSQL proofs cover combined rollback,
 replay, cancellation, contention, native range conflicts and uncertain COMMIT
 recovery. Additional relational installations, domain-event delivery, public
 APIs and general mixed OCC remain separately gated.
+
+The [application invocation preflight](./06-application-command-invocation-preflight.md)
+proposes the next capability: one private Action invokes the named command
+through an authenticated callback. It explicitly includes command authorization,
+a new branch in the existing effect ledger with an additive migration, and
+recovery against the original intent after head movement. No implementation is
+admitted by that preflight; Task invocation and public serving remain separate.
 
 The separate completion gate is representative measured validation. Product scale remains in
 [record 35](../flarexdb-framework-integration/preflight/35-medusa-product-scale.md);

@@ -10,6 +10,10 @@ individual admission contracts. The private Currency + scalar CMS + Application
 cross-domain command is implemented under the
 [named-command contract](../../shared-transaction-core/05-named-command-preflight.md).
 Event delivery, additional installations and public composition remain gated.
+The [application invocation preflight](../../shared-transaction-core/06-application-command-invocation-preflight.md)
+recommends a private Action-first callback to that command. Its authorization,
+effect-ledger migration and head-stable recovery are proposed, not implemented;
+Task command invocation retains a separate attempt/fence/retry gate.
 
 This decision makes shared Application, Payload, and Medusa transaction
 ownership concrete without replacing their execution semantics. It refines
