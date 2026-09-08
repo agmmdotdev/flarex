@@ -3,12 +3,13 @@
 ## Status And Scope
 
 Status: private CMS row, optional-one relation and preference publication are
-implemented through the existing Application commit owner. Private Currency
+implemented through a CMS participant over shared Application materialization. Private Currency
 publication is implemented through the shared finalizer and relational facts.
 The [shared publication and recovery contract](./preflight/36-shared-publication-and-request-recovery.md)
 is implemented: common publication has an explicit private owner, commerce
 finalization is a trusted commerce participant, and both framework hosts share
-uncertain-outcome routing. CMS retains its native materialization bridge.
+uncertain-outcome routing. The R2 ownership replacement removes the former
+CMS bridge from native commit while preserving shared document lowering.
 Synthetic relational receipts still reject finalization; multi-table Product
 commands with local event conformance are implemented and validated privately under
 [record 28](./preflight/28-medusa-product-create-and-event-delivery.md).
@@ -87,7 +88,8 @@ The [shared-owner preflight](../../design-notes/flarexdb-commerce-occ-migration-
 clarifies the default: complete warranted core ownership and remove actual
 duplication while preserving native OCC and framework SQL execution. Record 36
 implements that bounded consolidation after the Product original-test handoff.
-The native publisher's remaining CMS materialization bridge and additional
+The [R2 replacement](../shared-transaction-core/04-implementation-proposal.md#r2-cms-participant-and-application-materialization)
+completes CMS participant and Application materialization ownership. Additional
 module capabilities retain their own scope; no general host merger is implied.
 
 Named atomic composition is a separate capability that can use bounded SQL;

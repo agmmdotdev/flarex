@@ -3,8 +3,8 @@
 ## Status And Scope
 
 Complete as a source ownership assessment of currently admitted native,
-CMS/Payload and commerce/Medusa paths. R1 physical ownership is implemented;
-R2 CMS participant/materialization remains proposed and requires approval. Overall status lives in the
+CMS/Payload and commerce/Medusa paths. R1 physical ownership and R2 CMS
+participant/Application materialization are implemented. Overall status lives in the
 [domain index](./README.md#next-correctness-gates).
 
 The accepted design remains sound: shared core guarantees with distinct
@@ -24,7 +24,7 @@ Record 36 proves its completed extraction; it does not prove the proposed work.
 | Path | Actual execution and settlement |
 | --- | --- |
 | Native Application | [ApplicationMutationSystem](../../packages/standard-application-invocation/src/ApplicationMutationSystem.ts) composes admission, authenticated claims and journals. [Native commit](../../packages/persistence-postgres/src/pointCommitTransaction.ts) validates dependencies and materializes within the [located PostgreSQL runner](../../packages/persistence-postgres/src/postgresLocatedReadCommitted.ts). Shared publication surrounds native session/journal/lease completion. |
-| CMS/Payload | [Payload runtime](../../packages/persistence-postgres/src/payloadScalar/runtime.ts) registers commands with the [CMS host](../../packages/persistence-postgres/src/cmsTransaction/host.ts). Commands run the pinned Payload Local API; the [database adapter](../../packages/persistence-postgres/src/payloadScalar/adapter.ts) borrows request capabilities. The host owns a [relational session](../../packages/persistence-postgres/src/relationalTransaction/session.ts), seals pending state and invokes the CMS participant currently inside native commit. |
+| CMS/Payload | [Payload runtime](../../packages/persistence-postgres/src/payloadScalar/runtime.ts) registers commands with the [CMS host](../../packages/persistence-postgres/src/cmsTransaction/host.ts). Commands run the pinned Payload Local API; the [database adapter](../../packages/persistence-postgres/src/payloadScalar/adapter.ts) borrows request capabilities. The host owns a [relational session](../../packages/persistence-postgres/src/relationalTransaction/session.ts), seals pending state and invokes the [CMS participant](../../packages/persistence-postgres/src/cmsTransaction/publication.ts), which shares Application materialization with native commit. |
 | Commerce/Medusa | Registered commands enter the [commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts). [Service composition](../../packages/medusa-adapter/src/commerce-service-bridge.ts) runs admitted Medusa behavior; [repository context](../../packages/medusa-adapter/src/commerce-repository-context.ts) propagates authentic borrowed managers. The [store](../../packages/persistence-postgres/src/commerceTransaction/store.ts) executes SQL and captures row evidence; [finalization](../../packages/persistence-postgres/src/commerceTransaction/publication.ts) consumes it and invokes shared publication inside the relational session. |
 | Synthetic relational proof | The separate [relational host](../../packages/persistence-postgres/src/relationalTransaction/host.ts) exercises synthetic admission and receipts. [Collection admission](../../packages/persistence-postgres/src/commitPublication/collection.ts) rejects any recorded or marked mutation with `unadmittedFinalization`. Read settlement and rollback proofs are not another successful framework write path. |
 
@@ -44,7 +44,7 @@ before SQL begins does not replace transaction-bound admission.
 | Native physical runner and Effect bridge | **Intentional boundary** | The located runner supports pool-owned and externally owned connected clients, callback/cleanup classification and quarantine. [Its Effect bridge](../../packages/persistence-postgres/src/locatedReadCommittedEffect.ts) preserves complete Cause and admitted SQL retry policy. It is already persistence core; forcing framework deadlines or artifact recovery into it would change policy. |
 | Bounded request lifetime and nesting | **Satisfied for CMS/commerce** | [Common lifetime](../../packages/persistence-postgres/src/boundedRequestLifetime.ts) owns rollback-only latching, asynchronous ID rechecks, overlap/depth/budget checks, seal and close. [CMS projection](../../packages/persistence-postgres/src/cmsTransaction/lifetime.ts) supplies its errors/limits. Borrowed operations cannot settle; caught failures cannot reopen a command. |
 | Scope, generation, placement and binding | **Satisfied mechanics; intentional participant policies** | Both hosts use located authority, scope-clock and binding/installation owners. Authentic admission registries are transaction-bound. CMS content/preference checks differ from commerce profile/initialization checks; retain them without a permissive union token or generic issuer. |
-| CMS finalization and Application lowering | **Required replacement: R2; lowering reuse retained** | `prepareCmsApplicationCommit`, `enterCmsApplicationCommit`, CMS error projection, closures, receipts and preference facts live in `pointCommitTransaction.ts`. Extract the CMS participant and shared Application document materialization together; keep native journal/OCC/session policy native. |
+| CMS finalization and Application lowering | **Satisfied by R2** | `cmsTransaction/publication.ts` owns preparation, CMS error projection, closures, receipts and preference facts. Native and CMS consume one `applicationDocumentMaterialization` owner. Native journal/OCC/session policy and error contracts stay outside that owner; the former CMS entry points are removed from native commit. |
 | Commerce finalization | **Satisfied** | Its participant authenticates admission, closing lifetime and one-use row closure, publishes relational facts and required bootstrap initialization before clock advancement. Store/query/lifecycle rules remain commerce policy. |
 | Commit allocation, facts, result, wake and clock | **Satisfied** | [Shared publisher](../../packages/persistence-postgres/src/commitPublication/publication.ts) owns allocation and common writes. Between prefix and clock CMS inserts preference facts, commerce inserts initialization, and native completes session/journal/lease work. Only physical settlement acknowledges success. |
 | Uncertain settlement and replay | **Satisfied routing; intentional reconciliation policies** | [Request recovery](../../packages/persistence-postgres/src/relationalTransaction/requestRecovery.ts) permits one keyed, single ordinary uncertain-failure recovery entry. Hosts re-resolve authority/binding and consult the [retained outcome resolver](../../packages/persistence-postgres/src/committedPointOutcome.ts) before business work. Recovery-only absence refuses execution. Composite Cause, defect or interruption does not become a callback retry. Native recovery remains native. |
@@ -64,12 +64,12 @@ wrapper would leave this dependency intact. Artifact repository decisions and
 schema registration stay outside the neutral resource implementation. Native
 connected-client and migration DDL policies remain explicit separate boundaries.
 
-R2 removes a reverse dependency: the native OCC module imports CMS admission,
-lifetime, document closure and Payload preference policy. CMS legitimately
-needs the same row/index/unique/relation guarantees as native Application.
-Copying that machinery would create competing core logic. Extract a narrow
-shared materializer and move CMS orchestration to its participant, removing the
-old CMS entry points from the native module.
+R2 removes the native OCC module's former dependency on CMS admission,
+lifetime, document closure and Payload preference policy. Both participants
+consume one Application row/index/unique/relation implementation. Composition
+identity is checked by the participants through narrow predicates; materialization
+does not issue native sessions, CMS admission or publication authority. The
+old CMS entry points and shared helper bodies are removed from native commit.
 
 These are connected refactors, not a whole-kernel rewrite or a new public API.
 The [implementation proposal](./04-implementation-proposal.md) names consumers,
@@ -97,7 +97,7 @@ worker exists. R1/R2 introduce no new persistent cleanup obligation.
 ## Implementation Order And Audit Exit
 
 1. R1 physical ownership, artifact consumption, schema/error projections, consumer switch and displaced-logic removal are implemented with physical-resource conformance.
-2. Approve and complete [R2 CMS participant/materialization](./04-implementation-proposal.md#r2-cms-participant-and-application-materialization) as a connected refactor.
+2. [R2 CMS participant/materialization](./04-implementation-proposal.md#r2-cms-participant-and-application-materialization) is implemented with both consumer switches and displaced-logic removal.
 3. Satisfy the [performance and completion contract](./03-validation-and-completion.md), or explicitly accept a measured limitation.
 
 Every audited responsibility now has a disposition. Overall redesign stays open

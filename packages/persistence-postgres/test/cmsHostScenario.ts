@@ -1,4 +1,5 @@
 import { cmsHostFixture } from "./cmsHostFixture";
+import { assertCmsParticipantAdmission } from "./cmsParticipantAdmission";
 import { expect } from "vitest";
 import { Effect, Exit } from "effect";
 import { and, eq } from "drizzle-orm";
@@ -145,6 +146,8 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
     indexRevisions: await persistence.drizzle.select().from(fxAppIndexEntryRevisions), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent),
     uniqueKeys: await persistence.drizzle.select().from(fxAppUniqueKeys), candidates: await persistence.drizzle.select().from(fxSystemAppSchemaCandidateValidations) });
   const initial = await inventory();
+  await assertCmsParticipantAdmission(input);
+  expect(await inventory()).toEqual(initial);
   expect(await runEffect(host.read(read, null))).toEqual({ docs: [], total: 0 });
   expect(await runEffect(host.read(callBoundary, 63))).toBeNull();
   expect(await runEffectFailure(host.read(callBoundary, 64))).toMatchObject({ reason: "limitExceeded" });
@@ -191,6 +194,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
     receipts => { retained = receipts; return receipts.map(receipt => ({ ...receipt })); },
     () => retained,
     receipts => receipts.slice(1),
+    receipts => [...receipts, {}],
     receipts => [...receipts].reverse(),
     receipts => receipts.map(() => receipts[0] ?? {}),
     receipts => new Array<object>(receipts.length),

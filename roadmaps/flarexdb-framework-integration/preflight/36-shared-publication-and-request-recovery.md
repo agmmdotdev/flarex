@@ -35,11 +35,12 @@ admission, consume the authentic closed row set once, lower relational facts,
 and complete any admitted initialization. It uses the common publication
 owner without depending on the native point-commit module.
 
-`pointCommitTransaction.ts` retains native OCC, native finalization and the CMS
-materialization bridge. CMS preparation and closure authentication, native
-row/index/unique/relation lowering, receipt checks and preference facts remain
-there. Moving that complete subsystem is a separate decomposition; these
-remaining operations are not a second common publisher.
+`pointCommitTransaction.ts` retains native OCC and native finalization. The
+[R2 replacement](../../shared-transaction-core/04-implementation-proposal.md#r2-cms-participant-and-application-materialization)
+moves CMS preparation, closures, receipt checks and preference facts into
+`cmsTransaction/publication.ts`. Both participants consume one Application
+row/index/unique/relation materializer. The shared publisher and each
+participant's publication order remain unchanged.
 
 `relationalTransaction/session.ts` continues to own framework physical
 settlement. `boundedRequestLifetime.ts` continues to own the shared bounded

@@ -4,7 +4,7 @@
 
 The [completed audit](./01-ownership-audit.md) identifies R1 physical resource
 ownership and R2 CMS participant/shared materialization. R1 is implemented with
-its displaced logic removed; R2 awaits approval. No DDL is selected. The [proposal](./04-implementation-proposal.md)
+its displaced logic removed; R2 participant/materialization ownership and cleanup are implemented. No DDL is selected. The [proposal](./04-implementation-proposal.md)
 defines their direct consumer switches and deletion sets. Cleanup is part of
 each replacement's completion contract.
 
@@ -15,7 +15,7 @@ each replacement's completion contract.
 | Former inline common publisher, native-owned commerce finalizer and duplicate framework recovery routing | Removed under record 36 | No parallel or fallback path may be reintroduced |
 | Native publication error projections | Retained for established error semantics | Replace only with an explicit equivalent owned error boundary |
 | Artifact-owned physical driver used by relational sessions | Displaced mechanics removed under R1 | One neutral physical owner serves both consumers; retain artifact schema composition, repository decisions and exact error projections |
-| CMS/native materialization bridge | Replace ownership under R2; preserve shared lowering | Extract CMS preparation/finalization and connected Application materializer; remove reverse dependency and displaced helper bodies |
+| CMS/native materialization bridge | Replaced by R2; shared lowering retained | CMS preparation/finalization now lives in its participant; native and CMS share one Application materializer. Reverse lifecycle imports, native CMS entry points and displaced helper bodies are removed |
 | Native journals, sessions and snapshot leases | Retain native execution guarantees | A selected execution change must first supersede their consumers and obligations |
 | CMS pending state and commerce SQL stores | Retain admitted domain semantics | A proved replacement must preserve pending reads, nesting, constraints and complete facts |
 | Scope clocks, commits, outcomes and outbox | Retain shared authority | No competing ledger or clock introduced for a framework |

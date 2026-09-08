@@ -3,8 +3,8 @@
 ## Status And Approval Boundary
 
 The [completed ownership audit](./01-ownership-audit.md) requires R1 and R2 to
-reconcile the default shared-owner design. R1 is approved and implemented; R2
-remains proposed and requires its own implementation approval. Neither admits
+reconcile the default shared-owner design. R1 and R2 are approved and
+implemented. Neither admits
 new framework behavior, tables, public APIs or execution profiles. Complete and
 validate each approved slice before starting the next. Routine implementation
 choices inside the approved scope do not require repeated permission.
@@ -91,15 +91,21 @@ connected-client ownership remains covered by its existing runner suite.
 
 ## R2 CMS Participant And Application Materialization
 
-Proposed; this is the next implementation slice after R1.
+Implemented through source-private `cmsTransaction/publication.ts` and
+`applicationDocumentMaterialization/{model,materialization}.ts`. The CMS host
+uses its participant directly. Native commit shares lowering without importing
+CMS admission, closures, lifetime or preference policy. Native error contracts
+live in `pointCommitErrors.ts`; the existing Promise callback bridge and
+publication error projections retain exact failure identity. CMS hooks remain
+in `cmsTransaction/testSupport.ts`. No package export or persisted state changed.
 
 ### Problem And Target
 
-The native `pointCommitTransaction.ts` currently owns CMS preparation, admission
+The ownership gap addressed by R2 was `pointCommitTransaction.ts` owning CMS preparation, admission
 entry, error projection, document and preference closure consumption, receipt
-authentication, preference fact publication and finalization. It also owns the
+authentication, preference fact publication and finalization. It also owned the
 row/index/unique/relation materialization machinery genuinely shared with native
-Application. The native OCC module should not depend on CMS lifecycle policy.
+Application. The native OCC module no longer depends on CMS lifecycle policy.
 
 Move CMS orchestration to `cmsTransaction/publication.ts` or an equivalent
 source-private CMS participant. Extract the connected shared document

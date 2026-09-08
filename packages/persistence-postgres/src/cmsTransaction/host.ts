@@ -1,3 +1,4 @@
+import type { CmsMaterializationTestHooks } from "./testSupport";
 import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
 import type { AppRelationEdgeQueryObservation } from "../appRelationEdges";
 import { prepareCmsRelations, makeCmsRelations, type CmsRelations } from "./relations";
@@ -10,24 +11,20 @@ import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-pro
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
-import { TransactionRequestKeyV1Schema, TransactionFunctionPathV1Schema,
-  TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
+import { TransactionRequestKeyV1Schema, TransactionFunctionPathV1Schema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ApplicationBindingSelectionReader } from "../applicationActivation";
-import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect,
-  type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect, type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
 import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
 import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../relationalTransaction/session";
 import { RelationalSessionError } from "../relationalTransaction/model";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import { createCommittedPointOutcomeResolverV1, CommittedPointOutcomeRequestKeyReuseErrorV1,
-  CommittedPointOutcomeCorruptionErrorV1 } from "../committedPointOutcome";
-import { prepareCmsApplicationCommit, enterCmsApplicationCommit, type PointCommitTransactionProofOptionsV1,
-  type CmsMaterializationTestHooks } from "../pointCommitTransaction";
+import { createCommittedPointOutcomeResolverV1, CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../committedPointOutcome";
+import { prepareCmsApplicationCommit, enterCmsApplicationCommit, type CmsMaterializationOptions } from "./publication";
 import { prepareCmsApplication, withCmsAdmission, requireCmsAdmission } from "./admission";
 import { makeCmsRequestLifetime } from "./lifetime";
 import { makeCmsDocuments, type CmsDocuments, type CmsDocumentReadTestHooks } from "./documents";
@@ -77,7 +74,7 @@ export interface CmsHostInput<Failure> {
   readonly commands: readonly CmsCommand[];
   /** Authenticated by the private composition root; never adapter command input. */
   readonly identityAndAccessPolicy: Json;
-  readonly materialization: PointCommitTransactionProofOptionsV1;
+  readonly materialization: CmsMaterializationOptions;
   readonly relationReads?: ApplicationRelationReadPort;
   /** Exact preference binding required by the operation-specific cleanup port. */
   readonly payloadPreferenceTarget?: FrameworkMigrationTarget;

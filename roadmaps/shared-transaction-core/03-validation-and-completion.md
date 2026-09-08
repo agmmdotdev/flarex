@@ -5,8 +5,10 @@
 Record 36 has focused preservation proof for the completed extraction. This
 plan defines the broader evidence required by the completed ownership audit and
 the [R1/R2 replacements](./04-implementation-proposal.md). R1 has physical
-lifecycle and affected native/framework conformance proof. R2 conformance and
-representative command, contention and mixed-load measurements remain pending.
+lifecycle and affected native/framework conformance proof. R2 preserves the
+native and CMS materialization contract, including preparation/admission identity
+and complete receipt checks. Representative command, contention and mixed-load
+measurements remain pending.
 Physical SELECT-only measurements do not establish command performance or
 production behavior.
 
