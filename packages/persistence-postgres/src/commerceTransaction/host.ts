@@ -46,7 +46,6 @@ export interface CommerceHostInput<Failure> {
 const hash = makeLivePrivateSha256V1({ invalidBudget: () => commerceError("limitExceeded"), invalidBytes: () => commerceError("invalidInput"),
   inputBytesExceeded: () => commerceError("limitExceeded"), unavailable: () => commerceError("resourceFailure"),
   nativeRejected: cause => commerceError("resourceFailure", cause), invalidDigestOutput: () => new Error("Invalid commerce digest") });
-const sha = (bytes: Uint8Array) => hash(bytes, { maximumInputBytes: commerceLimits.commandBytes });
 const decodeKey = Schema.decodeUnknownResult(TransactionRequestKeyV1Schema);
 const projectFailure = (cause: unknown): CommerceTransactionError => {
   if (cause instanceof CommerceTransactionError) return cause;
@@ -85,6 +84,8 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
   if (!hasRelationalSessionDatabase(session, database) || !hasFrameworkMigrationTargetDatabase(target, database) ||
     !hasApplicationBindingComposition(application, input.authority)) return yield* Effect.fail(commerceError("invalidAuthority"));
   const descriptor = yield* requireCommerceProfile(profile);
+  const resources = descriptor.resources;
+  const sha = (bytes: Uint8Array) => hash(bytes, { maximumInputBytes: resources.commandBytes });
   if (descriptor.localOnly !== (local !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const capturedReference = yield* Effect.fromResult(capturePrivateJsonData(input.installation, commerceLimits.rowBytes, commerceError));
   if (!isSyntheticBindingReference(capturedReference.value)) return yield* Effect.fail(commerceError("invalidInput"));
@@ -105,12 +106,12 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
     const root = token === null ? undefined : getCommerceCommand(token);
     const bootstrap = token === null;
     if (!bootstrap && (root === undefined || !allowed.has(token) || (requestKey === null ? root.mode !== "read" : root.mode !== "write"))) return yield* Effect.fail(commerceError("invalidAuthority"));
-    const captured = yield* Effect.fromResult(capturePrivateJsonData(args, commerceLimits.commandBytes, commerceError));
+    const captured = yield* Effect.fromResult(capturePrivateJsonData(args, resources.commandBytes, commerceError));
     const key = requestKey === null ? null : yield* Effect.fromResult(decodeKey(requestKey)).pipe(Effect.mapError(cause => commerceError("invalidInput", cause)));
     if (key !== null && !/^commerce\/[a-zA-Z0-9/-]{1,110}$/.test(key)) return yield* Effect.fail(commerceError("invalidInput"));
     if (bootstrap) {
       if (descriptor.initialization === null) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      const data = yield* capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: captured.value }, commerceLimits.commandBytes,
+      const data = yield* capturePrivateCanonicalValue({ format: "flarex.initialization-dataset", version: 1, rows: captured.value }, resources.commandBytes,
         { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });
       if (!Array.isArray(captured.value) || captured.value.length !== descriptor.initialization.expectedRowCount || data.sha256Hex !== descriptor.initialization.datasetSha256) return yield* Effect.fail(commerceError("seedMismatch"));
     }
@@ -139,14 +140,14 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
             if (recoverOnly) return yield* Effect.fail(commerceError("decisionUncertain"));
           }
           const id = crypto.randomUUID();
-          const lifetime = yield* makeBoundedRequestLifetime(commerceError, commerceLimits, owner, Object.freeze({ requestId: Symbol("commerce.request") }), id, bootstrap ? "write" : root?.mode ?? "read");
+          const lifetime = yield* makeBoundedRequestLifetime(commerceError, { ...commerceLimits, ...resources }, owner, Object.freeze({ requestId: Symbol("commerce.request") }), id, bootstrap ? "write" : root?.mode ?? "read");
           return yield* Effect.gen(function* () {
             yield* Effect.fromResult(lifetime.charge(evidence.canonicalBytes.byteLength));
             const working = yield* makeCommerceStore(admission, lifetime, id);
             const events: Json[] = [];
             const captureEvent = (manager: BoundedRequestContext, event: unknown) => lifetime.operation(manager, id, "write", Effect.gen(function* () {
               if (local === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
-              if (events.length >= commerceLimits.calls) return yield* Effect.fail(commerceError("limitExceeded"));
+              if (events.length >= resources.eventMessages) return yield* Effect.fail(commerceError("limitExceeded"));
               const message = yield* local.capture(event);
               const capturedEvent = yield* Effect.fromResult(capturePrivateJsonData(message, commerceLimits.rowBytes, commerceError));
               yield* Effect.fromResult(lifetime.charge(capturedEvent.bytes));

@@ -30,12 +30,13 @@ The separately approved and implemented
 preserves resource limits, exact row evidence and bounded database transport.
 The implemented [lifecycle milestone](./preflight/34-medusa-product-lifecycle.md)
 adds physical deletion, soft deletion, restore and deleted-row reads, with 55
-original cases passing on both drivers. The next
-[scale preflight](./preflight/35-medusa-product-scale.md) targets the remaining
-1000-image ordering case through a measured shared resource contract.
+original cases passing on both drivers. The implemented
+[scale milestone](./preflight/35-medusa-product-scale.md) adds the unchanged
+1000-image ordering case through an explicit resource contract: 56 originals
+now pass per driver, with only the upstream performance skip remaining.
 Durable event storage/dispatch are deferred. Product
 mutations beyond the admitted graph/related-entity and lifecycle profile,
-the 1000-image scale case, stored Links and production
+stored Links and production
 activation remain unadmitted.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved

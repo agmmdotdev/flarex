@@ -63,7 +63,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
     serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(Effect.gen(function* () {
       if (options !== undefined) return yield* root.refuse(commerceError("unsupportedProfile"));
-      const value = yield* bridge.checked(root, Effect.fromResult(captureCommerceInput(input)));
+      const value = yield* bridge.checked(root, Effect.fromResult(captureCommerceInput(input, root.resources)));
       const decoded = yield* bridge.checked(root, Effect.fromResult(decodeProductProjection(value)));
       // SAFETY: repository results are core-decoded scalar rows and the bounded
       // acyclic projection. Medusa also promises complete DTOs for partial selects.
@@ -74,7 +74,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       bridge.checked(ctx, Effect.fromResult(decodeProductCount(value))).pipe(Effect.map(decoded =>
         [[...decoded.rows], decoded.count] satisfies [Array<typeof decoded.rows[number]>, number]))))),
     create: (input: unknown[], shared?: Context) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-      const graph = yield* captureProductGraph(metadata, input);
+      const graph = yield* captureProductGraph(metadata, input, ctx.resources);
       const rows = yield* insertProductGraph(ctx, metadata, graph);
       if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
       const mutations = metadata.entities.flatMap(entity => (rows.get(entity.table.name) ?? []).map(row => ({ modelName: entity.model, entity: { ...row } })));

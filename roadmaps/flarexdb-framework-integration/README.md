@@ -164,8 +164,8 @@ Use these sources in order:
     owns the implemented lifecycle milestone, proving 55 originals per driver with
     explicit managed-transition authority and authenticated local events.
 36. [`preflight/35-medusa-product-scale.md`](./preflight/35-medusa-product-scale.md)
-    proposes the remaining 1000-image case through measured shared resource
-    budgets, complete atomic batches and stable relation reads.
+    implements the 1000-image case through explicit shared resource budgets,
+    complete atomic batches and stable relation reads; 56 originals pass per driver.
 37. [`preflight/36-shared-publication-and-request-recovery.md`](./preflight/36-shared-publication-and-request-recovery.md)
     owns the implemented common publisher and framework recovery routing while
     preserving native OCC, bounded SQL and participant-specific completion.
@@ -238,7 +238,7 @@ Preflight records:
 | [`preflight/32-medusa-standalone-options-and-variants.md`](./preflight/32-medusa-standalone-options-and-variants.md) | Product mutation milestone implemented privately | 50 originals pass per driver: 15 baseline, 11 related-entity and 24 graph cases; six blocked cases and one upstream skip remain |
 | [`preflight/33-commerce-write-kernel-efficiency.md`](./preflight/33-commerce-write-kernel-efficiency.md) | Approved shared-owner correction implemented | Operation-local catalog reuse and bounded insert/update RETURNING envelopes preserve limits, exact row facts, cancellation and atomicity |
 | [`preflight/34-medusa-product-lifecycle.md`](./preflight/34-medusa-product-lifecycle.md) | Implemented privately with both-driver original-test proof | 55 originals pass per driver; managed transitions, complete cascade facts, deleted-row reads and authenticated local events; one scale case and one upstream skip remain |
-| [`preflight/35-medusa-product-scale.md`](./preflight/35-medusa-product-scale.md) | Proposed next milestone | Measure and admit bounded complete 1000-image writes/reads; target 56 originals, preserving the upstream performance skip |
+| [`preflight/35-medusa-product-scale.md`](./preflight/35-medusa-product-scale.md) | Implemented privately with both-driver proof | 56 originals pass per driver, including unchanged 1000-image ordering; explicit resource contract, complete facts/events and atomic batches; upstream performance skip remains |
 | [`preflight/36-shared-publication-and-request-recovery.md`](./preflight/36-shared-publication-and-request-recovery.md) | Private ownership consolidation implemented | One common publisher and one framework uncertain-outcome router; trusted commerce finalization, retained CMS materialization, unchanged execution profiles and no schema replacement |
 
 ## Current Architecture
@@ -376,7 +376,8 @@ The smallest safe sequence is:
     transaction-buffered local events as the first service transaction proof.
     Durable event storage and dispatch require their own later decision and proof.
     Records 32-34 implement bounded replacement and lifecycle/cascade publication
-    with 55 originals per driver. Record 35 preflights the remaining scale case.
+    with 55 originals per driver. Record 35 completes the 1000-image scale case
+    under explicit resource ceilings, bringing the two-file gate to 56 originals.
     Follow with both endpoints and the
     typed link/event contracts for one real stored Module Link with database-
     enforced uniqueness/cardinality and genuine-PostgreSQL concurrency proof.

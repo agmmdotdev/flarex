@@ -1,3 +1,4 @@
+import { defaultCommerceResources } from "../src/commerceTransaction/resources";
 import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { Client } from "pg";
@@ -5,7 +6,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { sql, type SQL } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Result } from "effect";
-import { commerceWriteEnvelope, decodeCommerceWriteEnvelope } from "../src/commerceTransaction/writeEnvelope";
+import { commerceWriteEnvelope, decodeCommerceWriteEnvelope, makeCommerceWriteEnvelopePolicy } from "../src/commerceTransaction/writeEnvelope";
 import { commerceLimits } from "../src/commerceTransaction/model";
 
 // One small SQL fixture per driver. This tests the actual transport envelope;
@@ -39,8 +40,8 @@ beforeEach(async () => {
 });
 const json = (alias: SQL, textNumeric: boolean) => sql`jsonb_build_object('id', ${alias}.id, 'value', ${alias}.value,
   'amount', ${textNumeric ? sql`${alias}.amount::text` : sql`${alias}.amount`}, 'stamp', ${alias}.stamp)`;
-const envelope = async (mutation: SQL, ids: readonly string[], remainingBytes: number = commerceLimits.commandBytes) => {
-  const rows = await execute(commerceWriteEnvelope({ mutation,
+const envelope = async (mutation: SQL, ids: readonly string[], remainingBytes: number = commerceLimits.commandBytes, compose = commerceWriteEnvelope) => {
+  const rows = await execute(compose({ mutation,
     retainedCatalog: sql`select ${json(sql`old`, false)} as payload from ${target} as old where scope = 'a' and id not in (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`,
     writtenCatalogPayload: json(sql`changed`, false), writtenTransportPayload: json(sql`changed`, true), remainingBytes,
   }));
@@ -48,6 +49,19 @@ const envelope = async (mutation: SQL, ids: readonly string[], remainingBytes: n
   return rows[0];
 };
 describe("bounded commerce SQL write envelope", () => {
+  it("keeps the expanded catalog scoped and transports only the bounded batch", async () => {
+    const resources = { ...defaultCommerceResources, catalogRows: 2048, queryRows: 2048 };
+    const policy = makeCommerceWriteEnvelopePolicy(resources);
+    await execute(sql`insert into ${target}(scope,id) select 'b',i::text from generate_series(1,3000) i`);
+    await execute(sql`insert into ${target}(scope,id) select 'a',i::text from generate_series(1,1000) i`);
+    const raw = await envelope(sql`insert into ${target}(scope,id) values ('a','new') returning id,value,amount,stamp`, ["new"], resources.commandBytes, policy.commerceWriteEnvelope);
+    const result = Result.getOrThrow(policy.decodeCommerceWriteEnvelope(raw, resources.commandBytes));
+    expect(result.total).toBe(1001);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ id: "new" });
+    expect(decodeCommerceWriteEnvelope(raw, resources.commandBytes)).toMatchObject({ _tag: "Failure" });
+  });
+
   it("uses RETURNING postimages, preserves exact numerics, and counts only the selected scope", async () => {
     await execute(sql`insert into ${target}(scope,id,value) values ('a','retained','old'), ('b','other','other scope')`);
     const inserted = Result.getOrThrow(decodeCommerceWriteEnvelope(await envelope(

@@ -3,3 +3,5 @@ export { capturePrivateJsonData } from "./privateJsonData";
 export { commerceError, commerceLimits, CommerceTransactionError } from "./commerceTransaction/model";
 export type { Json, JsonObject } from "flarex-protocol/json";
 export { isJsonObject } from "flarex-protocol/json";
+
+export { defaultCommerceResources, type CommerceResources } from "./commerceTransaction/resources";

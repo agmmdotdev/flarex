@@ -26,8 +26,8 @@
     "@medusajs/test-utils": "workspace:*"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json && tsc -p tsconfig.composite.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json && tsc -p tsconfig.composite.json",
     "test": "vitest run --config vitest.config.ts",
     "test:live": "vitest run --config vitest.live.config.ts",
     "test:product:upstream": "vitest run --config vitest.product-upstream.config.ts"

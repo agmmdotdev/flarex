@@ -2,7 +2,7 @@ import { assembleCommerceRelations } from "./commerce-relations";
 import { Effect } from "effect";
 import { generateEntityId } from "@medusajs/framework/utils/portable";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, commerceLimits, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, type CommerceResources, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
 import { decodeGraphArray, decodeVariantReference } from "./product-value-profile";
 import type { ProductRuntimeMetadata, ProductEntityMetadata } from "./product-runtime-metadata";
@@ -15,8 +15,8 @@ export const validateProductCreate = Effect.fn("ProductAdapter.validateCreate")(
 
 /** Decode nodes in traversal order. IDs, parent ownership and repeated-reference
  * equality remain graph invariants rather than structural schema checks. */
-export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(function* (catalog: ProductRuntimeMetadata, input: unknown) {
-  const captured = yield* Effect.fromResult(captureCommerceInput(input));
+export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(function* (catalog: ProductRuntimeMetadata, input: unknown, resources: CommerceResources = defaultCommerceResources) {
+  const captured = yield* Effect.fromResult(captureCommerceInput(input, resources));
   const value = yield* Effect.fromResult(decodeGraphArray(captured));
   const rows = new Map<ProductTable, JsonObject[]>(catalog.entities.map(entity => [entity.table.name, []]));
   for (const table of catalog.writablePivots) rows.set(table.name, []);
@@ -81,7 +81,11 @@ export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(func
       }
     }
   }
-  if ([...rows.values()].reduce((sum, group) => sum + group.length, 0) > commerceLimits.catalogRows) return yield* Effect.fail(commerceError("limitExceeded"));
+  const graphRows = [...rows.values()].reduce((sum, group) => sum + group.length, 0);
+  if (graphRows > resources.facts) return yield* Effect.fail(commerceError("limitExceeded", {
+    boundary: "productGraphRows", maximum: resources.facts, attempted: graphRows,
+    tables: Object.fromEntries([...rows].map(([table, group]) => [table, group.length])),
+  }));
   return { products, rows } satisfies ProductGraph;
 });
 

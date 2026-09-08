@@ -20,7 +20,7 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
 ) {
   if (operation !== "delete" && entity !== catalog.product) return yield* Effect.fail(commerceError("unsupportedProfile"));
   if (operation === "delete" && ![catalog.product, catalog.tag, catalog.type, catalog.collection, catalog.category].includes(entity)) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const captured = yield* Effect.fromResult(captureCommerceInput(input));
+  const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
   const selected = operation === "delete" ? (yield* Effect.fromResult(decodeDelete(captured))).$or.map(row => row.id)
     : yield* Effect.fromResult(decodeProductLifecycleIds(captured));
   const ids = typeof selected === "string" ? [selected] : selected;
@@ -40,7 +40,7 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
     const order = keys(table)[0];
     if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const store = yield* getStore(table);
-    const rows = yield* store.find(ctx.manager, { take: commerceLimits.catalogRows, order: { column: order, direction: "asc" } });
+    const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: order, direction: "asc" } });
     state.set(table.name, rows); return rows;
   });
   const roots = (yield* load(entity.table)).filter(row => typeof row.id === "string" && ids.includes(row.id) && (operation !== "softDelete" || row.deleted_at === null));

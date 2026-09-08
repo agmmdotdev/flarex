@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, afterEach, describe } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 import type { IProductModuleService, IEventBusModuleService } from "@medusajs/framework/types";
 import { makeLocalProductCommands } from "../../src/product-service";
-import { prepareLocalProductProfile } from "../../src/product-profile";
+import { prepareLocalProductProfile, prepareLocalProductScaleProfile } from "../../src/product-profile";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import { productLocalEventPolicy } from "../../src/product-local-events";
@@ -22,7 +22,18 @@ let registered = false;
 let current = Option.none<{ fixture: CommerceHostTestFixture; runtime: Effect.Success<ReturnType<typeof makeLocalProductCommands>> }>();
 let destination = Option.none<IEventBusModuleService>();
 const cleanup: Array<() => Promise<void>> = [];
-const get = () => Option.getOrThrow(current);
+export const getProductRunnerFixture = () => Option.getOrThrow(current);
+const get = getProductRunnerFixture;
+const observedEvents: Json[] = [];
+export const takeProductRunnerEvents = () => observedEvents.splice(0);
+export async function clearProductRunnerRows() {
+  const { fixture } = get();
+  const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
+  const layout = fixture.descriptor.layout.frame;
+  const tables = layout.tables.map(table => quote(layout.targetNamespace.schemaName) + "." + quote(table.name));
+  await fixture.persistence.query("truncate table " + tables.join(", ") + " cascade");
+  fixture.takeDeliveries(); observedEvents.length = 0;
+}
 
 // Narrow the already authenticated local message without changing its bytes or fields.
 function isCapturedMessage(event: Json): event is Json & { name: string; data: Json; metadata: { source: string; object: string; action: string } } {
@@ -34,6 +45,9 @@ function registerFixture() {
   if (registered) return;
   registered = true;
   beforeAll(async () => {
+    const resourceProfile = process.env.FLAREX_PRODUCT_RESOURCES ?? "default";
+    if (resourceProfile !== "default" && resourceProfile !== "scale") throw new Error("Invalid Product resource profile");
+    const prepare = resourceProfile === "scale" ? prepareLocalProductScaleProfile : prepareLocalProductProfile;
     const runtime = await Effect.runPromise(makeLocalProductCommands());
     const metadata = await Effect.runPromise(captureProductSchema("product-upstream-tests").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
@@ -45,9 +59,10 @@ function registerFixture() {
       return { persistence: fixture.persistence, session: makePostgresRelationalSession(fixture.persistence) };
     })();
     const control = driver === "pglite" ? await createMigratedPGlitePersistence(registerCleanup) : resource.persistence;
-    const fixture = await commerceHostFixture(resource.persistence, resource.session, prepareLocalProductProfile,
+    const fixture = await commerceHostFixture(resource.persistence, resource.session, prepare,
       Object.values(runtime.commands), control, descriptor => productLocalEventPolicy(descriptor, metadata,
         Effect.fn("ProductUpstream.deliver")(function* (events) {
+          if (process.env.FLAREX_PRODUCT_RESOURCES === "scale") observedEvents.push(...events);
           if (Option.isSome(destination)) {
             const bus = destination.value;
             const messages = events.map(event => {
@@ -123,13 +138,7 @@ export function productIntegrationTestRunner(options: ProductRunnerOptions) {
   describe(options.injectedDependencies ? "Product injected event bus" : "Product service", () => {
     beforeEach(async () => {
       destination = Option.fromUndefinedOr(options.injectedDependencies?.event_bus);
-      const { fixture } = get();
-      const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
-      const layout = fixture.descriptor.layout.frame;
-      // Dynamic fixture DDL uses only compiler-owned physical identities.
-      const tables = layout.tables.map(table => quote(layout.targetNamespace.schemaName) + "." + quote(table.name));
-      await fixture.persistence.query("truncate table " + tables.join(", ") + " cascade");
-      fixture.takeDeliveries();
+      await clearProductRunnerRows();
     });
     afterEach(() => {
       destination = Option.none();

@@ -23,7 +23,7 @@ export const replaceProductRows = Effect.fn("ProductAdapter.replaceRows")(functi
   ctx: CommerceCommandContext, catalog: ProductRuntimeMetadata, entity: ProductEntityMetadata,
   input: unknown, config: unknown, creation = false,
 ) {
-  const supplied = yield* Effect.fromResult(captureCommerceInput(input));
+  const supplied = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
   const inputs = yield* Effect.fromResult(decodeGraphArray(supplied));
   const settings = yield* Effect.fromResult(captureCommerceInput(config));
   const { relations } = yield* Effect.fromResult(decodeConfig(settings));
@@ -59,7 +59,7 @@ export const replaceProductRows = Effect.fn("ProductAdapter.replaceRows")(functi
     if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
     // Core find first bounds the entire scoped catalog at 256 rows. Therefore a
     // 256-row unfiltered read is complete without another count/round trip.
-    const rows = yield* store.find(ctx.manager, { take: 256, order: { column: order, direction: "asc" } });
+    const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: order, direction: "asc" } });
     const copy = rows.map(row => ({ ...row })); state.set(table.name, copy);
     return copy;
   });

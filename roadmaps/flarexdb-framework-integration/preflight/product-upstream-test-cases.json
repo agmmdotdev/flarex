@@ -329,8 +329,8 @@
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
       "title": "should retrieve images in the correct order consistently",
-      "status": "blocked",
-      "reason": "Original 1000-image command exceeds current row/fact limits; separate scale preflight required"
+      "status": "admitted",
+      "reason": "Record 35: explicit Product resource contract, bounded writes, complete 1000-image ordering and publication"
     },
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",

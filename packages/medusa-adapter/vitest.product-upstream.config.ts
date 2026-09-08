@@ -55,6 +55,7 @@ export const admittedProductCases = [
   "Product service > ProductModuleService products > images > should create images with correct rank",
   "Product service > ProductModuleService products > images > should update images with correct rank",
   "Product service > ProductModuleService products > images > should delete images if empty array is passed on update",
+  "Product service > ProductModuleService products > images > should retrieve images in the correct order consistently",
   "Product service > ProductModuleService products > images > should retrieve images ordered by rank",
   "Product service > ProductModuleService products > images > should populate variant.images when variants.images relation is requested",
 ];
@@ -76,7 +77,7 @@ export default defineConfig({
     { find: /^@types$/, replacement: fileURLToPath(new URL("../medusa-product/src/types/index.ts", import.meta.url)) },
     { find: "cloudflare:workers", replacement: fileURLToPath(new URL("../persistence-postgres/test/cloudflareWorkersStub.ts", import.meta.url)) },
   ] },
-  test: { globals: true, maxWorkers: 1, fileParallelism: false, include: ["test/product-upstream.test.ts"],
+  test: { env: { FLAREX_PRODUCT_RESOURCES: "scale" }, globals: true, maxWorkers: 1, fileParallelism: false, include: ["test/product-upstream.test.ts"],
     reporters: ["default", coverage],
     testNamePattern: new RegExp("(?:" + admittedTitles.join("|") + ")$"),
     hookTimeout: 120000, testTimeout: 100000,

@@ -43,7 +43,10 @@ or copy a new framework barrel to make a missing dependency resolve.
 
 The original tests also receive a separate compatibility typecheck using Vitest's
 module-resolution model. New adapter/harness code keeps the strict Flarex compiler
-profile. Preserved fork code keeps its original compiler policy.
+profile. Preserved fork code keeps its original compiler policy. The relocated
+Currency/CMS/Application composite fixture retains its original persistence
+test compiler settings in `tsconfig.composite.json`; build and typecheck run
+that project alongside the adapter production and original-test projects.
 
 The live profile is deliberately bounded: one table, one text primary key,
 256 catalog rows, selected Currency queries and no domain-event family. Native
@@ -66,14 +69,28 @@ the adapter selects cascades from actual DML while core owns timestamps and
 complete row facts. Shared references survive. Deleting a referenced type or
 collection clears the Product reference; root category deletion reranks siblings.
 An explicit variant-image assignment retains its physical FK refusal during
-Product deletion. General category trees and scale remain unadmitted.
+Product deletion. General category trees remain unadmitted.
 Business events use the authenticated in-memory test buffer after
 acknowledged commit; no durable provider or query sync is activated.
 
 Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
-root. It runs 55 exact original cases from two unchanged files and reports
-two exclusions (the 1000-image case and one upstream performance skip). Set `FLAREX_TEST_DRIVER=postgres` and
+root. It uses the explicit private Product scale profile and runs 56 exact
+original cases from two unchanged files, including the 1000-image ordering case.
+Only the original upstream performance skip remains. Set `FLAREX_TEST_DRIVER=postgres` and
 `FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
 Both files share one installed fixture per driver and clear business rows
 between cases. The case inventory and records 29-35 in the framework-integration
 roadmap distinguish current coverage from the remaining module capabilities.
+
+Record 35 keeps the original profile and its hashes unchanged. Its explicit scale
+contract admits 2048 catalog/query rows and transaction facts, 256 rows per
+insert/update statement, 1024 local messages, 2048 calls, 4 MiB retained bytes
+and 32768 foreign-value nodes. The original 64 SQL statement ceiling, row size,
+filter complexity, and command/statement deadlines remain unchanged. Delete and
+lifecycle operation inputs and predicate operand sets remain bounded at 256;
+this does not admit arbitrary operations over every graph that fits the catalog.
+
+The focused `vitest.product-scale.config.ts` lane combines the unchanged scale
+case with complete facts/events/replay, write-boundary, late-failure,
+cancellation, and oversized-value checks using one installed fixture. Its
+telemetry observes the real request owner and awaited Drizzle queries.

@@ -1,3 +1,4 @@
+import { captureCommerceResources, defaultCommerceResources, type CommerceResources } from "./resources";
 import { Effect } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { FrameworkSchemaArtifact, FrameworkSchemaArtifactIdentity } from "../frameworkSchema/artifact/model";
@@ -43,6 +44,7 @@ export interface CommerceProfileState {
   readonly tables: readonly CommerceTableCapability[];
   readonly localOnly: boolean;
   readonly contractSha256: string;
+  readonly resources: CommerceResources;
 }
 export interface CommerceTableCapability {
   readonly tableId: string;
@@ -99,7 +101,7 @@ export const registerCommerceProfile = Effect.fn("CommerceProfile.register")(fun
   const primary = table.keys.find(key => key.kind === "primary");
   if (primary === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   profiles.set(profile, Object.freeze({ artifact, layout, profileId, initialization: capturedInitialization, contractSha256: contract.sha256Hex,
-    localOnly: false, tables: Object.freeze([Object.freeze({ tableId: table.identity.tableId, keyId: primary.identity.keyId, mode: "scalar" as const })]) }));
+    localOnly: false, resources: defaultCommerceResources, tables: Object.freeze([Object.freeze({ tableId: table.identity.tableId, keyId: primary.identity.keyId, mode: "scalar" as const })]) }));
   return profile;
 });
 
@@ -107,8 +109,10 @@ export const registerCommerceProfile = Effect.fn("CommerceProfile.register")(fun
 export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerLocal")(function* (
   artifact: FrameworkSchemaArtifact, layout: RelationalPhysicalLayout, profileId: string,
   capabilities: readonly LocalCommerceTableAdmission[],
+  resourceContract?: CommerceResources,
 ) {
   yield* registerCommerceSchemaProfile(artifact, layout);
+  const resources = resourceContract === undefined ? defaultCommerceResources : yield* Effect.fromResult(captureCommerceResources(resourceContract));
   const captured = yield* Effect.fromResult(capturePrivateJsonData(capabilities, 16_384, commerceError));
   if (!/^[a-z][a-z0-9_.-]{0,127}$/.test(profileId) || !Array.isArray(captured.value) ||
     captured.value.length === 0 || captured.value.length > 16) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -158,13 +162,14 @@ export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerL
   }
   tables.sort((left, right) => compareUtf16Strings(left.tableId, right.tableId));
   const contract = yield* capturePrivateCanonicalValue({ format: "flarex.commerce-profile-contract",
-    version: tables.some(table => table.lifecycle !== undefined) ? 5 : tables.some(table => table.referenceColumns !== undefined || table.remove !== undefined) ? 4 : tables.some(table => table.mode === "readInsertUpdate") ? 3 : 2,
+    version: resourceContract !== undefined ? 6 : tables.some(table => table.lifecycle !== undefined) ? 5 : tables.some(table => table.referenceColumns !== undefined || table.remove !== undefined) ? 4 : tables.some(table => table.mode === "readInsertUpdate") ? 3 : 2,
     artifact: { ...artifact.identity }, layoutSha256: layout.layoutSha256, profileId, initialization: null,
-    localEventPolicy: "buffer-until-confirmed-commit", tables: tables.map(table => ({ ...table })) }, 16_384,
+    localEventPolicy: "buffer-until-confirmed-commit",
+    ...(resourceContract === undefined ? {} : { resources }), tables: tables.map(table => ({ ...table })) }, 16_384,
     { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });
   // SAFETY: only this registry issues the exact opaque local profile.
   const profile = Object.freeze({}) as CommerceProfile;
-  profiles.set(profile, Object.freeze({ artifact, layout, profileId, initialization: null, localOnly: true,
+  profiles.set(profile, Object.freeze({ artifact, layout, profileId, initialization: null, localOnly: true, resources,
     tables: Object.freeze(tables), contractSha256: contract.sha256Hex }));
   return profile;
 });

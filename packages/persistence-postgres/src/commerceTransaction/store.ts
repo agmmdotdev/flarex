@@ -15,8 +15,8 @@ import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRe
 import type { RelationalPhysicalColumn } from "../relationalSchema/physical/model";
 import { requireCommerceAdmission, type CommerceAdmission } from "./admission";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
-import type { CommerceTableCapability } from "./profile";
-import { commerceWriteEnvelope, decodeCommerceWriteEnvelope, checkCommerceCatalogSize } from "./writeEnvelope";
+import type { CommerceProfileState, CommerceTableCapability } from "./profile";
+import { makeCommerceWriteEnvelopePolicy } from "./writeEnvelope";
 
 export interface RelationalRowFact {
   readonly codecVersion: 1 | 2;
@@ -58,15 +58,23 @@ interface StoreWork {
   closed: boolean;
   statementCount: number;
 }
+// Descriptors are captured and frozen by the authenticated profile registry.
+// Retain the pure compiler at that lifetime, not at each table/request lifetime.
+const writePolicies = new WeakMap<CommerceProfileState, ReturnType<typeof makeCommerceWriteEnvelopePolicy>>();
 
 export const makeCommerceStore = Effect.fn("CommerceStore.make")(function* (
   admission: CommerceAdmission, lifetime: BoundedRequestLifetime<CommerceTransactionError>, id: string,
 ) {
   const state = yield* requireCommerceAdmission(admission);
   const work: StoreWork = { facts: [], lifecycle: [], closed: false, statementCount: 0 };
+  let writePolicy = writePolicies.get(state.descriptor);
+  if (writePolicy === undefined) {
+    writePolicy = makeCommerceWriteEnvelopePolicy(state.descriptor.resources);
+    writePolicies.set(state.descriptor, writePolicy);
+  }
   const stores = new Map<string, CommerceStore>();
   for (const capability of state.descriptor.tables) {
-    stores.set(capability.tableId, yield* makeCommerceTableStore(admission, lifetime, id, capability, work));
+    stores.set(capability.tableId, yield* makeCommerceTableStore(admission, lifetime, id, capability, work, writePolicy));
   }
   const first = stores.values().next().value;
   if (first === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -88,15 +96,17 @@ export const makeCommerceStore = Effect.fn("CommerceStore.make")(function* (
   });
   const snapshot = () => Object.freeze(work.facts.map(fact => Object.freeze({ ...fact, keyBytes: fact.keyBytes.slice() })));
   const lifecycleSnapshot = () => Object.freeze(work.lifecycle.map(item => Object.freeze({ ...item, keyBytes: item.keyBytes.slice() })));
-  return { store: first, table, close, snapshot, lifecycleSnapshot };
+  return { store: first, table, close, snapshot, lifecycleSnapshot, resources: state.descriptor.resources };
 });
 
 const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
   admission: CommerceAdmission, lifetime: BoundedRequestLifetime<CommerceTransactionError>, id: string,
-  capability: CommerceTableCapability, work: StoreWork,
+  capability: CommerceTableCapability, work: StoreWork, writePolicy: ReturnType<typeof makeCommerceWriteEnvelopePolicy>,
 ) {
   const state = yield* requireCommerceAdmission(admission);
   const layout = state.descriptor.layout.frame;
+  const resources = state.descriptor.resources;
+  const { commerceWriteEnvelope, decodeCommerceWriteEnvelope, checkCommerceCatalogSize } = writePolicy;
   const table = layout.tables.find(value => value.identity.tableId === capability.tableId);
   if (table === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const primary = yield* Effect.fromResult(selectRelationalRowKey(state.descriptor.layout, capability.tableId, capability.keyId))
@@ -137,7 +147,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     catch: cause => commerceError("storedCorruption", cause),
   }));
   const decodeRows = Effect.fn("CommerceStore.decodeRows")(function* (rows: readonly unknown[] | undefined) {
-    if (rows === undefined || rows.length > commerceLimits.catalogRows) return yield* Effect.fail(commerceError("storedCorruption"));
+    if (rows === undefined || rows.length > resources.queryRows) return yield* Effect.fail(commerceError("storedCorruption"));
     const values: JsonObject[] = [];
     for (const row of rows) {
       if (!isNonArrayRecord(row)) return yield* Effect.fail(commerceError("storedCorruption"));
@@ -166,11 +176,11 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     statement(state.tx.execute(query)).pipe(Effect.flatMap(driverRows), Effect.flatMap(decodeRows)));
   const catalogBound = Effect.fn("CommerceStore.catalogBound")(function* () {
     const payload = sql`jsonb_build_object(${sql.join(table.columns.flatMap(field => [sql`${field.identity.columnId}::text`, sql`${sql.identifier(field.name)}`]), sql`, `)})`;
-    const result = yield* statement(state.tx.execute(sql`select count(*)::integer as total, coalesce(max(octet_length(payload::text)), 0)::integer as maximum, coalesce(sum(octet_length(payload::text)), 0)::integer as bytes from (select ${payload} as payload from ${target} where ${scoped} limit ${commerceLimits.catalogRows + 1}) bounded`));
+    const result = yield* statement(state.tx.execute(sql`select count(*)::integer as total, coalesce(max(octet_length(payload::text)), 0)::integer as maximum, coalesce(sum(octet_length(payload::text)), 0)::integer as bytes from (select ${payload} as payload from ${target} where ${scoped} limit ${resources.catalogRows + 1}) bounded`));
     const rows = yield* driverRows(result);
     const row = rows?.[0];
     if (rows?.length !== 1 || !isNonArrayRecord(row) || typeof row.total !== "number" || typeof row.maximum !== "number" || typeof row.bytes !== "number") return yield* Effect.fail(commerceError("storedCorruption"));
-    if (row.total > commerceLimits.catalogRows || row.maximum > commerceLimits.rowBytes || row.bytes > lifetime.remainingBytes()) return yield* Effect.fail(commerceError("limitExceeded"));
+    if (row.total > resources.catalogRows || row.maximum > commerceLimits.rowBytes || row.bytes > lifetime.remainingBytes()) return yield* Effect.fail(commerceError("limitExceeded"));
     return { total: row.total, maximum: row.maximum, bytes: row.bytes };
   });
   const parameter = (field: RelationalPhysicalColumn, value: Json): Result.Result<SQL, CommerceTransactionError> => {
@@ -197,8 +207,8 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     if (!isNonArrayRecord(captured.value) || Object.keys(captured.value).some(name => !["predicate", "fields", "skip", "take", "order"].includes(name))) return yield* Result.fail(invalid());
     const value = captured.value;
     const skip = value.skip ?? 0;
-    const take = value.take ?? commerceLimits.catalogRows;
-    if (!countWithin(skip, commerceLimits.catalogRows - 1) || !countWithin(take, commerceLimits.catalogRows)) return yield* Result.fail(commerceError("limitExceeded"));
+    const take = value.take ?? resources.queryRows;
+    if (!countWithin(skip, resources.catalogRows - 1) || !countWithin(take, resources.queryRows)) return yield* Result.fail(commerceError("limitExceeded"));
     const fields = value.fields ?? table.columns.map(item => item.identity.columnId);
     if (!Array.isArray(fields) || fields.length === 0 || fields.length > table.columns.length) return yield* Result.fail(invalid());
     const selected: SQL[] = [];
@@ -255,13 +265,13 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     const result = yield* statement(state.tx.execute(sql`select count(*)::integer as total from ${target} where ${scoped} and (${query.filter})`));
     const rows = yield* driverRows(result);
     const row = rows?.[0];
-    if (rows?.length !== 1 || !isNonArrayRecord(row) || !countWithin(row.total, commerceLimits.catalogRows)) return yield* Effect.fail(commerceError("storedCorruption"));
+    if (rows?.length !== 1 || !isNonArrayRecord(row) || !countWithin(row.total, resources.catalogRows)) return yield* Effect.fail(commerceError("storedCorruption"));
     return row.total;
   })));
   const record = Effect.fn("CommerceStore.record")(function* (row: JsonObject, operation: RelationalRowFact["operation"]) {
     const value = row[key.identity.columnId];
     if (typeof value !== "string" || value.length === 0) return yield* Effect.fail(commerceError("storedCorruption"));
-    if (facts.length >= commerceLimits.catalogRows) return yield* Effect.fail(commerceError("limitExceeded"));
+    if (facts.length >= resources.facts) return yield* Effect.fail(commerceError("limitExceeded"));
     const encoded = yield* captureRelationalRowKey(state.descriptor.layout, table.identity.tableId, row, capability.keyId)
       .pipe(Effect.mapError(cause => commerceError("storedCorruption", cause)));
     const keyBytes = new TextEncoder().encode(encoded.canonicalJson);
@@ -270,7 +280,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
   });
   const captureWriteRows = Effect.fn("CommerceStore.captureWriteRows")(function* (input: unknown, updating: boolean) {
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
-    if (!representable(captured.value) || !Array.isArray(captured.value) || captured.value.length > commerceLimits.catalogRows)
+    if (!representable(captured.value) || !Array.isArray(captured.value) || captured.value.length > resources.catalogRows)
       return yield* Effect.fail(invalid());
     yield* Effect.fromResult(lifetime.charge(captured.bytes));
     const catalog = yield* catalogBound();
@@ -315,48 +325,51 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     }
     const output = new Map<string, JsonObject>();
     const changedKeys = new Set<string>();
-    for (const group of groups.values()) {
-      const first = group[0];
-      if (first === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
-      const selected = sql`(${sql.join(group.map(row => row.predicate), sql` or `)})`;
-      const updates = first.fields.flatMap(field => keyColumns.includes(field) || managedUpdates.includes(field.name) ? [] :
-        [sql`${sql.identifier(field.name)} = incoming.${sql.identifier(field.name)}`]);
-      for (const name of managedUpdates) updates.push(sql`${sql.identifier(name)} = current_timestamp`);
-      const noOp = updating && updates.length === 0;
-      let written: readonly JsonObject[];
-      if (noOp) {
-        // Preserve a key-only update on a table without managed timestamps as a
-        // read of the existing row, with no mutation or change fact.
-        written = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${selected} limit ${commerceLimits.catalogRows}`);
-      } else {
-        const qualifiedReturning = sql.join(table.columns.map(field => sql`stored.${sql.identifier(field.name)} as ${sql.identifier(field.identity.columnId)}`), sql`, `);
-        const mutation = updating
-          ? sql`update ${target} as stored set ${sql.join(updates, sql`, `)} from (values ${sql.join(group.map(row => sql`(${sql.join([...row.parameters], sql`, `)})`), sql`, `)}) as incoming (${sql.join(first.fields.map(field => sql.identifier(field.name)), sql`, `)}) where stored.scope_uuid = ${scope.scopeUuid}::uuid and stored.${sql.identifier(key.name)} = incoming.${sql.identifier(key.name)} returning ${qualifiedReturning}`
-          : sql`insert into ${target} (${sql.identifier("scope_uuid")}, ${sql.join(first.fields.map(field => sql.identifier(field.name)), sql`, `)}) values ${sql.join(group.map(row => sql`(${scope.scopeUuid}::uuid, ${sql.join([...row.parameters], sql`, `)})`), sql`, `)} returning ${returning}`;
-        // All subqueries share one snapshot. Remove the selected pre-write rows
-        // from that snapshot and add RETURNING rows to measure the actual
-        // post-write catalog. No base-table reread pretends to observe the CTE.
-        const remainingBytes = lifetime.remainingBytes();
-        const raw = yield* driverRows(yield* statement(state.tx.execute(commerceWriteEnvelope({ mutation,
-          retainedCatalog: sql`select ${rowJson(false, false)} as payload from ${target} where ${scoped} and not ${selected}`,
-          writtenCatalogPayload: rowJson(true, false), writtenTransportPayload: rowJson(true, true), remainingBytes,
-        }))));
-        if (raw?.length !== 1) return yield* Effect.fail(commerceError("storedCorruption"));
-        const envelope = yield* Effect.fromResult(decodeCommerceWriteEnvelope(raw[0], remainingBytes));
-        catalog = { total: envelope.total, maximum: envelope.maximum, bytes: envelope.bytes };
-        written = yield* decodeRows(envelope.rows);
+    for (const entireGroup of groups.values()) {
+      for (let offset = 0; offset < entireGroup.length; offset += resources.writeBatchRows) {
+        const group = entireGroup.slice(offset, offset + resources.writeBatchRows);
+        const first = group[0];
+        if (first === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+        const selected = sql`(${sql.join(group.map(row => row.predicate), sql` or `)})`;
+        const updates = first.fields.flatMap(field => keyColumns.includes(field) || managedUpdates.includes(field.name) ? [] :
+          [sql`${sql.identifier(field.name)} = incoming.${sql.identifier(field.name)}`]);
+        for (const name of managedUpdates) updates.push(sql`${sql.identifier(name)} = current_timestamp`);
+        const noOp = updating && updates.length === 0;
+        let written: readonly JsonObject[];
+        if (noOp) {
+          // Preserve a key-only update on a table without managed timestamps as a
+          // read of the existing row, with no mutation or change fact.
+          written = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${selected} limit ${resources.catalogRows}`);
+        } else {
+          const qualifiedReturning = sql.join(table.columns.map(field => sql`stored.${sql.identifier(field.name)} as ${sql.identifier(field.identity.columnId)}`), sql`, `);
+          const mutation = updating
+            ? sql`update ${target} as stored set ${sql.join(updates, sql`, `)} from (values ${sql.join(group.map(row => sql`(${sql.join([...row.parameters], sql`, `)})`), sql`, `)}) as incoming (${sql.join(first.fields.map(field => sql.identifier(field.name)), sql`, `)}) where stored.scope_uuid = ${scope.scopeUuid}::uuid and stored.${sql.identifier(key.name)} = incoming.${sql.identifier(key.name)} returning ${qualifiedReturning}`
+            : sql`insert into ${target} (${sql.identifier("scope_uuid")}, ${sql.join(first.fields.map(field => sql.identifier(field.name)), sql`, `)}) values ${sql.join(group.map(row => sql`(${scope.scopeUuid}::uuid, ${sql.join([...row.parameters], sql`, `)})`), sql`, `)} returning ${returning}`;
+          // All subqueries share one snapshot. Remove the selected pre-write rows
+          // from that snapshot and add RETURNING rows to measure the actual
+          // post-write catalog. No base-table reread pretends to observe the CTE.
+          const remainingBytes = lifetime.remainingBytes();
+          const raw = yield* driverRows(yield* statement(state.tx.execute(commerceWriteEnvelope({ mutation,
+            retainedCatalog: sql`select ${rowJson(false, false)} as payload from ${target} where ${scoped} and not ${selected}`,
+            writtenCatalogPayload: rowJson(true, false), writtenTransportPayload: rowJson(true, true), remainingBytes,
+          }))));
+          if (raw?.length !== 1) return yield* Effect.fail(commerceError("storedCorruption"));
+          const envelope = yield* Effect.fromResult(decodeCommerceWriteEnvelope(raw[0], remainingBytes));
+          catalog = { total: envelope.total, maximum: envelope.maximum, bytes: envelope.bytes };
+          written = yield* decodeRows(envelope.rows);
+        }
+        if (written.length !== group.length) return yield* Effect.fail(commerceError(updating ? "invalidInput" : "receiptMismatch"));
+        const expected = new Set(group.map(row => row.identity));
+        for (const row of written) {
+          if (Object.keys(row).length !== table.columns.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+          const encoded = yield* captureRelationalRowKey(state.descriptor.layout, table.identity.tableId, row, capability.keyId)
+            .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+          if (!expected.delete(encoded.canonicalJson) || output.has(encoded.canonicalJson)) return yield* Effect.fail(commerceError("receiptMismatch"));
+          output.set(encoded.canonicalJson, row);
+          if (!noOp) changedKeys.add(encoded.canonicalJson);
+        }
+        if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
       }
-      if (written.length !== group.length) return yield* Effect.fail(commerceError(updating ? "invalidInput" : "receiptMismatch"));
-      const expected = new Set(group.map(row => row.identity));
-      for (const row of written) {
-        if (Object.keys(row).length !== table.columns.length) return yield* Effect.fail(commerceError("receiptMismatch"));
-        const encoded = yield* captureRelationalRowKey(state.descriptor.layout, table.identity.tableId, row, capability.keyId)
-          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        if (!expected.delete(encoded.canonicalJson) || output.has(encoded.canonicalJson)) return yield* Effect.fail(commerceError("receiptMismatch"));
-        output.set(encoded.canonicalJson, row);
-        if (!noOp) changedKeys.add(encoded.canonicalJson);
-      }
-      if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     }
     // Hydration spent bytes but made no database change. Reuse only this
     // operation's last catalog measurement and compare the current budget.
@@ -379,7 +392,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     if (!["insert", "upsert", "update"].includes(mode)) return yield* Effect.fail(invalid());
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
     if (!representable(captured.value)) return yield* Effect.fail(invalid());
-    if (!Array.isArray(captured.value) || captured.value.length > commerceLimits.catalogRows) return yield* Effect.fail(invalid());
+    if (!Array.isArray(captured.value) || captured.value.length > resources.catalogRows) return yield* Effect.fail(invalid());
     yield* Effect.fromResult(lifetime.charge(captured.bytes));
     yield* catalogBound();
     if (captured.value.length === 0) return [];
@@ -399,7 +412,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       }
       inputs.push({ key: keyValue, fields, parameters });
     }
-    const before = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${sql.identifier(key.name)} in (${sql.join(inputs.map(row => sql`${row.key}`), sql`, `)}) limit ${commerceLimits.catalogRows}`);
+    const before = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${sql.identifier(key.name)} in (${sql.join(inputs.map(row => sql`${row.key}`), sql`, `)}) limit ${resources.catalogRows}`);
     const existing = new Map(before.map(row => [row[key.identity.columnId], row]));
     if (existing.size !== before.length || (mode === "insert" && before.length !== 0)) return yield* Effect.fail(commerceError("storedCorruption"));
     const groups = new Map<string, typeof inputs>();
@@ -433,7 +446,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       // SQL defaults and numeric expansion can enlarge a short input. Return
       // identities first; bound the stored catalog before hydrating new values.
       yield* catalogBound();
-      const written = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${sql.identifier(key.name)} in (${sql.join(group.map(row => sql`${row.key}`), sql`, `)}) limit ${commerceLimits.catalogRows}`);
+      const written = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${sql.identifier(key.name)} in (${sql.join(group.map(row => sql`${row.key}`), sql`, `)}) limit ${resources.catalogRows}`);
       if (written.length !== group.length) return yield* Effect.fail(commerceError("receiptMismatch"));
       for (const row of written) {
         const value = row[key.identity.columnId];
@@ -454,7 +467,8 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
   const remove: CommerceStore["delete"] = Effect.fn("CommerceStore.delete")((context, input) => guard(context, "write", Effect.gen(function* () {
     if (capability.remove === "declaredKey") {
       const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
-      if (!representable(captured.value) || !Array.isArray(captured.value) || captured.value.length > commerceLimits.catalogRows) return yield* Effect.fail(invalid());
+      if (!representable(captured.value) || !Array.isArray(captured.value) || captured.value.length > resources.catalogRows) return yield* Effect.fail(invalid());
+      if (captured.value.length > resources.writeBatchRows) return yield* Effect.fail(commerceError("limitExceeded"));
       yield* Effect.fromResult(lifetime.charge(captured.bytes));
       if (captured.value.length === 0) return [];
       yield* catalogBound();
@@ -508,7 +522,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     if (capability.mode !== "scalar") return yield* Effect.fail(commerceError("unsupportedProfile"));
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
     if (!representable(captured.value)) return yield* Effect.fail(invalid());
-    if (!Array.isArray(captured.value) || captured.value.length > commerceLimits.catalogRows || captured.value.some(value => !isPrivateValueText(value) || value.length === 0)) return yield* Effect.fail(invalid());
+    if (!Array.isArray(captured.value) || captured.value.length > resources.catalogRows || captured.value.some(value => !isPrivateValueText(value) || value.length === 0)) return yield* Effect.fail(invalid());
     yield* Effect.fromResult(lifetime.charge(captured.bytes));
     yield* catalogBound();
     if (captured.value.length === 0) return [];
@@ -523,6 +537,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     const deleted = table.columns.find(field => field.name === deletion.deletedAtColumn.columnName);
     if (deleted === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
     const { inputs } = yield* captureWriteRows(input, true);
+    if (inputs.length > resources.writeBatchRows) return yield* Effect.fail(commerceError("limitExceeded"));
     if (inputs.some(row => row.fields.length !== keyColumns.length || row.fields.some(field => !keyColumns.includes(field)))) return yield* Effect.fail(invalid());
     if (inputs.length === 0) return [];
     const selected = sql`(${sql.join(inputs.map(row => row.predicate), sql` or `)})`;

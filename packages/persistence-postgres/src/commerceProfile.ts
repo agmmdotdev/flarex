@@ -12,3 +12,5 @@ export type { RelationalPhysicalValueError } from "./relationalSchema/physical/e
 export type { FrameworkSchemaArtifact } from "./frameworkSchema/artifact/model";
 
 export type { PrivateCanonicalValueSnapshot } from "./frameworkSchema/privateCanonicalValue";
+
+export { defaultCommerceResources, type CommerceResources } from "./commerceTransaction/resources";

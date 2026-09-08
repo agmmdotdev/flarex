@@ -29,7 +29,7 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
     emit: (input, options) => owner.run(Effect.gen(function* () {
       const settings = yield* Effect.fromResult(captureCommerceInput(options));
       yield* Effect.fromResult(decodeLocalEventOptions(settings));
-      const messages = yield* Effect.fromResult(captureCommerceInput(input));
+      const messages = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
       for (const message of yield* Effect.fromResult(decodeLocalEventBatch(messages))) yield* captureLocalEvent(message);
     }).pipe(Effect.catchTag("CommerceTransactionError", rejectLocalEvent))),
     subscribe: () => owner.reject(commerceError("unsupportedProfile")),
@@ -131,7 +131,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       const claimed = members.filter(isJsonObject).filter(row => typeof row.id === "string" && row.product_id !== undefined);
       if (claimed.length) {
         const store = yield* ctx.table(metadata.variant.table.name);
-        const existing = yield* store.find(ctx.manager, { take: 256, order: { column: "id", direction: "asc" },
+        const existing = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: "id", direction: "asc" },
           predicate: { kind: "in", column: "id", values: claimed.map(row => row.id) },
         });
         if (claimed.some(row => !existing.some(value => value.id === row.id && value.product_id === row.product_id))) return yield* ctx.refuse(commerceError("invalidInput"));
@@ -165,7 +165,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       const ids = product.options.flatMap(option => isJsonObject(option) && typeof option.id === "string" ? [option.id] : []);
       if (ids.length === 0) continue;
       const store = yield* ctx.table(metadata.option.table.name);
-      const rows = yield* store.find(ctx.manager, { take: 256, order: { column: "id", direction: "asc" }, predicate: { kind: "in", column: "id", values: ids } });
+      const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: "id", direction: "asc" }, predicate: { kind: "in", column: "id", values: ids } });
       if (new Set(ids).size !== ids.length || rows.length !== ids.length || rows.some(row => row.product_id !== product.id || row.deleted_at !== null)) return yield* ctx.refuse(commerceError("invalidInput"));
     }
     // SAFETY: DML-derived external graph validation precedes the actual service's

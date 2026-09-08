@@ -21,7 +21,7 @@ const visible = (column: string, values: string[], withDeleted: boolean) => ({ k
 /** Resolve an admitted existence predicate from leaf to root, before paging.
  * Every lookup stays on the same manager and proves its complete bounded set. */
 export const resolveCommerceRelationFilter = Effect.fn("MedusaAdapter.resolveRelationFilter")(function* (
-  ctx: Pick<CommerceCommandContext, "manager" | "table">, source: string, path: string,
+  ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources">, source: string, path: string,
   predicate: Json, relations: CommerceRelations, withDeleted = false,
 ) {
   const steps: { source: string; relation: CommerceRelation }[] = [];

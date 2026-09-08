@@ -1,3 +1,4 @@
+import type { CommerceResources } from "./resources";
 import type { Effect } from "effect";
 import type { Json } from "flarex-protocol/json";
 import type { CommerceStore } from "./storeModel";
@@ -7,6 +8,7 @@ import type { CommerceTransactionError } from "./model";
 declare const commandBrand: unique symbol;
 export interface CommerceCommand { readonly [commandBrand]: true }
 export interface CommerceCommandContext {
+  readonly resources: CommerceResources;
   readonly manager: BoundedRequestContext;
   readonly store: CommerceStore;
   readonly table: (tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError>;

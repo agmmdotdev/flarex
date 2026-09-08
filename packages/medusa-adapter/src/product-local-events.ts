@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { decodeRelationalRowKey, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
-import { commerceError, commerceLimits, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductRuntimeMetadata } from "./product-runtime-metadata";
@@ -10,29 +10,29 @@ export const decodeLocalEventOptions = commerceDecoder(Schema.Struct({ internal:
 export const decodeLocalEventBatch = commerceDecoder(Schema.Array(Schema.Json), "unadmittedEvent");
 
 const EventId = Schema.String.check(Schema.isLengthBetween(1, 256));
-const Message = Schema.Struct({
+const messageSchema = (maximumIds: number) => Schema.Struct({
   name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PRODUCT), object: Schema.String, action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED, CommonEvents.DELETED, CommonEvents.RESTORED]) }),
-  // The pinned moduleEventBuilderFactory preserves a bulk operation as one
-  // message whose data.id contains every entity ID.
-  data: Schema.Struct({ id: Schema.Union([EventId, Schema.Array(EventId).check(Schema.isMinLength(1), Schema.isMaxLength(commerceLimits.catalogRows))]) }),
+  // The pinned subscriber emits scalar IDs; service bulk operations can retain
+  // an ID array. Preserve both message forms without regrouping them.
+  data: Schema.Struct({ id: Schema.Union([EventId, Schema.Array(EventId).check(Schema.isMinLength(1), Schema.isMaxLength(maximumIds))]) }),
 });
-const decode = Schema.decodeUnknownEffect(Message, { onExcessProperty: "error" });
-const captureMessage = Effect.fn("ProductEvents.capture")(function* (catalog: ProductRuntimeMetadata, input: unknown) {
-  const value = yield* Effect.fromResult(captureCommerceInput(input));
-  const message = yield* decode(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
-  const candidates = catalog.entities.filter(entity => entity !== catalog.assignment);
-  if (!candidates.some(entity => entity.eventObject === message.metadata.object &&
-    (message.metadata.action === CommonEvents.CREATED ? entity.createdEvent : message.metadata.action === CommonEvents.UPDATED ? entity.updatedEvent : message.metadata.action === CommonEvents.RESTORED ? entity.restoredEvent : entity.deletedEvent) === message.name)) return yield* Effect.fail(commerceError("unadmittedEvent"));
-  return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
-});
+
 
 /** Adapter-owned message contract; core supplies unforgeable row observations.
  * The destination is explicitly local and receives no transaction manager. */
 export function productLocalEventPolicy(descriptor: CommerceProfileState, catalog: ProductRuntimeMetadata,
   deliver: (events: readonly Json[]) => Effect.Effect<void, CommerceTransactionError>,
 ): LocalCommerceEventPolicy {
-  const capture = (input: unknown) => captureMessage(catalog, input);
+  const decode = Schema.decodeUnknownEffect(messageSchema(descriptor.resources.eventIds), { onExcessProperty: "error" });
+  const capture = Effect.fn("ProductEvents.capture")(function* (input: unknown) {
+    const value = yield* Effect.fromResult(captureCommerceInput(input, descriptor.resources));
+    const message = yield* decode(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
+    const candidates = catalog.entities.filter(entity => entity !== catalog.assignment);
+    if (!candidates.some(entity => entity.eventObject === message.metadata.object &&
+      (message.metadata.action === CommonEvents.CREATED ? entity.createdEvent : message.metadata.action === CommonEvents.UPDATED ? entity.updatedEvent : message.metadata.action === CommonEvents.RESTORED ? entity.restoredEvent : entity.deletedEvent) === message.name)) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
+  });
   return { capture, deliver,
     validate: Effect.fn("ProductEvents.validate")(function* (events, rows, commandName, lifecycle = []) {
       const expected = new Set<string>();

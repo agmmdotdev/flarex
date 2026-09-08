@@ -1,3 +1,4 @@
+import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { groupHasManyRows, groupManyToManyRows, projectRowFields, toPopulateTree, tupleKey } from "@medusajs/drizzle/relation-query";
@@ -73,7 +74,7 @@ describe("Medusa relation query extraction", () => {
       const selected = yield* decodeProductQuery(catalog, { options: { populate: [first, second] } });
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const result = yield* populateCommerceRelations({
-        manager: lifetime.context,
+        manager: lifetime.context, resources: defaultCommerceResources,
         table: table => Effect.succeed({
           find: Effect.fn("QueryTest.find")((manager) => Effect.sync(() => {
             expect(manager).toBe(lifetime.context);
@@ -131,7 +132,7 @@ describe("Medusa relation query extraction", () => {
       const lifetime = yield* makeBoundedRequestLifetime(() => commerceError("invalidAuthority"),
         { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "query-limit", "read");
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
-      const result = yield* Effect.result(readCommerceRelationRows({ manager: lifetime.context,
+      const result = yield* Effect.result(readCommerceRelationRows({ manager: lifetime.context, resources: defaultCommerceResources,
         table: () => Effect.succeed({ count: unused,
           find: (_manager, query) => Effect.sync(() => { reads++; expect(query).toMatchObject({ take: 256 }); }).pipe(Effect.andThen(Effect.fail(commerceError("limitExceeded")))), write: unused, delete: unused, lifecycle: unused }),
       }, catalog.value.table.name, { kind: "and", children: [] }).pipe(Effect.ensuring(lifetime.close)));
@@ -145,7 +146,7 @@ describe("Medusa relation query extraction", () => {
       const lifetime = yield* makeBoundedRequestLifetime(() => commerceError("invalidAuthority"),
         { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "related-projection", "read");
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
-      const result = yield* findProductRelated({ manager: lifetime.context,
+      const result = yield* findProductRelated({ manager: lifetime.context, resources: defaultCommerceResources,
         table: () => Effect.succeed({ find: () => Effect.succeed([{ id: "value1", value: "red" }]),
           count: () => Effect.succeed(1), write: unused, delete: unused, lifecycle: unused }),
       }, catalog, catalog.value, { options: { fields: ["value"], ...options } }, true).pipe(Effect.ensuring(lifetime.close));

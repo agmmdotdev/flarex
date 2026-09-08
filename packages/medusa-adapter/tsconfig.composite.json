@@ -1,0 +1,6 @@
+{
+  "extends": "../persistence-postgres/tsconfig.json",
+  "include": [
+    "test/currency-announcement.test.ts"
+  ]
+}

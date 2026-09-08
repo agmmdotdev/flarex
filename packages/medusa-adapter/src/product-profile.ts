@@ -1,10 +1,11 @@
 import { Effect } from "effect";
-import { registerLocalCommerceProfile, type LocalCommerceTableAdmission } from "@flarex/persistence-postgres/internal/commerce-profile";
+import { registerLocalCommerceProfile, type CommerceResources, type LocalCommerceTableAdmission } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareProductSchemaProfile } from "./product-schema";
 import { productRuntimeMetadata } from "./product-runtime-metadata";
 
-export const prepareLocalProductProfile = Effect.fn("ProductAdapter.prepareLocalProfile")(function* (
+const prepareProductProfile = Effect.fn("ProductAdapter.prepareLocalProfile")(function* (
+  resources: CommerceResources | undefined,
   ...args: Parameters<typeof prepareProductSchemaProfile>
 ) {
   const prepared = yield* prepareProductSchemaProfile(...args);
@@ -22,6 +23,14 @@ export const prepareLocalProductProfile = Effect.fn("ProductAdapter.prepareLocal
       ...([metadata.product.table, metadata.option.table, metadata.value.table, metadata.variant.table, metadata.image.table].includes(selected) ? { lifecycle: "managedSoftDelete" as const } : {}),
     });
   }
-  const profile = yield* registerLocalCommerceProfile(prepared.artifact, prepared.layout, "medusa.product.local", capabilities);
+  const profile = yield* registerLocalCommerceProfile(prepared.artifact, prepared.layout, "medusa.product.local", capabilities, resources);
   return { ...prepared, profile, initialization: { rows: undefined } };
 });
+
+/** Private scale conformance contract; deadlines and ordinary profiles stay unchanged. */
+export const productScaleResources: CommerceResources = Object.freeze({
+  catalogRows: 2048, queryRows: 2048, writeBatchRows: 256, facts: 2048,
+  calls: 2048, eventMessages: 1024, eventIds: 256, commandBytes: 4_194_304, valueNodes: 32_768,
+});
+export const prepareLocalProductProfile = (...args: Parameters<typeof prepareProductSchemaProfile>) => prepareProductProfile(undefined, ...args);
+export const prepareLocalProductScaleProfile = (...args: Parameters<typeof prepareProductSchemaProfile>) => prepareProductProfile(productScaleResources, ...args);
