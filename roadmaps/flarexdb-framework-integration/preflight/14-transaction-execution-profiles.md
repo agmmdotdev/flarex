@@ -5,7 +5,10 @@
 Status: accepted architecture direction and source-backed preflight;
 the private scalar transaction/store is implemented under
 [its concrete contract](./15-scalar-relational-transaction-and-store.md).
-Commit-family and cross-domain command contracts and proofs remain pending.
+Current native, CMS and commerce publication paths are implemented under their
+individual admission contracts. The cross-domain command proof remains pending;
+the [named-command preflight](../../shared-transaction-core/05-named-command-preflight.md)
+defines the proposed first scope and its separate approval boundary.
 
 This decision makes shared Application, Payload, and Medusa transaction
 ownership concrete without replacing their execution semantics. It refines

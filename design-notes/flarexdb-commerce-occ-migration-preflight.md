@@ -15,9 +15,11 @@ compatibility and durable-execution gates.
 The [shared transaction core roadmap](../roadmaps/shared-transaction-core/README.md)
 tracks implementation reconciliation against this accepted direction. The
 bounded publication/recovery extraction and source ownership audit are complete.
-Neutral physical resource ownership is implemented. The CMS participant /
-shared Application materialization split remains proposed and awaits approval;
-representative performance and overall completion gates remain open.
+Neutral physical resource ownership and the CMS participant / shared Application
+materialization split are implemented. The audited default ownership replacements
+are complete; representative performance and overall completion gates remain open.
+The [named-command preflight](../roadmaps/shared-transaction-core/05-named-command-preflight.md)
+proposes a separately approved next capability for actual cross-domain participation.
 
 ## Decision: Shared Core Guarantees, Distinct Execution
 
@@ -94,12 +96,13 @@ and [commit owner](../packages/persistence-postgres/src/pointCommitTransaction.t
 These paths already share substantial infrastructure. The
 [completed extraction](../roadmaps/flarexdb-framework-integration/preflight/36-shared-publication-and-request-recovery.md)
 gives common publication a private owner, moves commerce finalization to its
-participant and shares framework uncertain-outcome routing. The native commit
-module retains CMS preparation/materialization coupling. The
+participant and shares framework uncertain-outcome routing. CMS preparation and
+finalization now belong to the CMS participant; native and CMS lowering reuse
+the shared Application document materializer. The
 [completed audit](../roadmaps/shared-transaction-core/01-ownership-audit.md)
-classifies that coupling and the artifact-owned physical driver dependency as
-remaining replacements, with other boundaries explicitly retained or separately
-gated. Neither a shared file nor this extraction alone proves reconciliation.
+records both that replacement and neutral physical resource ownership as
+implemented, with other boundaries explicitly retained or separately gated.
+These ownership changes do not compose independently invoked framework commands.
 Do not replace the entire committer or invent work when existing ownership fits.
 
 Keep existing scope-lock ordering and admitted isolation initially. Moving the

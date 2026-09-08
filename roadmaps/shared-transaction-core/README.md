@@ -2,10 +2,10 @@
 
 ## Status And Scope
 
-Status: active redesign tracking; accepted ownership direction, partial
-implementation, ownership audit complete and R1/R2 ownership replacements implemented. The
-shared publication and framework recovery extraction is complete for its bounded contract. That does
-not establish that every boundary in the accepted design has been reconciled.
+Status: ownership audit complete and R1/R2 ownership replacements implemented.
+Shared publication and framework recovery extraction is complete for its bounded
+contract. Broader measured validation remains open; cross-domain command
+participation is a separately proposed capability.
 
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;
@@ -136,7 +136,14 @@ include their consumer switches and logic cleanup; neither requires DDL.
 | [Performance and conformance](./03-validation-and-completion.md) | Focused extraction proof exists; broader measurement pending | Representative costs and concurrency meet explicit criteria; affected semantics preserved |
 | Overall redesign reconciliation | Open | All required audit findings resolved; retained boundaries justified; independent capabilities explicitly deferred |
 
-The next completion gate is representative measured validation. Product scale remains in
+For the next shared-core implementation, the
+[named-command preflight](./05-named-command-preflight.md) recommends one private
+Application + scalar CMS + Currency command with borrowed participants and one
+finalizer. This is a proposed capability, not another required ownership repair
+or permission to begin implementation. Its first proof excludes additional
+relational installations, public APIs and general mixed OCC.
+
+The separate completion gate is representative measured validation. Product scale remains in
 [record 35](../flarexdb-framework-integration/preflight/35-medusa-product-scale.md);
 it neither substitutes for this audit nor automatically depends on finishing
 every separately gated capability. Update this table in place as durable status
