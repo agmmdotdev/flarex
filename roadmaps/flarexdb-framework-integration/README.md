@@ -172,7 +172,10 @@ Use these sources in order:
 38. [`preflight/37-medusa-remaining-product-suite-preflight.md`](./preflight/37-medusa-remaining-product-suite-preflight.md)
     inventories the remaining Product integration files and records complete
     Product Types admission: 69 originals per driver; Tags is the next family.
-39. Current code, migrations, any source snapshot already admitted by its own
+39. [`preflight/38-medusa-product-tags.md`](./preflight/38-medusa-product-tags.md)
+    records complete Product Tags admission, inverse Product projections and
+    authenticated DTO echoes: 84 originals per driver; Collections is next.
+40. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -244,6 +247,7 @@ Preflight records:
 | [`preflight/35-medusa-product-scale.md`](./preflight/35-medusa-product-scale.md) | Implemented privately with both-driver proof | 56 originals pass per driver, including unchanged 1000-image ordering; explicit resource contract, complete facts/events and atomic batches; upstream performance skip remains |
 | [`preflight/36-shared-publication-and-request-recovery.md`](./preflight/36-shared-publication-and-request-recovery.md) | Private ownership consolidation implemented | One common publisher and one framework uncertain-outcome router; trusted commerce finalization, retained CMS materialization, unchanged execution profiles and no schema replacement |
 | [`preflight/37-medusa-remaining-product-suite-preflight.md`](./preflight/37-medusa-remaining-product-suite-preflight.md) | Product Types implemented privately on both drivers | Complete 13-case Type file brings the gate to 69 originals plus one upstream skip; focused Type lane passes 15; 136 declarations across seven files remain, with Tags next |
+| [`preflight/38-medusa-product-tags.md`](./preflight/38-medusa-product-tags.md) | Product Tags implemented privately on both drivers | Complete 15-case Tag file brings the gate to 84 originals plus one upstream skip; bounded inverse Product reads and DTO echo authentication; 121 declarations across six files remain, with Collections next |
 
 ## Current Architecture
 

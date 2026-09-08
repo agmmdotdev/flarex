@@ -8,8 +8,9 @@ commands, scalar value filtering and primary-key retention for Type projections.
 The focused lane passes all 13 originals plus two scope/input guards on PGlite
 and ordinary-role PostgreSQL 18.3. The combined Product gate passes 69 originals
 plus the original upstream skip on each driver.
-The next separate family is Tags (15 cases); 136 declarations across seven
-files remain unregistered. This does not admit workflows, stored Module Links,
+At this checkpoint, Tags (15 cases) was next and 136 declarations across seven
+files remained unregistered. Its later admission is recorded in
+[Record 38](./38-medusa-product-tags.md), which owns the current four-file gate. This does not admit workflows, stored Module Links,
 durable event dispatch, general Payload integration or public serving.
 
 ## Original Preflight Status And Decision

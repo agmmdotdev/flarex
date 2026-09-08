@@ -37,8 +37,9 @@ export function compileProductValueProfile(catalog: {
   };
   const shape = (names: readonly string[], reason: "invalidInput" | "unsupportedProfile") =>
     commerceDecoder(Schema.Record(Schema.Literals(names), Schema.optionalKey(Schema.Json)), reason);
-  const createRoot = shape([...scalarNames(catalog.product), "options", "variants", "images", "tag_ids", "category_ids", "collection_id", "type_id"], "unsupportedProfile");
+  const createRoot = shape([...scalarNames(catalog.product), "options", "variants", "images", "tags", "tag_ids", "category_ids", "collection_id", "type_id"], "unsupportedProfile");
   const decodeIds = commerceDecoder(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256)), "invalidInput");
+  const decodeTagReferences = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) })).check(Schema.isMaxLength(256)), "invalidInput");
   const decodeReference = commerceDecoder(Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1, 256))), "invalidInput");
   const extra = (entity: ProductEntityMetadata): string[] => entity === catalog.option ? ["product_id", "values"] : entity === catalog.variant ? ["product_id", "options"]
     : entity === catalog.image ? ["product_id"] : entity === catalog.assignment ? ["variant_id", "image_id"] : [];
@@ -136,6 +137,10 @@ export function compileProductValueProfile(catalog: {
     validateCreate: (input: Json) => Result.gen(function* () {
       for (const product of Array.isArray(input) ? input : [input]) {
         const root = yield* createRoot(product);
+        if (root.tags !== undefined) {
+          if (root.tag_ids !== undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+          yield* decodeTagReferences(root.tags);
+        }
         if (root.tag_ids !== undefined) yield* decodeIds(root.tag_ids);
         if (root.category_ids !== undefined) yield* decodeIds(root.category_ids);
         for (const name of ["collection_id", "type_id"]) if (root[name] !== undefined) yield* decodeReference(root[name]);

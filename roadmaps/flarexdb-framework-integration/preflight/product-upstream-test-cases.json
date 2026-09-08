@@ -1,6 +1,6 @@
 {
   "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
-  "scope": "Three complete Product module-service test files (events, products, product types); other Product suites are not registered.",
+  "scope": "Four complete Product module-service test files (events, products, product types, product tags); other Product suites are not registered.",
   "cases": [
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -421,6 +421,96 @@
       "title": "ProductModuleService product types > createTypes > should create a type successfully",
       "status": "admitted",
       "reason": "Record 37: complete Product Types file; bounded Type reads and value filter through the original service"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > listTags > should return tags and count queried by ID",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > listTags > should return tags and count based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > listTags > should return only requested fields and relations for tags",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > listTags > should set foreign key to null when relation is select and is null",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > listAndCountTags > should return tags and count queried by ID",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > listAndCountTags > should return tags and count based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > listAndCountTags > should return only requested fields and relations for tags",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > retrieveTag > should return the requested tag",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > retrieveTag > should return requested attributes when requested through config",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > retrieveTag > should throw an error when a tag with ID does not exist",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > deleteTags > should delete the product tag given an ID successfully",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > updateTags > should update the value of the tag successfully",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > updateTags > should throw an error when an id does not exist",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > createTags > should create a tag successfully",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "title": "ProductModuleService product tags > upsertTags > should upsert tags successfully",
+      "status": "admitted",
+      "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
     }
   ]
 }

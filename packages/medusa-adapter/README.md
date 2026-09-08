@@ -77,12 +77,12 @@ Business events use the authenticated in-memory test buffer after
 acknowledged commit; no durable provider or query sync is activated.
 
 Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
-root. It uses the explicit private Product scale profile and runs 69 exact
-original cases from three unchanged files, including the 1000-image ordering case.
+root. It uses the explicit private Product scale profile and runs 84 exact
+original cases from four unchanged files, including the 1000-image ordering case.
 Only the original upstream performance skip remains. Set `FLAREX_TEST_DRIVER=postgres` and
 `FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
-All three files share one installed fixture per driver and clear business rows
-between cases. The case inventory and records 29-37 in the framework-integration
+All four files share one installed fixture per driver and clear business rows
+between cases. The case inventory and records 29-38 in the framework-integration
 roadmap distinguish current coverage from the remaining module capabilities.
 
 Record 35 keeps the original profile and its hashes unchanged. Its explicit scale
@@ -104,5 +104,17 @@ when projecting selected fields. The unchanged 13-case file covers reads,
 pagination/count, not-found errors, creation, updates and deletion.
 Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-types.config.ts`
 for those 13 originals plus two focused scope-isolation and input-refusal checks.
-The same driver environment selects PostgreSQL. Tags and other related entities
-retain their existing query limits; the next separate slice is the 15-case Tags file.
+The same driver environment selects PostgreSQL.
+
+Record 38 adds complete Product Tags compatibility. It admits bounded Tag ID
+references on Product creation, Tag list/count/retrieve and scalar value queries,
+and inverse Products reads with optional Collection population. Selected fields,
+primary keys, Collection foreign keys and null/empty relations follow the pinned
+service. Other relation paths remain unadmitted.
+Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-tags.config.ts`
+for 15 unchanged originals plus three scope, input and rollback checks.
+Tag upserts may echo a complete created_at/updated_at/deleted_at trio only when
+it exactly matches the existing scoped row; the adapter removes those echoes
+before the service call. Stale/forged/new-row echoes are refused and managed
+columns remain non-writable. This is a bounded compatibility policy, not general
+Tag DTO or query parity. The next separate slice is Collections (18 cases).

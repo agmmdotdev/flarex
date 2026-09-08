@@ -1,3 +1,4 @@
+import { productTagProjection, projectProductTagRows } from "../src/product-tag-query";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
@@ -153,7 +154,7 @@ describe("Medusa relation query extraction", () => {
       expect(result).toEqual({ rows: [{ value: "red" }], count: 1 });
     }));
   });
-  it("keeps Type value filtering unadmitted for tags and option values", async () => {
+  it("keeps named value filtering unadmitted for collections and option values", async () => {
     await Effect.runPromise(Effect.gen(function* () {
       const lifetime = yield* makeBoundedRequestLifetime(() => commerceError("invalidAuthority"),
         { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "type-filter-policy", "read");
@@ -161,7 +162,7 @@ describe("Medusa relation query extraction", () => {
       const ctx = { manager: lifetime.context, resources: defaultCommerceResources,
         table: () => Effect.sync(() => { reads++; }).pipe(Effect.andThen(Effect.fail(commerceError("invalidAuthority")))) };
       yield* Effect.gen(function* () {
-        for (const entity of [catalog.tag, catalog.value]) {
+        for (const entity of [catalog.collection, catalog.value]) {
           expect(yield* Effect.result(findProductRelated(ctx, catalog, entity, { where: { value: "text" } }, false)))
             .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
         }
@@ -169,4 +170,13 @@ describe("Medusa relation query extraction", () => {
       }).pipe(Effect.ensuring(lifetime.close));
     }));
   });
+  it.each([undefined, ["value", "products.collection_id"]])("keeps unrequested collection values out of Product Tag projection %j", async fields => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const projection = yield* productTagProjection(catalog, fields, ["products"]);
+      const rows = yield* projectProductTagRows([{ id: "tag", value: "tag", products: [{ id: "product", title: "p", collection_id: null }] }], projection, true);
+      expect(rows).toEqual([{ id: "tag", value: "tag", products: [fields === undefined
+        ? { id: "product", title: "p", collection_id: null } : { id: "product", collection_id: null }] }]);
+    }));
+  });
+
 });

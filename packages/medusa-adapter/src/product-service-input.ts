@@ -7,7 +7,7 @@ const Read = Schema.Struct({
   id: Schema.optionalKey(Schema.String), filters: Schema.optionalKey(Schema.Json), config: Schema.optionalKey(Schema.Json),
 });
 const decodeExternalRead = commerceDecoder(Read, "invalidInput");
-export const decodeProductTypeRead = commerceDecoder(Schema.Struct({
+export const decodeProductNamedRead = commerceDecoder(Schema.Struct({
   ...Read.fields,
   filters: Schema.optionalKey(Schema.Struct({
     id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))])),

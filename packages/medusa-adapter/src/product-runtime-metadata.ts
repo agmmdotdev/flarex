@@ -97,7 +97,7 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
   const categoryPivot = metadata.tables.find(table => categoryRelation?.join.type === "manyToMany" && table.name === categoryRelation.join.pivotTable);
   if (tagPivot === undefined || categoryPivot === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   // Additional paths are internal service capabilities, derived from the same DML.
-  for (const [source, names] of [[option, ["values"]], [variant, ["options"]]] as const) {
+  for (const [source, names] of [[option, ["values"]], [variant, ["options"]], [tag, ["products"]]] as const) {
     const declared = queryRelations.get(source.table.name) ?? new Map<string, CommerceRelation>();
     for (const name of names) {
       const descriptor = describeToManyRelation(source.table, name, metadata.tables);

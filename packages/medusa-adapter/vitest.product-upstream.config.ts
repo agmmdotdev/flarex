@@ -16,7 +16,25 @@ export const admittedProductTypeCases = [
   "Product service > ProductModuleService product types > updateTypes > should throw an error when an id does not exist",
   "Product service > ProductModuleService product types > createTypes > should create a type successfully"
 ];
+export const admittedProductTagCases = [
+  "Product service > ProductModuleService product tags > listTags > should return tags and count queried by ID",
+  "Product service > ProductModuleService product tags > listTags > should return tags and count based on the options and filter parameter",
+  "Product service > ProductModuleService product tags > listTags > should return only requested fields and relations for tags",
+  "Product service > ProductModuleService product tags > listTags > should set foreign key to null when relation is select and is null",
+  "Product service > ProductModuleService product tags > listAndCountTags > should return tags and count queried by ID",
+  "Product service > ProductModuleService product tags > listAndCountTags > should return tags and count based on the options and filter parameter",
+  "Product service > ProductModuleService product tags > listAndCountTags > should return only requested fields and relations for tags",
+  "Product service > ProductModuleService product tags > retrieveTag > should return the requested tag",
+  "Product service > ProductModuleService product tags > retrieveTag > should return requested attributes when requested through config",
+  "Product service > ProductModuleService product tags > retrieveTag > should throw an error when a tag with ID does not exist",
+  "Product service > ProductModuleService product tags > deleteTags > should delete the product tag given an ID successfully",
+  "Product service > ProductModuleService product tags > updateTags > should update the value of the tag successfully",
+  "Product service > ProductModuleService product tags > updateTags > should throw an error when an id does not exist",
+  "Product service > ProductModuleService product tags > createTags > should create a tag successfully",
+  "Product service > ProductModuleService product tags > upsertTags > should upsert tags successfully"
+];
 export const admittedProductCases = [
+  ...admittedProductTagCases,
   ...admittedProductTypeCases,
   "Product injected event bus > ProductModuleService Events > Product Deletion > should emit all cascade delete events when soft deleting a product",
   "Product injected event bus > ProductModuleService Events > Delete Operations - Base Service Automatic Events > should emit delete events for all entity types via base service",
