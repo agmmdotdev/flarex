@@ -1,0 +1,4415 @@
+{
+  "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
+  "baselineCommit": "747e1c4c",
+  "kind": "static-preflight-inventory",
+  "executed": false,
+  "files": [
+    {
+      "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts",
+      "sourceSha256": "a37ae8e00431ae59499bad02ceb076446210149eb42116541b2643f44c5467b4",
+      "surface": "internal-service",
+      "testCount": 23,
+      "requiredMethods": [
+        "categoryService.create",
+        "moduleService.createProductCollections",
+        "moduleService.createProductTags",
+        "moduleService.createProductVariants",
+        "moduleService.createProducts",
+        "moduleService.listProducts",
+        "moduleService.updateProducts",
+        "service.create",
+        "service.list",
+        "service.restore",
+        "service.retrieve",
+        "service.softDelete",
+        "service.update"
+      ],
+      "cases": [
+        {
+          "title": "should export the appropriate linkable configuration",
+          "sourceLine": 45,
+          "status": "not-registered",
+          "directMethods": [],
+          "assertionMatchers": [
+            "toEqual",
+            "toHaveLength"
+          ],
+          "setupLines": [
+            40
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:45",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > retrieve > should throw an error when an id is not provided",
+          "sourceLine": 176,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            167
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:176",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > retrieve > should throw an error when product with id does not exist",
+          "sourceLine": 188,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            167
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:188",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > retrieve > should return a product when product with an id exists",
+          "sourceLine": 202,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            167
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:202",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > create > should create a product",
+          "sourceLine": 214,
+          "status": "not-registered",
+          "directMethods": [
+            "service.create"
+          ],
+          "assertionMatchers": [
+            "toEqual",
+            "toHaveLength"
+          ],
+          "setupLines": [
+            40
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:214",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > update > should update a product and its allowed relations",
+          "sourceLine": 245,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve",
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            236
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:245",
+          "caseGaps": [
+            "internal-product-update"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > update > should update a product and its allowed relations using selector",
+          "sourceLine": 268,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve",
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            236
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:268",
+          "caseGaps": [
+            "internal-product-update"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > update > should update a single product and its allowed relations",
+          "sourceLine": 295,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve",
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            236
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:295",
+          "caseGaps": [
+            "internal-product-update"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > update > should throw an error when id is not present",
+          "sourceLine": 321,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve",
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toBe",
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            236
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:321",
+          "caseGaps": [
+            "internal-product-update"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > update > should throw an error when product with id does not exist",
+          "sourceLine": 347,
+          "status": "not-registered",
+          "directMethods": [
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            236
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:347",
+          "caseGaps": [
+            "internal-product-update"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > should list all product that match the free text search",
+          "sourceLine": 369,
+          "status": "not-registered",
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual",
+            "toHaveLength"
+          ],
+          "setupLines": [
+            40
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:369",
+          "caseGaps": [
+            "product-free-text"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > soft deleted > should list all products that are not deleted",
+          "sourceLine": 407,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual",
+            "toHaveLength"
+          ],
+          "setupLines": [
+            40,
+            397
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [
+            "createProductFixtures"
+          ],
+          "setupMethods": [
+            "moduleService.createProductTags",
+            "moduleService.createProducts",
+            "service.softDelete"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:407",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > soft deleted > should list all products including the deleted",
+          "sourceLine": 414,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toHaveLength"
+          ],
+          "setupLines": [
+            40,
+            397
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [
+            "createProductFixtures"
+          ],
+          "setupMethods": [
+            "moduleService.createProductTags",
+            "moduleService.createProducts",
+            "service.softDelete"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:414",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > relation: tags > should filter by id and including relations",
+          "sourceLine": 426,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            422
+          ],
+          "helperCalls": [
+            "relationItems"
+          ],
+          "helperMethods": [],
+          "setupHelperCalls": [
+            "createProductFixtures"
+          ],
+          "setupMethods": [
+            "moduleService.createProductTags",
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:426",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > relation: tags > should filter by id and without relations",
+          "sourceLine": 456,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toBe",
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            422
+          ],
+          "helperCalls": [
+            "relationItems"
+          ],
+          "helperMethods": [],
+          "setupHelperCalls": [
+            "createProductFixtures"
+          ],
+          "setupMethods": [
+            "moduleService.createProductTags",
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:456",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > relation: categories > should filter by categories relation and scope fields",
+          "sourceLine": 497,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            480
+          ],
+          "helperCalls": [
+            "relationItems"
+          ],
+          "helperMethods": [],
+          "setupHelperCalls": [
+            "createProductFixtures"
+          ],
+          "setupMethods": [
+            "categoryService.create",
+            "moduleService.createProductTags",
+            "moduleService.createProducts",
+            "moduleService.updateProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:497",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > relation: categories > should returns empty array when querying for a category that doesnt exist",
+          "sourceLine": 545,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            480
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [
+            "createProductFixtures"
+          ],
+          "setupMethods": [
+            "categoryService.create",
+            "moduleService.createProductTags",
+            "moduleService.createProducts",
+            "moduleService.updateProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:545",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > relation: collections > should filter by collection relation and scope fields",
+          "sourceLine": 612,
+          "status": "not-registered",
+          "directMethods": [
+            "moduleService.listProducts"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            583
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [
+            "createProductFixtures"
+          ],
+          "setupMethods": [
+            "moduleService.createProductCollections",
+            "moduleService.createProductTags",
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:612",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > relation: collections > should filter by collection when multiple collection ids are passed",
+          "sourceLine": 645,
+          "status": "not-registered",
+          "directMethods": [
+            "moduleService.listProducts"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            583
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [
+            "createProductFixtures"
+          ],
+          "setupMethods": [
+            "moduleService.createProductCollections",
+            "moduleService.createProductTags",
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:645",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > relation: collections > should returns empty array when querying for a collection that doesnt exist",
+          "sourceLine": 688,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            583
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [
+            "createProductFixtures"
+          ],
+          "setupMethods": [
+            "moduleService.createProductCollections",
+            "moduleService.createProductTags",
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:688",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > list > relation: variants > should filter by id and including relations",
+          "sourceLine": 717,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            40,
+            705
+          ],
+          "helperCalls": [
+            "relationItems"
+          ],
+          "helperMethods": [],
+          "setupHelperCalls": [
+            "createProductFixtures"
+          ],
+          "setupMethods": [
+            "moduleService.createProductTags",
+            "moduleService.createProductVariants",
+            "moduleService.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:717",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > softDelete > should soft delete a product",
+          "sourceLine": 758,
+          "status": "not-registered",
+          "directMethods": [
+            "service.create",
+            "service.list",
+            "service.softDelete"
+          ],
+          "assertionMatchers": [
+            "toBeNull",
+            "toHaveLength"
+          ],
+          "setupLines": [
+            40
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:758",
+          "caseGaps": [
+            "internal-lifecycle-result"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product Service > restore > should restore a soft deleted product",
+          "sourceLine": 782,
+          "status": "not-registered",
+          "directMethods": [
+            "service.create",
+            "service.restore",
+            "service.softDelete"
+          ],
+          "assertionMatchers": [
+            "toBeNull",
+            "toHaveLength"
+          ],
+          "setupLines": [
+            40
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts:782",
+          "caseGaps": [
+            "internal-lifecycle-result"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        }
+      ],
+      "fileGaps": [
+        "source-admission",
+        "internal-service-fixture"
+      ],
+      "existingRunnerMissingModuleMethods": []
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts",
+      "sourceSha256": "c724ea052769d3ce2969dad377835a603dfb568edb9c7aecea881ee79a83654b",
+      "surface": "internal-service",
+      "testCount": 31,
+      "requiredMethods": [
+        "service.create",
+        "service.delete",
+        "service.list",
+        "service.listAndCount",
+        "service.retrieve",
+        "service.update"
+      ],
+      "cases": [
+        {
+          "title": "Product category Service > list > lists all product categories",
+          "sourceLine": 33,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            27
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:33",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > list > scopes product categories by parent_category_id",
+          "sourceLine": 72,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            27
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:72",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > list > includes the entire list of descendants when include_descendants_tree is true",
+          "sourceLine": 110,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            27
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:110",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > list > includes the entire list of descendants when include_descendants_tree is true for multiple results",
+          "sourceLine": 167,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            27
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:167",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > list > includes the entire list of parents when include_ancestors_tree is true",
+          "sourceLine": 210,
+          "status": "not-registered",
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            27
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:210",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > list > includes the entire list of descendants when include_descendants_tree is true",
+          "sourceLine": 275,
+          "status": "not-registered",
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            27
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:275",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > list > includes the entire list of descendants an parents when include_descendants_tree and include_ancestors_tree are true",
+          "sourceLine": 344,
+          "status": "not-registered",
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            27
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:344",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > list > includes the entire list of parents when include_ancestors_tree is true for multiple results",
+          "sourceLine": 409,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            27
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:409",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > list > includes the entire list of descendants an parents when include_descendants_tree and include_ancestors_tree are true for multiple results",
+          "sourceLine": 472,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            27
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:472",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > list > scopes children when include_descendants_tree is true",
+          "sourceLine": 542,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            27
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:542",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > retrieve > should return category for the given id",
+          "sourceLine": 594,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            588
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:594",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > retrieve > should throw an error when category with id does not exist",
+          "sourceLine": 604,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            588
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:604",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > retrieve > should throw an error when an id is not provided",
+          "sourceLine": 618,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            588
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:618",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > retrieve > should return category based on config select param",
+          "sourceLine": 630,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            588
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:630",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > retrieve > should return category based on config relation param",
+          "sourceLine": 643,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            588
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:643",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > listAndCount > should return categories and count based on take and skip",
+          "sourceLine": 675,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCount"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            669
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:675",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > listAndCount > should return all product categories and count",
+          "sourceLine": 706,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCount"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            669
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:706",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > listAndCount > should only return categories that are scoped by parent_category_id",
+          "sourceLine": 749,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCount"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            669
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:749",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > listAndCount > should includes descendants when include_descendants_tree is true",
+          "sourceLine": 790,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCount"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            669
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:790",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > listAndCount > should filter out children when include_descendants_tree is true",
+          "sourceLine": 849,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCount"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            669
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:849",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > create > should create a category successfully",
+          "sourceLine": 895,
+          "status": "not-registered",
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:895",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > create > should append rank from an existing category depending on parent",
+          "sourceLine": 921,
+          "status": "not-registered",
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:921",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > update > should update the name of the category successfully",
+          "sourceLine": 1002,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieve",
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            988
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:1002",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > update > should throw an error when an id does not exist",
+          "sourceLine": 1020,
+          "status": "not-registered",
+          "directMethods": [
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            988
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:1020",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > update > should reorder rank successfully in the same parent",
+          "sourceLine": 1039,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list",
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            988
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:1039",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > update > should reorder rank successfully when changing parent",
+          "sourceLine": 1074,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list",
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            988
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:1074",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > update > should reorder rank successfully when changing parent and in first position",
+          "sourceLine": 1114,
+          "status": "not-registered",
+          "directMethods": [
+            "service.list",
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            988
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:1114",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > update > should update the mpath of the full descendent tree successfully when moving the grand parent in the hierarchy",
+          "sourceLine": 1154,
+          "status": "not-registered",
+          "directMethods": [
+            "service.create",
+            "service.list",
+            "service.update"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            988
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:1154",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > delete > should throw an error when an id does not exist",
+          "sourceLine": 1275,
+          "status": "not-registered",
+          "directMethods": [
+            "service.delete"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            1264
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:1275",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > delete > should throw an error when it has children",
+          "sourceLine": 1289,
+          "status": "not-registered",
+          "directMethods": [
+            "service.delete"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            1264
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:1289",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "Product category Service > delete > should reorder siblings rank successfully on deleting",
+          "sourceLine": 1303,
+          "status": "not-registered",
+          "directMethods": [
+            "service.delete",
+            "service.list"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22,
+            1264
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.create"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts:1303",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        }
+      ],
+      "fileGaps": [
+        "source-admission",
+        "internal-service-fixture",
+        "category-service-tree"
+      ],
+      "existingRunnerMissingModuleMethods": []
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "sourceSha256": "e8bef28367a3bea5f4888baea12aabdabcd94ff3f265783241b01bf6a6f56bac",
+      "surface": "module-service",
+      "testCount": 21,
+      "requiredMethods": [
+        "service.createProductCategories",
+        "service.createProducts",
+        "service.deleteProductCategories",
+        "service.listAndCountProductCategories",
+        "service.listProductCategories",
+        "service.retrieveProductCategory",
+        "service.updateProductCategories"
+      ],
+      "cases": [
+        {
+          "title": "ProductModuleService product categories > listCategories > should return categories queried by ID",
+          "sourceLine": 63,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:63",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > listCategories > should return categories based on the options and filter parameter",
+          "sourceLine": 75,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:75",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > listCategories > should return only requested fields and relations for categories",
+          "sourceLine": 103,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:103",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > listCategories > with tree inclusion > should return all descendants of a category",
+          "sourceLine": 163,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21,
+            131
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:163",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > listCategories > with tree inclusion > should return all ancestors of a category",
+          "sourceLine": 196,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21,
+            131
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:196",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > listAndCountCategories > should return categories and count queried by ID",
+          "sourceLine": 242,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:242",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > listAndCountCategories > should return categories and count based on the options and filter parameter",
+          "sourceLine": 255,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:255",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > listAndCountCategories > should return only requested fields and relations for categories",
+          "sourceLine": 289,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:289",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > retrieveCategory > should return the requested category",
+          "sourceLine": 317,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCategory"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCategory"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:317",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > retrieveCategory > should return requested attributes when requested through config",
+          "sourceLine": 333,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCategory"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCategory"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:333",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > retrieveCategory > should throw an error when a category with ID does not exist",
+          "sourceLine": 356,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCategory"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCategory"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:356",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > createCategory > should create a category successfully",
+          "sourceLine": 372,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductCategories",
+            "service.listProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:372",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > createCategory > should append rank from an existing category depending on parent",
+          "sourceLine": 396,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductCategories",
+            "service.listProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:396",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > updateCategory > should update the name of the category successfully",
+          "sourceLine": 473,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCategory",
+            "service.updateProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21,
+            458
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCategory"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:473",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > updateCategory > should throw an error when an id does not exist",
+          "sourceLine": 488,
+          "status": "not-registered",
+          "directMethods": [
+            "service.updateProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21,
+            458
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:488",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > updateCategory > should reorder rank successfully in the same parent",
+          "sourceLine": 504,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCategories",
+            "service.updateProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21,
+            458
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:504",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > updateCategory > should reorder rank successfully when changing parent",
+          "sourceLine": 536,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCategories",
+            "service.updateProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21,
+            458
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:536",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > updateCategory > should reorder rank successfully when changing parent and in first position",
+          "sourceLine": 573,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCategories",
+            "service.updateProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21,
+            458
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:573",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > deleteCategory > should throw an error when an id does not exist",
+          "sourceLine": 629,
+          "status": "not-registered",
+          "directMethods": [
+            "service.deleteProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21,
+            617
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:629",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > deleteCategory > should throw an error when it has children",
+          "sourceLine": 643,
+          "status": "not-registered",
+          "directMethods": [
+            "service.deleteProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21,
+            617
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:643",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product categories > deleteCategory > should reorder siblings rank successfully on deleting",
+          "sourceLine": 657,
+          "status": "not-registered",
+          "directMethods": [
+            "service.deleteProductCategories",
+            "service.listProductCategories"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            21,
+            617
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCategories",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCategories"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-categories.spec.ts:657",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        }
+      ],
+      "fileGaps": [
+        "source-admission",
+        "category-products-input",
+        "category-service-tree"
+      ],
+      "existingRunnerMissingModuleMethods": [
+        "listAndCountProductCategories",
+        "listProductCategories",
+        "retrieveProductCategory"
+      ]
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "sourceSha256": "4b955556a5a86efc74e546f57328a7c953ce3dd5b860e5abb417723ab0e3dd04",
+      "surface": "module-service",
+      "testCount": 18,
+      "requiredMethods": [
+        "service.createProductCollections",
+        "service.createProducts",
+        "service.deleteProductCollections",
+        "service.listAndCountProductCollections",
+        "service.listProductCollections",
+        "service.retrieveProductCollection",
+        "service.updateProductCollections",
+        "service.upsertProductCollections"
+      ],
+      "cases": [
+        {
+          "title": "ProductModuleService product collections > listCollections > should return collections queried by ID",
+          "sourceLine": 56,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCollections"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:56",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > listCollections > should return collections based on the options and filter parameter",
+          "sourceLine": 68,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCollections"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:68",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > listCollections > should return only requested fields and relations for collections",
+          "sourceLine": 96,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCollections"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:96",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > listAndCountCollections > should return collections and count queried by ID",
+          "sourceLine": 123,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductCollections"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:123",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > listAndCountCollections > should return collections and count based on the options and filter parameter",
+          "sourceLine": 136,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductCollections"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:136",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > listAndCountCollections > should return only requested fields and relations for collections",
+          "sourceLine": 173,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductCollections"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:173",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > retrieveCollection > should return the requested collection",
+          "sourceLine": 201,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCollection"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCollection"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:201",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > retrieveCollection > should return requested attributes when requested through config",
+          "sourceLine": 214,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCollection"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCollection"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:214",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > retrieveCollection > should throw an error when a collection with ID does not exist",
+          "sourceLine": 237,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCollection"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCollection"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:237",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > deleteCollections > should delete the product collection given an ID successfully",
+          "sourceLine": 255,
+          "status": "not-registered",
+          "directMethods": [
+            "service.deleteProductCollections",
+            "service.listProductCollections"
+          ],
+          "assertionMatchers": [
+            "toHaveLength"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCollections"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:255",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > updateCollections > should update the value of the collection successfully",
+          "sourceLine": 271,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCollection",
+            "service.upsertProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCollection"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:271",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > updateCollections > should add products to a collection successfully",
+          "sourceLine": 286,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCollection",
+            "service.upsertProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual",
+            "toHaveLength"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCollection"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:286",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > updateCollections > should respond with collections when products are updated",
+          "sourceLine": 317,
+          "status": "not-registered",
+          "directMethods": [
+            "service.updateProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:317",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > updateCollections > should throw an error when an id does not exist",
+          "sourceLine": 333,
+          "status": "not-registered",
+          "directMethods": [
+            "service.updateProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:333",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > updateCollections > should dissociate existing products when new products are synced",
+          "sourceLine": 349,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCollection",
+            "service.upsertProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual",
+            "toHaveLength"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCollection"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:349",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > updateCollections > should dissociate all existing products",
+          "sourceLine": 387,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductCollection",
+            "service.upsertProductCollections"
+          ],
+          "assertionMatchers": [
+            "toHaveLength"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductCollection"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:387",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > createCollections > should create a collection successfully",
+          "sourceLine": 418,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductCollections",
+            "service.listProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCollections"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:418",
+          "caseGaps": [
+            "module-command-admission",
+            "related-scalar-filter"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product collections > createCollections > should create collection with products successfully",
+          "sourceLine": 432,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductCollections",
+            "service.listProductCollections"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            16
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductCollections",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductCollections"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-collections.spec.ts:432",
+          "caseGaps": [
+            "module-command-admission",
+            "related-scalar-filter"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        }
+      ],
+      "fileGaps": [
+        "source-admission",
+        "collection-products-input"
+      ],
+      "existingRunnerMissingModuleMethods": [
+        "listAndCountProductCollections",
+        "listProductCollections",
+        "retrieveProductCollection"
+      ]
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "sourceSha256": "eb095c9ebcc8247e17ebd33ec607855af37186c50ca1b6701649c80cbe23320a",
+      "surface": "module-service",
+      "testCount": 13,
+      "requiredMethods": [
+        "service.createProductOptions",
+        "service.createProducts",
+        "service.deleteProductOptions",
+        "service.listAndCountProductOptions",
+        "service.listProductOptions",
+        "service.retrieveProductOption",
+        "service.updateProductOptions",
+        "service.upsertProductOptions"
+      ],
+      "cases": [
+        {
+          "title": "ProductModuleService product options > listOptions > should return options and count queried by ID",
+          "sourceLine": 45,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductOptions"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductOptions"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:45",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > listOptions > should return options and count based on the options and filter parameter",
+          "sourceLine": 57,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductOptions"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductOptions"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:57",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > listOptions > should return only requested fields and relations for options",
+          "sourceLine": 82,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductOptions"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductOptions"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:82",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > listAndCountOptions > should return options and count queried by ID",
+          "sourceLine": 108,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductOptions"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductOptions"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:108",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > listAndCountOptions > should return options and count based on the options and filter parameter",
+          "sourceLine": 121,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductOptions"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductOptions"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:121",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > listAndCountOptions > should return only requested fields and relations for options",
+          "sourceLine": 156,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductOptions"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductOptions"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:156",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > retrieveOption > should return the requested option",
+          "sourceLine": 183,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductOption"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductOption"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:183",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > retrieveOption > should return requested attributes when requested through config",
+          "sourceLine": 193,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductOption"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductOption"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:193",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > retrieveOption > should throw an error when a option with ID does not exist",
+          "sourceLine": 212,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductOption"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductOption"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:212",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > deleteOptions > should delete the product option given an ID successfully",
+          "sourceLine": 230,
+          "status": "not-registered",
+          "directMethods": [
+            "service.deleteProductOptions",
+            "service.listProductOptions"
+          ],
+          "assertionMatchers": [
+            "toHaveLength"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "deleteProductOptions",
+            "listProductOptions"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:230",
+          "caseGaps": [
+            "module-command-admission",
+            "option-delete"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > updateOptions > should update the title of the option successfully",
+          "sourceLine": 244,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductOption",
+            "service.upsertProductOptions"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductOption"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:244",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > updateOptions > should throw an error when an id does not exist",
+          "sourceLine": 257,
+          "status": "not-registered",
+          "directMethods": [
+            "service.updateProductOptions"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:257",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product options > createOptions > should create a option successfully",
+          "sourceLine": 273,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductOptions",
+            "service.listProductOptions"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            14
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductOptions",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductOptions"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-options.spec.ts:273",
+          "caseGaps": [
+            "module-command-admission",
+            "related-scalar-filter",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        }
+      ],
+      "fileGaps": [
+        "source-admission"
+      ],
+      "existingRunnerMissingModuleMethods": [
+        "deleteProductOptions",
+        "listAndCountProductOptions",
+        "listProductOptions",
+        "retrieveProductOption"
+      ]
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "sourceSha256": "6ecf1cd00d41809bef1f8ce8f9df1e302502b62dda7f8c64ddb5968eff88e810",
+      "surface": "module-service",
+      "testCount": 15,
+      "requiredMethods": [
+        "service.createProductTags",
+        "service.createProducts",
+        "service.deleteProductTags",
+        "service.listAndCountProductTags",
+        "service.listProductTags",
+        "service.retrieveProductTag",
+        "service.updateProductTags",
+        "service.upsertProductTags"
+      ],
+      "cases": [
+        {
+          "title": "ProductModuleService product tags > listTags > should return tags and count queried by ID",
+          "sourceLine": 45,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductTags"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:45",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > listTags > should return tags and count based on the options and filter parameter",
+          "sourceLine": 57,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductTags"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:57",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > listTags > should return only requested fields and relations for tags",
+          "sourceLine": 82,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductTags"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:82",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > listTags > should set foreign key to null when relation is select and is null",
+          "sourceLine": 107,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductTags"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:107",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > listAndCountTags > should return tags and count queried by ID",
+          "sourceLine": 136,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductTags"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:136",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > listAndCountTags > should return tags and count based on the options and filter parameter",
+          "sourceLine": 149,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductTags"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:149",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > listAndCountTags > should return only requested fields and relations for tags",
+          "sourceLine": 184,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductTags"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:184",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > retrieveTag > should return the requested tag",
+          "sourceLine": 212,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductTag"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductTag"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:212",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > retrieveTag > should return requested attributes when requested through config",
+          "sourceLine": 222,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductTag"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductTag"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:222",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > retrieveTag > should throw an error when a tag with ID does not exist",
+          "sourceLine": 241,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductTag"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductTag"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:241",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > deleteTags > should delete the product tag given an ID successfully",
+          "sourceLine": 259,
+          "status": "not-registered",
+          "directMethods": [
+            "service.deleteProductTags",
+            "service.listProductTags"
+          ],
+          "assertionMatchers": [
+            "toHaveLength"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductTags"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:259",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > updateTags > should update the value of the tag successfully",
+          "sourceLine": 273,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductTag",
+            "service.updateProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductTag"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:273",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > updateTags > should throw an error when an id does not exist",
+          "sourceLine": 284,
+          "status": "not-registered",
+          "directMethods": [
+            "service.updateProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:284",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > createTags > should create a tag successfully",
+          "sourceLine": 302,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductTags",
+            "service.listProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductTags"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:302",
+          "caseGaps": [
+            "module-command-admission",
+            "related-scalar-filter"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product tags > upsertTags > should upsert tags successfully",
+          "sourceLine": 319,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductTags",
+            "service.listProductTags",
+            "service.upsertProductTags"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            15
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTags",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductTags"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts:319",
+          "caseGaps": [
+            "module-command-admission",
+            "related-scalar-filter",
+            "tag-upsert-dto"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        }
+      ],
+      "fileGaps": [
+        "source-admission",
+        "product-tags-input"
+      ],
+      "existingRunnerMissingModuleMethods": [
+        "listAndCountProductTags",
+        "listProductTags",
+        "retrieveProductTag"
+      ]
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
+      "sourceSha256": "dbab7a7b4202ad277f70c7f8d208923eeb21401ed3ad4ce96e4f0bf3af7a3a58",
+      "surface": "module-service",
+      "testCount": 13,
+      "requiredMethods": [
+        "service.createProductTypes",
+        "service.deleteProductTypes",
+        "service.listAndCountProductTypes",
+        "service.listProductTypes",
+        "service.retrieveProductType",
+        "service.updateProductTypes"
+      ],
+      "cases": [
+        {
+          "title": "ProductModuleService product types > listTypes > should return types and count queried by ID",
+          "sourceLine": 26,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductTypes"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "listProductTypes"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:26",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > listTypes > should return types and count based on the options and filter parameter",
+          "sourceLine": 38,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductTypes"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "listProductTypes"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:38",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > listTypes > should return only requested fields for types",
+          "sourceLine": 63,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductTypes"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "listProductTypes"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:63",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > listAndCountTypes > should return types and count queried by ID",
+          "sourceLine": 84,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductTypes"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductTypes"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:84",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > listAndCountTypes > should return types and count based on the options and filter parameter",
+          "sourceLine": 97,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductTypes"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductTypes"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:97",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > listAndCountTypes > should return only requested fields for types",
+          "sourceLine": 132,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductTypes"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductTypes"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:132",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > retrieveType > should return the requested type",
+          "sourceLine": 154,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductType"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductType"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:154",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > retrieveType > should return requested attributes when requested through config",
+          "sourceLine": 164,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductType"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductType"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:164",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > retrieveType > should throw an error when a type with ID does not exist",
+          "sourceLine": 175,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductType"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductType"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:175",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > deleteTypes > should delete the product type given an ID successfully",
+          "sourceLine": 193,
+          "status": "not-registered",
+          "directMethods": [
+            "service.deleteProductTypes",
+            "service.listProductTypes"
+          ],
+          "assertionMatchers": [
+            "toHaveLength"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "listProductTypes"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:193",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > updateTypes > should update the value of the type successfully",
+          "sourceLine": 207,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductType",
+            "service.updateProductTypes"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductType"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:207",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > updateTypes > should throw an error when an id does not exist",
+          "sourceLine": 217,
+          "status": "not-registered",
+          "directMethods": [
+            "service.updateProductTypes"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:217",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product types > createTypes > should create a type successfully",
+          "sourceLine": 235,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductTypes",
+            "service.listProductTypes"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            12
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductTypes"
+          ],
+          "missingModuleMethods": [
+            "listProductTypes"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-types.spec.ts:235",
+          "caseGaps": [
+            "module-command-admission",
+            "related-scalar-filter"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        }
+      ],
+      "fileGaps": [
+        "source-admission"
+      ],
+      "existingRunnerMissingModuleMethods": [
+        "listAndCountProductTypes",
+        "listProductTypes",
+        "retrieveProductType"
+      ]
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "sourceSha256": "66a30d18619b2b7032077528a8c8b8d75c05bf958a38e621e97d0cd3264e0a58",
+      "surface": "module-service",
+      "testCount": 15,
+      "requiredMethods": [
+        "service.addImageToVariant",
+        "service.createProductVariants",
+        "service.createProducts",
+        "service.listAndCountProductVariants",
+        "service.listProductVariants",
+        "service.removeImageFromVariant",
+        "service.retrieveProduct",
+        "service.retrieveProductVariant",
+        "service.softDeleteProductVariants",
+        "service.updateProductVariants",
+        "service.upsertProductVariants"
+      ],
+      "cases": [
+        {
+          "title": "ProductModuleService product variants > listAndCountVariants > should return variants and count queried by ID",
+          "sourceLine": 62,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductVariants"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductVariants"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:62",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > listAndCountVariants > should retrieve variant images including product images not associated with other variants",
+          "sourceLine": 75,
+          "status": "not-registered",
+          "directMethods": [
+            "service.addImageToVariant",
+            "service.createProductVariants",
+            "service.createProducts",
+            "service.listProductVariants",
+            "service.removeImageFromVariant",
+            "service.retrieveProduct"
+          ],
+          "assertionMatchers": [
+            "toEqual",
+            "toHaveLength"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductVariants",
+            "removeImageFromVariant"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:75",
+          "caseGaps": [
+            "module-command-admission",
+            "variant-images",
+            "assignment-removal"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > listAndCountVariants > should return variants and count based on the options and filter parameter",
+          "sourceLine": 326,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductVariants"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductVariants"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:326",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > listAndCountVariants > should return only requested fields and relations for variants",
+          "sourceLine": 360,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listAndCountProductVariants"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listAndCountProductVariants"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:360",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > retrieveVariant > should return the requested variant",
+          "sourceLine": 387,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductVariant"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductVariant"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:387",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > retrieveVariant > should return requested attributes when requested through config",
+          "sourceLine": 398,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductVariant"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductVariant"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:398",
+          "caseGaps": [
+            "module-command-admission",
+            "related-projection-review"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > retrieveVariant > should throw an error when a variant with ID does not exist",
+          "sourceLine": 416,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductVariant"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductVariant"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:416",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > updateVariants > should update the title of the variant successfully",
+          "sourceLine": 432,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductVariant",
+            "service.upsertProductVariants"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductVariant"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:432",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > updateVariants > should do a partial update on the options of a variant successfully",
+          "sourceLine": 446,
+          "status": "not-registered",
+          "directMethods": [
+            "service.retrieveProductVariant",
+            "service.updateProductVariants"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "retrieveProductVariant"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:446",
+          "caseGaps": [
+            "module-command-admission"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > updateVariants > should throw an error when an id does not exist",
+          "sourceLine": 470,
+          "status": "not-registered",
+          "directMethods": [
+            "service.updateProductVariants"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:470",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > createVariants > should create variants successfully",
+          "sourceLine": 486,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductVariants"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:486",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > createVariants > should correctly associate variants with own product options",
+          "sourceLine": 513,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:513",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > createVariants > should throw if there is an existing variant with same options combination",
+          "sourceLine": 588,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:588",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > createVariants > should throw if there is an existing variant with same options combination (on update)",
+          "sourceLine": 655,
+          "status": "not-registered",
+          "directMethods": [
+            "service.createProducts",
+            "service.updateProductVariants"
+          ],
+          "assertionMatchers": [
+            "toEqual"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:655",
+          "caseGaps": [],
+          "disposition": "not-admitted; static preflight only"
+        },
+        {
+          "title": "ProductModuleService product variants > softDelete variant > should soft delete a variant and its relations",
+          "sourceLine": 698,
+          "status": "not-registered",
+          "directMethods": [
+            "service.listProductVariants",
+            "service.softDeleteProductVariants"
+          ],
+          "assertionMatchers": [
+            "toBeNull",
+            "toHaveLength"
+          ],
+          "setupLines": [
+            22
+          ],
+          "helperCalls": [],
+          "helperMethods": [],
+          "setupHelperCalls": [],
+          "setupMethods": [
+            "service.createProductVariants",
+            "service.createProducts"
+          ],
+          "missingModuleMethods": [
+            "listProductVariants",
+            "softDeleteProductVariants"
+          ],
+          "id": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-variants.spec.ts:698",
+          "caseGaps": [
+            "module-command-admission",
+            "variant-lifecycle"
+          ],
+          "disposition": "not-admitted; static preflight only"
+        }
+      ],
+      "fileGaps": [
+        "source-admission"
+      ],
+      "existingRunnerMissingModuleMethods": [
+        "listAndCountProductVariants",
+        "listProductVariants",
+        "removeImageFromVariant",
+        "retrieveProductVariant",
+        "softDeleteProductVariants"
+      ]
+    }
+  ],
+  "scope": "Eight not-registered Product integration files; static declarations, not executed compatibility coverage.",
+  "totalDeclarations": 149,
+  "methodExtraction": "TypeScript 6 AST; direct service/moduleService/categoryService calls plus inherited beforeEach/beforeAll calls and local named fixture helpers. Names are lexically extracted, not a complete dynamic call graph.",
+  "gapRecord": "37-medusa-remaining-product-suite-preflight.md"
+}

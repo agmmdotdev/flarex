@@ -34,6 +34,10 @@ original cases passing on both drivers. The implemented
 [scale milestone](./preflight/35-medusa-product-scale.md) adds the unchanged
 1000-image ordering case through an explicit resource contract: 56 originals
 now pass per driver, with only the upstream performance skip remaining.
+The [remaining-suite preflight](./preflight/37-medusa-remaining-product-suite-preflight.md)
+inventories 149 unregistered declarations in eight files. The next bounded target
+is the complete 13-case Product Types suite, adding related reads and the tested
+value filter; it is not yet admitted or executed on Flarex.
 Durable event storage/dispatch are deferred. Product
 mutations beyond the admitted graph/related-entity and lifecycle profile,
 stored Links and production
