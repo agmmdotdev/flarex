@@ -336,7 +336,38 @@ type StoredApplicationRelationReadinessActivationValidation = Extract<
 
 interface FoldRepositoryState {
   readonly context: ApplicationRelationReadinessFoldContext;
+  readonly prepareActive: (input: { readonly deploymentId: string; readonly revisionId: string }) =>
+    Effect.Effect<PreparedApplicationRelationActiveRead, ReadApplicationRelationReadinessFoldError>;
 }
+
+const preparedActiveReadBrand: unique symbol = Symbol("PreparedApplicationRelationActiveRead");
+export interface PreparedApplicationRelationActiveRead { readonly [preparedActiveReadBrand]: true }
+const preparedActiveReads = new WeakMap<object, Readonly<{ repository: FoldRepositoryState; prepared: PreparedFold }>>();
+
+/** Request-owned inputs only; this does not issue a ready result or active selection. */
+export const prepareApplicationRelationActiveRead = Effect.fn("ApplicationRelationReadinessFold.prepareActiveRead")(
+  (repository: ApplicationRelationReadinessFoldRepository, input: { readonly deploymentId: string; readonly revisionId: string }) => {
+    const state = repositoryStates.get(repository);
+    return state === undefined ? failureForOperation("readReady", "invalidComposition") : state.prepareActive(input);
+  },
+);
+
+export const acceptPreparedApplicationRelationActiveRead = Effect.fn("ApplicationRelationReadinessFold.acceptPreparedActiveRead")(
+  function* (prepared: PreparedApplicationRelationActiveRead, tx: AppRowTransaction, clock: ScopeClockRecord) {
+    const state = preparedActiveReads.get(prepared);
+    if (state === undefined) return yield* failure("invalidComposition");
+    const current = Object.freeze({ ...state.prepared, ownershipBudget: new ApplicationWriteOwnershipHistoryBudget() });
+    const validated = yield* validatePreparedFoldInTransaction(tx, current, state.repository.context, clock, "storedActive");
+    if ("status" in validated) return yield* failure("authorityChanged");
+    const replay = yield* loadStoredRelationReadinessReplay(tx, current, validated);
+    const ready = issueReadyResult("active", "replayed", state.repository, current,
+      replay.readinessSha256, replay.readinessBytes, validated.relations, replay.readyAt, validated.writeOwnership);
+    const issued = issuedReadyResults.get(ready);
+    const definitions = getPreparedApplicationRelationReadinessDefinitions(state.repository.context.relations, current.relations);
+    if (issued === undefined || definitions === null) return yield* failure("invalidComposition");
+    return yield* relationActivationBasis(issued, definitions);
+  }, Effect.mapError(error => exposeFoldIssue("validate", error)),
+);
 
 interface ApplicationRelationSetReadinessEvidenceSnapshot {
   readonly receipt: ApplicationRelationSetReadinessEvidence["receipt"];
@@ -362,7 +393,9 @@ export function makeApplicationRelationReadinessFoldRepository(
   context: ApplicationRelationReadinessFoldContext,
 ): ApplicationRelationReadinessFoldRepository {
   const captured = Object.freeze({ ...context });
-  const state = Object.freeze({ context: captured });
+  const state: FoldRepositoryState = Object.freeze({ context: captured,
+    prepareActive: (input: { readonly deploymentId: string; readonly revisionId: string }) => prepareActiveOperation(input),
+  });
   const compositionIsExact = () =>
     hasApplicationRelationSchemaAuthorityComposition(
       captured.schema,
@@ -463,6 +496,15 @@ export function makeApplicationRelationReadinessFoldRepository(
       ),
     );
   });
+  const prepareActiveOperation = Effect.fn("ApplicationRelationReadinessFold.prepareActiveInputs")(
+    function* (input: { readonly deploymentId: string; readonly revisionId: string }) {
+      const preparation = yield* prepareFold(input, captured, compositionIsExact, "storedActive");
+      if ("status" in preparation) return yield* failure("authorityChanged");
+      const token: PreparedApplicationRelationActiveRead = Object.freeze({ [preparedActiveReadBrand]: true as const });
+      preparedActiveReads.set(token, Object.freeze({ repository: state, prepared: preparation.prepared }));
+      return token;
+    }, Effect.mapError(error => exposeFoldIssue("readReady", error)),
+  );
   const settle: ApplicationRelationReadinessFoldRepository["settle"] =
     input => settleOperation(input).pipe(
       Effect.mapError(error => exposeFoldIssue("settle", error)),

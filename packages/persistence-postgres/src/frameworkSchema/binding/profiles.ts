@@ -12,6 +12,7 @@ import {
 import { bindingError } from "./errors";
 import type { BindingProfileReference, PhysicalDataBinding } from "./model";
 import type { RestoredFrameworkSchemaAvailabilityHead } from "../installation/storedMetadataRestoration";
+import type { FrameworkSchemaReadinessFrame } from "../installation/model";
 
 declare const profileRegistryBrand: unique symbol;
 export interface DataBindingTestProfiles {
@@ -102,7 +103,14 @@ export const validateBindingProfiles = Effect.fn(
 export const validatePhysicalBindingCoverage = Effect.fn("DataBindingProfiles.validateCoverage")(function* (
   binding: PhysicalDataBinding, availability: RestoredFrameworkSchemaAvailabilityHead,
 ) {
-  const readiness = availability.readiness.readiness.frame;
+  return yield* validateReadinessBindingCoverage(binding, availability.readiness.readiness.frame);
+});
+
+/** Coverage policy consumes validated data; transaction acceptance remains with
+ * its caller and cannot be manufactured by passing a structurally valid frame. */
+export const validateReadinessBindingCoverage = Effect.fn("DataBindingProfiles.validateReadinessCoverage")(function* (
+  binding: PhysicalDataBinding, readiness: FrameworkSchemaReadinessFrame,
+) {
   const coverage = binding.profiles.flatMap((profile) => profile.coverage);
   for (const required of readiness.residualRequirements) {
     const physical = readiness.validatedPhysicalCapabilities.find((value) =>

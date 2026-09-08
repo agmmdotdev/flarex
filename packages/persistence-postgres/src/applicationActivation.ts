@@ -38,6 +38,9 @@ import {
 } from "./applicationActivationSchema";
 import {
   hasApplicationRelationReadinessFoldComposition,
+  prepareApplicationRelationActiveRead,
+  acceptPreparedApplicationRelationActiveRead,
+  type PreparedApplicationRelationActiveRead,
   validateActiveApplicationRelationReadinessInTransaction,
   validateApplicationRelationReadinessForActivationInTransaction,
   withApplicationActivationCatalogLock,
@@ -294,6 +297,25 @@ const activationRepositoryStates = new WeakMap<
   object,
   ApplicationActivationRepositoryState
 >();
+
+const bindingPreparationBrand: unique symbol = Symbol("ApplicationBindingPreparation");
+export interface ApplicationBindingPreparation { readonly [bindingPreparationBrand]: true }
+export type ApplicationBindingInput = ApplicationActiveSelection | ApplicationBindingPreparation;
+type BindingPreparationError = ApplicationActivationError | ReadApplicationReadinessError |
+  ReadApplicationRelationReadinessFoldError | TrustedScopeAuthorityError | LockScopeClockForUpdateError;
+const bindingPreparations = new WeakMap<object, Readonly<{
+  authority: TrustedScopeAuthority; revisionId: string; readiness: PreparedApplicationRelationActiveRead;
+}>>();
+const bindingPreparationReaders = new WeakMap<object, () => Effect.Effect<ApplicationBindingInput, BindingPreparationError>>();
+
+/** Existing standalone readers remain unchanged; registered composite repositories
+ * can prepare inputs whose only acceptance happens in the business transaction. */
+export const prepareApplicationBindingSelection = Effect.fn("ApplicationActivation.prepareBindingSelection")(
+  function* <Failure>(repository: ApplicationBindingSelectionReader<Failure>) {
+    const prepare = bindingPreparationReaders.get(repository);
+    return prepare === undefined ? (yield* repository.readActive()).selection : yield* prepare();
+  },
+);
 
 /** Private identity check for read-only binding composition, including both readiness contracts. */
 export interface ApplicationBindingSelectionReader<Failure> {
@@ -826,6 +848,20 @@ function makeCompositeApplicationActivationRepository<
     readiness: captured,
     authority: captured.authority,
   }));
+  bindingPreparationReaders.set(repository, Effect.fn("ApplicationActivation.prepareCompositeBinding")(
+    function* () {
+      if (!validIdentity(captured.deploymentId) || !compositionIsExact()) return yield* activationFailure("read", "invalidComposition");
+      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(captured.deploymentId, captured.authority);
+      const hint = yield* runLocatedTransaction(located.target, "read", undefined,
+        tx => loadActiveRevisionHint(tx, located.authority.scopeId));
+      if (hint.readinessKind === "legacy") return (yield* readActive()).selection;
+      const readiness = yield* prepareApplicationRelationActiveRead(captured.relationReadiness,
+        { deploymentId: captured.deploymentId, revisionId: hint.revisionId });
+      const token: ApplicationBindingPreparation = Object.freeze({ [bindingPreparationBrand]: true as const });
+      bindingPreparations.set(token, Object.freeze({ authority: located.authority, revisionId: hint.revisionId, readiness }));
+      return token;
+    },
+  ));
   return repository;
 }
 
@@ -920,8 +956,26 @@ function issueRelationActiveSelection(
 /** Read-only composition for framework binding; legacy execution keeps its existing validation path. */
 export const validateApplicationBindingBasisInTransaction = Effect.fn(
   "ApplicationActivation.validateBindingBasisInTransaction",
-)(function* (selection: ApplicationActiveSelection, tx: AppRowTransaction, currentClock: ScopeClockRecord) {
-  const state = selectionStates.get(selection);
+)(function* (selection: ApplicationBindingInput, tx: AppRowTransaction, currentClock: ScopeClockRecord) {
+  const preparation = bindingPreparations.get(selection);
+  if (preparation !== undefined) {
+    if (!clockMatches(preparation.authority, currentClock)) return yield* activationFailure("validateSelection", "scopeAuthority", preparation.revisionId);
+    const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock.scopeId);
+    if (active === null || active.head.revisionId !== preparation.revisionId || active.head.readinessKind === "legacy") {
+      return yield* activationFailure("validateSelection", "concurrentHead", preparation.revisionId);
+    }
+    const validated = yield* acceptPreparedApplicationRelationActiveRead(preparation.readiness, tx, currentClock);
+    if (!headMatchesValidatedReadiness(active.head, { kind: "relation", basis: validated })) {
+      return yield* activationFailure("validateSelection", "concurrentHead", preparation.revisionId);
+    }
+    return Object.freeze({ kind: "relation" as const, basis: copyRelationSelectionBasis({ ...validated,
+      activationSequence: active.head.activationSequence, activationSha256: copyBytes(active.head.activationSha256),
+      headSha256: copyBytes(active.head.headSha256),
+    }) });
+  }
+  // SAFETY: this assertion only permits lookup by object identity. The selection registry authenticates the remaining member; a forged
+  // preparation is not promoted to an active selection by this lookup.
+  const state = selectionStates.get(selection as ApplicationActiveSelection);
   if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
     if (state.kind === "relation") {
       // Binding admission locks the Application head before restoring its readiness dependencies.

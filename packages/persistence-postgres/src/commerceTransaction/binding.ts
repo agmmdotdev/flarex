@@ -5,19 +5,19 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import type { InstallationBindingReference, PhysicalDataBinding } from "../frameworkSchema/binding/model";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
-import { validatePhysicalBindingCoverage } from "../frameworkSchema/binding/profiles";
-import type { RestoredFrameworkSchemaAvailabilityHead } from "../frameworkSchema/installation/storedMetadataRestoration";
+import { validateReadinessBindingCoverage } from "../frameworkSchema/binding/profiles";
+import type { InstallationRuntimeData } from "../frameworkSchema/installation/runtimeData";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
 import { commerceError } from "./model";
 import { fxSystemFrameworkInitializations } from "../frameworkSchema/installation/initializationSchema";
 
 export const verifyCommerceInstallation = Effect.fn("CommerceBinding.verifyInstallation")(function* (
-  profile: CommerceProfile, binding: InstallationBindingReference, availability: RestoredFrameworkSchemaAvailabilityHead,
+  profile: CommerceProfile, binding: InstallationBindingReference, availability: InstallationRuntimeData,
 ) {
   const descriptor = yield* requireCommerceProfile(profile);
   if (!sameBindingValue({ ...descriptor.artifact.identity }, binding.installation.artifact) ||
-    availability.installation.admission.admission.frame.admissionProfile !== "registered-commerce-fresh" ||
-    descriptor.layout.canonicalJson !== availability.installation.plan.plan.physicalLayout.canonicalJson) {
+    availability.admissionProfile !== "registered-commerce-fresh" ||
+    descriptor.layout.canonicalJson !== availability.physicalLayoutCanonicalJson) {
     return yield* Effect.fail(commerceError("invalidAuthority"));
   }
   return descriptor;
@@ -25,14 +25,14 @@ export const verifyCommerceInstallation = Effect.fn("CommerceBinding.verifyInsta
 
 export const verifyCommerceBinding = Effect.fn("CommerceBinding.verify")(function* (
   tx: FlarexMetadataTransaction, scopeId: string, profile: CommerceProfile,
-  binding: PhysicalDataBinding, availability: RestoredFrameworkSchemaAvailabilityHead,
+  binding: PhysicalDataBinding, availability: InstallationRuntimeData,
 ) {
   const descriptor = yield* verifyCommerceInstallation(profile, binding, availability);
   if (binding.profiles.length !== 3 || binding.profiles.some((item, index) =>
     item.kind !== ["adapter", "query", "store"][index] || item.profileId !== `${descriptor.profileId}.${item.kind}` || item.contractSha256 !== descriptor.contractSha256)) {
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   }
-  yield* validatePhysicalBindingCoverage(binding, availability);
+  yield* validateReadinessBindingCoverage(binding, availability.readiness);
   if (descriptor.initialization === null) return;
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   const rows = yield* runDrizzleStatementEffect(tx.select().from(fxSystemFrameworkInitializations).where(and(

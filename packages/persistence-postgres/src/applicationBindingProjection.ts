@@ -4,7 +4,7 @@ import { encodeBytesToLowercaseHex as hex } from "@flarex/utils/bytes";
 import { Effect } from "effect";
 import {
   validateApplicationBindingBasisInTransaction,
-  type ApplicationActiveSelection,
+  type ApplicationBindingInput,
 } from "./applicationActivation";
 import type { AppRowTransaction } from "./appRows";
 import type { ScopeClockRecord } from "./scopeClock";
@@ -52,7 +52,7 @@ export type ApplicationBindingReference = Readonly<{
 export const readApplicationBindingProjectionInTransaction = Effect.fn(
   "ApplicationBindingProjection.readInTransaction",
 )(function* (
-  selection: ApplicationActiveSelection,
+  selection: ApplicationBindingInput,
   tx: AppRowTransaction,
   clock: ScopeClockRecord,
 ) {

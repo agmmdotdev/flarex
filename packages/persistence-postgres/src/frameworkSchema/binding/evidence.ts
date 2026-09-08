@@ -26,6 +26,7 @@ import { scopePhysicalLocatorsEqual } from "../../scopePhysicalLocator";
 import { verifyPayloadContentBinding } from "./content";
 import { verifyCommerceBinding } from "../../commerceTransaction/binding";
 import type { CommerceProfile } from "../../commerceTransaction/profile";
+import { installationRuntimeData } from "../installation/runtimeData";
 
 export const lockBindingInstallation = Effect.fn(
   "DataBindingEvidence.lockInstallation",
@@ -83,7 +84,7 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
         snapshot,
       );
       if (slot === "payloadLifecycle") yield* verifyPayloadPreferenceBinding(frame, availability);
-      else if (commerceProfile !== undefined) yield* verifyCommerceBinding(tx, frame.application.scopeId, commerceProfile, binding, availability)
+      else if (commerceProfile !== undefined) yield* verifyCommerceBinding(tx, frame.application.scopeId, commerceProfile, binding, installationRuntimeData(availability))
         .pipe(Effect.mapError(cause => bindingError("unsupportedProfile", cause)));
       else if (availability.installation.admission.admission.frame.admissionProfile === "registered-commerce-fresh") {
         return yield* Effect.fail(bindingError("unsupportedProfile"));

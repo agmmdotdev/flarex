@@ -102,7 +102,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.make
       return yield* runRelationalSession(session, tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`), cause => compositeError("resourceFailure", cause));
         const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId);
-        return yield* withCommerceAdmission(commerce.profile, commerce.target, commerce.installation, prepared.selection, tx, located.authority, clock, false, commerceAdmission =>
+        return yield* withCommerceAdmission(commerce.profile, commerce.target, commerce.installation, prepared.selection, tx, located.authority, clock, false, undefined, commerceAdmission =>
           withCompositeBinding(commerceAdmission, binding => withCmsAdmission(prepared, tx, located.authority, clock, cmsAdmission => Effect.gen(function* () {
             const admitted = yield* requireCmsAdmission(cmsAdmission);
             if (expectedContent === undefined || admitted.frame.payloadContent?.configSha256 !== expectedContent.configSha256 || admitted.frame.payloadContent.provenanceSha256 !== expectedContent.provenanceSha256)

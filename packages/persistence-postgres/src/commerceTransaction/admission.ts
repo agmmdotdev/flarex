@@ -1,8 +1,10 @@
 import { Effect, Option } from "effect";
-import type { ApplicationActiveSelection } from "../applicationActivation";
+import type { ApplicationBindingInput } from "../applicationActivation";
 import { readApplicationBindingProjectionInTransaction } from "../applicationBindingProjection";
 import { readBindingCandidate, readBindingHead } from "../frameworkSchema/binding/repository";
 import { lockBindingInstallation } from "../frameworkSchema/binding/evidence";
+import { installationRuntimeData } from "../frameworkSchema/installation/runtimeData";
+import { acceptPreparedInstallation, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import type { InstallationBindingReference, DataBindingHeadToken } from "../frameworkSchema/binding/model";
 import { frameworkMigrationTargetSnapshot, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
@@ -29,8 +31,9 @@ const admissions = new WeakMap<object, AdmissionState>();
 
 export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransaction")(function* <Value, Failure, Requirements>(
   profile: CommerceProfile, target: FrameworkMigrationTarget, reference: InstallationBindingReference,
-  selection: ApplicationActiveSelection, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-  clock: ScopeClockRecord, bootstrap: boolean, work: (admission: CommerceAdmission) => Effect.Effect<Value, Failure, Requirements>,
+  selection: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord, bootstrap: boolean, prepared: PreparedInstallationRuntime | undefined,
+  work: (admission: CommerceAdmission) => Effect.Effect<Value, Failure, Requirements>,
 ) {
   const snapshot = frameworkMigrationTargetSnapshot(target);
   if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
@@ -39,7 +42,11 @@ export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransactio
     clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence) {
     return yield* Effect.fail(commerceError("invalidAuthority"));
   }
-  const availability = yield* lockBindingInstallation(tx, reference, snapshot);
+  // Standalone cross-domain composition retains its cold reader. A prepared host
+  // explicitly supplies its own token; failed fresh comparison never falls back.
+  const availability = prepared === undefined
+    ? installationRuntimeData(yield* lockBindingInstallation(tx, reference, snapshot))
+    : yield* acceptPreparedInstallation(prepared, target, reference, tx);
   const descriptor = yield* verifyCommerceInstallation(profile, reference, availability);
   const application = yield* readApplicationBindingProjectionInTransaction(selection, tx, clock);
   let head: DataBindingHeadToken | null = null;

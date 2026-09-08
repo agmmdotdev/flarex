@@ -189,7 +189,126 @@ was used. The raw runs, earlier harness failures, source snapshot, statement
 plans, transport measurements and report are retained in the external benchmark
 directory under `prepared-*` and `command-remainder-*` names.
 
-Concurrent main-session changes currently own commerce host/profile and Product
-runtime files. This side left them untouched. Host integration ownership must be
-resolved before editing those overlapping files; the approved verifier design
-does not authorize overwriting another session's work.
+The owner subsequently approved integration in the main checkout. The other
+session's Product scale work is committed in `747e1c4c`; the installation changes
+preserve its resource-policy wiring and do not modify Product model behavior.
+
+## Prepared runtime integration
+
+Commerce host construction now prepares one immutable installation description
+in a separate repeatable-read transaction. Full existing restoration must pass
+before the same snapshot supplies the dependency coordinates, expected evidence
+fingerprints and pure profile/layout/readiness data. Publication of the opaque
+token happens only after preparation settles. Schema installation remains a
+deployment operation; host preparation performs no installation or DDL. Hosts
+must be reused across commands to amortize preparation.
+
+The accepting business transaction still obtains scope authority and the scope
+clock, then locks the availability head `FOR SHARE`. It checks all head columns
+against preparation, and runs one closed, typed metadata query for the evidence
+below. Actual canonical bytes are hashed in PostgreSQL before JSON conversion;
+the query does not compare only stored hashes or send expected canonical bytes
+back to PostgreSQL. Each row includes every declared column; sorted fixed-length
+row fingerprints preserve section membership and multiplicity. SHA-256 collision
+resistance is an explicit assumption. No certificate or asynchronous audit
+replaces the current evidence reads.
+
+| Existing condition | Preparation | Fresh command evidence |
+| --- | --- | --- |
+| Target/database capability and binding reference | Authenticate and own a bounded reference | Same authenticated target token and exact reference; host retains its existing database/authority checks |
+| Namespace and collision projections | Existing repository restoration | All columns of pinned namespace and collision roots |
+| Installation identity, canonical bytes and references | Existing canonical/metadata restoration | All installation root columns |
+| Plan canonical/layout semantics | Existing plan verifier | All selected plan bytes/projections; all plan-step and dependency sidecars |
+| Physical naming ledger | Existing assignment restoration | All assignment columns selected by database/schema/spelling, including actual bytes |
+| Admission profile, predecessor and assignment coverage | Existing admission restoration | All admission/predecessor-plan roots and admission-assignment sidecars |
+| Attempt start and predecessor chain | Existing attempt restoration | Every traversed attempt root, including historical lease projections |
+| Terminal and successful receipts | Existing terminal/receipt restoration | Terminal roots, all receipts for their attempts and receipt-dependency sidecars |
+| Fresh-plan absence of additive base | Existing base reader | Complete base-row section, including previously absent rows |
+| Readiness and availability history | Existing restoration and chain limits | Readiness roots and complete traversed history roots |
+| Current availability | Existing ready/reference check under head lock | Fresh head fingerprint under the lock held through business settlement |
+| Application activation, binding head/profile/coverage and initialization seed | No retained authority | Existing current transaction checks, unchanged |
+| Publication, OCC, replay, rollback and events | No new owner | Existing command and committer behavior, unchanged |
+
+This inventory supports the existing fresh Commerce installation contract.
+Preparation rejects plan wire version 2: additive plans additionally inspect
+collision-wide admission/attempt budgets, and need their own acceptance inventory
+and parity proof. Standalone cross-domain composition explicitly retains its cold
+reader. A prepared Commerce host never falls back after a comparison failure.
+
+The state is host-owned through a weak registry: at most one bounded description
+per host, no eviction timer, shared mutable cache, acquired connection, transaction,
+fiber or restored repository graph. Preparation is bounded by 64 graph roots,
+4,096 names, 32,768 rows per evidence section, 8 MiB of retained pure data, a
+15-second body timeout, 5-second statement timeout and 1-second lock timeout.
+The existing transaction bridge waits for settlement on interruption; no token
+is published on interrupted or failed construction. Independent constructions
+do not share state. Availability changes require a newly prepared host/reference;
+there is no TTL-based freshness or automatic blessing of changed evidence.
+
+## Integrated PostgreSQL measurement
+
+The fixed-source Product benchmark based on `747e1c4c` executed 240 timed commands
+per variant across simple/nested create, title update and delete, with 12 warmups
+per variant. Its boundary is the reused host's complete `run`: adapter work,
+authority/admission, DML, publication, PostgreSQL settlement and awaited local
+events. HTTP, schema installation and host construction are excluded. The ordinary
+PostgreSQL 18.3 benchmark role retained `fsync` and `synchronous_commit` enabled.
+
+| Measurement | Previous runtime | Prepared runtime |
+| --- | ---: | ---: |
+| Complete command median | 606.2 ms | 205.3 ms |
+| Observed complete-command p95 | 1,670.2 ms | 932.0 ms |
+| Observed complete-command p99 | 11,084.5 ms | 3,597.3 ms |
+| Installation acceptance median | 396.3 ms | 14.9 ms |
+| Installation acceptance observed p99 | 488.8 ms | 21.8 ms |
+| Installation SQL per command | 18 | 2 |
+| Mean total SQL per command | 216.7 | 200.7 |
+| Failed timed commands | 1 | 0 |
+
+Prepared host construction measured 440.2 ms median across three observations.
+This is startup preparation, not DDL or a per-command cost for a reused host.
+Its installation check sends 12,262 parameter bytes plus 23,188 SQL-text bytes per
+command and returns 1,145 JSON-serialized result bytes, excluding protocol framing.
+The accepting query no longer sends the prototype's 442,580-byte parameter payload.
+
+The 66% observed complete-command median reduction does **not** establish the tail
+objective or a clean all-success comparison. The baseline hit statement timeout
+during idempotency publication and correctly failed the harness's zero-failure
+assertion. The prepared variant passed all command/publication/fact/cleanup checks.
+Independent analysis of the captured baseline counts still matched one committed
+outcome and outbox wake per successful command. No slow or failed samples were
+removed from the latency population.
+
+The prepared run includes a 2,224.8 ms business COMMIT and slow auxiliary COMMITs.
+Contemporaneous PostgreSQL checkpoints reported 43.0 and 25.2 seconds of total
+sync time, with individual file syncs reaching 2.3 seconds. This correlates the
+tail with storage/settlement stalls but does not identify the precise device or
+OS cause. Durability was not weakened. The per-command remainder after subtracting
+its installation span still has 190.5 ms median, about 199 other SQL calls and six
+auxiliary transactions. Their authority/composition owner remains the next
+separate preflight; this slice changes none of those lifetimes.
+
+Runs were sequential, not interleaved, and measured one active command at a time.
+These local observations do not establish production p99, same-scope contention
+or independent-scope throughput. The report, source/load receipts, raw results,
+initial harness failures and checkpoint evidence are in the external benchmark
+directory as `runtime-*` and `postgres.log`.
+
+Validation: persistence TypeScript checking, `lint:core`, `lint:diff` and
+`git diff --check` pass. Eleven distinct regression cases pass across the
+installation-runtime, installation-acceptance, binding, admitted-write and
+native Currency/composite suites. Native tests prove concurrent preparations,
+interrupted preparation settlement/connection release, subsequent successful
+construction, and head-lock retention through accepting transaction settlement.
+The physical-name corruption fixture initially reused a PostgreSQL Buffer view;
+changing that fixture to an owned byte copy restored its intended negative-test
+sequence, and all three native runtime tests passed on rerun. PGlite and all
+other regression cases passed; this was a test-fixture correction.
+
+The owner subsequently requested committing this integration together with the
+command-admission redesign on main. Main-thread self-review covered the typed
+evidence inventory, graph/reference closure, snapshot and lock lifetimes, foreign
+driver bytes, error channels and resource bounds. Independent reviewer agents
+were not run in this side conversation; the earlier commit's explicit reviewer
+waiver is not represented as a new review receipt. The direct owner instruction
+to commit is recorded separately from independent review, which did not occur.

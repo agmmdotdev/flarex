@@ -15,7 +15,7 @@ import { isSyntheticBindingReference } from "../frameworkSchema/binding/canonica
 import type { InstallationBindingReference } from "../frameworkSchema/binding/model";
 import { capturePrivateJsonData } from "../privateJsonData";
 import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../boundedRequestLifetime";
-import { hasApplicationBindingComposition, type ApplicationBindingSelectionReader } from "../applicationActivation";
+import { hasApplicationBindingComposition, prepareApplicationBindingSelection, type ApplicationBindingSelectionReader } from "../applicationActivation";
 import type { FlarexMetadataDatabase } from "../deployments";
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect, type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
@@ -27,6 +27,7 @@ import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { createCommittedPointOutcomeResolverV1, CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../committedPointOutcome";
 import { finalizeCommerceCommit } from "./publication";
 import { withCommerceAdmission, requireCommerceAdmission } from "./admission";
+import { prepareInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObservation } from "./store";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
 import { commerceError, commerceLimits, CommerceTransactionError } from "./model";
@@ -101,6 +102,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
   const policy = yield* Effect.fromResult(capturePrivateJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes, commerceError));
   const identityBytes = yield* canonicalizeSuccessfulResultV1Effect(policy.value).pipe(Effect.mapError(projectFailure));
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha(identityBytes.canonicalBytes));
+  const installationRuntime = yield* prepareInstallationRuntime(database, target, reference).pipe(Effect.mapError(projectFailure));
   const owner = Object.freeze({ hostId: Symbol("commerce.host") });
   const execute = Effect.fn("CommerceHost.execute")(function* (requestKey: string | null, token: CommerceCommand | null, args: Json) {
     const root = token === null ? undefined : getCommerceCommand(token);
@@ -119,11 +121,11 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
     const attempt = Effect.fn("CommerceHost.attempt")(function* (recoverOnly: boolean) {
       const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(commerceError("invalidAuthority"));
-      const active = yield* application.readActive();
+      const active = yield* prepareApplicationBindingSelection(application);
       return yield* runRelationalSession(session, tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`), cause => commerceError("statementFailure", cause));
         const clock = yield* (key === null ? lockScopeClockForShareInTransactionEffect(tx, located.authority.scopeId) : lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId));
-        return yield* withCommerceAdmission(profile, target, reference, active.selection, tx, located.authority, clock, bootstrap, admission => Effect.gen(function* () {
+        return yield* withCommerceAdmission(profile, target, reference, active, tx, located.authority, clock, bootstrap, installationRuntime, admission => Effect.gen(function* () {
           const admitted = yield* requireCommerceAdmission(admission);
           const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId)).pipe(Effect.mapError(projectFailure));
           const evidence = yield* canonicalizeSuccessfulResultV1Effect({ domain: "flarex.private.commerce-command", version: 1,
