@@ -4,7 +4,8 @@ Status: the owner approved the recommended prepared-evidence implementation
 with fresh comparison after rejecting the remaining command latency. This
 approval preserves the current integrity contract; it does not approve the
 larger certificate alternative or changes to transaction/publication authority.
-Implementation remains pending. The existing bounded correction remains described
+The first diagnostic prototype is complete; runtime integration remains pending.
+The existing bounded correction remains described
 in [installation acceptance performance](./installation-acceptance-performance.md).
 
 ## Problem and scope
@@ -122,3 +123,73 @@ The recommended first prototype preserves the existing integrity contract.
 If exact comparison remains too costly, use its measurements to decide whether
 to adopt the explicitly larger certificate design. Extending the experimental
 byte cache alone is not completion of this redesign.
+
+## Prototype result and next implementation boundary
+
+The frozen-source PostgreSQL prototype compared the same successful Product
+reader's 18 SQL projections in a single statement after acquiring the existing
+availability share lock. Preparation first ran full restoration and captured
+expected representations in the same repeatable-read snapshot. No restored
+authority graph was retained or supplied to a command.
+
+| Verification transaction | Timed samples | Median | Observed p95 |
+| --- | ---: | ---: | ---: |
+| Current full reconstruction | 46 | 329.4 ms | 361.8 ms |
+| Exact fresh row comparison | 156 | 38.8 ms | 42.4 ms |
+| Freshly computed row fingerprints | 156 | 37.0 ms | 40.2 ms |
+
+All modes include acquisition, BEGIN and COMMIT, but exclude application/scope
+admission, Product work and publication. These are verification measurements,
+not a new complete-command result. The fingerprint experiment computes SHA-256
+over actual current row representations, never merely compares stored digest
+columns. It adds a cryptographic collision assumption to equality and is not
+enabled in runtime code. It is distinct from the certificate alternative above:
+every dependency is still read each time.
+
+The exact variant sends 2,165,681 native pg-encoded parameter bytes per
+comparison statement; the fingerprint variant sends 442,580. Those counts
+exclude SQL text and protocol framing. Thus neither diagnostic query shape is
+ready for runtime adoption. Typed owner-provided projections must eliminate
+redundant representations and large repeated expected parameters before
+integration. A local database masks the remote transport cost.
+
+Both variants reject changed ancestor projections, changed installation bytes
+with unchanged digest, missing and extra dependency sidecars, and a committed
+availability withdrawal through the actual transition repository. Those ten
+checks passed. The prototype does not establish concurrent preparation,
+bounded host lifetime, all installation profiles, a complete corruption matrix,
+or command correctness after integration.
+
+The comparison inventory includes namespace and collision roots; installation,
+terminal, attempt, admission and plan roots; physical name assignments; plan
+step/dependency comparison; absent additive-base evidence; admission assignment
+sidecars; receipt roots and dependencies; history and readiness roots; and the
+locked head. Production implementation must use a closed, typed inventory with
+each repository owner, not the prototype's driver interception or SQL placeholder
+rewriting. Pure canonical validation belongs to preparation; all stored evidence
+covered by it needs fresh comparison; scope, binding and head decisions remain
+fresh transaction operations. The accepting result must contain the required
+data without impersonating a restored repository capability.
+
+Re-analysis of the prior 48 complete commands, subtracting verification within
+each command before aggregating, gives 158.4 ms median and 187.6 ms mean outside
+installation verification. That remainder contains 198.7 SQL calls and six
+auxiliary transactions per command. Current commerce obtains located authority
+and an active selection before the business transaction; active selection itself
+resolves authority and runs hint/readiness/active-state work. The accepting
+transaction then validates application binding basis. This is evidence for a
+separate authority/composition-owner preflight, not permission to delete guards
+or combine transactions.
+
+Source files changed in the shared checkout during investigation. A preliminary
+run correctly failed its source-stability assertion. The successful run instead
+used a verified frozen source snapshot via Vite's preload hook, including load
+receipts for the measured repositories and host. No worktree or source reversion
+was used. The raw runs, earlier harness failures, source snapshot, statement
+plans, transport measurements and report are retained in the external benchmark
+directory under `prepared-*` and `command-remainder-*` names.
+
+Concurrent main-session changes currently own commerce host/profile and Product
+runtime files. This side left them untouched. Host integration ownership must be
+resolved before editing those overlapping files; the approved verifier design
+does not authorize overwriting another session's work.
