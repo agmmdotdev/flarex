@@ -21,8 +21,10 @@ adds eight more cases. The implemented
 [keyed-update preflight](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md)
 adds four tag/type update/upsert cases through explicit shared-core admission,
 for fifteen original cases on both drivers. The next
-[standalone option/variant preflight](./preflight/32-medusa-standalone-options-and-variants.md)
-proposes two create cases using the existing insert capability.
+[Product mutation preflight](./preflight/32-medusa-standalone-options-and-variants.md)
+proposes 35 additional original cases in one milestone, with related-entity and
+Product graph checkpoints targeting 50 total. Its complete case map also
+assigns the five lifecycle cases and one scale case to following slices.
 Durable event storage/dispatch are deferred. Product
 mutations beyond the admitted create/read and tag/type update profile, stored Links and production
 activation remain unadmitted.
@@ -56,7 +58,8 @@ complete, as are private Flarex-backed Currency installation and service
 execution. Product schema/relationship installation, private nested creation,
 bounded population and local event conformance are complete. Related creation
 and bounded reads are implemented under record 30; keyed tag/type updates under
-record 31. Record 32 preflights standalone options/variants. General Payload
+record 31. Record 32 preflights the larger Product mutation milestone, including
+explicit shared reference-update and declared-key removal capabilities. General Payload
 compatibility is separate.
 
 [`preflight/06-medusa-package-capability-source-map.md`](./preflight/06-medusa-package-capability-source-map.md)
@@ -381,8 +384,9 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
   create-only collections, standalone images, associations and bounded relation
   predicates/population. [Record 31](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md)
   adds four tag/type update/upsert cases. Other updates, replacement, category
-  mutations and scale remain separate. [Record 32](./preflight/32-medusa-standalone-options-and-variants.md)
-  proposes standalone option/variant creation. Admission changes only after the original assertions pass.
+  mutations and scale remain unadmitted. [Record 32](./preflight/32-medusa-standalone-options-and-variants.md)
+  groups related entities and Product graph updates into one 35-case milestone;
+  lifecycle and scale follow. Admission changes only after the original assertions pass.
 - Consume the complete schema proved above. Record 28 owns the bounded
   multi-table create/read profile; later operations must expand the repository
   and transaction profile together with their required typed event contracts.

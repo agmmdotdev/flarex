@@ -1,0 +1,294 @@
+{
+  "kind": "planning-only",
+  "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
+  "baselineCommit": "ce6102fd",
+  "admissionInventory": "product-upstream-test-cases.json",
+  "scope": "Exact two-file Product inventory; planning does not enable tests or commands.",
+  "cases": [
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Creation > should emit all related events when creating a product with full relations",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Update > should emit cascade events when updating product with relations",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Deletion > should emit all cascade delete events when soft deleting a product",
+      "batch": "lifecycle"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Variant Operations > should emit PRODUCT_VARIANT_CREATED event only when creating standalone variant",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Variant Operations > should emit PRODUCT_VARIANT_UPDATED event only when updating variant",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Tag Operations > should emit PRODUCT_TAG_CREATED event on createProductTags",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Tag Operations > should emit PRODUCT_TAG_UPDATED event on updateProductTags",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Tag Operations > should emit appropriate events on upsertProductTags",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Type Operations > should emit PRODUCT_TYPE_CREATED event on createProductTypes",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Type Operations > should emit PRODUCT_TYPE_UPDATED event on updateProductTypes",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Type Operations > should emit appropriate events on upsertProductTypes",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Option Operations > should emit PRODUCT_OPTION_CREATED event on createProductOptions",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Option Operations > should emit PRODUCT_OPTION_UPDATED event on updateProductOptions",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Option Operations > should emit appropriate events on upsertProductOptions",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Option Value Operations > should emit PRODUCT_OPTION_VALUE_UPDATED event on updateProductOptionValues",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Collection Operations > should emit PRODUCT_COLLECTION_CREATED event on createProductCollections",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Collection Operations > should emit PRODUCT_COLLECTION_UPDATED event on updateProductCollections",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Collection Operations > should emit appropriate events on upsertProductCollections",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Category Operations > should emit PRODUCT_CATEGORY_CREATED event on createProductCategories",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Category Operations > should emit PRODUCT_CATEGORY_UPDATED event on updateProductCategories",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Product Category Operations > should emit appropriate events on upsertProductCategories",
+      "batch": "related-entities"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "fullName": "Product injected event bus > ProductModuleService Events > Delete Operations - Base Service Automatic Events > should emit delete events for all entity types via base service",
+      "batch": "lifecycle"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > test update performance",
+      "batch": "upstream-skip"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should update multiple products",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should update a product and upsert relations that are not created yet",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should upsert variants (update one and create one)",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should preserve option and value identity on update",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should add relationships to a product",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should upsert a product type when type object is passed",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should replace relationships of a product",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should remove relationships of a product",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should throw an error when product ID does not exist",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should update, create and delete variants",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should do a partial update on the options of a variant successfully",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should create a variant with id that was passed if it does not exist",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should simultaneously update options and variants",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should throw an error when some tag id does not exist",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should throw an error when some category id does not exist",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should throw an error when collection id does not exist",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should throw an error when type id does not exist",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should throw if two variants have the same options combination",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should throw if a variant doesn't have all options set",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > update > should throw if a variant uses a non-existing option",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > create > should create a product",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > create > should throw because variant doesn't have all options set",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > softDelete > should soft delete a product and its cascaded relations",
+      "batch": "lifecycle"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > softDelete > should retrieve soft-deleted products if filtered on deleted_at",
+      "batch": "lifecycle"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > restore > should restore a soft deleted product and its cascaded relations",
+      "batch": "lifecycle"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > list > should return a list of products scoped by collection id",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > list > should return a list of products scoped by variant options",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > list > should return empty array when querying for a collection that doesnt exist",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > images > should create images with correct rank",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > images > should update images with correct rank",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > images > should delete images if empty array is passed on update",
+      "batch": "product-graph"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > images > should retrieve images in the correct order consistently",
+      "batch": "scale"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > images > should retrieve images ordered by rank",
+      "batch": "baseline"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "fullName": "Product service > ProductModuleService products > images > should populate variant.images when variants.images relation is requested",
+      "batch": "product-graph"
+    }
+  ]
+}

@@ -166,7 +166,8 @@ skip, 36.35s). The corrected parameterized wrong-scope fixture was rerun on
 PGlite (one selected case, 111.18s); the complete native conformance run also
 used that final fixture. Timings include each process's setup and imports;
 no row, command, statement or setup deadline was increased. The next preflight is
-[record 32](./32-medusa-standalone-options-and-variants.md).
+[record 32](./32-medusa-standalone-options-and-variants.md), expanded at the user's
+request to a 35-case Product mutation milestone with two internal checkpoints.
 
 ## Route To The Other Original Cases
 
