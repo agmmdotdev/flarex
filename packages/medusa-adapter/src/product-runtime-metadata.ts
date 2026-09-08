@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { compileProductValueProfile } from "./product-value-profile";
 import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
 import type { CommerceRelations, CommerceRelation } from "./commerce-relations";
-import { Product, ProductOption, ProductOptionValue, ProductVariant, ProductImage, ProductTag, ProductType, ProductCollection, ProductCategory } from "@medusajs/product/models";
+import { Product, ProductOption, ProductOptionValue, ProductVariant, ProductImage, ProductTag, ProductType, ProductCollection, ProductCategory, ProductVariantProductImage } from "@medusajs/product/models";
 import { buildModuleResourceEventName, camelToSnakeCase, CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { productModels, type captureProductSchema } from "./product-schema";
@@ -16,6 +16,7 @@ export interface ProductEntityMetadata {
   readonly eventObject: string;
   readonly createdEvent: string;
   readonly updatedEvent: string;
+  readonly deletedEvent: string;
 }
 export interface ProductRuntimeMetadata {
   readonly product: ProductEntityMetadata;
@@ -27,6 +28,7 @@ export interface ProductRuntimeMetadata {
   readonly type: ProductEntityMetadata;
   readonly collection: ProductEntityMetadata;
   readonly category: ProductEntityMetadata;
+  readonly assignment: ProductEntityMetadata;
   readonly entities: readonly ProductEntityMetadata[];
   readonly tables: readonly Table[];
   readonly writablePivots: readonly Table[];
@@ -47,6 +49,7 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
     return { table, model: model.name, prefix: primary[0].options?.prefix, eventObject,
       createdEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.CREATED }),
       updatedEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.UPDATED }),
+      deletedEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.DELETED }),
     } satisfies ProductEntityMetadata;
   });
   const product = yield* entity(Product);
@@ -58,6 +61,7 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
   const type = yield* entity(ProductType);
   const collection = yield* entity(ProductCollection);
   const category = yield* entity(ProductCategory);
+  const assignment = yield* entity(ProductVariantProductImage);
   const foreignKey = Effect.fn("ProductAdapter.foreignKey")(function* (from: ProductEntityMetadata, to: ProductEntityMetadata) {
     const joins = from.table.relationships.filter(relation => relation.type === "belongsTo" && relation.targetModel === to.model);
     const columns = joins[0]?.foreignKeyNames;
@@ -90,10 +94,20 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
   const tagPivot = metadata.tables.find(table => tagRelation?.join.type === "manyToMany" && table.name === tagRelation.join.pivotTable);
   const categoryPivot = metadata.tables.find(table => categoryRelation?.join.type === "manyToMany" && table.name === categoryRelation.join.pivotTable);
   if (tagPivot === undefined || categoryPivot === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const entities = [product, option, value, variant, image, tag, type, collection];
-  return { product, option, value, variant, image, tag, type, collection, category, entities,
-    tables: [...entities.map(item => item.table), category.table, pivot, tagPivot, categoryPivot], writablePivots: [pivot, tagPivot],
-    valueProfile: compileProductValueProfile({ product, option, value, variant, image, tag, type, collection }),
+  // Additional paths are internal service capabilities, derived from the same DML.
+  for (const [source, names] of [[option, ["values"]], [variant, ["options"]]] as const) {
+    const declared = queryRelations.get(source.table.name) ?? new Map<string, CommerceRelation>();
+    for (const name of names) {
+      const descriptor = describeToManyRelation(source.table, name, metadata.tables);
+      if (descriptor === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      declared.set(name, descriptor);
+    }
+    queryRelations.set(source.table.name, declared);
+  }
+  const entities = [product, option, value, variant, image, tag, type, collection, category, assignment];
+  return { product, option, value, variant, image, tag, type, collection, category, assignment, entities,
+    tables: [...entities.map(item => item.table), pivot, tagPivot, categoryPivot], writablePivots: [pivot, tagPivot, categoryPivot],
+    valueProfile: compileProductValueProfile({ product, option, value, variant, image, tag, type, collection, category, assignment }),
     foreignKeys: { option: yield* foreignKey(option, product), value: yield* foreignKey(value, option), variant: yield* foreignKey(variant, product), image: yield* foreignKey(image, product) },
     pivot: { table: pivot, variantColumn: link.joinColumns[0], valueColumn: link.inverseJoinColumns[0] }, queryRelations,
   } satisfies ProductRuntimeMetadata;

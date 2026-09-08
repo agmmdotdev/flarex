@@ -7,7 +7,7 @@ import { MedusaInternalService } from "@medusajs/utils/modules-sdk/medusa-intern
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils/portable";
 import type { DAL, FindConfig, ProductTypes, IEventBusModuleService } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductRead, decodeProductFindConfig, decodeProductCreateInput } from "./product-service-input";
 import { decodeLocalEventOptions, decodeLocalEventBatch } from "./product-local-events";
 import { captureCommerceInput } from "./commerce-input";
@@ -36,17 +36,20 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
     releaseGroupedEvents: refuse, clearGroupedEvents: refuse,
   };
   const service = new ProductModuleService({
-    baseRepository: repository, productRepository: { ...repository, deepUpdate: refuse },
+    // SAFETY: the pinned constructor type still requires the MikroORM-only
+    // method. Its runtime hasDeepUpdate guard deliberately selects the portable
+    // internal-service branch when that property is absent.
+    baseRepository: repository, productRepository: repository as ConstructorParameters<typeof ProductModuleService>[0]["productRepository"],
     productService: internal(Product, repository),
-    productVariantService: internal(ProductVariant),
-    productOptionService: internal(ProductOption),
-    productOptionValueService: internal(ProductOptionValue),
+    productVariantService: internal(ProductVariant, relatedRepository(metadata.variant)),
+    productOptionService: internal(ProductOption, relatedRepository(metadata.option)),
+    productOptionValueService: internal(ProductOptionValue, relatedRepository(metadata.value)),
     productImageService: internal(ProductImage, relatedRepository(metadata.image)),
-    productCategoryService: internal(ProductCategory),
+    productCategoryService: internal(ProductCategory, relatedRepository(metadata.category)),
     productCollectionService: internal(ProductCollection, relatedRepository(metadata.collection)),
     productTagService: internal(ProductTag, relatedRepository(metadata.tag)), productTypeService: internal(ProductType, relatedRepository(metadata.type)),
     productImageProductService: internal(ProductImage),
-    productVariantProductImageService: internal(ProductVariantProductImage),
+    productVariantProductImageService: internal(ProductVariantProductImage, relatedRepository(metadata.assignment)),
     [Modules.EVENT_BUS]: eventBus,
   }, { scope: "internal" });
   return { service, repository, eventBus, context: { manager: ctx.manager, transactionManager: ctx.manager } };
@@ -79,7 +82,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       ? service.retrieveProduct(copied.id as string, find, context)
       : kind === "count" ? service.listAndCountProducts(filters, find, context) : service.listProducts(filters, find, context));
   }));
-  const related = (kind: "tag" | "type" | "collection" | "image") => defineCommerceCommand("productCreate" + kind, "write", Effect.fn("ProductAdapter.createRelated")(function* (ctx, input) {
+  const related = (kind: "tag" | "type" | "collection" | "image" | "option" | "variant" | "category" | "assignment") => defineCommerceCommand("productCreate" + kind, "write", Effect.fn("ProductAdapter.createRelated")(function* (ctx, input) {
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedCreate(metadata[kind].table.name, input))
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const copied = structuredClone(Array.isArray(input) ? input : [input]);
@@ -91,11 +94,15 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
         case "type": return service.createProductTypes(copied as ProductTypes.CreateProductTypeDTO[], context);
         case "collection": return service.createProductCollections(copied as ProductTypes.CreateProductCollectionDTO[], context);
         case "image": return service.createProductImages(copied, context);
+        case "option": return service.createProductOptions(copied as ProductTypes.CreateProductOptionDTO[], context);
+        case "variant": return service.createProductVariants(copied as ProductTypes.CreateProductVariantDTO[], context);
+        case "category": return service.createProductCategories(copied as ProductTypes.CreateProductCategoryDTO[], context);
+        case "assignment": return service.addImageToVariant(copied as Parameters<ProductModuleService["addImageToVariant"]>[0], context);
       }
     });
     return Array.isArray(input) ? result : Array.isArray(result) ? result[0] : result;
   }));
-  const changeRelated = (kind: "tag" | "type", operation: "update" | "upsert") => defineCommerceCommand("product" + operation + kind, "write", Effect.fn("ProductAdapter.changeRelated")(function* (ctx, input) {
+  const changeRelated = (kind: "tag" | "type" | "collection" | "category" | "option" | "variant" | "value", operation: "update" | "upsert") => defineCommerceCommand("product" + operation + kind, "write", Effect.fn("ProductAdapter.changeRelated")(function* (ctx, input) {
     if (operation === "update") {
       const decoded = yield* Effect.fromResult(decodeRelatedUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
       yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata[kind].table.name, decoded.data))
@@ -103,22 +110,74 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       const data = structuredClone(decoded.data);
       // SAFETY: DML-derived data fields exclude identity and managed columns;
       // repository pairs and the core revalidate normalized values before SQL.
-      return yield* withService(ctx, ({ service, context }) => kind === "tag"
-        ? service.updateProductTags(decoded.id, data as ProductTypes.UpdateProductTagDTO, context)
-        : service.updateProductTypes(decoded.id, data as ProductTypes.UpdateProductTypeDTO, context));
+      return yield* withService(ctx, ({ service, context }) => {
+        switch (kind) {
+          case "tag": return service.updateProductTags(decoded.id, data as ProductTypes.UpdateProductTagDTO, context);
+          case "type": return service.updateProductTypes(decoded.id, data as ProductTypes.UpdateProductTypeDTO, context);
+          case "collection": return service.updateProductCollections(decoded.id, data as ProductTypes.UpdateProductCollectionDTO, context);
+          case "category": return service.updateProductCategories(decoded.id, data as ProductTypes.UpdateProductCategoryDTO, context);
+          case "option": return service.updateProductOptions(decoded.id, data as ProductTypes.UpdateProductOptionDTO, context);
+          case "variant": return service.updateProductVariants(decoded.id, data as ProductTypes.UpdateProductVariantDTO, context);
+          case "value": return service.updateProductOptionValues(decoded.id, data as ProductTypes.UpdateProductOptionValueDTO, context);
+        }
+      });
     }
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedChange(metadata[kind].table.name, input))
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    if (kind === "variant") {
+      const members = Array.isArray(input) ? input : [input];
+      const claimed = members.filter(isJsonObject).filter(row => typeof row.id === "string" && row.product_id !== undefined);
+      if (claimed.length) {
+        const store = yield* ctx.table(metadata.variant.table.name);
+        const existing = yield* store.find(ctx.manager, { take: 256, order: { column: "id", direction: "asc" },
+          predicate: { kind: "in", column: "id", values: claimed.map(row => row.id) },
+        });
+        if (claimed.some(row => !existing.some(value => value.id === row.id && value.product_id === row.product_id))) return yield* ctx.refuse(commerceError("invalidInput"));
+      }
+    }
     const copied = structuredClone(Array.isArray(input) ? input : [input]);
     // SAFETY: same DML-derived scalar boundary as creation; the unchanged
     // service partitions creates/updates and owns missing-ID and metadata rules.
-    const result = yield* withService(ctx, ({ service, context }) => kind === "tag"
-      ? service.upsertProductTags(copied as ProductTypes.UpsertProductTagDTO[], context)
-      : service.upsertProductTypes(copied as ProductTypes.UpsertProductTypeDTO[], context));
+    const result = yield* withService(ctx, ({ service, context }) => {
+      switch (kind) {
+        case "tag": return service.upsertProductTags(copied as ProductTypes.UpsertProductTagDTO[], context);
+        case "type": return service.upsertProductTypes(copied as ProductTypes.UpsertProductTypeDTO[], context);
+        case "collection": return service.upsertProductCollections(copied as ProductTypes.UpsertProductCollectionDTO[], context);
+        case "category": return service.upsertProductCategories(copied as ProductTypes.UpsertProductCategoryDTO[], context);
+        case "option": return service.upsertProductOptions(copied as ProductTypes.UpsertProductOptionDTO[], context);
+        case "variant": return service.upsertProductVariants(copied as ProductTypes.UpsertProductVariantDTO[], context);
+        default: return Promise.reject(commerceError("unsupportedProfile"));
+      }
+    });
     return Array.isArray(input) ? result : Array.isArray(result) ? result[0] : result;
+  }));
+  const productChange = (operation: "update" | "upsert") => defineCommerceCommand("product" + (operation === "update" ? "Update" : "Upsert"), "write", Effect.fn("ProductAdapter.change")(function* (ctx, input) {
+    const selected = operation === "upsert" ? undefined : yield* Effect.fromResult(decodeRelatedUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    if (selected !== undefined && selected.data.id !== undefined && selected.data.id !== selected.id) return yield* ctx.refuse(commerceError("invalidInput"));
+    const products: Json = selected === undefined ? input : [{ ...selected.data, id: selected.id }];
+    yield* Effect.fromResult(metadata.valueProfile.validateUpdate(products)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    // normalizeUpdateProductInput matches options by title and can replace a
+    // supplied ID. Authenticate that ID's existing parent before normalization.
+    for (const product of Array.isArray(products) ? products : [products]) {
+      if (!isJsonObject(product) || !Array.isArray(product.options)) continue;
+      const ids = product.options.flatMap(option => isJsonObject(option) && typeof option.id === "string" ? [option.id] : []);
+      if (ids.length === 0) continue;
+      const store = yield* ctx.table(metadata.option.table.name);
+      const rows = yield* store.find(ctx.manager, { take: 256, order: { column: "id", direction: "asc" }, predicate: { kind: "in", column: "id", values: ids } });
+      if (new Set(ids).size !== ids.length || rows.length !== ids.length || rows.some(row => row.product_id !== product.id || row.deleted_at !== null)) return yield* ctx.refuse(commerceError("invalidInput"));
+    }
+    // SAFETY: DML-derived external graph validation precedes the actual service's
+    // normalization; the replacement planner rechecks normalized ownership.
+    return yield* withService(ctx, ({ service, context }) => selected === undefined
+      ? service.upsertProducts(structuredClone(Array.isArray(products) ? products : [products]) as ProductTypes.UpsertProductDTO[], context)
+      : service.updateProducts(selected.id, structuredClone(selected.data) as ProductTypes.UpdateProductDTO, context));
   }));
   return { commands: Object.freeze({ create, list: read("list"), retrieve: read("retrieve"), count: read("count"),
     createTags: related("tag"), createTypes: related("type"), createCollections: related("collection"), createImages: related("image"),
     updateTags: changeRelated("tag", "update"), updateTypes: changeRelated("type", "update"),
-    upsertTags: changeRelated("tag", "upsert"), upsertTypes: changeRelated("type", "upsert") }), withService };
+    upsertTags: changeRelated("tag", "upsert"), upsertTypes: changeRelated("type", "upsert"),
+    update: productChange("update"), upsert: productChange("upsert"), createOptions: related("option"), createVariants: related("variant"), createCategories: related("category"), addImageToVariant: related("assignment"),
+    updateOptions: changeRelated("option", "update"), updateVariants: changeRelated("variant", "update"), updateValues: changeRelated("value", "update"),
+    updateCollections: changeRelated("collection", "update"), updateCategories: changeRelated("category", "update"),
+    upsertOptions: changeRelated("option", "upsert"), upsertVariants: changeRelated("variant", "upsert"), upsertCollections: changeRelated("collection", "upsert"), upsertCategories: changeRelated("category", "upsert") }), withService };
 });

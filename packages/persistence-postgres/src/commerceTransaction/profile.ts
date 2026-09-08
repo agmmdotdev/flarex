@@ -48,6 +48,15 @@ export interface CommerceTableCapability {
   readonly tableId: string;
   readonly keyId: string;
   readonly mode: "scalar" | "readInsert" | "readInsertUpdate";
+  readonly referenceColumns?: readonly string[];
+  readonly remove?: "declaredKey";
+}
+export interface LocalCommerceTableAdmission {
+  readonly tableId: string;
+  readonly keyId: string;
+  readonly update?: "existingPrimaryKey";
+  readonly referenceColumns?: readonly string[];
+  readonly remove?: "declaredKey";
 }
 const profiles = new WeakMap<object, CommerceProfileState>();
 const sameArtifactIdentity = (left: FrameworkSchemaArtifactIdentity, right: FrameworkSchemaArtifactIdentity): boolean =>
@@ -95,7 +104,7 @@ export const registerCommerceProfile = Effect.fn("CommerceProfile.register")(fun
 /** Source-private local conformance issuer. Ordinary hosts refuse this profile. */
 export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerLocal")(function* (
   artifact: FrameworkSchemaArtifact, layout: RelationalPhysicalLayout, profileId: string,
-  capabilities: readonly Readonly<{ tableId: string; keyId: string; update?: "existingPrimaryKey" }>[],
+  capabilities: readonly LocalCommerceTableAdmission[],
 ) {
   yield* registerCommerceSchemaProfile(artifact, layout);
   const captured = yield* Effect.fromResult(capturePrivateJsonData(capabilities, 16_384, commerceError));
@@ -104,16 +113,42 @@ export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerL
   const tables: CommerceTableCapability[] = [];
   for (const entry of captured.value) {
     if (entry === null || typeof entry !== "object" || Array.isArray(entry) ||
-      Object.keys(entry).some(name => !["tableId", "keyId", "update"].includes(name)) ||
+      Object.keys(entry).some(name => !["tableId", "keyId", "update", "referenceColumns", "remove"].includes(name)) ||
       typeof entry.tableId !== "string" || typeof entry.keyId !== "string" ||
       (entry.update !== undefined && entry.update !== "existingPrimaryKey") ||
+      (entry.remove !== undefined && entry.remove !== "declaredKey") ||
       tables.some(table => table.tableId === entry.tableId)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const key = yield* Effect.fromResult(selectRelationalRowKey(layout, entry.tableId, entry.keyId)).pipe(Effect.mapError(() => commerceError("unsupportedProfile")));
     if (entry.update !== undefined && (key.kind !== "primary" || key.columns.length !== 2)) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    tables.push(Object.freeze({ tableId: entry.tableId, keyId: entry.keyId, mode: entry.update === undefined ? "readInsert" : "readInsertUpdate" }));
+    if (entry.remove !== undefined && !((key.kind === "primary" && key.columns.length === 2) || (key.kind === "unique" && key.columns.length === 3)))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const referenceColumns: string[] = [];
+    if (entry.referenceColumns !== undefined) {
+      if (entry.update === undefined || !Array.isArray(entry.referenceColumns) || entry.referenceColumns.length === 0 || entry.referenceColumns.length > 16)
+        return yield* Effect.fail(commerceError("unsupportedProfile"));
+      const table = layout.frame.tables.find(candidate => candidate.identity.tableId === entry.tableId);
+      for (const name of entry.referenceColumns) {
+        const field = table?.columns.find(column => column.identity.columnId === name);
+        const references = layout.frame.foreignKeys.filter(fk => fk.kind === "foreignKey" && fk.sourceTable.tableId === entry.tableId &&
+          fk.sourceColumns.length === 2 && fk.sourceColumns[0] === "scope_uuid" && fk.sourceColumns[1] === field?.name);
+        if (typeof name !== "string" || field === undefined || field.type !== "text" || key.columns.includes(field.name) || references.length !== 1 || referenceColumns.includes(name))
+          return yield* Effect.fail(commerceError("unsupportedProfile"));
+        const reference = references[0];
+        if (reference?.kind !== "foreignKey" || reference.targetColumns[0] !== "scope_uuid" || !layout.frame.tables.some(target => target.identity.tableId === reference.targetTable.tableId &&
+          target.keys.some(targetKey => targetKey.columns.length === reference.targetColumns.length && targetKey.columns.every((column, index) => column === reference.targetColumns[index]))))
+          return yield* Effect.fail(commerceError("unsupportedProfile"));
+        referenceColumns.push(name);
+      }
+      referenceColumns.sort(compareUtf16Strings);
+    }
+    tables.push(Object.freeze({ tableId: entry.tableId, keyId: entry.keyId, mode: entry.update === undefined ? "readInsert" : "readInsertUpdate",
+      ...(entry.referenceColumns === undefined ? {} : { referenceColumns: Object.freeze(referenceColumns) }),
+      ...(entry.remove === undefined ? {} : { remove: "declaredKey" as const }),
+    }));
   }
   tables.sort((left, right) => compareUtf16Strings(left.tableId, right.tableId));
-  const contract = yield* capturePrivateCanonicalValue({ format: "flarex.commerce-profile-contract", version: tables.some(table => table.mode === "readInsertUpdate") ? 3 : 2,
+  const contract = yield* capturePrivateCanonicalValue({ format: "flarex.commerce-profile-contract",
+    version: tables.some(table => table.referenceColumns !== undefined || table.remove !== undefined) ? 4 : tables.some(table => table.mode === "readInsertUpdate") ? 3 : 2,
     artifact: { ...artifact.identity }, layoutSha256: layout.layoutSha256, profileId, initialization: null,
     localEventPolicy: "buffer-until-confirmed-commit", tables: tables.map(table => ({ ...table })) }, 16_384,
     { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });

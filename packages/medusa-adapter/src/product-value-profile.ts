@@ -29,6 +29,7 @@ export function compileProductValueProfile(catalog: {
   product: ProductEntityMetadata; variant: ProductEntityMetadata; image: ProductEntityMetadata;
   option: ProductEntityMetadata; value: ProductEntityMetadata;
   tag: ProductEntityMetadata; type: ProductEntityMetadata; collection: ProductEntityMetadata;
+  category: ProductEntityMetadata; assignment: ProductEntityMetadata;
 }) {
   const scalarNames = (entity: ProductEntityMetadata) => {
     const managed = ["created_at", "updated_at", "deleted_at", ...entity.table.foreignKeys.flatMap(key => key.columns)];
@@ -36,29 +37,66 @@ export function compileProductValueProfile(catalog: {
   };
   const shape = (names: readonly string[], reason: "invalidInput" | "unsupportedProfile") =>
     commerceDecoder(Schema.Record(Schema.Literals(names), Schema.optionalKey(Schema.Json)), reason);
-  const createRoot = shape([...scalarNames(catalog.product), "options", "variants", "images", "tag_ids", "collection_id", "type_id"], "unsupportedProfile");
+  const createRoot = shape([...scalarNames(catalog.product), "options", "variants", "images", "tag_ids", "category_ids", "collection_id", "type_id"], "unsupportedProfile");
   const decodeIds = commerceDecoder(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256)), "invalidInput");
   const decodeReference = commerceDecoder(Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1, 256))), "invalidInput");
-  const standalone = new Map([catalog.tag, catalog.type, catalog.collection, catalog.image].map(entity => [entity.table.name,
-    shape([...scalarNames(entity), ...(entity === catalog.image ? ["product_id"] : [])], "unsupportedProfile"),
+  const extra = (entity: ProductEntityMetadata): string[] => entity === catalog.option ? ["product_id", "values"] : entity === catalog.variant ? ["product_id", "options"]
+    : entity === catalog.image ? ["product_id"] : entity === catalog.assignment ? ["variant_id", "image_id"] : [];
+  const commandScalars = (entity: ProductEntityMetadata) => scalarNames(entity).filter(name => entity !== catalog.category || !["mpath", "rank"].includes(name));
+  const standalone = new Map(Object.values(catalog).filter(entity => entity !== catalog.product).map(entity => [entity.table.name,
+    shape([...commandScalars(entity), ...extra(entity)], "unsupportedProfile"),
   ]));
-  const updateData = new Map([catalog.tag, catalog.type].map(entity => [entity.table.name,
-    shape(scalarNames(entity).filter(name => name !== "id"), "unsupportedProfile"),
+  const updateData = new Map(Object.values(catalog).filter(entity => entity !== catalog.assignment).map(entity => [entity.table.name,
+    shape([...commandScalars(entity).filter(name => name !== "id"), ...(entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : [])], "unsupportedProfile"),
   ]));
   const createChildren = {
     options: shape(["title", "values"], "unsupportedProfile"),
     variants: shape([...scalarNames(catalog.variant), "options"], "unsupportedProfile"),
     images: shape(scalarNames(catalog.image), "unsupportedProfile"),
   };
+  const updateRoot = shape([...catalog.product.table.columns.map(column => column.name), "options", "variants", "images", "tags", "categories", "tag_ids", "category_ids", "collection", "type"], "unsupportedProfile");
+  const updateOption = shape(["id", "title", "values"], "unsupportedProfile");
+  const updateChildren = {
+    variants: shape([...catalog.variant.table.columns.map(column => column.name), "options"], "unsupportedProfile"),
+    images: shape(catalog.image.table.columns.map(column => column.name), "unsupportedProfile"),
+  };
   const relations = new Map([
-    [catalog.product.table.name, ["images", "options", "variants", "tags"]],
+    [catalog.product.table.name, ["images", "options", "variants", "tags", "categories", "collection", "type"]],
     [catalog.option.table.name, ["values"]], [catalog.value.table.name, ["variants"]],
-    [catalog.variant.table.name, []], [catalog.image.table.name, []],
+    [catalog.variant.table.name, ["options"]], [catalog.image.table.name, []],
   ]);
   const graphRows = new Map(Object.values(catalog).map(entity => [entity.table.name,
     shape([...entity.table.columns.map(column => column.name), ...relations.get(entity.table.name) ?? []], "invalidInput"),
   ]));
   return {
+    validateUpdate: (input: Json) => Result.gen(function* () {
+      const products = Array.isArray(input) ? input : [input];
+      if (products.length > 256) return yield* Result.fail(commerceError("limitExceeded"));
+      const ids = new Set<string>();
+      for (const product of products) {
+        const root = yield* updateRoot(product);
+        const id = yield* decodeId(root.id);
+        if (id === undefined || ids.has(id)) return yield* Result.fail(commerceError("invalidInput"));
+        ids.add(id);
+        for (const name of ["tag_ids", "category_ids"]) if (root[name] !== undefined) yield* decodeIds(root[name]);
+        for (const name of ["collection_id", "type_id"]) if (root[name] !== undefined) yield* decodeReference(root[name]);
+        for (const name of ["collection", "type"] as const) {
+          if (root[name] === undefined || root[name] === null) continue;
+          const decode = standalone.get(catalog[name].table.name);
+          if (decode === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+          yield* decode(root[name]);
+        }
+        for (const relation of ["options", "variants", "images"] as const) {
+          if (root[relation] === undefined) continue;
+          for (const member of yield* decodeGraphArray(root[relation])) {
+            const child = yield* (relation === "options" ? updateOption(member) : updateChildren[relation](member));
+            yield* decodeId(child.id);
+            if (relation === "options" && child.values !== undefined) yield* decodeOptionValues(child.values);
+            if (relation === "variants" && child.options !== undefined) yield* decodeVariantOptions(child.options);
+          }
+        }
+      }
+    }),
     validateRelatedChange: (table: string, input: Json) => Result.gen(function* () {
       const decode = standalone.get(table);
       if (decode === undefined || !updateData.has(table)) return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -99,6 +137,7 @@ export function compileProductValueProfile(catalog: {
       for (const product of Array.isArray(input) ? input : [input]) {
         const root = yield* createRoot(product);
         if (root.tag_ids !== undefined) yield* decodeIds(root.tag_ids);
+        if (root.category_ids !== undefined) yield* decodeIds(root.category_ids);
         for (const name of ["collection_id", "type_id"]) if (root[name] !== undefined) yield* decodeReference(root[name]);
         for (const relation of ["options", "variants", "images"] as const) {
           const children = root[relation];

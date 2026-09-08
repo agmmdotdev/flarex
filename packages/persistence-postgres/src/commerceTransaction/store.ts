@@ -16,6 +16,7 @@ import type { RelationalPhysicalColumn } from "../relationalSchema/physical/mode
 import { requireCommerceAdmission, type CommerceAdmission } from "./admission";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
 import type { CommerceTableCapability } from "./profile";
+import { commerceWriteEnvelope, decodeCommerceWriteEnvelope, checkCommerceCatalogSize } from "./writeEnvelope";
 
 export interface RelationalRowFact {
   readonly codecVersion: 1 | 2;
@@ -108,7 +109,8 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
   const protectedUpdates = new Set([
     ...timestamps.flatMap(item => [item.created, item.updated]),
     ...layout.requiredPhysicalCapabilities.flatMap(item => item.kind === "softDelete" && item.deletedAtColumn.identity.tableId === capability.tableId ? [item.deletedAtColumn.columnName] : []),
-    ...layout.foreignKeys.flatMap(item => item.kind === "foreignKey" && item.sourceTable.tableId === capability.tableId ? item.sourceColumns : []),
+    ...layout.foreignKeys.flatMap(item => item.kind === "foreignKey" && item.sourceTable.tableId === capability.tableId ? item.sourceColumns.filter(name =>
+      !table.columns.some(column => column.name === name && capability.referenceColumns?.includes(column.identity.columnId))) : []),
   ]);
   const facts = work.facts;
   const column = (name: unknown): Result.Result<RelationalPhysicalColumn, CommerceTransactionError> => {
@@ -116,16 +118,16 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     return found === undefined ? Result.fail(commerceError("unsupportedProfile")) : Result.succeed(found);
   };
   const returning = sql.join(table.columns.map(value => sql`${sql.identifier(value.name)} as ${sql.identifier(value.identity.columnId)}`), sql`, `);
-  const statement = <Value>(query: PromiseLike<Value>) => Effect.suspend(() => ++work.statementCount > commerceLimits.calls
-    ? Effect.fail(commerceError("limitExceeded")) : runOwnedPromise(() => Promise.resolve(query), cause => commerceError("statementFailure", cause)));
+  const statement = <Value>(query: PromiseLike<Value>) => Effect.suspend(() => {
+    return ++work.statementCount > commerceLimits.calls
+      ? Effect.fail(commerceError("limitExceeded", { boundary: "statements", attempted: work.statementCount, tableId: capability.tableId })) : runOwnedPromise(() => Promise.resolve(query), cause => commerceError("statementFailure", cause));
+  });
   const driverRows = Effect.fn("CommerceStore.decodeDriverRows")((result: unknown) => Effect.try({
     // Compatibility bridge to the installed driver's throwing shape decoder.
     try: () => rowsFromDriverExecuteResult(result, () => { throw commerceError("storedCorruption"); }),
     catch: cause => commerceError("storedCorruption", cause),
   }));
-  const queryRows = Effect.fn("CommerceStore.queryRows")(function* (query: SQL) {
-    const result = yield* statement(state.tx.execute(query));
-    const rows = yield* driverRows(result);
+  const decodeRows = Effect.fn("CommerceStore.decodeRows")(function* (rows: readonly unknown[] | undefined) {
     if (rows === undefined || rows.length > commerceLimits.catalogRows) return yield* Effect.fail(commerceError("storedCorruption"));
     const values: JsonObject[] = [];
     for (const row of rows) {
@@ -151,6 +153,8 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     }
     return Object.freeze(values);
   });
+  const queryRows = Effect.fn("CommerceStore.queryRows")((query: SQL) =>
+    statement(state.tx.execute(query)).pipe(Effect.flatMap(driverRows), Effect.flatMap(decodeRows)));
   const catalogBound = Effect.fn("CommerceStore.catalogBound")(function* () {
     const payload = sql`jsonb_build_object(${sql.join(table.columns.flatMap(field => [sql`${field.identity.columnId}::text`, sql`${sql.identifier(field.name)}`]), sql`, `)})`;
     const result = yield* statement(state.tx.execute(sql`select count(*)::integer as total, coalesce(max(octet_length(payload::text)), 0)::integer as maximum, coalesce(sum(octet_length(payload::text)), 0)::integer as bytes from (select ${payload} as payload from ${target} where ${scoped} limit ${commerceLimits.catalogRows + 1}) bounded`));
@@ -158,6 +162,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     const row = rows?.[0];
     if (rows?.length !== 1 || !isNonArrayRecord(row) || typeof row.total !== "number" || typeof row.maximum !== "number" || typeof row.bytes !== "number") return yield* Effect.fail(commerceError("storedCorruption"));
     if (row.total > commerceLimits.catalogRows || row.maximum > commerceLimits.rowBytes || row.bytes > lifetime.remainingBytes()) return yield* Effect.fail(commerceError("limitExceeded"));
+    return { total: row.total, maximum: row.maximum, bytes: row.bytes };
   });
   const parameter = (field: RelationalPhysicalColumn, value: Json): Result.Result<SQL, CommerceTransactionError> => {
     // Physical type names are the captured layout's closed scalar union. Typed
@@ -249,13 +254,12 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     yield* Effect.fromResult(lifetime.charge(keyBytes.byteLength));
     facts.push(Object.freeze({ codecVersion: primary.kind === "primary" ? 1 : 2, tableId: table.identity.tableId, keyBytes, operation }));
   });
-  const insertRows = Effect.fn("CommerceStore.insertRows")(function* (input: unknown) {
+  const captureWriteRows = Effect.fn("CommerceStore.captureWriteRows")(function* (input: unknown, updating: boolean) {
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
     if (!representable(captured.value) || !Array.isArray(captured.value) || captured.value.length > commerceLimits.catalogRows)
       return yield* Effect.fail(invalid());
     yield* Effect.fromResult(lifetime.charge(captured.bytes));
-    yield* catalogBound();
-    if (captured.value.length === 0) return [];
+    const catalog = yield* catalogBound();
     const inputs: { readonly identity: string; readonly fields: readonly RelationalPhysicalColumn[]; readonly parameters: readonly SQL[]; readonly predicate: SQL }[] = [];
     const inputKeys = new Set<string>();
     for (const row of captured.value) {
@@ -268,18 +272,27 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       const parameters: SQL[] = [];
       for (const name of Object.keys(row).toSorted()) {
         const field = yield* Effect.fromResult(column(name));
+        if (updating && protectedUpdates.has(field.name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
         const value = row[name];
         if (value === undefined) return yield* Effect.fail(invalid());
-        fields.push(field); parameters.push(yield* Effect.fromResult(parameter(field, value)));
+        const member = updating ? (yield* Effect.fromResult(capturePrivateJsonData(value, commerceLimits.rowBytes, commerceError))).value : value;
+        fields.push(field); parameters.push(yield* Effect.fromResult(parameter(field, member)));
       }
-      const comparisons: SQL[] = [];
-      for (const name of primary.columns.slice(1)) {
-        const field = table.columns.find(item => item.name === name);
-        if (field === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
-        comparisons.push(sql`${sql.identifier(field.name)} = ${row[field.identity.columnId]}`);
-      }
+      const comparisons = keyColumns.map(field => sql`${sql.identifier(field.name)} = ${row[field.identity.columnId]}`);
       inputs.push({ identity: capturedKey.canonicalJson, fields, parameters, predicate: sql`(${sql.join(comparisons, sql` and `)})` });
     }
+    return { inputs, catalog };
+  });
+  const rowJson = (changed: boolean, transport: boolean) => sql`jsonb_build_object(${sql.join(table.columns.flatMap(field => {
+    const value = changed ? sql`changed.${sql.identifier(field.identity.columnId)}` : sql`${sql.identifier(field.name)}`;
+    // jsonb's numeric parser would otherwise lose exact PostgreSQL numeric text.
+    return [sql`${field.identity.columnId}::text`, transport && field.type === "numeric" ? sql`${value}::text` : value];
+  }), sql`, `)})`;
+  const writeAdmittedRows = Effect.fn("CommerceStore.writeAdmittedRows")(function* (input: unknown, updating: boolean) {
+    const captured = yield* captureWriteRows(input, updating);
+    const { inputs } = captured;
+    if (inputs.length === 0) return [];
+    let catalog = captured.catalog;
     const groups = new Map<string, typeof inputs>();
     for (const row of inputs) {
       const identity = JSON.stringify(row.fields.map(field => field.name));
@@ -287,42 +300,67 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       group.push(row); groups.set(identity, group);
     }
     const output = new Map<string, JsonObject>();
+    const changedKeys = new Set<string>();
     for (const group of groups.values()) {
       const first = group[0];
       if (first === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
-      const keyProjection = sql.join(keyColumns.map(field => sql`${sql.identifier(field.name)} as ${sql.identifier(field.identity.columnId)}`), sql`, `);
-      const identities = yield* queryRows(sql`insert into ${target} (${sql.identifier("scope_uuid")}, ${sql.join(first.fields.map(field => sql.identifier(field.name)), sql`, `)}) values ${sql.join(group.map(row => sql`(${scope.scopeUuid}::uuid, ${sql.join([...row.parameters], sql`, `)})`), sql`, `)} returning ${keyProjection}`);
-      const returnedKeys = new Set<string>();
-      for (const row of identities) {
-        const encoded = yield* captureRelationalRowKey(state.descriptor.layout, table.identity.tableId, row, capability.keyId)
-          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        if (returnedKeys.has(encoded.canonicalJson) || !group.some(inputRow => inputRow.identity === encoded.canonicalJson))
-          return yield* Effect.fail(commerceError("receiptMismatch"));
-        returnedKeys.add(encoded.canonicalJson);
+      const selected = sql`(${sql.join(group.map(row => row.predicate), sql` or `)})`;
+      const updates = first.fields.flatMap(field => keyColumns.includes(field) || managedUpdates.includes(field.name) ? [] :
+        [sql`${sql.identifier(field.name)} = incoming.${sql.identifier(field.name)}`]);
+      for (const name of managedUpdates) updates.push(sql`${sql.identifier(name)} = current_timestamp`);
+      const noOp = updating && updates.length === 0;
+      let written: readonly JsonObject[];
+      if (noOp) {
+        // Preserve a key-only update on a table without managed timestamps as a
+        // read of the existing row, with no mutation or change fact.
+        written = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${selected} limit ${commerceLimits.catalogRows}`);
+      } else {
+        const qualifiedReturning = sql.join(table.columns.map(field => sql`stored.${sql.identifier(field.name)} as ${sql.identifier(field.identity.columnId)}`), sql`, `);
+        const mutation = updating
+          ? sql`update ${target} as stored set ${sql.join(updates, sql`, `)} from (values ${sql.join(group.map(row => sql`(${sql.join([...row.parameters], sql`, `)})`), sql`, `)}) as incoming (${sql.join(first.fields.map(field => sql.identifier(field.name)), sql`, `)}) where stored.scope_uuid = ${scope.scopeUuid}::uuid and stored.${sql.identifier(key.name)} = incoming.${sql.identifier(key.name)} returning ${qualifiedReturning}`
+          : sql`insert into ${target} (${sql.identifier("scope_uuid")}, ${sql.join(first.fields.map(field => sql.identifier(field.name)), sql`, `)}) values ${sql.join(group.map(row => sql`(${scope.scopeUuid}::uuid, ${sql.join([...row.parameters], sql`, `)})`), sql`, `)} returning ${returning}`;
+        // All subqueries share one snapshot. Remove the selected pre-write rows
+        // from that snapshot and add RETURNING rows to measure the actual
+        // post-write catalog. No base-table reread pretends to observe the CTE.
+        const remainingBytes = lifetime.remainingBytes();
+        const raw = yield* driverRows(yield* statement(state.tx.execute(commerceWriteEnvelope({ mutation,
+          retainedCatalog: sql`select ${rowJson(false, false)} as payload from ${target} where ${scoped} and not ${selected}`,
+          writtenCatalogPayload: rowJson(true, false), writtenTransportPayload: rowJson(true, true), remainingBytes,
+        }))));
+        if (raw?.length !== 1) return yield* Effect.fail(commerceError("storedCorruption"));
+        const envelope = yield* Effect.fromResult(decodeCommerceWriteEnvelope(raw[0], remainingBytes));
+        catalog = { total: envelope.total, maximum: envelope.maximum, bytes: envelope.bytes };
+        written = yield* decodeRows(envelope.rows);
       }
-      if (returnedKeys.size !== group.length) return yield* Effect.fail(commerceError("receiptMismatch"));
-      yield* catalogBound();
-      const written = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and (${sql.join(group.map(row => row.predicate), sql` or `)}) limit ${commerceLimits.catalogRows}`);
-      if (written.length !== group.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (written.length !== group.length) return yield* Effect.fail(commerceError(updating ? "invalidInput" : "receiptMismatch"));
+      const expected = new Set(group.map(row => row.identity));
       for (const row of written) {
+        if (Object.keys(row).length !== table.columns.length) return yield* Effect.fail(commerceError("receiptMismatch"));
         const encoded = yield* captureRelationalRowKey(state.descriptor.layout, table.identity.tableId, row, capability.keyId)
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        if (!returnedKeys.has(encoded.canonicalJson) || output.has(encoded.canonicalJson)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (!expected.delete(encoded.canonicalJson) || output.has(encoded.canonicalJson)) return yield* Effect.fail(commerceError("receiptMismatch"));
         output.set(encoded.canonicalJson, row);
+        if (!noOp) changedKeys.add(encoded.canonicalJson);
       }
+      if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     }
+    // Hydration spent bytes but made no database change. Reuse only this
+    // operation's last catalog measurement and compare the current budget.
+    if (updating) yield* Effect.fromResult(checkCommerceCatalogSize(catalog, lifetime.remainingBytes()));
     const ordered: JsonObject[] = [];
     for (const inputRow of inputs) {
       const row = output.get(inputRow.identity);
       if (row === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
-      yield* record(row, "insert"); ordered.push(row);
+      if (changedKeys.has(inputRow.identity)) yield* record(row, updating ? "update" : "insert");
+      ordered.push(row);
     }
     return Object.freeze(ordered);
   });
   const write: CommerceStore["write"] = Effect.fn("CommerceStore.write")((context, mode, input) => guard(context, "write", Effect.gen(function* () {
     if (capability.mode !== "scalar") {
-      if (mode === "insert") return yield* insertRows(input);
+      if (mode === "insert") return yield* writeAdmittedRows(input, false);
       if (capability.mode !== "readInsertUpdate" || mode !== "update") return yield* Effect.fail(commerceError("unsupportedProfile"));
+      return yield* writeAdmittedRows(input, true);
     }
     if (!["insert", "upsert", "update"].includes(mode)) return yield* Effect.fail(invalid());
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
@@ -342,7 +380,6 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
       const parameters: SQL[] = [];
       for (const name of Object.keys(inputRow).toSorted()) {
         const field = yield* Effect.fromResult(column(name));
-        if (capability.mode === "readInsertUpdate" && protectedUpdates.has(field.name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
         const member = yield* Effect.fromResult(capturePrivateJsonData(inputRow[name], commerceLimits.rowBytes, commerceError));
         fields.push(field); parameters.push(yield* Effect.fromResult(parameter(field, member.value)));
       }
@@ -350,7 +387,6 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     }
     const before = yield* queryRows(sql`select ${returning} from ${target} where ${scoped} and ${sql.identifier(key.name)} in (${sql.join(inputs.map(row => sql`${row.key}`), sql`, `)}) limit ${commerceLimits.catalogRows}`);
     const existing = new Map(before.map(row => [row[key.identity.columnId], row]));
-    if (capability.mode === "readInsertUpdate" && inputs.some(row => !existing.has(row.key))) return yield* Effect.fail(invalid());
     if (existing.size !== before.length || (mode === "insert" && before.length !== 0)) return yield* Effect.fail(commerceError("storedCorruption"));
     const groups = new Map<string, typeof inputs>();
     for (const row of inputs) {
@@ -402,6 +438,59 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     return Object.freeze(ordered);
   })));
   const remove: CommerceStore["delete"] = Effect.fn("CommerceStore.delete")((context, input) => guard(context, "write", Effect.gen(function* () {
+    if (capability.remove === "declaredKey") {
+      const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
+      if (!representable(captured.value) || !Array.isArray(captured.value) || captured.value.length > commerceLimits.catalogRows) return yield* Effect.fail(invalid());
+      yield* Effect.fromResult(lifetime.charge(captured.bytes));
+      if (captured.value.length === 0) return [];
+      yield* catalogBound();
+      const identities = new Set<string>();
+      const predicates: SQL[] = [];
+      for (const row of captured.value) {
+        if (!isJsonObject(row) || Object.keys(row).length !== keyColumns.length || Object.keys(row).some(name => !keyColumns.some(field => field.identity.columnId === name)))
+          return yield* Effect.fail(invalid());
+        const encoded = yield* captureRelationalRowKey(state.descriptor.layout, capability.tableId, row, capability.keyId)
+          .pipe(Effect.mapError(cause => commerceError("invalidInput", cause)));
+        if (identities.has(encoded.canonicalJson)) return yield* Effect.fail(invalid());
+        identities.add(encoded.canonicalJson);
+        predicates.push(sql`(${sql.join(keyColumns.map(field => sql`${sql.identifier(field.name)} = ${row[field.identity.columnId]}`), sql` and `)})`);
+      }
+      const selected = sql`${scoped} and (${sql.join(predicates, sql` or `)})`;
+      const locked = yield* queryRows(sql`select ${returning} from ${target} where ${selected} for update`);
+      if (locked.length !== identities.size) return yield* Effect.fail(commerceError("receiptMismatch"));
+      // Explicit child-first removal keeps FK cascades from erasing unobserved
+      // rows. Inspect all captured dependencies, not only admitted stores.
+      const dependencies: SQL[] = [];
+      for (const fk of layout.foreignKeys) {
+        if (fk.kind !== "foreignKey" || fk.targetTable.tableId !== capability.tableId || fk.onDelete !== "cascade") continue;
+        const dependent = layout.tables.find(candidate => candidate.identity.tableId === fk.sourceTable.tableId);
+        if (dependent === undefined || fk.sourceColumns.length !== fk.targetColumns.length) return yield* Effect.fail(commerceError("storedCorruption"));
+        const comparisons: SQL[] = [];
+        for (const [index, name] of fk.sourceColumns.entries()) {
+          const targetName = fk.targetColumns[index];
+          if (targetName === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+          comparisons.push(sql`child.${sql.identifier(name)} = parent.${sql.identifier(targetName)}`);
+        }
+        dependencies.push(sql`exists(select 1 from ${sql.identifier(layout.targetNamespace.schemaName)}.${sql.identifier(dependent.name)} as child
+          where exists(select 1 from (select * from ${target} where ${selected}) as parent where ${sql.join(comparisons, sql` and `)}))`);
+      }
+      if (dependencies.length) {
+        const checks = yield* driverRows(yield* statement(state.tx.execute(sql`select (${sql.join(dependencies, sql` or `)}) as present`)));
+        if (checks?.length !== 1 || !isNonArrayRecord(checks[0]) || typeof checks[0].present !== "boolean") return yield* Effect.fail(commerceError("storedCorruption"));
+        if (checks[0].present) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      }
+      const removed = yield* queryRows(sql`delete from ${target} where ${selected} returning ${returning}`);
+      const observed = new Set<string>();
+      for (const row of removed) {
+        const encoded = yield* captureRelationalRowKey(state.descriptor.layout, capability.tableId, row, capability.keyId)
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        if (!identities.has(encoded.canonicalJson) || observed.has(encoded.canonicalJson)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        observed.add(encoded.canonicalJson);
+        yield* record(row, "delete");
+      }
+      if (observed.size !== identities.size) return yield* Effect.fail(commerceError("receiptMismatch"));
+      return removed;
+    }
     if (capability.mode !== "scalar") return yield* Effect.fail(commerceError("unsupportedProfile"));
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), commerceError));
     if (!representable(captured.value)) return yield* Effect.fail(invalid());

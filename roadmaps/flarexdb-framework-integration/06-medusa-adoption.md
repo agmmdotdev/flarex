@@ -20,13 +20,19 @@ established three pinned cases on both database drivers. The implemented
 adds eight more cases. The implemented
 [keyed-update preflight](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md)
 adds four tag/type update/upsert cases through explicit shared-core admission,
-for fifteen original cases on both drivers. The next
+for fifteen original cases on both drivers. The implemented
 [Product mutation preflight](./preflight/32-medusa-standalone-options-and-variants.md)
-proposes 35 additional original cases in one milestone, with related-entity and
-Product graph checkpoints targeting 50 total. Its complete case map also
+adds 35 original cases in one milestone, with related-entity and
+Product graph checkpoints passing 50 total on both drivers. Its complete case map also
 assigns the five lifecycle cases and one scale case to following slices.
+The separately approved and implemented
+[bounded write-kernel correction](./preflight/33-commerce-write-kernel-efficiency.md)
+preserves resource limits, exact row evidence and bounded database transport.
+The next [lifecycle milestone](./preflight/34-medusa-product-lifecycle.md) preflights
+physical deletion, soft deletion, restore and deleted-row reads together.
 Durable event storage/dispatch are deferred. Product
-mutations beyond the admitted create/read and tag/type update profile, stored Links and production
+mutations beyond the admitted graph/related-entity profile, lifecycle operations,
+the 1000-image scale case, stored Links and production
 activation remain unadmitted.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved

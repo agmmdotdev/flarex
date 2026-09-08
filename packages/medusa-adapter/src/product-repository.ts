@@ -12,6 +12,7 @@ import { assembleProducts, captureProductGraph, insertProductGraph } from "./pro
 import { findProducts } from "./product-query";
 import { populateCommerceRelations } from "./commerce-relations";
 import { findProductRelated, insertProductRelated, updateProductRelated, decodeCollectionReplacement } from "./product-related";
+import { replaceProductRows } from "./product-mutation";
 
 /** Request-owned DAL composition; all framework transaction methods borrow core. */
 export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata) {
@@ -24,7 +25,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     createBaseRepository: unsupported, createRepository: unsupported,
     registerEventSubscriber: (context, Subscriber) => { registerDrizzleEventSubscriber(context, Subscriber); subscribed.add(context); },
     dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-      if (!subscribed.has(shared) || event !== "afterCreate") return yield* ctx.refuse(commerceError("unadmittedEvent"));
+      if (!subscribed.has(shared) || !["afterCreate", "afterUpdate", "afterDelete"].includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
       yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationEvent(event, args, shared, subscriber), signal),
         catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
     }))),
@@ -55,32 +56,42 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
         productRelations.filter(name => !["tags", "categories", "collection", "type"].includes(name))),
       ["tags", "categories", "collection", "type"], metadata.queryRelations, new Map());
     }))),
-    update: refuse, upsert: refuse, delete: refuse, softDelete: refuse, restore: refuse, upsertWithReplace: refuse,
+    update: refuse, upsert: refuse, delete: refuse, softDelete: refuse, restore: refuse,
+    upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, replaceProductRows(ctx, metadata, metadata.product, input, config))),
   };
   /** Table-bound repositories share this request's bridge and subscriber set. */
   const relatedRepository = (entity: ProductEntityMetadata): DAL.RepositoryService => ({
     ...repository,
     update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-      if (entity !== metadata.tag && entity !== metadata.type) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+      if (![metadata.tag, metadata.type, metadata.collection, metadata.category, metadata.value].includes(entity)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
       const rows = yield* updateProductRelated(ctx, metadata, entity, input);
       if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-      yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", entity.model, rows.map(row => ({ ...row })), shared), signal),
+      if (entity !== metadata.category) yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", entity.model, rows.map(row => ({ ...row })), shared), signal),
         catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
       return [...rows];
     }))),
-    find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProductRelated(ctx, entity, input, false)).pipe(Effect.map(value => [...value.rows]))),
-    findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProductRelated(ctx, entity, input, true)).pipe(Effect.flatMap(value =>
+    find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProductRelated(ctx, metadata, entity, input, false)).pipe(Effect.map(value => [...value.rows]))),
+    findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProductRelated(ctx, metadata, entity, input, true)).pipe(Effect.flatMap(value =>
       bridge.checked(ctx, Effect.fromResult(decodeProductCount(value))).pipe(Effect.map(decoded =>
         [[...decoded.rows], decoded.count] satisfies [Array<typeof decoded.rows[number]>, number]))))),
     create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (entity === metadata.collection) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+      if (entity === metadata.option || entity === metadata.variant) {
+        const result = yield* replaceProductRows(ctx, metadata, entity, input, { relations: entity === metadata.option ? ["values"] : ["options"] }, true);
+        if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+        const mutations = Object.entries(result.performedActions.created).flatMap(([modelName, values]) => values.map(value => ({ modelName, entity: { ...value } })));
+        yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchCreatedMutations(mutations, shared), signal),
+          catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+        return result.entities;
+      }
       const rows = yield* insertProductRelated(ctx, metadata, entity, input);
       if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-      yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchCreatedMutations(rows.map(row => ({ modelName: entity.model, entity: { ...row } })), shared), signal),
+      if (entity !== metadata.category && entity !== metadata.assignment) yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchCreatedMutations(rows.map(row => ({ modelName: entity.model, entity: { ...row } })), shared), signal),
         catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
       return [...rows];
     }))),
     upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      if (entity === metadata.option || entity === metadata.variant) return yield* replaceProductRows(ctx, metadata, entity, input, config);
       if (entity !== metadata.collection) return yield* ctx.refuse(commerceError("unsupportedProfile"));
       const captured = yield* Effect.fromResult(captureCommerceInput(config));
       yield* Effect.fromResult(decodeCollectionReplacement(captured));

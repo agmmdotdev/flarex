@@ -31,6 +31,9 @@ export const findProducts = Effect.fn("ProductAdapter.find")(function* (
       const nested = selected.selected.filter(field => field.startsWith(name + ".")).map(field => field.slice(name.length + 1));
       const related = projected[name];
       if (nested.length && related !== undefined && isJsonObject(related)) projected[name] = projectRowFields(related, new Set(nested));
+      // Pinned Drizzle includes null to-one properties when the corresponding
+      // FK scalar was selected, even when the relation itself was not populated.
+      if (related === undefined && fields.has(name + "_id") && projected[name + "_id"] === null) projected[name] = null;
     }
     return projected;
   }), count };

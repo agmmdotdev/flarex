@@ -4,6 +4,7 @@ import { groupHasManyRows, groupManyToManyRows, projectRowFields, toPopulateTree
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata, type ProductRuntimeMetadata } from "../src/product-runtime-metadata";
 import { decodeProductQuery } from "../src/product-query-profile";
+import { findProductRelated } from "../src/product-related";
 import { assembleCommerceRelations, populateCommerceRelations, readCommerceRelationRows } from "../src/commerce-relations";
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
@@ -89,7 +90,7 @@ describe("Medusa relation query extraction", () => {
   });
 
   it.each([
-    [{ options: { populate: ["variants.images"] } }, "unsupportedProfile"],
+    [{ options: { populate: ["variants.inventory_items"] } }, "unsupportedProfile"],
     [{ options: { fields: ["variants.title"] } }, "unsupportedProfile"],
     [{ options: { fields: [] } }, "unsupportedProfile"],
     [{ options: { limit: 257 } }, "limitExceeded"],
@@ -103,18 +104,31 @@ describe("Medusa relation query extraction", () => {
     if (Result.isFailure(outcome)) expect(outcome.failure.reason).toBe(reason);
   });
 
-  it("refuses an overflowing relationship set before consuming a partial page", async () => {
+  it("requests the complete bounded catalog and propagates core overflow before consuming a partial page", async () => {
     let reads = 0;
     await Effect.runPromise(Effect.gen(function* () {
       const lifetime = yield* makeBoundedRequestLifetime(() => commerceError("invalidAuthority"),
         { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "query-limit", "read");
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const result = yield* Effect.result(readCommerceRelationRows({ manager: lifetime.context,
-        table: () => Effect.succeed({ count: () => Effect.succeed(257),
-          find: () => Effect.sync(() => { reads++; return []; }), write: unused, delete: unused }),
+        table: () => Effect.succeed({ count: unused,
+          find: (_manager, query) => Effect.sync(() => { reads++; expect(query).toMatchObject({ take: 256 }); }).pipe(Effect.andThen(Effect.fail(commerceError("limitExceeded")))), write: unused, delete: unused }),
       }, catalog.value.table.name, { kind: "and", children: [] }).pipe(Effect.ensuring(lifetime.close)));
       expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
-      expect(reads).toBe(0);
+      expect(reads).toBe(1);
+    }));
+  });
+
+  it.each([{}, { limit: 1 }])("projects related fields without exposing internal IDs for %j", async options => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const lifetime = yield* makeBoundedRequestLifetime(() => commerceError("invalidAuthority"),
+        { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "related-projection", "read");
+      const unused = () => Effect.fail(commerceError("unsupportedProfile"));
+      const result = yield* findProductRelated({ manager: lifetime.context,
+        table: () => Effect.succeed({ find: () => Effect.succeed([{ id: "value1", value: "red" }]),
+          count: () => Effect.succeed(1), write: unused, delete: unused }),
+      }, catalog, catalog.value, { options: { fields: ["value"], ...options } }, true).pipe(Effect.ensuring(lifetime.close));
+      expect(result).toEqual({ rows: [{ value: "red" }], count: 1 });
     }));
   });
 });

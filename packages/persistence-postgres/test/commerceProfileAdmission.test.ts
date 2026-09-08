@@ -5,10 +5,29 @@ import { registerCommerceProfile, registerLocalCommerceProfile, requireCommerceP
 import { captureRelationalSchemaArtifact } from "../src/relationalSchema/artifact";
 import { captureRelationalPhysicalLayout } from "../src/relationalSchema/physical/canonical";
 import { captureFreshRelationalMigrationPlan, captureFrameworkMigrationPlanAdmission } from "../src/migrationCoordination/canonical";
-import { currencySchemaInput, frameworkTargetNamespace, FRAMEWORK_VALUE_LOCATOR } from "./frameworkMigrationValueFixtures";
+import { currencySchemaInput, syntheticSchemaInput, frameworkTargetNamespace, FRAMEWORK_VALUE_LOCATOR } from "./frameworkMigrationValueFixtures";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 describe("private commerce profile admission", () => {
+  it("hashes separately admitted references and removal and rejects undeclared reference authority", async () => {
+    const artifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
+      provenance: { kind: "sourceSnapshot", repository: "https://example.com/references", revision: "e".repeat(40), paths: ["model.ts"] },
+      schema: { ...syntheticSchemaInput(), owner: "medusa" },
+    }));
+    const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: artifact.artifact, physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }));
+    const base = { tableId: "child", keyId: "child.primary", update: "existingPrimaryKey" as const };
+    const scalar = await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.references", [base]).pipe(Effect.flatMap(requireCommerceProfile)));
+    const references = ["parent_id"];
+    const expanded = await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.references", [{ ...base, referenceColumns: references, remove: "declaredKey" }]).pipe(Effect.flatMap(requireCommerceProfile)));
+    references[0] = "id";
+    expect(expanded.tables).toEqual([{ tableId: "child", keyId: "child.primary", mode: "readInsertUpdate", referenceColumns: ["parent_id"], remove: "declaredKey" }]);
+    expect(expanded.contractSha256).not.toBe(scalar.contractSha256);
+    expect(await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.references", [base]).pipe(Effect.flatMap(requireCommerceProfile)))).toEqual(scalar);
+    for (const columns of [[], ["id"], ["ordinal"], ["scope_uuid"], ["missing"], ["parent_id", "parent_id"]]) {
+      expect(await runEffectFailure(registerLocalCommerceProfile(artifact.artifact, layout, "test.references", [{ ...base, referenceColumns: columns }]))).toMatchObject({ reason: "unsupportedProfile" });
+    }
+    expect(await runEffectFailure(registerLocalCommerceProfile(artifact.artifact, layout, "test.references", [{ tableId: "child", keyId: "child.primary", referenceColumns: ["parent_id"] }]))).toMatchObject({ reason: "unsupportedProfile" });
+  });
   it("binds a synthetic pair profile without Product names, primary IDs or initialization", async () => {
     const origin = { kind: "authored", sourceId: "test.assignment" };
     const artifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
@@ -24,6 +43,9 @@ describe("private commerce profile admission", () => {
     expect(descriptor).toMatchObject({ localOnly: true, initialization: null, tables: [{ tableId: "assignment", keyId: "assignment.pair", mode: "readInsert" }] });
     const pair = await runEffect(captureRelationalRowKey(layout, "assignment", { left_ref: "one", right_ref: "two" }, "assignment.pair"));
     expect(pair.frame.components.map(component => component.columnId)).toEqual(["left_ref", "right_ref"]);
+    const removable = await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.assignment", [{ tableId: "assignment", keyId: "assignment.pair", remove: "declaredKey" }]).pipe(Effect.flatMap(requireCommerceProfile)));
+    expect(removable.contractSha256).not.toBe(descriptor.contractSha256);
+    expect(removable.tables).toEqual([{ tableId: "assignment", keyId: "assignment.pair", mode: "readInsert", remove: "declaredKey" }]);
     await runEffectFailure(registerLocalCommerceProfile(artifact.artifact, layout, "test.assignment", [{ tableId: "product", keyId: "assignment.pair" }]));
     await runEffectFailure(registerLocalCommerceProfile(artifact.artifact, layout, "test.assignment", [{ tableId: "assignment", keyId: "id" }]));
     expect(await runEffectFailure(registerLocalCommerceProfile(artifact.artifact, layout, "test.assignment", [{ tableId: "assignment", keyId: "assignment.pair", update: "existingPrimaryKey" }])))

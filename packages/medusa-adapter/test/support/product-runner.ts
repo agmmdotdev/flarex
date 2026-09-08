@@ -70,9 +70,15 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
   const { fixture, runtime } = get();
   const createCommands = { createProducts: runtime.commands.create, createProductTags: runtime.commands.createTags,
     createProductTypes: runtime.commands.createTypes, createProductCollections: runtime.commands.createCollections, createProductImages: runtime.commands.createImages,
-    upsertProductTags: runtime.commands.upsertTags, upsertProductTypes: runtime.commands.upsertTypes };
+    upsertProductTags: runtime.commands.upsertTags, upsertProductTypes: runtime.commands.upsertTypes,
+    createProductOptions: runtime.commands.createOptions, createProductVariants: runtime.commands.createVariants, createProductCategories: runtime.commands.createCategories,
+    upsertProductOptions: runtime.commands.upsertOptions, upsertProductCollections: runtime.commands.upsertCollections, upsertProductCategories: runtime.commands.upsertCategories,
+    addImageToVariant: runtime.commands.addImageToVariant, upsertProducts: runtime.commands.upsert, upsertProductVariants: runtime.commands.upsertVariants };
   const createCommand = Object.entries(createCommands).find(([name]) => name === method)?.[1];
-  const updateCommand = method === "updateProductTags" ? runtime.commands.updateTags : method === "updateProductTypes" ? runtime.commands.updateTypes : undefined;
+  const updateCommands = { updateProductTags: runtime.commands.updateTags, updateProductTypes: runtime.commands.updateTypes,
+    updateProductOptions: runtime.commands.updateOptions, updateProductVariants: runtime.commands.updateVariants, updateProductOptionValues: runtime.commands.updateValues,
+    updateProductCollections: runtime.commands.updateCollections, updateProductCategories: runtime.commands.updateCategories, updateProducts: runtime.commands.update };
+  const updateCommand = Object.entries(updateCommands).find(([name]) => name === method)?.[1];
   const contextIndex = createCommand === undefined ? 2 : 1;
   if (args.length > contextIndex + 1 || args[contextIndex] !== undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const input = yield* Effect.fromResult(captureCommerceInput(createCommand !== undefined ? args[0]
@@ -85,17 +91,19 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
 });
 
 /** Original test callback contract, backed only by admitted host commands. The
- * proxy admits twelve methods and refuses every other property access.
+ * proxy admits the checked mutation milestone methods and refuses every other property access.
  * Results are the unchanged service's host-captured DTOs, inspected by upstream
  * assertions. This test proxy is not a production DTO adapter or public service. */
 const service = new Proxy<object>({}, {
   get(_target, property) {
-    if (typeof property !== "string" || !["createProducts", "createProductTags", "createProductTypes", "createProductCollections", "createProductImages", "retrieveProduct", "listProducts", "listAndCountProducts", "updateProductTags", "updateProductTypes", "upsertProductTags", "upsertProductTypes"].includes(property)) {
+    if (typeof property !== "string" || !["createProducts", "createProductTags", "createProductTypes", "createProductCollections", "createProductImages", "retrieveProduct", "listProducts", "listAndCountProducts", "updateProductTags", "updateProductTypes", "upsertProductTags", "upsertProductTypes",
+      "createProductOptions", "createProductVariants", "createProductCategories", "upsertProductOptions", "upsertProductCollections", "upsertProductCategories", "addImageToVariant",
+      "updateProductOptions", "updateProductVariants", "updateProductOptionValues", "updateProductCollections", "updateProductCategories", "updateProducts", "upsertProducts", "upsertProductVariants"].includes(property)) {
       throw new Error("Unadmitted Product test service method: " + String(property));
     }
     return (...args: readonly unknown[]): Promise<Json> => Effect.runPromise(execute(property, args).pipe(
       Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => error.reason === "adapterFailure" && error.cause !== undefined ? error.cause : error))),
-    ));
+    )).then(value => structuredClone(value));
   },
 }) as IProductModuleService; // Test-only compatibility boundary for the original full-service callback.
 

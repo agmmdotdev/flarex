@@ -148,9 +148,15 @@ Use these sources in order:
 32. [`preflight/31-medusa-keyed-updates-and-remaining-product-tests.md`](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md)
     records shared keyed updates proved by tag/type mutations and maps remaining Product dependencies.
 33. [`preflight/32-medusa-standalone-options-and-variants.md`](./preflight/32-medusa-standalone-options-and-variants.md)
-    proposes a 35-case Product mutation milestone with related-entity and graph checkpoints,
+    owns the approved 35-case Product mutation milestone with related-entity and graph checkpoints,
     and maps all remaining originals through lifecycle and scale slices.
-34. Current code, migrations, any source snapshot already admitted by its own
+34. [`preflight/33-commerce-write-kernel-efficiency.md`](./preflight/33-commerce-write-kernel-efficiency.md)
+    owns the implemented shared write-kernel efficiency correction required by Product acceptance,
+    preserving existing resource limits and transaction authority.
+35. [`preflight/34-medusa-product-lifecycle.md`](./preflight/34-medusa-product-lifecycle.md)
+    proposes the next complete lifecycle milestone, targeting 55 originals with
+    explicit managed-transition authority and authenticated local events.
+36. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -216,7 +222,9 @@ Preflight records:
 | [`preflight/29-medusa-original-product-tests.md`](./preflight/29-medusa-original-product-tests.md) | Original-test runner proven on PGlite and PostgreSQL | Two byte-identical Product suites; three original cases pass per driver, 54 skips explicitly inventoried; one installed fixture per driver |
 | [`preflight/30-medusa-product-related-create-and-reads.md`](./preflight/30-medusa-product-related-create-and-reads.md) | Related creation and reads implemented privately | Eleven original cases pass per driver, 46 exclusions inventoried; existing identities, bounded relation filtering and local events; no new core schema |
 | [`preflight/31-medusa-keyed-updates-and-remaining-product-tests.md`](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md) | Selected keyed updates implemented privately | Fifteen original cases pass per driver; explicit primary-key update admission, operation-specific local events, unchanged core schema and budgets; 41 blocked cases and one upstream skip remain |
-| [`preflight/32-medusa-standalone-options-and-variants.md`](./preflight/32-medusa-standalone-options-and-variants.md) | Expanded Product mutation preflight | 35 additional originals proposed in one milestone: 11 related-entity and 24 graph cases, targeting 50 total; selected references/removal in shared core; following lifecycle targets 55 and scale 56 |
+| [`preflight/32-medusa-standalone-options-and-variants.md`](./preflight/32-medusa-standalone-options-and-variants.md) | Product mutation milestone implemented privately | 50 originals pass per driver: 15 baseline, 11 related-entity and 24 graph cases; six blocked cases and one upstream skip remain |
+| [`preflight/33-commerce-write-kernel-efficiency.md`](./preflight/33-commerce-write-kernel-efficiency.md) | Approved shared-owner correction implemented | Operation-local catalog reuse and bounded insert/update RETURNING envelopes preserve limits, exact row facts, cancellation and atomicity |
+| [`preflight/34-medusa-product-lifecycle.md`](./preflight/34-medusa-product-lifecycle.md) | Proposed next milestone | Five lifecycle originals target 55 total; explicit managed transitions, cascade facts, deleted-row reads, restore conflicts and authenticated local events |
 
 ## Current Architecture
 

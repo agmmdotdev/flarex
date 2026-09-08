@@ -4,7 +4,7 @@ import {
   type PopulateTree, type ToManyRelation,
 } from "@medusajs/drizzle/relation-query";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 
 export type CommerceRelation = ToManyRelation | {
   readonly name: string; readonly sourcePrimaryKeys: readonly string[];
@@ -13,16 +13,18 @@ export type CommerceRelation = ToManyRelation | {
 };
 export type CommerceRelations = ReadonlyMap<string, ReadonlyMap<string, CommerceRelation>>;
 
-/** Prove completeness before using a limited result as a relationship set. */
+/** Core find bounds the entire scoped catalog before selecting any rows. A
+ * single query taking that entire bound is therefore complete. The owned scope
+ * lock prevents another admitted writer from changing it during this command.
+ * A second count repeats the catalog scan and is not a stronger proof.
+ */
 export const readCommerceRelationRows = Effect.fn("MedusaAdapter.readRelationRows")(function* (
   ctx: Pick<CommerceCommandContext, "manager" | "table">, table: string, predicate: Json, order: string = "id",
 ) {
   const store = yield* ctx.table(table);
-  const query = { take: 256, order: { column: order, direction: "asc" }, predicate } satisfies JsonObject;
-  const count = yield* store.count(ctx.manager, query);
-  if (count > 256) return yield* Effect.fail(commerceError("limitExceeded"));
+  const query = { take: commerceLimits.catalogRows, order: { column: order, direction: "asc" }, predicate } satisfies JsonObject;
   const rows = yield* store.find(ctx.manager, query);
-  if (rows.length !== count) return yield* Effect.fail(commerceError("storedCorruption"));
+  if (rows.length > commerceLimits.catalogRows) return yield* Effect.fail(commerceError("storedCorruption"));
   return rows;
 });
 

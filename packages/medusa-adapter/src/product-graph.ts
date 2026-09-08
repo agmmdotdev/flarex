@@ -35,7 +35,7 @@ export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(func
   });
   const members = (parent: JsonObject, name: string) => Effect.fromResult(decodeGraphArray(parent[name] ?? []));
   for (const product of value) {
-    const root = yield* add(catalog.product, product, {}, ["images", "options", "variants", "tags"]);
+    const root = yield* add(catalog.product, product, {}, ["images", "options", "variants", "tags", "categories"]);
     products.push(root.id);
     const tags = catalog.queryRelations.get(catalog.product.table.name)?.get("tags");
     if (tags?.join.type !== "manyToMany") return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -48,6 +48,16 @@ export const captureProductGraph = Effect.fn("ProductAdapter.captureGraph")(func
       if (linkedTags.has(tag.id)) return yield* Effect.fail(commerceError("invalidInput"));
       linkedTags.add(tag.id);
       rows.get(tags.join.pivotTable)?.push({ [sourceKey]: root.id, [targetKey]: tag.id });
+    }
+    const categories = catalog.queryRelations.get(catalog.product.table.name)?.get("categories");
+    if (categories?.join.type !== "manyToMany") return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const categorySource = categories.join.sourceColumns[0], categoryTarget = categories.join.targetColumns[0];
+    if (categorySource === undefined || categoryTarget === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const linkedCategories = new Set<string>();
+    for (const inputCategory of yield* members(root.supplied, "categories")) {
+      if (typeof inputCategory !== "string" || linkedCategories.has(inputCategory)) return yield* Effect.fail(commerceError("invalidInput"));
+      linkedCategories.add(inputCategory);
+      rows.get(categories.join.pivotTable)?.push({ [categorySource]: root.id, [categoryTarget]: inputCategory });
     }
     const variants = new Map<string, JsonObject>();
     for (const variant of yield* members(root.supplied, "variants")) {

@@ -158,6 +158,17 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
 export function admitsCurrencyImport(promotion, file, specifier) {
   if (!promotion || ![...promotion.files, ...promotion.buildFiles].some((entry) => entry.target === file)) return false;
   if (promotion.testAliases.some((alias) => alias.importer === file && alias.specifier === specifier)) return true;
+  // This single verified wrapper registers both complete pinned test files in
+  // one fixture. It is not a runtime export or a general cross-package edge.
+  if (file === "packages/medusa-adapter/test/product-upstream.test.ts") {
+    for (const name of ["events", "products"]) {
+      const target = `packages/medusa-product/integration-tests/__tests__/product-module-service/${name}.spec.ts`;
+      if (specifier === `../../medusa-product/integration-tests/__tests__/product-module-service/${name}.spec`
+        && promotion.files.some((entry) => entry.target === target && entry.classification === "unchangedTest")
+        && promotion.testAliases.some((alias) => alias.importer === target
+          && alias.configuration === "packages/medusa-adapter/vitest.product-upstream.config.ts")) return true;
+    }
+  }
   const importer = promotion.packages.find((pkg) => file.startsWith(pkg.path + "/"));
   const target = promotion.packages.find((pkg) => specifier === pkg.name || specifier.startsWith(pkg.name + "/"));
   if (!importer || !target || (target !== importer && importer.dependencies[target.name] !== "workspace:*")) return false;

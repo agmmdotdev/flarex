@@ -3,6 +3,11 @@
   "version": "2.13.4",
   "private": true,
   "exports": {
+    "./mutation-plan": {
+      "types": "./dist/mutation-plan.d.ts",
+      "source": "./src/mutation-plan.ts",
+      "default": "./dist/mutation-plan.js"
+    },
     "./schema": {
       "types": "./dist/schema.d.ts",
       "source": "./src/schema.ts",

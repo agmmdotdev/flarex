@@ -1,6 +1,6 @@
 /** Trusted private adapter composition; captures a descriptor without acquiring a host. */
 export { registerCommerceProfile, registerCommerceSchemaProfile, requireCommerceProfile } from "./commerceTransaction/profile";
-export { registerLocalCommerceProfile } from "./commerceTransaction/profile";
+export { registerLocalCommerceProfile, type LocalCommerceTableAdmission } from "./commerceTransaction/profile";
 export { decodeRelationalRowKey } from "./commitPublication/relationalFacts";
 export type { LocalCommerceEventPolicy } from "./commerceTransaction/host";
 export type { CommerceProfile, CommerceSchemaProfile, CommerceInstallationProfile, CommerceProfileState } from "./commerceTransaction/profile";

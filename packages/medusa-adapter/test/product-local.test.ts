@@ -144,7 +144,7 @@ describe("local Product service through shared Flarex core", () => {
     expect(Exit.isFailure(failed)).toBe(true);
     expect(await fixture.persistence.drizzle.select().from(fxSystemCommitRelationalChanges)).toEqual(before);
     expect(array(await run(fixture.host.read(runtime.commands.list, { filters: { handle: "duplicate-option-rollback" } })))).toHaveLength(0);
-    expect(Exit.isFailure(await run(Effect.exit(fixture.host.read(runtime.commands.list, { config: { relations: ["variants.images"] } }))))).toBe(true);
+    expect(Exit.isFailure(await run(Effect.exit(fixture.host.read(runtime.commands.list, { config: { relations: ["variants.inventory_items"] } }))))).toBe(true);
     expect(Exit.isFailure(await run(Effect.exit(makeCommerceHost(fixture.hostInput))))).toBe(true);
     expect(received).toHaveLength(12);
   });
@@ -236,7 +236,7 @@ describe("local Product service through shared Flarex core", () => {
   it("refuses unadmitted tables and valid-looking forged events after pending inserts", async () => {
     const table = defineCommerceCommand("productUnadmittedTable", "write", Effect.fn("ProductTest.unadmittedTable")(function* (ctx) {
       yield* ctx.nested(runtime.commands.create, { title: "Unadmitted table rollback" });
-      yield* Effect.result(ctx.table("product_variant_product_image"));
+      yield* Effect.result(ctx.table("product_unadmitted"));
       return null;
     }));
     const forged = defineCommerceCommand("productForgedEvent", "write", Effect.fn("ProductTest.forgedEvent")(function* (ctx) {
@@ -244,7 +244,7 @@ describe("local Product service through shared Flarex core", () => {
       yield* ctx.captureLocalEvent({ name: "product.product.created", metadata: { source: "product", object: "product", action: "created" }, data: { id: "prod_not_written" } });
       return null;
     }));
-    const category = defineCommerceCommand("productReadTableWrite", "write", Effect.fn("ProductTest.readTableWrite")(function* (ctx) {
+    const category = defineCommerceCommand("productUnauthenticatedCategory", "write", Effect.fn("ProductTest.unauthenticatedCategory")(function* (ctx) {
       const store = yield* ctx.table(catalog.category.table.name);
       yield* store.write(ctx.manager, "insert", [{ id: "pcat_refused", name: "Unadmitted", handle: "unadmitted", mpath: "pcat_refused" }]);
       return null;
@@ -549,7 +549,7 @@ describe("local Product service through shared Flarex core", () => {
       const store = yield* ctx.table(args.table);
       const rows = args.rows;
       if (args.mode === "delete") return yield* store.delete(ctx.manager, rows);
-      const written = yield* store.write(ctx.manager, args.mode === "upsert" ? "upsert" : "update", rows);
+      const written = yield* store.write(ctx.manager, args.mode === "insert" ? "insert" : args.mode === "upsert" ? "upsert" : "update", rows);
       if (args.message !== undefined) {
         yield* ctx.captureLocalEvent(args.message);
         if (args.duplicate === true) yield* ctx.captureLocalEvent(args.message);
@@ -565,6 +565,10 @@ describe("local Product service through shared Flarex core", () => {
       { table: catalog.tag.table.name, rows },
       { table: catalog.tag.table.name, rows, message: updated, duplicate: true },
       { table: catalog.tag.table.name, rows: [{ id: "ptag_missing_scoped", value: "absent" }], message: updated },
+      // Different column groups force a real first write before the missing
+      // update or duplicate insert fails in the later group.
+      { table: catalog.tag.table.name, rows: [{ id: "ptag_event_update", value: "first-group" }, { id: "ptag_missing_group", metadata: { later: true } }], message: updated },
+      { table: catalog.tag.table.name, mode: "insert", rows: [{ id: "ptag_first_group", value: "first-group" }, { id: "ptag_event_update", value: "duplicate", metadata: { later: true } }], message },
       { table: catalog.tag.table.name, rows: [{ id: "ptag_other_scope", value: "must-not-change" }], message: { ...updated, data: { id: "ptag_other_scope" } } },
       { table: catalog.tag.table.name, rows: [{ id: "ptag_event_update", created_at: "2026-01-01T00:00:00.000Z" }], message: updated },
       { table: catalog.tag.table.name, rows: [{ id: "ptag_event_update", updated_at: "2026-01-01T00:00:00.000Z" }], message: updated },
@@ -627,5 +631,143 @@ describe("local Product service through shared Flarex core", () => {
     expect(object(received.at(-1)).name).toBe("product.product.created");
     const read = object(await run(fixture.host.read(runtime.commands.retrieve, { id: product.id, config: { relations: ["tags"] } })));
     expect(read.tags).toEqual(product.tags);
+  });
+
+  it("creates real category root paths and sibling ranks while refusing tree mutations", async () => {
+    const eventCount = received.length;
+    const created = array(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, [
+      { id: "pcat_root_a", name: "Root A" }, { id: "pcat_root_b", name: "Root B" },
+    ])));
+    expect(created.map(value => object(value).mpath)).toEqual(["pcat_root_a", "pcat_root_b"]);
+    const rank = object(created[0]).rank;
+    expect(typeof rank).toBe("number");
+    if (typeof rank !== "number") throw new Error("Missing category rank");
+    expect(object(created[1]).rank).toBe(rank + 1);
+    expect(received.slice(eventCount)).toEqual([{ name: "product.product-category.created",
+      metadata: { source: "product", object: "product_category", action: "created" }, data: { id: ["pcat_root_a", "pcat_root_b"] } }]);
+    const before = await commerceInventory(fixture);
+    for (const data of [{ parent_category_id: "pcat_root_b" }, { rank: 0 }, { mpath: "forged" }]) {
+      expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCategories, { id: "pcat_root_a", data }))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    }
+    expect(await commerceInventory(fixture)).toEqual(before);
+    const forgedBatch = defineCommerceCommand("productForgedCategoryBatch", "write", Effect.fn("ProductTest.forgedCategoryBatch")(function* (ctx, ids) {
+      const store = yield* ctx.table(catalog.category.table.name);
+      yield* store.write(ctx.manager, "insert", [
+        { id: "pcat_batch_a", name: "Batch A", handle: "batch-a", mpath: "pcat_batch_a" },
+        { id: "pcat_batch_b", name: "Batch B", handle: "batch-b", mpath: "pcat_batch_b" },
+      ]);
+      yield* ctx.captureLocalEvent({ name: "product.product-category.created",
+        metadata: { source: "product", object: "product_category", action: "created" }, data: { id: ids } });
+      return null;
+    }));
+    const host = await localHost([forgedBatch]);
+    for (const ids of [["pcat_batch_a", "pcat_batch_a"], ["pcat_batch_a", "pcat_unwritten"], ["pcat_batch_a"]]) {
+      expect(await run(Effect.result(host.host.run(host.host.newRequestKey(), forgedBatch, ids))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+      expect(await commerceInventory(fixture)).toEqual(before);
+    }
+    expect(received).toHaveLength(eventCount + 1);
+  });
+
+  it("preserves retained option identities and rejects foreign children before normalization", async () => {
+    const products = array(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, [
+      { id: "prod_owner_a", title: "Owner A", options: [{ title: "size", values: ["small", "large"] }] },
+      { id: "prod_owner_b", title: "Owner B", options: [{ title: "size", values: ["small", "large"] }] },
+    ])));
+    const owned = object(array(object(products[0]).options)[0]);
+    const foreign = object(array(object(products[1]).options)[0]);
+    if (typeof owned.id !== "string" || typeof foreign.id !== "string") throw new Error("Missing option identities");
+    const before = await commerceInventory(fixture);
+    const events = received.length;
+    for (const data of [{ options: [{ id: foreign.id, title: "size", values: ["small"] }] }, { updated_at: "2000-01-01T00:00:00.000Z" }]) {
+      expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.update, { id: "prod_owner_a", data }))))
+        .toMatchObject({ _tag: "Failure" });
+    }
+    expect(await commerceInventory(fixture)).toEqual(before);
+    const updated = object(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.update, {
+      id: "prod_owner_a", data: { title: "Owner A updated", options: [{ id: owned.id, title: "size", values: ["small", "large"] }] },
+    })));
+    expect(array(updated.options)).toEqual([owned]);
+    const after = await commerceInventory(fixture);
+    expect(after.facts.length - before.facts.length).toBe(1);
+    expect(received.slice(events)).toEqual([{ name: "product.product.updated", metadata: { source: "product", object: "product", action: "updated" }, data: { id: "prod_owner_a" } }]);
+  });
+
+  it("rejects parent removal with cascade dependents and malformed declared keys before publication", async () => {
+    const product = object(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, {
+      id: "prod_cascade_guard", title: "Cascade guard", options: [{ title: "size", values: ["small"] }],
+    })));
+    const option = object(array(product.options)[0]);
+    if (typeof option.id !== "string") throw new Error("Missing option");
+    const remove = defineCommerceCommand("productCascadeGuardProof", "write", Effect.fn("ProductTest.cascadeGuard")(function* (ctx, input) {
+      const store = yield* ctx.table(catalog.option.table.name);
+      return yield* store.delete(ctx.manager, input);
+    }));
+    const host = await localHost([remove]);
+    const before = await commerceInventory(fixture);
+    const events = received.length;
+    expect(await run(Effect.result(host.host.run(host.host.newRequestKey(), remove, [{ id: option.id }]))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    for (const input of [[option.id], [{ id: option.id, title: "extra" }], [{ id: option.id }, { id: option.id }]]) {
+      expect(await run(Effect.result(host.host.run(host.host.newRequestKey(), remove, input))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    }
+    expect(await commerceInventory(fixture)).toEqual(before);
+    expect(received).toHaveLength(events);
+  });
+
+  it("authenticates assignment silence by command and preserves referenced images", async () => {
+    const product = object(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, {
+      id: "prod_assignment_guard", title: "Assignment guard", images: [{ url: "assigned-image" }], variants: [{ title: "Assigned variant" }],
+    })));
+    const image = object(array(product.images)[0]), variant = object(array(product.variants)[0]);
+    if (typeof image.id !== "string" || typeof variant.id !== "string") throw new Error("Missing assignment endpoints");
+    const input = [{ variant_id: variant.id, image_id: image.id }];
+    const forge = defineCommerceCommand("productAssignmentSilenceProof", "write", Effect.fn("ProductTest.assignmentSilence")(function* (ctx) {
+      const store = yield* ctx.table(catalog.assignment.table.name);
+      return yield* store.write(ctx.manager, "insert", [{ id: "pvpi_forged", ...input[0] }]);
+    }));
+    const remove = defineCommerceCommand("productAssignedImageRemovalProof", "write", Effect.fn("ProductTest.assignedRemoval")(function* (ctx) {
+      const store = yield* ctx.table(catalog.image.table.name);
+      return yield* store.delete(ctx.manager, [{ id: image.id }]);
+    }));
+    const host = await localHost([forge, remove]);
+    const before = await commerceInventory(fixture);
+    const events = received.length;
+    expect(await run(Effect.result(host.host.run(host.host.newRequestKey(), forge, {}))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unadmittedEvent" } });
+    expect(await commerceInventory(fixture)).toEqual(before);
+    const assigned = array(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.addImageToVariant, input)));
+    expect(assigned).toHaveLength(1);
+    expect(received).toHaveLength(events);
+    const after = await commerceInventory(fixture);
+    expect(after.facts.length - before.facts.length).toBe(1);
+    // The actual assignment DML uses NO ACTION, so its native FK refuses the
+    // removal; cascade relationships exercise the explicit core guard above.
+    expect(fixture.descriptor.layout.frame.foreignKeys.find(key => key.kind === "foreignKey"
+      && key.sourceTable.tableId === catalog.assignment.table.name && key.targetTable.tableId === catalog.image.table.name))
+      .toMatchObject({ onDelete: "noAction" });
+    expect(await run(Effect.result(host.host.run(host.host.newRequestKey(), remove, {}))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "statementFailure" } });
+    expect(await commerceInventory(fixture)).toEqual(after);
+  });
+
+  it("rolls back mixed graph insert/update/removal and discards its buffered events after a late failure", async () => {
+    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, {
+      id: "prod_mixed_rollback", title: "Mixed rollback", images: [{ url: "original-image" }],
+    }));
+    const fail = defineCommerceCommand("productMixedRollbackProof", "write", Effect.fn("ProductTest.mixedRollback")(function* (ctx) {
+      yield* ctx.nested(runtime.commands.update, { id: "prod_mixed_rollback", data: { title: "must roll back", images: [{ url: "replacement-image" }] } });
+      return yield* ctx.refuse(commerceError("invalidInput"));
+    }));
+    const host = await localHost([fail]);
+    const before = await commerceInventory(fixture);
+    const events = received.length;
+    expect(await run(Effect.result(host.host.run(host.host.newRequestKey(), fail, {}))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(await commerceInventory(fixture)).toEqual(before);
+    expect(received).toHaveLength(events);
+    expect(host.takeDeliveries()).toEqual([]);
   });
 });

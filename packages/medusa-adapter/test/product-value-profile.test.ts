@@ -24,7 +24,7 @@ describe("Product creation and normalized graph profiles", () => {
     }
     expect(Result.isFailure(profile.validateRelatedUpdateData(table, { id: "tag-a" }))).toBe(true);
     expect(Result.isFailure(profile.validateRelatedChange(table, [{ id: "tag-a" }, { id: "tag-a", value: "last" }]))).toBe(true);
-    expect(Result.isFailure(profile.decodeRelatedUpdatePairs(catalog.collection.table.name, []))).toBe(true);
+    expect(Result.isFailure(profile.decodeRelatedUpdatePairs(catalog.assignment.table.name, []))).toBe(true);
     expect(Result.isFailure(profile.decodeRelatedUpdatePairs(table, [{ entity: { id: "tag-a" }, update: {} }, { entity: { id: "tag-a" }, update: {} }]))).toBe(true);
     expect(profile.decodeRelatedUpdatePairs(table, [{ entity: { id: "tag-a" }, update: {} }])).toMatchObject({ _tag: "Success", success: [{ id: "tag-a" }] });
   });

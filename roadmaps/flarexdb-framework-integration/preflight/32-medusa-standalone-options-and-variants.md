@@ -2,24 +2,34 @@
 
 ## Status And Delivery Size
 
-Expanded on 2026-09-08 at the user's request for larger slices. This replaces
-this record's former two-case standalone-create proposal. It is a planning
-change; runtime admission remains at **15 original cases**, with **41 blocked
-and one upstream skip**, as proved by commit `ce6102fd` and
-[record 31](./31-medusa-keyed-updates-and-remaining-product-tests.md).
+Both approved checkpoints are implemented privately. The complete **50 original
+cases pass on PGlite and ordinary-role PostgreSQL**, with six blocked cases and
+one upstream performance skip remaining. The complete original test files remain
+unchanged; the exact coverage reporter requires every selected full identity to
+execute once. The separately approved [shared write-kernel correction](./33-commerce-write-kernel-efficiency.md)
+keeps graph replacement and mixed variant upsert within the existing budgets.
 
-The next implementation milestone targets **35 additional original cases** in
-one approved body of work, with two internal checkpoints. The outcome is a
+Adapter-local reads avoid a redundant relation count: `CommerceStore.find` already
+bounds the entire scoped catalog before its SELECT, so taking the full admitted
+catalog bound proves completeness in one read. The existing owned scope lock
+preserves admitted-writer isolation. Overflow still fails in core before a
+partial page can be consumed. Mutation planning also reuses table handles within
+its operation; every actual read/write retains its manager/lifetime checks.
+No shared limit or deadline has been raised.
+
+This milestone adds **35 original cases** to the fifteen-case
+[record 31 baseline](./31-medusa-keyed-updates-and-remaining-product-tests.md)
+in one approved body of work, with two internal checkpoints. The outcome is a
 usable Product mutation profile covering related entities, Product graph
-replacement and image associations, targeting **50 of the 56 non-skipped
+replacement and image associations, covering **50 of the 56 non-skipped
 originals** in the two registered files. Checkpoints organize implementation and
 review; they are not separate user-approval requests for each method or test.
 
 | Delivery group | Additional originals | Cumulative target | Main capability |
 | --- | ---: | ---: | --- |
-| Current baseline | 15 | 15 | Creation, selected reads, tag/type updates |
-| Next milestone: related entities checkpoint | 11 | 26 | Options, variants, values, collections and root categories |
-| Same milestone: Product graph checkpoint | 24 | 50 | Product updates, relationship replacement, images and variant images |
+| Previous baseline | 15 | 15 | Creation, selected reads, tag/type updates |
+| Completed related entities checkpoint | 11 | 26 | Options, variants, values, collections and root categories |
+| Completed Product graph checkpoint | 24 | 50 | Product updates, relationship replacement, images and variant images |
 | Following lifecycle slice | 5 | 55 | Physical delete, soft delete, restore and lifecycle visibility |
 | Following scale slice | 1 | 56 | Complete and stable 1000-image creation/read flow |
 
@@ -132,11 +142,10 @@ The source authority remains fork
   validation limitation as an explicit compatibility decision, while enforcing
   Flarex scope/installation authority in all cases.
 
-## Shared-Core Changes Included In The Proposed Milestone
+## Implemented Shared-Core Contract
 
-This is an intentional extension beyond record 31, which only admits selected
-existing-row scalar updates. It must be included in the milestone's approval,
-not discovered later as an incidental test-harness correction.
+This approved extension beyond record 31 admits selected reference updates and
+physical removal. Record 33 separately owns insert/update kernel efficiency.
 
 1. **Selected reference-column updates.** Extend trusted local table admission
    with an explicit list of logical foreign-key column IDs that may change.
@@ -154,7 +163,7 @@ not discovered later as an incidental test-harness correction.
    and the shared kernel rejects deletion while matching cascade dependents
    remain. Core derives that check from the captured FK layout, including
    dependencies outside the caller's selected table capability.
-3. **Authenticated compatibility envelope.** Proposed trusted declarations add
+3. **Authenticated compatibility envelope.** Trusted declarations add
    `referenceColumns` and `remove: "declaredKey"` beside the existing optional
    update capability. A declaration using either new permission gets canonical
    contract version 4; preserve the exact existing versions 1, 2 and 3
@@ -230,7 +239,7 @@ weaken deadlines or turn off coverage enforcement to reduce elapsed time.
 
 ## Following Larger Slices
 
-**Lifecycle: five originals, target 55.** The coverage plan identifies the
+**[Lifecycle: five originals, target 55](./34-medusa-product-lifecycle.md).** The coverage plan identifies the
 Product cascade-delete event, five base-service physical deletions in one case,
 soft-delete cascade behavior, explicit deleted-row reads and restore cascade
 behavior. Reuse declared-key removal from this milestone. Add a separately

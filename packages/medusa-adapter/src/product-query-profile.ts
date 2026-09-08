@@ -14,7 +14,7 @@ const decodeOptions = commerceDecoder(Schema.Struct({
   offset: Schema.optionalKey(Schema.Unknown),
   orderBy: Schema.optionalKey(Schema.Unknown),
 }), "unsupportedProfile");
-const decodeRelations = commerceDecoder(Schema.Array(Schema.Literals(productRelations)), "unsupportedProfile");
+const decodeRelations = commerceDecoder(Schema.Array(Schema.Literals([...productRelations, "*", "variants.images"])), "unsupportedProfile");
 const decodeFields = commerceDecoder(Schema.Array(Schema.String).check(Schema.isMinLength(1)), "unsupportedProfile");
 const decodeOffset = commerceDecoder(QueryOffset, "limitExceeded");
 const decodeLimit = commerceDecoder(QueryLimit, "limitExceeded");
@@ -43,7 +43,11 @@ export const decodeProductQuery = Effect.fn("ProductAdapter.decodeQuery")(functi
   const value = yield* Effect.fromResult(decodeEnvelope(captured));
   const where = yield* Effect.fromResult(decodeWhere(value.where ?? {}));
   const options = yield* Effect.fromResult(decodeOptions(value.options ?? {}));
-  const relations = yield* Effect.fromResult(decodeRelations(options.populate ?? []));
+  const requested = yield* Effect.fromResult(decodeRelations(options.populate ?? []));
+  // The unchanged Product service builds variants.images from the explicit
+  // assignment entity after this DAL query. Admit its two prerequisite reads.
+  const relations = requested.includes("*") ? [...productRelations]
+    : [...requested.filter(name => name !== "variants.images"), ...(requested.includes("variants.images") ? ["variants", "images"] : [])];
   const scalarFields = catalog.product.table.columns.map(column => column.name);
   const selected = yield* Effect.fromResult(decodeFields(options.fields ?? scalarFields));
   const nestedFields = new Map([ ["collection", catalog.collection], ["type", catalog.type] ]);

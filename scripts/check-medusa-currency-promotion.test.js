@@ -65,4 +65,23 @@ describe("exact Currency promotion", () => {
       expect(readFileSync(file.target)).toEqual(readFileSync(file.source));
     }
   });
+  it("admits only the verified two-file Product wrapper across the test package boundary", () => {
+    const wrapper = "packages/medusa-adapter/test/product-upstream.test.ts";
+    const specifier = "../../medusa-product/integration-tests/__tests__/product-module-service/events.spec";
+    /** @param {string} file @param {string} imported @param {import("./check-medusa-currency-promotion.mjs").Promotion} manifest */
+    const check = (file, imported, manifest = promotion) => analyzeMedusaSourceIslandBoundary({
+      currencyPromotion: manifest, rootManifests: [], islandManifests: [], islandSources: [],
+      rootWorkspaceText: "packages:\n  - packages/*\n  - apps/*\n", rootScripts: {},
+      rootSources: [{ relativePath: file, text: `import ${JSON.stringify(imported)};` }],
+    }).errors;
+    expect(check(wrapper, specifier)).toEqual([]);
+    expect(check(wrapper, specifier.replace("events.spec", "products.spec"))).toEqual([]);
+    for (const [file, imported] of [["packages/medusa-adapter/test/product-query.test.ts", specifier], ["packages/medusa-adapter/src/product-service.ts", specifier],
+      [wrapper, specifier.replace("events.spec", "variants.spec")], [wrapper, specifier + ".ts"]]) {
+      expect(check(file, imported)).toHaveLength(1);
+    }
+    expect(check(wrapper, specifier, { ...promotion, files: promotion.files.filter(file => file.target !== wrapper) })).toHaveLength(1);
+    expect(check(wrapper, specifier, { ...promotion, files: promotion.files.filter(file => file.target !== "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts") })).toHaveLength(1);
+    expect(check(wrapper, specifier, { ...promotion, testAliases: [] })).toHaveLength(1);
+  });
 });

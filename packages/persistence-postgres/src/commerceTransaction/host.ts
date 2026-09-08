@@ -59,7 +59,7 @@ export const makeCommerceHost = Effect.fn("CommerceHost.make")(<Failure>(input: 
 /** Source-private conformance composition; never exported by the commerce facade. */
 export interface LocalCommerceEventPolicy {
   readonly capture: (event: unknown) => Effect.Effect<Json, CommerceTransactionError>;
-  readonly validate: (events: readonly Json[], rows: readonly RelationalRowFact[]) => Effect.Effect<void, CommerceTransactionError>;
+  readonly validate: (events: readonly Json[], rows: readonly RelationalRowFact[], commandName: string) => Effect.Effect<void, CommerceTransactionError>;
   readonly deliver: (events: readonly Json[]) => Effect.Effect<void, CommerceTransactionError>;
 }
 export interface LocalCommerceDelivery {
@@ -186,7 +186,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
             const result = yield* canonicalizeSuccessfulResultV1Effect(value);
             yield* Effect.fromResult(lifetime.charge(bootstrap ? result.canonicalBytes.byteLength : 0));
             yield* lifetime.seal;
-            if (local !== undefined) yield* local.validate(Object.freeze(events.slice()), working.snapshot());
+            if (local !== undefined) yield* local.validate(Object.freeze(events.slice()), working.snapshot(), root?.name ?? "initialize");
             if (lookup !== null) yield* finalizeCommerceCommit(admission, lifetime, yield* working.close(), lookup, result, yield* sha(result.canonicalBytes));
             pendingEvents = Object.freeze(events.slice());
             return result.valueJson;
