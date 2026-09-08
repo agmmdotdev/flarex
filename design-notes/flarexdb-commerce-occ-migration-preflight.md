@@ -14,8 +14,10 @@ compatibility and durable-execution gates.
 
 The [shared transaction core roadmap](../roadmaps/shared-transaction-core/README.md)
 tracks implementation reconciliation against this accepted direction. The
-bounded publication/recovery extraction is complete; the broader ownership
-audit, disposition of remaining work and performance gates remain open.
+bounded publication/recovery extraction and source ownership audit are complete.
+The audit proposes neutral physical resource ownership and a CMS participant /
+shared Application materialization split. These replacements await approval;
+performance and overall completion gates remain open.
 
 ## Decision: Shared Core Guarantees, Distinct Execution
 
@@ -93,9 +95,11 @@ These paths already share substantial infrastructure. The
 [completed extraction](../roadmaps/flarexdb-framework-integration/preflight/36-shared-publication-and-request-recovery.md)
 gives common publication a private owner, moves commerce finalization to its
 participant and shares framework uncertain-outcome routing. The native commit
-module retains CMS preparation/materialization coupling. The broader audit
-must classify that retained boundary and the rest of the connected owners;
-neither a shared file nor this extraction alone proves complete reconciliation.
+module retains CMS preparation/materialization coupling. The
+[completed audit](../roadmaps/shared-transaction-core/01-ownership-audit.md)
+classifies that coupling and the artifact-owned physical driver dependency as
+remaining replacements, with other boundaries explicitly retained or separately
+gated. Neither a shared file nor this extraction alone proves reconciliation.
 Do not replace the entire committer or invent work when existing ownership fits.
 
 Keep existing scope-lock ordering and admitted isolation initially. Moving the

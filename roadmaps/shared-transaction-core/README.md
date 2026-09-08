@@ -3,8 +3,8 @@
 ## Status And Scope
 
 Status: active redesign tracking; accepted ownership direction, partial
-implementation, broader completion audit pending. The shared publication and
-framework recovery extraction is complete for its bounded contract. That does
+implementation, ownership audit complete with two replacements proposed. The
+shared publication and framework recovery extraction is complete for its bounded contract. That does
 not establish that every boundary in the accepted design has been reconciled.
 
 This domain tracks core transaction, publication and recovery ownership across
@@ -70,10 +70,11 @@ The earlier proposal to require all frameworks to adopt tracked native OCC is
 superseded as the default direction. Sharing infrastructure does not require
 one callback interpreter or one public parameterized transaction API.
 
-The completed extraction is evidence of progress, not evidence that all
-remaining code should stay or that a large rewrite is necessary. The next audit
-must justify both proposed replacements and retained boundaries against the
-accepted design. Existing code alone is not a compatibility obligation.
+The completed audit identifies two ownership gaps: framework physical resources
+still depend on artifact control, and CMS orchestration still lives in native
+commit. The [implementation proposal](./04-implementation-proposal.md) separates
+those owners while preserving shared lowering and distinct execution policies.
+Existing code alone is not a compatibility obligation.
 
 ## Convex Compatibility And Flarex Divergences
 
@@ -94,10 +95,11 @@ remains intentional within that completed slice.
 
 ## Known Gaps And Limitations
 
-The end-to-end design-to-code ownership audit is not complete. In particular,
-retained CMS/native coupling, other participant/host boundaries and the complete
-disposition of remaining authority checks need explicit classification.
-Neither their presence nor a passing extraction suite proves a design defect.
+The audit is complete. R1 neutral physical resource ownership and R2 CMS
+participant/shared Application materialization are proposed and await
+implementation approval. Their current coupling is an ownership gap, not an
+observed atomicity failure. Other audited boundaries have explicit retention or
+independent-capability dispositions.
 
 Representative command, contention and mixed native/framework load measurements
 remain outstanding. Existing test deadlines must be evaluated with setup and
@@ -112,20 +114,23 @@ inventory is required before any future physical deletion is selected.
 Every common guarantee has an explicit owner; each framework participates
 through narrow authenticated boundaries; every retained bridge has a reason;
 and every selected replacement ends with removal of obsolete code and state.
-The amount of additional implementation remains an audit outcome.
+The remaining implementation is the two connected replacements in the proposal,
+followed by measured validation; neither replacement currently requires DDL.
 
 ## Next Correctness Gates
 
 | Workstream | Current status | Observable exit |
 | --- | --- | --- |
 | Common publication and framework recovery extraction | Complete within record 36 | All current callers use the extracted owners; displaced implementations removed |
-| [Ownership completion audit](./01-ownership-audit.md) | Next; pending | Every responsibility and boundary classified with evidence, target owner and disposition |
-| [Further replacement and cleanup](./02-migration-and-cleanup.md) | Scope undecided; depends on audit and approval | Each selected capability implemented, consumers switched, obsolete paths/state removed or justified |
+| [Ownership completion audit](./01-ownership-audit.md) | Complete for currently admitted source paths | Every responsibility and boundary classified with evidence, target owner and disposition |
+| [R1 physical resource ownership](./04-implementation-proposal.md#r1-neutral-physical-resource-owner) | Proposed; awaiting approval | Relational and artifact consumers use neutral mechanics; displaced control-owned mechanics removed |
+| [R2 CMS participant/materialization](./04-implementation-proposal.md#r2-cms-participant-and-application-materialization) | Proposed; follows R1 | CMS orchestration leaves native OCC; both participants use one shared materializer; displaced paths removed |
+| [Replacement and cleanup](./02-migration-and-cleanup.md) | Deletion sets defined; no DDL selected | Each approved replacement completes its consumer switch and logic cleanup; retained state justified |
 | [Performance and conformance](./03-validation-and-completion.md) | Focused extraction proof exists; broader measurement pending | Representative costs and concurrency meet explicit criteria; affected semantics preserved |
 | Overall redesign reconciliation | Open | All required audit findings resolved; retained boundaries justified; independent capabilities explicitly deferred |
 
-The immediate next deliverable is the completed ownership audit and proposed
-coherent implementation scope. Product scale remains in
+The immediate next implementation is R1 after approval of its concrete proposal.
+R2 and measured validation follow. Product scale remains in
 [record 35](../flarexdb-framework-integration/preflight/35-medusa-product-scale.md);
 it neither substitutes for this audit nor automatically depends on finishing
 every separately gated capability. Update this table in place as durable status

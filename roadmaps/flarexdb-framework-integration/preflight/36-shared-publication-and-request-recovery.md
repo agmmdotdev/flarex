@@ -15,8 +15,9 @@ Product scale remains separately gated by [record 35](./35-medusa-product-scale.
 This record closes only its bounded extraction. The
 [shared transaction core roadmap](../../shared-transaction-core/README.md)
 tracks broader ownership reconciliation, retained boundaries, remaining
-replacement/cleanup decisions and performance gates. Its completion audit
-remains open; this record does not establish whole-redesign completion.
+replacement/cleanup decisions and performance gates. Its source ownership audit
+is complete with two replacements proposed; implementation and measurement
+remain open. This record does not establish whole-redesign completion.
 
 ## Owners And Authority
 

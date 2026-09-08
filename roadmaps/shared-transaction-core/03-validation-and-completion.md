@@ -3,9 +3,10 @@
 ## Status And Scope
 
 Record 36 has focused preservation proof for the completed extraction. This
-plan defines the broader evidence required by the ownership audit and any
-subsequent replacements. It does not assert that representative throughput,
-contention or production behavior has already been measured.
+plan defines the broader evidence required by the completed ownership audit and
+the [R1/R2 replacements](./04-implementation-proposal.md). Their conformance
+reruns and representative performance measurements are pending. It does not
+assert that throughput, contention or production behavior has been measured.
 
 ## Conformance Obligations
 
@@ -24,6 +25,11 @@ evidence includes:
   one recovery-only lookup, complete causes and participant cleanup ordering.
 - [Physical PostgreSQL transactions](../../packages/persistence-postgres/test/relationalTransaction.postgres.test.ts):
   locks, cancellation, settlement and resource lifetime.
+- [Artifact physical sessions](../../packages/persistence-postgres/test/frameworkSchemaArtifactControlSession.postgres.test.ts):
+  read/reset, initial/recovery, drain, quarantine, late acquisition, interruption,
+  full cleanup causes and exact physical identity exclusion required by R1.
+- [Native located runner](../../packages/persistence-postgres/test/postgresLocatedReadCommitted.test.ts):
+  pool and externally owned connected-client lifecycle and failure classification.
 - [Product conformance](../../packages/medusa-adapter/test/product-local.test.ts)
   and the existing original-test lanes: lifecycle, exact events, ambiguous
   acknowledgement, competing requests and no replay delivery.
@@ -35,9 +41,10 @@ consistent. A late failure must leave no partial business state, result or wake.
 
 ## Performance Gate
 
-Before claiming the redesign is performance-ready, agree explicit acceptance
-criteria for representative native, CMS, small commerce and nested Product
-commands. Record the source/resource profile and database/environment settings.
+Before claiming the redesign is performance-ready, agree the proposed acceptance
+criteria in the [implementation proposal](./04-implementation-proposal.md#performance-acceptance-decision)
+for representative native, CMS, small commerce and nested Product commands.
+Record the source/resource profile and database/environment settings.
 Do not choose thresholds after seeing a preferred result.
 
 Measure setup separately from command execution. Capture SQL and transaction
