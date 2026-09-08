@@ -4,9 +4,26 @@
 
 Record 36 has focused preservation proof for the completed extraction. This
 plan defines the broader evidence required by the completed ownership audit and
-the [R1/R2 replacements](./04-implementation-proposal.md). Their conformance
-reruns and representative performance measurements are pending. It does not
-assert that throughput, contention or production behavior has been measured.
+the [R1/R2 replacements](./04-implementation-proposal.md). R1 has physical
+lifecycle and affected native/framework conformance proof. R2 conformance and
+representative command, contention and mixed-load measurements remain pending.
+Physical SELECT-only measurements do not establish command performance or
+production behavior.
+
+The R1 physical comparison covers artifact read/initial and relational initial
+sessions at controlled concurrency. Longer paired measurements satisfy the
+proposed physical-cost margins after removing added internal helper tracing;
+named lifecycle tracing remains. Earlier short-run misses limit timing
+precision and remain part of the task evidence. This bounded result does not
+close the representative command, scope-lock or mixed-load gate below.
+
+Product conformance also has a validation reliability limit: intermittent
+`rollbackOnly` failures have appeared in different admitted upstream cases.
+Affected-case baseline checks and a complete run with first-cause diagnostics
+pass, but the unexpected first failure has not been isolated. A passing rerun
+does not establish its cause or resolution. Preserve the full admitted-case
+guard, original assertions and existing deadlines; investigate any recurrence
+before attributing it to physical ownership or changing another owner's policy.
 
 ## Conformance Obligations
 
@@ -25,6 +42,9 @@ evidence includes:
   one recovery-only lookup, complete causes and participant cleanup ordering.
 - [Physical PostgreSQL transactions](../../packages/persistence-postgres/test/relationalTransaction.postgres.test.ts):
   locks, cancellation, settlement and resource lifetime.
+- [Neutral composition](../../packages/persistence-postgres/test/physicalSession.test.ts):
+  shared deadline mechanics, exact adapter error identities, schema separation
+  and neutral resource failure without callback execution or leaked checkout.
 - [Artifact physical sessions](../../packages/persistence-postgres/test/frameworkSchemaArtifactControlSession.postgres.test.ts):
   read/reset, initial/recovery, drain, quarantine, late acquisition, interruption,
   full cleanup causes and exact physical identity exclusion required by R1.

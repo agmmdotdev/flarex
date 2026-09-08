@@ -22,9 +22,9 @@ rather than maintaining another detailed implementation-status inventory.
 
 The [shared transaction core roadmap](../shared-transaction-core/README.md)
 tracks the broader transaction/publication/recovery redesign reconciliation.
-Its source ownership audit is complete; physical resource and CMS participant /
-materialization replacements are proposed and await approval. Record 36 closes
-its bounded extraction; broader implementation and measurement remain open.
+Its source ownership audit and R1 neutral physical resource replacement are
+complete. R2 CMS participant/materialization awaits approval. Record 36 closes
+its bounded extraction; remaining implementation and measurement stay open.
 This framework roadmap continues to own adapter capabilities and conformance sequencing.
 
 This domain owns the extraction and admission of shared FlarexDB mechanisms

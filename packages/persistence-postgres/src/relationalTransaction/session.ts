@@ -2,16 +2,25 @@ import { Cause, Effect } from "effect";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { PostgresFlarexPersistence } from "../postgres";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../frameworkSchema/artifact/postgresControlSession";
 import {
-  startFrameworkSchemaArtifactControlDeadline,
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-} from "../frameworkSchema/artifact/controlSession";
+  makePostgresPhysicalSessionDriver,
+  type PostgresPhysicalSessionOptions,
+} from "../physicalSession/postgres";
+import { makePhysicalSessionAccess } from "../physicalSession/drizzle";
+import { makePhysicalDeadlineOperations } from "../physicalSession/deadline";
+import {
+  physicalSessionErrors,
+  PhysicalSessionResourceIssue,
+} from "../physicalSession/errors";
+import { flarexSchema } from "../schema";
 import {
   RelationalSessionError,
   relationalError,
   relationalLimits,
 } from "./model";
+
+const access = makePhysicalSessionAccess(flarexSchema);
+const physicalDeadlines = makePhysicalDeadlineOperations(physicalSessionErrors);
 
 declare const sessionBrand: unique symbol;
 export interface RelationalSession {
@@ -55,14 +64,13 @@ export const runRelationalSession = Effect.fn("RelationalSession.run")(
 
 export function makePostgresRelationalSession(
   persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
-  testOptions?: Parameters<
-    typeof makePostgresFrameworkSchemaArtifactControlSessionDriver
-  >[1],
+  testOptions?: PostgresPhysicalSessionOptions,
 ): RelationalSession {
-  // Reuse only the proven physical initial-transaction driver. No artifact
-  // repository, recovery attempt, migration token or finalizer is composed.
-  const initial = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+  // This data session consumes only the neutral initial-transaction operation.
+  // Request reconciliation remains with its host; no control policy is composed.
+  const initial = makePostgresPhysicalSessionDriver(
     persistence.pool,
+    { access, errors: physicalSessionErrors },
     testOptions,
   ).runInitialTransactionEffect;
   const run: RunRelationalSession = Effect.fn("RelationalSession.postgres")(
@@ -71,7 +79,7 @@ export function makePostgresRelationalSession(
     ) =>
       Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+          const deadline = yield* physicalDeadlines.start(
             "initial",
             relationalLimits.commandMs,
           );
@@ -125,9 +133,9 @@ export function makePostgresRelationalSession(
   return issueRelationalSession(persistence.drizzle, run);
 }
 function projectResource<Failure>(
-  error: Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+  error: Failure | PhysicalSessionResourceIssue,
 ): Failure | RelationalSessionError {
-  return error instanceof FrameworkSchemaArtifactControlSessionResourceIssue
+  return error instanceof PhysicalSessionResourceIssue
     ? new RelationalSessionError({ reason: "resourceFailure", cause: error })
     : error;
 }

@@ -15,9 +15,9 @@ compatibility and durable-execution gates.
 The [shared transaction core roadmap](../roadmaps/shared-transaction-core/README.md)
 tracks implementation reconciliation against this accepted direction. The
 bounded publication/recovery extraction and source ownership audit are complete.
-The audit proposes neutral physical resource ownership and a CMS participant /
-shared Application materialization split. These replacements await approval;
-performance and overall completion gates remain open.
+Neutral physical resource ownership is implemented. The CMS participant /
+shared Application materialization split remains proposed and awaits approval;
+representative performance and overall completion gates remain open.
 
 ## Decision: Shared Core Guarantees, Distinct Execution
 

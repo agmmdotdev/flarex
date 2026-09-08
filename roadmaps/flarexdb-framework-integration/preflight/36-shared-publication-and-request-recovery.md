@@ -16,8 +16,8 @@ This record closes only its bounded extraction. The
 [shared transaction core roadmap](../../shared-transaction-core/README.md)
 tracks broader ownership reconciliation, retained boundaries, remaining
 replacement/cleanup decisions and performance gates. Its source ownership audit
-is complete with two replacements proposed; implementation and measurement
-remain open. This record does not establish whole-redesign completion.
+and R1 neutral physical ownership are complete; R2 CMS participant/materialization
+and representative measurement remain open. This record does not establish whole-redesign completion.
 
 ## Owners And Authority
 

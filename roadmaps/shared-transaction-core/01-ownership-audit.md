@@ -3,15 +3,15 @@
 ## Status And Scope
 
 Complete as a source ownership assessment of currently admitted native,
-CMS/Payload and commerce/Medusa paths. Two required ownership replacements are
-proposed; implementation requires approval. Overall status lives in the
+CMS/Payload and commerce/Medusa paths. R1 physical ownership is implemented;
+R2 CMS participant/materialization remains proposed and requires approval. Overall status lives in the
 [domain index](./README.md#next-correctness-gates).
 
 The accepted design remains sound: shared core guarantees with distinct
-execution profiles. Remaining work is a physical resource ownership split, a
-CMS participant/materialization split, and measured validation. Replacing
+execution profiles. Remaining work is the CMS participant/materialization split
+and representative measured validation. Replacing
 framework execution with native logical OCC is unnecessary for this default
-design. Neither proposed replacement supersedes persisted state.
+design. Neither ownership replacement supersedes persisted state.
 
 This assessment covers source callers, authority registries, settlement,
 recovery, schema declarations, package surfaces and relevant test assertions.
@@ -40,7 +40,7 @@ before SQL begins does not replace transaction-bound admission.
 
 | Responsibility | Disposition | Evidence and consequence |
 | --- | --- | --- |
-| Framework physical acquisition, settlement, drain and quarantine | **Required replacement: R1** | `relationalTransaction/session.ts` constructs the artifact control driver, uses artifact deadlines and projects artifact resource errors. That driver also constructs a schema containing artifact control tables. Extract neutral physical mechanics and retain artifact orchestration with its owner. This is a control-to-data dependency, beyond a naming concern. |
+| Framework physical acquisition, settlement, drain and quarantine | **Satisfied: R1** | [Neutral physical mechanics](../../packages/persistence-postgres/src/physicalSession/postgres.ts) own acquisition, settlement, drain and quarantine. Relational sessions consume neutral deadlines/errors directly. [Artifact composition](../../packages/persistence-postgres/src/frameworkSchema/artifact/postgresControlSession.ts) supplies its schema and exact error constructors; artifact lifecycle decisions remain outside the core. |
 | Native physical runner and Effect bridge | **Intentional boundary** | The located runner supports pool-owned and externally owned connected clients, callback/cleanup classification and quarantine. [Its Effect bridge](../../packages/persistence-postgres/src/locatedReadCommittedEffect.ts) preserves complete Cause and admitted SQL retry policy. It is already persistence core; forcing framework deadlines or artifact recovery into it would change policy. |
 | Bounded request lifetime and nesting | **Satisfied for CMS/commerce** | [Common lifetime](../../packages/persistence-postgres/src/boundedRequestLifetime.ts) owns rollback-only latching, asynchronous ID rechecks, overlap/depth/budget checks, seal and close. [CMS projection](../../packages/persistence-postgres/src/cmsTransaction/lifetime.ts) supplies its errors/limits. Borrowed operations cannot settle; caught failures cannot reopen a command. |
 | Scope, generation, placement and binding | **Satisfied mechanics; intentional participant policies** | Both hosts use located authority, scope-clock and binding/installation owners. Authentic admission registries are transaction-bound. CMS content/preference checks differ from commerce profile/initialization checks; retain them without a permissive union token or generic issuer. |
@@ -57,8 +57,8 @@ before SQL begins does not replace transaction-bound admission.
 
 ## Why The Replacements Are Necessary
 
-R1 moves physical resources out of a control-domain implementation now consumed
-by application-data frameworks. It includes connected deadline, drain,
+R1 separates physical resources from artifact control, eliminating the
+application-data frameworks' dependency on that control-domain implementation. It includes connected deadline, drain,
 connection identity, cancellation, settlement and cleanup mechanics. Another
 wrapper would leave this dependency intact. Artifact repository decisions and
 schema registration stay outside the neutral resource implementation. Native
@@ -96,10 +96,9 @@ worker exists. R1/R2 introduce no new persistent cleanup obligation.
 
 ## Implementation Order And Audit Exit
 
-1. Approve [R1 physical ownership replacement](./04-implementation-proposal.md#r1-neutral-physical-resource-owner), including artifact control consumption and schema/error projections.
-2. Complete its consumer switch, deletion and physical-resource conformance.
-3. Complete [R2 CMS participant/materialization](./04-implementation-proposal.md#r2-cms-participant-and-application-materialization) as a connected refactor.
-4. Satisfy the [performance and completion contract](./03-validation-and-completion.md), or explicitly accept a measured limitation.
+1. R1 physical ownership, artifact consumption, schema/error projections, consumer switch and displaced-logic removal are implemented with physical-resource conformance.
+2. Approve and complete [R2 CMS participant/materialization](./04-implementation-proposal.md#r2-cms-participant-and-application-materialization) as a connected refactor.
+3. Satisfy the [performance and completion contract](./03-validation-and-completion.md), or explicitly accept a measured limitation.
 
 Every audited responsibility now has a disposition. Overall redesign stays open
 until replacements and completion gates are resolved. Root Payload transactions,

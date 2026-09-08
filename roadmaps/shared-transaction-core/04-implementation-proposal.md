@@ -2,21 +2,26 @@
 
 ## Status And Approval Boundary
 
-Proposed from the [completed ownership audit](./01-ownership-audit.md).
-Implementation is not started. R1 and R2 are required to reconcile the default
-shared-owner design; they do not admit new framework behavior, tables, public
-APIs or execution profiles. Approval may cover both in this order, with each
-completed and validated before starting the next. Routine implementation choices
-inside the approved scope do not require repeated permission.
+The [completed ownership audit](./01-ownership-audit.md) requires R1 and R2 to
+reconcile the default shared-owner design. R1 is approved and implemented; R2
+remains proposed and requires its own implementation approval. Neither admits
+new framework behavior, tables, public APIs or execution profiles. Complete and
+validate each approved slice before starting the next. Routine implementation
+choices inside the approved scope do not require repeated permission.
 
 ## R1 Neutral Physical Resource Owner
 
+Implemented in source-private `physicalSession/{model,errors,deadline,drizzle,postgres}.ts`.
+Relational sessions consume the neutral owner directly; artifact composition
+supplies its schema and original error constructors. The artifact owner no
+longer implements physical resource mechanics. The contract below defines this
+implemented boundary; no package export or persisted state changed.
+
 ### Problem And Target
 
-`relationalTransaction/session.ts` depends on artifact-control driver creation,
-deadlines and resource errors. `frameworkSchema/artifact/postgresControlSession.ts`
-owns the reusable PostgreSQL mechanics while also composing artifact tables and
-implementing the artifact-facing driver contract.
+The ownership gap addressed by R1 was a relational-session dependency on
+artifact-control driver creation, deadlines and resource errors. Reusable
+PostgreSQL mechanics and artifact table composition shared the artifact owner.
 
 Create a source-private physical resource owner within persistence-postgres.
 Its bounded PostgreSQL driver owns acquisition, connection identity, deadlines,
@@ -85,6 +90,8 @@ Currency and Product preservation cases and package/source boundaries. Native
 connected-client ownership remains covered by its existing runner suite.
 
 ## R2 CMS Participant And Application Materialization
+
+Proposed; this is the next implementation slice after R1.
 
 ### Problem And Target
 
