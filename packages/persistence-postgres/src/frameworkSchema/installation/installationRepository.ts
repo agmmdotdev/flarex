@@ -1,4 +1,4 @@
-import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../migrationCoordination/graphReadPass";
+import { frameworkGraphDriverRowReferences, makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../../migrationCoordination/graphReadPass";
 import { eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -76,7 +76,7 @@ export const readFrameworkSchemaInstallationByIdentityInTransactionEffect = Effe
   if (Option.isNone(collision)) return Option.none();
   const digest = yield* decodeAuthenticatedSha256(identity.installationSha256);
   const rows = yield* runRepositoryStatement(operation, transaction.select(installationReadSelection)
-    .from(fxSystemFrameworkSchemaInstallations).where(eq(fxSystemFrameworkSchemaInstallations.installationSha256, digest)).limit(1));
+    .from(fxSystemFrameworkSchemaInstallations).where(eq(fxSystemFrameworkSchemaInstallations.installationSha256, digest)).limit(1)).pipe(Effect.map(detachDriverRows));
   const row = rows[0];
   if (row === undefined) return Option.none();
   const restored = yield* restoreInstallationOccupant(transaction, row, collision.value, operation);
@@ -535,6 +535,9 @@ const loadInstallationOccupant = Effect.fn(
   ));
 });
 
+// Exact freshly read projections may reuse a completed restoration only inside
+// one immutable graph pass. The cache never suppresses an installation root read.
+const readInstallationOccupant = makeFrameworkGraphReferenceRead<RestoredFrameworkSchemaInstallation>();
 const restoreInstallationOccupant = Effect.fn(
   "FrameworkSchemaInstallationRepository.restoreOccupant",
 )(function* (
@@ -560,7 +563,9 @@ const restoreInstallationOccupant = Effect.fn(
     admission: terminal.attempt.admission,
     terminal,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-}, withFrameworkGraphReadPass);
+}, (read, transaction, row, collision) => readInstallationOccupant(
+  read, transaction, collision, ...frameworkGraphDriverRowReferences({ ...row }),
+), withFrameworkGraphReadPass);
 
 const loadInstallationRootByStorageId = Effect.fn(
   "FrameworkSchemaInstallationRepository.loadByStorageId",

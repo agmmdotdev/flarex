@@ -31,6 +31,7 @@ import {
 import type { FrameworkSchemaInstallationValueError } from "./errors";
 import {
   corroborateRestoredFrameworkSchemaInstallationInTransactionEffect,
+  readFrameworkSchemaInstallationByIdentityInTransactionEffect,
 } from "./installationRepository";
 import {
   FRAMEWORK_SCHEMA_AVAILABILITY_HEAD_FORMAT,
@@ -38,8 +39,9 @@ import {
   type FrameworkSchemaAvailabilityHead,
   type FrameworkSchemaAvailabilityHeadFrame,
   type FrameworkSchemaAvailabilityStatus,
+  type FrameworkSchemaInstallationIdentity,
 } from "./model";
-import { fxSystemFrameworkSchemaAvailabilityHeads } from "./schema";
+import { fxSystemFrameworkSchemaAvailabilityHeads, fxSystemFrameworkSchemaInstallations } from "./schema";
 import {
   isRestoredFrameworkSchemaAvailabilityHead,
   isRestoredFrameworkSchemaAvailabilityHistory,
@@ -50,7 +52,7 @@ import {
   type RestoredFrameworkSchemaReadiness,
   type StoredFrameworkSchemaAvailabilityHeadRow,
 } from "./storedMetadataRestoration";
-import { isStoredFrameworkSchemaAvailabilityHeadFrame } from
+import { isStoredFrameworkSchemaAvailabilityHeadFrame, isStoredInstallationIdentity } from
   "./storedValidation";
 
 type AvailabilityHeadRepositoryOperation = Extract<
@@ -189,25 +191,47 @@ export const readFrameworkSchemaAvailabilityHeadInTransactionEffect = Effect.fn(
   );
 });
 
-/** Hold the mutable availability row until the caller's accepting transaction settles. */
-export const lockFrameworkSchemaAvailabilityHeadInTransactionEffect = Effect.fn(
-  "FrameworkSchemaAvailabilityHeadRepository.lockForAcceptance",
-)(function* (transaction: FlarexMetadataTransaction, installation: RestoredFrameworkSchemaInstallation) {
-  const stored = yield* corroborateRestoredFrameworkSchemaInstallationInTransactionEffect(transaction, installation, "readAvailabilityHead");
-  const locked = yield* runRepositoryStatement("readAvailabilityHead", transaction.select({
-    storageId: fxSystemFrameworkSchemaAvailabilityHeads.installationStorageId,
-    sequence: fxSystemFrameworkSchemaAvailabilityHeads.availabilitySequence,
-  }).from(fxSystemFrameworkSchemaAvailabilityHeads).where(eq(
-    fxSystemFrameworkSchemaAvailabilityHeads.installationStorageId, stored.storageId,
-  )).for("share"));
-  if (locked.length === 0) return Option.none();
-  // Apply the accepting reader's budget before aggregate restoration can project
-  // a missing/over-budget predecessor as corruption. This grants no authority.
-  if ((yield* additiveMigrationGraphLimits) && locked.some(row => row.sequence > 8n)) {
+/** The digest selects a candidate, never authority. Lock the mutable head before
+ * restoring its immutable dependencies; retain the lock through settlement. */
+export const lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect = Effect.fn(
+  "FrameworkSchemaAvailabilityHeadRepository.lockByIdentity",
+)(function* (transaction: FlarexMetadataTransaction, identity: FrameworkSchemaInstallationIdentity) {
+  const operation = "readAvailabilityHead" as const;
+  if (!isStoredInstallationIdentity(identity) ||
+    (identity.artifact.owner !== "medusa" && identity.artifact.owner !== "system" && identity.artifact.owner !== "payload")) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+  }
+  const digest = yield* decodeAuthenticatedSha256(identity.installationSha256);
+  const rows = yield* runRepositoryStatement(operation, transaction.select(availabilityHeadReadSelection)
+    .from(fxSystemFrameworkSchemaAvailabilityHeads)
+    .innerJoin(fxSystemFrameworkSchemaInstallations, eq(
+      fxSystemFrameworkSchemaInstallations.installationStorageId,
+      fxSystemFrameworkSchemaAvailabilityHeads.installationStorageId,
+    )).where(eq(fxSystemFrameworkSchemaInstallations.installationSha256, digest))
+    .limit(1).for("share", { of: fxSystemFrameworkSchemaAvailabilityHeads }))
+    .pipe(Effect.map(detachDriverRows));
+  const row = rows[0];
+  if (row === undefined) return Option.none();
+  // Preserve the accepting reader's predecessor budget before graph restoration.
+  if ((yield* additiveMigrationGraphLimits) && row.availabilitySequence > 8n) {
     return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal("readAvailabilityHead"));
   }
-  return yield* loadRestoredAvailabilityHead(transaction, stored, "readAvailabilityHead");
+  return yield* restoreLockedAvailabilityByIdentity(transaction, identity, row);
 });
+
+// The mutable row was read and locked before this pass. Only immutable evidence
+// reads occur inside; neither a transaction callback nor the head lock is cached.
+const restoreLockedAvailabilityByIdentity = Effect.fn(
+  "FrameworkSchemaAvailabilityHeadRepository.restoreLockedByIdentity",
+)(function* (
+  transaction: FlarexMetadataTransaction,
+  identity: FrameworkSchemaInstallationIdentity,
+  row: FrameworkSchemaAvailabilityHeadDriverRow,
+) {
+  const installation = yield* readFrameworkSchemaInstallationByIdentityInTransactionEffect(transaction, identity);
+  if (Option.isNone(installation)) return Option.none();
+  return Option.some(yield* restoreAvailabilityHeadOccupant(transaction, row, installation.value, "readAvailabilityHead"));
+}, withFrameworkGraphReadPass);
 
 export const compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect =
   Effect.fn("FrameworkSchemaAvailabilityHeadRepository.compareAndSwap")(

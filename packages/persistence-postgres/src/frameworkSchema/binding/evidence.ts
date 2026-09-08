@@ -9,8 +9,7 @@ import type {
   FrameworkMigrationTarget,
   FrameworkMigrationTargetSnapshot,
 } from "../../migrationCoordination/targetSession";
-import { readFrameworkSchemaInstallationByIdentityInTransactionEffect } from "../installation/installationRepository";
-import { lockFrameworkSchemaAvailabilityHeadInTransactionEffect } from "../installation/availabilityHeadRepository";
+import { lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect } from "../installation/availabilityHeadRepository";
 import { sameBindingValue } from "./canonical";
 import { bindingError } from "./errors";
 import {
@@ -44,17 +43,10 @@ export const lockBindingInstallation = Effect.fn(
     )
   )
     return yield* Effect.fail(bindingError("placementMismatch"));
-  const installed =
-    yield* readFrameworkSchemaInstallationByIdentityInTransactionEffect(
+  const availability =
+    yield* lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect(
       tx,
       identity,
-    );
-  if (Option.isNone(installed))
-    return yield* Effect.fail(bindingError("missingDependency"));
-  const availability =
-    yield* lockFrameworkSchemaAvailabilityHeadInTransactionEffect(
-      tx,
-      installed.value,
     );
   if (Option.isNone(availability))
     return yield* Effect.fail(bindingError("missingDependency"));
