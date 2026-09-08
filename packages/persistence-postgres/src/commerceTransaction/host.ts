@@ -1,7 +1,8 @@
+import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
 import { getCommerceCommand, type CommerceCommand, type CommerceCommandContext, type CommerceHost } from "./commands";
 export { defineCommerceCommand } from "./commands";
 export type { CommerceCommand, CommerceCommandContext, CommerceHost } from "./commands";
-import { Cause, Effect, Exit, Schema } from "effect";
+import { Effect, Exit, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import type { Json } from "flarex-protocol/json";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
@@ -23,7 +24,7 @@ import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSess
 import { RelationalSessionError } from "../relationalTransaction/model";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { createCommittedPointOutcomeResolverV1, CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../committedPointOutcome";
-import { finalizeCommerceCommit } from "../pointCommitTransaction";
+import { finalizeCommerceCommit } from "./publication";
 import { withCommerceAdmission, requireCommerceAdmission } from "./admission";
 import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObservation } from "./store";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
@@ -194,21 +195,19 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
         }));
       })));
     });
-    const value = yield* attempt(false).pipe(Effect.catchCause(foreign => {
-      const cause = Cause.map(foreign, projectFailure);
-      const reason = cause.reasons[0];
-      if (key !== null && cause.reasons.length === 1 && reason !== undefined && Cause.isFailReason(reason) && reason.error.reason === "decisionUncertain") {
-        // Request identity and a reusable tentative commit sequence cannot prove
-        // that a recovered outcome belongs to this buffer's attempt. A competing
-        // identical request may have committed after this attempt rolled back.
-        if (local !== undefined && pendingEvents.length > 0) {
+    const value = yield* runWithRequestRecovery(attempt, {
+      hasRequestKey: key !== null,
+      projectFailure,
+      isDecisionUncertain: error => error.reason === "decisionUncertain",
+      beforeRecovery: error => {
+        // A competing identical request may supply the retained outcome. Its
+        // result cannot authenticate this attempt's local delivery buffer.
+        if (local !== undefined && key !== null && pendingEvents.length > 0) {
           pendingEvents = [];
-          local.record({ requestKey: key, outcome: Exit.fail(reason.error) });
+          local.record({ requestKey: key, outcome: Exit.fail(error) });
         }
-        return attempt(true).pipe(Effect.catchCause(recovery => Effect.failCause(Cause.combine(cause, Cause.map(recovery, projectFailure)))));
-      }
-      return Effect.failCause(cause);
-    }));
+      },
+    });
     if (local !== undefined && key !== null && pendingEvents.length > 0) {
       const outcome = yield* Effect.exit(Effect.suspend(() => local.deliver(pendingEvents)).pipe(Effect.timeoutOrElse({ duration: commerceLimits.cleanupMs,
         orElse: () => Effect.fail(commerceError("deadlineExceeded")) })));

@@ -1,8 +1,9 @@
+import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
 import type { AppRelationEdgeQueryObservation } from "../appRelationEdges";
 import { prepareCmsRelations, makeCmsRelations, type CmsRelations } from "./relations";
 import { hasApplicationRelationReadPortAuthorityForControlDb, hasApplicationRelationReadPortAuthorityForPointCommit, type ApplicationRelationReadPort } from "../applicationRelationRead";
 import { hasFrameworkMigrationTargetDatabase, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
-import { Cause, Clock, Effect, Option, Schema } from "effect";
+import { Clock, Effect, Option, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
@@ -217,14 +218,11 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
         }), preferenceTarget);
       })));
     });
-    return yield* attempt(false).pipe(Effect.catchCause(foreignCause => {
-      const cause = Cause.map(foreignCause, projectFailure);
-      const reason = cause.reasons[0];
-      if (key !== null && cause.reasons.length === 1 && reason !== undefined && Cause.isFailReason(reason) && reason.error.reason === "decisionUncertain") {
-        return attempt(true).pipe(Effect.catchCause(recovery => Effect.failCause(Cause.combine(cause, Cause.map(recovery, projectFailure)))));
-      }
-      return Effect.failCause(cause);
-    }));
+    return yield* runWithRequestRecovery(attempt, {
+      hasRequestKey: key !== null,
+      projectFailure,
+      isDecisionUncertain: error => error.reason === "decisionUncertain",
+    });
   });
   return Object.freeze({ newRequestKey: () => `cms/${crypto.randomUUID()}`,
     run: (key, command, args) => execute(key, command, args), read: (command, args) => execute(null, command, args) } satisfies CmsHost);

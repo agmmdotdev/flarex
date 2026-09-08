@@ -1,4 +1,6 @@
-import { runOwnedPromise } from "./ownedPromise";
+import { allocateScopePublicationResult, readScopePublicationDatabaseTime, writeScopePublicationPrefix as writeSharedPublicationPrefix, advanceScopePublicationClock as advanceSharedPublicationClock } from "./commitPublication/publication";
+import { ScopePublicationCorruptionError, ScopePublicationResourceError, ScopePublicationSqlFailure, type ScopePublicationContribution, type ScopePublicationKernel } from "./commitPublication/scopePublicationModel";
+
 import { SnapshotTokenSchema } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
@@ -7,12 +9,7 @@ import { consumeCmsDocumentClosure, type CmsDocumentClosure } from "./cmsTransac
 import type { CmsRequestLifetime } from "./cmsTransaction/lifetime";
 import { consumePayloadPreferenceCleanup, type PayloadPreferenceCleanupClosure } from "./payloadPreferences/cleanup";
 import { fxSystemCommitPayloadPreferenceDeletions } from "./payloadPreferences/factsSchema";
-import { fxSystemCommitRelationalChanges } from "./commitPublication/relationalFactsSchema";
-import { fxSystemFrameworkInitializations } from "./frameworkSchema/installation/initializationSchema";
-import { requireCommerceAdmission, type CommerceAdmission } from "./commerceTransaction/admission";
-import { consumeCommerceRows, type CommerceRowClosure } from "./commerceTransaction/store";
-import { commerceError, type CommerceTransactionError } from "./commerceTransaction/model";
-import type { BoundedRequestLifetime } from "./boundedRequestLifetime";
+
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { cmsError, type CmsTransactionError } from "./cmsTransaction/model";
 import {
@@ -108,24 +105,7 @@ import {
   CatalogSchemaVersionIdSchema,
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";
-import {
-  MAX_PERSISTED_SIGNED_INT64_V1,
-  CommitSeqSchema,
-  OutboxSeqSchema,
-  ScopeEpochUuidV1Schema,
-  ScopeUuidV1Schema,
-  projectScopeEpochUuidV1Result,
-  projectScopeIdUuidV1Result,
-  type CommitSeq,
-  type FlarexDbV1StorageGeneration,
-  type OutboxSeq,
-  type ReplacementScopeIdV1,
-  type ScopeEpoch,
-  type ScopeEpochUuidV1,
-  type ScopeUuidV1,
-  type SnapshotToken,
-  type StorageGenerationFence,
-} from "flarex-protocol/storage-authority";
+import { MAX_PERSISTED_SIGNED_INT64_V1, CommitSeqSchema, ScopeEpochUuidV1Schema, ScopeUuidV1Schema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq, type FlarexDbV1StorageGeneration, type OutboxSeq, type ReplacementScopeIdV1, type ScopeEpoch, type ScopeEpochUuidV1, type ScopeUuidV1, type SnapshotToken, type StorageGenerationFence } from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
@@ -148,18 +128,7 @@ import {
   type TransactionSessionIdV1,
   type TransactionSourcePackageSha256HexV1,
 } from "flarex-protocol/transaction-session";
-import {
-  FLAREX_VALUE_CODEC_VERSION_V1,
-  FlarexValueSha256V1Schema,
-  FlarexValueCodecV1Error,
-  FlarexValueEvidenceV1Error,
-  canonicalizeFlarexValueV1,
-  decodeCanonicalFlarexValueEvidenceV1,
-  isCanonicalFlarexRuntimeObjectV1,
-  type CanonicalFlarexRuntimeValueV1,
-  type CanonicalFlarexValueV1,
-  type FlarexValueCodecVersion,
-} from "flarex-protocol/value";
+import { FLAREX_VALUE_CODEC_VERSION_V1, FlarexValueCodecV1Error, FlarexValueEvidenceV1Error, canonicalizeFlarexValueV1, decodeCanonicalFlarexValueEvidenceV1, isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1, type CanonicalFlarexValueV1, type FlarexValueCodecVersion } from "flarex-protocol/value";
 
 import {
   lowerAppDeveloperIndexKeyV1,
@@ -287,7 +256,7 @@ import {
   validateCommittedPointOutcomeRequestEvidenceShapeV1,
   validateCommittedPointOutcomeStoredScalarsAfterRequestShapeV1,
 } from "./committedPointOutcome";
-import { COMMIT_WAKE_OUTBOX_EVENT_KIND_V1 } from "./commitWakeOutbox";
+
 import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import {
   observeDrizzleQuery as observeCompiledDrizzleQuery,
@@ -308,26 +277,7 @@ import {
 } from "./scopeAuthorityResolution";
 import { fxSystemApplicationActiveHeads } from "./applicationActivationSchema";
 import { fxSystemApplicationReadiness } from "./applicationRelationSchema";
-import {
-  fxAppIndexEntryRevisions,
-  fxSystemCommitAppRowChanges,
-  fxSystemCommitRelationAdjacencyChanges,
-  fxSystemCommits,
-  fxSystemIdempotency,
-  fxSystemIndexBuildStates,
-  fxSystemApplicationReadinessV1,
-  fxSystemOutbox,
-  fxSystemScopeClocks,
-  fxSystemSnapshotLeases,
-  fxSystemTransactionExecutionClaims,
-  fxSystemTransactionJournalLatestReceipts,
-  fxSystemTransactionJournalIndexRanges,
-  fxSystemTransactionJournalPoints,
-  fxSystemTransactionJournalRelationIncomingDependencies,
-  fxSystemTransactionJournalWriteEvents,
-  fxSystemTransactionJournals,
-  fxSystemTransactionSessions,
-} from "./schema";
+import { fxAppIndexEntryRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemIndexBuildStates, fxSystemApplicationReadinessV1, fxSystemScopeClocks, fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims, fxSystemTransactionJournalLatestReceipts, fxSystemTransactionJournalIndexRanges, fxSystemTransactionJournalPoints, fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournalWriteEvents, fxSystemTransactionJournals, fxSystemTransactionSessions } from "./schema";
 import {
   deriveTransactionExecutionClaimV1,
   lockExactTransactionExecutionClaimV1Result,
@@ -376,7 +326,7 @@ const MAX_SIGNED_COMMIT_SEQ = MAX_PERSISTED_SIGNED_INT64_V1;
 const MAX_SIGNED_COMMIT_SEQ_TEXT_LENGTH =
   MAX_SIGNED_COMMIT_SEQ.toString().length;
 const HASH_BYTE_LENGTH = 32;
-const MAX_COMMIT_RELATION_ADJACENCY_CHANGES_PER_STATEMENT = 500;
+
 const decodePointCommitJournalBytesResult = Schema.decodeUnknownResult(CanonicalSessionJournalBytesV1Schema);
 const decodePointCommitCreationTimeResult = Schema.decodeUnknownResult(
   Schema.toType(AppCreationTimeV1Schema),
@@ -6376,42 +6326,6 @@ function requirePointCommitReadyForPublicationResult(
   }));
 }
 
-function allocatePointCommitKernelResult(
-  clock: Pick<LockedPointCommitClockV1, "record">,
-  mode: PointCommitTransactionModeV1,
-  publicationTimeMilliseconds: number,
-): Result.Result<
-  Readonly<{
-    readonly commitSeq: CommitSeq;
-    readonly outboxSeq: OutboxSeq | null;
-    readonly publicationTimeMilliseconds: number;
-  }>,
-  PointCommitResourceExhaustionV1Error
-> {
-  if (clock.record.lastCommitSeq >= MAX_SIGNED_COMMIT_SEQ) {
-    return Result.fail(new PointCommitResourceExhaustionV1Error({
-      dimension: "commitSequence",
-      maximum: MAX_SIGNED_COMMIT_SEQ,
-    }));
-  }
-  if (
-    mode === "publish" &&
-    clock.record.lastOutboxSeq >= MAX_PERSISTED_SIGNED_INT64_V1
-  ) {
-    return Result.fail(new PointCommitResourceExhaustionV1Error({
-      dimension: "outboxSequence",
-      maximum: MAX_PERSISTED_SIGNED_INT64_V1,
-    }));
-  }
-  return Result.succeed(Object.freeze({
-    commitSeq: CommitSeqSchema.make(clock.record.lastCommitSeq + 1n),
-    outboxSeq: mode === "publish"
-      ? OutboxSeqSchema.make(clock.record.lastOutboxSeq + 1n)
-      : null,
-    publicationTimeMilliseconds,
-  }));
-}
-
 async function lockPointCommitClock(
   tx: AppRowTransaction,
   command: PreparedPointCommitAuthorityCommandV1,
@@ -7303,40 +7217,6 @@ async function lockPointCommitJournalRoot(
   }));
 }
 
-async function readPointCommitDatabaseTime(
-  tx: AppRowTransaction,
-  scopeId: ReplacementScopeIdV1,
-  options: PointCommitTransactionProofOptionsV1,
-): Promise<number> {
-  const query = tx
-    .select({
-      milliseconds: sql<string>`
-        floor(extract(epoch from clock_timestamp()) * 1000)::bigint::text
-      `,
-    })
-    .from(fxSystemScopeClocks)
-    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
-    .limit(1);
-  observeDrizzleQuery("readDatabaseTime", query, options);
-  const rows = await sqlCall("readDatabaseTime", () => query);
-  return projectPointCommitTransactionResult(
-    decodePointCommitDatabaseTimeResult(rows[0]?.milliseconds),
-  );
-}
-
-function decodePointCommitDatabaseTimeResult(
-  text: unknown,
-): Result.Result<number, PointCommitCorruptionV1Error> {
-  if (typeof text !== "string" || !/^[1-9][0-9]*$/.test(text)) {
-    return Result.fail(corruption("scopeClockInvalid"));
-  }
-  const value = Number(text);
-  if (!isPositiveSafeInteger(value)) {
-    return Result.fail(corruption("scopeClockInvalid"));
-  }
-  return Result.succeed(value);
-}
-
 function requireAttemptIsLiveResult(
   session: LockedPointCommitSessionV1,
   lease: LockedPointCommitLeaseV1,
@@ -8003,277 +7883,9 @@ async function publishPointCommitInTransaction(
   await advanceScopePublicationClock(tx, contribution, kernel, options);
 }
 
-/** A commerce closure carries neither Application journal nor materialization authority. */
-const publishCommerceAtoms = Effect.fn("CommerceCommit.publishAtoms")(<Value>(work: (signal: AbortSignal) => Promise<Value>) =>
-  runOwnedPromise(work, cause => commerceError("statementFailure", cause)));
 
-export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(function* (
-  admission: CommerceAdmission,
-  lifetime: BoundedRequestLifetime<CommerceTransactionError>,
-  closure: CommerceRowClosure,
-  identity: ResolveCommittedPointOutcomeInputV1,
-  result: CanonicalSuccessfulResultV1,
-  resultSha256: Uint8Array,
-): Effect.fn.Return<CommitSeq, CommerceTransactionError> {
-  const state = yield* requireCommerceAdmission(admission);
-  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
-  const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(state.clock.epoch)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
-  if (identity.scopeUuid !== scope.scopeUuid || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
-  const facts = yield* consumeCommerceRows(closure, admission, lifetime);
-  const clock = { record: state.clock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
-  const now = yield* publishCommerceAtoms(() => readPointCommitDatabaseTime(state.tx, scope.scopeId, {}));
-  const allocation = yield* Effect.fromResult(allocatePointCommitKernelResult(clock, "publish", now))
-    .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
-  if (allocation.outboxSeq === null) return yield* Effect.fail(commerceError("storedCorruption"));
-  const contribution: ScopePublicationContribution = {
-    authorityPins: { scopeId: scope.scopeId, requestKey: identity.requestKey, functionPath: identity.expectedFunctionPath },
-    rowIntents: [], identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
-    requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
-    relationalFacts: facts.map(fact => ({ ...fact,
-      installationSha256: state.reference.installation.installationSha256, artifactSha256: state.descriptor.artifact.identity.artifactSha256 })),
-  };
-  const kernel: ScopePublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: [] };
-  // The existing owner bridges its Promise-based publication kernel once.
-  yield* publishCommerceAtoms(signal => writeScopePublicationPrefix(state.tx, contribution, kernel, {}, signal));
-  if (state.bootstrap) {
-    const initialization = state.descriptor.initialization;
-    if (initialization === null) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    if (facts.length !== initialization.expectedRowCount || facts.some(fact => fact.operation !== "insert")) return yield* Effect.fail(commerceError("seedMismatch"));
-    const stored = yield* runDrizzleStatementEffect(state.tx.insert(fxSystemFrameworkInitializations).values({
-      scopeUuid: scope.scopeUuid, installationSha256: state.reference.installation.installationSha256,
-      artifactSha256: state.descriptor.artifact.identity.artifactSha256, stepId: initialization.stepId,
-      contractSha256: state.descriptor.contractSha256, datasetSha256: initialization.datasetSha256,
-      rowCount: initialization.expectedRowCount, commitSeq: allocation.commitSeq,
-    }).returning({ stepId: fxSystemFrameworkInitializations.stepId }), cause => commerceError("statementFailure", cause));
-    if (stored.length !== 1 || stored[0]?.stepId !== initialization.stepId) return yield* Effect.fail(commerceError("storedCorruption"));
-  }
-  yield* publishCommerceAtoms(() => advanceScopePublicationClock(state.tx, contribution, kernel, {}));
-  return allocation.commitSeq;
-});
 
-interface ScopePublicationContribution {
-  readonly relationalFacts?: readonly Omit<typeof fxSystemCommitRelationalChanges.$inferInsert, "scopeUuid" | "epochUuid" | "commitSeq" | "changeOrdinal">[];
-  readonly payloadPreferenceDeletionCount?: number;
-  readonly authorityPins: Pick<PointCommitAuthorityPinsV1, "scopeId" | "requestKey" | "functionPath">;
-  readonly rowIntents: ReadonlyArray<Pick<PreparedPointCommitRowIntentV1, "tableId" | "rowId">>;
-  readonly identityAccessPolicySha256: Uint8Array;
-  readonly requestSha256: Uint8Array;
-  readonly resultSha256: Uint8Array;
-  readonly successfulResult: Pick<PreparedPointCommitPublicationCommandV1["successfulResult"], "canonicalBytes" | "semanticSizeBytes">;
-}
-interface ScopePublicationKernel {
-  readonly clock: Pick<LockedPointCommitClockV1, "record" | "scopeUuid" | "epochUuid">;
-  readonly commitSeq: CommitSeq;
-  readonly outboxSeq: OutboxSeq;
-  readonly publicationTimeMilliseconds: number;
-  readonly relationAdjacencyChanges: ReadonlyArray<ApplicationRelationAdjacencyChange>;
-}
 
-/** Shared atoms; only the package-owned Application, CMS and commerce participants contribute. */
-async function writeScopePublicationPrefix(
-  tx: AppRowTransaction,
-  command: ScopePublicationContribution,
-  kernel: ScopePublicationKernel,
-  options: PointCommitTransactionProofOptionsV1,
-  signal?: AbortSignal,
-): Promise<void> {
-  signal?.throwIfAborted();
-  const publicationTime = new Date(kernel.publicationTimeMilliseconds);
-  const scopeUuid = kernel.clock.scopeUuid;
-  const epochUuid = kernel.clock.epochUuid;
-  const commitSeq = kernel.commitSeq;
-  const outboxSeq = kernel.outboxSeq;
-  const changeCount = command.rowIntents.length;
-  const relationAdjacencyChangeCount =
-    kernel.relationAdjacencyChanges.length;
-
-  const header = await sqlCall("writeCommitHeader", () =>
-    tx.insert(fxSystemCommits).values({
-      scopeUuid,
-      epochUuid,
-      commitSeq,
-      changeCount,
-      relationAdjacencyChangeCount,
-      payloadPreferenceDeletionCount: command.payloadPreferenceDeletionCount ?? 0,
-      relationalChangeCount: command.relationalFacts?.length ?? 0,
-      committedAt: publicationTime,
-    }).returning({ commitSeq: fxSystemCommits.commitSeq }));
-  projectPointCommitTransactionResult(
-    requireSinglePublicationWriteResult(header, commitSeq, "commitSeq"),
-  );
-  await emitTransactionStep(options, command, "commitHeaderWritten");
-
-  for (let ordinal = 0; ordinal < command.rowIntents.length; ordinal += 1) {
-    const rowIntent = command.rowIntents[ordinal];
-    if (rowIntent === undefined) {
-      throw corruption("publicationInvariantInvalid");
-    }
-    const change = await sqlCall("writeCommitChange", () =>
-      tx.insert(fxSystemCommitAppRowChanges).values({
-        scopeUuid,
-        epochUuid,
-        commitSeq,
-        changeOrdinal: ordinal,
-        tableId: rowIntent.tableId,
-        rowId: appRowIdHexV1ToBytes(rowIntent.rowId),
-      }).returning({ commitSeq: fxSystemCommitAppRowChanges.commitSeq }));
-    projectPointCommitTransactionResult(
-      requireSinglePublicationWriteResult(change, commitSeq, "commitSeq"),
-    );
-    await emitTransactionStep(options, command, "commitChangeWritten");
-  }
-
-  for (
-    let firstOrdinal = 0;
-    firstOrdinal < kernel.relationAdjacencyChanges.length;
-    firstOrdinal += MAX_COMMIT_RELATION_ADJACENCY_CHANGES_PER_STATEMENT
-  ) {
-    const batch = kernel.relationAdjacencyChanges.slice(
-      firstOrdinal,
-      firstOrdinal + MAX_COMMIT_RELATION_ADJACENCY_CHANGES_PER_STATEMENT,
-    );
-    const query = tx.insert(fxSystemCommitRelationAdjacencyChanges).values(
-      batch.map((relationChange, batchIndex) => ({
-        scopeUuid,
-        epochUuid,
-        commitSeq,
-        changeOrdinal: firstOrdinal + batchIndex,
-        edgeDefinitionId: relationChange.edgeDefinitionId,
-        direction: relationChange.direction,
-        endpointRowId: appRowIdHexV1ToBytes(
-          relationChange.endpointRowId,
-        ),
-      })),
-    ).returning({
-      commitSeq: fxSystemCommitRelationAdjacencyChanges.commitSeq,
-      changeOrdinal: fxSystemCommitRelationAdjacencyChanges.changeOrdinal,
-    });
-    observeDrizzleQuery(
-      "writeCommitRelationAdjacencyChange",
-      query,
-      options,
-    );
-    const changes = await sqlCall(
-      "writeCommitRelationAdjacencyChange",
-      () => query,
-    );
-    projectPointCommitTransactionResult(
-      requireRelationAdjacencyChangeBatchWriteResult(
-        changes,
-        commitSeq,
-        firstOrdinal,
-        batch.length,
-      ),
-    );
-    await emitTransactionStep(
-      options,
-      command,
-      "commitRelationAdjacencyChangeWritten",
-    );
-  }
-
-  signal?.throwIfAborted();
-  if (command.relationalFacts !== undefined && command.relationalFacts.length > 0) {
-    const facts = await tx.insert(fxSystemCommitRelationalChanges).values(command.relationalFacts.map((fact, changeOrdinal) => ({
-      ...fact, scopeUuid, epochUuid, commitSeq, changeOrdinal,
-    }))).returning({ ordinal: fxSystemCommitRelationalChanges.changeOrdinal });
-    if (facts.length !== command.relationalFacts.length || new Set(facts.map(fact => fact.ordinal)).size !== facts.length ||
-      facts.some(fact => fact.ordinal < 0 || fact.ordinal >= (command.relationalFacts?.length ?? 0))) throw corruption("publicationInvariantInvalid");
-  }
-
-  signal?.throwIfAborted();
-  const outcome = await sqlCall("writeOutcome", () =>
-    tx.insert(fxSystemIdempotency).values({
-      scopeUuid,
-      requestKey: command.authorityPins.requestKey,
-      identityAccessPolicySha256:
-        TransactionIdentityAccessPolicySha256V1Schema.make(copyBytes(
-          command.identityAccessPolicySha256,
-        )),
-      functionPath: command.authorityPins.functionPath,
-      requestSha256: TransactionRequestSha256V1Schema.make(copyBytes(
-        command.requestSha256,
-      )),
-      epochUuid,
-      commitSeq,
-      resultState: "available",
-      resultValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
-      resultSemanticBytes: command.successfulResult.semanticSizeBytes,
-      resultBytes: command.successfulResult.canonicalBytes,
-      resultSha256: FlarexValueSha256V1Schema.make(copyBytes(
-        command.resultSha256,
-      )),
-      resultExpiredAt: null,
-      createdAt: publicationTime,
-    }).returning({ commitSeq: fxSystemIdempotency.commitSeq }));
-  projectPointCommitTransactionResult(
-    requireSinglePublicationWriteResult(outcome, commitSeq, "commitSeq"),
-  );
-  await emitTransactionStep(options, command, "outcomeWritten");
-
-  signal?.throwIfAborted();
-  const wake = await sqlCall("writeWake", () =>
-    tx.insert(fxSystemOutbox).values({
-      scopeUuid,
-      outboxSeq,
-      epochUuid,
-      commitSeq,
-      eventKind: COMMIT_WAKE_OUTBOX_EVENT_KIND_V1,
-      deliveryState: "pending",
-      createdAt: publicationTime,
-      nextAttemptAt: publicationTime,
-      attemptCount: 0n,
-      claimFence: 0n,
-      claimOwner: null,
-      claimedAt: null,
-      claimExpiresAt: null,
-      lastFailureCode: null,
-      lastFailureSummary: null,
-      lastFailedAt: null,
-      deliveredAt: null,
-      deadLetteredAt: null,
-    }).returning({ outboxSeq: fxSystemOutbox.outboxSeq }));
-  projectPointCommitTransactionResult(
-    requireSinglePublicationWriteResult(wake, outboxSeq, "outboxSeq"),
-  );
-  await emitTransactionStep(options, command, "wakeWritten");
-
-}
-
-async function advanceScopePublicationClock(
-  tx: AppRowTransaction,
-  command: ScopePublicationContribution,
-  kernel: ScopePublicationKernel,
-  options: PointCommitTransactionProofOptionsV1,
-): Promise<void> {
-  const scopeUuid = kernel.clock.scopeUuid;
-  const commitSeq = kernel.commitSeq;
-  const outboxSeq = kernel.outboxSeq;
-  const publicationTime = new Date(kernel.publicationTimeMilliseconds);
-  const clock = await sqlCall("advanceScopeClock", () =>
-    tx.update(fxSystemScopeClocks).set({
-      lastCommitSeq: commitSeq,
-      lastOutboxSeq: outboxSeq,
-      updatedAt: publicationTime,
-    }).where(and(
-      eq(fxSystemScopeClocks.scopeUuid, scopeUuid),
-      eq(
-        fxSystemScopeClocks.lastCommitSeq,
-        kernel.clock.record.lastCommitSeq,
-      ),
-      eq(
-        fxSystemScopeClocks.lastOutboxSeq,
-        kernel.clock.record.lastOutboxSeq,
-      ),
-    )).returning({
-      lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
-      lastOutboxSeq: fxSystemScopeClocks.lastOutboxSeq,
-    }));
-  projectPointCommitTransactionResult(
-    requirePointCommitClockPublicationResult(clock, commitSeq, outboxSeq),
-  );
-  await emitTransactionStep(options, command, "clockAdvanced");
-}
 
 function requireSinglePublicationWriteResult<
   Key extends "commitSeq" | "outboxSeq" | "sessionId",
@@ -8286,52 +7898,6 @@ function requireSinglePublicationWriteResult<
   return rows.length === 1 && rows[0]?.[key] === expected
     ? Result.succeed(undefined)
     : Result.fail(corruption("publicationInvariantInvalid"));
-}
-
-function requireRelationAdjacencyChangeBatchWriteResult(
-  rows: ReadonlyArray<Readonly<{
-    readonly commitSeq: CommitSeq;
-    readonly changeOrdinal: number;
-  }>>,
-  expectedCommitSeq: CommitSeq,
-  firstOrdinal: number,
-  expectedCount: number,
-): Result.Result<void, PointCommitCorruptionV1Error> {
-  if (rows.length !== expectedCount) {
-    return Result.fail(corruption("publicationInvariantInvalid"));
-  }
-  const ordinals = new Set<number>();
-  for (const row of rows) {
-    if (
-      row.commitSeq !== expectedCommitSeq ||
-      !Number.isInteger(row.changeOrdinal) ||
-      row.changeOrdinal < firstOrdinal ||
-      row.changeOrdinal >= firstOrdinal + expectedCount ||
-      ordinals.has(row.changeOrdinal)
-    ) {
-      return Result.fail(corruption("publicationInvariantInvalid"));
-    }
-    ordinals.add(row.changeOrdinal);
-  }
-  return Result.succeed(undefined);
-}
-
-function requirePointCommitClockPublicationResult(
-  rows: ReadonlyArray<Readonly<{
-    readonly lastCommitSeq: CommitSeq;
-    readonly lastOutboxSeq: OutboxSeq;
-  }>>,
-  expectedCommitSeq: CommitSeq,
-  expectedOutboxSeq: OutboxSeq,
-): Result.Result<void, PointCommitCorruptionV1Error> {
-  if (
-    rows.length !== 1 ||
-    rows[0]?.lastCommitSeq !== expectedCommitSeq ||
-    rows[0]?.lastOutboxSeq !== expectedOutboxSeq
-  ) {
-    return Result.fail(corruption("publicationInvariantInvalid"));
-  }
-  return Result.succeed(undefined);
 }
 
 function adaptPointDependency(
@@ -9818,13 +9384,10 @@ async function replacementSqlCall<Value>(
   }
 }
 
-async function sqlCall<Value>(
-  operation: PointCommitSqlOperationV1,
-  call: () => PromiseLike<Value>,
-): Promise<Value> {
-  try {
-    return await call();
-  } catch (cause) {
+async function sqlCall<Value>(operation: PointCommitSqlOperationV1, call: () => PromiseLike<Value>): Promise<Value> {
+  try { return await call(); } catch (cause) { throw pointCommitSqlCallFailure(operation, cause); }
+}
+function pointCommitSqlCallFailure(operation: PointCommitSqlOperationV1, cause: unknown) {
     if (
       cause instanceof PointCommitConflictV1Error ||
       cause instanceof PointCommitStaleAuthorityV1Error ||
@@ -9834,10 +9397,10 @@ async function sqlCall<Value>(
       cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1 ||
       cause instanceof CommittedPointOutcomeCorruptionErrorV1
     ) {
-      throw cause;
+      return cause;
     }
-    throw new PointCommitSqlFailureMarkerV1(operation, cause);
-  }
+
+  return new PointCommitSqlFailureMarkerV1(operation, cause);
 }
 
 function parseNonNegativeIntegerTextResult(
@@ -10292,4 +9855,17 @@ function stale(
   reason: PointCommitStaleAuthorityReasonV1,
 ): PointCommitStaleAuthorityV1Error {
   return new PointCommitStaleAuthorityV1Error({ reason });
+}
+
+// Native and CMS retain their established kernel error channel. No mechanics are duplicated here.
+const allocatePointCommitKernelResult = (clock: Pick<LockedPointCommitClockV1, "record">, mode: PointCommitTransactionModeV1, now: number) =>
+  allocateScopePublicationResult(clock, mode, now).pipe(Result.mapError(error => new PointCommitResourceExhaustionV1Error({ dimension: error.dimension, maximum: error.maximum })));
+const readPointCommitDatabaseTime: typeof readScopePublicationDatabaseTime = (...args) => readScopePublicationDatabaseTime(...args).catch(rethrowPublicationFailure);
+const writeScopePublicationPrefix: typeof writeSharedPublicationPrefix = (...args) => writeSharedPublicationPrefix(...args).catch(rethrowPublicationFailure);
+const advanceScopePublicationClock: typeof advanceSharedPublicationClock = (...args) => advanceSharedPublicationClock(...args).catch(rethrowPublicationFailure);
+function rethrowPublicationFailure(cause: unknown): never {
+  if (cause instanceof ScopePublicationCorruptionError) throw corruption(cause.reason);
+  if (cause instanceof ScopePublicationResourceError) throw new PointCommitResourceExhaustionV1Error({ dimension: cause.dimension, maximum: cause.maximum });
+  if (cause instanceof ScopePublicationSqlFailure) throw pointCommitSqlCallFailure(cause.operation, cause.cause);
+  throw cause;
 }

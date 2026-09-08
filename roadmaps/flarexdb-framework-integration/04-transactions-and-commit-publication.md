@@ -5,6 +5,10 @@
 Status: private CMS row, optional-one relation and preference publication are
 implemented through the existing Application commit owner. Private Currency
 publication is implemented through the shared finalizer and relational facts.
+The [shared publication and recovery contract](./preflight/36-shared-publication-and-request-recovery.md)
+is implemented: common publication has an explicit private owner, commerce
+finalization is a trusted commerce participant, and both framework hosts share
+uncertain-outcome routing. CMS retains its native materialization bridge.
 Synthetic relational receipts still reject finalization; multi-table Product
 commands with local event conformance are implemented and validated privately under
 [record 28](./preflight/28-medusa-product-create-and-event-delivery.md).
@@ -19,8 +23,9 @@ scope-clock locking, commit ordering, or feed storage.
 
 The accepted [execution-profile preflight](./preflight/14-transaction-execution-profiles.md)
 records the pinned framework evidence and shared ownership direction. The
-successful-family commit-owner implementation contract remains required;
-the preflight does not claim the current Application-shaped host is neutral.
+successful-family publication ownership is implemented by record 36 for the
+currently admitted families. This does not make the Application execution host
+neutral or admit additional families.
 
 The implemented [scalar transaction/store contract](./preflight/15-scalar-relational-transaction-and-store.md)
 supplies a private synthetic capability: authenticated owner/table access,
@@ -74,9 +79,10 @@ an independently committing call inside an existing logical mutation.
 
 The [shared-owner preflight](../../design-notes/flarexdb-commerce-occ-migration-preflight.md)
 clarifies the default: complete warranted core ownership and remove actual
-duplication while preserving native OCC and framework SQL execution. Finish
-the agreed Product original-test handoff and refresh source/status before that
-refactor. Keep the active module work separate.
+duplication while preserving native OCC and framework SQL execution. Record 36
+implements that bounded consolidation after the Product original-test handoff.
+The native publisher's remaining CMS materialization bridge and additional
+module capabilities retain their own scope; no general host merger is implied.
 
 Named atomic composition is a separate capability that can use bounded SQL;
 general mixed sandbox OCC requires its own explicit selection and snapshot,

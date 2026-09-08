@@ -159,7 +159,10 @@ Use these sources in order:
 36. [`preflight/35-medusa-product-scale.md`](./preflight/35-medusa-product-scale.md)
     proposes the remaining 1000-image case through measured shared resource
     budgets, complete atomic batches and stable relation reads.
-37. Current code, migrations, any source snapshot already admitted by its own
+37. [`preflight/36-shared-publication-and-request-recovery.md`](./preflight/36-shared-publication-and-request-recovery.md)
+    owns the implemented common publisher and framework recovery routing while
+    preserving native OCC, bounded SQL and participant-specific completion.
+38. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -229,13 +232,15 @@ Preflight records:
 | [`preflight/33-commerce-write-kernel-efficiency.md`](./preflight/33-commerce-write-kernel-efficiency.md) | Approved shared-owner correction implemented | Operation-local catalog reuse and bounded insert/update RETURNING envelopes preserve limits, exact row facts, cancellation and atomicity |
 | [`preflight/34-medusa-product-lifecycle.md`](./preflight/34-medusa-product-lifecycle.md) | Implemented privately with both-driver original-test proof | 55 originals pass per driver; managed transitions, complete cascade facts, deleted-row reads and authenticated local events; one scale case and one upstream skip remain |
 | [`preflight/35-medusa-product-scale.md`](./preflight/35-medusa-product-scale.md) | Proposed next milestone | Measure and admit bounded complete 1000-image writes/reads; target 56 originals, preserving the upstream performance skip |
+| [`preflight/36-shared-publication-and-request-recovery.md`](./preflight/36-shared-publication-and-request-recovery.md) | Private ownership consolidation implemented | One common publisher and one framework uncertain-outcome router; trusted commerce finalization, retained CMS materialization, unchanged execution profiles and no schema replacement |
 
 ## Current Architecture
 
 The accepted [transaction execution profiles](./preflight/14-transaction-execution-profiles.md)
 share transaction ownership and commit evidence while preserving Application
-journal/OCC, bounded framework commands, and Medusa workflow recovery. This
-direction is not an implemented neutral host or a universal mutation API.
+journal/OCC, bounded framework commands, and Medusa workflow recovery.
+The private common publisher and framework recovery router are implemented in
+record 36; this does not imply a neutral execution host or universal mutation API.
 
 The repository contains a private fresh-install and bounded additive-upgrade
 lifecycle through artifact, physical plan, target/session, structural execution
