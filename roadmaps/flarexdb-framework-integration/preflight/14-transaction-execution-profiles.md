@@ -56,13 +56,25 @@ would require transaction-local query overlays for filters, joins, aggregates,
 constraints, generated values, locking, failure timing and callback retry
 semantics. Appending commerce records alone proves none of these contracts.
 
-Rejected alternative: independently committing framework adapters. It cannot
-provide atomic cross-domain database changes or atomic Flarex publication.
+Rejected alternative: framework adapters owning independent physical settlement
+or publication authority. Separate top-level framework commands remain valid
+when each settles through core and the caller's API makes their independent
+outcomes explicit. They cannot silently commit inside an enclosing atomic
+native mutation. Named cross-domain composition instead borrows one core-owned
+transaction and finalizes all admitted participants once.
 
 Keep Application journal/OCC code and framework semantics. Adapt framework
 persistence and event handoff through their narrow contracts. Refactor shared
 transaction mechanics only within the approved transaction-owner capability;
 do not create a temporary second journal, feed, or outbox authority.
+
+The [clarified shared-owner preflight](../../../design-notes/flarexdb-commerce-occ-migration-preflight.md)
+keeps this distinct-profile decision as the default. Framework transaction
+folders must delegate common guarantees to core while retaining legitimate
+profile mechanics. General mixed sandbox OCC is an optional future capability,
+not a prerequisite for sharing the committer or for named SQL composition.
+Remove actual duplicated code/schema with its replacement; do not classify
+supported SQL execution or CMS working state as obsolete for being different.
 
 ## Ownership And Compatibility Contract
 

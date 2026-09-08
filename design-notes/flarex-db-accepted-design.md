@@ -1966,6 +1966,30 @@ not equivalent because a writer could otherwise commit between another
 transaction's validation and publication. Bypassing the lane breaks OCC and
 sync.
 
+## Shared Framework Transaction Ownership
+
+Core owns physical transaction settlement, commit publication, idempotency and
+uncertain-outcome recovery for admitted Application, CMS and commerce writes.
+Framework transaction folders adapt request/service semantics to these owners;
+they do not own competing commit clocks, finalizers or recovery ledgers.
+
+Native Application retains exact snapshots, logical journals and OCC. Trusted
+CMS and commerce commands retain their admitted bounded SQL execution profiles.
+Their lifecycle, pending-state and repository differences do not require a
+separate persistence authority. Sandbox isolation does not require converting
+every framework command to native tracked execution. No SQL transaction spans
+untrusted execution or arbitrary external callbacks.
+
+An independently settled framework command cannot silently participate in an
+atomic native mutation. Named trusted composition requires one scope/placement,
+authenticated domain capabilities and one finalizer; it can be proved using a
+single bounded SQL transaction. General mixed sandbox OCC is a separately
+selected capability, not the default framework migration. Consolidate actual
+duplication and retire what it displaces under the replacement policy.
+The [framework execution profiles](../roadmaps/flarexdb-framework-integration/preflight/14-transaction-execution-profiles.md)
+and [shared-owner preflight](./flarexdb-commerce-occ-migration-preflight.md)
+own the detailed distinction and gates.
+
 ## Payload Boundary
 
 Do not infer the Payload contract from a few handwritten tables. Derive it from
@@ -1988,9 +2012,11 @@ access policy and hook ordering
 ```
 
 Dedicated physical `fx_payload_*` tables are allowed only after parity or
-measured performance justifies them. Payload request transactions use a
-Payload-owned adapter lane until every required read/write overlay is proven;
-they are not automatically compiled by the generic SessionDO journal.
+measured performance justifies them. Payload request transactions retain a
+Payload lifecycle adapter over core-owned bounded settlement by default.
+Migration to tracked reads/writes requires a separately selected execution
+capability and all required overlay/hook proofs; it is not an inevitable step
+of integration or automatic compilation by the generic SessionDO journal.
 
 One shared row authority does not imply interchangeable write paths. A Payload
 dashboard or generated CMS developer operation may apply access, defaults,

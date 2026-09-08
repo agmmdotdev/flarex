@@ -140,7 +140,7 @@ kernel:
 - immutable artifact storage, canonical digesting, and provenance;
 - physical installation and readiness evidence;
 - atomic binding activation;
-- callback-scoped transactions and nested transaction reuse;
+- bounded trusted command transactions and nested transaction reuse;
 - migration leases, step fencing, progress, receipts, and interruption
   recovery;
 - commit-sequence allocation and typed change-family publication;
@@ -156,6 +156,30 @@ The shared kernel is not a public API. Framework adapters receive narrow,
 owner-scoped capabilities. They never receive executor persistence, physical
 locators, the scope clock, unrestricted Drizzle/Postgres handles, arbitrary
 commit-fact construction, or a general cross-owner transaction.
+
+## Transaction Ownership And Execution Profiles
+
+CMS and commerce transaction paths delegate physical settlement, commit
+publication, idempotency and outcome recovery to shared Flarex owners. Their
+folders retain profile adaptation: Payload request/hook/pending-state semantics
+and Medusa manager/query/service translation. Core ownership is required;
+identical execution machinery is not.
+
+Native Application retains snapshot/journal/OCC. Admitted trusted framework
+commands retain bounded SQL execution. No SQL transaction may span untrusted
+sandbox execution, arbitrary user hooks, remote effects or workflow suspension.
+Do not introduce independent framework commit authorities or silently invoke
+independently committing commands inside an atomic native mutation.
+
+Named same-scope/placement composite commands require a separate one-owner
+atomicity proof and can use bounded SQL. General sandbox interleaving of
+`ctx.db`, planned `ctx.cms` and planned `ctx.commerce` is a stronger optional
+capability. Core sharing alone requires no relational history or framework
+journal migration. Retire actual duplicate code/schema with the approved
+replacement while preserving lifecycle and retention obligations.
+
+See the [accepted execution profiles](../roadmaps/flarexdb-framework-integration/preflight/14-transaction-execution-profiles.md)
+and [shared-owner preflight](./flarexdb-commerce-occ-migration-preflight.md).
 
 ## Schema Coordinates
 

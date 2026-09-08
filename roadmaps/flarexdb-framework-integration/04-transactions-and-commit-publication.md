@@ -57,9 +57,11 @@ Use separate high-level hosts:
 | Commerce transaction host | Medusa repositories, custom repositories, Link operations, and transaction-manager propagation |
 | Migration host | privileged bounded DDL, backfill, validation, and repair |
 
-These hosts may share transaction acquisition, scope/generation fencing,
-settlement, and finalization mechanics. They must not be collapsed into one
-public parameterized transaction API.
+These hosts delegate common transaction acquisition, scope/generation fencing,
+settlement, publication and recovery guarantees to core owners. They retain
+profile-specific admission, request/manager propagation, working state and
+domain translation. They must not maintain competing commit authorities or be
+collapsed into one public parameterized transaction API.
 
 The shared foundation does not imply one journal execution model. Preserve
 Application's current journal/OCC path. Trusted CMS and commerce commands use
@@ -67,6 +69,25 @@ their admitted physical transaction profile; workflows compose committed
 steps with framework-owned recovery. A future explicit cross-domain command
 coordinates admitted domain capabilities under one owner, rather than adding
 an independently committing call inside an existing logical mutation.
+
+## Consolidation And Optional Execution Changes
+
+The [shared-owner preflight](../../design-notes/flarexdb-commerce-occ-migration-preflight.md)
+clarifies the default: complete warranted core ownership and remove actual
+duplication while preserving native OCC and framework SQL execution. Finish
+the agreed Product original-test handoff and refresh source/status before that
+refactor. Keep the active module work separate.
+
+Named atomic composition is a separate capability that can use bounded SQL;
+general mixed sandbox OCC requires its own explicit selection and snapshot,
+query-overlay, hook/retry and concurrency proofs. Neither branch is required
+to complete default owner consolidation or ordinary framework integration.
+
+Retire only code/schema superseded by the approved slice. Preserve native
+journals, legitimate CMS pending state, commerce stores and installation/
+migration data. Any replaced fact contract must migrate its readers,
+compactors and retention obligations. No new history tables, lock-order change
+or automatic framework retry follows merely from shared ownership.
 
 ## Relational Transaction Capability
 

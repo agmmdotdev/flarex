@@ -37,6 +37,23 @@ native relational authority above.
 
 ## Notes
 
+- [Shared framework integration direction](./flarexdb-framework-integration-direction.md)
+  - Accepted core transaction/commit ownership with distinct native OCC and
+    framework SQL profiles. Clarifies adapter responsibilities, sandbox/API
+    atomicity, cleanup and the Product handoff before implementation.
+
+- [Medusa business workflows on Flarex execution](./flarexdb-medusa-workflow-execution.md)
+  - Source-based proposal to preserve Medusa business definitions, steps and
+    hooks while making Flarex own atomic commands and durable Task execution.
+    Identifies SDK coupling, recovery/event gaps and the first tag-workflow proof.
+
+- [Shared framework transactions and optional OCC preflight](./flarexdb-commerce-occ-migration-preflight.md)
+  - Core-owned settlement/publication/recovery and clean removal of actual
+    duplication. Separates default consolidation, named SQL composition and
+    optional general mixed OCC, with compatibility and performance gates.
+    Neither optional OCC nor workflow-runtime replacement blocks ordinary
+    framework integration. Implementation still requires its bounded contract.
+
 - `runtime-agnostic-query-sync-engine.md`
   - Accepted cross-domain decision to extract one small private query-result
     synchronization engine with runtime-neutral state semantics and
