@@ -251,3 +251,11 @@ the affected shared preservation lanes once after integration; do not rebuild
 the comparison island or rerun unrelated PostgreSQL suites after each edit.
 Record setup, execution and total wall time separately. Missing native database
 access leaves its acceptance explicitly incomplete, never inferred from PGlite.
+
+
+Continuation: [Internal Product preflight](./45-medusa-internal-product.md)
+proposes one private text-pattern predicate in the shared commerce store.
+The existing predicate set cannot express pinned Product free-text search.
+The proposal retains scope, resource and transaction ownership, and records
+SQLite/PGlite semantic evidence. Shared-owner approval is pending; current
+runtime capabilities are unchanged.

@@ -197,7 +197,11 @@ Use these sources in order:
     and preserves direct-call event behavior. The separate internal Product file
     has 23 declarations remaining; the combined gate is 182 originals plus one skip
     per driver. Record 44 owns the final regression receipts.
-46. Current code, migrations, any source snapshot already admitted by its own
+46. [Internal Product implementation preflight](./preflight/45-medusa-internal-product.md)
+    identifies the required private text-pattern predicate, records SQLite/PGlite
+    semantic evidence and the 23-case implementation plan; shared-owner approval
+    is pending. The current gate remains 182 plus one skip.
+47. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by

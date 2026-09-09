@@ -1,0 +1,104 @@
+{
+  "scope": "SQL semantic probe, no application/core code changed",
+  "cases": [
+    {
+      "name": "ascii case",
+      "value": "Test product",
+      "pattern": "%test%",
+      "sqlite": true,
+      "native_like": false,
+      "native_ilike": true,
+      "proposed": true
+    },
+    {
+      "name": "unicode case",
+      "value": "\u00c3\u2020",
+      "pattern": "%\u00c3\u00a6%",
+      "sqlite": false,
+      "native_like": false,
+      "native_ilike": true,
+      "proposed": false
+    },
+    {
+      "name": "literal backslash",
+      "value": "a\\b",
+      "pattern": "%a\\b%",
+      "sqlite": true,
+      "native_like": false,
+      "native_ilike": false,
+      "proposed": true
+    },
+    {
+      "name": "percent wildcard",
+      "value": "abcdef",
+      "pattern": "a%f",
+      "sqlite": true,
+      "native_like": true,
+      "native_ilike": true,
+      "proposed": true
+    },
+    {
+      "name": "underscore newline",
+      "value": "a\nb",
+      "pattern": "a_b",
+      "sqlite": true,
+      "native_like": true,
+      "native_ilike": true,
+      "proposed": true
+    },
+    {
+      "name": "underscore Unicode",
+      "value": "a\u00f0\u0178\u02dc\u20acb",
+      "pattern": "a_b",
+      "sqlite": true,
+      "native_like": true,
+      "native_ilike": true,
+      "proposed": true
+    },
+    {
+      "name": "literal quote",
+      "value": "a' OR TRUE --",
+      "pattern": "%a' OR TRUE --%",
+      "sqlite": true,
+      "native_like": true,
+      "native_ilike": true,
+      "proposed": true
+    },
+    {
+      "name": "null",
+      "value": null,
+      "pattern": "%test%",
+      "sqlite": null,
+      "native_like": null,
+      "native_ilike": null,
+      "proposed": null
+    },
+    {
+      "name": "empty",
+      "value": "anything",
+      "pattern": "%%",
+      "sqlite": true,
+      "native_like": true,
+      "native_ilike": true,
+      "proposed": true
+    },
+    {
+      "name": "miss",
+      "value": "space X",
+      "pattern": "%test%",
+      "sqlite": false,
+      "native_like": false,
+      "native_ilike": false,
+      "proposed": false
+    }
+  ],
+  "kind": "sql-semantic-preflight",
+  "baseline": "e31385a0",
+  "drivers": [
+    "Node SQLite",
+    "PGlite"
+  ],
+  "applicationTestsExecuted": false,
+  "realPostgresExecuted": false,
+  "probeScriptSha256": "cfdd81ce3f63776f739312ae2ccf3866f4bb8b8f85e26b476943ea2c1da5911c"
+}
