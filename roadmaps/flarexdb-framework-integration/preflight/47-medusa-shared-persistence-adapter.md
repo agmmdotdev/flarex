@@ -2,11 +2,11 @@
 
 ## Status and scope
 
-Status: shared reads, checked schema lowering, JSON-field decoding and keyed
-update planning are implemented and validated on PGlite and ordinary-role
-PostgreSQL. Currency and Product share these adapter owners while retaining
-explicit module policies. Subsequent capabilities generalize graph-write
-mechanics and module composition in separate implementation slices.
+Status: shared reads, checked schema lowering, JSON-field decoding, keyed
+updates and graph creation/replacement are implemented and validated on
+PGlite and ordinary-role PostgreSQL. Currency and Product share the applicable
+adapter owners while retaining explicit module policies. Event dispatch and
+module composition retain separate implementation slices.
 
 This adapter refactor does not authorize changes to Flarex
 transaction settlement, commit compilation, schema identity, resource limits,
@@ -474,11 +474,82 @@ findings. Core, worktree-diff and exact staged-diff lint pass; the adapter
 remains outside the configured Oxlint source roots. This validates the admitted
 single-text-key profiles, not composite-key writes or arbitrary module support.
 
+## Implemented graph creation and replacement ownership
+
+This step starts from `ebadd81d`. Product graph capture, insertion and
+replacement now delegate to `src/write/create.ts` and `src/write/replace.ts`.
+The internal `graph-model.ts` contracts describe checked single-text-key
+entities, reference decoding and explicit module policies. Product's compiled
+primary column supplies its key identity; the shared algorithms contain no
+Product model or table branches. These contracts are trusted package-local
+composition, not an unknown-input schema or authority to register a module.
+
+`product-graph-profile.ts` retains Product traversal order, per-root exact
+Variant snapshots, external Tag/Category references, Collection's additive
+Product membership, mutable Product references, Variant/Option ownership,
+requested relation admission, nested Option projection and Image rank ordering.
+Creation preserves its original null-as-empty membership normalization;
+replacement preserves omission versus empty arrays and refuses null to-many
+memberships. Structural row decoding still uses the checked Product value
+profile at the same traversal points.
+
+The shared owner captures input, enforces repeated identities and parent
+ownership, plans single-column FKs and pivot tuples, loads each scoped store
+once, orders dependencies and applies deletes/inserts/updates sequentially.
+It reuses pinned tuple grouping, changed-field comparison, relationship errors
+and performed-action helpers. The existing manager, managed timestamps,
+resource ceilings, stored metadata merge, transaction rollback and final event
+dispatch remain with their current owners. Creation uses inserts and catalog
+order; replacement computes dependency order before writing. Returned rows and
+performed actions come from actual store receipts.
+
+The shared result exposes key-preserving action records. Medusa's legacy
+`PerformedActions` type requires `id`, so only the Product facade restores
+that compatibility type, grounded in its checked literal `id` metadata and
+core-decoded returned rows. Static tests keep arbitrary graph keys from
+acquiring that narrower promise.
+
+The displaced Product traversal and mutation algorithms are removed; its
+existing facades remain the call sites. Currency has no admitted graph, so it
+continues to use the shared keyed-update owner. A synthetic Volume/Edition/
+Label graph proves alternate table names, natural keys, traversal, references,
+ownership, cascades, membership modes, error preservation, dependency refusal
+and actual-row results without claiming another Medusa module is admitted.
+
+### Graph validation
+
+All 29 shared graph/write/schema checks and 134 authored Product checks pass.
+The renamed graph cases cover scoped manager identity, one store acquisition
+per table, untouched and emptied relations, additive association, child and
+pivot deletion order, returned-row projections, actual-row action capture,
+creation collisions, dependency cycles and original failure propagation.
+The TypeScript review identified and resolved the generic action-key contract
+issue above; both required reviewers report no findings on the final diff.
+
+The ten-package private build, all four strict TypeScript lanes, 56 promotion
+guards, 385-file exact source manifest and 650-input browser portability gate
+pass. Core and worktree-diff lint pass; the adapter remains outside the
+configured Oxlint source roots.
+
+Database suites ran sequentially and passed on their first runs:
+
+| Suite | PGlite | Ordinary-role PostgreSQL 18.3 |
+| --- | --- | --- |
+| Product originals | 205 passed; one unchanged upstream skip | 205 passed; same skip |
+| Currency live originals and authored boundaries | 20 passed | 19 passed; existing PGlite-only interruption skip |
+
+All thirteen Currency originals run on both drivers. Final Product boundary
+checks and the full compiler build also pass after the action-type correction.
+Assertions, coverage reporters, resource ceilings and persistence owners are
+unchanged. PostgreSQL ran without superuser, database-creation or role-creation
+privileges; the temporary fixture was stopped after validation. Logs are under
+`work/validation/shared-medusa-graph/`. Deployed Worker/Hyperdrive, arbitrary
+module admission and production support remain separate proof obligations.
+
 ## Following capabilities and module proof
 
-Shared reads, checked DML lowering, JSON-field decoders and keyed-update
-planning now have common owners. Next consolidate graph creation/replacement,
-FK/pivot planning, and event dispatch
+Shared reads, checked DML lowering, JSON-field decoders, keyed updates and graph
+creation/replacement now have common owners. Next consolidate event dispatch
 mechanics. Preserve insert versus upsert, omitted versus empty relationships,
 identity retention, metadata merging, reference ownership, managed-field
 refusal, actual-row performed-actions, and mutation order. Keep domain

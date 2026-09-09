@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import type { GraphEntity } from "./write/graph-model";
 import { makeReadCatalog, type ReadCatalog } from "./query/catalog";
 import { productRelatedReadProfiles, type RelatedReadProfile } from "./product-read-profile";
 import { compileProductValueProfile } from "./product-value-profile";
@@ -11,10 +12,9 @@ import { productModels, type captureProductSchema } from "./product-schema";
 
 export type ProductMetadata = Effect.Success<ReturnType<typeof captureProductSchema>>["metadata"]["frame"];
 type Table = ProductMetadata["tables"][number];
-export interface ProductEntityMetadata {
+export interface ProductEntityMetadata extends GraphEntity {
   readonly table: Table;
-  readonly model: string;
-  readonly prefix: string | undefined;
+  readonly keyColumn: "id";
   readonly eventObject: string;
   readonly createdEvent: string;
   readonly updatedEvent: string;
@@ -52,7 +52,7 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
     const primary = table?.columns.filter(column => column.primaryKey);
     if (table === undefined || primary?.length !== 1 || primary[0]?.name !== "id" || primary[0].type !== "id") return yield* Effect.fail(commerceError("unsupportedProfile"));
     const eventObject: string = camelToSnakeCase(model.name);
-    return { table, model: model.name, prefix: primary[0].options?.prefix, eventObject,
+    return { table, model: model.name, keyColumn: primary[0].name, prefix: primary[0].options?.prefix, eventObject,
       createdEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.CREATED }),
       updatedEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.UPDATED }),
       deletedEvent: buildModuleResourceEventName({ prefix: Modules.PRODUCT, objectName: eventObject, action: CommonEvents.DELETED }),

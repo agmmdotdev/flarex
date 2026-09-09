@@ -210,5 +210,11 @@ compiler does not admit another module or install a schema. The shared
 pairs for both modules. Profiles retain decoding order, key and duplicate
 policy, field admission and later scalar conversion. It does not acquire a
 store or settle a transaction. Metadata-field JSON decoders share
-`commerceRowDecoder`; numeric representation, stored metadata merging, graph
-writes, events and full module preparation retain their respective owners.
+`commerceRowDecoder`. Product creation and replacement now use the internal
+`src/write/create.ts` and `src/write/replace.ts` graph owners, with checked key
+metadata and explicit `product-graph-profile.ts` traversal, ownership,
+membership and projection policies. Shared plans retain the existing scoped
+manager and produce results/actions from actual storage receipts. Renamed
+Volume/Edition/Label fixtures exercise reuse without admitting another module.
+Numeric representation, stored metadata merging, event dispatch and full
+module preparation retain their respective owners.
