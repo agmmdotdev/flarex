@@ -152,6 +152,13 @@ Task and publication owners' participation before choosing storage or APIs.
 
 ## First Workflow Compatibility Proof
 
+The [atomic composition preflight](../roadmaps/workflow-foundations/09-atomic-composition.md)
+now recommends a private multi-installation command and transactional-read
+foundation before this original workflow proof. That foundation needs no Task
+and is not itself a Medusa workflow. Grouped events remain a prerequisite for
+the original workflow below; current local Product buffering does not supply
+them. The SQL-versus-native-relational-OCC choice remains explicit.
+
 Use the original
 [createProductTagsWorkflow](../third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/create-product-tags.ts).
 It exercises a module step, StepResponse, transformation, hook, workflow event

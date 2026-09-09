@@ -9,6 +9,14 @@ Connect a supported Medusa workflow surface to proven native execution and
 command/query capabilities. Use Product and Currency as available consumers;
 native contracts remain independent of those domains.
 
+The [atomic composition preflight](./09-atomic-composition.md) recommends proving
+multi-installation commands and transactional reads first. An atomic workflow
+need not use a Task. The first original Product-tag workflow still requires
+hook and grouped-event semantics; the current local Product event buffer is
+insufficient. Keep the event-free internal-service database proof distinct from
+that later source-compatible workflow proof. Replacing only Medusa's engine
+service does not replace the SDK's LocalWorkflow/orchestrator execution chain.
+
 ## Questions For Preflight
 
 - Which Product-only workflow or composition of retained steps is a useful

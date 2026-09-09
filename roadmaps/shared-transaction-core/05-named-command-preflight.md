@@ -39,7 +39,7 @@ runtime and process-local recovery do not establish an Action/Task API.
 | [Publication](../../packages/persistence-postgres/src/commitPublication/publication.ts), [request recovery](../../packages/persistence-postgres/src/relationalTransaction/requestRecovery.ts) | One sequence/header, all Application and Currency facts, one retained result/wake/clock advance, and recovery-only re-entry. |
 | [Currency service](../../packages/medusa-adapter/src/currency-service.ts) | Private write command uses the existing internal upsert and module retrieve with the same manager. |
 
-The [combined scenario](../../packages/persistence-postgres/test/currencyAnnouncement.test.ts)
+The [combined scenario](../../packages/medusa-adapter/test/currency-announcement.test.ts)
 exercises real Currency and Payload operations, rollback inventories, retained
 replay, authority and closure refusals, native range overlap and physical
 PostgreSQL failures. [Lifetime tests](../../packages/persistence-postgres/test/compositeLifetime.test.ts)

@@ -2,10 +2,10 @@
 
 ## Status And Scope
 
-Status: discussion roadmap. Every topic below awaits its own proportional
-preflight. This folder captures the general direction and questions from the
-native Task, Graph Query, and Medusa workflow discussion; it does not select
-APIs, packages, tables, state machines, or a complete implementation architecture.
+Status: discussion roadmap. The [atomic composition preflight](./09-atomic-composition.md)
+now recommends a first capability for discussion; implementation is not yet
+approved. Other topics retain their own proportional preflights. This folder
+does not select a universal API, package layout, or complete workflow architecture.
 
 Prepare reusable native capabilities before full workflow integration. Native
 contracts should serve multiple workflow domains. Product and Currency are
@@ -47,9 +47,10 @@ instead of copying changing implementation inventories here.
 
 ## Topic Map
 
-All entries have status **preflight pending**. Numbers provide a reading and
-initial discussion order, not fixed commit boundaries or a requirement to build
-every capability before the first useful integration.
+Atomic composition has a source-based recommendation for discussion. Other
+entries remain **preflight pending**, with related findings linked where useful.
+Numbers provide a reading order, not fixed commit boundaries or a requirement
+to build every capability before the first useful integration.
 
 | Topic | General purpose |
 | --- | --- |
@@ -61,13 +62,21 @@ every capability before the first useful integration.
 | [06 Local Graph Query](./06-local-graph-query.md) | Provide local graph reads through existing module and query boundaries. |
 | [07 Durable workflow events](./07-durable-workflow-events.md) | Establish event intent, publication timing, and recoverable delivery. |
 | [08 Resource coordination](./08-resource-coordination.md) | Assess coordination needs between different workflow executions. |
-| [09 Atomic composition](./09-atomic-composition.md) | Assess which bounded local operations should share a transaction. |
+| [09 Atomic composition](./09-atomic-composition.md) | Preflight recommendation: bounded trusted composition first; compare its guarantees with optional native relational OCC. |
 | [10 Medusa workflow integration](./10-medusa-workflow-integration.md) | Connect a supported workflow surface to the proven foundations. |
 
-Identity and recovery are the first proposed discussion topics. Local Graph
-Query can be considered independently of Task continuations. Waits, events,
-resource coordination, and atomic composition become prerequisites according to
-the selected workflow's behavior; their necessity is a preflight decision.
+The current discussion starts with atomic composition and transactional reads.
+The recommended first foundation is a private Product/Currency command over
+the existing shared transaction owner, including multiple commerce installations
+and one complete publication. Product and Currency are proof consumers, not
+core-specific concepts. Local Graph Query then uses the established context.
+
+Native Task extensions are conditional on durable execution needs. General
+relational OCC is conditional on a stronger mixed-mutation product promise or
+a demonstrated execution need. Workflow events remain an actual dependency
+of the proposed first original Medusa workflow. No execution mode may silently
+change because a command exceeds its bounds. These are preflight recommendations,
+not implementation approval or a promise that every workflow is atomic.
 
 ## Working Through The Topics
 
@@ -87,5 +96,6 @@ For one coherent capability at a time:
    and cleanup obligations when anything is displaced; Git owns chronology and
    test receipts.
 
-No feature APIs or implementation preflights are created by this initial outline.
-The first next step is the [identity and replay preflight](./01-execution-identity-and-replay.md).
+The next decision is the [atomic composition recommendation](./09-atomic-composition.md):
+bounded trusted workflows first, or native relational participation required
+from the first integration. Exact APIs and persisted contracts remain open.
