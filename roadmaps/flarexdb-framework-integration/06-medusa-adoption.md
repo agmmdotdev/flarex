@@ -47,9 +47,12 @@ membership changes through the unchanged service. The subsequent [Options slice]
 all 13 original Option cases, Product projections and standalone cascade deletion.
 The subsequent [Variants slice](./preflight/41-medusa-product-variants.md) adds
 all 15 original cases, scoped images, assignment removal and Variant-only managed
-soft deletion. Both drivers pass the complete seven-file gate: 130 originals plus one upstream
-skip. Final receipts are tracked in that record. There are
-75 declarations in three unregistered files; public Categories (21 cases) is next.
+soft deletion. The subsequent [Categories slice](./preflight/42-medusa-product-categories.md)
+adds the complete 21-case public file, source-owned tree and rank operations,
+scoped Product membership and leaf deletion. Its final receipts own the eight-file
+combined gate of 151 originals plus one upstream skip. The remaining 54
+declarations are in the two internal Product/Category files and require their
+next bounded preflight.
 Durable event storage/dispatch are deferred. Product
 mutations beyond the admitted graph/related-entity and lifecycle profile,
 stored Links and production

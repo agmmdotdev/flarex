@@ -292,6 +292,11 @@
       "types": "./dist/event-bus/build-event-messages.d.ts",
       "source": "./src/event-bus/build-event-messages.ts",
       "default": "./dist/event-bus/build-event-messages.js"
+    },
+    "./modules-sdk/build-query": {
+      "types": "./dist/modules-sdk/build-query.d.ts",
+      "source": "./src/modules-sdk/build-query.ts",
+      "default": "./dist/modules-sdk/build-query.js"
     }
   },
   "license": "MIT",

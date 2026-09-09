@@ -109,17 +109,6 @@ export const insertProductRelated = Effect.fn("ProductAdapter.insertRelated")(fu
     rows.push({ ...row.supplied, id });
   }
   const store = yield* ctx.table(entity.table.name);
-  if (entity === metadata.category) {
-    // Pinned root repository semantics: append roots in input order. Tree moves
-    // and caller-supplied ranks are rejected by the external DML profile.
-    const roots = yield* readCommerceRelationRows(ctx, entity.table.name, { kind: "and", children: [
-      { kind: "isNull", column: "parent_category_id" }, { kind: "isNull", column: "deleted_at" },
-    ] });
-    for (const [index, row] of rows.entries()) {
-      if (typeof row.id !== "string") return yield* Effect.fail(commerceError("invalidInput"));
-      rows[index] = { ...row, mpath: row.id, rank: roots.length + index };
-    }
-  }
   // Insert, never upsert: existing IDs and late FK/unique failures roll back.
   return yield* store.write(ctx.manager, "insert", rows);
 });

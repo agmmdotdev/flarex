@@ -103,3 +103,8 @@ retained upstream skip per driver. Of the historical 149 remaining declarations,
 bounded slice, followed by the 54 internal Product/Category declarations. This
 checkpoint does not activate workflow, Module Link, durable event providers,
 public serving, broader Payload integration or production profiles.
+
+
+Continuation: [Record 42](./42-medusa-product-categories.md) now owns the
+implemented public Categories slice and its final receipts. The counts above
+remain this Variants checkpoint's historical evidence.

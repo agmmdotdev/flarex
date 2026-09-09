@@ -6,7 +6,7 @@ import type { ProductRuntimeMetadata } from "./product-runtime-metadata";
 /** Bounded form of pinned projectLoadedRelationsFromTree: Tag/Collection -> Products, with Tag -> Products ->
  * Collection admitted separately. DML owns primary/FK names; the fork owns projection rules. */
 export const productInverseProjection = Effect.fn("ProductAdapter.inverseProjection")(function* (
-  metadata: ProductRuntimeMetadata, owner: "tag" | "collection", fields: readonly string[] | undefined, relations: readonly string[],
+  metadata: ProductRuntimeMetadata, owner: "tag" | "collection" | "category", fields: readonly string[] | undefined, relations: readonly string[],
 ) {
   if (relations.some(path => path !== "products" && !(owner === "tag" && path === "products.collection"))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const rootColumns = metadata[owner].table.columns.map(column => column.name);

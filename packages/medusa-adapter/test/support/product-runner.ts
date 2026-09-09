@@ -1,3 +1,4 @@
+import { decodeCategoryProjection } from "../../src/product-category-projection";
 import { afterAll, beforeAll, beforeEach, afterEach, describe } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 import type { IProductModuleService, IEventBusModuleService } from "@medusajs/framework/types";
@@ -102,6 +103,7 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
   const readCommands = { retrieveProduct: runtime.commands.retrieve, listProducts: runtime.commands.list, listAndCountProducts: runtime.commands.count,
     retrieveProductType: runtime.commands.retrieveType, listProductTypes: runtime.commands.listTypes, listAndCountProductTypes: runtime.commands.countTypes,
     retrieveProductTag: runtime.commands.retrieveTag, listProductTags: runtime.commands.listTags, listAndCountProductTags: runtime.commands.countTags,
+    retrieveProductCategory: runtime.commands.retrieveCategory, listProductCategories: runtime.commands.listCategories, listAndCountProductCategories: runtime.commands.countCategories,
     retrieveProductVariant: runtime.commands.retrieveVariant, listProductVariants: runtime.commands.listVariants, listAndCountProductVariants: runtime.commands.countVariants,
     retrieveProductOption: runtime.commands.retrieveOption, listProductOptions: runtime.commands.listOptions, listAndCountProductOptions: runtime.commands.countOptions,
     retrieveProductCollection: runtime.commands.retrieveCollection, listProductCollections: runtime.commands.listCollections, listAndCountProductCollections: runtime.commands.countCollections };
@@ -115,12 +117,13 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
   if (args.length > contextIndex + 1 || args[contextIndex] !== undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const input = yield* Effect.fromResult(captureCommerceInput(createCommand !== undefined ? args[0]
     : updateCommand !== undefined ? { id: args[0], data: args[1] }
-      : method === "retrieveProduct" || method === "retrieveProductType" || method === "retrieveProductTag" || method === "retrieveProductCollection" || method === "retrieveProductVariant" || method === "retrieveProductOption" ? { id: args[0], config: args[1] } : { filters: args[0], config: args[1] }));
+      : method === "retrieveProduct" || method === "retrieveProductType" || method === "retrieveProductTag" || method === "retrieveProductCollection" || method === "retrieveProductVariant" || method === "retrieveProductCategory" || method === "retrieveProductOption" ? { id: args[0], config: args[1] } : { filters: args[0], config: args[1] }));
   if (createCommand !== undefined) return yield* fixture.host.run(fixture.host.newRequestKey(), createCommand, input);
   if (updateCommand !== undefined) return yield* fixture.host.run(fixture.host.newRequestKey(), updateCommand, input);
   if (readCommand === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-  return yield* fixture.host.read(readCommand, method.endsWith("Types") || method.endsWith("Tags") || method.endsWith("Collections") || method.endsWith("Variants") || method.endsWith("Options") || method === "retrieveProductType" || method === "retrieveProductTag" || method === "retrieveProductCollection" || method === "retrieveProductVariant" || method === "retrieveProductOption"
+  const result = yield* fixture.host.read(readCommand, method.endsWith("Types") || method.endsWith("Tags") || method.endsWith("Collections") || method.endsWith("Variants") || method.endsWith("Categories") || method.endsWith("Options") || method === "retrieveProductType" || method === "retrieveProductTag" || method === "retrieveProductCollection" || method === "retrieveProductVariant" || method === "retrieveProductCategory" || method === "retrieveProductOption"
     ? input : yield* Effect.fromResult(prepareProductReadInput(input)));
+  return method === "retrieveProductCategory" || method === "listProductCategories" || method === "listAndCountProductCategories" ? yield* Effect.fromResult(decodeCategoryProjection(result)) : result;
 });
 
 /** Original test callback contract, backed only by admitted host commands. The
@@ -133,10 +136,10 @@ const service = new Proxy<object>({}, {
       "createProductOptions", "createProductVariants", "createProductCategories", "upsertProductOptions", "upsertProductCollections", "upsertProductCategories", "addImageToVariant",
       "updateProductOptions", "updateProductVariants", "updateProductOptionValues", "updateProductCollections", "updateProductCategories", "updateProducts", "upsertProducts", "upsertProductVariants",
       "deleteProducts", "deleteProductTags", "deleteProductTypes", "deleteProductCategories", "deleteProductCollections", "softDeleteProducts", "restoreProducts",
-      "listProductTypes", "listAndCountProductTypes", "retrieveProductType", "listProductTags", "listAndCountProductTags", "retrieveProductTag", "listProductCollections", "listAndCountProductCollections", "retrieveProductCollection", "listProductOptions", "listAndCountProductOptions", "retrieveProductOption", "deleteProductOptions", "removeImageFromVariant", "softDeleteProductVariants", "listProductVariants", "listAndCountProductVariants", "retrieveProductVariant"].includes(property)) {
+      "listProductTypes", "listAndCountProductTypes", "retrieveProductType", "listProductTags", "listAndCountProductTags", "retrieveProductTag", "listProductCollections", "listAndCountProductCollections", "retrieveProductCollection", "listProductOptions", "listAndCountProductOptions", "retrieveProductOption", "deleteProductOptions", "removeImageFromVariant", "softDeleteProductVariants", "listProductVariants", "listAndCountProductVariants", "retrieveProductVariant", "retrieveProductCategory", "listProductCategories", "listAndCountProductCategories"].includes(property)) {
       throw new Error("Unadmitted Product test service method: " + String(property));
     }
-    return (...args: readonly unknown[]): Promise<Json> => Effect.runPromise(execute(property, args).pipe(
+    return (...args: readonly unknown[]): Promise<unknown> => Effect.runPromise(execute(property, args).pipe(
       Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => error.reason === "adapterFailure" && error.cause !== undefined ? error.cause : error))),
     )).then(value => structuredClone(value));
   },

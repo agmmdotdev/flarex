@@ -1,14 +1,15 @@
+import { validateCategoryCommand } from "./product-category-input";
 import { lowerCaseFirst } from "@medusajs/utils/common/lower-case-first";
 import { productRuntimeMetadata, type ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { Effect } from "effect";
-import { ProductModuleService } from "@medusajs/product/services";
+import { ProductModuleService, ProductCategoryService } from "@medusajs/product/services";
 import { Product, ProductCategory, ProductCollection, ProductImage, ProductOption, ProductOptionValue, ProductTag, ProductType, ProductVariant, ProductVariantProductImage } from "@medusajs/product/models";
 import { MedusaInternalService } from "@medusajs/utils/modules-sdk/medusa-internal-service";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils/portable";
-import type { DAL, FindConfig, ProductTypes, IEventBusModuleService } from "@medusajs/framework/types";
+import type { DAL, FindConfig, ProductTypes, IEventBusModuleService, ModulePersistenceMutationService } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { decodeProductRead, decodeProductNamedRead, decodeProductCollectionRead, decodeProductParentRead, decodeVariantImageInput, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
+import { decodeProductRead, decodeProductNamedRead, decodeProductCollectionRead, decodeProductCategoryRead, decodeProductParentRead, decodeVariantImageInput, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
 import { decodeLocalEventOptions, decodeLocalEventBatch } from "./product-local-events";
 import { captureProductTagUpsert } from "./product-tag-input";
 import { captureCommerceInput } from "./commerce-input";
@@ -20,8 +21,8 @@ import { validateProductCreate } from "./product-graph";
 import { decodeRelatedUpdate } from "./product-value-profile";
 import { decodeProductLifecycleIds } from "./product-lifecycle";
 
-function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, collectionMembership = false) {
-  const { repository, persistence, refuse, relatedRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata, collectionMembership);
+function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, collectionMembership = false, categoryProjection = false) {
+  const { repository, persistence, refuse, relatedRepository, categoryRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata, collectionMembership, categoryProjection);
   const blocked = { ...repository, find: refuse, findAndCount: refuse, create: refuse, delete: refuse, softDelete: refuse, restore: refuse };
   const internal = <Model extends { readonly name: string }>(model: Model, selected: DAL.RepositoryService = blocked) => new (MedusaInternalService(model))<object, Model>({
     [lowerCaseFirst(model.name) + "Repository"]: selected, [ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER]: persistence,
@@ -37,7 +38,15 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
     unsubscribe: () => owner.reject(commerceError("unsupportedProfile")),
     releaseGroupedEvents: refuse, clearGroupedEvents: refuse,
   };
-  const service = new ProductModuleService({
+  const categoryMutationService: ModulePersistenceMutationService = {
+    interceptEntityMutationEvents: (event, args, context) => {
+      // The pinned MedusaService mixin installs this method at runtime, but its
+      // generated class declaration omits the inherited mutation contract.
+      if (!("interceptEntityMutationEvents" in service) || typeof service.interceptEntityMutationEvents !== "function") throw new Error("Missing Product mutation service");
+      service.interceptEntityMutationEvents(event, args, context);
+    },
+  };
+  const service: ProductModuleService = new ProductModuleService({
     // SAFETY: the pinned constructor type still requires the MikroORM-only
     // method. Its runtime hasDeepUpdate guard deliberately selects the portable
     // internal-service branch when that property is absent.
@@ -47,7 +56,7 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
     productOptionService: internal(ProductOption, relatedRepository(metadata.option)),
     productOptionValueService: internal(ProductOptionValue, relatedRepository(metadata.value)),
     productImageService: internal(ProductImage, relatedRepository(metadata.image)),
-    productCategoryService: internal(ProductCategory, relatedRepository(metadata.category)),
+    productCategoryService: new ProductCategoryService({ productCategoryRepository: categoryRepository, modulePersistenceAdapter: persistence, productModuleService: categoryMutationService }),
     productCollectionService: internal(ProductCollection, relatedRepository(metadata.collection)),
     productTagService: internal(ProductTag, relatedRepository(metadata.tag)), productTypeService: internal(ProductType, relatedRepository(metadata.type)),
     productImageProductService: internal(ProductImage),
@@ -63,6 +72,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const metadata = yield* productRuntimeMetadata(captured.metadata.frame);
   const withService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
     withCommerceService(ctx, owner => compose(ctx, owner, metadata), work);
+  const withCategoryReadService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
+    withCommerceService(ctx, owner => compose(ctx, owner, metadata, false, true), work);
   const withCollectionService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
     withCommerceService(ctx, owner => compose(ctx, owner, metadata, true), work);
   const create = defineCommerceCommand("productCreate", "write", Effect.fn("ProductAdapter.create")(function* (ctx, input) {
@@ -124,6 +135,23 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     return yield* withService(ctx, ({ service, context }) => kind === "count"
       ? service.listAndCountProductCollections(filters, find, context) : service.listProductCollections(filters, find, context));
   }));
+  const readCategory = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("productCategory" + kind, "read", Effect.fn("ProductAdapter.category." + kind)(function* (ctx, input) {
+    const decoded = yield* Effect.fromResult(decodeProductCategoryRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const copied = structuredClone(decoded);
+    // SAFETY: the DML-bound reader validates normalized fields and relations.
+    const find = copied.config as FindConfig<ProductTypes.ProductCategoryDTO> | undefined;
+    if (kind === "retrieve") {
+      if (copied.id === undefined || copied.filters !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+      const id = copied.id;
+      return yield* withCategoryReadService(ctx, ({ service, context }) => service.retrieveProductCategory(id, find, context));
+    }
+    if (copied.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+    const { id, ...scalars } = copied.filters ?? {};
+    const filters = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
+    return yield* withCategoryReadService(ctx, ({ service, context }) => kind === "count"
+      ? service.listAndCountProductCategories(filters, find, context) : service.listProductCategories(filters, find, context));
+  }));
   const readOption = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("productOption" + kind, "read", Effect.fn("ProductAdapter.option." + kind)(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductParentRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
@@ -159,6 +187,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       ? service.listAndCountProductVariants(filters, find, context) : service.listProductVariants(filters, find, context));
   }));
   const related = (kind: "tag" | "type" | "collection" | "image" | "option" | "variant" | "category" | "assignment") => defineCommerceCommand("productCreate" + kind, "write", Effect.fn("ProductAdapter.createRelated")(function* (ctx, input) {
+    if (kind === "category") yield* validateCategoryCommand(ctx, metadata, input);
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedCreate(metadata[kind].table.name, input))
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const copied = structuredClone(Array.isArray(input) ? input : [input]);
@@ -183,6 +212,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       const decoded = yield* Effect.fromResult(decodeRelatedUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
       yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata[kind].table.name, decoded.data))
         .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+      if (kind === "category") yield* validateCategoryCommand(ctx, metadata, { ...decoded.data, id: decoded.id });
       const data = structuredClone(decoded.data);
       // SAFETY: DML-derived data fields exclude identity and managed columns;
       // repository pairs and the core revalidate normalized values before SQL.
@@ -198,6 +228,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
         }
       });
     }
+    if (kind === "category") yield* validateCategoryCommand(ctx, metadata, input);
     const admitted = kind === "tag" ? yield* captureProductTagUpsert(ctx, metadata.tag, input) : input;
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedChange(metadata[kind].table.name, admitted))
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
@@ -278,6 +309,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     return yield* withService(ctx, async ({ service, context }) => (await service.softDeleteProductVariants(ids, {}, context)) ?? null);
   }));
   return { commands: Object.freeze({ create, list: read("list"), retrieve: read("retrieve"), count: read("count"),
+    listCategories: readCategory("list"), retrieveCategory: readCategory("retrieve"), countCategories: readCategory("count"),
     listTypes: readNamed("type", "list"), retrieveType: readNamed("type", "retrieve"), countTypes: readNamed("type", "count"),
     listVariants: readVariant("list"), retrieveVariant: readVariant("retrieve"), countVariants: readVariant("count"), removeImageFromVariant, softDeleteVariants,
     listOptions: readOption("list"), retrieveOption: readOption("retrieve"), countOptions: readOption("count"), deleteOptions: remove("option"),

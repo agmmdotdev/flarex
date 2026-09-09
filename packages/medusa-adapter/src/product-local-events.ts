@@ -72,7 +72,13 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
         const action = observation !== undefined ? (observation.operation === "restore" ? CommonEvents.RESTORED : CommonEvents.DELETED)
           : row.operation === "insert" ? CommonEvents.CREATED : row.operation === "update" ? CommonEvents.UPDATED : CommonEvents.DELETED;
         const identity = action + ":" + object.eventObject + ":" + id.value;
-        if (expected.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        // Pinned Category rank/path maintenance can update the same row several
+        // times in one command; its message aggregator retains one update event.
+        // Keep every core fact and authenticate that single event identity only
+        // for these Category commands. Other duplicate facts remain refused.
+        const categoryMaintenance = object === catalog.category && row.operation === "update" && observation === undefined &&
+          ["productCreatecategory", "productupdatecategory", "productupsertcategory", "productDeletecategory"].includes(commandName);
+        if (expected.has(identity) && !categoryMaintenance) return yield* Effect.fail(commerceError("receiptMismatch"));
         expected.add(identity);
       }
       for (const event of events) {

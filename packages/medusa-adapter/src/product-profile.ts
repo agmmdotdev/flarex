@@ -18,7 +18,7 @@ const prepareProductProfile = Effect.fn("ProductAdapter.prepareLocalProfile")(fu
     if (key === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
     capabilities.push({ tableId, keyId: key.identity.keyId,
       ...(metadata.entities.some(entity => entity.table === selected && entity !== metadata.assignment) ? { update: "existingPrimaryKey" as const } : {}),
-      ...(selected === metadata.product.table ? { referenceColumns: ["collection_id", "type_id"] } : {}),
+      ...(selected === metadata.product.table ? { referenceColumns: ["collection_id", "type_id"] } : selected === metadata.category.table ? { referenceColumns: ["parent_category_id"] } : {}),
       remove: "declaredKey",
       ...([metadata.product.table, metadata.option.table, metadata.value.table, metadata.variant.table, metadata.image.table].includes(selected) ? { lifecycle: "managedSoftDelete" as const } : {}),
     });

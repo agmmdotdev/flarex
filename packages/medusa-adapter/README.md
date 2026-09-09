@@ -72,17 +72,17 @@ the adapter selects cascades from actual DML while core owns timestamps and
 complete row facts. Shared references survive. Deleting a referenced type or
 collection clears the Product reference; root category deletion reranks siblings.
 An explicit variant-image assignment retains its physical FK refusal during
-Product deletion. General category trees remain unadmitted.
+Product deletion. The bounded Category tree profile is admitted by Record 42.
 Business events use the authenticated in-memory test buffer after
 acknowledged commit; no durable provider or query sync is activated.
 
 Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
-root. It uses the explicit private Product scale profile and runs 130 exact
-original cases from seven unchanged files, including the 1000-image ordering case.
+root. It uses the explicit private Product scale profile and runs 151 exact
+original cases from eight unchanged files, including the 1000-image ordering case.
 Only the original upstream performance skip remains. Set `FLAREX_TEST_DRIVER=postgres` and
 `FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
-All seven files share one installed fixture per driver and clear business rows
-between cases. The case inventory and records 29-41 in the framework-integration
+All eight files share one installed fixture per driver and clear business rows
+between cases. The case inventory and records 29-42 in the framework-integration
 roadmap distinguish current coverage from the remaining module capabilities.
 
 Record 35 keeps the original profile and its hashes unchanged. Its explicit scale
@@ -164,6 +164,23 @@ replay, dependency survival and refusal without publication.
 Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-variants.config.ts`.
 Both drivers pass the 19-check focused gate and the seven-file combined gate of
 130 originals plus one upstream skip. Final receipts are tracked in Record 41. After Variants, 75
-unregistered declarations remain across three files; public Categories (21 cases)
-is next. Workflow, Module Link, durable events, public serving, broader Payload
+unregistered declarations remain across three files; the following public Categories slice is recorded below. Workflow, Module Link, durable events, public serving, broader Payload
 integration and production activation retain their separate gates.
+
+Record 42 adds the complete 21-case public Product Categories file. The promoted
+portable Category service owns tree hydration, ranks, parent moves, descendant
+paths and leaf deletion. Its adapter provides scoped repository operations and
+reference-only Product membership. Category commands reject forged paths, cycles,
+ambiguous dotted IDs and the source service's reserved `__root__` rank key.
+Category soft deletion and restore remain unadmitted.
+
+Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-categories.config.ts`.
+The focused lane adds scope, late rollback, membership survival, batch maintenance,
+replay and input-refusal checks. Category read DTOs use a private representation
+codec to preserve recorded own undefined properties across the JSON host boundary.
+The codec does not infer tree values. Shared core transaction/publication owners
+are unchanged. See
+[Record 42](../../roadmaps/flarexdb-framework-integration/preflight/42-medusa-product-categories.md)
+for final validation and source provenance. The remaining 54 declarations are in
+the two internal Product/Category files. Workflow, Module Link, durable events,
+public serving, broader Payload and production retain their independent gates.

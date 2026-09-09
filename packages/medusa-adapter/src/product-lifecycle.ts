@@ -44,23 +44,10 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
     state.set(table.name, rows); return rows;
   });
   const roots = (yield* load(entity.table)).filter(row => typeof row.id === "string" && ids.includes(row.id) && (operation !== "softDelete" || row.deleted_at === null));
-  const rerank: JsonObject[] = [];
   if (entity === catalog.category) {
     const categories = yield* load(entity.table);
-    if (roots.length !== ids.length || roots.some(row => row.parent_category_id !== null || categories.some(child => child.parent_category_id === row.id && child.deleted_at === null)))
+    if (roots.length !== ids.length || roots.some(row => categories.some(child => child.parent_category_id === row.id && child.deleted_at === null)))
       return yield* Effect.fail(commerceError("unsupportedProfile"));
-    const ranks: number[] = [];
-    for (const row of roots) {
-      if (typeof row.rank !== "number") return yield* Effect.fail(commerceError("storedCorruption"));
-      ranks.push(row.rank);
-    }
-    for (const row of categories) {
-      if (row.parent_category_id !== null || row.deleted_at !== null || typeof row.id !== "string" || ids.includes(row.id)) continue;
-      const rank = row.rank;
-      if (typeof rank !== "number") return yield* Effect.fail(commerceError("storedCorruption"));
-      const removedBefore = ranks.filter(value => value < rank).length;
-      if (removedBefore) rerank.push({ id: row.id, rank: rank - removedBefore });
-    }
   }
   const planned = new Map<string, Map<string, JsonObject>>();
   const visit = Effect.fn("ProductLifecycle.visit")(function* (table: Table, row: JsonObject): Effect.fn.Return<void, CommerceTransactionError> {
@@ -102,7 +89,7 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
     }
   }
   // Stable child-first physical removal also handles shared pivot dependencies.
-  // Category subtree operations are not admitted by the root-only profile.
+  // Category deletion is leaf-only; the original service owns sibling ranking.
   const ordered: Table[] = [];
   const pending = catalog.tables.filter(table => planned.has(table.name));
   while (pending.length) {
@@ -123,6 +110,5 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
     if (model !== undefined) cascades[model.model] = rows.map(row => ({ ...row }));
     if (table === entity.table) changedRoots = rows.map(row => ({ ...row }));
   }
-  const reranked = rerank.length === 0 ? [] : [...yield* (yield* getStore(catalog.category.table)).write(ctx.manager, "update", rerank)];
-  return { roots: changedRoots, cascades, reranked };
+  return { roots: changedRoots, cascades };
 });

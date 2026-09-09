@@ -409,7 +409,10 @@ describe("local Product service through shared Flarex core", () => {
     const product = object(await run(fixture.host.run(key, runtime.commands.create, input)));
     if (typeof product.id !== "string") throw new Error("Missing Product identity");
     expect(product.tags).toEqual([tag]);
-    expect(product.collection).toEqual(collection);
+    // Collection creation populates its products; this Product relation does not.
+    const { products: collectionProducts, ...collectionFields } = collection;
+    expect(collectionProducts).toEqual([]);
+    expect(product.collection).toEqual(collectionFields);
     expect(product.type).toEqual(type);
     expect(product.categories).toEqual([]);
     expect(received.slice(before)).toEqual([{ name: "product.product.created", metadata: { source: "product", object: "product", action: "created" }, data: { id: product.id } }]);
@@ -634,7 +637,7 @@ describe("local Product service through shared Flarex core", () => {
     expect(read.tags).toEqual(product.tags);
   });
 
-  it("creates real category root paths and sibling ranks while refusing tree mutations", async () => {
+  it("creates real category root paths and sibling ranks while authenticating batch IDs", async () => {
     const eventCount = received.length;
     const created = array(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, [
       { id: "pcat_root_a", name: "Root A" }, { id: "pcat_root_b", name: "Root B" },
@@ -647,7 +650,7 @@ describe("local Product service through shared Flarex core", () => {
     expect(received.slice(eventCount)).toEqual([{ name: "product.product-category.created",
       metadata: { source: "product", object: "product_category", action: "created" }, data: { id: ["pcat_root_a", "pcat_root_b"] } }]);
     const before = await commerceInventory(fixture);
-    for (const data of [{ parent_category_id: "pcat_root_b" }, { rank: 0 }, { mpath: "forged" }]) {
+    for (const data of [{ mpath: "forged" }]) {
       expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCategories, { id: "pcat_root_a", data }))))
         .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
     }

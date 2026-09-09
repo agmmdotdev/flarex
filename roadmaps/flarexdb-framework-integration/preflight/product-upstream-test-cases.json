@@ -1,6 +1,6 @@
 {
   "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
-  "scope": "Seven complete Product module-service files (events, products, types, tags, collections, options, variants); other Product suites are not registered.",
+  "scope": "Eight complete Product module-service files; internal Product and Category files remain unregistered.",
   "cases": [
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -787,6 +787,132 @@
       "title": "ProductModuleService product variants > softDelete variant > should soft delete a variant and its relations",
       "status": "admitted",
       "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > listCategories > should return categories queried by ID",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > listCategories > should return categories based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > listCategories > should return only requested fields and relations for categories",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > listCategories > with tree inclusion > should return all descendants of a category",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > listCategories > with tree inclusion > should return all ancestors of a category",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > listAndCountCategories > should return categories and count queried by ID",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > listAndCountCategories > should return categories and count based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > listAndCountCategories > should return only requested fields and relations for categories",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > retrieveCategory > should return the requested category",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > retrieveCategory > should return requested attributes when requested through config",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > retrieveCategory > should throw an error when a category with ID does not exist",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > createCategory > should create a category successfully",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > createCategory > should append rank from an existing category depending on parent",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > updateCategory > should update the name of the category successfully",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > updateCategory > should throw an error when an id does not exist",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > updateCategory > should reorder rank successfully in the same parent",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > updateCategory > should reorder rank successfully when changing parent",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > updateCategory > should reorder rank successfully when changing parent and in first position",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > deleteCategory > should throw an error when an id does not exist",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > deleteCategory > should throw an error when it has children",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",
+      "title": "ProductModuleService product categories > deleteCategory > should reorder siblings rank successfully on deleting",
+      "status": "admitted",
+      "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
     }
   ]
 }

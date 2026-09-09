@@ -42,13 +42,13 @@ export function compileProductValueProfile(catalog: {
   const decodeTagReferences = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) })).check(Schema.isMaxLength(256)), "invalidInput");
   const decodeReference = commerceDecoder(Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1, 256))), "invalidInput");
   const extra = (entity: ProductEntityMetadata): string[] => entity === catalog.option ? ["product_id", "values"] : entity === catalog.variant ? ["product_id", "options"]
-    : entity === catalog.collection ? ["product_ids"] : entity === catalog.image ? ["product_id"] : entity === catalog.assignment ? ["variant_id", "image_id"] : [];
-  const commandScalars = (entity: ProductEntityMetadata) => scalarNames(entity).filter(name => entity !== catalog.category || !["mpath", "rank"].includes(name));
+    : entity === catalog.category ? ["parent_category_id", "products"] : entity === catalog.collection ? ["product_ids"] : entity === catalog.image ? ["product_id"] : entity === catalog.assignment ? ["variant_id", "image_id"] : [];
+  const commandScalars = (entity: ProductEntityMetadata) => scalarNames(entity).filter(name => entity !== catalog.category || name !== "mpath");
   const standalone = new Map(Object.values(catalog).filter(entity => entity !== catalog.product).map(entity => [entity.table.name,
     shape([...commandScalars(entity), ...extra(entity)], "unsupportedProfile"),
   ]));
   const updateData = new Map(Object.values(catalog).filter(entity => entity !== catalog.assignment).map(entity => [entity.table.name,
-    shape([...commandScalars(entity).filter(name => name !== "id"), ...(entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : [])], "unsupportedProfile"),
+    shape([...commandScalars(entity).filter(name => name !== "id"), ...(entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : entity === catalog.category ? ["parent_category_id"] : [])], "unsupportedProfile"),
   ]));
   const collectionScalar = shape(commandScalars(catalog.collection), "unsupportedProfile");
   const collectionUpdate = shape([...commandScalars(catalog.collection).filter(name => name !== "id"), "product_ids"], "unsupportedProfile");
@@ -66,7 +66,7 @@ export function compileProductValueProfile(catalog: {
   const relations = new Map([
     [catalog.product.table.name, ["images", "options", "variants", "tags", "categories", "collection", "type"]],
     [catalog.option.table.name, ["values"]], [catalog.value.table.name, ["variants"]],
-    [catalog.collection.table.name, ["products"]],
+    [catalog.collection.table.name, ["products"]], [catalog.category.table.name, ["products"]],
     [catalog.variant.table.name, ["options"]], [catalog.image.table.name, []],
   ]);
   const graphRows = new Map(Object.values(catalog).map(entity => [entity.table.name,

@@ -85,8 +85,31 @@ export const admittedProductVariantCases = [
   "Product service > ProductModuleService product variants > createVariants > should throw if there is an existing variant with same options combination (on update)",
   "Product service > ProductModuleService product variants > softDelete variant > should soft delete a variant and its relations"
 ];
+export const admittedProductCategoryCases = [
+  "Product service > ProductModuleService product categories > listCategories > should return categories queried by ID",
+  "Product service > ProductModuleService product categories > listCategories > should return categories based on the options and filter parameter",
+  "Product service > ProductModuleService product categories > listCategories > should return only requested fields and relations for categories",
+  "Product service > ProductModuleService product categories > listCategories > with tree inclusion > should return all descendants of a category",
+  "Product service > ProductModuleService product categories > listCategories > with tree inclusion > should return all ancestors of a category",
+  "Product service > ProductModuleService product categories > listAndCountCategories > should return categories and count queried by ID",
+  "Product service > ProductModuleService product categories > listAndCountCategories > should return categories and count based on the options and filter parameter",
+  "Product service > ProductModuleService product categories > listAndCountCategories > should return only requested fields and relations for categories",
+  "Product service > ProductModuleService product categories > retrieveCategory > should return the requested category",
+  "Product service > ProductModuleService product categories > retrieveCategory > should return requested attributes when requested through config",
+  "Product service > ProductModuleService product categories > retrieveCategory > should throw an error when a category with ID does not exist",
+  "Product service > ProductModuleService product categories > createCategory > should create a category successfully",
+  "Product service > ProductModuleService product categories > createCategory > should append rank from an existing category depending on parent",
+  "Product service > ProductModuleService product categories > updateCategory > should update the name of the category successfully",
+  "Product service > ProductModuleService product categories > updateCategory > should throw an error when an id does not exist",
+  "Product service > ProductModuleService product categories > updateCategory > should reorder rank successfully in the same parent",
+  "Product service > ProductModuleService product categories > updateCategory > should reorder rank successfully when changing parent",
+  "Product service > ProductModuleService product categories > updateCategory > should reorder rank successfully when changing parent and in first position",
+  "Product service > ProductModuleService product categories > deleteCategory > should throw an error when an id does not exist",
+  "Product service > ProductModuleService product categories > deleteCategory > should throw an error when it has children",
+  "Product service > ProductModuleService product categories > deleteCategory > should reorder siblings rank successfully on deleting"
+];
 export const admittedProductCases = [
-  ...admittedProductOptionCases, ...admittedProductVariantCases,
+  ...admittedProductOptionCases, ...admittedProductVariantCases, ...admittedProductCategoryCases,
   ...admittedProductCollectionCases,
   ...admittedProductTagCases,
   ...admittedProductTypeCases,

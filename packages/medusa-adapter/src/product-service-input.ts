@@ -14,6 +14,16 @@ export const decodeProductNamedRead = commerceDecoder(Schema.Struct({
     value: Schema.optionalKey(Schema.String),
   })),
 }), "invalidInput");
+export const decodeProductCategoryRead = commerceDecoder(Schema.Struct({
+  ...Read.fields,
+  filters: Schema.optionalKey(Schema.Struct({
+    id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))])),
+    name: Schema.optionalKey(Schema.String), handle: Schema.optionalKey(Schema.String),
+    parent_category_id: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    is_internal: Schema.optionalKey(Schema.Boolean), is_active: Schema.optionalKey(Schema.Boolean),
+    include_descendants_tree: Schema.optionalKey(Schema.Boolean), include_ancestors_tree: Schema.optionalKey(Schema.Boolean),
+  })),
+}), "invalidInput");
 export const decodeProductCollectionRead = commerceDecoder(Schema.Struct({
   ...Read.fields,
   filters: Schema.optionalKey(Schema.Struct({

@@ -2,10 +2,10 @@ import { Result } from "effect";
 import { capturePrivateJsonData, commerceError, defaultCommerceResources, type CommerceResources, type Json, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 /** Medusa builds plain option objects with undefined members. Omit those members
  * at this foreign boundary, then use the core's strict captured JSON contract. */
-export function captureCommerceInput(input: unknown, resources: Pick<CommerceResources, "commandBytes" | "valueNodes"> = defaultCommerceResources): Result.Result<Json, CommerceTransactionError> {
+export function captureCommerceInput(input: unknown, resources: Pick<CommerceResources, "commandBytes" | "valueNodes"> = defaultCommerceResources, onOmitted?: (path: readonly string[]) => void): Result.Result<Json, CommerceTransactionError> {
   let nodes = 0;
   const active = new Set<object>();
-  const visit = (value: unknown, depth: number): Result.Result<unknown, CommerceTransactionError> => Result.gen(function* () {
+  const visit = (value: unknown, depth: number, path: readonly string[]): Result.Result<unknown, CommerceTransactionError> => Result.gen(function* () {
     if (++nodes > resources.valueNodes || depth > 16) return yield* Result.fail(commerceError("limitExceeded"));
     if (value === null || typeof value !== "object") return value;
     const meta = yield* Result.try({ try: () => ({ array: Array.isArray(value), prototype: Object.getPrototypeOf(value), keys: Reflect.ownKeys(value) }), catch: cause => commerceError("invalidInput", cause) });
@@ -18,8 +18,8 @@ export function captureCommerceInput(input: unknown, resources: Pick<CommerceRes
       if (typeof key !== "string") return yield* Result.fail(commerceError("invalidInput"));
       const property = yield* Result.try({ try: () => Object.getOwnPropertyDescriptor(value, key), catch: cause => commerceError("invalidInput", cause) });
       if (property === undefined || !("value" in property) || !property.enumerable) return yield* Result.fail(commerceError("invalidInput"));
-      if (property.value === undefined && !meta.array) continue;
-      entries.push([key, yield* visit(property.value, depth + 1)]);
+      if (property.value === undefined && !meta.array) { onOmitted?.([...path, key]); continue; }
+      entries.push([key, yield* visit(property.value, depth + 1, onOmitted === undefined ? [] : [...path, key])]);
     }
     active.delete(value);
     if (meta.array) {
@@ -29,5 +29,5 @@ export function captureCommerceInput(input: unknown, resources: Pick<CommerceRes
     }
     return Object.fromEntries(entries);
   });
-  return visit(input, 0).pipe(Result.flatMap(value => capturePrivateJsonData(value, resources.commandBytes, commerceError)), Result.map(value => value.value));
+  return visit(input, 0, []).pipe(Result.flatMap(value => capturePrivateJsonData(value, resources.commandBytes, commerceError)), Result.map(value => value.value));
 }

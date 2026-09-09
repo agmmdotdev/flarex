@@ -1,7 +1,7 @@
 import { productRelations, type ProductRuntimeMetadata, type ProductEntityMetadata } from "./product-runtime-metadata";
 import { Effect } from "effect";
 import type { Context, DAL, ModulePersistenceAdapter } from "@medusajs/framework/types";
-import { registerDrizzleEventSubscriber, dispatchCreatedMutations, dispatchDrizzleMutationRows, dispatchDrizzleMutationEvent, dispatchCascadedUpdateMutations } from "@medusajs/drizzle/mutation-events";
+import { createDrizzleEventSubscriber, registerDrizzleEventSubscriber, dispatchCreatedMutations, dispatchDrizzleMutationRows, dispatchDrizzleMutationEvent, dispatchCascadedUpdateMutations } from "@medusajs/drizzle/mutation-events";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductProjection, decodeProductCount } from "./product-value-profile";
@@ -14,20 +14,24 @@ import { populateCommerceRelations } from "./commerce-relations";
 import { findProductRelated, insertProductRelated, updateProductRelated } from "./product-related";
 import { findCollectionMembershipProducts, updateCollectionMembershipProducts } from "./product-collection-membership";
 import { replaceProductRows } from "./product-mutation";
+import { captureCategoryProjection } from "./product-category-projection";
+import { findCategoryRows, insertCategoryRows, updateCategoryRows } from "./product-category-repository";
 import { changeProductLifecycle } from "./product-lifecycle";
 
 /** Request-owned DAL composition; all framework transaction methods borrow core. */
-export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, collectionMembership = false) {
+export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, collectionMembership = false, categoryProjection = false) {
   const bridge = commerceRepositoryContext(root, owner);
   const subscribed = new WeakSet<object>();
+  const ownedSubscribers = new WeakSet<object>();
   const unsupported = () => owner.reject(commerceError("unsupportedProfile"));
   const persistence: ModulePersistenceAdapter = {
     name: "flarex-product-local",
+    createEventSubscriber: (keys, service) => { const subscriber = createDrizzleEventSubscriber(keys, service); ownedSubscribers.add(subscriber); return subscriber; },
     prepareModels: unsupported, createConnectionLoader: unsupported,
     createBaseRepository: unsupported, createRepository: unsupported,
     registerEventSubscriber: (context, Subscriber) => { registerDrizzleEventSubscriber(context, Subscriber); subscribed.add(context); },
     dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-      if (!subscribed.has(shared) || !["afterCreate", "afterUpdate", "afterDelete"].includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+      if ((!subscribed.has(shared) && (subscriber === undefined || !ownedSubscribers.has(subscriber))) || !["afterCreate", "afterUpdate", "afterDelete"].includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
       yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationEvent(event, args, shared, subscriber), signal),
         catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
     }))),
@@ -35,11 +39,6 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
   const deleteRows = (entity: ProductEntityMetadata): DAL.RepositoryService["delete"] => (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx,
     changeProductLifecycle(ctx, metadata, entity, "delete", input).pipe(Effect.flatMap(result => Effect.gen(function* () {
-      if (result.reranked.length) {
-        if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-        yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", metadata.category.model, result.reranked.map(row => ({ ...row })), shared), signal),
-          catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
-      }
       const ids: string[] = [];
       for (const row of result.roots) {
         if (typeof row.id !== "string") return yield* ctx.refuse(commerceError("storedCorruption"));
@@ -64,7 +63,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
     serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(Effect.gen(function* () {
       if (options !== undefined) return yield* root.refuse(commerceError("unsupportedProfile"));
-      const value = yield* bridge.checked(root, Effect.fromResult(captureCommerceInput(input, root.resources)));
+      const value = yield* bridge.checked(root, Effect.fromResult(categoryProjection ? captureCategoryProjection(input, root.resources) : captureCommerceInput(input, root.resources)));
       const decoded = yield* bridge.checked(root, Effect.fromResult(decodeProductProjection(value)));
       // SAFETY: repository results are core-decoded scalar rows and the bounded
       // acyclic projection. Medusa also promises complete DTOs for partial selects.
@@ -133,7 +132,37 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       return yield* replaceProductRows(ctx, metadata, entity, input, config, true);
     }))),
   });
-  return { repository, persistence, refuse, relatedRepository,
+  const categoryRepository: DAL.TreeRepositoryService & Pick<DAL.RepositoryService, "update"> = {
+    ...repository,
+    find: (input, transform, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      if (transform !== undefined && Object.keys(transform).length) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+      return (yield* findCategoryRows(ctx, metadata, input)).rows;
+    }))),
+    findAndCount: (input, transform, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      if (transform !== undefined && Object.keys(transform).length) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+      const result = yield* findCategoryRows(ctx, metadata, input);
+      return [result.rows, result.count] satisfies [typeof result.rows, number];
+    }))),
+    create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      const result = yield* insertCategoryRows(ctx, metadata, input);
+      if (shared === undefined) return yield* ctx.refuse(commerceError("invalidAuthority"));
+      if (result.reranked.length) yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", metadata.category.model, result.reranked.map(row => ({ ...row })), shared), signal),
+        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      return result.rows;
+    }))),
+    update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      const rows = yield* updateCategoryRows(ctx, metadata, input);
+      if (shared === undefined) return yield* ctx.refuse(commerceError("invalidAuthority"));
+      yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", metadata.category.model, rows.map(row => ({ ...row })), shared), signal),
+        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      return [...rows];
+    }))),
+    delete: (ids, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      const result = yield* changeProductLifecycle(ctx, metadata, metadata.category, "delete", { $or: ids.map(id => ({ id })) });
+      return result.roots.flatMap(row => typeof row.id === "string" ? [row.id] : []);
+    }))),
+  };
+  return { repository, persistence, refuse, relatedRepository, categoryRepository,
     captureLocalEvent: (event: unknown) => Effect.suspend(() => bridge.current().captureLocalEvent(event)),
     rejectLocalEvent: (error: CommerceTransactionError) => Effect.suspend(() => bridge.current().refuse(error)),
   };
