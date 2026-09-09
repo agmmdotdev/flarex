@@ -41,6 +41,8 @@ describe("Product Category boundary", () => {
     const before = await commerceInventory(fixture);
     const result = await run(fixture.host.read(runtime.commands.countCategories, { filters: { id: "root", include_descendants_tree: true }, config: { relations: ["products"], select: ["id", "name", "products.title"], take: 1 } }).pipe(Effect.flatMap(value => Effect.fromResult(decodeCategoryProjection(value)))));
     expect(result).toMatchObject([[{ id: "root", name: "local root", products: [{ id: "product_owned", title: "local" }], category_children: [{ id: "child", name: "local child", category_children: [] }] }], 1]);
+    const internal = await run(fixture.host.read(runtime.commands.internalCategoryCount, { filters: { parent_category_id: ["root"] }, config: { relations: ["parent_category"] } }).pipe(Effect.flatMap(value => Effect.fromResult(decodeCategoryProjection(value)))));
+    expect(internal).toMatchObject([[{ id: "child", name: "local child", parent_category: { id: "root", name: "local root" } }], 1]);
     expect(await commerceInventory(fixture)).toEqual(before);
     expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCategories, { id: "child", data: { parent_category_id: "foreign_only" } })))).toMatchObject({ _tag: "Failure" });
     expect(await commerceInventory(fixture)).toEqual(before);

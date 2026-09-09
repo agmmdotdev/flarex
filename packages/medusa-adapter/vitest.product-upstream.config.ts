@@ -1,3 +1,4 @@
+import { matchesProductCoverage } from "./test/support/product-coverage";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import type { Reporter } from "vitest/node";
@@ -108,7 +109,41 @@ export const admittedProductCategoryCases = [
   "Product service > ProductModuleService product categories > deleteCategory > should throw an error when it has children",
   "Product service > ProductModuleService product categories > deleteCategory > should reorder siblings rank successfully on deleting"
 ];
+export const admittedInternalCategoryCases = [
+  "Product service > Product category Service > list > lists all product categories",
+  "Product service > Product category Service > list > scopes product categories by parent_category_id",
+  "Product service > Product category Service > list > includes the entire list of descendants when include_descendants_tree is true",
+  "Product service > Product category Service > list > includes the entire list of descendants when include_descendants_tree is true for multiple results",
+  "Product service > Product category Service > list > includes the entire list of parents when include_ancestors_tree is true",
+  "Product service > Product category Service > list > includes the entire list of descendants when include_descendants_tree is true",
+  "Product service > Product category Service > list > includes the entire list of descendants an parents when include_descendants_tree and include_ancestors_tree are true",
+  "Product service > Product category Service > list > includes the entire list of parents when include_ancestors_tree is true for multiple results",
+  "Product service > Product category Service > list > includes the entire list of descendants an parents when include_descendants_tree and include_ancestors_tree are true for multiple results",
+  "Product service > Product category Service > list > scopes children when include_descendants_tree is true",
+  "Product service > Product category Service > retrieve > should return category for the given id",
+  "Product service > Product category Service > retrieve > should throw an error when category with id does not exist",
+  "Product service > Product category Service > retrieve > should throw an error when an id is not provided",
+  "Product service > Product category Service > retrieve > should return category based on config select param",
+  "Product service > Product category Service > retrieve > should return category based on config relation param",
+  "Product service > Product category Service > listAndCount > should return categories and count based on take and skip",
+  "Product service > Product category Service > listAndCount > should return all product categories and count",
+  "Product service > Product category Service > listAndCount > should only return categories that are scoped by parent_category_id",
+  "Product service > Product category Service > listAndCount > should includes descendants when include_descendants_tree is true",
+  "Product service > Product category Service > listAndCount > should filter out children when include_descendants_tree is true",
+  "Product service > Product category Service > create > should create a category successfully",
+  "Product service > Product category Service > create > should append rank from an existing category depending on parent",
+  "Product service > Product category Service > update > should update the name of the category successfully",
+  "Product service > Product category Service > update > should throw an error when an id does not exist",
+  "Product service > Product category Service > update > should reorder rank successfully in the same parent",
+  "Product service > Product category Service > update > should reorder rank successfully when changing parent",
+  "Product service > Product category Service > update > should reorder rank successfully when changing parent and in first position",
+  "Product service > Product category Service > update > should update the mpath of the full descendent tree successfully when moving the grand parent in the hierarchy",
+  "Product service > Product category Service > delete > should throw an error when an id does not exist",
+  "Product service > Product category Service > delete > should throw an error when it has children",
+  "Product service > Product category Service > delete > should reorder siblings rank successfully on deleting"
+];
 export const admittedProductCases = [
+  ...admittedInternalCategoryCases,
   ...admittedProductOptionCases, ...admittedProductVariantCases, ...admittedProductCategoryCases,
   ...admittedProductCollectionCases,
   ...admittedProductTagCases,
@@ -176,7 +211,7 @@ export const productCoverage = (expected: readonly string[]): Reporter => {
     onTestRunStart() { executed.length = 0; },
     onTestCaseResult(test) { if (test.result().state !== "skipped") executed.push(test.fullName); },
     onTestRunEnd() {
-      if (executed.length !== expected.length || expected.some(name => executed.filter(value => value === name).length !== 1)) {
+      if (!matchesProductCoverage(expected, executed)) {
         throw new Error("Product upstream coverage mismatch: expected all " + expected.length + " admitted cases to execute");
       }
     },
@@ -185,6 +220,7 @@ export const productCoverage = (expected: readonly string[]): Reporter => {
 export default defineConfig({
   resolve: { alias: [
     { find: /^@medusajs\/test-utils$/, replacement: fileURLToPath(new URL("./test/support/runner.ts", import.meta.url)) },
+    { find: /^@services$/, replacement: fileURLToPath(new URL("../medusa-product/src/services/index.ts", import.meta.url)) },
     { find: /^@models$/, replacement: fileURLToPath(new URL("../medusa-product/src/models/index.ts", import.meta.url)) },
     { find: /^@types$/, replacement: fileURLToPath(new URL("../medusa-product/src/types/index.ts", import.meta.url)) },
     { find: "cloudflare:workers", replacement: fileURLToPath(new URL("../persistence-postgres/test/cloudflareWorkersStub.ts", import.meta.url)) },

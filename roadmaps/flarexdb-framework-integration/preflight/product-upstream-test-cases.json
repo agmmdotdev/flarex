@@ -1,6 +1,6 @@
 {
   "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
-  "scope": "Eight complete Product module-service files; internal Product and Category files remain unregistered.",
+  "scope": "Eight complete public Product module-service files and the complete internal Category file; internal Product remains unregistered.",
   "cases": [
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -913,6 +913,285 @@
       "title": "ProductModuleService product categories > deleteCategory > should reorder siblings rank successfully on deleting",
       "status": "admitted",
       "reason": "Record 42: specialized Category service, bounded trees, sibling ranking and leaf deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "lists all product categories",
+      "fullTitle": "Product service > Product category Service > list > lists all product categories",
+      "sourceLine": 33,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "scopes product categories by parent_category_id",
+      "fullTitle": "Product service > Product category Service > list > scopes product categories by parent_category_id",
+      "sourceLine": 72,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "includes the entire list of descendants when include_descendants_tree is true",
+      "fullTitle": "Product service > Product category Service > list > includes the entire list of descendants when include_descendants_tree is true",
+      "sourceLine": 110,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "includes the entire list of descendants when include_descendants_tree is true for multiple results",
+      "fullTitle": "Product service > Product category Service > list > includes the entire list of descendants when include_descendants_tree is true for multiple results",
+      "sourceLine": 167,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "includes the entire list of parents when include_ancestors_tree is true",
+      "fullTitle": "Product service > Product category Service > list > includes the entire list of parents when include_ancestors_tree is true",
+      "sourceLine": 210,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "includes the entire list of descendants when include_descendants_tree is true",
+      "fullTitle": "Product service > Product category Service > list > includes the entire list of descendants when include_descendants_tree is true",
+      "sourceLine": 275,
+      "occurrence": 2,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "includes the entire list of descendants an parents when include_descendants_tree and include_ancestors_tree are true",
+      "fullTitle": "Product service > Product category Service > list > includes the entire list of descendants an parents when include_descendants_tree and include_ancestors_tree are true",
+      "sourceLine": 344,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "includes the entire list of parents when include_ancestors_tree is true for multiple results",
+      "fullTitle": "Product service > Product category Service > list > includes the entire list of parents when include_ancestors_tree is true for multiple results",
+      "sourceLine": 409,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "includes the entire list of descendants an parents when include_descendants_tree and include_ancestors_tree are true for multiple results",
+      "fullTitle": "Product service > Product category Service > list > includes the entire list of descendants an parents when include_descendants_tree and include_ancestors_tree are true for multiple results",
+      "sourceLine": 472,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "scopes children when include_descendants_tree is true",
+      "fullTitle": "Product service > Product category Service > list > scopes children when include_descendants_tree is true",
+      "sourceLine": 542,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should return category for the given id",
+      "fullTitle": "Product service > Product category Service > retrieve > should return category for the given id",
+      "sourceLine": 594,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should throw an error when category with id does not exist",
+      "fullTitle": "Product service > Product category Service > retrieve > should throw an error when category with id does not exist",
+      "sourceLine": 604,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should throw an error when an id is not provided",
+      "fullTitle": "Product service > Product category Service > retrieve > should throw an error when an id is not provided",
+      "sourceLine": 618,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should return category based on config select param",
+      "fullTitle": "Product service > Product category Service > retrieve > should return category based on config select param",
+      "sourceLine": 630,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should return category based on config relation param",
+      "fullTitle": "Product service > Product category Service > retrieve > should return category based on config relation param",
+      "sourceLine": 643,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should return categories and count based on take and skip",
+      "fullTitle": "Product service > Product category Service > listAndCount > should return categories and count based on take and skip",
+      "sourceLine": 675,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should return all product categories and count",
+      "fullTitle": "Product service > Product category Service > listAndCount > should return all product categories and count",
+      "sourceLine": 706,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should only return categories that are scoped by parent_category_id",
+      "fullTitle": "Product service > Product category Service > listAndCount > should only return categories that are scoped by parent_category_id",
+      "sourceLine": 749,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should includes descendants when include_descendants_tree is true",
+      "fullTitle": "Product service > Product category Service > listAndCount > should includes descendants when include_descendants_tree is true",
+      "sourceLine": 790,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should filter out children when include_descendants_tree is true",
+      "fullTitle": "Product service > Product category Service > listAndCount > should filter out children when include_descendants_tree is true",
+      "sourceLine": 849,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should create a category successfully",
+      "fullTitle": "Product service > Product category Service > create > should create a category successfully",
+      "sourceLine": 895,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should append rank from an existing category depending on parent",
+      "fullTitle": "Product service > Product category Service > create > should append rank from an existing category depending on parent",
+      "sourceLine": 921,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should update the name of the category successfully",
+      "fullTitle": "Product service > Product category Service > update > should update the name of the category successfully",
+      "sourceLine": 1002,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should throw an error when an id does not exist",
+      "fullTitle": "Product service > Product category Service > update > should throw an error when an id does not exist",
+      "sourceLine": 1020,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should reorder rank successfully in the same parent",
+      "fullTitle": "Product service > Product category Service > update > should reorder rank successfully in the same parent",
+      "sourceLine": 1039,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should reorder rank successfully when changing parent",
+      "fullTitle": "Product service > Product category Service > update > should reorder rank successfully when changing parent",
+      "sourceLine": 1074,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should reorder rank successfully when changing parent and in first position",
+      "fullTitle": "Product service > Product category Service > update > should reorder rank successfully when changing parent and in first position",
+      "sourceLine": 1114,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should update the mpath of the full descendent tree successfully when moving the grand parent in the hierarchy",
+      "fullTitle": "Product service > Product category Service > update > should update the mpath of the full descendent tree successfully when moving the grand parent in the hierarchy",
+      "sourceLine": 1154,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should throw an error when an id does not exist",
+      "fullTitle": "Product service > Product category Service > delete > should throw an error when an id does not exist",
+      "sourceLine": 1275,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should throw an error when it has children",
+      "fullTitle": "Product service > Product category Service > delete > should throw an error when it has children",
+      "sourceLine": 1289,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts",
+      "title": "should reorder siblings rank successfully on deleting",
+      "fullTitle": "Product service > Product category Service > delete > should reorder siblings rank successfully on deleting",
+      "sourceLine": 1303,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
     }
   ]
 }

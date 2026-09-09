@@ -7,3 +7,4 @@ import "../../medusa-product/integration-tests/__tests__/product-module-service/
 import "../../medusa-product/integration-tests/__tests__/product-module-service/product-options.spec";
 import "../../medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec";
 import "../../medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec";
+import "../../medusa-product/integration-tests/__tests__/product-category.spec";

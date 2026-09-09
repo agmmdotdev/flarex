@@ -191,8 +191,13 @@ Use these sources in order:
 44. [`preflight/43-medusa-internal-product-and-category-preflight.md`](./preflight/43-medusa-internal-product-and-category-preflight.md)
     inventories all 54 remaining internal declarations; Category (31) is first,
     with private entry/event and duplicate-title coverage gates; Product (23)
-    remains a separate following slice. Runtime coverage stays at 151 plus one skip.
-45. Current code, migrations, any source snapshot already admitted by its own
+    remains a separate following slice. Record 44 owns Category implementation receipts.
+45. [Internal Category compatibility](./preflight/44-medusa-internal-product-categories.md)
+    admits the complete 31-case internal Category file through private commands
+    and preserves direct-call event behavior. The separate internal Product file
+    has 23 declarations remaining; the combined gate is 182 originals plus one skip
+    per driver. Record 44 owns the final regression receipts.
+46. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -269,7 +274,8 @@ Preflight records:
 | [`preflight/40-medusa-product-options.md`](./preflight/40-medusa-product-options.md) | Product Options implemented privately on both drivers | Complete 13-case Option file brings the gate to 115 originals plus one upstream skip; scoped Product projection and atomic cascade deletion; 90 declarations across four files remain, with Variants next |
 | [`preflight/41-medusa-product-variants.md`](./preflight/41-medusa-product-variants.md) | Product Variants implemented privately on both drivers | Complete 15-case file brings the gate to 130 originals plus one upstream skip; exact image assignment removal and Variant lifecycle preserve scoped authority and shared values; public Categories (21) is next |
 | [`preflight/42-medusa-product-categories.md`](./preflight/42-medusa-product-categories.md) | Public Product Categories implemented privately on both drivers | Complete 21-case file brings the gate to 151 originals plus one upstream skip; five boundary checks cover tree authority, rollback, membership and aggregated events; 54 internal declarations remain |
-| [`preflight/43-medusa-internal-product-and-category-preflight.md`](./preflight/43-medusa-internal-product-and-category-preflight.md) | Static preflight complete; implementation pending | Internal Category 31 first, Product 23 separately; exact source/title inventory and adapter ownership gates; no new runtime coverage claimed |
+| [`preflight/43-medusa-internal-product-and-category-preflight.md`](./preflight/43-medusa-internal-product-and-category-preflight.md) | Static preflight complete; Category implemented in Record 44 | Internal Category 31 first, Product 23 separately; exact source/title inventory and adapter ownership gates; no new runtime coverage claimed |
+| [Internal Category](./preflight/44-medusa-internal-product-categories.md) | Internal Category implemented privately on both drivers | Complete 31-case file plus three direct-call boundary checks; combined 182 originals plus one skip per driver; internal Product 23 remains |
 
 ## Current Architecture
 

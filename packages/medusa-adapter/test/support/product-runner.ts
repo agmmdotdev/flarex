@@ -126,12 +126,34 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
   return method === "retrieveProductCategory" || method === "listProductCategories" || method === "listAndCountProductCategories" ? yield* Effect.fromResult(decodeCategoryProjection(result)) : result;
 });
 
+const executeInternalCategory = Effect.fn("ProductUpstream.internalCategory")(function* (method: string, args: readonly unknown[]) {
+  const { fixture, runtime } = get();
+  const read = method === "list" || method === "listAndCount" || method === "retrieve";
+  const contextIndex = read ? 2 : 1;
+  if (args.length > contextIndex + 1 || args[contextIndex] !== undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const input = yield* Effect.fromResult(captureCommerceInput(read
+    ? method === "retrieve" ? { id: args[0], config: args[1] } : { filters: args[0], config: args[1] }
+    : args[0]));
+  const result = read ? yield* fixture.host.read(method === "retrieve" ? runtime.commands.internalCategoryRetrieve : method === "list" ? runtime.commands.internalCategoryList : runtime.commands.internalCategoryCount, input)
+    : yield* fixture.host.run(fixture.host.newRequestKey(), method === "create" ? runtime.commands.internalCategoryCreate : method === "update" ? runtime.commands.internalCategoryUpdate : runtime.commands.internalCategoryDelete, input);
+  return yield* Effect.fromResult(decodeCategoryProjection(result));
+});
+const internalCategoryService = new Proxy<object>({}, {
+  get(_target, property) {
+    if (typeof property !== "string" || !["list", "listAndCount", "retrieve", "create", "update", "delete"].includes(property)) throw new Error("Unadmitted internal Category method: " + String(property));
+    return (...args: readonly unknown[]): Promise<unknown> => Effect.runPromise(executeInternalCategory(property, args).pipe(
+      Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => error.reason === "adapterFailure" && error.cause !== undefined ? error.cause : error))),
+    )).then(value => structuredClone(value));
+  },
+});
+
 /** Original test callback contract, backed only by admitted host commands. The
  * proxy admits the checked mutation milestone methods and refuses every other property access.
  * Results are the unchanged service's host-captured DTOs, inspected by upstream
  * assertions. This test proxy is not a production DTO adapter or public service. */
 const service = new Proxy<object>({}, {
   get(_target, property) {
+    if (property === "productCategoryService_") return internalCategoryService;
     if (typeof property !== "string" || !["createProducts", "createProductTags", "createProductTypes", "createProductCollections", "createProductImages", "retrieveProduct", "listProducts", "listAndCountProducts", "updateProductTags", "updateProductTypes", "upsertProductTags", "upsertProductTypes",
       "createProductOptions", "createProductVariants", "createProductCategories", "upsertProductOptions", "upsertProductCollections", "upsertProductCategories", "addImageToVariant",
       "updateProductOptions", "updateProductVariants", "updateProductOptionValues", "updateProductCollections", "updateProductCategories", "updateProducts", "upsertProducts", "upsertProductVariants",

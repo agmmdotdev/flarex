@@ -35,6 +35,8 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
   });
   return { capture, deliver,
     validate: Effect.fn("ProductEvents.validate")(function* (events, rows, commandName, lifecycle = []) {
+      const internalCategory = ["productInternalCategorycreate", "productInternalCategoryupdate", "productInternalCategorydelete"].includes(commandName);
+      if (internalCategory && (events.length !== 0 || lifecycle.length !== 0)) return yield* Effect.fail(commerceError("receiptMismatch"));
       const expected = new Set<string>();
       const observations = new Map<string, typeof lifecycle[number]>();
       for (const observation of lifecycle) {
@@ -51,6 +53,18 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
       for (const row of rows) {
         const key = yield* decodeRelationalRowKey(descriptor.layout, row.tableId, row.keyBytes, row.codecVersion)
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        if (internalCategory) {
+          // Direct Category methods have neither EmitEvents nor a caller-supplied
+          // aggregator. Authenticate their limited facts, preserving every fact
+          // while requiring zero published module messages for these commands.
+          const categoryRow = row.tableId === catalog.category.table.name && key.components.length === 1 && key.components[0]?.columnId === "id" && typeof key.components[0].value === "string";
+          const relation = catalog.queryRelations.get(catalog.category.table.name)?.get("products");
+          const categoryPivot = relation?.join.type === "manyToMany" && row.tableId === relation.join.pivotTable;
+          const admitted = categoryRow && (row.operation === "update" || (row.operation === "insert" && commandName === "productInternalCategorycreate") || (row.operation === "delete" && commandName === "productInternalCategorydelete"))
+            || categoryPivot && ((row.operation === "insert" && commandName === "productInternalCategorycreate") || (row.operation === "delete" && commandName === "productInternalCategorydelete"));
+          if (!admitted) return yield* Effect.fail(commerceError("receiptMismatch"));
+          continue;
+        }
         if ((row.operation === "insert" || row.operation === "delete") && catalog.writablePivots.some(table => table.name === row.tableId)) continue;
         const object = catalog.entities.find(entity => entity.table.name === row.tableId);
         const id = key.components[0];

@@ -13,7 +13,7 @@ const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeWhere = commerceDecoder(Schema.Struct({
   id: Schema.optionalKey(Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256))])),
   name: Schema.optionalKey(Schema.String), handle: Schema.optionalKey(Schema.String),
-  parent_category_id: Schema.optionalKey(Schema.NullOr(Id)),
+  parent_category_id: Schema.optionalKey(Schema.NullOr(Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256))]))),
   is_internal: Schema.optionalKey(Schema.Boolean), is_active: Schema.optionalKey(Schema.Boolean),
 }), "unsupportedProfile");
 const decodeOptions = commerceDecoder(Schema.Struct({
@@ -35,7 +35,8 @@ export const findCategoryRows = Effect.fn("ProductCategory.find")(function* (ctx
   const envelope = yield* Effect.fromResult(decodeEnvelope(captured));
   const where = yield* Effect.fromResult(decodeWhere(envelope.where ?? {}));
   const options = yield* Effect.fromResult(decodeOptions(envelope.options ?? {}));
-  const relations = options.populate ?? [];
+  // The pinned service hydrates these exact tree hints after the DAL read.
+  const relations = (options.populate ?? []).filter(path => path !== "parent_category" && path !== "category_children");
   const projection = yield* productInverseProjection(metadata, "category", options.fields, relations);
   const children: Json[] = [{ kind: "isNull", column: "deleted_at" }];
   for (const [column, value] of Object.entries(where)) children.push(value === null ? { kind: "isNull", column } : { kind: "in", column, values: Array.isArray(value) ? value : [value] });

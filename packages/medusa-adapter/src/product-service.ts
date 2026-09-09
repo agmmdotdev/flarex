@@ -46,6 +46,7 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
       service.interceptEntityMutationEvents(event, args, context);
     },
   };
+  const categoryService = new ProductCategoryService({ productCategoryRepository: categoryRepository, modulePersistenceAdapter: persistence, productModuleService: categoryMutationService });
   const service: ProductModuleService = new ProductModuleService({
     // SAFETY: the pinned constructor type still requires the MikroORM-only
     // method. Its runtime hasDeepUpdate guard deliberately selects the portable
@@ -56,14 +57,14 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
     productOptionService: internal(ProductOption, relatedRepository(metadata.option)),
     productOptionValueService: internal(ProductOptionValue, relatedRepository(metadata.value)),
     productImageService: internal(ProductImage, relatedRepository(metadata.image)),
-    productCategoryService: new ProductCategoryService({ productCategoryRepository: categoryRepository, modulePersistenceAdapter: persistence, productModuleService: categoryMutationService }),
+    productCategoryService: categoryService,
     productCollectionService: internal(ProductCollection, relatedRepository(metadata.collection)),
     productTagService: internal(ProductTag, relatedRepository(metadata.tag)), productTypeService: internal(ProductType, relatedRepository(metadata.type)),
     productImageProductService: internal(ProductImage),
     productVariantProductImageService: internal(ProductVariantProductImage, relatedRepository(metadata.assignment)),
     [Modules.EVENT_BUS]: eventBus,
   }, { scope: "internal" });
-  return { service, repository, eventBus, context: { manager: ctx.manager, transactionManager: ctx.manager } };
+  return { service, categoryService, repository, eventBus, context: { manager: ctx.manager, transactionManager: ctx.manager } };
 }
 
 /** Private command set. No request may select local policy, a manager or a table. */
@@ -76,6 +77,11 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     withCommerceService(ctx, owner => compose(ctx, owner, metadata, false, true), work);
   const withCollectionService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
     withCommerceService(ctx, owner => compose(ctx, owner, metadata, true), work);
+  // Direct internal calls intentionally have no EmitEvents aggregator. Capture
+  // their raw entity representation before it crosses the JSON command boundary.
+  const withInternalCategory = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
+    withCommerceService(ctx, owner => compose(ctx, owner, metadata, false, true), async value =>
+      value.repository.serialize(await work(value)));
   const create = defineCommerceCommand("productCreate", "write", Effect.fn("ProductAdapter.create")(function* (ctx, input) {
     yield* validateProductCreate(metadata, input).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     // SAFETY: the external graph is checked before the unchanged service, then its
@@ -151,6 +157,41 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     const filters = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
     return yield* withCategoryReadService(ctx, ({ service, context }) => kind === "count"
       ? service.listAndCountProductCategories(filters, find, context) : service.listProductCategories(filters, find, context));
+  }));
+  const internalCategoryRead = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("productInternalCategory" + kind, "read", Effect.fn("ProductAdapter.internalCategory." + kind)(function* (ctx, input) {
+    const decoded = yield* Effect.fromResult(decodeProductCategoryRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    if (kind === "retrieve" ? decoded.filters !== undefined : decoded.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+    const copied = structuredClone(decoded);
+    // SAFETY: pinned signatures promise full entities for partial reads. The DAL
+    // validates every normalized query; an absent ID reaches its original error.
+    const find = copied.config as Parameters<ProductCategoryService["retrieve"]>[1];
+    const filters = copied.filters as Parameters<ProductCategoryService["list"]>[0];
+    return yield* withInternalCategory(ctx, ({ categoryService, context }) => kind === "retrieve"
+      ? categoryService.retrieve(copied.id as string, find, context)
+      : kind === "count" ? categoryService.listAndCount(filters, find, context) : categoryService.list(filters, find, context));
+  }));
+  const internalCategoryChange = (kind: "create" | "update" | "delete") => defineCommerceCommand("productInternalCategory" + kind, "write", Effect.fn("ProductAdapter.internalCategory." + kind)(function* (ctx, input) {
+    if (!Array.isArray(input) || input.length > 256) return yield* ctx.refuse(commerceError("invalidInput"));
+    if (kind === "delete") {
+      const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+      if (typeof ids === "string") return yield* ctx.refuse(commerceError("invalidInput"));
+      return yield* withInternalCategory(ctx, ({ categoryService, context }) => categoryService.delete([...ids], context));
+    }
+    yield* validateCategoryCommand(ctx, metadata, input);
+    for (const row of input) {
+      if (!isJsonObject(row)) return yield* ctx.refuse(commerceError("invalidInput"));
+      if (kind === "update") {
+        const { id, ...data } = row;
+        if (typeof id !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
+        yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata.category.table.name, data)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+      } else yield* Effect.fromResult(metadata.valueProfile.validateRelatedCreate(metadata.category.table.name, row)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    }
+    // SAFETY: validated external fields enter the real specialized service;
+    // prepared DAL writes revalidate the resulting rank/path and scoped links.
+    return yield* withInternalCategory(ctx, ({ categoryService, context }) => kind === "create"
+      ? categoryService.create(structuredClone(input) as Parameters<ProductCategoryService["create"]>[0], context)
+      : categoryService.update(structuredClone(input) as Parameters<ProductCategoryService["update"]>[0], context));
   }));
   const readOption = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("productOption" + kind, "read", Effect.fn("ProductAdapter.option." + kind)(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductParentRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
@@ -308,7 +349,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     return yield* withService(ctx, async ({ service, context }) => (await service.softDeleteProductVariants(ids, {}, context)) ?? null);
   }));
-  return { commands: Object.freeze({ create, list: read("list"), retrieve: read("retrieve"), count: read("count"),
+  return { commands: Object.freeze({ internalCategoryList: internalCategoryRead("list"), internalCategoryRetrieve: internalCategoryRead("retrieve"), internalCategoryCount: internalCategoryRead("count"),
+    internalCategoryCreate: internalCategoryChange("create"), internalCategoryUpdate: internalCategoryChange("update"), internalCategoryDelete: internalCategoryChange("delete"), create, list: read("list"), retrieve: read("retrieve"), count: read("count"),
     listCategories: readCategory("list"), retrieveCategory: readCategory("retrieve"), countCategories: readCategory("count"),
     listTypes: readNamed("type", "list"), retrieveType: readNamed("type", "retrieve"), countTypes: readNamed("type", "count"),
     listVariants: readVariant("list"), retrieveVariant: readVariant("retrieve"), countVariants: readVariant("count"), removeImageFromVariant, softDeleteVariants,

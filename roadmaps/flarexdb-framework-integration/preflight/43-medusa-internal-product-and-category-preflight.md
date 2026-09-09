@@ -1,6 +1,6 @@
 # Internal Product and Category compatibility preflight
 
-Status: preflight complete; implementation and runtime admission pending.
+Status: preflight complete; Category admitted in Record 44, internal Product pending.
 Baseline: `f7aa56a2` (Record 42). Pinned Medusa:
 `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`.
 
@@ -159,3 +159,8 @@ entries. The current promotion verifier passed 354 files across ten packages.
 No runtime code, original tests, active case inventory or transaction owner was
 changed; no new database tests were executed or claimed. Source baseline and
 Record 42 receipts remain the authority for the existing 151-case gate.
+
+Continuation: [Record 44](./44-medusa-internal-product-categories.md) implements
+the approved internal Category slice. All 31 originals and three boundary checks
+pass on both drivers; its complete combined gate is 182 originals plus one
+retained upstream skip per driver. Internal Product's 23 declarations remain separate.
