@@ -1,6 +1,7 @@
 import { productRelations, type ProductRuntimeMetadata, type ProductEntityMetadata } from "./product-runtime-metadata";
 import { Effect } from "effect";
-import type { Context, DAL, ModulePersistenceAdapter } from "@medusajs/framework/types";
+import type { Context, DAL } from "@medusajs/framework/types";
+import type { CommerceModuleEvents } from "./commerce-module";
 import { commerceMutationEvents } from "./commerce-mutation-events";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -27,12 +28,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   const internalProduct = profile === "internalProduct";
   const bridge = commerceRepositoryContext(root, owner);
   const events = commerceMutationEvents(owner);
-  const unsupported = () => owner.reject(commerceError("unsupportedProfile"));
-  const persistence: ModulePersistenceAdapter = {
-    name: "flarex-product-local",
+  const mutationPersistence: CommerceModuleEvents = {
     createEventSubscriber: events.createSubscriber,
-    prepareModels: unsupported, createConnectionLoader: unsupported,
-    createBaseRepository: unsupported, createRepository: unsupported,
     registerEventSubscriber: events.registerSubscriber,
     dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) || !["afterCreate", "afterUpdate", "afterDelete"].includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
@@ -163,7 +160,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       return result.roots.flatMap(row => typeof row.id === "string" ? [row.id] : []);
     }))),
   };
-  return { repository, persistence, refuse, relatedRepository, categoryRepository,
+  return { repository, mutationPersistence, refuse, relatedRepository, categoryRepository,
     captureLocalEvent: (event: unknown) => Effect.suspend(() => bridge.current().captureLocalEvent(event)),
     rejectLocalEvent: (error: CommerceTransactionError) => Effect.suspend(() => bridge.current().refuse(error)),
   };

@@ -4,7 +4,7 @@ import { Effect, Cause } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Currency } from "@medusajs/currency/models";
 import { CurrencyModuleService } from "@medusajs/currency/services";
-import { MedusaInternalService } from "@medusajs/utils/modules-sdk/medusa-internal-service";
+import { prepareCommerceModule } from "./commerce-module";
 import type { ICurrencyModuleService, CurrencyTypes, FindConfig, FilterableCurrencyProps } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext, type CommerceHost } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -15,8 +15,10 @@ import { decodeCurrencyRead } from "./currency-input";
 
 const compose = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
   const repository = currencyRepository(ctx, owner);
-  const internal = new (MedusaInternalService(Currency))<object, typeof Currency>({ currencyRepository: repository });
-  const service = new CurrencyModuleService({ baseRepository: repository, currencyService: internal }, { scope: "internal" });
+  const module = prepareCommerceModule(owner, { name: "flarex-currency-local", baseRepository: repository,
+    models: [{ model: Currency, repository }] });
+  const internal = module.internalService(Currency);
+  const service = new CurrencyModuleService({ baseRepository: module.baseRepository, currencyService: internal }, { scope: "internal" });
   return { repository, internal, service, context: { manager: ctx.manager, transactionManager: ctx.manager } };
 };
 

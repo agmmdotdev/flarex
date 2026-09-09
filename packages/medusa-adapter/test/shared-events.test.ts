@@ -165,7 +165,7 @@ describe("shared request-owned Medusa mutation dispatch", () => {
         store: { find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
       }, "event-admission", lifetime.context, unused, unused);
       const metadata = yield* captureProductSchema("event-admission").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame)));
-      const { persistence } = productRepository(root, owner, metadata);
+      const { mutationPersistence: persistence } = productRepository(root, owner, metadata);
       const receipts: Receipt[] = [];
       const subscriber = persistence.createEventSubscriber?.(["Product"], collector(receipts));
       const foreign = commerceMutationEvents(owner).createSubscriber(["Product"], collector(receipts));

@@ -1,13 +1,12 @@
 import { productInternalInput } from "./product-internal-input";
 import { validateCategoryCommand } from "./product-category-input";
-import { lowerCaseFirst } from "@medusajs/utils/common/lower-case-first";
+import { commerceInternalService, prepareCommerceModule } from "./commerce-module";
 import { productRuntimeMetadata, type ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { Effect } from "effect";
 import { ProductModuleService, ProductCategoryService } from "@medusajs/product/services";
 import { Product, ProductCategory, ProductCollection, ProductImage, ProductOption, ProductOptionValue, ProductTag, ProductType, ProductVariant, ProductVariantProductImage } from "@medusajs/product/models";
-import { MedusaInternalService } from "@medusajs/utils/modules-sdk/medusa-internal-service";
-import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils/portable";
-import type { DAL, FindConfig, ProductTypes, IEventBusModuleService, ModulePersistenceMutationService } from "@medusajs/framework/types";
+import { Modules } from "@medusajs/framework/utils/portable";
+import type { FindConfig, ProductTypes, IEventBusModuleService, ModulePersistenceMutationService } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductRead, decodeProductNamedRead, decodeProductCollectionRead, decodeProductCategoryRead, decodeProductParentRead, decodeVariantImageInput, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
@@ -23,11 +22,22 @@ import { decodeRelatedUpdate } from "./product-value-profile";
 import { decodeProductLifecycleIds } from "./product-lifecycle";
 
 function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, profile: ProductRepositoryProfile = "public") {
-  const { repository, persistence, refuse, relatedRepository, categoryRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata, profile);
+  const { repository, mutationPersistence, refuse, relatedRepository, categoryRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata, profile);
   const blocked = { ...repository, find: refuse, findAndCount: refuse, create: refuse, delete: refuse, softDelete: refuse, restore: refuse };
-  const internal = <Model extends { readonly name: string }>(model: Model, selected: DAL.RepositoryService = blocked) => new (MedusaInternalService(model))<object, Model>({
-    [lowerCaseFirst(model.name) + "Repository"]: selected, [ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER]: persistence,
-  });
+  const module = prepareCommerceModule(owner, { name: "flarex-product-local", baseRepository: repository,
+    events: mutationPersistence, models: [
+      { model: Product, repository },
+      { model: ProductVariant, repository: relatedRepository(metadata.variant) },
+      { model: ProductOption, repository: relatedRepository(metadata.option) },
+      { model: ProductOptionValue, repository: relatedRepository(metadata.value) },
+      { model: ProductImage, repository: relatedRepository(metadata.image) },
+      { model: ProductCategory, repository: relatedRepository(metadata.category) },
+      { model: ProductCollection, repository: relatedRepository(metadata.collection) },
+      { model: ProductTag, repository: relatedRepository(metadata.tag) },
+      { model: ProductType, repository: relatedRepository(metadata.type) },
+      { model: ProductVariantProductImage, repository: relatedRepository(metadata.assignment) },
+    ] });
+  const { persistence, internalService: internal } = module;
   const eventBus: IEventBusModuleService = {
     emit: (input, options) => owner.run(Effect.gen(function* () {
       const settings = yield* Effect.fromResult(captureCommerceInput(options));
@@ -48,22 +58,22 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
     },
   };
   const categoryService = new ProductCategoryService({ productCategoryRepository: categoryRepository, modulePersistenceAdapter: persistence, productModuleService: categoryMutationService });
-  const productService = internal(Product, repository);
+  const productService = internal(Product);
   const service: ProductModuleService = new ProductModuleService({
     // SAFETY: the pinned constructor type still requires the MikroORM-only
     // method. Its runtime hasDeepUpdate guard deliberately selects the portable
     // internal-service branch when that property is absent.
-    baseRepository: repository, productRepository: repository as ConstructorParameters<typeof ProductModuleService>[0]["productRepository"],
+    baseRepository: module.baseRepository, productRepository: repository as ConstructorParameters<typeof ProductModuleService>[0]["productRepository"],
     productService,
-    productVariantService: internal(ProductVariant, relatedRepository(metadata.variant)),
-    productOptionService: internal(ProductOption, relatedRepository(metadata.option)),
-    productOptionValueService: internal(ProductOptionValue, relatedRepository(metadata.value)),
-    productImageService: internal(ProductImage, relatedRepository(metadata.image)),
+    productVariantService: internal(ProductVariant),
+    productOptionService: internal(ProductOption),
+    productOptionValueService: internal(ProductOptionValue),
+    productImageService: internal(ProductImage),
     productCategoryService: categoryService,
-    productCollectionService: internal(ProductCollection, relatedRepository(metadata.collection)),
-    productTagService: internal(ProductTag, relatedRepository(metadata.tag)), productTypeService: internal(ProductType, relatedRepository(metadata.type)),
-    productImageProductService: internal(ProductImage),
-    productVariantProductImageService: internal(ProductVariantProductImage, relatedRepository(metadata.assignment)),
+    productCollectionService: internal(ProductCollection),
+    productTagService: internal(ProductTag), productTypeService: internal(ProductType),
+    productImageProductService: commerceInternalService(ProductImage, blocked, persistence),
+    productVariantProductImageService: internal(ProductVariantProductImage),
     [Modules.EVENT_BUS]: eventBus,
   }, { scope: "internal" });
   return { service, productService, categoryService, repository, eventBus, context: { manager: ctx.manager, transactionManager: ctx.manager } };

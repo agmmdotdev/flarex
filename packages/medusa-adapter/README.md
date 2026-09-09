@@ -220,4 +220,10 @@ Volume/Edition/Label fixtures exercise reuse without admitting another module.
 the Effect boundary around pinned Medusa dispatch. Product retains event
 admission, lifecycle payloads and authenticated local-event policy; Currency
 keeps its existing event-free service path. Numeric representation, stored
-metadata merging and full module preparation retain their respective owners.
+metadata merging retain their respective owners. `commerce-module.ts` now binds
+both modules to the pinned model-preparation and repository-constructor contract.
+The private registration admits exact model identities and preserves DML objects;
+constructors borrow existing request-owned repositories. Product retains its
+specialized Category service and restricted image-product alias. Connection
+loaders and custom-repository discovery refuse; Flarex still owns installation.
+This is per-module request composition, not a combined module-set bootstrap.

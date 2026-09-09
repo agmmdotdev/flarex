@@ -600,10 +600,99 @@ no superuser, database-creation or role-creation privileges and was stopped
 after validation. Assertions, coverage reporters, ceilings, lifecycle policy
 and persistence/publication owners remain unchanged.
 
+## Module-scoped preparation and repository construction
+
+This slice uses the pinned `ModulePersistenceAdapter` model
+preparation and constructor methods. The actual repository loader chooses model
+repositories by `lowerCaseFirst(model.name) + "Repository"` and separately
+constructs the base repository. The shared `commerce-module.ts` owner follows
+those names and contracts with request-local factories. It does not import the
+MikroORM loader or the Drizzle connection manager.
+
+Each trusted module composition registers its exact DML objects and existing
+admitted repositories. Preparation requires the complete registered set, rejects
+duplicates, foreign or same-name replacement objects and injection-name
+collisions, preserves each DML object, and returns a separate ordered array.
+This preparation selects already admitted model bindings; the existing checked
+DML capture/lowering and host installation remain the schema authorities.
+
+Repository constructors bind the admitted repository methods with their original
+receiver. The base and model instances share the existing request's manager,
+Promise owner and borrowed transactions. The shared internal-service constructor
+retains Medusa's DML primary-key inference and optional event facets. Currency
+has no event facets. Product supplies its existing checked mutation dispatch,
+keeps the specialized Category constructor explicit, and constructs its blocked
+image-product service alias with its restricted repository. The former local
+Product internal-service factory and unsupported preparation stubs are removed.
+
+Connection loaders and custom-repository discovery synchronously refuse through
+the existing sticky Promise-owner boundary. There is no fallback to framework
+connection setup, schema installation, automatic custom repository selection,
+new transaction owner, or cross-module authority. These factories are internal
+to the command-owned composition and are not a public full-bootstrap adapter.
+
+### Module construction validation
+
+All 15 new construction cases and the 11 existing dispatch cases pass, as do
+134 authored Product boundary checks, the ten-package private build with all
+four strict TypeScript lanes, 56 promotion guards, the 389-file exact source
+manifest and browser portability across 652 inputs. Core and worktree-diff lint
+pass. Both required reviewers report no findings against the final source and
+tests. The adapter remains outside the configured Oxlint source roots.
+
+The first full ordinary-role PostgreSQL run passed 204 Product originals and
+failed `updateCollections > should respond with collections when products are
+updated` with `rollbackOnly`. Expected behavior is the unchanged original's
+successful collection response. At 21:53:08.045 +0630 the PostgreSQL server
+recorded `canceling statement due to statement timeout` for its two-row Product
+insert. The affected boundary is the existing persistence statement deadline
+and bounded request's rollback latch. No model-selection or DTO discrepancy
+was reported. This is diagnostic timing evidence, not authority to alter
+persistence or its deadlines. No owner correction is proposed in this slice.
+
+All 22 unchanged focused collection cases then passed on the same PostgreSQL
+fixture, including the failed original and four authored membership/scope/
+rollback boundaries. A second serial full run, without source, assertion,
+reporter, concurrency, database setting or resource-limit changes, also passed
+204 originals and failed a different case: `Product Service > list > relation:
+variants > should filter by id and including relations`. The first failing
+collection case passed. The second failure is `statementFailure` at
+`writeOutcome`; at 22:02:38.560 +0630 the server timed out the shared
+`fx_system_idempotency` insert. Its affected owner is existing outcome
+publication/persistence, not the model constructor contract. This extraction
+does not change that SQL or owner. Full-run PostgreSQL stability remains
+unresolved; two partial full runs must not be described as one green run.
+Further shared-owner changes require their own preflight and approval.
+
+The initial failed run and server evidence remain in
+`work/validation/shared-medusa-module/product-postgres.log` and
+`postgres-timeout.log`; the second run and server evidence are
+`product-postgres-rerun.log` and `postgres-rerun-timeout.log`. All slice
+receipts use that validation directory.
+
+The affected internal Product lane subsequently passed all 27 cases on
+PostgreSQL, including the timed-out original and four authored boundary cases.
+Currency passes all thirteen originals on both drivers: 20 live cases on
+PGlite and 19 on PostgreSQL with the existing PGlite-only interruption skip.
+PGlite Product passes all 205 originals and retains its one upstream skip.
+All database suites ran sequentially with explicit driver selection. PostgreSQL
+18.3 used the ordinary role without superuser, database-creation or
+role-creation privileges; after all test-role connections closed, the task-owned
+server was stopped. No assertions, reporters, schema artifacts, SQL, limits or
+shared transaction/publication owners changed.
+
+Supplemental code-quality review examined both PostgreSQL failures and the
+publication call path. It found no concrete construction defect and required no
+further full rerun after the focused lanes passed. The evidence is consistent
+with intermittent timing, but does not prove an environmental cause or establish
+full PostgreSQL stability. Carry that qualification into subsequent module work;
+shared-owner diagnosis and any correction require a separate preflight.
+
 ## Following capabilities and module proof
 
 Shared reads, checked DML lowering, JSON-field decoders, keyed updates and graph
-creation/replacement and mutation dispatch now have common owners. Preserve
+creation/replacement, mutation dispatch and module repository construction now
+have common owners. Preserve
 insert versus upsert, omitted versus empty relationships,
 identity retention, metadata merging, reference ownership, managed-field
 refusal, actual-row performed-actions, and mutation order. Keep domain
@@ -611,10 +700,8 @@ extensions explicit. Currency/Product lifecycle policy differences require
 an explicit decision; shared algorithms alone do not authorize changing them.
 Delete each displaced path when both consumers and boundary tests pass.
 
-Next add module-scoped preparation and repository construction through the
-actual Medusa persistence contract, retaining trusted command admission and
-Flarex installation ownership. A complete configured module set is a separate
-composition obligation; sharing a query engine does not automatically combine
+A complete configured module set remains a separate composition obligation;
+sharing a query engine does not automatically combine
 Currency and Product schema artifacts or grant cross-module transactions.
 
 Recommend Customer as the next module reuse proof. Its pinned
