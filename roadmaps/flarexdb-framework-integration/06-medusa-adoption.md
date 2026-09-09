@@ -2,64 +2,30 @@
 
 ## Status And Scope
 
-Status: accepted source-backed sequence with the inert fork source island and
-exact package/capability audit complete. The core-first and bounded private
-Payload prerequisites are complete. The [Currency convergence/schema record](./preflight/24-medusa-currency-convergence-and-schema-compatibility.md)
-records implemented private package promotion and actual DML compatibility.
-The [Currency host/publication capability](./preflight/25-medusa-currency-host-and-publication.md)
-implements fresh installation, seed-gated serving and shared relational publication
-through the unchanged Currency service.
-[Product schema and physical relationships](./preflight/26-medusa-product-schema-and-relationships.md)
-are also implemented, from complete actual DML to fresh installation and
-constraint conformance. The implemented private
-[nested Product creation and local event contract](./preflight/28-medusa-product-create-and-event-delivery.md)
-owns the first multi-table service proof with an injected, transaction-buffered
-in-memory test adapter. The [original Product runner](./preflight/29-medusa-original-product-tests.md)
-established three pinned cases on both database drivers. The implemented
-[related creation and read preflight](./preflight/30-medusa-product-related-create-and-reads.md)
-adds eight more cases. The implemented
-[keyed-update preflight](./preflight/31-medusa-keyed-updates-and-remaining-product-tests.md)
-adds four tag/type update/upsert cases through explicit shared-core admission,
-for fifteen original cases on both drivers. The implemented
-[Product mutation preflight](./preflight/32-medusa-standalone-options-and-variants.md)
-adds 35 original cases in one milestone, with related-entity and
-Product graph checkpoints passing 50 total on both drivers. Its complete case map also
-assigns the five lifecycle cases and one scale case to following slices.
-The separately approved and implemented
-[bounded write-kernel correction](./preflight/33-commerce-write-kernel-efficiency.md)
-preserves resource limits, exact row evidence and bounded database transport.
-The implemented [lifecycle milestone](./preflight/34-medusa-product-lifecycle.md)
-adds physical deletion, soft deletion, restore and deleted-row reads, with 55
-original cases passing on both drivers. The implemented
-[scale milestone](./preflight/35-medusa-product-scale.md) adds the unchanged
-1000-image ordering case through an explicit resource contract, reaching 56 originals
-per driver, with only the upstream performance skip remaining.
-The [remaining-suite preflight](./preflight/37-medusa-remaining-product-suite-preflight.md)
-inventories 149 declarations at its preflight baseline and now records the
-implemented complete 13-case Product Types suite. Type reads and the tested
-value filter bring the combined gate to 69 original passes plus one upstream
-skip per driver. The focused Type lane passes 15 checks on each driver.
-The implemented [Product Tags slice](./preflight/38-medusa-product-tags.md)
-adds its complete 15-case file, inverse Product projections and authenticated
-managed-field DTO echoes. The subsequent [Collections slice](./preflight/39-medusa-product-collections.md)
-adds all 18 original Collection cases, inverse Product projections and bounded
-membership changes through the unchanged service. The subsequent [Options slice](./preflight/40-medusa-product-options.md) adds
-all 13 original Option cases, Product projections and standalone cascade deletion.
-The subsequent [Variants slice](./preflight/41-medusa-product-variants.md) adds
-all 15 original cases, scoped images, assignment removal and Variant-only managed
-soft deletion. The subsequent [Categories slice](./preflight/42-medusa-product-categories.md)
-adds the complete 21-case public file, source-owned tree and rank operations,
-scoped Product membership and leaf deletion. Its final receipts own the eight-file
-combined gate of 151 originals plus one upstream skip. The remaining 54
-declarations are in the two internal Product/Category files. The completed
-[internal-suite preflight](./preflight/43-medusa-internal-product-and-category-preflight.md)
-recommends Category's 31 declarations first, with a private entry/event boundary
-and duplicate-title execution gate, then Product's 23 in a separate slice.
-Implementation is pending and current coverage remains 151 plus one skip.
-Durable event storage/dispatch are deferred. Product
-mutations beyond the admitted graph/related-entity and lifecycle profile,
-stored Links and production
-activation remain unadmitted.
+Status: accepted source-backed adoption sequence. The private Currency and
+Product integrations execute the promoted Medusa services through Flarex-owned
+installation, scoped transactions, and relational publication. Currency proves
+its complete original integration file and seed-gated initialization. Product
+proves all ten inventoried integration files, including public and internal
+services, graph mutation, lifecycle, events, category trees, and the bounded
+1000-image case. The [completed compatibility record](./preflight/46-commerce-command-registration-bound.md)
+and [active case inventory](./preflight/product-upstream-test-cases.json) own the
+current suite boundary and retained skips; earlier partial-suite counts are
+historical checkpoints.
+
+The implementation shares transaction and relationship mechanics but retains
+substantial module-specific query, projection, graph, and composition code.
+The [shared persistence adapter preflight](./preflight/47-medusa-shared-persistence-adapter.md)
+recommends consolidating that code before extending the same implementation
+pattern across more modules. Its first proposed capability is a shared runtime
+catalog and read/projection engine for Currency and Product; implementation
+awaits approval. The target retains Medusa services and named custom repository
+extensions over the existing Flarex capabilities.
+
+Complete integration-suite coverage does not establish arbitrary input parity
+or a complete module bootstrap/migration adapter. Stored Module Links,
+workflows, distributed locks, durable business-event delivery, general module
+migrations, public serving, and production activation remain separately gated.
 
 This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
 relational storage. It preserves Medusa's DML, module, repository, Query, Link,

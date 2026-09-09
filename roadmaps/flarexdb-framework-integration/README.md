@@ -16,6 +16,12 @@ lifecycle publication under the combined binding. Private Flarex-backed Currency
 seed-gated serving and shared relational commit publication. Public serving and
 production activation remain gated.
 
+Private Currency and Product now cover their complete inventoried integration
+suites, including internal Product/Category services. The next proposed Medusa
+capability is [shared metadata-driven repository reads and projections](./preflight/47-medusa-shared-persistence-adapter.md),
+using both modules to prove reuse before wider module adoption. This proposal
+awaits approval and preserves the current transaction and publication owners.
+
 The [current gate matrix](#current-gate-status) is the cross-lane status index.
 Focused owners define exact contracts and evidence; lane documents link here
 rather than maintaining another detailed implementation-status inventory.
@@ -203,7 +209,11 @@ Use these sources in order:
     separates the approved 128-definition catalog ceiling from unchanged request
     and statement limits, and completes internal Product. All 205 original cases
     pass with one retained upstream skip on PGlite and ordinary-role PostgreSQL.
-48. Current code, migrations, any source snapshot already admitted by its own
+48. [Shared Medusa persistence adapter preflight](./preflight/47-medusa-shared-persistence-adapter.md)
+    proposes common runtime metadata, query compilation, and read/projection
+    execution across Currency and Product, followed by shared write/schema
+    mechanics and a separately admitted module reuse proof.
+49. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -283,6 +293,7 @@ Preflight records:
 | [`preflight/43-medusa-internal-product-and-category-preflight.md`](./preflight/43-medusa-internal-product-and-category-preflight.md) | Static preflight complete; Category implemented in Record 44 | Internal Category 31 first, Product 23 separately; exact source/title inventory and adapter ownership gates; no new runtime coverage claimed |
 | [Internal Category](./preflight/44-medusa-internal-product-categories.md) | Internal Category implemented privately on both drivers | Complete 31-case file plus three direct-call boundary checks; final combined Product receipts are in Record 46 |
 | [Internal Product and command registration](./preflight/46-commerce-command-registration-bound.md) | Implemented privately on both drivers | Final 23 originals plus four direct-call boundary checks; all ten Product files yield 205 passes and one retained upstream skip per driver; 128 registered definitions with unchanged execution bounds |
+| [Shared Medusa persistence adapter](./preflight/47-medusa-shared-persistence-adapter.md) | Proposed; awaiting implementation approval | One metadata-driven read/projection engine for Currency and Product, preserving module policy and named extensions; later schema/write and module-factory capabilities remain distinct |
 
 ## Current Architecture
 

@@ -77,12 +77,12 @@ Business events use the authenticated in-memory test buffer after
 acknowledged commit; no durable provider or query sync is activated.
 
 Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
-root. It uses the explicit private Product scale profile and runs 151 exact
-original cases from eight unchanged files, including the 1000-image ordering case.
+root. It uses the explicit private Product scale profile and runs 205 original
+cases from ten pinned integration files, including the 1000-image ordering case.
 Only the original upstream performance skip remains. Set `FLAREX_TEST_DRIVER=postgres` and
 `FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
-All eight files share one installed fixture per driver and clear business rows
-between cases. The case inventory and records 29-42 in the framework-integration
+All ten files share one installed fixture per driver and clear business rows
+between cases. The case inventory and records 29-46 in the framework-integration
 roadmap distinguish current coverage from the remaining module capabilities.
 
 Record 35 keeps the original profile and its hashes unchanged. Its explicit scale
@@ -181,6 +181,12 @@ codec to preserve recorded own undefined properties across the JSON host boundar
 The codec does not infer tree values. Shared core transaction/publication owners
 are unchanged. See
 [Record 42](../../roadmaps/flarexdb-framework-integration/preflight/42-medusa-product-categories.md)
-for final validation and source provenance. The remaining 54 declarations are in
-the two internal Product/Category files. Workflow, Module Link, durable events,
+for validation and source provenance. The two internal Product/Category files
+are also complete; [Record 46](../../roadmaps/flarexdb-framework-integration/preflight/46-commerce-command-registration-bound.md)
+owns the complete compatibility baseline. Workflow, Module Link, durable events,
 public serving, broader Payload and production retain their independent gates.
+
+The [shared persistence adapter preflight](../../roadmaps/flarexdb-framework-integration/preflight/47-medusa-shared-persistence-adapter.md)
+proposes consolidating runtime metadata, query compilation, and read/projection
+execution across Currency and Product before wider module adoption. This is
+proposed work; the current adapter still contains module-specific implementations.
