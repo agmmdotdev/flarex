@@ -1,0 +1,603 @@
+{
+  "kind": "static-internal-suite-preflight",
+  "baselineCommit": "f7aa56a2",
+  "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
+  "executed": false,
+  "declarationCount": 54,
+  "currentOriginalPassCountPerDriver": 151,
+  "retainedUpstreamSkipCountPerDriver": 1,
+  "files": [
+    {
+      "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-category.spec.ts",
+      "sourceSha256": "c724ea052769d3ce2969dad377835a603dfb568edb9c7aecea881ee79a83654b",
+      "declarationCount": 31,
+      "recommendedOrder": 1,
+      "groups": {
+        "list": 10,
+        "retrieve": 5,
+        "listAndCount": 5,
+        "create": 2,
+        "update": 6,
+        "delete": 3
+      },
+      "cases": [
+        {
+          "sourceLine": 33,
+          "title": "Product category Service > list > lists all product categories",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 72,
+          "title": "Product category Service > list > scopes product categories by parent_category_id",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 110,
+          "title": "Product category Service > list > includes the entire list of descendants when include_descendants_tree is true",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 2,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 167,
+          "title": "Product category Service > list > includes the entire list of descendants when include_descendants_tree is true for multiple results",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 210,
+          "title": "Product category Service > list > includes the entire list of parents when include_ancestors_tree is true",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 275,
+          "title": "Product category Service > list > includes the entire list of descendants when include_descendants_tree is true",
+          "occurrence": 2,
+          "expectedTitleMultiplicity": 2,
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 344,
+          "title": "Product category Service > list > includes the entire list of descendants an parents when include_descendants_tree and include_ancestors_tree are true",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 409,
+          "title": "Product category Service > list > includes the entire list of parents when include_ancestors_tree is true for multiple results",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 472,
+          "title": "Product category Service > list > includes the entire list of descendants an parents when include_descendants_tree and include_ancestors_tree are true for multiple results",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 542,
+          "title": "Product category Service > list > scopes children when include_descendants_tree is true",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 594,
+          "title": "Product category Service > retrieve > should return category for the given id",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 604,
+          "title": "Product category Service > retrieve > should throw an error when category with id does not exist",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 618,
+          "title": "Product category Service > retrieve > should throw an error when an id is not provided",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 630,
+          "title": "Product category Service > retrieve > should return category based on config select param",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 643,
+          "title": "Product category Service > retrieve > should return category based on config relation param",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 675,
+          "title": "Product category Service > listAndCount > should return categories and count based on take and skip",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.listAndCount"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 706,
+          "title": "Product category Service > listAndCount > should return all product categories and count",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.listAndCount"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 749,
+          "title": "Product category Service > listAndCount > should only return categories that are scoped by parent_category_id",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.listAndCount"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 790,
+          "title": "Product category Service > listAndCount > should includes descendants when include_descendants_tree is true",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.listAndCount"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 849,
+          "title": "Product category Service > listAndCount > should filter out children when include_descendants_tree is true",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.listAndCount"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 895,
+          "title": "Product category Service > create > should create a category successfully",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 921,
+          "title": "Product category Service > create > should append rank from an existing category depending on parent",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 1002,
+          "title": "Product category Service > update > should update the name of the category successfully",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve",
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 1020,
+          "title": "Product category Service > update > should throw an error when an id does not exist",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 1039,
+          "title": "Product category Service > update > should reorder rank successfully in the same parent",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list",
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 1074,
+          "title": "Product category Service > update > should reorder rank successfully when changing parent",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list",
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 1114,
+          "title": "Product category Service > update > should reorder rank successfully when changing parent and in first position",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list",
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 1154,
+          "title": "Product category Service > update > should update the mpath of the full descendent tree successfully when moving the grand parent in the hierarchy",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.create",
+            "service.list",
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 1275,
+          "title": "Product category Service > delete > should throw an error when an id does not exist",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.delete"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 1289,
+          "title": "Product category Service > delete > should throw an error when it has children",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.delete"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 1303,
+          "title": "Product category Service > delete > should reorder siblings rank successfully on deleting",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.delete",
+            "service.list"
+          ],
+          "status": "not-registered"
+        }
+      ]
+    },
+    {
+      "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product.spec.ts",
+      "sourceSha256": "a37ae8e00431ae59499bad02ceb076446210149eb42116541b2643f44c5467b4",
+      "declarationCount": 23,
+      "recommendedOrder": 2,
+      "groups": {
+        "linkable": 1,
+        "retrieve": 3,
+        "create": 1,
+        "update": 5,
+        "list": 11,
+        "softDelete": 1,
+        "restore": 1
+      },
+      "cases": [
+        {
+          "sourceLine": 45,
+          "title": "should export the appropriate linkable configuration",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 176,
+          "title": "Product Service > retrieve > should throw an error when an id is not provided",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 188,
+          "title": "Product Service > retrieve > should throw an error when product with id does not exist",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 202,
+          "title": "Product Service > retrieve > should return a product when product with an id exists",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 214,
+          "title": "Product Service > create > should create a product",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.create"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 245,
+          "title": "Product Service > update > should update a product and its allowed relations",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve",
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 268,
+          "title": "Product Service > update > should update a product and its allowed relations using selector",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve",
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 295,
+          "title": "Product Service > update > should update a single product and its allowed relations",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve",
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 321,
+          "title": "Product Service > update > should throw an error when id is not present",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.retrieve",
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 347,
+          "title": "Product Service > update > should throw an error when product with id does not exist",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.update"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 369,
+          "title": "Product Service > list > should list all product that match the free text search",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.create",
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 407,
+          "title": "Product Service > list > soft deleted > should list all products that are not deleted",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 414,
+          "title": "Product Service > list > soft deleted > should list all products including the deleted",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 426,
+          "title": "Product Service > list > relation: tags > should filter by id and including relations",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 456,
+          "title": "Product Service > list > relation: tags > should filter by id and without relations",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 497,
+          "title": "Product Service > list > relation: categories > should filter by categories relation and scope fields",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 545,
+          "title": "Product Service > list > relation: categories > should returns empty array when querying for a category that doesnt exist",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 612,
+          "title": "Product Service > list > relation: collections > should filter by collection relation and scope fields",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "moduleService.listProducts"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 645,
+          "title": "Product Service > list > relation: collections > should filter by collection when multiple collection ids are passed",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "moduleService.listProducts"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 688,
+          "title": "Product Service > list > relation: collections > should returns empty array when querying for a collection that doesnt exist",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 717,
+          "title": "Product Service > list > relation: variants > should filter by id and including relations",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.list"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 758,
+          "title": "Product Service > softDelete > should soft delete a product",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.create",
+            "service.list",
+            "service.softDelete"
+          ],
+          "status": "not-registered"
+        },
+        {
+          "sourceLine": 782,
+          "title": "Product Service > restore > should restore a soft deleted product",
+          "occurrence": 1,
+          "expectedTitleMultiplicity": 1,
+          "directMethods": [
+            "service.create",
+            "service.restore",
+            "service.softDelete"
+          ],
+          "status": "not-registered"
+        }
+      ]
+    }
+  ]
+}

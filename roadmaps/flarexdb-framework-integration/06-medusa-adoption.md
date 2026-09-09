@@ -51,8 +51,11 @@ soft deletion. The subsequent [Categories slice](./preflight/42-medusa-product-c
 adds the complete 21-case public file, source-owned tree and rank operations,
 scoped Product membership and leaf deletion. Its final receipts own the eight-file
 combined gate of 151 originals plus one upstream skip. The remaining 54
-declarations are in the two internal Product/Category files and require their
-next bounded preflight.
+declarations are in the two internal Product/Category files. The completed
+[internal-suite preflight](./preflight/43-medusa-internal-product-and-category-preflight.md)
+recommends Category's 31 declarations first, with a private entry/event boundary
+and duplicate-title execution gate, then Product's 23 in a separate slice.
+Implementation is pending and current coverage remains 151 plus one skip.
 Durable event storage/dispatch are deferred. Product
 mutations beyond the admitted graph/related-entity and lifecycle profile,
 stored Links and production

@@ -159,3 +159,8 @@ The byte-identical Categories original has SHA-256
 `e8bef28367a3bea5f4888baea12aabdabcd94ff3f265783241b01bf6a6f56bac`;
 its byte-identical Category fixture has SHA-256
 `86a83b8341e5aa49f88a509b2a938ec4a3f60bf1146c76ed026738d55ea655b0`.
+
+
+Continuation: [Record 43](./43-medusa-internal-product-and-category-preflight.md)
+completes the static preflight of the remaining 54 internal declarations and
+recommends Category (31) first, then Product (23). It adds no runtime coverage.
