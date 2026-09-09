@@ -90,7 +90,7 @@ function currencySchemaTable(metadata: typeof CurrencyMetadata.Type): SchemaTabl
 /** Closed Currency admission precedes the shared persistence lowering. */
 const currencySchemaInput = Effect.fn("MedusaAdapter.currencySchemaInput")(
   (model: CurrencyDmlSource) => Effect.fromResult(readCurrencyMetadata(model)).pipe(
-    Effect.map(metadata => lowerDmlSchema([currencySchemaTable(metadata)], currencySchemaOrigins)),
+    Effect.map(metadata => lowerDmlSchema([currencySchemaTable(metadata)], "commerce.currency", currencySchemaOrigins)),
   ),
 );
 

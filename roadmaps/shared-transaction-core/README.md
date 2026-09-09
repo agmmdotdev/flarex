@@ -5,7 +5,9 @@
 Status: ownership audit complete and R1/R2 ownership replacements implemented.
 Shared publication and framework recovery extraction is complete for its bounded
 contract. The private Currency + scalar CMS + Application command is
-implemented with one shared lifetime and settlement. Broader measured validation
+implemented with one shared lifetime and settlement. The separate private
+[atomic commerce foundation](../workflow-foundations/09-atomic-composition.md)
+extends that ownership to Product and Currency installations. Broader measured validation
 and additional composition profiles remain open.
 
 This domain tracks core transaction, publication and recovery ownership across
@@ -17,7 +19,7 @@ Framework feature admission and upstream compatibility remain in
 [framework integration](../flarexdb-framework-integration/README.md). Native
 OCC remains owned by the [foundation](../flarexdb-foundation/02-occ-and-transactions.md).
 This roadmap coordinates changes to those owners rather than replacing their
-contracts. General mixed OCC, named atomic composition, durable domain events,
+contracts. General mixed OCC, additional composition profiles, durable domain events,
 public APIs and production activation retain separate decisions and gates.
 
 ## Current Sources Of Truth
@@ -136,6 +138,7 @@ include their consumer switches and logic cleanup; neither requires DDL.
 | [Replacement and cleanup](./02-migration-and-cleanup.md) | R1/R2 logic cleanup complete; no DDL | Each approved replacement completes its consumer switch and logic cleanup; retained state justified |
 | [Performance and conformance](./03-validation-and-completion.md) | Focused extraction proof exists; broader measurement pending | Representative costs and concurrency meet explicit criteria; affected semantics preserved |
 | [Named cross-domain command](./05-named-command-preflight.md) | Private Currency + scalar CMS + Application profile implemented | Actual domain paths, complete atomic publication, rollback and retained recovery proven |
+| [Atomic commerce composition](../workflow-foundations/09-atomic-composition.md) | Private Product/Currency profile implemented and validated | Exact installation-set admission, aggregate lifetime and complete relational publication through the existing owner |
 | [Application command invocation](./06-application-command-invocation-preflight.md) | Preflight complete; Action-first implementation proposed | Authenticated real Action callback, frozen-intent recovery and explicit shared effect contract; Task invocation separately gated |
 | Overall redesign reconciliation | Open | All required audit findings resolved; retained boundaries justified; independent capabilities explicitly deferred |
 
@@ -144,8 +147,9 @@ privately: real Currency, scalar Payload CMS and an Application-owned insert
 share one physical transaction, aggregate lifetime, retained result and
 finalizer. Focused PGlite and genuine PostgreSQL proofs cover combined rollback,
 replay, cancellation, contention, native range conflicts and uncertain COMMIT
-recovery. Additional relational installations, domain-event delivery, public
-APIs and general mixed OCC remain separately gated.
+recovery. The separate atomic commerce host admits a bounded set of commerce
+installations; it does not expand this Currency/CMS/Application profile.
+Domain-event delivery, public APIs and general mixed OCC remain separately gated.
 
 The [application invocation preflight](./06-application-command-invocation-preflight.md)
 proposes the next capability: one private Action invokes the named command

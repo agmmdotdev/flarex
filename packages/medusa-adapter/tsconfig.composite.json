@@ -1,6 +1,7 @@
 {
   "extends": "../persistence-postgres/tsconfig.json",
   "include": [
+    "test/atomic-commerce.test.ts",
     "test/currency-announcement.test.ts"
   ]
 }

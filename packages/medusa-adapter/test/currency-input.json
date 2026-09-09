@@ -1,6 +1,6 @@
 {
   "owner": "medusa",
-  "lineageId": "commerce",
+  "lineageId": "commerce.currency",
   "tables": [
     {
       "tableId": "currency",

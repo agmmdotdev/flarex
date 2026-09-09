@@ -8,6 +8,7 @@ import type { PrivateCanonicalValueSnapshot } from "../privateCanonicalValue";
 
 export const MAX_BINDING_BYTES = 1_048_576;
 export const MAX_BINDING_REQUIREMENTS = 64;
+export const MAX_COMMERCE_BINDINGS = 8;
 
 import type { ApplicationBindingReference } from "../../applicationBindingProjection";
 export type { ApplicationBindingReference } from "../../applicationBindingProjection";
@@ -43,16 +44,25 @@ export type PayloadContentBinding = Readonly<{
 }> &
   JsonObject;
 
-export type DataBindingSetFrame = Readonly<{
+type DataBindingSetBase = Readonly<{
   format: "flarex.data-binding-set";
-  version: 1;
   application: ApplicationBindingReference;
   payloadContent: PayloadContentBinding | null;
   payloadLifecycle: PhysicalDataBinding | null;
-  commerce: PhysicalDataBinding | null;
   crossDomainReferences: readonly [];
 }> &
   JsonObject;
+
+/** V1 remains decodable because immutable candidates and activation receipts
+ * retain its exact bytes and digest. New multi-installation candidates use V2. */
+export type DataBindingSetFrame = DataBindingSetBase & (
+  | Readonly<{ version: 1; commerce: PhysicalDataBinding | null }>
+  | Readonly<{ version: 2; commerce: readonly PhysicalDataBinding[] }>
+);
+
+export function commerceBindings(frame: DataBindingSetFrame): readonly PhysicalDataBinding[] {
+  return frame.version === 2 ? frame.commerce : frame.commerce === null ? [] : [frame.commerce];
+}
 
 export type DataBindingHeadToken = Readonly<{
   sequence: string;
@@ -106,9 +116,7 @@ export function physicalBindings(
             binding: frame.payloadLifecycle,
           },
         ]),
-    ...(frame.commerce === null
-      ? []
-      : [{ slot: "commerce" as const, binding: frame.commerce }]),
+    ...commerceBindings(frame).map(binding => ({ slot: "commerce" as const, binding })),
   ].toSorted((left, right) => {
     const a = left.binding.installation;
     const b = right.binding.installation;

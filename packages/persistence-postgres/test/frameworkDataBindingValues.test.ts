@@ -48,6 +48,16 @@ function frame(): DataBindingSetFrame {
 }
 
 describe("data binding value boundaries", () => {
+  it("preserves stored V1 bytes and admits V2 only with the array contract", async () => {
+    for (const input of [frame(), { ...frame(), version: 2, commerce: [] }]) {
+      const captured = await runEffect(captureBindingValue(input, isDataBindingSetFrame));
+      expect(await runEffect(restoreBindingValue(captured.copyCanonicalBytes(), captured.sha256Hex,
+        captured.frame.format, isDataBindingSetFrame))).toEqual(input);
+    }
+    for (const input of [{ ...frame(), version: 2 }, { ...frame(), commerce: [] }, { ...frame(), version: 3, commerce: [] }]) {
+      expect(await runEffectFailure(captureBindingValue(input, isDataBindingSetFrame))).toMatchObject({ reason: "invalidInput" });
+    }
+  });
   it.each([
     ["unknown slot", () => ({ ...frame(), system: null })],
     ["cross-domain slot", () => ({ ...frame(), crossDomainReferences: [{}] })],

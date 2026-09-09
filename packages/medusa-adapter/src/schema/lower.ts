@@ -39,7 +39,7 @@ function columnDefault(column: SchemaColumn): ColumnDefault {
 /** Pure lowering of already-checked DML. The module still owns source admission;
  * Flarex normalization owns relational validity and artifact authority. No
  * metadata is retained, mutated, or used to acquire a persistence capability. */
-export function lowerDmlSchema(input: readonly SchemaTable[], origins: SchemaOrigins = dmlSchemaOrigins) {
+export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string, origins: SchemaOrigins = dmlSchemaOrigins) {
   const tables = input.map((table) => {
     const primary = table.columns.filter((column) => column.primaryKey);
     const origin = primary.length === 0 ? implicit : authored;
@@ -181,7 +181,7 @@ export function lowerDmlSchema(input: readonly SchemaTable[], origins: SchemaOri
   });
   return {
     owner: "medusa",
-    lineageId: "commerce",
+    lineageId,
     tables: tables.map((value) => value.table),
     capabilities: tables.flatMap((value) => value.capabilities),
   };

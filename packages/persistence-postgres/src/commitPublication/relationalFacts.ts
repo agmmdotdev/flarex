@@ -12,6 +12,7 @@ import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { fxSystemCommits } from "../schema";
 import { fxSystemCommitRelationalChanges } from "./relationalFactsSchema";
 import { selectRelationalRowKey } from "./relationalRowKey";
+import { MAX_COMMERCE_BINDINGS } from "../frameworkSchema/binding/model";
 
 export class RelationalChangeError extends Data.TaggedError("RelationalChangeError")<{
   readonly reason: "invalidKey" | "storedCorruption" | "statementFailure";
@@ -77,13 +78,23 @@ export const decodeRelationalRowKey = Effect.fn("RelationalChanges.decodeRowKey"
   return expected.frame;
 });
 
-/** A bounded private reader for the admitted installation. The caller owns its
- * transaction/snapshot and scope admission; this function cannot acquire either. */
+/** The caller owns scope/snapshot admission and supplies captured original
+ * installation layouts, not the current binding. Every fact is validated before
+ * projection, including facts belonging to another participant. */
 export const readRelationalCommitFactsInTransaction = Effect.fn("RelationalChanges.readCommit")(function* (
   tx: FlarexMetadataTransaction,
-  input: { readonly scopeUuid: ScopeUuidV1; readonly commitSeq: CommitSeq; readonly installationSha256: string; readonly layout: RelationalPhysicalLayout },
+  input: { readonly scopeUuid: ScopeUuidV1; readonly commitSeq: CommitSeq;
+    readonly installations: readonly Readonly<{ installationSha256: string; layout: RelationalPhysicalLayout }>[];
+    readonly selectInstallationSha256?: string },
 ) {
-  if (!isCapturedRelationalPhysicalLayout(input.layout)) return yield* Effect.fail(invalid());
+  const directory = new Map<string, RelationalPhysicalLayout>();
+  for (const member of input.installations) {
+    if (!/^[0-9a-f]{64}$/.test(member.installationSha256) || !isCapturedRelationalPhysicalLayout(member.layout) ||
+      directory.has(member.installationSha256) || directory.size >= MAX_COMMERCE_BINDINGS) return yield* Effect.fail(invalid());
+    directory.set(member.installationSha256, member.layout);
+  }
+  const selected = input.selectInstallationSha256;
+  if (directory.size === 0 || (selected !== undefined && !directory.has(selected))) return yield* Effect.fail(invalid());
   const statementFailure = (cause: unknown) => new RelationalChangeError({ reason: "statementFailure", cause });
   const headers = yield* runDrizzleStatementEffect(tx.select().from(fxSystemCommits).where(and(eq(fxSystemCommits.scopeUuid, input.scopeUuid), eq(fxSystemCommits.commitSeq, input.commitSeq))).limit(2), statementFailure);
   const header = headers[0];
@@ -93,10 +104,12 @@ export const readRelationalCommitFactsInTransaction = Effect.fn("RelationalChang
   if (rows.length !== header.relationalChangeCount) return yield* Effect.fail(corrupt());
   const facts = [];
   for (const [ordinal, row] of rows.entries()) {
-    if (row.changeOrdinal !== ordinal || row.epochUuid !== header.epochUuid || (row.codecVersion !== 1 && row.codecVersion !== 2) || row.installationSha256 !== input.installationSha256 ||
-      row.artifactSha256 !== input.layout.frame.artifact.artifactSha256 || !["insert", "update", "delete"].includes(row.operation)) return yield* Effect.fail(corrupt());
-    const key = yield* decodeRelationalRowKey(input.layout, row.tableId, row.keyBytes, row.codecVersion);
-    facts.push(Object.freeze({ tableId: row.tableId, key, operation: row.operation, changeOrdinal: ordinal }));
+    const layout = directory.get(row.installationSha256);
+    if (row.changeOrdinal !== ordinal || row.epochUuid !== header.epochUuid || (row.codecVersion !== 1 && row.codecVersion !== 2) || layout === undefined ||
+      row.artifactSha256 !== layout.frame.artifact.artifactSha256 || !["insert", "update", "delete"].includes(row.operation)) return yield* Effect.fail(corrupt());
+    const key = yield* decodeRelationalRowKey(layout, row.tableId, row.keyBytes, row.codecVersion);
+    if (selected === undefined || selected === row.installationSha256) facts.push(Object.freeze({ installationSha256: row.installationSha256,
+      artifactSha256: row.artifactSha256, tableId: row.tableId, key, operation: row.operation, changeOrdinal: ordinal }));
   }
   return Object.freeze(facts);
 });

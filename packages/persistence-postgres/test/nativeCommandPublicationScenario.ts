@@ -21,8 +21,11 @@ import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "./point
 import { completeSessionJournalSeal, prepareSessionJournalSeal } from "./effectTestRuntime";
 import type { CommerceHostTestFixture } from "./commerceHostFixture";
 
-/** Native journal/OCC reads before the composite write; the existing committer must reject the phantom. */
-export const assertCurrencyAnnouncementNativeOverlap = Effect.fn("CurrencyAnnouncement.testNativeOverlap")(function* <A, E>(fixture: CommerceHostTestFixture, write: Effect.Effect<A, E>) {
+/** A native attempt reads before a trusted command. The original committer must
+ * reject an Application phantom and accept unrelated commerce-only changes. */
+export const assertNativeCommandPublication = Effect.fn("NativeCommand.testPublication")(function* <A, E>(
+  fixture: CommerceHostTestFixture, write: Effect.Effect<A, E>, expected: "overlap" | "disjoint",
+) {
   const native = fixture.cms.fixture;
   const activation = (yield* Effect.promise(() => activatePointMutationSession(createPointMutationSessionActivationPersistenceV1(native.pointCommitAuthority, { leaseDurationMilliseconds: 60_000 }),
     pointMutationSessionActivationFixture(native.deploymentId, decodeReplacementScopeIdV1(native.authority.scopeId), { evidence: { schemaVersionId: native.relation.binding.schemaVersionId, functionPath: TransactionFunctionPathV1Schema.make("functions:write") } }))));
@@ -60,9 +63,14 @@ export const assertCurrencyAnnouncementNativeOverlap = Effect.fn("CurrencyAnnoun
   if (finishing.kind !== "loaded") throw new Error("Expected native finishing evidence");
   const command = (yield* Effect.promise(() => pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(authority, finishing.evidence)));
   yield* write;
-  const failure = (yield* Effect.flip(createPointCommitPublisherPortV1(native.pointCommitAuthority, { developerIndexes, uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(native.control.drizzle) }).publish({ ...command,
+  const publication = createPointCommitPublisherPortV1(native.pointCommitAuthority, { developerIndexes, uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(native.control.drizzle) }).publish({ ...command,
     journalBytes: journal.canonicalBytes, successfulResult: { valueCodecVersion: result.evidence.valueCodecVersion, value: { observed: true }, canonicalBytes: result.canonicalBytes,
-      semanticSizeBytes: result.semanticSizeBytes, sha256Hex: result.evidence.sha256Hex } })));
-  expect(failure).toBeInstanceOf(PointCommitConflictV1Error);
-  expect(failure).toMatchObject({ conflict: { kind: "appIndexRange", reason: "overlap" } });
+      semanticSizeBytes: result.semanticSizeBytes, sha256Hex: result.evidence.sha256Hex } });
+  if (expected === "overlap") {
+    const failure = yield* Effect.flip(publication);
+    expect(failure).toBeInstanceOf(PointCommitConflictV1Error);
+    expect(failure).toMatchObject({ conflict: { kind: "appIndexRange", reason: "overlap" } });
+  } else {
+    expect((yield* publication).kind).toBe("published");
+  }
 });

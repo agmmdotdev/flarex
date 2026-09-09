@@ -56,7 +56,7 @@ describe("shared checked DML lowering", () => {
   it("lowers renamed natural keys, exact numeric companions and scalar defaults without module names", () => {
     const input = [ledger, labels, pivot];
     const before = structuredClone(input);
-    const lowered = lowerDmlSchema(input);
+    const lowered = lowerDmlSchema(input, "ledger");
     const schema = Result.getOrThrow(normalizeRelationalSchema(lowered));
     const table = schema.tables.find(table => table.identity.tableId === "ledger");
     expect(table?.columns.find(column => column.identity.columnId === "amount")).toMatchObject({
@@ -90,7 +90,7 @@ describe("shared checked DML lowering", () => {
   });
 
   it("keeps implicit pivots identity-free and retains foreign key tuple order", () => {
-    const lowered = lowerDmlSchema([pivot]);
+    const lowered = lowerDmlSchema([pivot], "ledger");
     expect(lowered.capabilities).toEqual([]);
     expect(lowered.tables[0]).toMatchObject({
       origin: { kind: "implicit", sourceId: "ledger_labels" },
@@ -104,7 +104,7 @@ describe("shared checked DML lowering", () => {
     const composite = lowerDmlSchema([{ ...pivot, foreignKeys: [{
       name: "composite_fk", columns: ["label_key", "ledger_key"], referencedTable: "other",
       referencedColumns: ["second", "first"],
-    }] }]);
+    }] }], "ledger");
     expect(composite.tables[0]?.constraints).toEqual([{
       constraintId: "composite_fk", kind: "foreignKey", sourceColumns: ["label_key", "ledger_key"],
       targetColumns: [{ tableId: "other", columnId: "second" }, { tableId: "other", columnId: "first" }],
@@ -113,27 +113,27 @@ describe("shared checked DML lowering", () => {
   });
 
   it("leaves missing endpoints and invalid defaults to relational normalization", () => {
-    expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([pivot])))).toBe(true);
+    expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([pivot], "ledger")))).toBe(true);
     const invalid = { ...ledger, columns: ledger.columns.map(column => column.name === "state" ? { ...column, defaultValue: "missing" } : column) };
-    expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([invalid])))).toBe(true);
+    expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([invalid], "ledger")))).toBe(true);
     const missingRaw = { ...ledger, exactNumbers: [{ capabilityId: "ledger.amount", numericColumn: "amount", rawColumn: "absent" }] };
-    expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([missingRaw])))).toBe(true);
+    expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([missingRaw], "ledger")))).toBe(true);
   });
 
   it("keeps provenance instance-local and canonical output independent of enumeration order", () => {
-    const normal = lowerDmlSchema([ledger, labels, pivot]);
-    const overridden = lowerDmlSchema([ledger], {
+    const normal = lowerDmlSchema([ledger, labels, pivot], "ledger");
+    const overridden = lowerDmlSchema([ledger], "ledger", {
       ...dmlSchemaOrigins,
       table: () => ({ kind: "authored", sourceId: "fixture/models/ledger" }),
       primaryKey: () => ({ kind: "authored", sourceId: "fixture/ledger.lookup_key" }),
     });
     expect(overridden.tables[0]?.origin.sourceId).toBe("fixture/models/ledger");
     expect(overridden.tables[0]?.keys[0]?.origin.sourceId).toBe("fixture/ledger.lookup_key");
-    expect(lowerDmlSchema([ledger, labels, pivot])).toEqual(normal);
+    expect(lowerDmlSchema([ledger, labels, pivot], "ledger")).toEqual(normal);
     const reversed = [pivot, labels, ledger].map(table => ({
       ...table, columns: [...table.columns].reverse(), indexes: [...table.indexes].reverse(), foreignKeys: [...table.foreignKeys].reverse(),
     }));
-    expect(Result.getOrThrow(normalizeRelationalSchema(lowerDmlSchema(reversed)))).toEqual(
+    expect(Result.getOrThrow(normalizeRelationalSchema(lowerDmlSchema(reversed, "ledger")))).toEqual(
       Result.getOrThrow(normalizeRelationalSchema(normal)),
     );
   });

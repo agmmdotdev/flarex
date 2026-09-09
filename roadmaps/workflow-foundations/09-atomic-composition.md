@@ -2,14 +2,14 @@
 
 ## Status And Scope
 
-Status: source-based architecture preflight complete; recommendation for
-discussion. Implementation and general native relational OCC remain unapproved.
-The user supports comparing the alternatives before deciding. The
+Status: first source-private atomic-commerce capability implemented, validated
+on PGlite and ordinary-role PostgreSQL, and reviewed. The separately approved module-lineage correction
+is implemented. General native relational OCC remains unapproved. The
 [folder index](./README.md) owns the overall process.
 
-Recommend a bounded trusted command over the existing shared SQL transaction
-owner as the first integration foundation. Extend participation to Product and
-Currency, preserve pending reads and one outcome, and measure contention.
+The accepted first integration foundation is a bounded trusted command over
+the existing shared SQL transaction owner. Product and Currency participate
+with pending reads, one outcome and bounded scope-lock contention.
 Native Tasks are not a prerequisite. Relational OCC remains a separate
 investment if composing admitted Application and commerce operations inside
 one native mutation is a product requirement.
@@ -20,15 +20,56 @@ API, add commerce modules, or claim complete workflow compatibility.
 
 ## Product Decision
 
+### Implementation Finding: Module Installation Lineage
+
+Before the correction, the actual Product/Currency fixture installed Currency,
+then attempted to
+install Product into the same authenticated target. Reproduction:
+`pnpm exec vitest run --config vitest.config.ts test/atomic-commerce.test.ts`
+from `packages/medusa-adapter`. The initial PGlite run reached
+`FrameworkMigrationCoordinatorError: Fresh plan conflicts with the current head`
+in `prepareCoordinatorGraphInTransaction` before any business command runs.
+
+Expected: independent module installations coexist under the same placement.
+Actual: [DML lowering](../../packages/medusa-adapter/src/schema/lower.ts)
+hardcoded `lineageId: "commerce"` for both modules. The
+[migration coordinator](../../packages/persistence-postgres/src/migrationCoordination/freshCoordinator.ts)
+correctly treats their different fresh artifacts as competing heads of the same
+lineage. This is an adapter identity limitation, not evidence that the core
+conflict check should be weakened. The initial source preflight missed it.
+
+Bounded correction separately approved by the user after the shared-owner
+preflight:
+
+- Module schema capture supplies its stable lineage: `commerce.product` and
+  `commerce.currency`. The generic DML lowerer does not select a module identity.
+- Keep collision coordination, physical name reservation, migration-plan
+  validation and commit ownership unchanged. Retain the test that competing
+  fresh artifacts in one lineage conflict.
+- Rebaseline these source-private module artifacts and profiles, and prove both
+  installations through the real coordinator. No synthetic installation rows,
+  bypasses or second transaction path in the fixture.
+- This changes artifact/layout/installation identity and may change generated
+  physical names. Do not relabel old immutable evidence or silently reopen old
+  tables under new authority. Existing installed data is not migrated by this
+  slice. A deployed old `commerce` installation would require a separately
+  admitted migration before moving to the new profile; no deployment or such
+  data migration is authorized here.
+
+Current source search finds profile/schema preparation in the adapter and its
+proof consumers, with no application-host caller. That is source evidence,
+not an inventory of databases outside this checkout. Both installations now
+succeed through the unchanged real migration coordinator, and the combined
+command reaches business execution. Single-module regressions use the newly
+captured artifacts. Existing deployed data remains outside this correction.
+
 | Required promise | Consequence |
 | --- | --- |
 | A trusted, bounded business command operates across modules and settles once | Extend existing framework transaction participation; application callers require an explicit command invocation boundary |
 | Application authors interleave native database and admitted Medusa calls inside one native mutation | Requires relational snapshots, journals, dependencies, retry and materialization, plus the corresponding runtime authority |
 
-The first promise is the recommended starting point. It does not supply the
-second, even when both share a database and publisher. The first-release
-requirement remains for discussion; this recommendation does not silently
-narrow an accepted mixed-mutation promise.
+The first promise is the approved, implemented starting point. It does not
+supply the second, even when both share a database and publisher.
 
 Select execution semantics explicitly. An atomic command settles as one
 bounded operation or fails. It must not silently become a Task, split into
@@ -53,16 +94,16 @@ The source island remains reference-only until promotion gates pass.
 | [Commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts) | Executes SQL in a bounded relational session, takes the scope clock lock before services run, and recovers retained outcomes. This is not native journal execution. |
 | [Commerce publication](../../packages/persistence-postgres/src/commerceTransaction/publication.ts) | Authenticated contribution consumption is already separate from finalization. Reuse it instead of adding another publisher. |
 | [Composite host](../../packages/persistence-postgres/src/crossDomainCommand/host.ts) and [actual assertions](../../packages/medusa-adapter/test/currency-announcement.test.ts) | A fixed Currency/CMS/Application command has one physical owner, pending reads, combined facts, retained replay, late-failure rollback and physical-failure assertions. This does not establish a generic two-commerce-module host or application API. |
-| [Binding model](../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts) and [admission](../../packages/persistence-postgres/src/commerceTransaction/admission.ts) | The active frame admits one commerce installation. Constructing Product and Currency services with the same manager cannot bypass that limit. |
-| [Relational fact reader](../../packages/persistence-postgres/src/commitPublication/relationalFacts.ts) | Validates the entire commit against one installation/layout. Multi-installation publication requires full validation before participant projection. |
+| [Binding model](../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/atomicCommerce/admission.ts) | Format 2 admits an ordered set of at most eight commerce installations; the atomic host requires exactly its registered set. Existing single-module hosts select their own authenticated installation. |
+| [Relational fact reader](../../packages/persistence-postgres/src/commitPublication/relationalFacts.ts) | Validates every fact against a caller-supplied directory of original captured installation layouts before returning a participant projection. Active bindings do not reinterpret old commits. |
 | [Module definition](../../packages/medusa-adapter/src/module-definition.ts) | Checked definitions and fresh scoped services already exist. Preparation stays separate from request authority. |
 | [Read execution](../../packages/medusa-adapter/src/query/read.ts) and [catalog](../../packages/medusa-adapter/src/query/catalog.ts) | Relation filtering, root selection, population, count and projection are reusable semantics; they do not produce native relational OCC dependencies. |
 | [Native journal](../../packages/persistence-postgres/src/sessionJournalStore.ts) and [internal calls](../45-private-internal-user-code-calls.md) | Native calls share an attempt and overlay. These admitted native operations do not establish arbitrary relational query support. |
 | [Application command invocation](../shared-transaction-core/06-application-command-invocation-preflight.md) | The Action-to-trusted-command boundary is proposed, not implemented. The private host is not an ordinary application API. |
 
-Existing decisive tests were inspected, not rerun for this documentation
-preflight. There is no measured SQL-versus-relational-OCC comparison; the
-second execution path does not exist yet.
+The tests linked below establish the implemented private scope. There is no
+measured SQL-versus-relational-OCC comparison; the second execution path does
+not exist yet.
 
 ## Medusa Execution And Compatibility
 
@@ -161,17 +202,17 @@ exporter is open. Transactions importing the same snapshot do not see each
 other's uncommitted writes. Exporting a token therefore does not supply
 Flarex's durable snapshot or pending-state contract.
 
-## Recommended First Coherent Capability
+## Implemented First Coherent Capability
 
-Deliver one source-private multi-installation atomic commerce command using
-Product and Currency, with relation reads in the same transaction. This closes
-an actual shared prerequisite and creates a representative SQL baseline.
-Preserve the current physical owner, lock order and retry policy.
+The source-private multi-installation atomic commerce command uses Product and
+Currency with relation reads in the same transaction. It closes a shared
+prerequisite while retaining the physical owner, lock order and retry policy.
 
-Use existing real private internal service paths: upsert/read one Currency;
-create a small Product category parent/child structure; read the category
-relation and count before commit; return a bounded result. Exercise a late
-failure after both participants write. This is a database conformance operation,
+The [proof command](../../packages/medusa-adapter/src/category-currency-atomic-command.ts)
+uses real private internal services to create a Category parent, upsert/read a
+Currency, create a Category child, then read the relation, count and Currency
+before commit. Late failure after both participants write rolls back both.
+This is a database conformance operation,
 not a fabricated Medusa core workflow or cross-module foreign-key contract.
 
 The event-free selection is grounded in
@@ -183,13 +224,16 @@ contract. Do not suppress public events or generalize the internal proof to
 public workflow compatibility. Preserve profile-specific fact/event validation
 at each participant's closure.
 
-### Required Owner Changes
+### Implemented Owner Changes
 
 - Framework binding/admission: authenticate an exact bounded installation set,
   profiles and active frame/head. Keep deterministic installation lock order,
   scope/placement checks and table authority. The current persisted binding
-  contract changes; its decoding/migration disposition belongs to this
-  capability. No physical DDL or exact format is selected by this discussion.
+  contract now has format 2: a bounded commerce array ordered strictly by
+  installation digest. Format 1 remains decodable for immutable stored
+  candidate and activation evidence; no bytes or digests are rewritten.
+  [Migration 0090](../../packages/persistence-postgres/drizzle/0090_atomic-commerce-bindings.sql)
+  adds installation identity to the physical-lane primary key, retaining rows.
 - Commerce composition: issue borrowed participant contexts under one root
   lifetime. Children cannot settle, create independent outcomes, reset budgets
   or outlive closure. Pure definitions remain reusable; services stay scoped.
@@ -204,6 +248,30 @@ at each participant's closure.
 Core contracts remain independent of Product and Currency names. Start with
 existing normal budgets shared across participants, not scale-test allowances.
 Refuse excessive work rather than silently splitting it into commits.
+
+### Private Definition And Execution Boundary
+
+[Definitions](../../packages/persistence-postgres/src/atomicCommerce/commands.ts)
+hold opaque participant and command identities. The
+[host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) registers
+each participant with its authentic profile, installation, allowed commands and
+required local event/fact validator. Definitions alone grant no installation or
+transaction authority. Core registration contains no Product or Currency names.
+
+An admitted root receives only `call(participant, command, args)` and
+`refuse(error)`. Calls borrow the existing commerce context; each service bind
+is fresh and every read uses the same physical transaction. No child receives a
+session, publisher or commit method. This is the low-level trusted composition
+contract, not a final workflow authoring API or application ingress.
+
+The command keeps the ordinary aggregate call and byte limits, capped by the
+strictest participating profile, a shared 64-statement quota across all stores,
+a 256-fact ceiling, and the existing ten-second
+business deadline. SQL statements retain one-second timeouts and lock waits
+retain a 500-millisecond ceiling. Scale-profile allowances cannot enlarge the
+atomic host's normal limits. Unsupported parallel work and emitted events are
+refused. All participant admissions stay live until one existing finalizer
+consumes their closures, with facts ordered by execution rather than module.
 
 ### Failure, Replay And Invocation
 
@@ -272,7 +340,7 @@ The recommended trusted command uses rollback-only participant failure and no
 automatic callback retries. It retains the accepted framework execution profile
 and does not extend native mutation context or sandbox guarantees.
 
-## Completion Evidence And Decision Gates
+## Conformance Evidence And Remaining Gates
 
 | Proof | Required observation |
 | --- | --- |
@@ -283,13 +351,43 @@ and does not extend native mutation context or sandbox guarantees.
 | Authority | Refuse wrong/missing/duplicate installation, scope, placement, head, profile, copied context and detached work; decode old commits using original binding evidence |
 | Concurrency/recovery | Real PostgreSQL connections cover duplicate keys, same-scope contention, native overlap, binding/availability changes and lost commit acknowledgement without callback replay |
 | Compatibility | Retain original Product/Currency and existing composite/native assertions; keep public events distinct from the internal event-free fixture |
-| Cost | Statement count, connection occupancy, scope-lock hold/wait, p50/p95/p99 latency, throughput, failures and cleanup for cold/warm, same-scope disjoint/hot-key and multi-scope work |
+| Bounded contention | An ordinary-role PostgreSQL command blocked on the scope clock fails within its configured lock bound without entering business code; duplicate requests execute the callback once |
 
 Use PGlite for fast functionality and ordinary-role PostgreSQL for isolation,
 locking and recovery. Refresh the relevant baseline before changing shared
 owners. Implementation needs affected typechecks, lint gates and both standing
 reviewers. Worker/Hyperdrive validation belongs to the later admitted host path;
 nothing here establishes deployment or production readiness.
+
+The [atomic suite](../../packages/medusa-adapter/test/atomic-commerce.test.ts)
+exercises the real participants, pending relation/count results, one global fact
+order and retained outcome, late and caught refusals, aggregate budgets,
+detached contexts, cancellation, rejected overlap, publication-stage failures,
+corruption outside a requested projection, binding movement, disjoint native
+journal coexistence, and lost acknowledgement recovery. The retained
+Currency/CMS/Application composite proves the native overlap-conflict assertion.
+PostgreSQL-specific cases use
+independent connections and verify duplicate keys, lock contention and recovery
+on a fresh backend. The
+[binding value tests](../../packages/persistence-postgres/test/frameworkDataBindingValues.test.ts)
+pin both persisted formats and reject malformed sets. The existing
+[binding lifecycle](../../packages/persistence-postgres/test/frameworkDataBindings.test.ts)
+and [ordinary-role PostgreSQL lifecycle](../../packages/persistence-postgres/test/frameworkDataBindings.postgres.test.ts)
+retain activation, physical evidence and replay checks.
+
+Compatibility remains pinned by the original internal/public Category suites,
+Currency live integration tests, Product local/query tests and the existing
+Currency/CMS/Application command. Internal Category projection envelopes and
+public event assertions remain unchanged. The module schema tests explicitly
+pin their new stable lineages and captured artifacts.
+
+Broader performance validation remains open: statement totals, connection
+occupancy, scope-lock hold time, p50/p95/p99 latency, throughput and cleanup under
+cold/warm, same-scope disjoint/hot-key and multi-scope load need explicit budgets
+and repeatable measurements. The conformance suite's elapsed-time diagnostics
+are individual observations, not throughput or percentile evidence. This is a
+private functional foundation, not completion of the shared owner's performance
+or production gates.
 
 Do not build two production engines merely to compare them. Measure the SQL
 baseline first. If mixed-mutation semantics are required, or measured resource
@@ -298,8 +396,8 @@ the same logical workload and invariants. Establish performance budgets before
 interpreting results. Uncoordinated read-committed SQL is not an equivalent
 baseline for serializable native execution.
 
-The next recommended implementation is the private atomic commerce foundation.
-Local Graph Query and the first original Medusa workflow build on its context.
+The next workflow-foundation preflight is Local Graph Query over this context.
+The first original Medusa workflow also depends on the proven execution owner.
 Grouped durable events remain necessary for that workflow. Their dispatcher
 can reuse native delivery capabilities without making the atomic command a
 durable Task. Task continuations and resource leases follow only when needed

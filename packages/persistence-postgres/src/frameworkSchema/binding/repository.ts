@@ -18,6 +18,7 @@ import {
 import { bindingError, type DataBindingError } from "./errors";
 import {
   MAX_BINDING_BYTES,
+  MAX_COMMERCE_BINDINGS,
   physicalBindings,
   type DataBindingSetFrame,
   type DataBindingActivationRequest,
@@ -125,13 +126,14 @@ export const readBindingCandidate = Effect.fn(
           eq(lanes.candidateSha256, digest),
         ),
       )
-      .limit(3),
+      .limit(MAX_COMMERCE_BINDINGS + 2),
   );
   const expected = physicalBindings(restored.frame);
   if (storedLanes.length !== expected.length)
     return yield* Effect.fail(bindingError("storedCorruption"));
   for (const { slot, binding } of expected) {
-    const lane = storedLanes.find((value) => value.slot === slot);
+    const lane = storedLanes.find((value) => value.slot === slot &&
+      encodeBytesToLowercaseHex(value.installationSha256) === binding.installation.installationSha256);
     if (
       lane === undefined ||
       encodeBytesToLowercaseHex(lane.installationSha256) !==

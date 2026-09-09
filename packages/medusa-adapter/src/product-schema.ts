@@ -148,7 +148,7 @@ const productSchemaFromCompiled = Effect.fn("MedusaProduct.normalizeCompiled")(
         new ProductSchemaError({ cause: "Incomplete Product model/pivot set" }),
       );
     }
-    return lowerDmlSchema(compiled.tables);
+    return lowerDmlSchema(compiled.tables, "commerce.product");
   },
 );
 

@@ -89,7 +89,7 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
   const frame = candidate.value.frame;
   if (!sameBindingValue(projection, frame.application)) return yield* Effect.fail(cmsError("bindingChanged"));
   if (frame.payloadContent === null || (frame.payloadLifecycle !== null && preferenceTarget === undefined) ||
-    (frame.payloadLifecycle === null && preferenceTarget !== undefined) || (frame.commerce !== null && composite === undefined) ||
+    (frame.payloadLifecycle === null && preferenceTarget !== undefined) || (commerceBindings(frame).length !== 0 && composite === undefined) ||
     projection.readiness.kind !== "policy" || projection.readiness.relationCount > 2) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   }
@@ -131,3 +131,4 @@ export const requireCmsAdmission = Effect.fn("CmsAdmission.require")(function* (
   if (state === undefined || (tx !== undefined && state.tx !== tx)) return yield* Effect.fail(cmsError("invalidAuthority"));
   return state;
 });
+import { commerceBindings } from "../frameworkSchema/binding/model";

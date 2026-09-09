@@ -18,9 +18,11 @@ describe("actual Product schema", () => {
     const captured = await Effect.runPromise(
       captureProductSchema("product-schema-test"),
     );
-    // Captured from the committed pre-extraction implementation at aaba75d4.
+    // Approved module-lineage rebaseline: commerce.product. The complete
+    // canonical artifact remains pinned, including all models and pivots.
+    expect(captured.artifact.identity.lineageId).toBe("commerce.product");
     expect(createHash("sha256").update(captured.artifact.canonicalJson).digest("hex"))
-      .toBe("6e512c55e38ecd80eb868c423313bbe952fd789df31a9ecaad6ca204faf867fd");
+      .toBe("cfbe80cbf3c487dcb18b6af7019c7ffb8b9adc23d1b2984bd1fd7e6eaabf8d86");
     expect(captured.schema.tables).toHaveLength(13);
     const restored = await Effect.runPromise(
       authenticateStoredRelationalSchemaArtifactEffect(captured.artifact),

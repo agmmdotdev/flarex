@@ -90,6 +90,7 @@ export const fxSystemDataBindingPhysicalLanes = pgTable(
         table.storageGeneration,
         table.candidateSha256,
         table.slot,
+        table.installationStorageId,
       ],
     }),
     foreignKey({

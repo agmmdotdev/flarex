@@ -39,6 +39,7 @@
     "vitest.product-internal.config.ts"
   ],
   "exclude": [
+    "test/atomic-commerce.test.ts",
     "test/product-scale.test.ts",
     "test/currency-announcement.test.ts"
   ]

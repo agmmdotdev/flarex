@@ -19,22 +19,11 @@ import { createAppDeveloperIndexDefinitionPortV1 } from "../../persistence-postg
 import { createAppUniqueConstraintDefinitionPortV1 } from "../../persistence-postgres/src/appUniqueConstraintCommitV1";
 import { createAppSchemaCandidateWriteGuardPort } from "../../persistence-postgres/src/appSchemaCandidateValidation";
 import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppUniqueKeys, fxSystemCommitAppRowChanges } from "../../persistence-postgres/src/schema";
-import { assertCurrencyAnnouncementNativeOverlap } from "../../persistence-postgres/test/currencyAnnouncementNativeOverlap";
+import { assertNativeCommandPublication } from "../../persistence-postgres/test/nativeCommandPublicationScenario";
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
 import { defineCmsCommand } from "../../persistence-postgres/src/cmsTransaction/host";
 import type { CompositeBinding } from "../../persistence-postgres/src/crossDomainCommand/binding";
-
-function postgresCode(cause: unknown): unknown {
-  const visited = new Set<object>();
-  let current = cause;
-  while (typeof current === "object" && current !== null && !visited.has(current)) {
-    visited.add(current);
-    const code: unknown = Reflect.get(current, "code");
-    if (typeof code === "string") return code;
-    current = Reflect.get(current, "cause");
-  }
-  return undefined;
-}
+import { postgresFailureCode } from "../../persistence-postgres/test/postgresFailureCode";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
@@ -138,7 +127,7 @@ it("settles real Currency, Payload and Application participants once, with compl
       expect(runtime.executions()).toBe(recoveryExecutions + 1);
       expect((yield* recovering.run(recoveryKey, args("recovery")))).toEqual(recovered);
       expect(runtime.executions()).toBe(recoveryExecutions + 1);
-      yield* assertCurrencyAnnouncementNativeOverlap(fixture, host.run(host.newRequestKey(), args("native-overlap")));
+      yield* assertNativeCommandPublication(fixture, host.run(host.newRequestKey(), args("native-overlap")), "overlap");
       if ("pool" in resource.persistence) {
         const postgres = resource.persistence;
         const duplicatesBefore = (yield* Effect.promise(inventory));
@@ -163,7 +152,7 @@ it("settles real Currency, Payload and Application participants once, with compl
           }));
           const contended = yield* makeCurrencyAnnouncementHost({ ...input, session: contendedSession });
           const failure = yield* Effect.flip(contended.run(contended.newRequestKey(), args("blocked-command")));
-          expect(postgresCode(failure)).toBe("55P03");
+          expect(postgresFailureCode(failure)).toBe("55P03");
         }));
         expect((yield* Effect.promise(inventory))).toEqual(lockStable);
 

@@ -25,6 +25,7 @@ import { bindingError, type DataBindingError } from "./errors";
 import {
   MAX_BINDING_BYTES,
   MAX_BINDING_REQUIREMENTS,
+  MAX_COMMERCE_BINDINGS,
   type ApplicationBindingReference,
   type BindingProfileReference,
   type PhysicalDataBinding,
@@ -274,7 +275,7 @@ export function isDataBindingSetFrame(
       "crossDomainReferences",
     ]) ||
     input.format !== "flarex.data-binding-set" ||
-    input.version !== 1 ||
+    (input.version !== 1 && input.version !== 2) ||
     !isApplicationBindingReference(input.application) ||
     !arrayOf(input.crossDomainReferences, 0, (_value): _value is never => false)
   )
@@ -291,12 +292,17 @@ export function isDataBindingSetFrame(
       input.payloadLifecycle.installation.artifact.owner !== "payload")
   )
     return false;
-  if (
-    input.commerce !== null &&
-    (!isPhysicalDataBinding(input.commerce) ||
-      input.commerce.installation.artifact.owner !== "medusa")
-  )
-    return false;
+  if (input.version === 1) {
+    if (input.commerce !== null && (!isPhysicalDataBinding(input.commerce) ||
+      input.commerce.installation.artifact.owner !== "medusa")) return false;
+  } else {
+    if (!arrayOf(input.commerce, MAX_COMMERCE_BINDINGS, isPhysicalDataBinding)) return false;
+    let previous = "";
+    for (const binding of input.commerce) {
+      if (binding.installation.artifact.owner !== "medusa" || binding.installation.installationSha256 <= previous) return false;
+      previous = binding.installation.installationSha256;
+    }
+  }
   return true;
 }
 export function isDataBindingHeadToken(
@@ -427,7 +433,7 @@ export const restoreBindingValue = Effect.fn("DataBinding.restoreValue")(
         canonicalBytes: bytes,
         sha256Hex: digest,
         expectedFormat: format,
-        expectedVersion: 1,
+        expectedVersion: format === "flarex.data-binding-set" ? [1, 2] : 1,
         maximumCanonicalBytes: MAX_BINDING_BYTES,
         expectedKeys: undefined,
         validateFrame: guard,

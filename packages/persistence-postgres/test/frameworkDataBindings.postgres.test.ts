@@ -85,10 +85,11 @@ describe.skipIf(postgresUrl === null)(
           lifecycle.head,
         );
         const raced = await exerciseBindingNativeRaces(fixture, physical);
-        const commerce = physical.frame.commerce;
-        if (commerce === null) throw new Error("Commerce fixture missing");
+        const commerce = commerceBindings(physical.frame)[0];
+        if (commerce === undefined) throw new Error("Commerce fixture missing");
         const restartFrame = {
           ...raced.frame,
+          version: 1 as const,
           commerce: {
             ...installationBindingReference(raced.restored),
             profiles: commerce.profiles,
@@ -153,3 +154,4 @@ describe.skipIf(postgresUrl === null)(
     });
   },
 );
+import { commerceBindings } from "../src/frameworkSchema/binding/model";

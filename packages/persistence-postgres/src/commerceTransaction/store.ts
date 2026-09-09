@@ -9,7 +9,7 @@ import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { captureRelationalRowKey } from "../commitPublication/relationalFacts";
 import { selectRelationalRowKey } from "../commitPublication/relationalRowKey";
 import { capturePrivateJsonData } from "../privateJsonData";
-import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
+import { decodeCommerceDriverRows as driverRows } from "./driverRows";
 import { runOwnedPromise } from "../ownedPromise";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRequestLifetime";
 import type { RelationalPhysicalColumn } from "../relationalSchema/physical/model";
@@ -56,8 +56,10 @@ interface StoreWork {
   readonly facts: RelationalRowFact[];
   readonly lifecycle: CommerceLifecycleObservation[];
   closed: boolean;
-  statementCount: number;
 }
+// Every store borrowed within one request shares its statement quota. Keep facts
+// local to each call so aggregate publication can preserve execution order.
+const statementCounts = new WeakMap<BoundedRequestLifetime<CommerceTransactionError>, number>();
 // Descriptors are captured and frozen by the authenticated profile registry.
 // Retain the pure compiler at that lifetime, not at each table/request lifetime.
 const writePolicies = new WeakMap<CommerceProfileState, ReturnType<typeof makeCommerceWriteEnvelopePolicy>>();
@@ -66,7 +68,7 @@ export const makeCommerceStore = Effect.fn("CommerceStore.make")(function* (
   admission: CommerceAdmission, lifetime: BoundedRequestLifetime<CommerceTransactionError>, id: string,
 ) {
   const state = yield* requireCommerceAdmission(admission);
-  const work: StoreWork = { facts: [], lifecycle: [], closed: false, statementCount: 0 };
+  const work: StoreWork = { facts: [], lifecycle: [], closed: false };
   let writePolicy = writePolicies.get(state.descriptor);
   if (writePolicy === undefined) {
     writePolicy = makeCommerceWriteEnvelopePolicy(state.descriptor.resources);
@@ -138,14 +140,11 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
   };
   const returning = sql.join(table.columns.map(value => sql`${sql.identifier(value.name)} as ${sql.identifier(value.identity.columnId)}`), sql`, `);
   const statement = <Value>(query: PromiseLike<Value>) => Effect.suspend(() => {
-    return ++work.statementCount > commerceLimits.calls
-      ? Effect.fail(commerceError("limitExceeded", { boundary: "statements", attempted: work.statementCount, tableId: capability.tableId })) : runOwnedPromise(() => Promise.resolve(query), cause => commerceError("statementFailure", cause));
+    const attempted = (statementCounts.get(lifetime) ?? 0) + 1;
+    statementCounts.set(lifetime, attempted);
+    return attempted > commerceLimits.calls
+      ? Effect.fail(commerceError("limitExceeded", { boundary: "statements", attempted, tableId: capability.tableId })) : runOwnedPromise(() => Promise.resolve(query), cause => commerceError("statementFailure", cause));
   });
-  const driverRows = Effect.fn("CommerceStore.decodeDriverRows")((result: unknown) => Effect.try({
-    // Compatibility bridge to the installed driver's throwing shape decoder.
-    try: () => rowsFromDriverExecuteResult(result, () => { throw commerceError("storedCorruption"); }),
-    catch: cause => commerceError("storedCorruption", cause),
-  }));
   const decodeRows = Effect.fn("CommerceStore.decodeRows")(function* (rows: readonly unknown[] | undefined) {
     if (rows === undefined || rows.length > resources.queryRows) return yield* Effect.fail(commerceError("storedCorruption"));
     const values: JsonObject[] = [];

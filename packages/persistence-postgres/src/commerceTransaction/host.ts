@@ -9,7 +9,6 @@ import type { Json } from "flarex-protocol/json";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import { TransactionRequestKeyV1Schema, TransactionFunctionPathV1Schema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
-import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { capturePrivateCanonicalValue } from "../frameworkSchema/privateCanonicalValue";
 import { isSyntheticBindingReference } from "../frameworkSchema/binding/canonical";
 import type { InstallationBindingReference } from "../frameworkSchema/binding/model";
@@ -22,15 +21,15 @@ import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttem
 import { hasFrameworkMigrationTargetDatabase, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
 import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
 import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../relationalTransaction/session";
-import { RelationalSessionError } from "../relationalTransaction/model";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import { createCommittedPointOutcomeResolverV1, CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../committedPointOutcome";
+import { createCommittedPointOutcomeResolverV1 } from "../committedPointOutcome";
 import { finalizeCommerceCommit } from "./publication";
 import { withCommerceAdmission, requireCommerceAdmission } from "./admission";
 import { prepareInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObservation } from "./store";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
-import { commerceError, commerceLimits, CommerceTransactionError } from "./model";
+import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
+import { commerceRequestHash as hash, projectCommerceRequestFailure as projectFailure } from "./request";
 
 export interface CommerceHostInput<Failure> {
   readonly database: FlarexMetadataDatabase;
@@ -44,17 +43,7 @@ export interface CommerceHostInput<Failure> {
   readonly identityAndAccessPolicy: Json;
   readonly commands: readonly CommerceCommand[];
 }
-const hash = makeLivePrivateSha256V1({ invalidBudget: () => commerceError("limitExceeded"), invalidBytes: () => commerceError("invalidInput"),
-  inputBytesExceeded: () => commerceError("limitExceeded"), unavailable: () => commerceError("resourceFailure"),
-  nativeRejected: cause => commerceError("resourceFailure", cause), invalidDigestOutput: () => new Error("Invalid commerce digest") });
 const decodeKey = Schema.decodeUnknownResult(TransactionRequestKeyV1Schema);
-const projectFailure = (cause: unknown): CommerceTransactionError => {
-  if (cause instanceof CommerceTransactionError) return cause;
-  if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) return commerceError("requestConflict", cause);
-  if (cause instanceof CommittedPointOutcomeCorruptionErrorV1) return commerceError("storedCorruption", cause);
-  if (cause instanceof RelationalSessionError) return commerceError(cause.reason === "decisionUncertain" ? "decisionUncertain" : "resourceFailure", cause);
-  return commerceError("invalidAuthority", cause);
-};
 
 export const makeCommerceHost = Effect.fn("CommerceHost.make")(<Failure>(input: CommerceHostInput<Failure>) => makeHost(input));
 

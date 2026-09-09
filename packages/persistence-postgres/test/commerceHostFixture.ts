@@ -19,6 +19,8 @@ import { requireCommerceProfile, type CommerceProfile, type CommerceProfileState
 import { cmsHostFixture } from "./cmsHostFixture";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "./frameworkSchemaArtifactAdmissionTestSupport";
 import { installationBindingReference, bindingProfiles } from "./frameworkDataBindingPhysicalTestSupport";
+import { commerceBindings } from "../src/frameworkSchema/binding/model";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 export interface CommerceHostTestFixture {
@@ -43,10 +45,11 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
   controlPersistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   localPolicy?: (descriptor: CommerceProfileState) => LocalCommerceEventPolicy,
   cmsOptions: Parameters<typeof cmsHostFixture>[1] = {},
+  existing?: CommerceHostTestFixture,
 ): Promise<CommerceHostTestFixture> {
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
-  const base = await cmsHostFixture(persistence, { ...cmsOptions, controlPersistence, physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
+  const base = existing?.cms ?? await cmsHostFixture(persistence, { ...cmsOptions, controlPersistence, physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
   const snapshot = frameworkMigrationTargetSnapshot(base.target);
   if (snapshot === undefined) throw new Error("Missing authenticated target");
   const prepared = await runEffect(prepare(base.fixture.deploymentId, { physicalLocator: snapshot.physicalLocator, targetNamespace: snapshot.namespace }));
@@ -82,11 +85,13 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
   const local = localPolicy === undefined ? undefined : await runEffect(makeLocalCommerceHost(hostInput, localPolicy(descriptor)));
   const host = local?.host ?? await runEffect(makeCommerceHost(hostInput));
   const bindingsInput = { database: persistence.drizzle, target: base.target, deploymentId: base.fixture.deploymentId,
-    authority: base.fixture.authorityPorts, application: base.fixture.relationActivation, commerceProfile: prepared.profile };
+    authority: base.fixture.authorityPorts, application: base.fixture.relationActivation, commerceProfiles: [...existing?.bindingsInput.commerceProfiles ?? [], prepared.profile] };
   const bindings = await runEffect(makeDataBindingHost(bindingsInput));
   const commerce = { ...installation, profiles: bindingProfiles(ready.availability).map(profile => ({ ...profile,
     profileId: `${descriptor.profileId}.${profile.kind}`, contractSha256: descriptor.contractSha256 })) };
-  const frame = { ...base.candidate.frame, commerce };
+  const frame = existing === undefined ? { ...base.candidate.frame, version: 1 as const, commerce } :
+    { ...existing.candidate.frame, version: 2 as const, commerce: [...commerceBindings(existing.candidate.frame), commerce]
+      .sort((a, b) => compareUtf16Strings(a.installation.installationSha256, b.installation.installationSha256)) };
   if (descriptor.initialization !== null) {
     await runEffectFailure(bindings.prepare(frame));
     if (prepared.initialization.rows === undefined) throw new Error("Missing initialization rows");
@@ -94,9 +99,10 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
     expect(bootstrap).toEqual({ rowCount: descriptor.initialization.expectedRowCount });
     expect(await runEffect(host.initialize(prepared.initialization.rows))).toEqual(bootstrap);
   }
-  const prior = await runEffect(base.bindings.withCurrent(readAdmittedDataBinding));
+  const prior = await runEffect((existing?.bindings ?? base.bindings).withCurrent(readAdmittedDataBinding));
   const candidate = await runEffect(bindings.prepare(frame));
-  await runEffect(bindings.activate(dataBindingActivationRequest(base.reference.scopeId, base.reference.storageGeneration, "commerce-activate", candidate.sha256, prior.head)));
+  await runEffect(bindings.activate(dataBindingActivationRequest(base.reference.scopeId, base.reference.storageGeneration,
+    existing === undefined ? "commerce-activate" : `commerce-activate-${descriptor.profileId}`, candidate.sha256, prior.head)));
   return { cms: base, persistence, session, bindings, bindingsInput, host, hostInput, prepared, descriptor, installation, candidate,
     takeDeliveries: local?.takeDeliveries ?? (() => []) };
 }

@@ -2,9 +2,9 @@
 
 ## Status And Scope
 
-Status: discussion roadmap. The [atomic composition preflight](./09-atomic-composition.md)
-now recommends a first capability for discussion; implementation is not yet
-approved. Other topics retain their own proportional preflights. This folder
+Status: the first [private atomic composition capability](./09-atomic-composition.md)
+is implemented, validated and reviewed. Other topics retain
+their own proportional preflights. This folder
 does not select a universal API, package layout, or complete workflow architecture.
 
 Prepare reusable native capabilities before full workflow integration. Native
@@ -47,7 +47,7 @@ instead of copying changing implementation inventories here.
 
 ## Topic Map
 
-Atomic composition has a source-based recommendation for discussion. Other
+Atomic composition has an approved source-private implementation. Other
 entries remain **preflight pending**, with related findings linked where useful.
 Numbers provide a reading order, not fixed commit boundaries or a requirement
 to build every capability before the first useful integration.
@@ -62,21 +62,21 @@ to build every capability before the first useful integration.
 | [06 Local Graph Query](./06-local-graph-query.md) | Provide local graph reads through existing module and query boundaries. |
 | [07 Durable workflow events](./07-durable-workflow-events.md) | Establish event intent, publication timing, and recoverable delivery. |
 | [08 Resource coordination](./08-resource-coordination.md) | Assess coordination needs between different workflow executions. |
-| [09 Atomic composition](./09-atomic-composition.md) | Preflight recommendation: bounded trusted composition first; compare its guarantees with optional native relational OCC. |
+| [09 Atomic composition](./09-atomic-composition.md) | Private bounded composition across authentic commerce installations; native relational OCC remains a separate decision. |
 | [10 Medusa workflow integration](./10-medusa-workflow-integration.md) | Connect a supported workflow surface to the proven foundations. |
 
-The current discussion starts with atomic composition and transactional reads.
-The recommended first foundation is a private Product/Currency command over
-the existing shared transaction owner, including multiple commerce installations
-and one complete publication. Product and Currency are proof consumers, not
-core-specific concepts. Local Graph Query then uses the established context.
+The first foundation is a private Product/Currency command over the existing
+shared transaction owner, including multiple commerce installations, pending
+relation reads and one complete publication. Product and Currency are proof
+consumers; core contracts contain no module-specific identities. Local Graph
+Query can now be preflighted against the established context.
 
 Native Task extensions are conditional on durable execution needs. General
 relational OCC is conditional on a stronger mixed-mutation product promise or
 a demonstrated execution need. Workflow events remain an actual dependency
 of the proposed first original Medusa workflow. No execution mode may silently
-change because a command exceeds its bounds. These are preflight recommendations,
-not implementation approval or a promise that every workflow is atomic.
+change because a command exceeds its bounds. These remaining topics are not
+implementation approval or a promise that every workflow is atomic.
 
 ## Working Through The Topics
 
@@ -96,6 +96,6 @@ For one coherent capability at a time:
    and cleanup obligations when anything is displaced; Git owns chronology and
    test receipts.
 
-The next decision is the [atomic composition recommendation](./09-atomic-composition.md):
-bounded trusted workflows first, or native relational participation required
-from the first integration. Exact APIs and persisted contracts remain open.
+The next foundation preflight is [Local Graph Query](./06-local-graph-query.md).
+Its supported API, metadata registration and transaction-bound invocation remain
+open. Durable events and original workflow compatibility keep their own gates.

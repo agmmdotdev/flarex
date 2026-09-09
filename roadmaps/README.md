@@ -122,7 +122,7 @@ consumers.
 
 | Decision record | Classification | Purpose |
 | --- | --- | --- |
-| [`workflow-foundations/`](./workflow-foundations/README.md) | Atomic composition preflight for discussion; implementation pending | Recommends bounded trusted composition and transactional reads first; native relational OCC and Task extensions depend on the selected guarantees. Other workflow capability preflights and APIs remain open. |
+| [`workflow-foundations/`](./workflow-foundations/README.md) | Private atomic commerce foundation implemented and validated | Product and Currency share one bounded transaction, pending reads and publication. Local Graph Query is the next preflight; native relational OCC, Task extensions and full workflow integration remain separately gated. |
 | [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md) | Accepted direction; preflight required | Standard versioned contract chain between developer definitions, direct fixtures, artifact generation, analysis, verification, and runtime projection without making SDK objects downstream authority. |
 | [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md) | FAC01-FAC19 complete; FAC20 preflight required | Shared user-code execution semantics with Cloudflare Dynamic Worker and in-process adapters while preserving executor and FlarexDB authority and retaining platform evidence. |
 

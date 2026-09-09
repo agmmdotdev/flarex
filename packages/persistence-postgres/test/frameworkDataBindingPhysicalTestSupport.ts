@@ -255,7 +255,7 @@ export async function exercisePhysicalBindings<
     ...installationBindingReference(availability),
     profiles,
   };
-  const frame: DataBindingSetFrame = { ...baseFrame, commerce };
+  const frame: DataBindingSetFrame = { ...baseFrame, version: 1, commerce };
   expect(
     isStoredInstallationIdentity(commerce.installation),
     JSON.stringify(commerce.installation),
@@ -329,6 +329,7 @@ export async function exercisePhysicalBindings<
   ).toMatchObject({ reason: "unavailableInstallation" });
   const nextFrame: DataBindingSetFrame = {
     ...frame,
+    version: 1,
     commerce: { ...installationBindingReference(restored), profiles },
   };
   const next = await runEffect(host.prepare(nextFrame));
@@ -422,8 +423,8 @@ export async function exerciseBindingAvailabilityLimit<
   initial: RestoredFrameworkSchemaAvailabilityHead,
   expectedHead: DataBindingHeadToken,
 ) {
-  const commerce = frame.commerce;
-  if (commerce === null) throw new Error("Missing bounded commerce fixture");
+  const commerce = commerceBindings(frame)[0];
+  if (commerce === undefined) throw new Error("Missing bounded commerce fixture");
   const profiles = commerce.profiles;
   let history = initial;
   while (BigInt(history.head.frame.availabilitySequence) < 8n) {
@@ -477,3 +478,4 @@ export async function exerciseBindingAvailabilityLimit<
     failure: { reason: "referenceRefusal" },
   });
 }
+import { commerceBindings } from "../src/frameworkSchema/binding/model";

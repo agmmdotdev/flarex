@@ -22,7 +22,7 @@ export const verifyPayloadPreferenceBinding = Effect.fn("PayloadPreferences.veri
 ) {
   const binding = frame.payloadLifecycle;
   const content = frame.payloadContent;
-  if (binding === null || content === null || frame.commerce !== null) return yield* Effect.fail(bindingError("unsupportedProfile"));
+  if (binding === null || content === null || commerceBindings(frame).length !== 0) return yield* Effect.fail(bindingError("unsupportedProfile"));
   const count = frame.application.readiness.kind === "policy" ? frame.application.readiness.relationCount : -1;
   if (count !== 0 && count !== 1 && count !== 2) return yield* Effect.fail(bindingError("unsupportedProfile"));
   const many = count === 2 ? yield* capturePayloadPreferenceProfile(binding.installation.artifact.deploymentId, "payload.content-joins") : null;
@@ -36,3 +36,4 @@ export const verifyPayloadPreferenceBinding = Effect.fn("PayloadPreferences.veri
     return yield* Effect.fail(bindingError("unsupportedProfile"));
   }
 });
+import { commerceBindings } from "../frameworkSchema/binding/model";

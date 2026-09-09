@@ -3,6 +3,7 @@ import { requireCommerceAdmission, type CommerceAdmission } from "../commerceTra
 import { commerceError } from "../commerceTransaction/model";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import type { DataBindingHeadToken, DataBindingSetFrame } from "../frameworkSchema/binding/model";
+import { commerceBindings } from "../frameworkSchema/binding/model";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 
@@ -29,8 +30,10 @@ export const requireCompositeBinding = Effect.fn("CompositeBinding.require")(fun
   const commerce = bindings.get(token);
   if (commerce === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const state = yield* requireCommerceAdmission(commerce);
-  if (state.tx !== tx || state.clock !== clock || state.head === null || frame.commerce === null || frame.payloadLifecycle !== null ||
+  const commerceBindingsInFrame = commerceBindings(frame);
+  const binding = commerceBindingsInFrame[0];
+  if (state.tx !== tx || state.clock !== clock || state.head === null || binding === undefined || commerceBindingsInFrame.length !== 1 || frame.payloadLifecycle !== null ||
     !sameBindingValue(state.head, head)) return yield* Effect.fail(commerceError("invalidAuthority"));
-  const { profiles: _profiles, ...reference } = frame.commerce;
+  const { profiles: _profiles, ...reference } = binding;
   if (!sameBindingValue(reference, state.reference)) return yield* Effect.fail(commerceError("invalidAuthority"));
 });

@@ -105,7 +105,7 @@ export async function reopenBindingHost(
     makeDataBindingTestProfiles(
       target.drizzle,
       migrationTarget,
-      frame.commerce?.profiles ?? [],
+      commerceBindings(frame).flatMap(binding => binding.profiles),
     ),
   );
   return runEffect(
@@ -432,3 +432,4 @@ export async function exerciseBindingNativeRaces(
     head: Result.getOrThrow(rebound.current).head,
   };
 }
+import { commerceBindings } from "../src/frameworkSchema/binding/model";

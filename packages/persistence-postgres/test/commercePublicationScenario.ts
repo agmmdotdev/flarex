@@ -24,7 +24,7 @@ export async function commercePublicationScenario(fixture: CommerceHostTestFixtu
   const clock = before.clocks[0];
   if (clock === undefined || clock.scopeUuid === null) throw new Error("Missing fixture clock");
   const scopeUuid = clock.scopeUuid;
-  const keyInput = { scopeUuid, commitSeq: CommitSeqSchema.make(1n), installationSha256: fixture.installation.installation.installationSha256, layout: fixture.descriptor.layout };
+  const keyInput = { scopeUuid, commitSeq: CommitSeqSchema.make(1n), installations: [{ installationSha256: fixture.installation.installation.installationSha256, layout: fixture.descriptor.layout }] };
   expect(await db.transaction(tx => runEffect(readRelationalCommitFactsInTransaction(tx, keyInput)))).toHaveLength(initializationPolicy.expectedRowCount);
   const feed = await runEffect(createCommitFeedRepositoryV1(db).listAfter({ scopeUuid: scopeUuid, exclusiveCommitSeq: CommitSeqSchema.make(0n) }));
   expect(feed.commits.length).toBe(before.commits.length);

@@ -25,8 +25,27 @@ import type { VerifiedBindingLane } from "./repository";
 import { scopePhysicalLocatorsEqual } from "../../scopePhysicalLocator";
 import { verifyPayloadContentBinding } from "./content";
 import { verifyCommerceBinding } from "../../commerceTransaction/binding";
-import type { CommerceProfile } from "../../commerceTransaction/profile";
+import { requireCommerceProfile, type CommerceProfile, type CommerceProfileState } from "../../commerceTransaction/profile";
+import { MAX_COMMERCE_BINDINGS } from "./model";
 import { installationRuntimeData } from "../installation/runtimeData";
+
+type CommerceBindingProfiles = readonly Readonly<{ profile: CommerceProfile; descriptor: CommerceProfileState }>[];
+export const captureCommerceBindingProfiles = Effect.fn("DataBindingEvidence.captureCommerceProfiles")(function* (
+  profiles: readonly CommerceProfile[],
+) {
+  const captured = [...profiles];
+  if (captured.length > MAX_COMMERCE_BINDINGS) return yield* Effect.fail(bindingError("unsupportedProfile"));
+  const values = [];
+  const identities = new Set<string>();
+  for (const profile of captured) {
+    const descriptor = yield* requireCommerceProfile(profile).pipe(Effect.mapError(cause => bindingError("unsupportedProfile", cause)));
+    const identity = `${descriptor.artifact.identity.artifactSha256}/${descriptor.contractSha256}`;
+    if (identities.has(identity)) return yield* Effect.fail(bindingError("unsupportedProfile"));
+    identities.add(identity);
+    values.push(Object.freeze({ profile, descriptor }));
+  }
+  return Object.freeze(values);
+});
 
 export const lockBindingInstallation = Effect.fn(
   "DataBindingEvidence.lockInstallation",
@@ -73,7 +92,7 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
     snapshot: FrameworkMigrationTargetSnapshot,
     profiles: DataBindingTestProfiles | undefined,
     selection: ApplicationActiveSelection,
-    commerceProfile?: CommerceProfile,
+    commerceProfiles: CommerceBindingProfiles = [],
   ) {
     yield* verifyPayloadContentBinding(tx, frame, selection);
     const verified: VerifiedBindingLane[] = [];
@@ -83,8 +102,11 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
         binding,
         snapshot,
       );
+      const selected = commerceProfiles.find(value =>
+        sameBindingValue({ ...value.descriptor.artifact.identity }, binding.installation.artifact) &&
+        value.descriptor.contractSha256 === binding.profiles[0]?.contractSha256);
       if (slot === "payloadLifecycle") yield* verifyPayloadPreferenceBinding(frame, availability);
-      else if (commerceProfile !== undefined) yield* verifyCommerceBinding(tx, frame.application.scopeId, commerceProfile, binding, installationRuntimeData(availability))
+      else if (selected !== undefined) yield* verifyCommerceBinding(tx, frame.application.scopeId, selected.profile, binding, installationRuntimeData(availability))
         .pipe(Effect.mapError(cause => bindingError("unsupportedProfile", cause)));
       else if (availability.installation.admission.admission.frame.admissionProfile === "registered-commerce-fresh") {
         return yield* Effect.fail(bindingError("unsupportedProfile"));

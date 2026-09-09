@@ -11,6 +11,7 @@ import { projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitS
 import { type ResolveCommittedPointOutcomeInputV1 } from "../committedPointOutcome";
 import { allocateScopePublicationResult, readScopePublicationDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock } from "../commitPublication/publication";
 import type { ScopePublicationContribution, ScopePublicationKernel } from "../commitPublication/scopePublicationModel";
+import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 
 const publishCommerceAtoms = Effect.fn("CommerceCommit.publishAtoms")(<Value>(work: (signal: AbortSignal) => Promise<Value>) =>
   runOwnedPromise(work, cause => commerceError("statementFailure", cause)));
@@ -31,12 +32,20 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   identity: ResolveCommittedPointOutcomeInputV1,
   result: CanonicalSuccessfulResultV1,
   resultSha256: Uint8Array,
+  additional: readonly Readonly<{ admission: CommerceAdmission; closure: CommerceRowClosure }>[] = [],
 ): Effect.fn.Return<CommitSeq, CommerceTransactionError> {
   const state = yield* requireCommerceAdmission(admission);
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(state.clock.epoch)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   if (identity.scopeUuid !== scope.scopeUuid || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
   const facts = yield* consumeCommerceContribution(admission, lifetime, closure);
+  for (const member of additional) {
+    const participant = yield* requireCommerceAdmission(member.admission);
+    if (state.bootstrap || participant.bootstrap || participant.tx !== state.tx || participant.clock !== state.clock ||
+      participant.authority !== state.authority || participant.head === null || state.head === null ||
+      !sameBindingValue(participant.head, state.head)) return yield* Effect.fail(commerceError("invalidAuthority"));
+    facts.push(...yield* consumeCommerceContribution(member.admission, lifetime, member.closure));
+  }
   const clock = { record: state.clock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
   const now = yield* publishCommerceAtoms(() => readScopePublicationDatabaseTime(state.tx, scope.scopeId, {}));
   const allocation = yield* Effect.fromResult(allocateScopePublicationResult(clock, "publish", now))

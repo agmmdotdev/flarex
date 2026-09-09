@@ -11,6 +11,7 @@ describe("actual Currency DML compatibility", () => {
     const expected = Result.getOrThrow(normalizeRelationalSchema(expectedInput));
     expect(await Effect.runPromise(translateCurrencySchema(Currency))).toEqual(expected);
     const actual = await Effect.runPromise(captureCurrencySchema("medusa-comparison", Currency));
+    expect(actual.artifact.identity.lineageId).toBe("commerce.currency");
     const artifact = await Effect.runPromise(captureRelationalSchemaArtifact({
       deploymentId: "medusa-comparison", provenance: currencySourceProvenance, schema: expectedInput,
     }));
