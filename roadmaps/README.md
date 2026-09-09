@@ -122,6 +122,7 @@ consumers.
 
 | Decision record | Classification | Purpose |
 | --- | --- | --- |
+| [`workflow-foundations/`](./workflow-foundations/README.md) | Discussion roadmap; capability preflights pending | General native Task and workflow foundations, local Graph Query, events, coordination, and later Medusa integration. Topic order is provisional; APIs and implementation contracts remain open. |
 | [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md) | Accepted direction; preflight required | Standard versioned contract chain between developer definitions, direct fixtures, artifact generation, analysis, verification, and runtime projection without making SDK objects downstream authority. |
 | [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md) | FAC01-FAC19 complete; FAC20 preflight required | Shared user-code execution semantics with Cloudflare Dynamic Worker and in-process adapters while preserving executor and FlarexDB authority and retaining platform evidence. |
 
