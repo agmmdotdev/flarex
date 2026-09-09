@@ -96,7 +96,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
   const names = new Set<string>();
   for (const token of allowed) {
     const command = getCommerceCommand(token);
-    if (command === undefined || !/^[a-z][a-zA-Z0-9_-]{0,63}$/.test(command.name) || command.name === "initialize" || names.has(command.name) || allowed.size > commerceLimits.calls) return yield* Effect.fail(commerceError("invalidAuthority"));
+    if (command === undefined || !/^[a-z][a-zA-Z0-9_-]{0,63}$/.test(command.name) || command.name === "initialize" || names.has(command.name) || allowed.size > commerceLimits.commandDefinitions) return yield* Effect.fail(commerceError("invalidAuthority"));
     names.add(command.name);
   }
   const policy = yield* Effect.fromResult(capturePrivateJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes, commerceError));

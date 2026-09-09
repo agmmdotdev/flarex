@@ -146,6 +146,11 @@ describe("Medusa relation query extraction", () => {
     [{ where: { id: [1] } }, "invalidInput"],
     [{ where: { title: "unadmitted" } }, "unsupportedProfile"],
     [{ options: { filters: { arbitrary: true } } }, "unsupportedProfile"],
+    [{ options: { filters: { freeTextSearch_Product: { fromEntity: "Other", value: "needle" } } } }, "unsupportedProfile"],
+    [{ options: { filters: { freeTextSearch_Product: { fromEntity: "Product", value: 1 } } } }, "unsupportedProfile"],
+    [{ options: { filters: { freeTextSearch_Product: { fromEntity: "Product", value: "needle", extra: true } } } }, "unsupportedProfile"],
+    [{ options: { filters: { freeTextSearch_Product: { fromEntity: "Product", value: "one" }, freeTextSearch_duplicate: { fromEntity: "Product", value: "two" } } } }, "unsupportedProfile"],
+    [{ where: { $or: [{ id: "root" }] } }, "unsupportedProfile"],
     [{ where: { deleted_at: { $gt: "not-a-date" } } }, "invalidInput"],
     [{ where: { deleted_at: { $ne: null } } }, "unsupportedProfile"],
   ])("retains the profile refusal for %j", async (input, reason) => {

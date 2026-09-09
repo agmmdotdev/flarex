@@ -2,6 +2,7 @@ import { Data } from "effect";
 
 /** Private bounded commerce execution limits, independent of the synthetic scalar store. */
 export const commerceLimits = Object.freeze({
+  commandDefinitions: 128,
   catalogRows: 256, filterNodes: 64, filterDepth: 8, filterOperands: 256,
   calls: 64, rowBytes: 65_536, commandBytes: 1_048_576,
   commandMs: 10_000, statementMs: 1_000, lockMs: 500, cleanupMs: 2_000,

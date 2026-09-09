@@ -18,8 +18,13 @@ import { captureCategoryProjection } from "./product-category-projection";
 import { findCategoryRows, insertCategoryRows, updateCategoryRows } from "./product-category-repository";
 import { changeProductLifecycle } from "./product-lifecycle";
 
+export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct";
+
 /** Request-owned DAL composition; all framework transaction methods borrow core. */
-export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, collectionMembership = false, categoryProjection = false) {
+export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, profile: ProductRepositoryProfile = "public") {
+  const collectionMembership = profile === "collectionMembership";
+  const categoryProjection = profile === "categoryProjection";
+  const internalProduct = profile === "internalProduct";
   const bridge = commerceRepositoryContext(root, owner);
   const subscribed = new WeakSet<object>();
   const ownedSubscribers = new WeakSet<object>();
@@ -70,8 +75,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       return decoded as Output;
     })),
     find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, collectionMembership
-      ? findCollectionMembershipProducts(ctx, metadata, input) : findProducts(ctx, metadata, input, false).pipe(Effect.map(value => value.rows)))),
-    findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProducts(ctx, metadata, input, true)).pipe(Effect.flatMap(value =>
+      ? findCollectionMembershipProducts(ctx, metadata, input) : findProducts(ctx, metadata, input, false, internalProduct).pipe(Effect.map(value => value.rows)))),
+    findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProducts(ctx, metadata, input, true, internalProduct)).pipe(Effect.flatMap(value =>
       bridge.checked(ctx, Effect.fromResult(decodeProductCount(value))).pipe(Effect.map(decoded =>
         [[...decoded.rows], decoded.count] satisfies [Array<typeof decoded.rows[number]>, number]))))),
     create: (input: unknown[], shared?: Context) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
@@ -85,8 +90,14 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
         productRelations.filter(name => !["tags", "categories", "collection", "type"].includes(name))),
       ["tags", "categories", "collection", "type"], metadata.queryRelations, new Map());
     }))),
-    update: collectionMembership ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-      const rows = yield* updateCollectionMembershipProducts(ctx, metadata, input);
+    update: collectionMembership || internalProduct ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      const rows = collectionMembership ? yield* updateCollectionMembershipProducts(ctx, metadata, input)
+        : yield* Effect.gen(function* () {
+          const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
+          const updates = yield* Effect.fromResult(metadata.valueProfile.decodeRelatedUpdatePairs(metadata.product.table.name, captured));
+          const store = yield* ctx.table(metadata.product.table.name);
+          return yield* store.write(ctx.manager, "update", updates);
+        });
       if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
       yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", metadata.product.model, rows.map(row => ({ ...row })), shared), signal),
         catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });

@@ -1,9 +1,11 @@
 # Internal Product compatibility implementation preflight
 
-Status: approved text predicate implemented; adapter completion paused at the
-separate command registration bound in [Record 46](./46-commerce-command-registration-bound.md).
-Baseline: e31385a0. Current gate: 182 original passes plus one upstream skip
-per driver. Pinned Medusa: 48d5cc675e4e8bc821e22c20c88a751acc66fb5f.
+Status: approved text predicate and internal Product adapters implemented.
+[Record 46](./46-commerce-command-registration-bound.md) owns the approved
+registration bound and final combined validation receipts.
+Preflight baseline: e31385a0, with 182 original passes plus one upstream skip
+per driver. Current completed gate: 205 passes plus the same skip per driver.
+Pinned Medusa: 48d5cc675e4e8bc821e22c20c88a751acc66fb5f.
 
 ## Outcome and scope
 
@@ -17,7 +19,7 @@ Reuse the existing trusted command host, scoped manager, graph storage and
 managed lifecycle. No Product replacement class, raw manager escape hatch,
 workflow execution, Module Link storage or public serving is added.
 
-## Required shared-owner decision
+## Original shared-owner preflight
 
 The original free-text case creates "test product" and "space X" and calls the
 internal list method with q: "test", then q: "space". Pinned Drizzle's
@@ -136,11 +138,12 @@ Product property. No fallback or second query/transaction engine is retained.
 - Both required reviewers on the final code/test diff; exact staged gate before
   commit; stop the owned PostgreSQL fixture after validation.
 
-No runtime source, test source, active case inventory or core owner was changed
-by this preflight. The current gate remains 182 originals plus one skip.
+At the original preflight checkpoint, no runtime source, test source, active
+case inventory or core owner changed; that checkpoint retained 182 originals
+plus one skip. The approved implementation and final receipts follow below.
 
 
-## Approved implementation checkpoint
+## Text-predicate checkpoint before Record 46
 
 The private textLikeAscii predicate now uses trusted text columns and bound
 parameters, ASCII-only translation, C collation and no escape character.
@@ -171,3 +174,13 @@ Validation receipts (2026-09-09):
 - The owned PostgreSQL fixture was stopped after validation.
 - The prior 182-original compatibility gate is retained, not claimed as rerun
   by these focused core tests. The 23 internal Product cases remain unexecuted.
+
+
+## Completed internal Product follow-up
+
+The separately approved Record 46 implementation admits the complete 23-case
+original file and four additional boundary cases on both drivers. All ten
+inventoried Product files pass together: 205 originals with one retained
+upstream skip on each driver. The prior draft pause and 182-case counts above
+are historical evidence. [Record 46](./46-commerce-command-registration-bound.md)
+owns the final implementation, provenance and regression receipts.

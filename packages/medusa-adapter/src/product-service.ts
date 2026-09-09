@@ -1,3 +1,4 @@
+import { productInternalInput } from "./product-internal-input";
 import { validateCategoryCommand } from "./product-category-input";
 import { lowerCaseFirst } from "@medusajs/utils/common/lower-case-first";
 import { productRuntimeMetadata, type ProductRuntimeMetadata } from "./product-runtime-metadata";
@@ -16,13 +17,13 @@ import { captureCommerceInput } from "./commerce-input";
 import { withCommerceService } from "./commerce-service-bridge";
 import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { captureProductSchema } from "./product-schema";
-import { productRepository } from "./product-repository";
+import { productRepository, type ProductRepositoryProfile } from "./product-repository";
 import { validateProductCreate } from "./product-graph";
 import { decodeRelatedUpdate } from "./product-value-profile";
 import { decodeProductLifecycleIds } from "./product-lifecycle";
 
-function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, collectionMembership = false, categoryProjection = false) {
-  const { repository, persistence, refuse, relatedRepository, categoryRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata, collectionMembership, categoryProjection);
+function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, profile: ProductRepositoryProfile = "public") {
+  const { repository, persistence, refuse, relatedRepository, categoryRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata, profile);
   const blocked = { ...repository, find: refuse, findAndCount: refuse, create: refuse, delete: refuse, softDelete: refuse, restore: refuse };
   const internal = <Model extends { readonly name: string }>(model: Model, selected: DAL.RepositoryService = blocked) => new (MedusaInternalService(model))<object, Model>({
     [lowerCaseFirst(model.name) + "Repository"]: selected, [ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER]: persistence,
@@ -47,12 +48,13 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
     },
   };
   const categoryService = new ProductCategoryService({ productCategoryRepository: categoryRepository, modulePersistenceAdapter: persistence, productModuleService: categoryMutationService });
+  const productService = internal(Product, repository);
   const service: ProductModuleService = new ProductModuleService({
     // SAFETY: the pinned constructor type still requires the MikroORM-only
     // method. Its runtime hasDeepUpdate guard deliberately selects the portable
     // internal-service branch when that property is absent.
     baseRepository: repository, productRepository: repository as ConstructorParameters<typeof ProductModuleService>[0]["productRepository"],
-    productService: internal(Product, repository),
+    productService,
     productVariantService: internal(ProductVariant, relatedRepository(metadata.variant)),
     productOptionService: internal(ProductOption, relatedRepository(metadata.option)),
     productOptionValueService: internal(ProductOptionValue, relatedRepository(metadata.value)),
@@ -64,7 +66,7 @@ function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metad
     productVariantProductImageService: internal(ProductVariantProductImage, relatedRepository(metadata.assignment)),
     [Modules.EVENT_BUS]: eventBus,
   }, { scope: "internal" });
-  return { service, categoryService, repository, eventBus, context: { manager: ctx.manager, transactionManager: ctx.manager } };
+  return { service, productService, categoryService, repository, eventBus, context: { manager: ctx.manager, transactionManager: ctx.manager } };
 }
 
 /** Private command set. No request may select local policy, a manager or a table. */
@@ -74,14 +76,41 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const withService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
     withCommerceService(ctx, owner => compose(ctx, owner, metadata), work);
   const withCategoryReadService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
-    withCommerceService(ctx, owner => compose(ctx, owner, metadata, false, true), work);
+    withCommerceService(ctx, owner => compose(ctx, owner, metadata, "categoryProjection"), work);
   const withCollectionService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
-    withCommerceService(ctx, owner => compose(ctx, owner, metadata, true), work);
+    withCommerceService(ctx, owner => compose(ctx, owner, metadata, "collectionMembership"), work);
   // Direct internal calls intentionally have no EmitEvents aggregator. Capture
   // their raw entity representation before it crosses the JSON command boundary.
   const withInternalCategory = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
-    withCommerceService(ctx, owner => compose(ctx, owner, metadata, false, true), async value =>
+    withCommerceService(ctx, owner => compose(ctx, owner, metadata, "categoryProjection"), async value =>
       value.repository.serialize(await work(value)));
+  const validateInternalProduct = productInternalInput(metadata);
+  const withInternalProduct = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
+    withCommerceService(ctx, owner => ({
+      ...compose(ctx, owner, metadata, "internalProduct"),
+      capture: (value: unknown) => owner.run(Effect.fromResult(captureCommerceInput(value, ctx.resources))),
+    }), async value => value.capture(await work(value)));
+  const internalProductRead = (kind: "list" | "retrieve") => defineCommerceCommand("productInternalProduct" + kind, "read", Effect.fn("ProductAdapter.internalProduct." + kind)(function* (ctx, input) {
+    const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const filters = yield* Effect.fromResult(productReadFilters(decoded));
+    const copied = structuredClone({ ...decoded, filters });
+    // SAFETY: generated Medusa signatures accept a wider entity type; the
+    // request-owned DAL validates every query before accessing the scoped store.
+    return yield* withInternalProduct(ctx, ({ productService, context }) => kind === "retrieve"
+      ? productService.retrieve(copied.id as string, copied.config as FindConfig<object>, context)
+      : productService.list(copied.filters as object, copied.config as FindConfig<object>, context));
+  }));
+  const internalProductChange = (kind: "create" | "update" | "softDelete" | "restore") => defineCommerceCommand("productInternalProduct" + kind, "write", Effect.fn("ProductAdapter.internalProduct." + kind)(function* (ctx, input) {
+    if (kind === "softDelete" || kind === "restore") {
+      const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+      return yield* withInternalProduct(ctx, ({ productService, context }) => kind === "softDelete"
+        ? productService.softDelete(typeof ids === "string" ? [ids] : [...ids], context) : productService.restore(typeof ids === "string" ? [ids] : [...ids], context));
+    }
+    yield* Effect.fromResult(validateInternalProduct(input, kind === "update")).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    return yield* withInternalProduct(ctx, ({ productService, context }) => kind === "create"
+      ? productService.create(structuredClone(input), context) : productService.update(structuredClone(input), context));
+  }));
   const create = defineCommerceCommand("productCreate", "write", Effect.fn("ProductAdapter.create")(function* (ctx, input) {
     yield* validateProductCreate(metadata, input).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     // SAFETY: the external graph is checked before the unchanged service, then its
@@ -349,7 +378,11 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     return yield* withService(ctx, async ({ service, context }) => (await service.softDeleteProductVariants(ids, {}, context)) ?? null);
   }));
-  return { commands: Object.freeze({ internalCategoryList: internalCategoryRead("list"), internalCategoryRetrieve: internalCategoryRead("retrieve"), internalCategoryCount: internalCategoryRead("count"),
+  return { commands: Object.freeze({
+    internalProductList: internalProductRead("list"), internalProductRetrieve: internalProductRead("retrieve"),
+    internalProductCreate: internalProductChange("create"), internalProductUpdate: internalProductChange("update"),
+    internalProductSoftDelete: internalProductChange("softDelete"), internalProductRestore: internalProductChange("restore"),
+    internalCategoryList: internalCategoryRead("list"), internalCategoryRetrieve: internalCategoryRead("retrieve"), internalCategoryCount: internalCategoryRead("count"),
     internalCategoryCreate: internalCategoryChange("create"), internalCategoryUpdate: internalCategoryChange("update"), internalCategoryDelete: internalCategoryChange("delete"), create, list: read("list"), retrieve: read("retrieve"), count: read("count"),
     listCategories: readCategory("list"), retrieveCategory: readCategory("retrieve"), countCategories: readCategory("count"),
     listTypes: readNamed("type", "list"), retrieveType: readNamed("type", "retrieve"), countTypes: readNamed("type", "count"),

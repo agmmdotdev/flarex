@@ -422,9 +422,13 @@ describe("local Product service through shared Flarex core", () => {
     const selected = object(await run(fixture.host.read(runtime.commands.retrieve, { id: product.id,
       config: { select: ["title", "collection.title", "type.value"], relations: ["collection", "type", "images"] },
     })));
-    expect(selected.collection).toEqual({ title: "Related Collection" });
-    expect(selected.type).toEqual({ value: "related-type" });
-    expect(Object.keys(selected).sort()).toEqual(["collection", "images", "title", "type"]);
+    // Pinned Drizzle retains primary and populated-relation foreign keys in
+    // nested projections for both retrieve and list.
+    expect(selected.collection).toEqual({ id: collection.id, title: "Related Collection" });
+    expect(selected.type).toEqual({ id: type.id, value: "related-type" });
+    expect({ id: selected.id, collection_id: selected.collection_id, type_id: selected.type_id })
+      .toEqual({ id: product.id, collection_id: collection.id, type_id: type.id });
+    expect(Object.keys(selected).sort()).toEqual(["collection", "collection_id", "id", "images", "title", "type", "type_id"]);
     expect(array(selected.images).map(row => object(row).rank)).toEqual([0, 2]);
     expect(received.filter(event => object(event).name === "product.product-collection.created" && object(object(event).data).id === collection.id)).toHaveLength(1);
   });

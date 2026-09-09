@@ -21,6 +21,7 @@ export interface ProductEntityMetadata {
 }
 export interface ProductRuntimeMetadata {
   readonly product: ProductEntityMetadata;
+  readonly searchableProductColumns: readonly string[];
   readonly option: ProductEntityMetadata;
   readonly value: ProductEntityMetadata;
   readonly variant: ProductEntityMetadata;
@@ -55,6 +56,14 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
     } satisfies ProductEntityMetadata;
   });
   const product = yield* entity(Product);
+  const searchableProductColumns: string[] = [];
+  for (const [name, property] of Object.entries(Product.parse().schema)) {
+    const parsed = property.parse(name);
+    if (!("dataType" in parsed) || !parsed.dataType.options?.searchable) continue;
+    const column = product.table.columns.find(column => column.name === name);
+    if (column?.type !== "text") return yield* Effect.fail(commerceError("unsupportedProfile"));
+    searchableProductColumns.push(name);
+  }
   const option = yield* entity(ProductOption);
   const value = yield* entity(ProductOptionValue);
   const variant = yield* entity(ProductVariant);
@@ -115,7 +124,7 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
       join: { type: "belongsTo", foreignKeys: [yield* foreignKey(source, product)] } });
   }
   const entities = [product, option, value, variant, image, tag, type, collection, category, assignment];
-  return { product, option, value, variant, image, tag, type, collection, category, assignment, entities,
+  return { product, searchableProductColumns, option, value, variant, image, tag, type, collection, category, assignment, entities,
     tables: [...entities.map(item => item.table), pivot, tagPivot, categoryPivot], writablePivots: [pivot, tagPivot, categoryPivot],
     valueProfile: compileProductValueProfile({ product, option, value, variant, image, tag, type, collection, category, assignment }),
     foreignKeys: { option: yield* foreignKey(option, product), value: yield* foreignKey(value, option), variant: yield* foreignKey(variant, product), image: yield* foreignKey(image, product) },

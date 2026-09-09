@@ -256,6 +256,8 @@ access leaves its acceptance explicitly incomplete, never inferred from PGlite.
 Continuation: [Internal Product preflight](./45-medusa-internal-product.md)
 implements the approved private text-pattern predicate in the shared commerce
 store. Scope, resource and transaction ownership are preserved.
-[Record 46](./46-commerce-command-registration-bound.md) owns the separately
-discovered command catalog limit. The active Product compatibility gate remains
-182 originals plus one skip; all 23 internal Product cases remain unproven.
+[Record 46](./46-commerce-command-registration-bound.md) completes the separately
+approved command catalog limit and the final 23 internal Product cases. The
+active Product gate is all ten inventoried files: 205 original passes plus one
+retained upstream skip on PGlite and ordinary-role PostgreSQL. Test cleanup and
+promotion policy discussion follow this compatibility checkpoint.

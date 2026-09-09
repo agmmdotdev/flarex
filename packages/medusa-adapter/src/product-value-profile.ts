@@ -73,6 +73,7 @@ export function compileProductValueProfile(catalog: {
     shape([...entity.table.columns.map(column => column.name), ...relations.get(entity.table.name) ?? []], "invalidInput"),
   ]));
   return {
+    decodeInternalProductScalars: shape(scalarNames(catalog.product), "unsupportedProfile"),
     validateUpdate: (input: Json) => Result.gen(function* () {
       const products = Array.isArray(input) ? input : [input];
       if (products.length > 256) return yield* Result.fail(commerceError("limitExceeded"));

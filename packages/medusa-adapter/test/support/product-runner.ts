@@ -138,6 +138,25 @@ const executeInternalCategory = Effect.fn("ProductUpstream.internalCategory")(fu
     : yield* fixture.host.run(fixture.host.newRequestKey(), method === "create" ? runtime.commands.internalCategoryCreate : method === "update" ? runtime.commands.internalCategoryUpdate : runtime.commands.internalCategoryDelete, input);
   return yield* Effect.fromResult(decodeCategoryProjection(result));
 });
+const executeInternalProduct = Effect.fn("ProductUpstream.internalProduct")(function* (method: string, args: readonly unknown[]) {
+  const { fixture, runtime } = get();
+  const read = method === "list" || method === "retrieve";
+  if (args.length > (read ? 2 : 1)) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const input = yield* Effect.fromResult(captureCommerceInput(read
+    ? method === "retrieve" ? { id: args[0], config: args[1] } : { filters: args[0], config: args[1] }
+    : args[0]));
+  return read ? yield* fixture.host.read(method === "retrieve" ? runtime.commands.internalProductRetrieve : runtime.commands.internalProductList, input)
+    : yield* fixture.host.run(fixture.host.newRequestKey(), method === "create" ? runtime.commands.internalProductCreate : method === "update" ? runtime.commands.internalProductUpdate
+      : method === "softDelete" ? runtime.commands.internalProductSoftDelete : runtime.commands.internalProductRestore, input);
+});
+const internalProductService = new Proxy<object>({}, {
+  get(_target, property) {
+    if (typeof property !== "string" || !["list", "retrieve", "create", "update", "softDelete", "restore"].includes(property)) throw new Error("Unadmitted internal Product method: " + String(property));
+    return (...args: readonly unknown[]): Promise<unknown> => Effect.runPromise(executeInternalProduct(property, args).pipe(
+      Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => error.reason === "adapterFailure" && error.cause !== undefined ? error.cause : error))),
+    )).then(value => structuredClone(value));
+  },
+});
 const internalCategoryService = new Proxy<object>({}, {
   get(_target, property) {
     if (typeof property !== "string" || !["list", "listAndCount", "retrieve", "create", "update", "delete"].includes(property)) throw new Error("Unadmitted internal Category method: " + String(property));
@@ -153,6 +172,7 @@ const internalCategoryService = new Proxy<object>({}, {
  * assertions. This test proxy is not a production DTO adapter or public service. */
 const service = new Proxy<object>({}, {
   get(_target, property) {
+    if (property === "productService_") return internalProductService;
     if (property === "productCategoryService_") return internalCategoryService;
     if (typeof property !== "string" || !["createProducts", "createProductTags", "createProductTypes", "createProductCollections", "createProductImages", "retrieveProduct", "listProducts", "listAndCountProducts", "updateProductTags", "updateProductTypes", "upsertProductTags", "upsertProductTypes",
       "createProductOptions", "createProductVariants", "createProductCategories", "upsertProductOptions", "upsertProductCollections", "upsertProductCategories", "addImageToVariant",

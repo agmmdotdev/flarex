@@ -1,6 +1,6 @@
 {
   "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
-  "scope": "Eight complete public Product module-service files and the complete internal Category file; internal Product remains unregistered.",
+  "scope": "Eight complete public Product module-service files and the complete internal Category and Product files; 205 admitted originals and one retained upstream skip.",
   "cases": [
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -1192,6 +1192,213 @@
       "occurrence": 1,
       "status": "admitted",
       "reason": "Record 44: complete unchanged internal Category file and private direct-call event/transaction boundary verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should export the appropriate linkable configuration",
+      "fullTitle": "Product service > should export the appropriate linkable configuration",
+      "sourceLine": 45,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should throw an error when an id is not provided",
+      "fullTitle": "Product service > Product Service > retrieve > should throw an error when an id is not provided",
+      "sourceLine": 176,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should throw an error when product with id does not exist",
+      "fullTitle": "Product service > Product Service > retrieve > should throw an error when product with id does not exist",
+      "sourceLine": 188,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should return a product when product with an id exists",
+      "fullTitle": "Product service > Product Service > retrieve > should return a product when product with an id exists",
+      "sourceLine": 202,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should create a product",
+      "fullTitle": "Product service > Product Service > create > should create a product",
+      "sourceLine": 214,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should update a product and its allowed relations",
+      "fullTitle": "Product service > Product Service > update > should update a product and its allowed relations",
+      "sourceLine": 245,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should update a product and its allowed relations using selector",
+      "fullTitle": "Product service > Product Service > update > should update a product and its allowed relations using selector",
+      "sourceLine": 268,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should update a single product and its allowed relations",
+      "fullTitle": "Product service > Product Service > update > should update a single product and its allowed relations",
+      "sourceLine": 295,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should throw an error when id is not present",
+      "fullTitle": "Product service > Product Service > update > should throw an error when id is not present",
+      "sourceLine": 321,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should throw an error when product with id does not exist",
+      "fullTitle": "Product service > Product Service > update > should throw an error when product with id does not exist",
+      "sourceLine": 347,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should list all product that match the free text search",
+      "fullTitle": "Product service > Product Service > list > should list all product that match the free text search",
+      "sourceLine": 369,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should list all products that are not deleted",
+      "fullTitle": "Product service > Product Service > list > soft deleted > should list all products that are not deleted",
+      "sourceLine": 407,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should list all products including the deleted",
+      "fullTitle": "Product service > Product Service > list > soft deleted > should list all products including the deleted",
+      "sourceLine": 414,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should filter by id and including relations",
+      "fullTitle": "Product service > Product Service > list > relation: tags > should filter by id and including relations",
+      "sourceLine": 426,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should filter by id and without relations",
+      "fullTitle": "Product service > Product Service > list > relation: tags > should filter by id and without relations",
+      "sourceLine": 456,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should filter by categories relation and scope fields",
+      "fullTitle": "Product service > Product Service > list > relation: categories > should filter by categories relation and scope fields",
+      "sourceLine": 497,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should returns empty array when querying for a category that doesnt exist",
+      "fullTitle": "Product service > Product Service > list > relation: categories > should returns empty array when querying for a category that doesnt exist",
+      "sourceLine": 545,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should filter by collection relation and scope fields",
+      "fullTitle": "Product service > Product Service > list > relation: collections > should filter by collection relation and scope fields",
+      "sourceLine": 612,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should filter by collection when multiple collection ids are passed",
+      "fullTitle": "Product service > Product Service > list > relation: collections > should filter by collection when multiple collection ids are passed",
+      "sourceLine": 645,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should returns empty array when querying for a collection that doesnt exist",
+      "fullTitle": "Product service > Product Service > list > relation: collections > should returns empty array when querying for a collection that doesnt exist",
+      "sourceLine": 688,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should filter by id and including relations",
+      "fullTitle": "Product service > Product Service > list > relation: variants > should filter by id and including relations",
+      "sourceLine": 717,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should soft delete a product",
+      "fullTitle": "Product service > Product Service > softDelete > should soft delete a product",
+      "sourceLine": 758,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "title": "should restore a soft deleted product",
+      "fullTitle": "Product service > Product Service > restore > should restore a soft deleted product",
+      "sourceLine": 782,
+      "occurrence": 1,
+      "status": "admitted",
+      "reason": "Records 45 and 46: complete unchanged internal Product file, private direct-call adapters and bounded command registry; original cases verified on PGlite and ordinary-role PostgreSQL"
     }
   ]
 }

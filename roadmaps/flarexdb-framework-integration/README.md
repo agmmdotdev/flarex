@@ -194,17 +194,15 @@ Use these sources in order:
     remains a separate following slice. Record 44 owns Category implementation receipts.
 45. [Internal Category compatibility](./preflight/44-medusa-internal-product-categories.md)
     admits the complete 31-case internal Category file through private commands
-    and preserves direct-call event behavior. The separate internal Product file
-    has 23 declarations remaining; the combined gate is 182 originals plus one skip
-    per driver. Record 44 owns the final regression receipts.
+    and preserves direct-call event behavior. Record 44 owns its implementation
+    receipts; Record 46 records the final combined Product gate.
 46. [Internal Product implementation preflight](./preflight/45-medusa-internal-product.md)
-    implements the approved private text-pattern predicate. Adapter completion
-    reached the separate command registration bound; the current original gate
-    remains 182 plus one skip.
+    implements the approved private text-pattern predicate and scopes the final
+    23-case internal Product adapter. Record 46 owns its completion receipts.
 47. [Commerce command registration bound](./preflight/46-commerce-command-registration-bound.md)
-    preflights the 67-command catalog exceeding the current limit of 64.
-    The recommendation separates registry capacity from request/statement limits;
-    approval is pending, with the 23-case draft preserved externally.
+    separates the approved 128-definition catalog ceiling from unchanged request
+    and statement limits, and completes internal Product. All 205 original cases
+    pass with one retained upstream skip on PGlite and ordinary-role PostgreSQL.
 48. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
@@ -283,7 +281,8 @@ Preflight records:
 | [`preflight/41-medusa-product-variants.md`](./preflight/41-medusa-product-variants.md) | Product Variants implemented privately on both drivers | Complete 15-case file brings the gate to 130 originals plus one upstream skip; exact image assignment removal and Variant lifecycle preserve scoped authority and shared values; public Categories (21) is next |
 | [`preflight/42-medusa-product-categories.md`](./preflight/42-medusa-product-categories.md) | Public Product Categories implemented privately on both drivers | Complete 21-case file brings the gate to 151 originals plus one upstream skip; five boundary checks cover tree authority, rollback, membership and aggregated events; 54 internal declarations remain |
 | [`preflight/43-medusa-internal-product-and-category-preflight.md`](./preflight/43-medusa-internal-product-and-category-preflight.md) | Static preflight complete; Category implemented in Record 44 | Internal Category 31 first, Product 23 separately; exact source/title inventory and adapter ownership gates; no new runtime coverage claimed |
-| [Internal Category](./preflight/44-medusa-internal-product-categories.md) | Internal Category implemented privately on both drivers | Complete 31-case file plus three direct-call boundary checks; combined 182 originals plus one skip per driver; internal Product 23 remains |
+| [Internal Category](./preflight/44-medusa-internal-product-categories.md) | Internal Category implemented privately on both drivers | Complete 31-case file plus three direct-call boundary checks; final combined Product receipts are in Record 46 |
+| [Internal Product and command registration](./preflight/46-commerce-command-registration-bound.md) | Implemented privately on both drivers | Final 23 originals plus four direct-call boundary checks; all ten Product files yield 205 passes and one retained upstream skip per driver; 128 registered definitions with unchanged execution bounds |
 
 ## Current Architecture
 
@@ -472,7 +471,7 @@ has private Application-only and synthetic Medusa acceptance.
 | CMS request host and Application publication | Private CMS host, pending documents, row/relation materialization and publication implemented | Pinned Payload scalar CRUD and atomic preference cleanup publication proven under combined binding |
 | Application table write policy | Private denial capability implemented | Canonical ownership and ordinary Application journal/commit denial preserved; the separate private CMS participant owns managed writes |
 | Payload scalar and non-reactive relation proofs | Private pinned scalar/optional-one/fresh-many CRUD, fresh-only reverse joins, depth-one standalone population, preference cleanup/publication and nested requests implemented | Bounded non-reactive consumer milestone complete on both drivers. Existing-row many upgrades, general join parity and public/production activation remain gated |
-| Medusa Currency, Product and Module Link proofs | Private Currency publication and nested Product creation/population with local events are proven through the shared core | Remaining Product operations, stored Links, durable domain-event delivery and general module compatibility follow |
+| Medusa Currency, Product and Module Link proofs | Private Currency publication and all 205 inventoried Product originals pass through the shared core on both drivers, with one retained upstream skip | Test cleanup and promotion policy discussion follow; stored Links, workflows, durable domain-event delivery and general module compatibility remain separate |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
 

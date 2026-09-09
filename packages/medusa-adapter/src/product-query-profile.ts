@@ -13,8 +13,11 @@ const decodeOptions = commerceDecoder(Schema.Struct({
   limit: Schema.optionalKey(Schema.Unknown),
   offset: Schema.optionalKey(Schema.Unknown),
   orderBy: Schema.optionalKey(Schema.Unknown),
-  filters: Schema.optionalKey(Schema.Struct({ softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }) })),
+  filters: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
 }), "unsupportedProfile");
+const decodeSoftDelete = commerceDecoder(Schema.Struct({ withDeleted: Schema.Boolean }), "unsupportedProfile");
+const decodeSearch = commerceDecoder(Schema.Struct({ value: Schema.String, fromEntity: Schema.String }), "unsupportedProfile");
+const decodePrimaryOr = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.optionalKey(Schema.String) })).check(Schema.isMaxLength(256)), "unsupportedProfile");
 const decodeRelations = commerceDecoder(Schema.Array(Schema.Literals([...productRelations, "*", "variants.images"])), "unsupportedProfile");
 const decodeFields = commerceDecoder(Schema.Array(Schema.String).check(Schema.isMinLength(1)), "unsupportedProfile");
 const decodeOffset = commerceDecoder(QueryOffset, "limitExceeded");
@@ -42,7 +45,7 @@ const deletedInstant = (value: string) => Result.try({ try: () => new Date(value
 /** Decode in the existing profile order so malformed input, unsupported
  * capabilities and bounds retain their distinct first failure. */
 export const decodeProductQuery = Effect.fn("ProductAdapter.decodeQuery")(function* (
-  catalog: ProductRuntimeMetadata, input: unknown,
+  catalog: ProductRuntimeMetadata, input: unknown, internalProduct = false,
 ) {
   const captured = yield* Effect.fromResult(captureCommerceInput(input));
   const value = yield* Effect.fromResult(decodeEnvelope(captured));
@@ -55,7 +58,7 @@ export const decodeProductQuery = Effect.fn("ProductAdapter.decodeQuery")(functi
     : [...requested.filter(name => name !== "variants.images"), ...(requested.includes("variants.images") ? ["variants", "images"] : [])];
   const scalarFields = catalog.product.table.columns.map(column => column.name);
   const selected = yield* Effect.fromResult(decodeFields(options.fields ?? scalarFields));
-  const nestedFields = new Map([ ["collection", catalog.collection], ["type", catalog.type] ]);
+  const nestedFields = new Map([ ["collection", catalog.collection], ["type", catalog.type], ["categories", catalog.category] ]);
   if (selected.some(field => {
     if (scalarFields.includes(field)) return false;
     const [name, column, extra] = field.split(".");
@@ -65,12 +68,32 @@ export const decodeProductQuery = Effect.fn("ProductAdapter.decodeQuery")(functi
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   }
   const skip = yield* Effect.fromResult(decodeOffset(options.offset ?? 0));
-  const take = yield* Effect.fromResult(decodeLimit(options.limit ?? 15));
+  const take = yield* Effect.fromResult(decodeLimit(options.limit ?? (internalProduct ? 256 : 15)));
   const order = yield* Effect.fromResult(decodeOrder(options.orderBy ?? { id: "ASC" }));
-  const withDeleted = options.filters?.softDeletable.withDeleted ?? false;
+  const optionFilters = options.filters ?? {};
+  const withDeleted = optionFilters.softDeletable === undefined ? false
+    : (yield* Effect.fromResult(decodeSoftDelete(optionFilters.softDeletable))).withDeleted;
   const predicates: Json[] = withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }];
+  let searched = false;
+  for (const [name, filter] of Object.entries(optionFilters)) {
+    if (name === "softDeletable") continue;
+    if (!name.startsWith("freeTextSearch_") || searched) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const search = yield* Effect.fromResult(decodeSearch(filter));
+    if (search.fromEntity !== catalog.product.model) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    searched = true;
+    predicates.push({ kind: "or", children: catalog.searchableProductColumns.map(column => ({
+      kind: "textLikeAscii", column, pattern: "%" + search.value + "%",
+    })) });
+  }
   const relationFilters: { path: string; predicate: Json }[] = [];
   for (const [key, inputFilter] of Object.entries(where)) {
+    if (key === "$or" && internalProduct) {
+      const members = yield* Effect.fromResult(decodePrimaryOr(inputFilter));
+      predicates.push({ kind: "or", children: members.map(member => ({
+        kind: "in", column: "id", values: member.id === undefined ? [] : [member.id],
+      })) });
+      continue;
+    }
     if (key === "deleted_at") {
       const comparison = yield* Effect.fromResult(decodeDeletedComparison(inputFilter));
       predicates.push({ kind: "greaterThan", column: "deleted_at", value: yield* Effect.fromResult(deletedInstant(comparison.$gt)) });

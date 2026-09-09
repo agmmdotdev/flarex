@@ -1,3 +1,28 @@
+export const admittedInternalProductCases = [
+  "Product service > should export the appropriate linkable configuration",
+  "Product service > Product Service > retrieve > should throw an error when an id is not provided",
+  "Product service > Product Service > retrieve > should throw an error when product with id does not exist",
+  "Product service > Product Service > retrieve > should return a product when product with an id exists",
+  "Product service > Product Service > create > should create a product",
+  "Product service > Product Service > update > should update a product and its allowed relations",
+  "Product service > Product Service > update > should update a product and its allowed relations using selector",
+  "Product service > Product Service > update > should update a single product and its allowed relations",
+  "Product service > Product Service > update > should throw an error when id is not present",
+  "Product service > Product Service > update > should throw an error when product with id does not exist",
+  "Product service > Product Service > list > should list all product that match the free text search",
+  "Product service > Product Service > list > soft deleted > should list all products that are not deleted",
+  "Product service > Product Service > list > soft deleted > should list all products including the deleted",
+  "Product service > Product Service > list > relation: tags > should filter by id and including relations",
+  "Product service > Product Service > list > relation: tags > should filter by id and without relations",
+  "Product service > Product Service > list > relation: categories > should filter by categories relation and scope fields",
+  "Product service > Product Service > list > relation: categories > should returns empty array when querying for a category that doesnt exist",
+  "Product service > Product Service > list > relation: collections > should filter by collection relation and scope fields",
+  "Product service > Product Service > list > relation: collections > should filter by collection when multiple collection ids are passed",
+  "Product service > Product Service > list > relation: collections > should returns empty array when querying for a collection that doesnt exist",
+  "Product service > Product Service > list > relation: variants > should filter by id and including relations",
+  "Product service > Product Service > softDelete > should soft delete a product",
+  "Product service > Product Service > restore > should restore a soft deleted product"
+];
 import { matchesProductCoverage } from "./test/support/product-coverage";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -143,6 +168,7 @@ export const admittedInternalCategoryCases = [
   "Product service > Product category Service > delete > should reorder siblings rank successfully on deleting"
 ];
 export const admittedProductCases = [
+  ...admittedInternalProductCases,
   ...admittedInternalCategoryCases,
   ...admittedProductOptionCases, ...admittedProductVariantCases, ...admittedProductCategoryCases,
   ...admittedProductCollectionCases,

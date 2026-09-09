@@ -4,6 +4,8 @@ import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { sql } from "drizzle-orm";
 import type { Json } from "../src/commerceValues";
 import { Effect } from "effect";
+import { makeLocalCommerceHost } from "../src/commerceTransaction/host";
+import type { CommerceCommand } from "../src/commerceTransaction/commands";
 import { defineCommerceCommand } from "../src/commerceTransaction/commands";
 import { registerLocalCommerceProfile } from "../src/commerceTransaction/profile";
 import { commerceError } from "../src/commerceTransaction/model";
@@ -153,4 +155,44 @@ it("keeps colliding foreign-scope rows outside the text predicate", async () => 
   const query = { order: { column: "id", direction: "asc" }, predicate: { kind: "textLikeAscii", column: "value", pattern: "%foreign-pattern%" } };
   expect(await runEffect(fixture.host.read(find, query))).toEqual([]);
   expect(await runEffect(fixture.host.read(count, query))).toBe(0);
+});
+
+it("bounds registered command definitions separately from request execution", async () => {
+  const policy = { capture: () => Effect.fail(commerceError("unsupportedProfile")),
+    validate: () => Effect.void, deliver: () => Effect.void };
+  const definitions = Array.from({ length: 128 }, (_, index) =>
+    defineCommerceCommand("registered" + index, "read", () => Effect.succeed(null)));
+  const last = definitions.at(-1);
+  if (last === undefined) throw new Error("Missing last definition");
+  const opened = await runEffect(makeLocalCommerceHost({ ...fixture.hostInput, commands: definitions }, policy));
+  expect(await runEffect(opened.host.read(last, null))).toBe(null);
+  // Deliberate forged token at the test's unknown-input trust boundary.
+  const forged = {} as CommerceCommand;
+  for (const commands of [
+    [...definitions, defineCommerceCommand("overflow", "read", () => Effect.succeed(null))],
+    [defineCommerceCommand("same", "read", () => Effect.succeed(null)), defineCommerceCommand("same", "read", () => Effect.succeed(null))],
+    [defineCommerceCommand("initialize", "read", () => Effect.succeed(null))],
+    [defineCommerceCommand("invalid name", "read", () => Effect.succeed(null))], [forged],
+  ]) expect(await runEffectFailure(makeLocalCommerceHost({ ...fixture.hostInput, commands }, policy))).toMatchObject({ reason: "invalidAuthority" });
+
+  const leaf = definitions[0];
+  if (leaf === undefined) throw new Error("Missing leaf definition");
+  const calls = defineCommerceCommand("manyCalls", "read", Effect.fn("CommerceLimitTest.calls")(function* (ctx, input) {
+    if (typeof input !== "number") return yield* ctx.refuse(commerceError("invalidInput"));
+    for (let index = 0; index < input; index++) yield* ctx.nested(leaf, null);
+    return null;
+  }));
+  const statements = defineCommerceCommand("manyStatements", "read", Effect.fn("CommerceLimitTest.statements")(function* (ctx, input) {
+    if (typeof input !== "number") return yield* ctx.refuse(commerceError("invalidInput"));
+    for (let index = 0; index < input; index++) yield* ctx.store.find(ctx.manager, { take: 0, order: { column: "id", direction: "asc" } });
+    return null;
+  }));
+  const bounded = await runEffect(makeLocalCommerceHost({ ...fixture.hostInput, commands: [...definitions.slice(0, 126), calls, statements] }, policy));
+  // The outer request consumes the first of its 64 calls.
+  expect(await runEffect(bounded.host.read(calls, 63))).toBe(null);
+  expect(await runEffectFailure(bounded.host.read(calls, 64))).toMatchObject({ reason: "limitExceeded" });
+  expect(await runEffect(bounded.host.read(statements, 32))).toBe(null);
+  expect(await runEffectFailure(bounded.host.read(statements, 33))).toMatchObject({
+    reason: "limitExceeded", cause: { boundary: "statements", attempted: 65 },
+  });
 });

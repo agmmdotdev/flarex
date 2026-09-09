@@ -37,6 +37,8 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
     validate: Effect.fn("ProductEvents.validate")(function* (events, rows, commandName, lifecycle = []) {
       const internalCategory = ["productInternalCategorycreate", "productInternalCategoryupdate", "productInternalCategorydelete"].includes(commandName);
       if (internalCategory && (events.length !== 0 || lifecycle.length !== 0)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const internalProduct = ["productInternalProductcreate", "productInternalProductupdate", "productInternalProductsoftDelete", "productInternalProductrestore"].includes(commandName);
+      if (internalProduct && events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
       const expected = new Set<string>();
       const observations = new Map<string, typeof lifecycle[number]>();
       for (const observation of lifecycle) {
@@ -44,7 +46,7 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
         const id = key.components[0]?.value;
         if (key.components.length !== 1 || typeof id !== "string" ||
-          !(commandName === (observation.operation === "restore" ? "productRestore" : "productSoftDelete") || (commandName === "productSoftDeleteVariant" && observation.operation === "softDelete" && observation.tableId === catalog.variant.table.name)) ||
+          !(commandName === (observation.operation === "restore" ? "productRestore" : "productSoftDelete") || commandName === (observation.operation === "restore" ? "productInternalProductrestore" : "productInternalProductsoftDelete") || (commandName === "productSoftDeleteVariant" && observation.operation === "softDelete" && observation.tableId === catalog.variant.table.name)) ||
           (observation.operation === "restore" ? observation.afterDeletedAt !== null : observation.afterDeletedAt === null)) return yield* Effect.fail(commerceError("receiptMismatch"));
         const identity = observation.tableId + ":" + id;
         if (observations.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -63,6 +65,19 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
           const admitted = categoryRow && (row.operation === "update" || (row.operation === "insert" && commandName === "productInternalCategorycreate") || (row.operation === "delete" && commandName === "productInternalCategorydelete"))
             || categoryPivot && ((row.operation === "insert" && commandName === "productInternalCategorycreate") || (row.operation === "delete" && commandName === "productInternalCategorydelete"));
           if (!admitted) return yield* Effect.fail(commerceError("receiptMismatch"));
+          continue;
+        }
+        if (internalProduct) {
+          const identity = row.tableId + ":" + key.components[0]?.value;
+          const observation = observations.get(identity);
+          const productRow = row.tableId === catalog.product.table.name && key.components.length === 1 && key.components[0]?.columnId === "id" && typeof key.components[0].value === "string";
+          const scalarWrite = productRow && observation === undefined && (
+            commandName === "productInternalProductcreate" && row.operation === "insert" ||
+            commandName === "productInternalProductupdate" && row.operation === "update");
+          const lifecycleWrite = observation !== undefined && row.operation === "update" &&
+            [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image].some(entity => entity.table.name === row.tableId);
+          if (!scalarWrite && !lifecycleWrite) return yield* Effect.fail(commerceError("receiptMismatch"));
+          observations.delete(identity);
           continue;
         }
         if ((row.operation === "insert" || row.operation === "delete") && catalog.writablePivots.some(table => table.name === row.tableId)) continue;

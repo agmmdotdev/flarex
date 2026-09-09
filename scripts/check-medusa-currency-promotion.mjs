@@ -80,6 +80,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   }
   const files = new Set(promotion.files.map((file) => file.target));
   const expectedAliases = [
+    ...["vitest.product-upstream.config.ts", "vitest.product-internal.config.ts"].map(configuration => ({ importer: "packages/medusa-product/integration-tests/__tests__/product.spec.ts", configuration: "packages/medusa-adapter/" + configuration })),
     ...["vitest.product-upstream.config.ts", "vitest.product-internal-categories.config.ts"].map(configuration => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts", configuration: "packages/medusa-adapter/" + configuration })),
     { importer: "packages/medusa-currency/integration-tests/__tests__/currency-module-service.spec.ts", configuration: "packages/medusa-adapter/vitest.config.ts" },
     ...["events.spec.ts", "products.spec.ts", "product-types.spec.ts", "product-tags.spec.ts", "product-collections.spec.ts", "product-options.spec.ts", "product-variants.spec.ts", "product-categories.spec.ts"].map(name => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/" + name, configuration: "packages/medusa-adapter/vitest.product-upstream.config.ts" })),
@@ -167,6 +168,12 @@ export function admitsCurrencyImport(promotion, file, specifier) {
   if (promotion.testAliases.some((alias) => alias.importer === file && alias.specifier === specifier)) return true;
   // Exact verified wrappers register complete pinned files in their fixture.
   // This is not a runtime export or a general cross-package edge.
+  const internalProductTarget = "packages/medusa-product/integration-tests/__tests__/product.spec.ts";
+  const internalProductConfig = file === "packages/medusa-adapter/test/product-upstream.test.ts" ? "vitest.product-upstream.config.ts"
+    : file === "packages/medusa-adapter/test/product-internal-upstream.test.ts" ? "vitest.product-internal.config.ts" : undefined;
+  if (internalProductConfig !== undefined && specifier === "../../medusa-product/integration-tests/__tests__/product.spec"
+    && promotion.files.some(entry => entry.target === internalProductTarget && entry.classification === "unchangedTest")
+    && promotion.testAliases.some(alias => alias.importer === internalProductTarget && alias.configuration === "packages/medusa-adapter/" + internalProductConfig)) return true;
   const internalCategoryTarget = "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts";
   const internalCategoryConfig = file === "packages/medusa-adapter/test/product-upstream.test.ts" ? "vitest.product-upstream.config.ts"
     : file === "packages/medusa-adapter/test/product-internal-categories-upstream.test.ts" ? "vitest.product-internal-categories.config.ts" : undefined;
