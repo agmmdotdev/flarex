@@ -6,8 +6,8 @@ Status: shared reads, checked schema lowering, JSON-field decoding, keyed
 updates, graph creation/replacement and the mutation-dispatch boundary are
 implemented and validated on PGlite and ordinary-role PostgreSQL. Currency and
 Product share the applicable adapter owners while retaining explicit module
-policies. Module preparation and composition retain separate implementation
-slices.
+policies. Prepared module definitions now derive ordinary internal services and
+bind the existing repositories inside the command-owned lifetime.
 
 This adapter refactor does not authorize changes to Flarex
 transaction settlement, commit compilation, schema identity, resource limits,
@@ -694,6 +694,77 @@ passing in each run. Both earlier failures trace to Product fixture creation.
 Measured WAL-write and reset stalls support a bounded fixture-cleanup experiment;
 the intermittent reliability qualification remains open. Record 49 owns the
 diagnostic evidence, remaining uncertainties and proposed next slice.
+
+## Prepared module authoring and composition
+
+The accepted authoring direction separates application use from integration
+implementation. Application code uses a supported module; integration code owns
+its checked profile and named exceptions. Models and the existing Medusa main
+service remain the authoring inputs. Flarex does not introduce another ORM,
+business-service framework, general dependency container or transaction owner.
+
+`src/module-definition.ts` prepares an instance-local definition from a typed DML
+set, repository profile, explicit service extensions and main-service factory.
+Preparation is a pure recoverable `Result`; it captures declarations and callback
+selection, checks duplicate model/injection names, requires explicit replacement,
+and reports missing declared capabilities before binding. An immutable description
+exposes the resulting choices for diagnostics. The model objects retain their DML
+identity; renaming a model after preparation refuses before repository binding.
+The checked DML/schema owners still govern other model semantics.
+Captured method callbacks retain their receivers; this does not freeze arbitrary
+receiver or closure state. Extension records require own enumerable string data
+properties so preparation cannot silently omit a declared service.
+
+The scoped `use` operation derives ordinary service registrations from model names
+and delegates to `withCommerceService`. Repositories, subscribers and services
+remain command-owned; no global model registry, singleton Context tag, new
+connection or lifetime is introduced. Native Medusa context arguments remain
+explicit at this private adapter boundary. Model-name and service/extension
+inference survives the factory; runtime query catalogs do not claim static
+projection types or grant operations merely because fields exist.
+Definite literal tuple members infer required services; dynamic arrays and
+union-selected members retain optionality for services that may be absent.
+
+Product's composition owner is `src/product-module.ts`. Category construction,
+the mutation-interceptor cycle, local event adapter and restricted image alias
+remain named Product behavior. Ordinary model/repository and internal-service
+lists are derived; the former manual assembly in `product-service.ts` is removed.
+Currency uses the same definition path. The image alias explicitly enumerates
+the existing allowed DAL operations rather than inheriting future permissions.
+
+Default selection/naming follows the pinned
+`core/utils/src/modules-sdk/loaders/container-loader-factory.ts`. Its singleton
+container lifetime, connection bootstrap and custom-repository fallback are not
+imported into the command-owned Flarex adapter. This is a narrow lifetime
+adaptation of Medusa assembly conventions. Convex's definition/execution split
+is a useful authoring reference; commerce retains its accepted transaction lane.
+
+Extensions are independent named service constructors with explicit `add` or
+`replace` intent and declared profile requirements. Their declaration order is
+their construction order; they do not resolve each other or override by ordering.
+These are trusted integration factories over existing admitted DAL capabilities,
+not an untrusted plugin sandbox. Resourceful extensions requiring a new lifecycle
+or novel repository behavior need the corresponding capability design.
+
+The defining regression gates are Currency and Product's maintained original
+suites plus renamed non-`id` model, replacement type, declaration capture,
+collision/refusal, concurrent-use and escaped-service checks. Shared transaction
+limits, installation identities, event admission, lifecycle policies and source
+provenance remain unchanged. A passing assembly proof does not resolve the
+separately recorded PostgreSQL fixture-pressure investigation.
+
+Validation of this composition slice passes all four strict adapter TypeScript
+lanes, 32 shared/definition tests, 134 authored Product boundary checks on
+ordinary-role PostgreSQL, and all 56 source guards. Currency passes 20 live cases
+on PGlite and 19 on PostgreSQL with its existing driver-specific skip. Product
+passes all 205 active originals on each driver with the existing upstream skip.
+The initial PGlite attempt timed out during fixture setup before any original
+case ran; the serial rerun passed without changing limits or assertions. The
+original suites used the shared worktree's separate fixture-cleanup changes;
+those changes remain owned by record 49 and are excluded from this checkpoint.
+An isolated proposed-commit snapshot independently verifies all 392 exact source
+files across the ten packages. Browser portability passes across 654 inputs;
+core and diff lint pass. Receipts are `work/module-assembly-*.log`.
 
 ## Following capabilities and module proof
 

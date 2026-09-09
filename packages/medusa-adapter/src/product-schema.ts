@@ -24,7 +24,7 @@ export const productModels = Object.freeze([
   ProductCategory,
   ProductImage,
   ProductVariantProductImage,
-]);
+] as const);
 import { captureRelationalSchemaArtifact } from "@flarex/persistence-postgres/internal/relational-schema-values";
 import {
   capturePrivateCanonicalValue,

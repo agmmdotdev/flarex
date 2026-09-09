@@ -227,3 +227,64 @@ constructors borrow existing request-owned repositories. Product retains its
 specialized Category service and restricted image-product alias. Connection
 loaders and custom-repository discovery refuse; Flarex still owns installation.
 This is per-module request composition, not a combined module-set bootstrap.
+
+## Prepared module composition
+
+`src/module-definition.ts` provides the private `defineCommerceModule` factory.
+It returns an Effect `Result` containing a prepared definition or a
+`CommerceModuleDefinitionError` with the module, reason and diagnostic detail.
+Preparation captures the model set, profile name/capabilities, extension
+declarations and factory callback selection. Method callbacks retain their
+original receivers; arbitrary receiver or closure state is not snapshotted.
+Preparation constructs no repository or live service.
+
+The integration supplies one profile that binds its existing admitted repository
+implementation to a command. Default internal services are derived from the DML
+model names using the pinned Medusa naming convention. The main service factory
+receives their inferred types and supplies the existing Medusa business service.
+Applications do not assemble repositories or select internal profiles from input.
+Literal model tuples infer required service keys. Dynamic arrays and
+union-selected entries expose potentially absent services as optional.
+
+```ts
+const prepared = defineCommerceModule({
+  name: "library",
+  models: [Volume],
+  profile: libraryProfile,
+  extensions: {},
+  service: ({ baseRepository, services, context }) => ({
+    service: new LibraryService({ baseRepository, ...services }),
+    context,
+  }),
+});
+// At setup: enter the Effect error channel with Effect.fromResult(prepared).
+// Inside an already-authorized command:
+// module.use(ctx, ({ service, context }) => service.listVolumes({}, {}, context));
+```
+
+Named extensions explicitly `add` a service or `replace` one generated service.
+Their record accepts only own enumerable string data properties; symbol,
+non-enumerable, accessor and inherited declarations refuse during preparation.
+Preparation rejects accidental collisions, missing replacement targets, duplicate
+models/naming collisions, and missing declared profile capabilities. Extensions
+are independent constructors: they receive the command's binding, persistence
+adapter and Promise owner, not other extensions or a general service locator.
+Their declared order is construction order. They cannot silently override one
+another. Capability declarations describe implemented adapter features; they do
+not grant schema, table, transaction or publication authority.
+
+`description` is an immutable diagnostic snapshot of models, generated names,
+profile capabilities and extension choices. `use` delegates to the existing
+service bridge, creates fresh command-owned services, and closes them on exit.
+Escaped DAL calls still fail through the Promise owner. Medusa's native context
+argument remains explicit in this private callback; the existing public Currency
+facade retains its own context-free host boundary.
+
+`src/product-module.ts` owns Product's Category mutation-interceptor cycle, local
+event adapter and explicit image-service alias. Ordinary Product services and
+repositories need no repeated registration list. Read profiles, codecs, commands,
+schema admission and business behavior retain their existing owners. Inference
+preserves declared model names and native service/extension types; this factory
+does not infer finer query projections from runtime string catalogs or create a
+new public module API. The alias lists every allowed DAL method explicitly, so
+additional repository methods cannot acquire permission through object spreading.

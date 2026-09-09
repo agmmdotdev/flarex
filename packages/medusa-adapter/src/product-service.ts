@@ -1,105 +1,40 @@
 import { productInternalInput } from "./product-internal-input";
 import { validateCategoryCommand } from "./product-category-input";
-import { commerceInternalService, prepareCommerceModule } from "./commerce-module";
-import { productRuntimeMetadata, type ProductRuntimeMetadata } from "./product-runtime-metadata";
+import { defineProductModule } from "./product-module";
+import type { CommerceModuleScope } from "./module-definition";
+import { productRuntimeMetadata } from "./product-runtime-metadata";
 import { Effect } from "effect";
-import { ProductModuleService, ProductCategoryService } from "@medusajs/product/services";
-import { Product, ProductCategory, ProductCollection, ProductImage, ProductOption, ProductOptionValue, ProductTag, ProductType, ProductVariant, ProductVariantProductImage } from "@medusajs/product/models";
-import { Modules } from "@medusajs/framework/utils/portable";
-import type { FindConfig, ProductTypes, IEventBusModuleService, ModulePersistenceMutationService } from "@medusajs/framework/types";
+import type { ProductModuleService, ProductCategoryService } from "@medusajs/product/services";
+import type { FindConfig, ProductTypes } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductRead, decodeProductNamedRead, decodeProductCollectionRead, decodeProductCategoryRead, decodeProductParentRead, decodeVariantImageInput, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
-import { decodeLocalEventOptions, decodeLocalEventBatch } from "./product-local-events";
 import { captureProductTagUpsert } from "./product-tag-input";
 import { captureCommerceInput } from "./commerce-input";
-import { withCommerceService } from "./commerce-service-bridge";
-import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { captureProductSchema } from "./product-schema";
-import { productRepository, type ProductRepositoryProfile } from "./product-repository";
 import { validateProductCreate } from "./product-graph";
 import { decodeRelatedUpdate } from "./product-value-profile";
 import { decodeProductLifecycleIds } from "./product-lifecycle";
-
-function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, profile: ProductRepositoryProfile = "public") {
-  const { repository, mutationPersistence, refuse, relatedRepository, categoryRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata, profile);
-  const blocked = { ...repository, find: refuse, findAndCount: refuse, create: refuse, delete: refuse, softDelete: refuse, restore: refuse };
-  const module = prepareCommerceModule(owner, { name: "flarex-product-local", baseRepository: repository,
-    events: mutationPersistence, models: [
-      { model: Product, repository },
-      { model: ProductVariant, repository: relatedRepository(metadata.variant) },
-      { model: ProductOption, repository: relatedRepository(metadata.option) },
-      { model: ProductOptionValue, repository: relatedRepository(metadata.value) },
-      { model: ProductImage, repository: relatedRepository(metadata.image) },
-      { model: ProductCategory, repository: relatedRepository(metadata.category) },
-      { model: ProductCollection, repository: relatedRepository(metadata.collection) },
-      { model: ProductTag, repository: relatedRepository(metadata.tag) },
-      { model: ProductType, repository: relatedRepository(metadata.type) },
-      { model: ProductVariantProductImage, repository: relatedRepository(metadata.assignment) },
-    ] });
-  const { persistence, internalService: internal } = module;
-  const eventBus: IEventBusModuleService = {
-    emit: (input, options) => owner.run(Effect.gen(function* () {
-      const settings = yield* Effect.fromResult(captureCommerceInput(options));
-      yield* Effect.fromResult(decodeLocalEventOptions(settings));
-      const messages = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
-      for (const message of yield* Effect.fromResult(decodeLocalEventBatch(messages))) yield* captureLocalEvent(message);
-    }).pipe(Effect.catchTag("CommerceTransactionError", rejectLocalEvent))),
-    subscribe: () => owner.reject(commerceError("unsupportedProfile")),
-    unsubscribe: () => owner.reject(commerceError("unsupportedProfile")),
-    releaseGroupedEvents: refuse, clearGroupedEvents: refuse,
-  };
-  const categoryMutationService: ModulePersistenceMutationService = {
-    interceptEntityMutationEvents: (event, args, context) => {
-      // The pinned MedusaService mixin installs this method at runtime, but its
-      // generated class declaration omits the inherited mutation contract.
-      if (!("interceptEntityMutationEvents" in service) || typeof service.interceptEntityMutationEvents !== "function") throw new Error("Missing Product mutation service");
-      service.interceptEntityMutationEvents(event, args, context);
-    },
-  };
-  const categoryService = new ProductCategoryService({ productCategoryRepository: categoryRepository, modulePersistenceAdapter: persistence, productModuleService: categoryMutationService });
-  const productService = internal(Product);
-  const service: ProductModuleService = new ProductModuleService({
-    // SAFETY: the pinned constructor type still requires the MikroORM-only
-    // method. Its runtime hasDeepUpdate guard deliberately selects the portable
-    // internal-service branch when that property is absent.
-    baseRepository: module.baseRepository, productRepository: repository as ConstructorParameters<typeof ProductModuleService>[0]["productRepository"],
-    productService,
-    productVariantService: internal(ProductVariant),
-    productOptionService: internal(ProductOption),
-    productOptionValueService: internal(ProductOptionValue),
-    productImageService: internal(ProductImage),
-    productCategoryService: categoryService,
-    productCollectionService: internal(ProductCollection),
-    productTagService: internal(ProductTag), productTypeService: internal(ProductType),
-    productImageProductService: commerceInternalService(ProductImage, blocked, persistence),
-    productVariantProductImageService: internal(ProductVariantProductImage),
-    [Modules.EVENT_BUS]: eventBus,
-  }, { scope: "internal" });
-  return { service, productService, categoryService, repository, eventBus, context: { manager: ctx.manager, transactionManager: ctx.manager } };
-}
 
 /** Private command set. No request may select local policy, a manager or a table. */
 export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(function* () {
   const captured = yield* captureProductSchema("product-runtime-contract");
   const metadata = yield* productRuntimeMetadata(captured.metadata.frame);
-  const withService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
-    withCommerceService(ctx, owner => compose(ctx, owner, metadata), work);
-  const withCategoryReadService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
-    withCommerceService(ctx, owner => compose(ctx, owner, metadata, "categoryProjection"), work);
-  const withCollectionService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
-    withCommerceService(ctx, owner => compose(ctx, owner, metadata, "collectionMembership"), work);
-  // Direct internal calls intentionally have no EmitEvents aggregator. Capture
-  // their raw entity representation before it crosses the JSON command boundary.
-  const withInternalCategory = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
-    withCommerceService(ctx, owner => compose(ctx, owner, metadata, "categoryProjection"), async value =>
-      value.repository.serialize(await work(value)));
+  const standard = yield* Effect.fromResult(defineProductModule(metadata));
+  const category = yield* Effect.fromResult(defineProductModule(metadata, "categoryProjection"));
+  const collection = yield* Effect.fromResult(defineProductModule(metadata, "collectionMembership"));
+  const internal = yield* Effect.fromResult(defineProductModule(metadata, "internalProduct"));
+  const withService = standard.use;
+  const withCategoryReadService = category.use;
+  const withCollectionService = collection.use;
+  type ProductScope = CommerceModuleScope<typeof standard>;
+  // Direct internal calls intentionally have no EmitEvents aggregator. Preserve
+  // their distinct serialization/capture at this command boundary.
+  const withInternalCategory = Effect.fn("ProductAdapter.withInternalCategory")((ctx: CommerceCommandContext, work: (value: ProductScope) => Promise<unknown>) =>
+    category.use(ctx, async value => value.repository.serialize(await work(value))));
   const validateInternalProduct = productInternalInput(metadata);
-  const withInternalProduct = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
-    withCommerceService(ctx, owner => ({
-      ...compose(ctx, owner, metadata, "internalProduct"),
-      capture: (value: unknown) => owner.run(Effect.fromResult(captureCommerceInput(value, ctx.resources))),
-    }), async value => value.capture(await work(value)));
+  const withInternalProduct = Effect.fn("ProductAdapter.withInternalProduct")((ctx: CommerceCommandContext, work: (value: ProductScope) => Promise<unknown>) =>
+    internal.use(ctx, async value => value.capture(await work(value))));
   const internalProductRead = (kind: "list" | "retrieve") => defineCommerceCommand("productInternalProduct" + kind, "read", Effect.fn("ProductAdapter.internalProduct." + kind)(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));

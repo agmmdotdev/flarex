@@ -1,10 +1,8 @@
-import { withCommerceService } from "./commerce-service-bridge";
-import type { CommercePromiseOwner } from "./commerce-promise-owner";
-import { Effect, Cause } from "effect";
+import { Effect, Cause, type Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Currency } from "@medusajs/currency/models";
 import { CurrencyModuleService } from "@medusajs/currency/services";
-import { prepareCommerceModule } from "./commerce-module";
+import { defineCommerceModule, type CommerceModuleScope } from "./module-definition";
 import type { ICurrencyModuleService, CurrencyTypes, FindConfig, FilterableCurrencyProps } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext, type CommerceHost } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -13,17 +11,23 @@ import { captureCurrencyInput } from "./currency-values";
 import { currencyDto, currencyDtos, currencyCountResult } from "./currency-result";
 import { decodeCurrencyRead } from "./currency-input";
 
-const compose = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
-  const repository = currencyRepository(ctx, owner);
-  const module = prepareCommerceModule(owner, { name: "flarex-currency-local", baseRepository: repository,
-    models: [{ model: Currency, repository }] });
-  const internal = module.internalService(Currency);
-  const service = new CurrencyModuleService({ baseRepository: module.baseRepository, currencyService: internal }, { scope: "internal" });
-  return { repository, internal, service, context: { manager: ctx.manager, transactionManager: ctx.manager } };
-};
-
-export const withCurrencyService = Effect.fn("CurrencyAdapter.withService")((ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
-  withCommerceService(ctx, owner => compose(ctx, owner), work));
+const currencyModule = defineCommerceModule({
+  name: "flarex-currency-local", models: [Currency],
+  profile: { name: "currency", capabilities: [], bind: (ctx, owner) => {
+    const repository = currencyRepository(ctx, owner);
+    return { baseRepository: repository, repository: () => repository };
+  } },
+  extensions: {},
+  service: ({ binding, baseRepository, services, context }) => ({
+    repository: binding.baseRepository, internal: services.currencyService,
+    service: new CurrencyModuleService({ baseRepository, ...services }, { scope: "internal" }), context,
+  }),
+});
+type CurrencyScope = CommerceModuleScope<Result.Result.Success<typeof currencyModule>>;
+export const withCurrencyService = Effect.fn("CurrencyAdapter.withService")(function* (ctx: CommerceCommandContext, work: (value: CurrencyScope) => Promise<unknown>) {
+  const module = yield* Effect.fromResult(currencyModule).pipe(Effect.mapError(error => commerceError("unsupportedProfile", error)));
+  return yield* module.use(ctx, work);
+});
 
 const read = (kind: "list" | "count" | "retrieve") => defineCommerceCommand(`currency${kind}`, "read", Effect.fn(`CurrencyAdapter.${kind}`)(function* (ctx, value) {
   const decoded = yield* Effect.fromResult(decodeCurrencyRead(value)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
