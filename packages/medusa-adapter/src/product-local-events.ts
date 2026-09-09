@@ -62,6 +62,7 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
         // The pinned physical-delete internal service dispatches only root IDs;
         // dependent removals still require complete core relational delete facts.
         if (row.operation === "delete" && commandName === "productDeleteproduct" && [catalog.option, catalog.value, catalog.variant, catalog.image].includes(object)) continue;
+        if (row.operation === "delete" && commandName === "productDeleteoption" && object === catalog.value) continue;
         // Pinned reference detachment emits no Product mutation callback.
         if (row.operation === "update" && object === catalog.product && ["productDeletetype", "productDeletecollection"].includes(commandName)) continue;
         const observationKey = row.tableId + ":" + id.value;

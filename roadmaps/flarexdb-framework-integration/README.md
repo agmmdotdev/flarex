@@ -178,7 +178,10 @@ Use these sources in order:
 40. [`preflight/39-medusa-product-collections.md`](./preflight/39-medusa-product-collections.md)
     adds the complete 18-case Collections family and membership boundaries;
     Options is next.
-41. Current code, migrations, any source snapshot already admitted by its own
+41. [`preflight/40-medusa-product-options.md`](./preflight/40-medusa-product-options.md)
+    adds the complete 13-case Options family, parent Product projections and
+    standalone Option deletion; Variants is next.
+42. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -252,6 +255,7 @@ Preflight records:
 | [`preflight/37-medusa-remaining-product-suite-preflight.md`](./preflight/37-medusa-remaining-product-suite-preflight.md) | Product Types implemented privately on both drivers | Complete 13-case Type file brings the gate to 69 originals plus one upstream skip; focused Type lane passes 15; 136 declarations across seven files remain, with Tags next |
 | [`preflight/38-medusa-product-tags.md`](./preflight/38-medusa-product-tags.md) | Product Tags implemented privately on both drivers | Complete 15-case Tag file brings the gate to 84 originals plus one upstream skip; bounded inverse Product reads and DTO echo authentication; 121 declarations across six files remain, with Collections next |
 | [`preflight/39-medusa-product-collections.md`](./preflight/39-medusa-product-collections.md) | Product Collections implemented privately on both drivers | Complete 18-case Collection file brings the gate to 102 originals plus one upstream skip; scoped Product membership, inverse projection and publication checks; 103 declarations across five files remain, with Options next |
+| [`preflight/40-medusa-product-options.md`](./preflight/40-medusa-product-options.md) | Product Options implemented privately on both drivers | Complete 13-case Option file brings the gate to 115 originals plus one upstream skip; scoped Product projection and atomic cascade deletion; 90 declarations across four files remain, with Variants next |
 
 ## Current Architecture
 

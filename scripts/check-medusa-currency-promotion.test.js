@@ -59,7 +59,7 @@ describe("exact Currency promotion", () => {
 
   it("retains byte-identical original compatibility assertions", () => {
     const tests = promotion.files.filter((file) => file.classification === "unchangedTest");
-    expect(tests).toHaveLength(8);
+    expect(tests).toHaveLength(9);
     for (const file of tests) {
       if (!file.source) throw new Error("Missing original test source");
       expect(readFileSync(file.target)).toEqual(readFileSync(file.source));
@@ -79,6 +79,9 @@ describe("exact Currency promotion", () => {
     expect(check(wrapper, specifier.replace("events.spec", "product-types.spec"))).toEqual([]);
     expect(check(wrapper, specifier.replace("events.spec", "product-tags.spec"))).toEqual([]);
     expect(check(wrapper, specifier.replace("events.spec", "product-collections.spec"))).toEqual([]);
+    expect(check(wrapper, specifier.replace("events.spec", "product-options.spec"))).toEqual([]);
+    expect(check("packages/medusa-adapter/test/product-options-upstream.test.ts", specifier.replace("events.spec", "product-options.spec"))).toEqual([]);
+    expect(check("packages/medusa-adapter/test/product-options-upstream.test.ts", specifier)).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-collections-upstream.test.ts", specifier.replace("events.spec", "product-collections.spec"))).toEqual([]);
     expect(check("packages/medusa-adapter/test/product-collections-upstream.test.ts", specifier)).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-tags-upstream.test.ts", specifier.replace("events.spec", "product-tags.spec"))).toEqual([]);

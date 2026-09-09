@@ -43,9 +43,10 @@ The implemented [Product Tags slice](./preflight/38-medusa-product-tags.md)
 adds its complete 15-case file, inverse Product projections and authenticated
 managed-field DTO echoes. The subsequent [Collections slice](./preflight/39-medusa-product-collections.md)
 adds all 18 original Collection cases, inverse Product projections and bounded
-membership changes through the unchanged service. The five-file gate passes
-102 originals plus one upstream skip per driver. There are 103 declarations in
-five unregistered files; the next separate bounded target is Options (13 cases).
+membership changes through the unchanged service. The subsequent [Options slice](./preflight/40-medusa-product-options.md) adds
+all 13 original Option cases, Product projections and standalone cascade deletion.
+The six-file gate passes 115 originals plus one upstream skip per driver. There
+are 90 declarations in four unregistered files; Variants (15 cases) is next.
 Durable event storage/dispatch are deferred. Product
 mutations beyond the admitted graph/related-entity and lifecycle profile,
 stored Links and production

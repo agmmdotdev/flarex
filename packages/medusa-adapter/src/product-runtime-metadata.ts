@@ -106,6 +106,12 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
     }
     queryRelations.set(source.table.name, declared);
   }
+  const optionProduct = option.table.relationships.find(relation => relation.name === "product");
+  if (optionProduct?.type !== "belongsTo" || optionProduct.targetModel !== product.model) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const optionRelations = queryRelations.get(option.table.name);
+  if (optionRelations === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  optionRelations.set("product", { name: "product", sourcePrimaryKeys: ["id"], targetTable: product.table.name, targetPrimaryKeys: ["id"],
+    join: { type: "belongsTo", foreignKeys: [yield* foreignKey(option, product)] } });
   const entities = [product, option, value, variant, image, tag, type, collection, category, assignment];
   return { product, option, value, variant, image, tag, type, collection, category, assignment, entities,
     tables: [...entities.map(item => item.table), pivot, tagPivot, categoryPivot], writablePivots: [pivot, tagPivot, categoryPivot],

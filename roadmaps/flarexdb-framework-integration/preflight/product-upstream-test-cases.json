@@ -1,6 +1,6 @@
 {
   "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
-  "scope": "Five complete Product module-service test files (events, products, product types, product tags, product collections); other Product suites are not registered.",
+  "scope": "Six complete Product module-service files (events, products, product types, product tags, product collections, product options); other Product suites are not registered.",
   "cases": [
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -619,6 +619,84 @@
       "title": "ProductModuleService product collections > createCollections > should create collection with products successfully",
       "status": "admitted",
       "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > listOptions > should return options and count queried by ID",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > listOptions > should return options and count based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > listOptions > should return only requested fields and relations for options",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > listAndCountOptions > should return options and count queried by ID",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > listAndCountOptions > should return options and count based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > listAndCountOptions > should return only requested fields and relations for options",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > retrieveOption > should return the requested option",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > retrieveOption > should return requested attributes when requested through config",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > retrieveOption > should throw an error when a option with ID does not exist",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > deleteOptions > should delete the product option given an ID successfully",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > updateOptions > should update the title of the option successfully",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > updateOptions > should throw an error when an id does not exist",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "title": "ProductModuleService product options > createOptions > should create a option successfully",
+      "status": "admitted",
+      "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
     }
   ]
 }

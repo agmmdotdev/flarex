@@ -19,7 +19,7 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
   operation: "delete" | "softDelete" | "restore", input: unknown,
 ) {
   if (operation !== "delete" && entity !== catalog.product) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  if (operation === "delete" && ![catalog.product, catalog.tag, catalog.type, catalog.collection, catalog.category].includes(entity)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (operation === "delete" && ![catalog.product, catalog.tag, catalog.type, catalog.collection, catalog.category, catalog.option].includes(entity)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
   const selected = operation === "delete" ? (yield* Effect.fromResult(decodeDelete(captured))).$or.map(row => row.id)
     : yield* Effect.fromResult(decodeProductLifecycleIds(captured));

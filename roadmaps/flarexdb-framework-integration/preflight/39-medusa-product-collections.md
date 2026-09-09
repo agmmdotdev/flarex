@@ -112,3 +112,5 @@ The historical remaining-suite inventory keeps its original 149-case baseline;
 the admitted-case inventory now records five complete files. The next separately
 bounded work is Options. Workflow, Module Link, public serving, durable event
 providers, broad Payload integration and production support remain separate gates.
+
+The subsequent Options slice is tracked in [Record 40](./40-medusa-product-options.md); these receipts remain the Collections checkpoint.

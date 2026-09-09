@@ -15,6 +15,10 @@ describe("Product runtime derives its schema facts from Medusa", () => {
     expect(catalog.variant.model).toBe(ProductVariant.name);
     expect(catalog.variant.createdEvent).toBe("product.product-variant.created");
     expect(catalog.image.eventObject).toBe("product_image");
+    expect(catalog.queryRelations.get(catalog.option.table.name)?.get("product")).toEqual({
+      name: "product", sourcePrimaryKeys: ["id"], targetTable: catalog.product.table.name, targetPrimaryKeys: ["id"],
+      join: { type: "belongsTo", foreignKeys: [catalog.foreignKeys.option] },
+    });
     expect(catalog.foreignKeys.value).toBe("option_id");
     expect(catalog.pivot).toMatchObject({ table: { name: "product_variant_option" }, variantColumn: "variant_id", valueColumn: "option_value_id" });
     const altered = { ...captured.metadata.frame, tables: captured.metadata.frame.tables.map(table => ({ ...table,
@@ -22,6 +26,12 @@ describe("Product runtime derives its schema facts from Medusa", () => {
     })) };
     const derived = await Effect.runPromise(productRuntimeMetadata(altered));
     expect(derived.entities.every(entity => entity.prefix === "derived_test")).toBe(true);
+  });
+  it("refuses a missing Option parent relationship", async () => {
+    const captured = await Effect.runPromise(captureProductSchema("option-metadata"));
+    const broken = { ...captured.metadata.frame, tables: captured.metadata.frame.tables.map(table => table.name === "product_option"
+      ? { ...table, relationships: table.relationships.filter(relation => relation.name !== "product") } : table) };
+    expect(await Effect.runPromise(Effect.result(productRuntimeMetadata(broken)))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
   });
   it("refuses metadata that cannot establish the admitted relationship instead of guessing column names", async () => {
     const captured = await Effect.runPromise(captureProductSchema("metadata-test"));

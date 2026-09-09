@@ -53,7 +53,23 @@ export const admittedProductCollectionCases = [
   "Product service > ProductModuleService product collections > createCollections > should create a collection successfully",
   "Product service > ProductModuleService product collections > createCollections > should create collection with products successfully"
 ];
+export const admittedProductOptionCases = [
+  "Product service > ProductModuleService product options > listOptions > should return options and count queried by ID",
+  "Product service > ProductModuleService product options > listOptions > should return options and count based on the options and filter parameter",
+  "Product service > ProductModuleService product options > listOptions > should return only requested fields and relations for options",
+  "Product service > ProductModuleService product options > listAndCountOptions > should return options and count queried by ID",
+  "Product service > ProductModuleService product options > listAndCountOptions > should return options and count based on the options and filter parameter",
+  "Product service > ProductModuleService product options > listAndCountOptions > should return only requested fields and relations for options",
+  "Product service > ProductModuleService product options > retrieveOption > should return the requested option",
+  "Product service > ProductModuleService product options > retrieveOption > should return requested attributes when requested through config",
+  "Product service > ProductModuleService product options > retrieveOption > should throw an error when a option with ID does not exist",
+  "Product service > ProductModuleService product options > deleteOptions > should delete the product option given an ID successfully",
+  "Product service > ProductModuleService product options > updateOptions > should update the title of the option successfully",
+  "Product service > ProductModuleService product options > updateOptions > should throw an error when an id does not exist",
+  "Product service > ProductModuleService product options > createOptions > should create a option successfully"
+];
 export const admittedProductCases = [
+  ...admittedProductOptionCases,
   ...admittedProductCollectionCases,
   ...admittedProductTagCases,
   ...admittedProductTypeCases,

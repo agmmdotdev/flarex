@@ -21,6 +21,13 @@ export const decodeProductCollectionRead = commerceDecoder(Schema.Struct({
     title: Schema.optionalKey(Schema.String), handle: Schema.optionalKey(Schema.String),
   })),
 }), "invalidInput");
+export const decodeProductOptionRead = commerceDecoder(Schema.Struct({
+  ...Read.fields,
+  filters: Schema.optionalKey(Schema.Struct({
+    id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))])),
+    title: Schema.optionalKey(Schema.String), product_id: Schema.optionalKey(Schema.String),
+  })),
+}), "invalidInput");
 const CommandRead = Schema.Struct({ ...Read.fields, deletedAfter: Schema.optionalKey(Schema.String) });
 export const decodeProductRead = commerceDecoder(CommandRead, "invalidInput");
 const decodeAfter = commerceDecoder(Schema.Struct({ $gt: Schema.String }), "unsupportedProfile");

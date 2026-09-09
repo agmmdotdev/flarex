@@ -15,7 +15,8 @@
     "vitest.product-upstream.config.ts",
     "vitest.product-types.config.ts",
     "vitest.product-tags.config.ts",
-    "vitest.product-collections.config.ts"
+    "vitest.product-collections.config.ts",
+    "vitest.product-options.config.ts"
   ],
   "exclude": [
     "test/product-upstream.test.ts",
@@ -23,6 +24,7 @@
     "test/currency-announcement.test.ts",
     "test/product-types-upstream.test.ts",
     "test/product-tags-upstream.test.ts",
-    "test/product-collections-upstream.test.ts"
+    "test/product-collections-upstream.test.ts",
+    "test/product-options-upstream.test.ts"
   ]
 }
