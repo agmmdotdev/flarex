@@ -200,5 +200,10 @@ now supplies shared read capability across Currency and Product. The internal
 projections, and executes reads on the existing scoped manager. Module read
 profiles retain admission, projection and ordering differences; Category and
 Collection membership use pure domain selection over complete bounded catalogs.
-The old Product parent/inverse planners are removed. Schema lowering, writes,
-events and full module preparation remain separate follow-on work.
+The old Product parent/inverse planners are removed. Both modules also consume
+the pure `src/schema/` compiler for checked DML columns/defaults, keys, indexes,
+foreign keys and persistence capabilities. Closed module admission and source
+provenance remain explicit; canonical schema artifacts are unchanged. Exact
+numeric companions carry explicit field and capability identities. This internal
+compiler does not admit another module or install a schema. Scalar value codecs,
+keyed/graph writes, events and full module preparation remain following steps.

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { Effect, Result } from "effect";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import {
@@ -17,6 +18,9 @@ describe("actual Product schema", () => {
     const captured = await Effect.runPromise(
       captureProductSchema("product-schema-test"),
     );
+    // Captured from the committed pre-extraction implementation at aaba75d4.
+    expect(createHash("sha256").update(captured.artifact.canonicalJson).digest("hex"))
+      .toBe("6e512c55e38ecd80eb868c423313bbe952fd789df31a9ecaad6ca204faf867fd");
     expect(captured.schema.tables).toHaveLength(13);
     const restored = await Effect.runPromise(
       authenticateStoredRelationalSchemaArtifactEffect(captured.artifact),
@@ -173,6 +177,21 @@ describe("actual Product schema", () => {
           ),
         ),
       ).toBe(true);
+    }
+  });
+
+  it("does not admit Currency numeric features through the Product decoder", async () => {
+    const numeric = compileDmlSchema([...productModels]);
+    const raw = compileDmlSchema([...productModels]);
+    const numericColumn = numeric.tables[0]?.columns[0];
+    const rawColumn = raw.tables[0]?.columns[0];
+    if (numericColumn === undefined || rawColumn === undefined) throw new Error("Missing Product column");
+    numericColumn.type = "bigNumber";
+    rawColumn.type = "json";
+    rawColumn.defaultValue = { value: "0", precision: 20 };
+    for (const candidate of [numeric, raw]) {
+      const result = await Effect.runPromise(Effect.result(productSchemaInput(JSON.parse(JSON.stringify(candidate)))));
+      expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "ProductSchemaError" } });
     }
   });
 });

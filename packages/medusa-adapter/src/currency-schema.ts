@@ -1,4 +1,6 @@
 import { Effect, Result, Schema } from "effect";
+import { lowerDmlSchema } from "./schema/lower";
+import type { SchemaColumn, SchemaOrigins, SchemaTable } from "./schema/model";
 import { normalizeRelationalSchema, captureRelationalSchemaArtifact } from "@flarex/persistence-postgres/internal/relational-schema-values";
 
 /** Foreign parser surface; every returned member is checked before lowering. */
@@ -58,49 +60,38 @@ export const readCurrencyMetadata = (model: CurrencyDmlSource) => Result.try({
 }).pipe(Result.flatMap(decodeMetadata), Result.mapError(cause => new CurrencySchemaError({ cause })));
 const modelSource = "packages/modules/currency/src/models/currency.ts#currency";
 const implicitSource = "packages/core/utils/src/dml/helpers/entity-builder/create-default-properties.ts";
-const authored = (sourceId: string) => ({ kind: "authored", sourceId });
-const implicit = (sourceId: string) => ({ kind: "implicit", sourceId });
-const derived = (sourceId: string) => ({ kind: "derived", sourceId });
-const column = (columnId: string) => ({ tableId: "currency", columnId });
+const currencySchemaOrigins: SchemaOrigins = {
+  table: () => ({ kind: "authored", sourceId: modelSource }),
+  column: (_table, column) => ["created_at", "updated_at", "deleted_at"].includes(column.name)
+    ? { kind: "implicit", sourceId: implicitSource + "#" + column.name }
+    : column.name === "raw_rounding"
+      ? { kind: "derived", sourceId: "dml.big-number.raw_rounding" }
+      : { kind: "authored", sourceId: modelSource + "." + column.name },
+  primaryKey: () => ({ kind: "authored", sourceId: modelSource + ".code.primaryKey" }),
+  searchable: () => ({ kind: "authored", sourceId: modelSource + ".searchable" }),
+};
 
-/** Closed Currency profile. Physical defaults/indexes follow the pinned DML lowering. */
-const currencySchemaInput = Effect.fn("MedusaAdapter.currencySchemaInput")(
-  function* (model: CurrencyDmlSource) {
-    const metadata = yield* Effect.fromResult(readCurrencyMetadata(model));
-    const fields = metadata.schema;
-    const scalar = (field: typeof fields.code | typeof fields.symbol | typeof fields.symbol_native | typeof fields.name) => ({
-      columnId: field.fieldName, type: field.dataType.name, nullable: field.nullable,
-      default: { kind: "none" }, origin: authored(`${modelSource}.${field.fieldName}`),
-    });
-    const time = (field: typeof fields.created_at | typeof fields.updated_at | typeof fields.deleted_at) => ({
-      columnId: field.fieldName, type: "timestamptz", nullable: field.nullable,
-      default: { kind: field.nullable ? "none" : "currentTimestamp" },
-      origin: implicit(`${implicitSource}#${field.fieldName}`),
-    });
-    return {
-      owner: "medusa", lineageId: "commerce",
-      tables: [{ tableId: metadata.tableName, origin: authored(modelSource),
-        columns: [scalar(fields.code), scalar(fields.symbol), scalar(fields.symbol_native), scalar(fields.name),
-          { columnId: fields.decimal_digits.fieldName, type: "integer", nullable: fields.decimal_digits.nullable,
-            default: { kind: "integerLiteral", value: fields.decimal_digits.defaultValue }, origin: authored(`${modelSource}.decimal_digits`) },
-          { columnId: fields.rounding.fieldName, type: "numeric", nullable: fields.rounding.nullable,
-            default: { kind: "exactNumericLiteral", value: String(fields.rounding.defaultValue) }, origin: authored(`${modelSource}.rounding`) },
-          { columnId: fields.raw_rounding.fieldName, type: "jsonb", nullable: fields.raw_rounding.nullable,
-            default: { kind: "exactNumericRawLiteral", ...fields.raw_rounding.defaultValue }, origin: derived("dml.big-number.raw_rounding") },
-          time(fields.created_at), time(fields.updated_at), time(fields.deleted_at)],
-        keys: [{ keyId: "currency.primary", kind: "primary", columns: [fields.code.fieldName], origin: authored(`${modelSource}.code.primaryKey`) }],
-        indexes: [{ indexId: "currency.active", kind: "btree", columns: [fields.deleted_at.fieldName],
-          predicate: { kind: "isNull", columnId: fields.deleted_at.fieldName }, origin: implicit("dml.deleted_at.active-index") }],
-        constraints: [], relationships: [],
-      }],
-      capabilities: [
-        { capabilityId: "currency.searchable", kind: "searchableText", columns: [column(fields.code.fieldName), column(fields.name.fieldName)], origin: authored(`${modelSource}.searchable`) },
-        { capabilityId: "currency.exact-number", kind: "exactNumericCompanion", numericColumn: column(fields.rounding.fieldName), rawColumn: column(fields.raw_rounding.fieldName), origin: derived("dml.big-number.companion") },
-        { capabilityId: "currency.timestamps", kind: "managedTimestamps", createdAtColumn: column(fields.created_at.fieldName), updatedAtColumn: column(fields.updated_at.fieldName), updateBehavior: "currentTimestampOnUpdate", origin: implicit("dml.managed-timestamps") },
-        { capabilityId: "currency.soft-delete", kind: "softDelete", deletedAtColumn: column(fields.deleted_at.fieldName), activeRowsIndex: { tableId: metadata.tableName, indexId: "currency.active" }, origin: implicit("dml.soft-delete") },
-      ],
+/** Adapt the closed foreign property representation to the shared checked DML
+ * input. Field names, defaults and options come from the decoded model. */
+function currencySchemaTable(metadata: typeof CurrencyMetadata.Type): SchemaTable {
+  const columns = Object.values(metadata.schema).map((field): SchemaColumn => {
+    const base = { name: field.fieldName, nullable: field.nullable, primaryKey: "primaryKey" in field && field.primaryKey };
+    if (field.fieldName === "raw_rounding") return { ...base, type: field.dataType.name, defaultValue: field.defaultValue };
+    return { ...base, type: field.dataType.name,
+      ...(field.defaultValue === undefined ? {} : { defaultValue: field.defaultValue }),
+      ...("options" in field.dataType ? { options: field.dataType.options } : {}),
     };
-  },
+  });
+  return { name: metadata.tableName, columns, indexes: [], foreignKeys: [],
+    exactNumbers: [{ capabilityId: "currency.exact-number", numericColumn: metadata.schema.rounding.fieldName, rawColumn: metadata.schema.raw_rounding.fieldName }],
+  };
+}
+
+/** Closed Currency admission precedes the shared persistence lowering. */
+const currencySchemaInput = Effect.fn("MedusaAdapter.currencySchemaInput")(
+  (model: CurrencyDmlSource) => Effect.fromResult(readCurrencyMetadata(model)).pipe(
+    Effect.map(metadata => lowerDmlSchema([currencySchemaTable(metadata)], currencySchemaOrigins)),
+  ),
 );
 
 export const translateCurrencySchema = Effect.fn("MedusaAdapter.translateCurrencySchema")(

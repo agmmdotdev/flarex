@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { lowerDmlSchema } from "./schema/lower";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import {
   Product,
@@ -108,9 +109,6 @@ const CompiledSchema = Schema.Struct({
 const decodeCompiled = Schema.decodeUnknownEffect(CompiledSchema, {
   onExcessProperty: "error",
 });
-const authored = (sourceId: string) => ({ kind: "authored", sourceId });
-const implicit = (sourceId: string) => ({ kind: "implicit", sourceId });
-const derived = (sourceId: string) => ({ kind: "derived", sourceId });
 const expectedTables = [
   "image",
   "product",
@@ -150,175 +148,7 @@ const productSchemaFromCompiled = Effect.fn("MedusaProduct.normalizeCompiled")(
         new ProductSchemaError({ cause: "Incomplete Product model/pivot set" }),
       );
     }
-    const tables = compiled.tables.map((table) => {
-      const primary = table.columns.filter((column) => column.primaryKey);
-      const origin = primary.length === 0 ? implicit : authored;
-      const reference = (columnId: string) => ({
-        tableId: table.name,
-        columnId,
-      });
-      const columns = table.columns.map((column) => ({
-        columnId: column.name,
-        type:
-          column.type === "id" || column.type === "enum"
-            ? "text"
-            : column.type === "number"
-              ? "integer"
-              : column.type === "dateTime"
-                ? "timestamptz"
-                : column.type === "json"
-                  ? "jsonb"
-                  : column.type,
-        nullable: column.nullable,
-        default:
-          column.defaultValue !== undefined
-            ? {
-                kind:
-                  typeof column.defaultValue === "boolean"
-                    ? "booleanLiteral"
-                    : typeof column.defaultValue === "number"
-                      ? "integerLiteral"
-                      : "textLiteral",
-                value: column.defaultValue,
-              }
-            : {
-                kind: ["created_at", "updated_at"].includes(column.name)
-                  ? "currentTimestamp"
-                  : "none",
-              },
-        origin: ["created_at", "updated_at", "deleted_at"].includes(column.name)
-          ? implicit("dml." + column.name)
-          : column.generated
-            ? derived(table.name + "." + column.name)
-            : origin(table.name + "." + column.name),
-      }));
-      const keys = [
-        ...(primary.length === 0
-          ? []
-          : [
-              {
-                keyId: table.name + ".primary",
-                kind: "primary",
-                columns: primary.map((column) => column.name),
-                origin: authored(table.name + ".primary"),
-              },
-            ]),
-        ...table.indexes
-          .filter((index) => index.unique && index.where === undefined)
-          .map((index) => ({
-            keyId: index.name,
-            kind: "unique",
-            columns: index.columns,
-            origin: origin(index.name),
-          })),
-      ];
-      const indexes = table.indexes
-        .filter((index) => !index.unique || index.where !== undefined)
-        .map((index) => ({
-          indexId: index.name,
-          kind: index.unique ? "uniqueBtree" : "btree",
-          columns: index.columns,
-          predicate:
-            index.where === undefined
-              ? null
-              : { kind: "isNull", columnId: "deleted_at" },
-          origin: origin(index.name),
-        }));
-      if (primary.length !== 0)
-        indexes.push({
-          indexId: table.name + ".active",
-          kind: "btree",
-          columns: ["deleted_at"],
-          predicate: { kind: "isNull", columnId: "deleted_at" },
-          origin: implicit("dml.deleted_at.active-index"),
-        });
-      const constraints = [
-        ...table.foreignKeys.map((fk) => ({
-          constraintId: fk.name,
-          kind: "foreignKey",
-          sourceColumns: fk.columns,
-          targetColumns: fk.referencedColumns.map((columnId) => ({
-            tableId: fk.referencedTable,
-            columnId,
-          })),
-          onDelete: fk.onDelete ?? "noAction",
-          onUpdate: "noAction",
-          origin: derived(fk.name),
-        })),
-        ...table.columns
-          .filter((column) => column.type === "enum")
-          .map((column) => ({
-            constraintId: table.name + "." + column.name + ".choices",
-            kind: "textSet",
-            columnId: column.name,
-            values: column.options?.choices ?? [],
-            origin: authored(table.name + "." + column.name + ".choices"),
-          })),
-      ];
-      const relationships = table.foreignKeys.map((fk) => ({
-        relationshipId: fk.name,
-        kind: "manyToOne",
-        foreignKeyConstraintId: fk.name,
-        origin: derived(fk.name),
-      }));
-      const searchable = table.columns.filter(
-        (column) =>
-          column.type === "text" && column.options?.searchable === true,
-      );
-      const capabilities =
-        primary.length === 0
-          ? []
-          : [
-              {
-                capabilityId: table.name + ".timestamps",
-                kind: "managedTimestamps",
-                createdAtColumn: reference("created_at"),
-                updatedAtColumn: reference("updated_at"),
-                updateBehavior: "currentTimestampOnUpdate",
-                origin: implicit("dml.managed-timestamps"),
-              },
-              {
-                capabilityId: table.name + ".soft-delete",
-                kind: "softDelete",
-                deletedAtColumn: reference("deleted_at"),
-                activeRowsIndex: {
-                  tableId: table.name,
-                  indexId: table.name + ".active",
-                },
-                origin: implicit("dml.soft-delete"),
-              },
-              ...(searchable.length === 0
-                ? []
-                : [
-                    {
-                      capabilityId: table.name + ".searchable",
-                      kind: "searchableText",
-                      columns: searchable.map((column) =>
-                        reference(column.name),
-                      ),
-                      origin: authored(table.name + ".searchable"),
-                    },
-                  ]),
-            ];
-      return {
-        table: {
-          tableId: table.name,
-          origin: origin(table.name),
-          columns,
-          keys,
-          indexes,
-          constraints,
-          relationships,
-        },
-        capabilities,
-      };
-    });
-    return {
-      owner: "medusa",
-      lineageId: "commerce",
-      tables: tables.map((value) => value.table),
-      capabilities: tables.flatMap((value) => value.capabilities),
-    };
+    return lowerDmlSchema(compiled.tables);
   },
 );
 

@@ -2,10 +2,11 @@
 
 ## Status and scope
 
-Status: first capability implemented and validated on PGlite and ordinary-role
-PostgreSQL. Currency and Product share a runtime catalog, query compiler, and
-read/projection executor. Subsequent capabilities generalize schema/write
-mechanics and module composition; they remain separate implementation slices.
+Status: shared reads and checked schema lowering are implemented and validated
+on PGlite and ordinary-role PostgreSQL. Currency and Product share a runtime
+catalog, query compiler, read/projection executor and pure schema compiler.
+Subsequent capabilities generalize
+value/write mechanics and module composition in separate implementation slices.
 
 This adapter refactor does not authorize changes to Flarex
 transaction settlement, commit compilation, schema identity, resource limits,
@@ -36,9 +37,9 @@ all three join kinds and non-`id` relation-filter ordering.
 
 The old `product-parent-query.ts` and `product-inverse-query.ts` planners are
 removed; their assertions now exercise the shared projection compiler.
-Checked DML lowering, schema artifacts, graph writes, lifecycle/event policy,
-command admission and transaction settlement retain their existing owners.
-This is shared read capability, not complete generic module preparation.
+Schema artifacts, graph writes, lifecycle/event policy, command admission and
+transaction settlement retain their existing owners. This is shared read
+capability, not complete generic module preparation.
 
 Resource accounting is part of compatibility. Currency explicitly supplies its
 already-bound scoped store, so a read adds no table-acquisition call. Product
@@ -47,6 +48,38 @@ acquires the root store before relation lookups. Repository tests pin Currency's
 existing find/count call ceilings; a real-store test pins the internal Product
 60/61-selector filter-node boundary. The test constructs DAL dollar-prefixed
 selectors inside its command, after host request admission, as Medusa does.
+
+## Implemented schema ownership
+
+This capability starts from `aaba75d4`. Currency and Product now call
+`src/schema/lower.ts` for scalar/default lowering, keys, indexes, foreign keys
+and persistence capabilities. `src/schema/model.ts` describes the checked
+subset using the existing DML and relational types. This compiler is a pure
+value transformation: it has no store, manager, registry or installation
+capability. It borrows checked data synchronously without mutating it; the
+existing artifact boundary still normalizes, captures and authenticates it.
+
+Module-owned closed decoders still admit the exact supported source shapes.
+Currency adapts its checked property-parser representation; Product passes its
+checked compiled tables. Four explicit provenance declarations preserve the
+existing table, column, primary-key and searchability source identities.
+Exact-number companion declarations retain their capability and column
+identities without assuming a single numeric field or a raw-column spelling.
+Implicit DML timestamp/soft-delete mechanics and FK derivation have one owner.
+Primary-bearing tables still require those lifecycle fields; this is the
+currently admitted DML subset, not arbitrary-module admission.
+
+The displaced per-module lowering code is removed. Currency's complete expected
+schema/artifact still matches; Product's canonical artifact digest, captured
+before extraction, remains
+`6e512c55e38ecd80eb868c423313bbe952fd789df31a9ecaad6ca204faf867fd`
+for deployment `product-schema-test`. Renamed-metadata tests exercise natural
+keys, implicit pivots, FK tuple order, scalar defaults, multiple exact-number
+companions, provenance isolation and deterministic normalization. Product's
+closed decoder still rejects the Currency numeric features. Relational
+normalization retains refusal of invalid defaults and missing endpoints.
+Value codecs, keyed updates, graph replacement and module preparation follow
+as separate complete steps.
 
 ## Current sources of truth
 
@@ -355,10 +388,40 @@ outside the configured Oxlint source roots. Both required reviewers report no
 findings after the resource-accounting corrections. Deployed Worker, Hyperdrive,
 general module bootstrap and production claims remain outside this evidence.
 
+## Schema extraction validation
+
+The schema-focused matrix passes 93 tests across shared lowering, both module
+schemas, Currency values, Product value profiles and Product runtime metadata.
+All four strict compiler lanes, ten private-package builds, 56 promotion guards,
+the exact 378-file source manifest and 646-input browser portability check pass.
+Both required reviewers report no findings; main and independent reviewer lint
+gates pass. PGlite runs all 205 Product originals (one unchanged upstream skip)
+and 20 Currency live tests. PostgreSQL Currency passes 19 tests, retaining its
+existing PGlite-only interruption skip; all thirteen original cases run on each
+driver. PostgreSQL is local 18.3 under an ordinary role without superuser,
+database-creation or role-creation privileges.
+
+The initial concurrent PostgreSQL Product run passed 203 originals and failed
+two internal Product tag-list cases (with/without relations), reporting
+`rollbackOnly` and `PhysicalSessionDeadlineIssue` with initial callback
+deadline. Expected behavior is normal selected Product results within the
+existing request/session budget. The affected execution owner is the existing
+bounded request/physical-session boundary; this extraction changes neither.
+Evidence is retained in
+`work/validation/shared-medusa-schema/product-postgres.log`. The isolated rerun
+passed all 205 originals (one unchanged upstream skip) in 229 seconds using
+unchanged code, assertions, coverage reporter and ceilings; its receipt is
+`product-postgres-serial.log` in that directory. Current disposition: not
+reproduced in isolation, consistent with load sensitivity but not a diagnosed
+shared-owner defect. No shared-owner correction or limit increase was made.
+The final staged diff gate also passes. These receipts establish the current
+bounded schemas and services; they do not admit arbitrary Medusa modules or
+claim deployed Worker or production support.
+
 ## Following capabilities and module proof
 
-After shared reads pass, consolidate schema/value and write machinery into
-reusable Medusa-owned components: checked DML lowering, scalar codecs, keyed
+Shared reads and checked DML lowering now have common owners. Next consolidate
+value and write machinery into reusable Medusa-owned components: scalar codecs, keyed
 updates, graph creation/replacement, FK/pivot planning, and event dispatch
 mechanics. Preserve insert versus upsert, omitted versus empty relationships,
 identity retention, metadata merging, reference ownership, managed-field
