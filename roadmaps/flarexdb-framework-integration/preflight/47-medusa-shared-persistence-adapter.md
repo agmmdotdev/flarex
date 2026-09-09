@@ -688,6 +688,13 @@ with intermittent timing, but does not prove an environmental cause or establish
 full PostgreSQL stability. Carry that qualification into subsequent module work;
 shared-owner diagnosis and any correction require a separate preflight.
 
+The subsequent [PostgreSQL timeout investigation](./49-medusa-postgres-timeout-investigation.md)
+completed an observed prior/current comparison, with all 205 active originals
+passing in each run. Both earlier failures trace to Product fixture creation.
+Measured WAL-write and reset stalls support a bounded fixture-cleanup experiment;
+the intermittent reliability qualification remains open. Record 49 owns the
+diagnostic evidence, remaining uncertainties and proposed next slice.
+
 ## Following capabilities and module proof
 
 Shared reads, checked DML lowering, JSON-field decoders, keyed updates and graph

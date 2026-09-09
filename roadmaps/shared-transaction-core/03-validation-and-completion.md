@@ -27,6 +27,13 @@ does not establish its cause or resolution. Preserve the full admitted-case
 guard, original assertions and existing deadlines; investigate any recurrence
 before attributing it to physical ownership or changing another owner's policy.
 
+The [Medusa PostgreSQL timeout preflight](../flarexdb-framework-integration/preflight/49-medusa-postgres-timeout-investigation.md)
+traces the later two timeouts to fixture Product creation, including outcome
+publication, and supplies passing complete prior/current adapter runs. It
+measures WAL-write and fixture-reset stalls but does not establish their exact
+OS/device cause. A fixture-local cleanup experiment is proposed; shared
+deadline, rollback, recovery and publication changes remain separately gated.
+
 ## Conformance Obligations
 
 Select tests from the changed call graph and admitted profiles. Preserve
