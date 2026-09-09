@@ -31,8 +31,11 @@ The [Medusa PostgreSQL timeout preflight](../flarexdb-framework-integration/pref
 traces the later two timeouts to fixture Product creation, including outcome
 publication, and supplies passing complete prior/current adapter runs. It
 measures WAL-write and fixture-reset stalls but does not establish their exact
-OS/device cause. A fixture-local cleanup experiment is proposed; shared
-deadline, rollback, recovery and publication changes remain separately gated.
+OS/device cause. Product fixture cleanup now uses a layout-derived row-deletion
+batch to reduce the measured reset pressure while retaining installation and
+authenticated history. This test-owner change does not close the intermittent
+command-reliability gate; shared deadline, rollback, recovery and publication
+changes remain separately gated.
 
 ## Conformance Obligations
 

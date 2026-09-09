@@ -27,6 +27,7 @@
     "vitest.config.ts",
     "vitest.postgres.config.ts",
     "vitest.product-upstream.config.ts",
+    "vitest.product-fixture.config.ts",
     "vitest.product-types.config.ts",
     "vitest.product-tags.config.ts",
     "vitest.product-collections.config.ts",

@@ -1,6 +1,7 @@
 # Medusa PostgreSQL timeout investigation
 
-Status: diagnostic preflight, 2026-09-09. Implementation baseline: `20476446`;
+Status: fixture-local cleanup implemented; shared timeout diagnosis remains open.
+Investigation date: 2026-09-09. Implementation baseline: `20476446`;
 comparison baseline: `bae23025`. This investigation does not authorize a shared
 persistence, transaction, deadline, recovery or publication change.
 
@@ -97,11 +98,11 @@ PostgreSQL conformance receipt for the current adapter while retaining the open
 intermittent reliability qualification. The sampler and test connections closed,
 and the task-owned server was stopped. No tracked source or test code changed.
 
-## Test-fixture pressure and next bounded slice
+## Test-fixture cleanup ownership
 
-`test/support/product-runner.ts` owns `clearProductRunnerRows`. Before each
-original case it truncates every installed Product table with `CASCADE`, even
-when a case uses only a small part of the model graph. It deliberately retains
+`test/support/product-runner.ts` owns `clearProductRunnerRows`. Cleanup covers
+every installed Product table across all fixture scopes, even when a case uses
+only a small part of the model graph. It deliberately retains
 installation/readiness and authenticated history. The complete fixture also
 creates and drops a migrated schema. Those operations must not be mistaken for
 ordinary module request cost.
@@ -112,7 +113,16 @@ wait event alone does not classify a statement as CPU work. Together with the
 observed stalls, this makes fixture-generated file/WAL churn a concrete next
 hypothesis, not a diagnosed engine defect.
 
-The recommended next slice is a **test-fixture cleanup experiment**:
+The bounded replacement uses `test/support/product-fixture-reset.ts` to compile
+one child-before-parent deletion batch from the admitted physical layout. It
+includes database cascade edges, handles Category self-references with one
+whole-table deletion, and refuses cross-table cycles. The fixture compiles the
+plan once after installation; the existing `exec` driver boundary executes it
+as one implicit transaction. Scope-authority tables are outside the plan. It
+does not call module delete services, disable constraints, change seed calls or
+wrap multiple test cases in one transaction.
+
+Keep these validation boundaries when evolving fixture cleanup:
 
 1. Measure current reset-only and reset-plus-small-create cycles over a complete
    suite-length workload, retaining per-phase times, server failures and wait
@@ -126,7 +136,7 @@ The recommended next slice is a **test-fixture cleanup experiment**:
    preserved installation/readiness/history, unchanged fixtures/assertions and
    all originals. Include retained replay, scope, event and rollback boundaries.
    Show tail-cost improvement on repeated ordinary-role PostgreSQL runs before
-   proposing a switch. Preserve PGlite compatibility. If the candidate loses
+   retaining the switch. Preserve PGlite compatibility. If the candidate loses
    semantics or fails to improve timing, reject it and retain current cleanup.
 4. Retire the displaced cleanup path and temporary comparison plumbing only
    after those gates pass. No general persistence-test helper migration is
@@ -138,10 +148,19 @@ It must preserve the existing failure/rollback contract and exclude SQL argument
 values. Changing a shared lifetime or publication owner for that purpose needs
 its own explicit approval; this preflight is not that approval.
 
+Cold fixture installation has a separate reliability boundary: the PGlite
+preservation lane can exhaust `commerceHostFixture`'s existing 90-second
+installation gate before any reset executes. The expected outcome is a ready
+fixture followed by all preservation cases; the observed failure is a setup
+`TimeoutError` with those cases skipped. Source-snapshot preparation overlapped
+the observed failure, but causation is unproven. Retain that diagnostic evidence
+separately from cleanup measurements. Installation and deadline policy remain
+unchanged and require separate owner approval for a correction.
+
 | Owner | Retain or proposed disposition |
 | --- | --- |
 | Shared Medusa reads, writes and module construction | Retain; no semantic defect established |
-| Product fixture row cleanup | Measure one bounded replacement candidate; current path retained pending evidence |
+| Product fixture row cleanup | Retain the layout-derived row-deletion batch; per-case truncation is retired |
 | Pinned original tests, source guards, assertions, skips | Retain unchanged |
 | Request/physical-session limits and authenticated publication | Retain unchanged |
 | First-failure visibility | Record diagnostic gap; separately scope any shared-owner change |
@@ -170,3 +189,15 @@ Original failures remain in `work/validation/shared-medusa-module/`.
 This investigation's scripts, source manifest, source-load receipts, test logs,
 samples and summaries are in `work/validation/medusa-postgres-preflight/`.
 These are local diagnostic artifacts, not promoted Medusa source files.
+
+The cleanup experiment and its source-pinning receipts are retained locally in
+`work/validation/medusa-fixture-cleanup/`. Source pinning isolates the experiment
+from concurrent module-composition work; it is absent from promoted test paths.
+Run the fixture preservation checks with
+`pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-fixture.config.ts`,
+selecting `FLAREX_TEST_DRIVER=pglite` or `postgres` explicitly.
+
+The atomic batch relies on PostgreSQL's documented
+[multiple-statements simple-query transaction](https://www.postgresql.org/docs/18/protocol-flow.html#PROTOCOL-FLOW-MULTI-STATEMENT)
+and is exercised against both fixture drivers, including a later deletion
+failure after an earlier deletion has taken effect.

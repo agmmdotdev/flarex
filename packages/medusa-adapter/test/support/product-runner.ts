@@ -16,11 +16,12 @@ import { createMigratedPGlitePersistence } from "../../../persistence-postgres/t
 import { createFileScopedPostgresFixture } from "../../../persistence-postgres/test/postgresHelpers";
 import { makePostgresRelationalSession } from "../../../persistence-postgres/src/relationalTransaction/session";
 import type { ProductRunnerOptions, ProductTestService } from "./runner-contract";
+import { productFixtureResetSql } from "./product-fixture-reset";
 
 // One lifecycle for the two imported suites in one serial Vitest entry file.
 // Per-case row cleanup leaves installed schema/readiness and authenticated history intact.
 let registered = false;
-let current = Option.none<{ fixture: CommerceHostTestFixture; runtime: Effect.Success<ReturnType<typeof makeLocalProductCommands>> }>();
+let current = Option.none<{ fixture: CommerceHostTestFixture; runtime: Effect.Success<ReturnType<typeof makeLocalProductCommands>>; resetSql: string }>();
 let destination = Option.none<IEventBusModuleService>();
 const cleanup: Array<() => Promise<void>> = [];
 export const getProductRunnerFixture = () => Option.getOrThrow(current);
@@ -28,11 +29,8 @@ const get = getProductRunnerFixture;
 const observedEvents: Json[] = [];
 export const takeProductRunnerEvents = () => observedEvents.splice(0);
 export async function clearProductRunnerRows() {
-  const { fixture } = get();
-  const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
-  const layout = fixture.descriptor.layout.frame;
-  const tables = layout.tables.map(table => quote(layout.targetNamespace.schemaName) + "." + quote(table.name));
-  await fixture.persistence.query("truncate table " + tables.join(", ") + " cascade");
+  const { fixture, resetSql } = get();
+  await fixture.persistence.exec(resetSql);
   fixture.takeDeliveries(); observedEvents.length = 0;
 }
 
@@ -73,7 +71,7 @@ function registerFixture() {
             yield* Effect.tryPromise({ try: () => bus.emit(messages, { internal: true }), catch: cause => commerceError("adapterFailure", cause) });
           }
         })));
-    current = Option.some({ fixture, runtime });
+    current = Option.some({ fixture, runtime, resetSql: productFixtureResetSql(fixture.descriptor.layout.frame) });
   }, 120000);
   afterAll(async () => {
     current = Option.none(); destination = Option.none();
