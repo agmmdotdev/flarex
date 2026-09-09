@@ -8,7 +8,7 @@ import { commerceDecoder } from "./commerce-decoder";
 import { QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
 import { decodeGraphArray } from "./product-value-profile";
 import { readCommerceRelationRows, populateCommerceRelations } from "./commerce-relations";
-import { productTagProjection, projectProductTagRows } from "./product-tag-query";
+import { productInverseProjection, projectProductInverseRows } from "./product-inverse-query";
 import { projectRowFields } from "@medusajs/drizzle/relation-query";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
@@ -23,7 +23,6 @@ const decodeOptions = commerceDecoder(Schema.Struct({
   orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),
   filters: Schema.optionalKey(Schema.Struct({ softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }) })),
 }), "unsupportedProfile");
-export const decodeCollectionReplacement = commerceDecoder(Schema.Struct({ relations: Schema.Tuple([Schema.Literal("products")]) }), "unsupportedProfile");
 
 /** Internal service reads share the command's manager; this is no public DAL. */
 export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(function* (
@@ -34,17 +33,17 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   const where = yield* Effect.fromResult(decodeWhere(envelope.where ?? {}));
   const options = yield* Effect.fromResult(decodeOptions(envelope.options ?? {}));
   const relations = options.populate ?? [];
-  const tagProjection = entity === metadata.tag ? yield* productTagProjection(metadata, options.fields, relations) : undefined;
+  const inverseProjection = (entity === metadata.tag || entity === metadata.collection) ? yield* productInverseProjection(metadata, entity === metadata.tag ? "tag" : "collection", options.fields, relations) : undefined;
   // Pinned Type projections retain primary keys even when select omits them.
-  const fields = tagProjection?.rootFields ?? (options.fields === undefined ? entity.table.columns.map(column => column.name)
+  const fields = inverseProjection?.rootFields ?? (options.fields === undefined ? entity.table.columns.map(column => column.name)
     : entity === metadata.type ? [...new Set([...entity.table.columns.filter(column => column.primaryKey).map(column => column.name), ...options.fields])]
       : options.fields);
   if (fields.some(name => !entity.table.columns.some(column => column.name === name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  if (tagProjection === undefined && relations.some(name => !metadata.queryRelations.get(entity.table.name)?.has(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (inverseProjection === undefined && relations.some(name => !metadata.queryRelations.get(entity.table.name)?.has(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const withDeleted = options.filters?.softDeletable.withDeleted ?? false;
   const children: Json[] = !withDeleted && entity.table.columns.some(column => column.name === "deleted_at") ? [{ kind: "isNull", column: "deleted_at" }] : [];
   for (const [name, value] of Object.entries(where)) {
-    if ((entity === metadata.type || entity === metadata.tag) && name === "value" && entity.table.columns.some(column => column.name === name)) {
+    if (((entity === metadata.type || entity === metadata.tag) && name === "value" || entity === metadata.collection && (name === "title" || name === "handle")) && entity.table.columns.some(column => column.name === name)) {
       const text = yield* Effect.fromResult(decodeNamedValue(value));
       children.push({ kind: "in", column: name, values: [text] });
       continue;
@@ -68,15 +67,15 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
     const selected = new Set(fields);
     const populated = yield* populateCommerceRelations(ctx, entity.table.name, ordered, relations, metadata.queryRelations, new Map(), withDeleted);
     for (const relation of relations) selected.add(relation);
-    return { rows: tagProjection === undefined ? populated.map(row => projectRowFields(row, selected))
-      : yield* projectProductTagRows(populated, tagProjection, relations.length > 0), count: withCount ? complete.length : undefined };
+    return { rows: inverseProjection === undefined ? populated.map(row => projectRowFields(row, selected))
+      : yield* projectProductInverseRows(populated, inverseProjection, relations.length > 0), count: withCount ? complete.length : undefined };
   }
   const store = yield* ctx.table(entity.table.name);
   const rows = yield* store.find(ctx.manager, { ...query, fields: [...new Set([...fields, "id"])] });
   const populated = yield* populateCommerceRelations(ctx, entity.table.name, rows, relations, metadata.queryRelations, new Map(), withDeleted);
   const selected = new Set([...fields, ...relations]);
-  return { rows: tagProjection === undefined ? populated.map(row => projectRowFields(row, selected))
-      : yield* projectProductTagRows(populated, tagProjection, relations.length > 0), count: withCount ? yield* store.count(ctx.manager, query) : undefined };
+  return { rows: inverseProjection === undefined ? populated.map(row => projectRowFields(row, selected))
+      : yield* projectProductInverseRows(populated, inverseProjection, relations.length > 0), count: withCount ? yield* store.count(ctx.manager, query) : undefined };
 });
 
 export const updateProductRelated = Effect.fn("ProductAdapter.updateRelated")(function* (

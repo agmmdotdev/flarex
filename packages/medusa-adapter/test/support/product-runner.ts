@@ -101,7 +101,8 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
   const lifecycleCommand = Object.entries(lifecycleCommands).find(([name]) => name === method)?.[1];
   const readCommands = { retrieveProduct: runtime.commands.retrieve, listProducts: runtime.commands.list, listAndCountProducts: runtime.commands.count,
     retrieveProductType: runtime.commands.retrieveType, listProductTypes: runtime.commands.listTypes, listAndCountProductTypes: runtime.commands.countTypes,
-    retrieveProductTag: runtime.commands.retrieveTag, listProductTags: runtime.commands.listTags, listAndCountProductTags: runtime.commands.countTags };
+    retrieveProductTag: runtime.commands.retrieveTag, listProductTags: runtime.commands.listTags, listAndCountProductTags: runtime.commands.countTags,
+    retrieveProductCollection: runtime.commands.retrieveCollection, listProductCollections: runtime.commands.listCollections, listAndCountProductCollections: runtime.commands.countCollections };
   const readCommand = Object.entries(readCommands).find(([name]) => name === method)?.[1];
   if (lifecycleCommand !== undefined) {
     const isManaged = method === "softDeleteProducts" || method === "restoreProducts";
@@ -112,11 +113,11 @@ const execute = Effect.fn("ProductUpstream.call")(function* (method: string, arg
   if (args.length > contextIndex + 1 || args[contextIndex] !== undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const input = yield* Effect.fromResult(captureCommerceInput(createCommand !== undefined ? args[0]
     : updateCommand !== undefined ? { id: args[0], data: args[1] }
-      : method === "retrieveProduct" || method === "retrieveProductType" || method === "retrieveProductTag" ? { id: args[0], config: args[1] } : { filters: args[0], config: args[1] }));
+      : method === "retrieveProduct" || method === "retrieveProductType" || method === "retrieveProductTag" || method === "retrieveProductCollection" ? { id: args[0], config: args[1] } : { filters: args[0], config: args[1] }));
   if (createCommand !== undefined) return yield* fixture.host.run(fixture.host.newRequestKey(), createCommand, input);
   if (updateCommand !== undefined) return yield* fixture.host.run(fixture.host.newRequestKey(), updateCommand, input);
   if (readCommand === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-  return yield* fixture.host.read(readCommand, method.endsWith("Types") || method.endsWith("Tags") || method === "retrieveProductType" || method === "retrieveProductTag"
+  return yield* fixture.host.read(readCommand, method.endsWith("Types") || method.endsWith("Tags") || method.endsWith("Collections") || method === "retrieveProductType" || method === "retrieveProductTag" || method === "retrieveProductCollection"
     ? input : yield* Effect.fromResult(prepareProductReadInput(input)));
 });
 
@@ -130,7 +131,7 @@ const service = new Proxy<object>({}, {
       "createProductOptions", "createProductVariants", "createProductCategories", "upsertProductOptions", "upsertProductCollections", "upsertProductCategories", "addImageToVariant",
       "updateProductOptions", "updateProductVariants", "updateProductOptionValues", "updateProductCollections", "updateProductCategories", "updateProducts", "upsertProducts", "upsertProductVariants",
       "deleteProducts", "deleteProductTags", "deleteProductTypes", "deleteProductCategories", "deleteProductCollections", "softDeleteProducts", "restoreProducts",
-      "listProductTypes", "listAndCountProductTypes", "retrieveProductType", "listProductTags", "listAndCountProductTags", "retrieveProductTag"].includes(property)) {
+      "listProductTypes", "listAndCountProductTypes", "retrieveProductType", "listProductTags", "listAndCountProductTags", "retrieveProductTag", "listProductCollections", "listAndCountProductCollections", "retrieveProductCollection"].includes(property)) {
       throw new Error("Unadmitted Product test service method: " + String(property));
     }
     return (...args: readonly unknown[]): Promise<Json> => Effect.runPromise(execute(property, args).pipe(

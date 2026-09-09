@@ -1,6 +1,6 @@
 {
   "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
-  "scope": "Four complete Product module-service test files (events, products, product types, product tags); other Product suites are not registered.",
+  "scope": "Five complete Product module-service test files (events, products, product types, product tags, product collections); other Product suites are not registered.",
   "cases": [
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -511,6 +511,114 @@
       "title": "ProductModuleService product tags > upsertTags > should upsert tags successfully",
       "status": "admitted",
       "reason": "Record 38: complete Product Tags file; inverse Product reads, ID-reference creation and scoped DTO echo admission"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > listCollections > should return collections queried by ID",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > listCollections > should return collections based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > listCollections > should return only requested fields and relations for collections",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > listAndCountCollections > should return collections and count queried by ID",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > listAndCountCollections > should return collections and count based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > listAndCountCollections > should return only requested fields and relations for collections",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > retrieveCollection > should return the requested collection",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > retrieveCollection > should return requested attributes when requested through config",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > retrieveCollection > should throw an error when a collection with ID does not exist",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > deleteCollections > should delete the product collection given an ID successfully",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > updateCollections > should update the value of the collection successfully",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > updateCollections > should add products to a collection successfully",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > updateCollections > should respond with collections when products are updated",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > updateCollections > should throw an error when an id does not exist",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > updateCollections > should dissociate existing products when new products are synced",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > updateCollections > should dissociate all existing products",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > createCollections > should create a collection successfully",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "title": "ProductModuleService product collections > createCollections > should create collection with products successfully",
+      "status": "admitted",
+      "reason": "Record 39: complete Collections suite, bounded membership changes and inverse projection"
     }
   ]
 }

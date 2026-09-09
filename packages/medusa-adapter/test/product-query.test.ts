@@ -1,4 +1,5 @@
-import { productTagProjection, projectProductTagRows } from "../src/product-tag-query";
+import { findCollectionMembershipProducts } from "../src/product-collection-membership";
+import { productInverseProjection, projectProductInverseRows } from "../src/product-inverse-query";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
@@ -18,6 +19,32 @@ describe("Medusa relation query extraction", () => {
     catalog = await Effect.runPromise(captureProductSchema("query-test").pipe(
       Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame)),
     ));
+  });
+
+  it("admits only the internal unpaged membership selector and reads the full resource bound", async () => {
+    await Effect.runPromise(Effect.gen(function* () {
+      const lifetime = yield* makeBoundedRequestLifetime(() => commerceError("invalidAuthority"),
+        { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "membership-test", "read");
+      const rows = Array.from({ length: 20 }, (_, index) => ({ id: "p" + index, collection_id: "c" }));
+      const queries: unknown[] = [];
+      const unused = () => Effect.fail(commerceError("unsupportedProfile"));
+      const ctx = { manager: lifetime.context, resources: defaultCommerceResources,
+        table: () => Effect.succeed({ find: (_manager: unknown, query: unknown) => Effect.sync(() => { queries.push(query); return rows; }),
+          count: unused, write: unused, delete: unused, lifecycle: unused }) };
+      yield* Effect.gen(function* () {
+        expect(yield* findCollectionMembershipProducts(ctx, catalog, { where: { collection_id: "c", id: { $nin: ["p19"] } }, options: { populate: [] } }))
+          .toEqual(rows.slice(0, 19));
+        expect(queries).toEqual([{ take: defaultCommerceResources.queryRows, order: { column: "id", direction: "asc" }, predicate: {
+          kind: "and", children: [{ kind: "isNull", column: "deleted_at" }, { kind: "in", column: "collection_id", values: ["c"] }],
+        } }]);
+        for (const input of [
+          { where: { id: { $in: ["p19"] } }, options: { limit: 1 } },
+          { where: { id: { $in: ["p19"] } }, options: { filters: { softDeletable: { withDeleted: true } } } },
+          { where: { id: ["p19"] } }, { where: { id: { $nin: [] } } },
+        ]) expect(yield* Effect.result(findCollectionMembershipProducts(ctx, catalog, input))).toMatchObject({ _tag: "Failure" });
+        expect(queries).toHaveLength(1);
+      }).pipe(Effect.ensuring(lifetime.close));
+    }));
   });
 
   it("shares prefix paths and preserves selected scalar values", () => {
@@ -172,8 +199,8 @@ describe("Medusa relation query extraction", () => {
   });
   it.each([undefined, ["value", "products.collection_id"]])("keeps unrequested collection values out of Product Tag projection %j", async fields => {
     await Effect.runPromise(Effect.gen(function* () {
-      const projection = yield* productTagProjection(catalog, fields, ["products"]);
-      const rows = yield* projectProductTagRows([{ id: "tag", value: "tag", products: [{ id: "product", title: "p", collection_id: null }] }], projection, true);
+      const projection = yield* productInverseProjection(catalog, "tag", fields, ["products"]);
+      const rows = yield* projectProductInverseRows([{ id: "tag", value: "tag", products: [{ id: "product", title: "p", collection_id: null }] }], projection, true);
       expect(rows).toEqual([{ id: "tag", value: "tag", products: [fields === undefined
         ? { id: "product", title: "p", collection_id: null } : { id: "product", collection_id: null }] }]);
     }));

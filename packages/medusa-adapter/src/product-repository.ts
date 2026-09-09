@@ -1,7 +1,7 @@
 import { productRelations, type ProductRuntimeMetadata, type ProductEntityMetadata } from "./product-runtime-metadata";
 import { Effect } from "effect";
 import type { Context, DAL, ModulePersistenceAdapter } from "@medusajs/framework/types";
-import { registerDrizzleEventSubscriber, dispatchCreatedMutations, dispatchDrizzleMutationRows, dispatchDrizzleMutationEvent, dispatchCascadedUpdateMutations, emptyPerformedActions, addPerformedAction } from "@medusajs/drizzle/mutation-events";
+import { registerDrizzleEventSubscriber, dispatchCreatedMutations, dispatchDrizzleMutationRows, dispatchDrizzleMutationEvent, dispatchCascadedUpdateMutations } from "@medusajs/drizzle/mutation-events";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductProjection, decodeProductCount } from "./product-value-profile";
@@ -11,12 +11,13 @@ import { captureCommerceInput } from "./commerce-input";
 import { assembleProducts, captureProductGraph, insertProductGraph } from "./product-graph";
 import { findProducts } from "./product-query";
 import { populateCommerceRelations } from "./commerce-relations";
-import { findProductRelated, insertProductRelated, updateProductRelated, decodeCollectionReplacement } from "./product-related";
+import { findProductRelated, insertProductRelated, updateProductRelated } from "./product-related";
+import { findCollectionMembershipProducts, updateCollectionMembershipProducts } from "./product-collection-membership";
 import { replaceProductRows } from "./product-mutation";
 import { changeProductLifecycle } from "./product-lifecycle";
 
 /** Request-owned DAL composition; all framework transaction methods borrow core. */
-export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata) {
+export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, collectionMembership = false) {
   const bridge = commerceRepositoryContext(root, owner);
   const subscribed = new WeakSet<object>();
   const unsupported = () => owner.reject(commerceError("unsupportedProfile"));
@@ -69,7 +70,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       // acyclic projection. Medusa also promises complete DTOs for partial selects.
       return decoded as Output;
     })),
-    find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProducts(ctx, metadata, input, false)).pipe(Effect.map(value => value.rows))),
+    find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, collectionMembership
+      ? findCollectionMembershipProducts(ctx, metadata, input) : findProducts(ctx, metadata, input, false).pipe(Effect.map(value => value.rows)))),
     findAndCount: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProducts(ctx, metadata, input, true)).pipe(Effect.flatMap(value =>
       bridge.checked(ctx, Effect.fromResult(decodeProductCount(value))).pipe(Effect.map(decoded =>
         [[...decoded.rows], decoded.count] satisfies [Array<typeof decoded.rows[number]>, number]))))),
@@ -84,7 +86,13 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
         productRelations.filter(name => !["tags", "categories", "collection", "type"].includes(name))),
       ["tags", "categories", "collection", "type"], metadata.queryRelations, new Map());
     }))),
-    update: refuse, upsert: refuse, delete: deleteRows(metadata.product), softDelete: lifecycle("softDelete"), restore: lifecycle("restore"),
+    update: collectionMembership ? (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+      const rows = yield* updateCollectionMembershipProducts(ctx, metadata, input);
+      if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+      yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", metadata.product.model, rows.map(row => ({ ...row })), shared), signal),
+        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      return [...rows];
+    }))) : refuse, upsert: refuse, delete: deleteRows(metadata.product), softDelete: lifecycle("softDelete"), restore: lifecycle("restore"),
     upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, replaceProductRows(ctx, metadata, metadata.product, input, config))),
   };
   /** Table-bound repositories share this request's bridge and subscriber set. */
@@ -122,12 +130,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (entity === metadata.option || entity === metadata.variant) return yield* replaceProductRows(ctx, metadata, entity, input, config);
       if (entity !== metadata.collection) return yield* ctx.refuse(commerceError("unsupportedProfile"));
-      const captured = yield* Effect.fromResult(captureCommerceInput(config));
-      yield* Effect.fromResult(decodeCollectionReplacement(captured));
-      const rows = yield* insertProductRelated(ctx, metadata, entity, input);
-      const performedActions = emptyPerformedActions();
-      for (const row of rows) addPerformedAction(performedActions, "created", entity.model, { ...row }, ["id"]);
-      return { entities: [...rows], performedActions };
+      return yield* replaceProductRows(ctx, metadata, entity, input, config, true);
     }))),
   });
   return { repository, persistence, refuse, relatedRepository,

@@ -3,24 +3,29 @@ import { projectRowFields } from "@medusajs/drizzle/relation-query";
 import { commerceError, isJsonObject, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { ProductRuntimeMetadata } from "./product-runtime-metadata";
 
-/** Bounded form of pinned projectLoadedRelationsFromTree: Tag -> Products ->
- * Collection only. DML owns primary/FK names; the fork owns projection rules. */
-export const productTagProjection = Effect.fn("ProductAdapter.tagProjection")(function* (
-  metadata: ProductRuntimeMetadata, fields: readonly string[] | undefined, relations: readonly string[],
+/** Bounded form of pinned projectLoadedRelationsFromTree: Tag/Collection -> Products, with Tag -> Products ->
+ * Collection admitted separately. DML owns primary/FK names; the fork owns projection rules. */
+export const productInverseProjection = Effect.fn("ProductAdapter.inverseProjection")(function* (
+  metadata: ProductRuntimeMetadata, owner: "tag" | "collection", fields: readonly string[] | undefined, relations: readonly string[],
 ) {
-  if (relations.some(path => path !== "products" && path !== "products.collection")) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const tagColumns = metadata.tag.table.columns.map(column => column.name);
+  if (relations.some(path => path !== "products" && !(owner === "tag" && path === "products.collection"))) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const rootColumns = metadata[owner].table.columns.map(column => column.name);
   const productColumns = metadata.product.table.columns.map(column => column.name);
   const selectedProducts: string[] = [];
-  const selectedTags: string[] = [];
-  for (const field of fields ?? tagColumns) {
-    if (tagColumns.includes(field)) selectedTags.push(field);
+  const selectedRoot: string[] = [];
+  for (const field of fields ?? rootColumns) {
+    if (rootColumns.includes(field)) selectedRoot.push(field);
     else if (field.startsWith("products.") && productColumns.includes(field.slice(9)) && relations.length > 0) selectedProducts.push(field.slice(9));
     else return yield* Effect.fail(commerceError("unsupportedProfile"));
   }
-  const rootFields = [...new Set([...metadata.tag.table.columns.filter(column => column.primaryKey).map(column => column.name), ...selectedTags])];
+  const rootFields = [...new Set([...metadata[owner].table.columns.filter(column => column.primaryKey).map(column => column.name), ...selectedRoot])];
   const childFields = new Set(selectedProducts.length === 0 ? productColumns
     : [...metadata.product.table.columns.filter(column => column.primaryKey).map(column => column.name), ...selectedProducts]);
+  if (owner === "collection") {
+    const products = metadata.queryRelations.get(metadata.collection.table.name)?.get("products");
+    if (products?.join.type !== "hasMany") return yield* Effect.fail(commerceError("unsupportedProfile"));
+    for (const name of products.join.foreignKeys) childFields.add(name);
+  }
   const collection = metadata.queryRelations.get(metadata.product.table.name)?.get("collection");
   if (collection?.join.type !== "belongsTo") return yield* Effect.fail(commerceError("unsupportedProfile"));
   if (relations.includes("products.collection")) {
@@ -30,8 +35,8 @@ export const productTagProjection = Effect.fn("ProductAdapter.tagProjection")(fu
   return { rootFields, childFields };
 });
 
-export const projectProductTagRows = Effect.fn("ProductAdapter.projectTagRows")(function* (
-  rows: readonly JsonObject[], projection: Effect.Success<ReturnType<typeof productTagProjection>>, withProducts: boolean,
+export const projectProductInverseRows = Effect.fn("ProductAdapter.projectInverseRows")(function* (
+  rows: readonly JsonObject[], projection: Effect.Success<ReturnType<typeof productInverseProjection>>, withProducts: boolean,
 ) {
   const selected = new Set(projection.rootFields);
   if (withProducts) selected.add("products");

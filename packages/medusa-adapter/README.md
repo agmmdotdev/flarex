@@ -77,12 +77,12 @@ Business events use the authenticated in-memory test buffer after
 acknowledged commit; no durable provider or query sync is activated.
 
 Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
-root. It uses the explicit private Product scale profile and runs 84 exact
-original cases from four unchanged files, including the 1000-image ordering case.
+root. It uses the explicit private Product scale profile and runs 102 exact
+original cases from five unchanged files, including the 1000-image ordering case.
 Only the original upstream performance skip remains. Set `FLAREX_TEST_DRIVER=postgres` and
 `FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
-All four files share one installed fixture per driver and clear business rows
-between cases. The case inventory and records 29-38 in the framework-integration
+All five files share one installed fixture per driver and clear business rows
+between cases. The case inventory and records 29-39 in the framework-integration
 roadmap distinguish current coverage from the remaining module capabilities.
 
 Record 35 keeps the original profile and its hashes unchanged. Its explicit scale
@@ -117,4 +117,23 @@ Tag upserts may echo a complete created_at/updated_at/deleted_at trio only when
 it exactly matches the existing scoped row; the adapter removes those echoes
 before the service call. Stale/forged/new-row echoes are refused and managed
 columns remain non-writable. This is a bounded compatibility policy, not general
-Tag DTO or query parity. The next separate slice is Collections (18 cases).
+Tag DTO or query parity. Record 39 continues with Collections.
+
+Record 39 adds the complete 18-case Product Collections suite. Collection reads
+admit ID, title and handle equality filters and a bounded Products projection.
+Creation attaches existing scoped Products; updates retain Medusa's own
+association/dissociation sequence. The private Collection composition reads the
+complete resource-bounded Product catalog for internal membership selectors.
+Omitting product_ids preserves membership; an empty array clears it. A Product
+can move between Collections without deleting its row. Missing creation
+references fail; update selectors preserve Medusa's behavior of ignoring absent
+IDs. Repeated Product references in one create batch and overlapping Product
+update pairs in one upsert batch remain outside this bounded profile.
+
+Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-collections.config.ts`
+for all 18 original cases plus four scope, rollback, membership and publication
+checks. Original assertions stay byte-identical under the existing compiler
+policy. This brings the combined gate to 102 original passes plus one retained
+upstream skip. The next separate slice is Options (13 cases); 103 declarations
+remain across five files. See
+[Record 39](../../roadmaps/flarexdb-framework-integration/preflight/39-medusa-product-collections.md).

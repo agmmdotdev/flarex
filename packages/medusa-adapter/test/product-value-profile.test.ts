@@ -28,6 +28,12 @@ describe("Product creation and normalized graph profiles", () => {
     expect(Result.isFailure(profile.decodeRelatedUpdatePairs(table, [{ entity: { id: "tag-a" }, update: {} }, { entity: { id: "tag-a" }, update: {} }]))).toBe(true);
     expect(profile.decodeRelatedUpdatePairs(table, [{ entity: { id: "tag-a" }, update: {} }])).toMatchObject({ _tag: "Success", success: [{ id: "tag-a" }] });
   });
+  it("keeps Collection service product IDs out of normalized scalar and nested Product updates", () => {
+    const profile = catalog.valueProfile, table = catalog.collection.table.name;
+    expect(profile.validateRelatedUpdateData(table, { product_ids: ["p"] })).toMatchObject({ _tag: "Success" });
+    expect(profile.decodeRelatedUpdatePairs(table, [{ entity: { id: "c" }, update: { product_ids: ["p"] } }])).toMatchObject({ _tag: "Failure" });
+    expect(profile.validateUpdate({ id: "p", collection: { id: "c", product_ids: ["p"] } })).toMatchObject({ _tag: "Failure" });
+  });
   it.each<[Json, string]>([
     [{ title: "p", extra: true }, "unsupportedProfile"],
     [{ title: "p", created_at: "now" }, "unsupportedProfile"],

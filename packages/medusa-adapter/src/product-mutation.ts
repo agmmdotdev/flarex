@@ -13,6 +13,7 @@ import type { ProductEntityMetadata, ProductRuntimeMetadata } from "./product-ru
 
 const decodeConfig = commerceDecoder(Schema.Struct({ relations: Schema.Array(Schema.String) }), "unsupportedProfile");
 const decodeReference = commerceDecoder(Schema.Union([Schema.String, Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.Record(Schema.String, Schema.Json)])]), "invalidInput");
+const decodeCollectionProductReference = commerceDecoder(Schema.Struct({ id: Schema.String }), "invalidInput");
 type Table = ProductRuntimeMetadata["tables"][number];
 
 /** One replacement operation owns this plan and its complete scoped snapshots.
@@ -28,7 +29,7 @@ export const replaceProductRows = Effect.fn("ProductAdapter.replaceRows")(functi
   const settings = yield* Effect.fromResult(captureCommerceInput(config));
   const { relations } = yield* Effect.fromResult(decodeConfig(settings));
   const allowed = entity === catalog.product ? ["options", "variants", "images", "tags", "categories"]
-    : entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : [];
+    : entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : entity === catalog.collection ? ["products"] : [];
   if (relations.some(name => !allowed.includes(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const state = new Map<string, JsonObject[]>();
   const inserts = new Map<string, Map<string, JsonObject>>();
@@ -139,6 +140,23 @@ export const replaceProductRows = Effect.fn("ProductAdapter.replaceRows")(functi
       if (join.type === "hasMany") {
         const fk = join.foreignKeys[0];
         if (join.foreignKeys.length !== 1 || fk === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+        if (target === catalog.collection) {
+          if (child !== catalog.product) return yield* Effect.fail(commerceError("unsupportedProfile"));
+          for (const member of members) {
+            const reference = yield* Effect.fromResult(decodeCollectionProductReference(member));
+            const token = child.table.name + ":" + reference.id;
+            if (visited.has(token)) return yield* Effect.fail(commerceError("invalidInput"));
+            visited.add(token);
+            const products = yield* load(child.table);
+            const product = products.find(row => row.id === reference.id && row.deleted_at == null);
+            if (product === undefined) return yield* Effect.fail(commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA, relationshipNotFoundMessage(fk, reference.id))));
+            if (product[fk] !== id) {
+              put(updates, child.table, { id: reference.id, [fk]: id });
+              state.set(child.table.name, products.map(row => row.id === reference.id ? { ...row, [fk]: id } : row));
+            }
+          }
+          continue;
+        }
         const previous = (yield* load(child.table)).filter(value => value[fk] === id);
         const retained = new Set<string>();
         for (const member of members) {

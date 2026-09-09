@@ -8,7 +8,7 @@ import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils/po
 import type { DAL, FindConfig, ProductTypes, IEventBusModuleService } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { decodeProductRead, decodeProductNamedRead, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
+import { decodeProductRead, decodeProductNamedRead, decodeProductCollectionRead, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
 import { decodeLocalEventOptions, decodeLocalEventBatch } from "./product-local-events";
 import { captureProductTagUpsert } from "./product-tag-input";
 import { captureCommerceInput } from "./commerce-input";
@@ -20,8 +20,8 @@ import { validateProductCreate } from "./product-graph";
 import { decodeRelatedUpdate } from "./product-value-profile";
 import { decodeProductLifecycleIds } from "./product-lifecycle";
 
-function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata) {
-  const { repository, persistence, refuse, relatedRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata);
+function compose(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, collectionMembership = false) {
+  const { repository, persistence, refuse, relatedRepository, captureLocalEvent, rejectLocalEvent } = productRepository(ctx, owner, metadata, collectionMembership);
   const blocked = { ...repository, find: refuse, findAndCount: refuse, create: refuse, delete: refuse, softDelete: refuse, restore: refuse };
   const internal = <Model extends { readonly name: string }>(model: Model, selected: DAL.RepositoryService = blocked) => new (MedusaInternalService(model))<object, Model>({
     [lowerCaseFirst(model.name) + "Repository"]: selected, [ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER]: persistence,
@@ -63,6 +63,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   const metadata = yield* productRuntimeMetadata(captured.metadata.frame);
   const withService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
     withCommerceService(ctx, owner => compose(ctx, owner, metadata), work);
+  const withCollectionService = (ctx: CommerceCommandContext, work: (value: ReturnType<typeof compose>) => Promise<unknown>) =>
+    withCommerceService(ctx, owner => compose(ctx, owner, metadata, true), work);
   const create = defineCommerceCommand("productCreate", "write", Effect.fn("ProductAdapter.create")(function* (ctx, input) {
     yield* validateProductCreate(metadata, input).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     // SAFETY: the external graph is checked before the unchanged service, then its
@@ -105,13 +107,30 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       ? kind === "count" ? service.listAndCountProductTypes(filters, find, context) : service.listProductTypes(filters, find, context)
       : kind === "count" ? service.listAndCountProductTags(filters, tagFind, context) : service.listProductTags(filters, tagFind, context));
   }));
+  const readCollection = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("productCollection" + kind, "read", Effect.fn("ProductAdapter.collection." + kind)(function* (ctx, input) {
+    const decoded = yield* Effect.fromResult(decodeProductCollectionRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const copied = structuredClone(decoded);
+    // SAFETY: the DML-bound reader validates normalized fields and relations.
+    const find = copied.config as FindConfig<ProductTypes.ProductCollectionDTO> | undefined;
+    if (kind === "retrieve") {
+      if (copied.id === undefined || copied.filters !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+      const id = copied.id;
+      return yield* withService(ctx, ({ service, context }) => service.retrieveProductCollection(id, find, context));
+    }
+    if (copied.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+    const { id, ...scalars } = copied.filters ?? {};
+    const filters = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
+    return yield* withService(ctx, ({ service, context }) => kind === "count"
+      ? service.listAndCountProductCollections(filters, find, context) : service.listProductCollections(filters, find, context));
+  }));
   const related = (kind: "tag" | "type" | "collection" | "image" | "option" | "variant" | "category" | "assignment") => defineCommerceCommand("productCreate" + kind, "write", Effect.fn("ProductAdapter.createRelated")(function* (ctx, input) {
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedCreate(metadata[kind].table.name, input))
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const copied = structuredClone(Array.isArray(input) ? input : [input]);
     // SAFETY: the DML-derived command decoder restricts fields before Medusa;
     // the selected repository and core validate normalized rows and authority.
-    const result = yield* withService(ctx, ({ service, context }) => {
+    const result = yield* (kind === "collection" ? withCollectionService : withService)(ctx, ({ service, context }) => {
       switch (kind) {
         case "tag": return service.createProductTags(copied as ProductTypes.CreateProductTagDTO[], context);
         case "type": return service.createProductTypes(copied as ProductTypes.CreateProductTypeDTO[], context);
@@ -133,7 +152,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       const data = structuredClone(decoded.data);
       // SAFETY: DML-derived data fields exclude identity and managed columns;
       // repository pairs and the core revalidate normalized values before SQL.
-      return yield* withService(ctx, ({ service, context }) => {
+      return yield* (kind === "collection" ? withCollectionService : withService)(ctx, ({ service, context }) => {
         switch (kind) {
           case "tag": return service.updateProductTags(decoded.id, data as ProductTypes.UpdateProductTagDTO, context);
           case "type": return service.updateProductTypes(decoded.id, data as ProductTypes.UpdateProductTypeDTO, context);
@@ -162,7 +181,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     const copied = structuredClone(Array.isArray(admitted) ? admitted : [admitted]);
     // SAFETY: same DML-derived scalar boundary as creation; the unchanged
     // service partitions creates/updates and owns missing-ID and metadata rules.
-    const result = yield* withService(ctx, ({ service, context }) => {
+    const result = yield* (kind === "collection" ? withCollectionService : withService)(ctx, ({ service, context }) => {
       switch (kind) {
         case "tag": return service.upsertProductTags(copied as ProductTypes.UpsertProductTagDTO[], context);
         case "type": return service.upsertProductTypes(copied as ProductTypes.UpsertProductTypeDTO[], context);
@@ -216,6 +235,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
   }));
   return { commands: Object.freeze({ create, list: read("list"), retrieve: read("retrieve"), count: read("count"),
     listTypes: readNamed("type", "list"), retrieveType: readNamed("type", "retrieve"), countTypes: readNamed("type", "count"),
+    listCollections: readCollection("list"), retrieveCollection: readCollection("retrieve"), countCollections: readCollection("count"),
     listTags: readNamed("tag", "list"), retrieveTag: readNamed("tag", "retrieve"), countTags: readNamed("tag", "count"),
     delete: remove("product"), deleteTags: remove("tag"), deleteTypes: remove("type"), deleteCategories: remove("category"), deleteCollections: remove("collection"),
     softDelete: lifecycle("softDelete"), restore: lifecycle("restore"),

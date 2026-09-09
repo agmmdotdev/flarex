@@ -41,9 +41,11 @@ value filter bring the combined gate to 69 original passes plus one upstream
 skip per driver. The focused Type lane passes 15 checks on each driver.
 The implemented [Product Tags slice](./preflight/38-medusa-product-tags.md)
 adds its complete 15-case file, inverse Product projections and authenticated
-managed-field DTO echoes. The four-file gate now passes 84 originals plus one
-upstream skip per driver. There are 121 declarations in six unregistered files;
-the next separate bounded target is Collections (18 cases).
+managed-field DTO echoes. The subsequent [Collections slice](./preflight/39-medusa-product-collections.md)
+adds all 18 original Collection cases, inverse Product projections and bounded
+membership changes through the unchanged service. The five-file gate passes
+102 originals plus one upstream skip per driver. There are 103 declarations in
+five unregistered files; the next separate bounded target is Options (13 cases).
 Durable event storage/dispatch are deferred. Product
 mutations beyond the admitted graph/related-entity and lifecycle profile,
 stored Links and production

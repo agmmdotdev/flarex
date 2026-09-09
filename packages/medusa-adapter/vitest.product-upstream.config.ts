@@ -33,7 +33,28 @@ export const admittedProductTagCases = [
   "Product service > ProductModuleService product tags > createTags > should create a tag successfully",
   "Product service > ProductModuleService product tags > upsertTags > should upsert tags successfully"
 ];
+export const admittedProductCollectionCases = [
+  "Product service > ProductModuleService product collections > listCollections > should return collections queried by ID",
+  "Product service > ProductModuleService product collections > listCollections > should return collections based on the options and filter parameter",
+  "Product service > ProductModuleService product collections > listCollections > should return only requested fields and relations for collections",
+  "Product service > ProductModuleService product collections > listAndCountCollections > should return collections and count queried by ID",
+  "Product service > ProductModuleService product collections > listAndCountCollections > should return collections and count based on the options and filter parameter",
+  "Product service > ProductModuleService product collections > listAndCountCollections > should return only requested fields and relations for collections",
+  "Product service > ProductModuleService product collections > retrieveCollection > should return the requested collection",
+  "Product service > ProductModuleService product collections > retrieveCollection > should return requested attributes when requested through config",
+  "Product service > ProductModuleService product collections > retrieveCollection > should throw an error when a collection with ID does not exist",
+  "Product service > ProductModuleService product collections > deleteCollections > should delete the product collection given an ID successfully",
+  "Product service > ProductModuleService product collections > updateCollections > should update the value of the collection successfully",
+  "Product service > ProductModuleService product collections > updateCollections > should add products to a collection successfully",
+  "Product service > ProductModuleService product collections > updateCollections > should respond with collections when products are updated",
+  "Product service > ProductModuleService product collections > updateCollections > should throw an error when an id does not exist",
+  "Product service > ProductModuleService product collections > updateCollections > should dissociate existing products when new products are synced",
+  "Product service > ProductModuleService product collections > updateCollections > should dissociate all existing products",
+  "Product service > ProductModuleService product collections > createCollections > should create a collection successfully",
+  "Product service > ProductModuleService product collections > createCollections > should create collection with products successfully"
+];
 export const admittedProductCases = [
+  ...admittedProductCollectionCases,
   ...admittedProductTagCases,
   ...admittedProductTypeCases,
   "Product injected event bus > ProductModuleService Events > Product Deletion > should emit all cascade delete events when soft deleting a product",

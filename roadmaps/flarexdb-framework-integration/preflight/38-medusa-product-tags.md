@@ -109,3 +109,5 @@ After this admission, the historical 149-case inventory has 121 unregistered
 declarations across six files: Collections 18, Options 13, Variants 15, public
 Categories 21 and the two internal suites 54. The admitted-case inventory
 records the current four-file gate; the old inventory retains its baseline.
+
+The later Collections admission is tracked in [Record 39](./39-medusa-product-collections.md); the receipts above remain the Tags checkpoint.
