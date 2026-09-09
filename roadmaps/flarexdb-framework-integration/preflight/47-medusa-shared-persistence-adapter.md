@@ -2,16 +2,51 @@
 
 ## Status and scope
 
-Status: proposed; research complete, implementation awaits approval. Recommend
-one shared Medusa adapter built from the completed Currency and Product
-integrations. The first implementation capability is a shared runtime catalog,
-query compiler, and read/projection executor used by both modules. Subsequent
-capabilities generalize schema/write mechanics and module composition.
+Status: first capability implemented and validated on PGlite and ordinary-role
+PostgreSQL. Currency and Product share a runtime catalog, query compiler, and
+read/projection executor. Subsequent capabilities generalize schema/write
+mechanics and module composition; they remain separate implementation slices.
 
-This is an adapter architecture proposal, not permission to change Flarex
+This adapter refactor does not authorize changes to Flarex
 transaction settlement, commit compilation, schema identity, resource limits,
 public APIs, or production routing. A general adapter remains Medusa-owned;
 Flarex core does not acquire knowledge of Product, Customer, or Medusa DML.
+
+## Implemented read ownership
+
+Implementation starts from `327ee559`, the maintained strict Vitest-port
+baseline in [Record 48](./48-medusa-test-promotion-cleanup.md). Promoted original
+test assertions and fixtures remain unchanged; authored query/projection tests
+now exercise the shared owner and add renamed-schema and exact-budget proofs.
+
+| Owner | Responsibility |
+| --- | --- |
+| `packages/medusa-adapter/src/query/catalog.ts` | Detached, immutable checked table/key/relation metadata; no global model registry or storage capability. |
+| `src/query/predicate.ts` | Scalar membership/null predicates, bounded logical traversal and tuple-preserving selectors. Module schemas retain admission and error policy. |
+| `src/query/projection.ts` | Metadata-driven storage/output field planning and recursive projection, using the pinned pure DAL helpers. |
+| `src/query/read.ts` | Scoped store reads, relation filters before paging, complete-catalog windows, population and count timing. |
+| `src/currency-read-profile.ts`, `src/product-read-profile.ts` | Module-owned selections, identity/FK retention, numeric companions and admitted relation paths. |
+
+Currency, Product root/related repositories, ordinary Category reads and
+Collection membership reads consume these owners. Category sorting/tree hints,
+membership exclusion, root free-text/lifecycle/relation filter envelopes and
+serialization stay with their domain adapters. The shared algorithms contain
+no Product/Currency name branches. Renamed-table/key/relation tests exercise
+all three join kinds and non-`id` relation-filter ordering.
+
+The old `product-parent-query.ts` and `product-inverse-query.ts` planners are
+removed; their assertions now exercise the shared projection compiler.
+Checked DML lowering, schema artifacts, graph writes, lifecycle/event policy,
+command admission and transaction settlement retain their existing owners.
+This is shared read capability, not complete generic module preparation.
+
+Resource accounting is part of compatibility. Currency explicitly supplies its
+already-bound scoped store, so a read adds no table-acquisition call. Product
+retains its outer predicate conjunction even without relation filters, and
+acquires the root store before relation lookups. Repository tests pin Currency's
+existing find/count call ceilings; a real-store test pins the internal Product
+60/61-selector filter-node boundary. The test constructs DAL dollar-prefixed
+selectors inside its command, after host request admission, as Medusa does.
 
 ## Current sources of truth
 
@@ -290,6 +325,35 @@ and expected/actual behavior with that owner and obtain separate approval.
 Do not compensate with partial-page filtering, raw SQL, broader catches, or
 weakened original tests. Recover from an unsuccessful refactor through its
 isolated source checkpoint, not a permanent dual implementation.
+
+## Acceptance evidence
+
+The completed read slice passes on PGlite and local PostgreSQL 18.3 using an
+ordinary role without superuser, role-creation or database-creation privileges.
+
+| Gate | PGlite | PostgreSQL |
+| --- | --- | --- |
+| Product originals, `vitest.product-upstream.config.ts` | 205 passed; one retained upstream skip | 205 passed; same skip |
+| Currency live originals and authored boundaries, `vitest.live.config.ts` | 20 passed | 19 passed; existing PGlite-only interruption case skipped |
+| Authored read, transaction, cancellation, lifecycle and projection regressions, `vitest.product-query.config.ts` | 132 passed plus the focused real-store node-budget case | 133 passed together |
+| Public Categories, `vitest.product-categories.config.ts` | 26 passed | 26 passed |
+| Internal Categories, `vitest.product-internal-categories.config.ts` | 34 passed | 34 passed |
+
+The Currency lane includes all thirteen original cases on both drivers. Focused
+query, projection, runtime-catalog and shared-read tests pass all 73 checks.
+The PGlite authored suite had an initial fixture-setup timeout during concurrent
+runs; its retry passed with the same limits. The new node-budget fixture was
+corrected to construct its DAL selector after host admission, then passed on
+both drivers. No original assertion or resource ceiling was weakened.
+
+The package's four strict compiler lanes and the ten-package Medusa build pass.
+All 56 promotion/test-port/source-island guard tests pass, and the exact source
+manifest verifies 375 files. Browser bundle/import verification passes across
+645 inputs without Node, ORM, database or island runtime imports. Core lint,
+worktree diff lint and the final staged diff check pass; the adapter remains
+outside the configured Oxlint source roots. Both required reviewers report no
+findings after the resource-accounting corrections. Deployed Worker, Hyperdrive,
+general module bootstrap and production claims remain outside this evidence.
 
 ## Following capabilities and module proof
 

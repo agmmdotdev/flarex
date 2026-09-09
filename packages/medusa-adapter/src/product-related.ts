@@ -7,17 +7,12 @@ import { captureCommerceInput } from "./commerce-input";
 import { commerceDecoder } from "./commerce-decoder";
 import { QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
 import { decodeGraphArray } from "./product-value-profile";
-import { readCommerceRelationRows, populateCommerceRelations } from "./commerce-relations";
-import { productInverseProjection, projectProductInverseRows } from "./product-inverse-query";
-import { productParentProjection, projectProductParentRows } from "./product-parent-query";
-import { projectRowFields } from "@medusajs/drizzle/relation-query";
+import { compileProjection } from "./query/projection";
+import { compileWhere } from "./query/predicate";
+import { executeRead, orderedCatalog } from "./query/read";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
-const decodeWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
-const decodeNamedValue = commerceDecoder(Schema.String, "unsupportedProfile");
-const decodeFilter = commerceDecoder(Schema.Union([Schema.Null, Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))]), "unsupportedProfile");
-const decodeOr = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String })).check(Schema.isMinLength(1), Schema.isMaxLength(256)), "unsupportedProfile");
-const decodeAssignmentPairs = commerceDecoder(Schema.Array(Schema.Struct({ variant_id: Schema.String, image_id: Schema.String })).check(Schema.isMaxLength(256)), "unsupportedProfile");
+const decodeRelatedWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
 const decodeOptions = commerceDecoder(Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
   populate: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -32,59 +27,28 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
 ) {
   const captured = yield* Effect.fromResult(captureCommerceInput(input));
   const envelope = yield* Effect.fromResult(decodeEnvelope(captured));
-  const where = yield* Effect.fromResult(decodeWhere(envelope.where ?? {}));
+  // Retain the entry's structural validation order before compiling capabilities.
+  const where = yield* Effect.fromResult(decodeRelatedWhere(envelope.where ?? {}));
   const options = yield* Effect.fromResult(decodeOptions(envelope.options ?? {}));
   const relations = options.populate ?? [];
-  const inverseProjection = (entity === metadata.tag || entity === metadata.collection) ? yield* productInverseProjection(metadata, entity === metadata.tag ? "tag" : "collection", options.fields, relations) : undefined;
-  const parentProjection = entity === metadata.option || entity === metadata.variant ? yield* productParentProjection(metadata, entity === metadata.option ? "option" : "variant", options.fields, relations) : undefined;
-  // Pinned Type projections retain primary keys even when select omits them.
-  const fields = inverseProjection?.rootFields ?? parentProjection?.rootFields ?? (options.fields === undefined ? entity.table.columns.map(column => column.name)
-    : entity === metadata.type ? [...new Set([...entity.table.columns.filter(column => column.primaryKey).map(column => column.name), ...options.fields])]
-      : options.fields);
-  if (fields.some(name => !entity.table.columns.some(column => column.name === name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  if (inverseProjection === undefined && parentProjection === undefined && relations.some(name => !metadata.queryRelations.get(entity.table.name)?.has(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const profile = metadata.relatedReads.get(entity.table.name);
+  if (profile === undefined || relations.some(path => !profile.paths.includes(path))) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const projection = yield* Effect.fromResult(compileProjection(metadata.readCatalog, entity.table.name, options.fields, relations, profile.projection));
   const withDeleted = options.filters?.softDeletable.withDeleted ?? false;
-  const children: Json[] = !withDeleted && entity.table.columns.some(column => column.name === "deleted_at") ? [{ kind: "isNull", column: "deleted_at" }] : [];
-  for (const [name, value] of Object.entries(where)) {
-    if (((entity === metadata.type || entity === metadata.tag) && name === "value" || entity === metadata.collection && (name === "title" || name === "handle") || (entity === metadata.option || entity === metadata.variant) && name === "title") && entity.table.columns.some(column => column.name === name)) {
-      const text = yield* Effect.fromResult(decodeNamedValue(value));
-      children.push({ kind: "in", column: name, values: [text] });
-      continue;
-    }
-    if (name === "$or") {
-      if (entity === metadata.assignment) {
-        const pairs = yield* Effect.fromResult(decodeAssignmentPairs(value));
-        children.push({ kind: "or", children: pairs.map(pair => ({ kind: "and", children: Object.entries(pair).map(([column, value]) => ({ kind: "in", column, values: [value] })) })) });
-        continue;
-      }
-      const selectors = yield* Effect.fromResult(decodeOr(value));
-      children.push({ kind: "in", column: "id", values: [...new Set(selectors.map(selector => selector.id))] });
-      continue;
-    }
-    if (name !== "id" && !entity.table.foreignKeys.some(key => key.columns.includes(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    const filter = yield* Effect.fromResult(decodeFilter(value));
-    children.push(filter === null ? { kind: "isNull", column: name } : { kind: "in", column: name, values: typeof filter === "string" ? [filter] : filter });
-  }
-  const query = { fields, take: options.limit ?? 15, skip: options.offset ?? 0,
-    order: { column: "id", direction: options.orderBy?.id === "DESC" ? "desc" : "asc" },
-    predicate: { kind: "and", children },
-  } satisfies JsonObject;
-  const project = Effect.fn("ProductAdapter.projectRelated")(function* (rows: readonly JsonObject[]) {
-    if (inverseProjection !== undefined) return yield* projectProductInverseRows(rows, inverseProjection, relations.length > 0);
-    if (parentProjection !== undefined) return yield* projectProductParentRows(rows, parentProjection);
-    const selected = new Set([...fields, ...relations]);
-    return rows.map(row => projectRowFields(row, selected));
-  });
-  if (options.limit === undefined && options.offset === undefined) {
-    const complete = yield* readCommerceRelationRows(ctx, entity.table.name, query.predicate);
-    const ordered = options.orderBy?.id === "DESC" ? [...complete].reverse() : complete;
-    const populated = yield* populateCommerceRelations(ctx, entity.table.name, ordered, relations, metadata.queryRelations, new Map(), withDeleted);
-    return { rows: yield* project(populated), count: withCount ? complete.length : undefined };
-  }
-  const store = yield* ctx.table(entity.table.name);
-  const rows = yield* store.find(ctx.manager, { ...query, fields: [...new Set([...fields, "id"])] });
-  const populated = yield* populateCommerceRelations(ctx, entity.table.name, rows, relations, metadata.queryRelations, new Map(), withDeleted);
-  return { rows: yield* project(populated), count: withCount ? yield* store.count(ctx.manager, query) : undefined };
+  const decoded = yield* Effect.fromResult(compileWhere(where, profile.where));
+  const children: Json[] = !withDeleted && entity.table.columns.some(column => column.name === "deleted_at")
+    ? [{ kind: "isNull", column: "deleted_at" }] : [];
+  if (decoded.kind === "and") children.push(...decoded.children);
+  else children.push(decoded);
+  const direction = options.orderBy?.id === "DESC" ? "desc" : "asc";
+  return yield* executeRead(ctx, metadata.readCatalog, {
+    table: entity.table.name, projection, paths: relations, withDeleted, relationFilters: [], ordering: new Map(),
+    query: { fields: projection.storageFields, take: options.limit ?? 15, skip: options.offset ?? 0,
+      order: { column: "id", direction }, predicate: { kind: "and", children } },
+    window: options.limit === undefined && options.offset === undefined
+      ? { kind: "catalog", order: "id", select: orderedCatalog(direction) }
+      : { kind: "database", countAt: "afterPopulation" },
+  }, withCount);
 });
 
 export const updateProductRelated = Effect.fn("ProductAdapter.updateRelated")(function* (

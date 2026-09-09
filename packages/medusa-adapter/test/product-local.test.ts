@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Option } from "effect";
 import { makeLocalProductCommands } from "../src/product-service";
+import { findProducts } from "../src/product-query";
 import { prepareLocalProductProfile } from "../src/product-profile";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata, productRelations } from "../src/product-runtime-metadata";
@@ -27,6 +28,13 @@ let fixture: CommerceHostTestFixture;
 let runtime: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
 let listenerFails = false;
 let catalog: Effect.Success<ReturnType<typeof productRuntimeMetadata>>;
+const queryBudget = defineCommerceCommand("productQueryBudget", "read", Effect.fn("ProductTest.queryBudget")(function* (ctx, input) {
+  if (!isJsonObject(input) || (input.length !== 60 && input.length !== 61)) return yield* ctx.refuse(commerceError("invalidInput"));
+  // The host's request codec reserves dollar-prefixed fields. Medusa normally
+  // constructs this DAL selector inside the command, after request admission.
+  const where = { $or: Array.from({ length: input.length }, (_, index) => ({ id: "budget-missing-" + index })) };
+  return (yield* findProducts(ctx, catalog, { where }, false, true)).rows;
+}));
 const run = Effect.runPromise;
 const object = (value: Json | undefined): JsonObject => { if (value === undefined || !isJsonObject(value)) throw new Error("Expected object"); return value; };
 const array = (value: Json | undefined): readonly Json[] => { if (!Array.isArray(value)) throw new Error("Expected array"); return value; };
@@ -40,6 +48,11 @@ const nestedProduct = {
 };
 
 describe("local Product service through shared Flarex core", () => {
+  it("preserves the root predicate envelope at the exact shared filter-node limit", async () => {
+    expect(await run(fixture.host.read(queryBudget, { length: 60 }))).toEqual([]);
+    expect(await run(Effect.result(fixture.host.read(queryBudget, { length: 61 }))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+  });
   beforeAll(async () => {
     runtime = await run(makeLocalProductCommands());
     catalog = await run(captureProductSchema("local-product-policy").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
@@ -51,7 +64,7 @@ describe("local Product service through shared Flarex core", () => {
       return { persistence: resource.persistence, session: makePostgresRelationalSession(resource.persistence) };
     })();
     const control = driver === "pglite" ? await createMigratedPGlitePersistence(registerCleanup) : resource.persistence;
-    fixture = await commerceHostFixture(resource.persistence, resource.session, prepareLocalProductProfile, Object.values(runtime.commands), control,
+    fixture = await commerceHostFixture(resource.persistence, resource.session, prepareLocalProductProfile, [...Object.values(runtime.commands), queryBudget], control,
       descriptor => productLocalEventPolicy(descriptor, catalog, Effect.fn("ProductTest.deliver")(function* (events) {
         // This query can only complete once the command released its SQL session.
         const committed = yield* Effect.promise(() => resource.persistence.drizzle.select().from(fxSystemCommits));

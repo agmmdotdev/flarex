@@ -12,6 +12,7 @@ export type CommerceRelation = ToManyRelation | {
   readonly join: { readonly type: "belongsTo"; readonly foreignKeys: readonly string[] };
 };
 export type CommerceRelations = ReadonlyMap<string, ReadonlyMap<string, CommerceRelation>>;
+export type CommerceRelationLookup = Pick<ReadonlyMap<string, Pick<ReadonlyMap<string, CommerceRelation>, "get">>, "get">;
 
 /** Core find bounds the entire scoped catalog before selecting any rows. A
  * single query taking that entire bound is therefore complete. The owned scope
@@ -41,7 +42,7 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
   table: string,
   roots: readonly JsonObject[],
   paths: readonly string[],
-  relations: CommerceRelations,
+  relations: CommerceRelationLookup,
   ordering: ReadonlyMap<string, string>,
   withDeleted = false,
 ) {
@@ -50,7 +51,7 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
   const fetched = new Map<string, readonly JsonObject[]>();
   const read = Effect.fn("MedusaAdapter.readRelation")(function* (
     targetTable: string, columns: readonly string[], parents: readonly JsonObject[],
-    parentColumns: readonly string[], softDelete: boolean, order: string,
+    parentColumns: readonly string[], softDelete: boolean, order: string, primaryLookup = false,
   ) {
     const column = columns[0];
     const parentColumn = parentColumns[0];
@@ -68,9 +69,9 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
     if (values.length === 0) return [];
     const cacheKey = JSON.stringify([targetTable, softDelete, order]);
     const previous = fetched.get(cacheKey);
-    if (column === "id" && previous !== undefined) {
+    if (primaryLookup && previous !== undefined) {
       const ids = new Set(values);
-      const matching = previous.filter(row => typeof row.id === "string" && ids.has(row.id));
+      const matching = previous.filter(row => typeof row[column] === "string" && ids.has(row[column]));
       if (matching.length === ids.size) return matching;
     }
     const children: Json[] = [{ kind: "in", column, values: [...new Set(values)] }];
@@ -86,10 +87,11 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
     for (const [name, nested] of tree) {
       const descriptor = relations.get(source)?.get(name);
       if (descriptor === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      const order = ordering.get(descriptor.targetTable) ?? "id";
+      const order = ordering.get(descriptor.targetTable) ?? descriptor.targetPrimaryKeys[0];
+      if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const join = descriptor.join;
       if (join.type === "belongsTo") {
-        const related = yield* read(descriptor.targetTable, descriptor.targetPrimaryKeys, rows, join.foreignKeys, true, order);
+        const related = yield* read(descriptor.targetTable, descriptor.targetPrimaryKeys, rows, join.foreignKeys, true, order, true);
         attachToOne(result, name, yield* populate(descriptor.targetTable, related, nested), descriptor.targetPrimaryKeys, join.foreignKeys);
         continue;
       }
@@ -98,7 +100,7 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
         : [];
       const related = join.type === "hasMany"
         ? yield* read(descriptor.targetTable, join.foreignKeys, rows, descriptor.sourcePrimaryKeys, true, order)
-        : yield* read(descriptor.targetTable, descriptor.targetPrimaryKeys, pivotRows, join.targetColumns, true, order);
+        : yield* read(descriptor.targetTable, descriptor.targetPrimaryKeys, pivotRows, join.targetColumns, true, order, true);
       const populated = yield* populate(descriptor.targetTable, related, nested);
       const grouped = join.type === "hasMany"
         ? groupHasManyRows(populated, join.foreignKeys)

@@ -5,8 +5,11 @@ import type { ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { commerceDecoder } from "./commerce-decoder";
 import { captureCommerceInput } from "./commerce-input";
 import { QueryEnvelope, QueryOffset } from "./query-decoder";
-import { readCommerceRelationRows, populateCommerceRelations } from "./commerce-relations";
-import { productInverseProjection, projectProductInverseRows } from "./product-inverse-query";
+import { readCommerceRelationRows } from "./commerce-relations";
+import { compileProjection } from "./query/projection";
+import { categoryReadProjection } from "./product-read-profile";
+import { executeRead, type CatalogSelection } from "./query/read";
+import { valuePredicate } from "./query/predicate";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
@@ -37,23 +40,30 @@ export const findCategoryRows = Effect.fn("ProductCategory.find")(function* (ctx
   const options = yield* Effect.fromResult(decodeOptions(envelope.options ?? {}));
   // The pinned service hydrates these exact tree hints after the DAL read.
   const relations = (options.populate ?? []).filter(path => path !== "parent_category" && path !== "category_children");
-  const projection = yield* productInverseProjection(metadata, "category", options.fields, relations);
+  if (relations.some(path => path !== "products")) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const projection = yield* Effect.fromResult(compileProjection(metadata.readCatalog, metadata.category.table.name, options.fields, relations, categoryReadProjection));
   const children: Json[] = [{ kind: "isNull", column: "deleted_at" }];
-  for (const [column, value] of Object.entries(where)) children.push(value === null ? { kind: "isNull", column } : { kind: "in", column, values: Array.isArray(value) ? value : [value] });
-  const all = yield* readCommerceRelationRows(ctx, metadata.category.table.name, { kind: "and", children });
-  const order = Object.entries(options.orderBy ?? { id: "ASC", rank: "ASC" });
-  const sorted = [...all].sort((a, b) => {
-    for (const [column, direction] of order) {
-      const left = a[column], right = b[column];
-      const compared = typeof left === "number" && typeof right === "number" ? left - right : String(left).localeCompare(String(right));
-      if (compared) return direction === "DESC" ? -compared : compared;
-    }
-    return 0;
-  });
-  const start = options.offset ?? 0;
-  const rows = sorted.slice(start, options.limit === undefined ? undefined : start + options.limit);
-  const populated = yield* populateCommerceRelations(ctx, metadata.category.table.name, rows, relations, metadata.queryRelations, new Map());
-  return { rows: yield* projectProductInverseRows(populated, projection, relations.includes("products")), count: all.length };
+  for (const [column, value] of Object.entries(where)) children.push(valuePredicate(column, value));
+  const select = (all: readonly JsonObject[]): CatalogSelection => {
+    const order = Object.entries(options.orderBy ?? { id: "ASC", rank: "ASC" });
+    const sorted = [...all].sort((a, b) => {
+      for (const [column, direction] of order) {
+        const left = a[column], right = b[column];
+        const compared = typeof left === "number" && typeof right === "number" ? left - right : String(left).localeCompare(String(right));
+        if (compared) return direction === "DESC" ? -compared : compared;
+      }
+      return 0;
+    });
+    const start = options.offset ?? 0;
+    return { rows: sorted.slice(start, options.limit === undefined ? undefined : start + options.limit), count: all.length };
+  };
+  const result = yield* executeRead(ctx, metadata.readCatalog, {
+    table: metadata.category.table.name, query: { predicate: { kind: "and", children } },
+    projection, paths: relations, withDeleted: false, relationFilters: [], ordering: new Map(),
+    window: { kind: "catalog", order: "id", select },
+  }, true);
+  if (result.count === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+  return { rows: result.rows, count: result.count };
 });
 
 export const insertCategoryRows = Effect.fn("ProductCategory.insert")(function* (ctx: CommerceCommandContext, metadata: ProductRuntimeMetadata, input: unknown) {

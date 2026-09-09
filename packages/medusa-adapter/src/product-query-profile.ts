@@ -1,4 +1,7 @@
-import { Effect, Result, Schema } from "effect";
+import { Result, Schema } from "effect";
+import { compileProjection } from "./query/projection";
+import { valuePredicate } from "./query/predicate";
+import { publicProductProjection, internalProductProjection } from "./product-read-profile";
 import { productRelations, type ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { commerceError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
@@ -44,85 +47,78 @@ const deletedInstant = (value: string) => Result.try({ try: () => new Date(value
 
 /** Decode in the existing profile order so malformed input, unsupported
  * capabilities and bounds retain their distinct first failure. */
-export const decodeProductQuery = Effect.fn("ProductAdapter.decodeQuery")(function* (
+export function decodeProductQuery(
   catalog: ProductRuntimeMetadata, input: unknown, internalProduct = false,
 ) {
-  const captured = yield* Effect.fromResult(captureCommerceInput(input));
-  const value = yield* Effect.fromResult(decodeEnvelope(captured));
-  const where = yield* Effect.fromResult(decodeWhere(value.where ?? {}));
-  const options = yield* Effect.fromResult(decodeOptions(value.options ?? {}));
-  const requested = yield* Effect.fromResult(decodeRelations(options.populate ?? []));
-  // The unchanged Product service builds variants.images from the explicit
-  // assignment entity after this DAL query. Admit its two prerequisite reads.
-  const relations = requested.includes("*") ? [...productRelations]
-    : [...requested.filter(name => name !== "variants.images"), ...(requested.includes("variants.images") ? ["variants", "images"] : [])];
-  const scalarFields = catalog.product.table.columns.map(column => column.name);
-  const selected = yield* Effect.fromResult(decodeFields(options.fields ?? scalarFields));
-  const nestedFields = new Map([ ["collection", catalog.collection], ["type", catalog.type], ["categories", catalog.category] ]);
-  if (selected.some(field => {
-    if (scalarFields.includes(field)) return false;
-    const [name, column, extra] = field.split(".");
-    return name === undefined || column === undefined || extra !== undefined || !relations.includes(name) ||
-      !nestedFields.get(name)?.table.columns.some(item => item.name === column);
-  })) {
-    return yield* Effect.fail(commerceError("unsupportedProfile"));
-  }
-  const skip = yield* Effect.fromResult(decodeOffset(options.offset ?? 0));
-  const take = yield* Effect.fromResult(decodeLimit(options.limit ?? (internalProduct ? 256 : 15)));
-  const order = yield* Effect.fromResult(decodeOrder(options.orderBy ?? { id: "ASC" }));
-  const optionFilters = options.filters ?? {};
-  const withDeleted = optionFilters.softDeletable === undefined ? false
-    : (yield* Effect.fromResult(decodeSoftDelete(optionFilters.softDeletable))).withDeleted;
-  const predicates: Json[] = withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }];
-  let searched = false;
-  for (const [name, filter] of Object.entries(optionFilters)) {
-    if (name === "softDeletable") continue;
-    if (!name.startsWith("freeTextSearch_") || searched) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    const search = yield* Effect.fromResult(decodeSearch(filter));
-    if (search.fromEntity !== catalog.product.model) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    searched = true;
-    predicates.push({ kind: "or", children: catalog.searchableProductColumns.map(column => ({
-      kind: "textLikeAscii", column, pattern: "%" + search.value + "%",
-    })) });
-  }
-  const relationFilters: { path: string; predicate: Json }[] = [];
-  for (const [key, inputFilter] of Object.entries(where)) {
-    if (key === "$or" && internalProduct) {
-      const members = yield* Effect.fromResult(decodePrimaryOr(inputFilter));
-      predicates.push({ kind: "or", children: members.map(member => ({
-        kind: "in", column: "id", values: member.id === undefined ? [] : [member.id],
+  return Result.gen(function* () {
+    const captured = yield* captureCommerceInput(input);
+    const value = yield* decodeEnvelope(captured);
+    const where = yield* decodeWhere(value.where ?? {});
+    const options = yield* decodeOptions(value.options ?? {});
+    const requested = yield* decodeRelations(options.populate ?? []);
+    // The unchanged Product service builds variants.images from the explicit
+    // assignment entity after this DAL query. Admit its two prerequisite reads.
+    const relations = requested.includes("*") ? [...productRelations]
+      : [...requested.filter(name => name !== "variants.images"), ...(requested.includes("variants.images") ? ["variants", "images"] : [])];
+    const scalarFields = catalog.product.table.columns.map(column => column.name);
+    const selected = yield* decodeFields(options.fields ?? scalarFields);
+    const projection = yield* compileProjection(catalog.readCatalog, catalog.product.table.name, selected, relations,
+      internalProduct ? internalProductProjection : publicProductProjection);
+    const skip = yield* decodeOffset(options.offset ?? 0);
+    const take = yield* decodeLimit(options.limit ?? (internalProduct ? 256 : 15));
+    const order = yield* decodeOrder(options.orderBy ?? { id: "ASC" });
+    const optionFilters = options.filters ?? {};
+    const withDeleted = optionFilters.softDeletable === undefined ? false
+      : (yield* decodeSoftDelete(optionFilters.softDeletable)).withDeleted;
+    const predicates: Json[] = withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }];
+    let searched = false;
+    for (const [name, filter] of Object.entries(optionFilters)) {
+      if (name === "softDeletable") continue;
+      if (!name.startsWith("freeTextSearch_") || searched) return yield* Result.fail(commerceError("unsupportedProfile"));
+      const search = yield* decodeSearch(filter);
+      if (search.fromEntity !== catalog.product.model) return yield* Result.fail(commerceError("unsupportedProfile"));
+      searched = true;
+      predicates.push({ kind: "or", children: catalog.searchableProductColumns.map(column => ({
+        kind: "textLikeAscii", column, pattern: "%" + search.value + "%",
       })) });
-      continue;
     }
-    if (key === "deleted_at") {
-      const comparison = yield* Effect.fromResult(decodeDeletedComparison(inputFilter));
-      predicates.push({ kind: "greaterThan", column: "deleted_at", value: yield* Effect.fromResult(deletedInstant(comparison.$gt)) });
-      continue;
+    const relationFilters: { path: string; predicate: Json }[] = [];
+    for (const [key, inputFilter] of Object.entries(where)) {
+      if (key === "$or" && internalProduct) {
+        const members = yield* decodePrimaryOr(inputFilter);
+        predicates.push({ kind: "or", children: members.map(member => ({
+          kind: "in", column: "id", values: member.id === undefined ? [] : [member.id],
+        })) });
+        continue;
+      }
+      if (key === "deleted_at") {
+        const comparison = yield* decodeDeletedComparison(inputFilter);
+        predicates.push({ kind: "greaterThan", column: "deleted_at", value: yield* deletedInstant(comparison.$gt) });
+        continue;
+      }
+      if (key === "variants" || key === "categories") {
+        const values = key === "variants"
+          ? (yield* decodeVariants(inputFilter)).options
+          : yield* decodeCategories(inputFilter);
+        relationFilters.push({ path: key === "variants" ? "variants.options" : "categories", predicate: {
+          kind: "and", children: [...(withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }]), ...Object.entries(values).map(([column, value]) => ({
+            kind: "in", column, values: typeof value === "string" ? [value] : value,
+          }))],
+        } });
+        continue;
+      }
+      const column = yield* decodeColumn(key);
+      const filter = yield* decodeFilter(inputFilter);
+      predicates.push(valuePredicate(column, filter));
     }
-    if (key === "variants" || key === "categories") {
-      const values = key === "variants"
-        ? (yield* Effect.fromResult(decodeVariants(inputFilter))).options
-        : yield* Effect.fromResult(decodeCategories(inputFilter));
-      relationFilters.push({ path: key === "variants" ? "variants.options" : "categories", predicate: {
-        kind: "and", children: [...(withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }]), ...Object.entries(values).map(([column, value]) => ({
-          kind: "in", column, values: typeof value === "string" ? [value] : value,
-        }))],
-      } });
-      continue;
-    }
-    const column = yield* Effect.fromResult(decodeColumn(key));
-    const filter = yield* Effect.fromResult(decodeFilter(inputFilter));
-    predicates.push({ kind: "in", column, values: typeof filter === "string" ? [filter] : filter });
-  }
-  return {
-    // Canonical path order lets overlapping paths share their option-value read.
-    selected, relationFilters, withDeleted, relations: productRelations.filter(path => relations.includes(path)),
-    query: {
-      fields: [...new Set([...selected.filter(field => scalarFields.includes(field)), "id",
-        ...relations.flatMap(name => { const relation = catalog.queryRelations.get(catalog.product.table.name)?.get(name);
-          return relation?.join.type === "belongsTo" ? relation.join.foreignKeys : []; })])], skip, take,
-      order: { column: order.handle === undefined ? "id" : "handle", direction: (order.id ?? order.handle) === "DESC" ? "desc" : "asc" },
-      predicate: { kind: "and", children: predicates },
-    } satisfies JsonObject,
-  };
-});
+    return {
+      // Canonical path order lets overlapping paths share their option-value read.
+      projection, selected, relationFilters, withDeleted, relations: productRelations.filter(path => relations.includes(path)),
+      query: {
+        fields: projection.storageFields, skip, take,
+        order: { column: order.handle === undefined ? "id" : "handle", direction: (order.id ?? order.handle) === "DESC" ? "desc" : "asc" },
+        predicate: { kind: "and", children: predicates },
+      } satisfies JsonObject,
+    };
+  });
+}

@@ -1,6 +1,5 @@
-import { productParentProjection, projectProductParentRows } from "../src/product-parent-query";
+import { compileProjection, projectRows, type ReadProjection } from "../src/query/projection";
 import { findCollectionMembershipProducts } from "../src/product-collection-membership";
-import { productInverseProjection, projectProductInverseRows } from "../src/product-inverse-query";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
@@ -13,6 +12,18 @@ import { assembleCommerceRelations, populateCommerceRelations, readCommerceRelat
 import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
 import { prepareProductReadInput, productReadFilters } from "../src/product-service-input";
+
+
+const relatedProjection = Effect.fn("Test.relatedProjection")(function* (
+  catalog: ProductRuntimeMetadata, kind: "option" | "variant" | "tag", fields: readonly string[] | undefined, paths: readonly string[],
+) {
+  const table = catalog[kind].table.name;
+  const profile = catalog.relatedReads.get(table);
+  if (profile === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  return yield* Effect.fromResult(compileProjection(catalog.readCatalog, table, fields, paths, profile.projection));
+});
+const projectReadRows = Effect.fn("Test.projectReadRows")((rows: readonly JsonObject[], projection: ReadProjection) =>
+  Effect.fromResult(projectRows(rows, projection.node)));
 
 describe("Medusa relation query extraction", () => {
   let catalog: ProductRuntimeMetadata;
@@ -50,17 +61,17 @@ describe("Medusa relation query extraction", () => {
 
   it.each(["option", "variant"] as const)("retains %s and Product keys while projecting owned nested fields without mutation", async (kind) => {
     await Effect.runPromise(Effect.gen(function* () {
-      const projection = yield* productParentProjection(catalog, kind, ["title", "product.title"], ["product"]);
-      expect(projection.rootFields).toEqual(["id", "title", "product_id"]);
+      const projection = yield* relatedProjection(catalog, kind, ["title", "product.title"], ["product"]);
+      expect(projection.storageFields).toEqual(["id", "title", "product_id"]);
       const rows = [{ id: "o", title: "size", product_id: "p", metadata: null, product: { id: "p", title: "shirt", handle: "secret", collection_id: null } }];
       const snapshot = structuredClone(rows);
-      expect(yield* projectProductParentRows(rows, projection)).toEqual([{ id: "o", title: "size", product_id: "p", product: { id: "p", title: "shirt" } }]);
+      expect(yield* projectReadRows(rows, projection)).toEqual([{ id: "o", title: "size", product_id: "p", product: { id: "p", title: "shirt" } }]);
       expect(rows).toEqual(snapshot);
-      expect(yield* projectProductParentRows([{ id: "o", title: "size", product_id: "p", product: null }], projection))
+      expect(yield* projectReadRows([{ id: "o", title: "size", product_id: "p", product: null }], projection))
         .toEqual([{ id: "o", title: "size", product_id: "p", product: null }]);
-      expect(yield* Effect.result(projectProductParentRows([{ id: "o" }], projection))).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
-      for (const relations of [["product.tags"], ["values.variants"]]) expect(yield* Effect.result(productParentProjection(catalog, kind, undefined, relations))).toMatchObject({ _tag: "Failure" });
-      expect(yield* Effect.result(productParentProjection(catalog, kind, ["product.title"], []))).toMatchObject({ _tag: "Failure" });
+      expect(yield* Effect.result(projectReadRows([{ id: "o" }], projection))).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+      for (const relations of [["product.tags"], ["values.variants"]]) expect(yield* Effect.result(relatedProjection(catalog, kind, undefined, relations))).toMatchObject({ _tag: "Failure" });
+      expect(yield* Effect.result(relatedProjection(catalog, kind, ["product.title"], []))).toMatchObject({ _tag: "Failure" });
     }));
   });
 
@@ -116,7 +127,7 @@ describe("Medusa relation query extraction", () => {
     await Effect.runPromise(Effect.gen(function* () {
       const lifetime = yield* makeBoundedRequestLifetime(() => commerceError("invalidAuthority"),
         { calls: 256, commandBytes: 1_048_576, commandMs: 30_000 }, {}, {}, "query-test", "read");
-      const selected = yield* decodeProductQuery(catalog, { options: { populate: [first, second] } });
+      const selected = yield* Effect.fromResult(decodeProductQuery(catalog, { options: { populate: [first, second] } }));
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const result = yield* populateCommerceRelations({
         manager: lifetime.context, resources: defaultCommerceResources,
@@ -154,15 +165,15 @@ describe("Medusa relation query extraction", () => {
     [{ where: { deleted_at: { $gt: "not-a-date" } } }, "invalidInput"],
     [{ where: { deleted_at: { $ne: null } } }, "unsupportedProfile"],
   ])("retains the profile refusal for %j", async (input, reason) => {
-    const outcome = await Effect.runPromise(Effect.result(decodeProductQuery(catalog, input)));
+    const outcome = await Effect.runPromise(Effect.result(Effect.fromResult(decodeProductQuery(catalog, input))));
     expect(Result.isFailure(outcome)).toBe(true);
     if (Result.isFailure(outcome)) expect(outcome.failure.reason).toBe(reason);
   });
   it("normalizes the original deleted-row timestamp comparison and retains explicit visibility", async () => {
-    const decoded = await Effect.runPromise(decodeProductQuery(catalog, { where: { deleted_at: { $gt: "01-01-2022" } }, options: { filters: { softDeletable: { withDeleted: true } } } }));
+    const decoded = await Effect.runPromise(Effect.fromResult(decodeProductQuery(catalog, { where: { deleted_at: { $gt: "01-01-2022" } }, options: { filters: { softDeletable: { withDeleted: true } } } })));
     expect(decoded.withDeleted).toBe(true);
     expect(decoded.query.predicate).toEqual({ kind: "and", children: [{ kind: "greaterThan", column: "deleted_at", value: new Date("01-01-2022").toISOString() }] });
-    const active = await Effect.runPromise(decodeProductQuery(catalog, {}));
+    const active = await Effect.runPromise(Effect.fromResult(decodeProductQuery(catalog, {})));
     expect(active.withDeleted).toBe(false);
     expect(active.query.predicate).toEqual({ kind: "and", children: [{ kind: "isNull", column: "deleted_at" }] });
   });
@@ -221,8 +232,8 @@ describe("Medusa relation query extraction", () => {
   });
   it.each([undefined, ["value", "products.collection_id"]])("keeps unrequested collection values out of Product Tag projection %j", async fields => {
     await Effect.runPromise(Effect.gen(function* () {
-      const projection = yield* productInverseProjection(catalog, "tag", fields, ["products"]);
-      const rows = yield* projectProductInverseRows([{ id: "tag", value: "tag", products: [{ id: "product", title: "p", collection_id: null }] }], projection, true);
+      const projection = yield* relatedProjection(catalog, "tag", fields, ["products"]);
+      const rows = yield* projectReadRows([{ id: "tag", value: "tag", products: [{ id: "product", title: "p", collection_id: null }] }], projection);
       expect(rows).toEqual([{ id: "tag", value: "tag", products: [fields === undefined
         ? { id: "product", title: "p", collection_id: null } : { id: "product", collection_id: null }] }]);
     }));

@@ -195,6 +195,10 @@ owns the complete compatibility baseline. Workflow, Module Link, durable events,
 public serving, broader Payload and production retain their independent gates.
 
 The [shared persistence adapter preflight](../../roadmaps/flarexdb-framework-integration/preflight/47-medusa-shared-persistence-adapter.md)
-proposes consolidating runtime metadata, query compilation, and read/projection
-execution across Currency and Product before wider module adoption. This is
-proposed work; the current adapter still contains module-specific implementations.
+now supplies shared read capability across Currency and Product. The internal
+`src/query/` owner captures immutable checked metadata, compiles predicates and
+projections, and executes reads on the existing scoped manager. Module read
+profiles retain admission, projection and ordering differences; Category and
+Collection membership use pure domain selection over complete bounded catalogs.
+The old Product parent/inverse planners are removed. Schema lowering, writes,
+events and full module preparation remain separate follow-on work.

@@ -1,9 +1,10 @@
 import { Result, Schema } from "effect";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { currencyColumns, type CurrencyPredicate, type CurrencyQuery } from "./currency-query-model";
+import { currencyColumns, type CurrencyQuery } from "./currency-query-model";
 import { captureCommerceInput } from "./commerce-input";
 import { QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
 import { commerceDecoder } from "./commerce-decoder";
+import { compileWhere, type WherePolicy } from "./query/predicate";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "invalidInput");
 const decodeOptions = commerceDecoder(Schema.Struct({
@@ -37,6 +38,15 @@ const Code = Schema.String.check(Schema.isLengthBetween(1, 256), Schema.isPatter
 const decodeCodes = commerceDecoder(Schema.Array(Code), "invalidInput");
 const decodeBranches = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(commerceLimits.filterNodes)), "invalidInput");
 
+const wherePolicy: WherePolicy = {
+  decode: decodeWhere,
+  fields: new Map([["code", { column: "code", decode: input => decodeCodes(Array.isArray(input) ? input : [input]) }]]),
+  logical: {
+    decodeBranches, nodes: commerceLimits.filterNodes, depth: commerceLimits.filterDepth, operands: commerceLimits.filterOperands,
+    unwrapMembership: member => isInFilter(member) ? member.$in : member,
+  },
+};
+
 /** Capture the Medusa boundary once, then decode the selected DAL profile.
  * Node decoding is staged during traversal: cumulative budgets must refuse a
  * node before inspecting its shape, preserving the established failure order. */
@@ -56,29 +66,6 @@ export function decodeCurrencyQuery(input: unknown): Result.Result<CurrencyQuery
     const ordering = options.orderBy === undefined ? { code: "ASC" } : yield* decodeOrder(options.orderBy);
     const order = ordering.code === "DESC" || ordering.code === "desc" ? "desc" : "asc";
     const withDeleted = options.filters === undefined ? false : (yield* decodeFilters(options.filters)).softDeletable.withDeleted;
-    let nodes = 0;
-    let operands = 0;
-    const predicate = (inputWhere: unknown, depth: number): Result.Result<CurrencyPredicate, CommerceTransactionError> => Result.gen(function* () {
-      if (++nodes > commerceLimits.filterNodes || depth > commerceLimits.filterDepth) {
-        return yield* Result.fail(commerceError("limitExceeded"));
-      }
-      const where = yield* decodeWhere(inputWhere);
-      const children: CurrencyPredicate[] = [];
-      for (const [key, member] of Object.entries(where)) {
-        if (key === "code") {
-          const selected = isInFilter(member) ? member.$in : member;
-          const values = Array.isArray(selected) ? selected : [selected];
-          operands += values.length;
-          if (operands > commerceLimits.filterOperands) return yield* Result.fail(commerceError("limitExceeded"));
-          children.push({ kind: "codes", values: Object.freeze(yield* decodeCodes(values)) });
-        } else {
-          const nested: CurrencyPredicate[] = [];
-          for (const child of yield* decodeBranches(member)) nested.push(yield* predicate(child, depth + 1));
-          children.push({ kind: key === "$and" ? "and" : "or", children: Object.freeze(nested) });
-        }
-      }
-      return Object.freeze({ kind: "and", children: Object.freeze(children) });
-    });
-    return Object.freeze({ predicate: yield* predicate(value.where ?? {}, 0), fields: Object.freeze(fields), skip, take, order, withDeleted });
+    return Object.freeze({ predicate: yield* compileWhere(value.where ?? {}, wherePolicy), fields: Object.freeze(fields), skip, take, order, withDeleted });
   });
 }

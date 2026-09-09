@@ -1,4 +1,6 @@
 import { Effect } from "effect";
+import { makeReadCatalog, type ReadCatalog } from "./query/catalog";
+import { productRelatedReadProfiles, type RelatedReadProfile } from "./product-read-profile";
 import { compileProductValueProfile } from "./product-value-profile";
 import { describeToManyRelation } from "@medusajs/drizzle/relation-query";
 import type { CommerceRelations, CommerceRelation } from "./commerce-relations";
@@ -20,6 +22,8 @@ export interface ProductEntityMetadata {
   readonly restoredEvent: string;
 }
 export interface ProductRuntimeMetadata {
+  readonly readCatalog: ReadCatalog;
+  readonly relatedReads: ReadonlyMap<string, RelatedReadProfile>;
   readonly product: ProductEntityMetadata;
   readonly searchableProductColumns: readonly string[];
   readonly option: ProductEntityMetadata;
@@ -124,7 +128,13 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
       join: { type: "belongsTo", foreignKeys: [yield* foreignKey(source, product)] } });
   }
   const entities = [product, option, value, variant, image, tag, type, collection, category, assignment];
-  return { product, searchableProductColumns, option, value, variant, image, tag, type, collection, category, assignment, entities,
+  const tables = [...entities.map(item => item.table), pivot, tagPivot, categoryPivot];
+  const readCatalog = yield* Effect.fromResult(makeReadCatalog(tables.map(table => ({ name: table.name,
+    columns: table.columns.map(column => column.name), primaryKeys: table.columns.filter(column => column.primaryKey).map(column => column.name),
+    foreignKeys: table.foreignKeys.flatMap(key => key.columns), companions: {},
+  })), queryRelations));
+  return { readCatalog, relatedReads: productRelatedReadProfiles({ option, value, variant, image, tag, type, collection, category, assignment }),
+    product, searchableProductColumns, option, value, variant, image, tag, type, collection, category, assignment, entities,
     tables: [...entities.map(item => item.table), pivot, tagPivot, categoryPivot], writablePivots: [pivot, tagPivot, categoryPivot],
     valueProfile: compileProductValueProfile({ product, option, value, variant, image, tag, type, collection, category, assignment }),
     foreignKeys: { option: yield* foreignKey(option, product), value: yield* foreignKey(value, option), variant: yield* foreignKey(variant, product), image: yield* foreignKey(image, product) },

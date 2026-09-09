@@ -24,9 +24,9 @@ describe("Schema-decoded Medusa query profiles", () => {
       predicate: { kind: "and", children: [] }, fields: currencyColumns,
       skip: 0, take: 256, order: "asc", withDeleted: false,
     } });
-    const product = await Effect.runPromise(decodeProductQuery(catalog, { where: null, options: null }));
+    const product = await Effect.runPromise(Effect.fromResult(decodeProductQuery(catalog, { where: null, options: null })));
     expect(product.query).toMatchObject({ skip: 0, take: 15, order: { column: "id", direction: "asc" } });
-    expect(await Effect.runPromise(decodeProductQuery(catalog, { options: { limit: 0, offset: 255 } })))
+    expect(await Effect.runPromise(Effect.fromResult(decodeProductQuery(catalog, { options: { limit: 0, offset: 255 } }))))
       .toMatchObject({ query: { skip: 255, take: 0 } });
     expect(outcome(decodeCurrencyQuery({ options: { limit: 0, offset: 255 } })))
       .toMatchObject({ value: { skip: 255, take: 0 } });
@@ -38,7 +38,7 @@ describe("Schema-decoded Medusa query profiles", () => {
       options: { fields: ["rounding"], orderBy: { code: "desc" }, filters: { softDeletable: { withDeleted: true } } },
     });
     expect(outcome(result)).toEqual({ value: {
-      predicate: { kind: "and", children: [{ kind: "codes", values: ["usd", "usd"] }] },
+      predicate: { kind: "and", children: [{ kind: "in", column: "code", values: ["usd", "usd"] }] },
       fields: ["rounding", "raw_rounding"], skip: 0, take: 256, order: "desc", withDeleted: true,
     } });
     expect(Result.match(result, { onFailure: () => false, onSuccess: value =>
@@ -79,7 +79,7 @@ describe("Schema-decoded Medusa query profiles", () => {
     [{ where: { id: 3, unknown: true } }, "invalidInput"],
     [{ where: { unknown: true, id: 3 } }, "unsupportedProfile"],
   ])("preserves Product refusal and field order for %j", async (input, reason) => {
-    expect(outcome(await Effect.runPromise(Effect.result(decodeProductQuery(catalog, input))))).toEqual({ reason });
+    expect(outcome(await Effect.runPromise(Effect.result(Effect.fromResult(decodeProductQuery(catalog, input)))))).toEqual({ reason });
   });
 
   it("enforces cumulative Currency budgets before decoding the next node or operand", () => {
@@ -99,7 +99,7 @@ describe("Schema-decoded Medusa query profiles", () => {
     let calls = 0;
     const input = { get options() { calls++; return {}; } };
     expect(outcome(decodeCurrencyQuery(input))).toEqual({ reason: "invalidInput" });
-    expect(outcome(await Effect.runPromise(Effect.result(decodeProductQuery(catalog, input))))).toEqual({ reason: "invalidInput" });
+    expect(outcome(await Effect.runPromise(Effect.result(Effect.fromResult(decodeProductQuery(catalog, input)))))).toEqual({ reason: "invalidInput" });
     expect(calls).toBe(0);
     expect(outcome(decodeCurrencyQuery({ options: { fields: undefined } }))).toHaveProperty("value");
   });

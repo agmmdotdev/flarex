@@ -5,7 +5,9 @@ import type { ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { captureCommerceInput } from "./commerce-input";
 import { commerceDecoder } from "./commerce-decoder";
 import { QueryEnvelope } from "./query-decoder";
-import { readCommerceRelationRows } from "./commerce-relations";
+import { executeRead } from "./query/read";
+import { compileProjection } from "./query/projection";
+import { scalarProjection } from "./product-read-profile";
 const ids = Schema.Array(Schema.String).check(Schema.isMaxLength(256));
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeOptions = commerceDecoder(Schema.Struct({ populate: Schema.optionalKey(Schema.Tuple([])), orderBy: Schema.optionalKey(Schema.Struct({ id: Schema.Literal("ASC") })) }), "unsupportedProfile");
@@ -29,13 +31,19 @@ export const findCollectionMembershipProducts = Effect.fn("ProductAdapter.findCo
   yield* Effect.fromResult(decodeOptions(envelope.options ?? {}));
   const excluded = "collection_id" in selector;
   const selected = new Set(excluded ? selector.id.$nin : selector.id.$in);
-  const rows = yield* readCommerceRelationRows(ctx, metadata.product.table.name, {
-    kind: "and", children: [
+  const table = metadata.product.table.name;
+  const projection = yield* Effect.fromResult(compileProjection(metadata.readCatalog, table, undefined, [], scalarProjection));
+  return (yield* executeRead(ctx, metadata.readCatalog, {
+    table, projection, paths: [], relationFilters: [], ordering: new Map(), withDeleted: false,
+    query: { predicate: { kind: "and", children: [
       { kind: "isNull", column: "deleted_at" },
       ...(excluded ? [{ kind: "in", column: "collection_id", values: [selector.collection_id] }] : []),
-    ],
-  });
-  return rows.filter(row => typeof row.id === "string" && (excluded ? !selected.has(row.id) : selected.has(row.id)));
+    ] } },
+    window: { kind: "catalog", order: "id", select: rows => {
+      const members = rows.filter(row => typeof row.id === "string" && (excluded ? !selected.has(row.id) : selected.has(row.id)));
+      return { rows: members, count: members.length };
+    } },
+  }, false)).rows;
 });
 
 export const updateCollectionMembershipProducts = Effect.fn("ProductAdapter.updateCollectionMembers")(function* (

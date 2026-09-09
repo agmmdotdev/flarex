@@ -13,14 +13,13 @@ and [active case inventory](./preflight/product-upstream-test-cases.json) own th
 current suite boundary and retained skips; earlier partial-suite counts are
 historical checkpoints.
 
-The implementation shares transaction and relationship mechanics but retains
-substantial module-specific query, projection, graph, and composition code.
-The [shared persistence adapter preflight](./preflight/47-medusa-shared-persistence-adapter.md)
-recommends consolidating that code before extending the same implementation
-pattern across more modules. Its first proposed capability is a shared runtime
-catalog and read/projection engine for Currency and Product; implementation
-awaits approval. The target retains Medusa services and named custom repository
-extensions over the existing Flarex capabilities.
+The [shared persistence adapter](./preflight/47-medusa-shared-persistence-adapter.md)
+now centralizes checked runtime metadata, predicate/projection compilation and
+scoped repository reads for Currency and Product. Named domain policies retain
+query admission, Category tree/sort behavior and membership exclusions. The next
+capability is shared schema/value and write mechanics, followed by module-scoped
+preparation and a separately admitted module proof. Medusa services remain above
+the existing Flarex transaction and publication owners.
 
 Complete integration-suite coverage does not establish arbitrary input parity
 or a complete module bootstrap/migration adapter. Stored Module Links,
