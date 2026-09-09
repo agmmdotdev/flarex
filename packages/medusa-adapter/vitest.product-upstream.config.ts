@@ -251,7 +251,7 @@ export default defineConfig({
     { find: /^@types$/, replacement: fileURLToPath(new URL("../medusa-product/src/types/index.ts", import.meta.url)) },
     { find: "cloudflare:workers", replacement: fileURLToPath(new URL("../persistence-postgres/test/cloudflareWorkersStub.ts", import.meta.url)) },
   ] },
-  test: { env: { FLAREX_PRODUCT_RESOURCES: "scale" }, globals: true, maxWorkers: 1, fileParallelism: false, include: ["test/product-upstream.test.ts"],
+  test: { env: { FLAREX_PRODUCT_RESOURCES: "scale" }, globals: false, maxWorkers: 1, fileParallelism: false, include: ["test/product-upstream.test.ts"],
     reporters: ["default", productCoverage(admittedProductCases)],
     hookTimeout: 120000, testTimeout: 100000,
   },

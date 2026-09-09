@@ -1,13 +1,14 @@
-import { IProductModuleService, ProductTypes } from "@medusajs/framework/types"
+import { beforeEach, describe, expect, it } from "vitest"
+import { ProductTypes } from "@medusajs/framework/types"
 import { moduleIntegrationTestRunner } from "@medusajs/test-utils"
 import { Modules } from "@medusajs/framework/utils"
 
-moduleIntegrationTestRunner<IProductModuleService>({
+moduleIntegrationTestRunner({
   moduleName: Modules.PRODUCT,
   testSuite: ({ service }) => {
     describe("ProductModuleService product types", () => {
-      let typeOne: ProductTypes.ProductTypeDTO
-      let typeTwo: ProductTypes.ProductTypeDTO
+      let typeOne: ProductTypes.ProductTypeDTO | undefined
+      let typeTwo: ProductTypes.ProductTypeDTO | undefined
 
       beforeEach(async () => {
         ;[typeOne, typeTwo] = await service.createProductTypes([
@@ -25,12 +26,12 @@ moduleIntegrationTestRunner<IProductModuleService>({
       describe("listTypes", () => {
         it("should return types and count queried by ID", async () => {
           const types = await service.listProductTypes({
-            id: typeOne.id,
+            id: typeOne!.id,
           })
 
           expect(types).toEqual([
             expect.objectContaining({
-              id: typeOne.id,
+              id: typeOne!.id,
             }),
           ])
         })
@@ -38,7 +39,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return types and count based on the options and filter parameter", async () => {
           let types = await service.listProductTypes(
             {
-              id: typeOne.id,
+              id: typeOne!.id,
             },
             {
               take: 1,
@@ -47,7 +48,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(types).toEqual([
             expect.objectContaining({
-              id: typeOne.id,
+              id: typeOne!.id,
             }),
           ])
 
@@ -55,7 +56,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(types).toEqual([
             expect.objectContaining({
-              id: typeTwo.id,
+              id: typeTwo!.id,
             }),
           ])
         })
@@ -63,7 +64,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return only requested fields for types", async () => {
           const types = await service.listProductTypes(
             {
-              id: typeOne.id,
+              id: typeOne!.id,
             },
             {
               select: ["value"],
@@ -73,8 +74,8 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(types).toEqual([
             {
-              id: typeOne.id,
-              value: typeOne.value,
+              id: typeOne!.id,
+              value: typeOne!.value,
             },
           ])
         })
@@ -83,13 +84,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
       describe("listAndCountTypes", () => {
         it("should return types and count queried by ID", async () => {
           const [types, count] = await service.listAndCountProductTypes({
-            id: typeOne.id,
+            id: typeOne!.id,
           })
 
           expect(count).toEqual(1)
           expect(types).toEqual([
             expect.objectContaining({
-              id: typeOne.id,
+              id: typeOne!.id,
             }),
           ])
         })
@@ -97,7 +98,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return types and count based on the options and filter parameter", async () => {
           let [types, count] = await service.listAndCountProductTypes(
             {
-              id: typeOne.id,
+              id: typeOne!.id,
             },
             {
               take: 1,
@@ -107,7 +108,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(count).toEqual(1)
           expect(types).toEqual([
             expect.objectContaining({
-              id: typeOne.id,
+              id: typeOne!.id,
             }),
           ])
           ;[types, count] = await service.listAndCountProductTypes(
@@ -124,7 +125,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(count).toEqual(2)
           expect(types).toEqual([
             expect.objectContaining({
-              id: typeTwo.id,
+              id: typeTwo!.id,
             }),
           ])
         })
@@ -132,7 +133,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return only requested fields for types", async () => {
           const [types, count] = await service.listAndCountProductTypes(
             {
-              id: typeOne.id,
+              id: typeOne!.id,
             },
             {
               select: ["value"],
@@ -143,8 +144,8 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(count).toEqual(1)
           expect(types).toEqual([
             {
-              id: typeOne.id,
-              value: typeOne.value,
+              id: typeOne!.id,
+              value: typeOne!.value,
             },
           ])
         })
@@ -152,23 +153,23 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
       describe("retrieveType", () => {
         it("should return the requested type", async () => {
-          const type = await service.retrieveProductType(typeOne.id)
+          const type = await service.retrieveProductType(typeOne!.id)
 
           expect(type).toEqual(
             expect.objectContaining({
-              id: typeOne.id,
+              id: typeOne!.id,
             })
           )
         })
 
         it("should return requested attributes when requested through config", async () => {
-          const type = await service.retrieveProductType(typeOne.id, {
+          const type = await service.retrieveProductType(typeOne!.id, {
             select: ["id", "value"],
           })
 
           expect(type).toEqual({
-            id: typeOne.id,
-            value: typeOne.value,
+            id: typeOne!.id,
+            value: typeOne!.value,
           })
         })
 
@@ -181,7 +182,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             "ProductType with id: does-not-exist was not found"
           )
         })
@@ -225,7 +226,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             "ProductType with id: does-not-exist was not found"
           )
         })
@@ -238,6 +239,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
               value: "UK",
             },
           ])
+          void res; // Preserve the original fixture call and its unused result.
 
           const productType = await service.listProductTypes({
             value: "UK",

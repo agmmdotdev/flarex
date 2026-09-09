@@ -1,4 +1,7 @@
-import { ProductCategoryService } from "@services"
+import type { ProductTestService } from "@medusajs/test-utils"
+type ProductCategoryService = ProductTestService["productCategoryService_"]
+import { beforeEach, describe, expect, it } from "vitest"
+
 
 import { moduleIntegrationTestRunner } from "@medusajs/test-utils"
 import {
@@ -6,14 +9,11 @@ import {
   productCategoriesData,
   productCategoriesRankData,
 } from "../__fixtures__/product-category/data"
-import { IProductModuleService } from "@medusajs/framework/types"
+import { } from "@medusajs/framework/types"
 import { Modules } from "@medusajs/framework/utils"
 
-type Service = IProductModuleService & {
-  productCategoryService_: ProductCategoryService
-}
 
-moduleIntegrationTestRunner<Service>({
+moduleIntegrationTestRunner({
   moduleName: Modules.PRODUCT,
   testSuite: ({ service: moduleService }) => {
     describe("Product category Service", () => {
@@ -610,7 +610,7 @@ moduleIntegrationTestRunner<Service>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             "ProductCategory with id: does-not-exist was not found"
           )
         })
@@ -624,7 +624,7 @@ moduleIntegrationTestRunner<Service>({
             error = e
           }
 
-          expect(error.message).toEqual('"productCategoryId" must be defined')
+          expect((error as Error).message).toEqual('"productCategoryId" must be defined')
         })
 
         it("should return category based on config select param", async () => {
@@ -953,7 +953,7 @@ moduleIntegrationTestRunner<Service>({
             {
               name: "New Category 2.1",
               handle: "new-category-2-1",
-              parent_category_id: productCategoryNew.id,
+              parent_category_id: productCategoryNew!.id,
             },
           ])
 
@@ -969,7 +969,7 @@ moduleIntegrationTestRunner<Service>({
           expect(productCategoryWithParent).toEqual(
             expect.objectContaining({
               name: "New Category 2.1",
-              parent_category_id: productCategoryNew.id,
+              parent_category_id: productCategoryNew!.id,
               rank: 0,
             })
           )
@@ -977,12 +977,12 @@ moduleIntegrationTestRunner<Service>({
       })
 
       describe("update", () => {
-        let productCategoryZero
-        let productCategoryOne
-        let productCategoryTwo
-        let productCategoryZeroZero
-        let productCategoryZeroOne
-        let productCategoryZeroTwo
+        let productCategoryZero: Awaited<ReturnType<typeof service.list>>[number] | undefined
+        let productCategoryOne: Awaited<ReturnType<typeof service.list>>[number] | undefined
+        let productCategoryTwo: Awaited<ReturnType<typeof service.list>>[number] | undefined
+        let productCategoryZeroZero: Awaited<ReturnType<typeof service.list>>[number] | undefined
+        let productCategoryZeroOne: Awaited<ReturnType<typeof service.list>>[number] | undefined
+        let productCategoryZeroTwo: Awaited<ReturnType<typeof service.list>>[number] | undefined
         let categories
 
         beforeEach(async () => {
@@ -1002,13 +1002,13 @@ moduleIntegrationTestRunner<Service>({
         it("should update the name of the category successfully", async () => {
           await service.update([
             {
-              id: productCategoryZero.id,
+              id: productCategoryZero!.id,
               name: "New Category",
             },
           ])
 
           const productCategory = await service.retrieve(
-            productCategoryZero.id,
+            productCategoryZero!.id,
             {
               select: ["name"],
             }
@@ -1031,7 +1031,7 @@ moduleIntegrationTestRunner<Service>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             `ProductCategory with id: does-not-exist was not found`
           )
         })
@@ -1039,7 +1039,7 @@ moduleIntegrationTestRunner<Service>({
         it("should reorder rank successfully in the same parent", async () => {
           await service.update([
             {
-              id: productCategoryTwo.id,
+              id: productCategoryTwo!.id,
               rank: 0,
             },
           ])
@@ -1056,15 +1056,15 @@ moduleIntegrationTestRunner<Service>({
           expect(productCategories).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                id: productCategoryTwo.id,
+                id: productCategoryTwo!.id,
                 rank: 0,
               }),
               expect.objectContaining({
-                id: productCategoryZero.id,
+                id: productCategoryZero!.id,
                 rank: 1,
               }),
               expect.objectContaining({
-                id: productCategoryOne.id,
+                id: productCategoryOne!.id,
                 rank: 2,
               }),
             ])
@@ -1074,15 +1074,15 @@ moduleIntegrationTestRunner<Service>({
         it("should reorder rank successfully when changing parent", async () => {
           await service.update([
             {
-              id: productCategoryTwo.id,
+              id: productCategoryTwo!.id,
               rank: 0,
-              parent_category_id: productCategoryZero.id,
+              parent_category_id: productCategoryZero!.id,
             },
           ])
 
           const productCategories = await service.list(
             {
-              parent_category_id: productCategoryZero.id,
+              parent_category_id: productCategoryZero!.id,
             },
             {
               select: ["name", "rank"],
@@ -1092,19 +1092,19 @@ moduleIntegrationTestRunner<Service>({
           expect(productCategories).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                id: productCategoryTwo.id,
+                id: productCategoryTwo!.id,
                 rank: 0,
               }),
               expect.objectContaining({
-                id: productCategoryZeroZero.id,
+                id: productCategoryZeroZero!.id,
                 rank: 1,
               }),
               expect.objectContaining({
-                id: productCategoryZeroOne.id,
+                id: productCategoryZeroOne!.id,
                 rank: 2,
               }),
               expect.objectContaining({
-                id: productCategoryZeroTwo.id,
+                id: productCategoryZeroTwo!.id,
                 rank: 3,
               }),
             ])
@@ -1114,15 +1114,15 @@ moduleIntegrationTestRunner<Service>({
         it("should reorder rank successfully when changing parent and in first position", async () => {
           await service.update([
             {
-              id: productCategoryTwo.id,
+              id: productCategoryTwo!.id,
               rank: 0,
-              parent_category_id: productCategoryZero.id,
+              parent_category_id: productCategoryZero!.id,
             },
           ])
 
           const productCategories = await service.list(
             {
-              parent_category_id: productCategoryZero.id,
+              parent_category_id: productCategoryZero!.id,
             },
             {
               select: ["name", "rank"],
@@ -1132,19 +1132,19 @@ moduleIntegrationTestRunner<Service>({
           expect(productCategories).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                id: productCategoryTwo.id,
+                id: productCategoryTwo!.id,
                 rank: 0,
               }),
               expect.objectContaining({
-                id: productCategoryZeroZero.id,
+                id: productCategoryZeroZero!.id,
                 rank: 1,
               }),
               expect.objectContaining({
-                id: productCategoryZeroOne.id,
+                id: productCategoryZeroOne!.id,
                 rank: 2,
               }),
               expect.objectContaining({
-                id: productCategoryZeroTwo.id,
+                id: productCategoryZeroTwo!.id,
                 rank: 3,
               }),
             ])
@@ -1167,7 +1167,7 @@ moduleIntegrationTestRunner<Service>({
 
           await service.update([
             {
-              id: productCategory.id,
+              id: productCategory!.id,
               parent_category_id: "gaming-desktops",
             },
           ])
@@ -1256,9 +1256,9 @@ moduleIntegrationTestRunner<Service>({
       })
 
       describe("delete", () => {
-        let productCategoryZero
-        let productCategoryOne
-        let productCategoryTwo
+        let productCategoryZero: Awaited<ReturnType<typeof service.list>>[number] | undefined
+        let productCategoryOne: Awaited<ReturnType<typeof service.list>>[number] | undefined
+        let productCategoryTwo: Awaited<ReturnType<typeof service.list>>[number] | undefined
         let categories
 
         beforeEach(async () => {
@@ -1281,7 +1281,7 @@ moduleIntegrationTestRunner<Service>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             `ProductCategory with id: does-not-exist was not found`
           )
         })
@@ -1290,18 +1290,18 @@ moduleIntegrationTestRunner<Service>({
           let error
 
           try {
-            await service.delete([productCategoryZero.id])
+            await service.delete([productCategoryZero!.id])
           } catch (e) {
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             `Deleting ProductCategory (category-0-0) with category children is not allowed`
           )
         })
 
         it("should reorder siblings rank successfully on deleting", async () => {
-          await service.delete([productCategoryOne.id])
+          await service.delete([productCategoryOne!.id])
 
           const productCategories = await service.list(
             {
@@ -1315,11 +1315,11 @@ moduleIntegrationTestRunner<Service>({
           expect(productCategories).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                id: productCategoryZero.id,
+                id: productCategoryZero!.id,
                 rank: 0,
               }),
               expect.objectContaining({
-                id: productCategoryTwo.id,
+                id: productCategoryTwo!.id,
                 rank: 1,
               }),
             ])

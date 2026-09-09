@@ -5,7 +5,21 @@
     "types": [
       "node",
       "vitest/globals"
-    ]
+    ],
+    "paths": {
+      "@models": [
+        "../medusa-product/dist/models/index.d.ts"
+      ],
+      "@services": [
+        "../medusa-product/dist/services/index.d.ts"
+      ],
+      "@types": [
+        "../medusa-product/dist/types/index.d.ts"
+      ],
+      "@medusajs/test-utils": [
+        "./test/support/runner-contract.ts"
+      ]
+    }
   },
   "include": [
     "src/**/*.ts",
@@ -16,15 +30,14 @@
     "vitest.product-types.config.ts",
     "vitest.product-tags.config.ts",
     "vitest.product-collections.config.ts",
-    "vitest.product-options.config.ts", "vitest.product-variants.config.ts", "vitest.product-categories.config.ts", "vitest.product-internal-categories.config.ts", "vitest.product-internal.config.ts"
+    "vitest.product-options.config.ts",
+    "vitest.product-variants.config.ts",
+    "vitest.product-categories.config.ts",
+    "vitest.product-internal-categories.config.ts",
+    "vitest.product-internal.config.ts"
   ],
   "exclude": [
-    "test/product-upstream.test.ts",
     "test/product-scale.test.ts",
-    "test/currency-announcement.test.ts",
-    "test/product-types-upstream.test.ts",
-    "test/product-tags-upstream.test.ts",
-    "test/product-collections-upstream.test.ts",
-    "test/product-options-upstream.test.ts", "test/product-variants-upstream.test.ts", "test/product-categories-upstream.test.ts", "test/product-internal-categories-upstream.test.ts", "test/product-internal-upstream.test.ts"
+    "test/currency-announcement.test.ts"
   ]
 }

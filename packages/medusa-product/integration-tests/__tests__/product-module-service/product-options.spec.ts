@@ -1,15 +1,16 @@
-import { IProductModuleService, ProductTypes } from "@medusajs/framework/types"
+import { beforeEach, describe, expect, it } from "vitest"
+import { ProductTypes } from "@medusajs/framework/types"
 import { Modules, ProductStatus } from "@medusajs/framework/utils"
 import { moduleIntegrationTestRunner } from "@medusajs/test-utils"
 
-moduleIntegrationTestRunner<IProductModuleService>({
+moduleIntegrationTestRunner({
   moduleName: Modules.PRODUCT,
   testSuite: ({ service }) => {
     describe("ProductModuleService product options", () => {
-      let optionOne: ProductTypes.ProductOptionDTO
-      let optionTwo: ProductTypes.ProductOptionDTO
-      let productOne: ProductTypes.ProductDTO
-      let productTwo: ProductTypes.ProductDTO
+      let optionOne: ProductTypes.ProductOptionDTO | undefined
+      let optionTwo: ProductTypes.ProductOptionDTO | undefined
+      let productOne: ProductTypes.ProductDTO | undefined
+      let productTwo: ProductTypes.ProductDTO | undefined
 
       beforeEach(async () => {
         ;[productOne, productTwo] = await service.createProducts([
@@ -31,12 +32,12 @@ moduleIntegrationTestRunner<IProductModuleService>({
           {
             id: "option-1",
             title: "option 1",
-            product_id: productOne.id,
+            product_id: productOne!.id,
           },
           {
             id: "option-2",
             title: "option 1",
-            product_id: productTwo.id,
+            product_id: productTwo!.id,
           },
         ])
       })
@@ -44,12 +45,12 @@ moduleIntegrationTestRunner<IProductModuleService>({
       describe("listOptions", () => {
         it("should return options and count queried by ID", async () => {
           const options = await service.listProductOptions({
-            id: optionOne.id,
+            id: optionOne!.id,
           })
 
           expect(options).toEqual([
             expect.objectContaining({
-              id: optionOne.id,
+              id: optionOne!.id,
             }),
           ])
         })
@@ -57,7 +58,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return options and count based on the options and filter parameter", async () => {
           let options = await service.listProductOptions(
             {
-              id: optionOne.id,
+              id: optionOne!.id,
             },
             {
               take: 1,
@@ -66,7 +67,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(options).toEqual([
             expect.objectContaining({
-              id: optionOne.id,
+              id: optionOne!.id,
             }),
           ])
 
@@ -74,7 +75,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(options).toEqual([
             expect.objectContaining({
-              id: optionTwo.id,
+              id: optionTwo!.id,
             }),
           ])
         })
@@ -82,7 +83,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return only requested fields and relations for options", async () => {
           const options = await service.listProductOptions(
             {
-              id: optionOne.id,
+              id: optionOne!.id,
             },
             {
               select: ["title", "product.id"],
@@ -93,11 +94,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(options).toEqual([
             {
-              id: optionOne.id,
-              title: optionOne.title,
-              product_id: productOne.id,
+              id: optionOne!.id,
+              title: optionOne!.title,
+              product_id: productOne!.id,
               product: {
-                id: productOne.id,
+                id: productOne!.id,
               },
             },
           ])
@@ -107,13 +108,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
       describe("listAndCountOptions", () => {
         it("should return options and count queried by ID", async () => {
           const [options, count] = await service.listAndCountProductOptions({
-            id: optionOne.id,
+            id: optionOne!.id,
           })
 
           expect(count).toEqual(1)
           expect(options).toEqual([
             expect.objectContaining({
-              id: optionOne.id,
+              id: optionOne!.id,
             }),
           ])
         })
@@ -121,7 +122,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return options and count based on the options and filter parameter", async () => {
           let [options, count] = await service.listAndCountProductOptions(
             {
-              id: optionOne.id,
+              id: optionOne!.id,
             },
             {
               take: 1,
@@ -131,7 +132,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(count).toEqual(1)
           expect(options).toEqual([
             expect.objectContaining({
-              id: optionOne.id,
+              id: optionOne!.id,
             }),
           ])
           ;[options, count] = await service.listAndCountProductOptions(
@@ -148,7 +149,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(count).toEqual(2)
           expect(options).toEqual([
             expect.objectContaining({
-              id: optionTwo.id,
+              id: optionTwo!.id,
             }),
           ])
         })
@@ -156,7 +157,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return only requested fields and relations for options", async () => {
           const [options, count] = await service.listAndCountProductOptions(
             {
-              id: optionOne.id,
+              id: optionOne!.id,
             },
             {
               select: ["title", "product.id"],
@@ -168,11 +169,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(count).toEqual(1)
           expect(options).toEqual([
             {
-              id: optionOne.id,
-              title: optionOne.title,
-              product_id: productOne.id,
+              id: optionOne!.id,
+              title: optionOne!.title,
+              product_id: productOne!.id,
               product: {
-                id: productOne.id,
+                id: productOne!.id,
               },
             },
           ])
@@ -181,24 +182,24 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
       describe("retrieveOption", () => {
         it("should return the requested option", async () => {
-          const option = await service.retrieveProductOption(optionOne.id)
+          const option = await service.retrieveProductOption(optionOne!.id)
 
           expect(option).toEqual(
             expect.objectContaining({
-              id: optionOne.id,
+              id: optionOne!.id,
             })
           )
         })
 
         it("should return requested attributes when requested through config", async () => {
-          const option = await service.retrieveProductOption(optionOne.id, {
+          const option = await service.retrieveProductOption(optionOne!.id, {
             select: ["id", "product.handle", "product.title"],
             relations: ["product"],
           })
 
           expect(option).toEqual(
             expect.objectContaining({
-              id: optionOne.id,
+              id: optionOne!.id,
               product: {
                 id: "product-1",
                 handle: "product-1",
@@ -218,7 +219,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             `ProductOption with id: does-not-exist was not found`
           )
         })
@@ -263,7 +264,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             `ProductOption with id: does-not-exist was not found`
           )
         })
@@ -275,9 +276,10 @@ moduleIntegrationTestRunner<IProductModuleService>({
             {
               title: "test",
               values: [],
-              product_id: productOne.id,
+              product_id: productOne!.id,
             },
           ])
+          void res; // Preserve the original fixture call and its unused result.
 
           const [productOption] = await service.listProductOptions(
             {
@@ -293,7 +295,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             expect.objectContaining({
               title: "test",
               product: expect.objectContaining({
-                id: productOne.id,
+                id: productOne!.id,
               }),
             })
           )

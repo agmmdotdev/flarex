@@ -41,15 +41,23 @@ input, review its transformation and update its exact target/build hashes. New
 paths or exports require explicit manifest admission; do not expand a wildcard
 or copy a new framework barrel to make a missing dependency resolve.
 
-The original Currency tests also receive a separate compatibility typecheck using
-Vitest's module-resolution model. Unchanged Product test sources are runtime-tested
-and excluded from compilation; their authored adapters, boundary checks and
-configurations remain typechecked. Record 37 documents the original Type test
-diagnostics that prevent extending the Currency compiler lane to that file. New adapter/harness code keeps the strict Flarex compiler
-profile. Preserved fork code keeps its original compiler policy. The relocated
-Currency/CMS/Application composite fixture retains its original persistence
-test compiler settings in `tsconfig.composite.json`; build and typecheck run
-that project alongside the adapter production and original-test projects.
+All thirteen promoted Currency/Product test files now import Vitest explicitly.
+Their package-local test configurations enable strict checking, checked indexing
+and exact optional properties, and include all six Product fixture files. The
+adapter compiler also includes the Product wrapper files. `build` and `typecheck`
+run the adapter, Currency compatibility, composite and Product test projects.
+The Currency/CMS/Application composite fixture retains its existing persistence
+test compiler settings in `tsconfig.composite.json`.
+
+The pinned source island remains unchanged. Runnable copies are maintained test
+ports: the promotion guard compares their executable structure after type
+erasure, preserving fixture calls, assertions, case names and skips. It permits
+explicit Vitest imports, the exact Currency timeout relocation to configuration,
+the exact Currency static-export import relocations, and local unused-result
+markers. The Jest runtime shim and legacy ambient declarations are removed.
+[Record 48](../../roadmaps/flarexdb-framework-integration/preflight/48-medusa-test-promotion-cleanup.md)
+owns the complete file inventory and validation receipts. Historical records of
+byte-identical runnable copies describe their earlier checkpoints.
 
 The live profile is deliberately bounded: one table, one text primary key,
 256 catalog rows, selected Currency queries and no domain-event family. Native
@@ -132,7 +140,7 @@ update pairs in one upsert batch remain outside this bounded profile.
 
 Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-collections.config.ts`
 for all 18 original cases plus four scope, rollback, membership and publication
-checks. Original assertions stay byte-identical under the existing compiler
+checks. At that checkpoint, original files stayed byte-identical under the then-current compiler
 policy. The Collections checkpoint brought the combined gate to 102 original
 passes plus one retained upstream skip. The following Options slice is recorded
 below. See
@@ -150,8 +158,8 @@ for 13 originals and four scope, cascade/rollback, replay and input-refusal chec
 At the Options checkpoint, the combined gate covered 115 originals plus its
 retained upstream skip. Record 41 continues with Variants.
 [Record 40](../../roadmaps/flarexdb-framework-integration/preflight/40-medusa-product-options.md)
-owns the exact scope and final receipts. Original tests retain the established
-runtime/source-hash compiler policy; authored support code is strict-compiled.
+owns the exact scope and final receipts. Record 48 supersedes that checkpoint's
+runtime/source-hash compiler policy with strict maintained test ports.
 
 Record 41 adds the complete 15-case Product Variants suite, including scoped
 parent projection and title filtering, Medusa-owned image selection, exact

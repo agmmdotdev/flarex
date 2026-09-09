@@ -1,12 +1,13 @@
-import currencyModule from "../index"
+import { describe, expect, it } from "vitest"
+import currencyModule from "@medusajs/currency/index"
 import { ModulesDefinition } from "@medusajs/modules-sdk"
 import type { IModuleService } from "@medusajs/types"
 import {
   currencyModuleDefinition,
   currencyModuleExports,
   currencyStaticResources,
-} from "../static-manifest"
-import { Currency } from "../models"
+} from "@medusajs/currency/static-manifest"
+import { Currency } from "@medusajs/currency/models"
 
 describe("Currency static manifest", () => {
   it("matches the normal Currency module export and joiner config", () => {

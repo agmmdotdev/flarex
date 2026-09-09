@@ -1,4 +1,5 @@
 // @ts-check
+import { verifyTestPort } from "./check-medusa-test-port.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { admitsCurrencyImport, verifyCurrencyPromotion } from "./check-medusa-currency-promotion.mjs";
@@ -57,12 +58,16 @@ describe("exact Currency promotion", () => {
     expect(result.errors).toHaveLength(1);
   });
 
-  it("retains byte-identical original compatibility assertions", () => {
-    const tests = promotion.files.filter((file) => file.classification === "unchangedTest");
+  it("retains the executable original compatibility scenarios and assertions", () => {
+    const tests = promotion.files.filter((file) => file.classification === "testPort");
     expect(tests).toHaveLength(13);
     for (const file of tests) {
-      if (!file.source) throw new Error("Missing original test source");
-      expect(readFileSync(file.target)).toEqual(readFileSync(file.source));
+      const original = file.source;
+      if (!original) throw new Error("Missing original test source");
+      expect(() => verifyTestPort(readFileSync(original, "utf8"), readFileSync(file.target, "utf8"), {
+        currencyTimeout: file.target.endsWith("currency-module-service.spec.ts"),
+        currencyStaticImports: file.target.endsWith("static-manifest.spec.ts"),
+      })).not.toThrow();
     }
   });
   it("admits only the verified Product wrappers across the test package boundary", () => {

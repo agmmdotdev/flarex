@@ -1,0 +1,6 @@
+{
+  "extends": "../../../integration-tests/tsconfig.json",
+  "include": [
+    "*.ts"
+  ]
+}

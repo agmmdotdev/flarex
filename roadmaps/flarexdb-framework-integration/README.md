@@ -17,7 +17,9 @@ seed-gated serving and shared relational commit publication. Public serving and
 production activation remain gated.
 
 Private Currency and Product now cover their complete inventoried integration
-suites, including internal Product/Category services. The next proposed Medusa
+suites, including internal Product/Category services. The complete promoted test
+set has [strict Vitest ports and source-preservation checks](./preflight/48-medusa-test-promotion-cleanup.md).
+The next proposed Medusa
 capability is [shared metadata-driven repository reads and projections](./preflight/47-medusa-shared-persistence-adapter.md),
 using both modules to prove reuse before wider module adoption. This proposal
 awaits approval and preserves the current transaction and publication owners.
@@ -213,7 +215,10 @@ Use these sources in order:
     proposes common runtime metadata, query compilation, and read/projection
     execution across Currency and Product, followed by shared write/schema
     mechanics and a separately admitted module reuse proof.
-49. Current code, migrations, any source snapshot already admitted by its own
+49. [Currency and Product test promotion cleanup](./preflight/48-medusa-test-promotion-cleanup.md)
+    covers all thirteen promoted test files and six Product fixtures with explicit
+    Vitest imports, strict compiler coverage and executable source-preservation checks.
+50. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -482,7 +487,7 @@ has private Application-only and synthetic Medusa acceptance.
 | CMS request host and Application publication | Private CMS host, pending documents, row/relation materialization and publication implemented | Pinned Payload scalar CRUD and atomic preference cleanup publication proven under combined binding |
 | Application table write policy | Private denial capability implemented | Canonical ownership and ordinary Application journal/commit denial preserved; the separate private CMS participant owns managed writes |
 | Payload scalar and non-reactive relation proofs | Private pinned scalar/optional-one/fresh-many CRUD, fresh-only reverse joins, depth-one standalone population, preference cleanup/publication and nested requests implemented | Bounded non-reactive consumer milestone complete on both drivers. Existing-row many upgrades, general join parity and public/production activation remain gated |
-| Medusa Currency, Product and Module Link proofs | Private Currency publication and all 205 inventoried Product originals pass through the shared core on both drivers, with one retained upstream skip | Test cleanup and promotion policy discussion follow; stored Links, workflows, durable domain-event delivery and general module compatibility remain separate |
+| Medusa Currency, Product and Module Link proofs | Private Currency publication and all 205 inventoried Product originals pass through the shared core on both drivers, with one retained upstream skip | All promoted Currency/Product tests and fixtures have strict compiler coverage and maintained Vitest ports under [Record 48](./preflight/48-medusa-test-promotion-cleanup.md); stored Links, workflows, durable domain-event delivery and general module compatibility remain separate |
 | Cross-domain references | Authority profiles defined | Runtime deferred |
 | Hosted, public and production selection | Separate gates defined | Unproven and unauthorized; private evidence grants no activation |
 

@@ -1,23 +1,22 @@
+import type { ProductTypes } from "@medusajs/framework/types"
+type CreateProductDTO = ProductTypes.CreateProductDTO
+type CreateProductVariantDTO = ProductTypes.CreateProductVariantDTO
+type ProductDTO = ProductTypes.ProductDTO
+type ProductVariantDTO = ProductTypes.ProductVariantDTO
+type UpdateProductVariantDTO = ProductTypes.UpdateProductVariantDTO
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
-  CreateProductDTO,
-  CreateProductVariantDTO,
-  IProductModuleService,
-  ProductDTO,
-  ProductVariantDTO,
-  UpdateProductVariantDTO,
-} from "@medusajs/framework/types"
+  } from "@medusajs/framework/types"
 import { Modules, ProductStatus } from "@medusajs/framework/utils"
 import { moduleIntegrationTestRunner } from "@medusajs/test-utils"
-import { vi } from "vitest"
-
-moduleIntegrationTestRunner<IProductModuleService>({
+moduleIntegrationTestRunner({
   moduleName: Modules.PRODUCT,
   testSuite: ({ service }) => {
     describe("ProductModuleService product variants", () => {
       let variantOne: ProductVariantDTO
       let variantTwo: ProductVariantDTO
-      let productOne: ProductDTO
-      let productTwo: ProductDTO
+      let productOne: ProductDTO | undefined
+      let productTwo: ProductDTO | undefined
 
       beforeEach(async () => {
         productOne = await service.createProducts({
@@ -119,12 +118,12 @@ moduleIntegrationTestRunner<IProductModuleService>({
           await service.addImageToVariant([
             // Associate first image with variant1 only
             {
-              image_id: productWithMultipleImages.images[1].id,
+              image_id: productWithMultipleImages.images[1]!.id,
               variant_id: variant1.id,
             },
             // Associate second image with variant2 only
             {
-              image_id: productWithMultipleImages.images[2].id,
+              image_id: productWithMultipleImages.images[2]!.id,
               variant_id: variant2.id,
             },
           ])
@@ -138,14 +137,14 @@ moduleIntegrationTestRunner<IProductModuleService>({
             }
           )
 
-          expect(variant1Results[0].images).toHaveLength(2)
-          expect(variant1Results[0].images).toEqual(
+          expect(variant1Results[0]!.images).toHaveLength(2)
+          expect(variant1Results[0]!.images).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                id: productWithMultipleImages.images[0].id, // general product image
+                id: productWithMultipleImages.images[0]!.id, // general product image
               }),
               expect.objectContaining({
-                id: productWithMultipleImages.images[1].id, // variant image
+                id: productWithMultipleImages.images[1]!.id, // variant image
               }),
             ])
           )
@@ -159,8 +158,8 @@ moduleIntegrationTestRunner<IProductModuleService>({
             }
           )
 
-          expect(bothVariantsResults[0].images).toHaveLength(2)
-          expect(bothVariantsResults[1].images).toHaveLength(2)
+          expect(bothVariantsResults[0]!.images).toHaveLength(2)
+          expect(bothVariantsResults[1]!.images).toHaveLength(2)
 
           expect(bothVariantsResults).toEqual(
             expect.arrayContaining([
@@ -168,10 +167,10 @@ moduleIntegrationTestRunner<IProductModuleService>({
                 id: variant1.id,
                 images: expect.arrayContaining([
                   expect.objectContaining({
-                    id: productWithMultipleImages.images[0].id, // general product image
+                    id: productWithMultipleImages.images[0]!.id, // general product image
                   }),
                   expect.objectContaining({
-                    id: productWithMultipleImages.images[1].id, // general product image
+                    id: productWithMultipleImages.images[1]!.id, // general product image
                   }),
                 ]),
               }),
@@ -179,10 +178,10 @@ moduleIntegrationTestRunner<IProductModuleService>({
                 id: variant2.id,
                 images: expect.arrayContaining([
                   expect.objectContaining({
-                    id: productWithMultipleImages.images[0].id, // general product image
+                    id: productWithMultipleImages.images[0]!.id, // general product image
                   }),
                   expect.objectContaining({
-                    id: productWithMultipleImages.images[2].id, // variant image
+                    id: productWithMultipleImages.images[2]!.id, // variant image
                   }),
                 ]),
               }),
@@ -192,7 +191,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           await service.removeImageFromVariant([
             {
               variant_id: variant1.id,
-              image_id: productWithMultipleImages.images[1].id,
+              image_id: productWithMultipleImages.images[1]!.id,
             },
           ])
 
@@ -205,15 +204,15 @@ moduleIntegrationTestRunner<IProductModuleService>({
             }
           )
 
-          expect(variant1AfterRemove[0].images).toHaveLength(2)
-          expect(variant1AfterRemove[0].images).toEqual(
+          expect(variant1AfterRemove[0]!.images).toHaveLength(2)
+          expect(variant1AfterRemove[0]!.images).toEqual(
             expect.arrayContaining([
               // this variant doesn't have scoped images - only 2 general images
               expect.objectContaining({
-                id: productWithMultipleImages.images[0].id, // onlyoriginal general product image
+                id: productWithMultipleImages.images[0]!.id, // onlyoriginal general product image
               }),
               expect.objectContaining({
-                id: productWithMultipleImages.images[1].id, // became general product image after unassignneent from variant
+                id: productWithMultipleImages.images[1]!.id, // became general product image after unassignneent from variant
               }),
             ])
           )
@@ -229,13 +228,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(product.images).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                id: productWithMultipleImages.images[0].id,
+                id: productWithMultipleImages.images[0]!.id,
               }),
               expect.objectContaining({
-                id: productWithMultipleImages.images[1].id,
+                id: productWithMultipleImages.images[1]!.id,
               }),
               expect.objectContaining({
-                id: productWithMultipleImages.images[2].id,
+                id: productWithMultipleImages.images[2]!.id,
               }),
             ])
           )
@@ -250,17 +249,17 @@ moduleIntegrationTestRunner<IProductModuleService>({
             }
           )
 
-          expect(variant2AfterRemove[0].images).toHaveLength(3)
-          expect(variant2AfterRemove[0].images).toEqual(
+          expect(variant2AfterRemove[0]!.images).toHaveLength(3)
+          expect(variant2AfterRemove[0]!.images).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                id: productWithMultipleImages.images[0].id, // general product image
+                id: productWithMultipleImages.images[0]!.id, // general product image
               }),
               expect.objectContaining({
-                id: productWithMultipleImages.images[1].id, // general product image
+                id: productWithMultipleImages.images[1]!.id, // general product image
               }),
               expect.objectContaining({
-                id: productWithMultipleImages.images[2].id,
+                id: productWithMultipleImages.images[2]!.id,
               }),
             ])
           )
@@ -268,7 +267,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           await service.removeImageFromVariant([
             {
               variant_id: variant2.id,
-              image_id: productWithMultipleImages.images[2].id,
+              image_id: productWithMultipleImages.images[2]!.id,
             },
           ])
 
@@ -282,21 +281,21 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(productAfterRemove.images).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                id: productWithMultipleImages.images[0].id,
+                id: productWithMultipleImages.images[0]!.id,
               }),
             ])
           )
           expect(productAfterRemove.images).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                id: productWithMultipleImages.images[1].id,
+                id: productWithMultipleImages.images[1]!.id,
               }),
             ])
           )
           expect(productAfterRemove.images).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                id: productWithMultipleImages.images[2].id,
+                id: productWithMultipleImages.images[2]!.id,
               }),
             ])
           )
@@ -310,15 +309,15 @@ moduleIntegrationTestRunner<IProductModuleService>({
             }
           )
 
-          expect(bothVariantsAfterRemove[0].images).toHaveLength(3)
-          expect(bothVariantsAfterRemove[1].images).toHaveLength(3)
+          expect(bothVariantsAfterRemove[0]!.images).toHaveLength(3)
+          expect(bothVariantsAfterRemove[1]!.images).toHaveLength(3)
 
           const imageeIds = productWithMultipleImages.images.map((i) => i.id)
 
-          expect(bothVariantsAfterRemove[0].images.map((i) => i.id)).toEqual(
+          expect(bothVariantsAfterRemove[0]!.images.map((i) => i.id)).toEqual(
             expect.arrayContaining(imageeIds)
           )
-          expect(bothVariantsAfterRemove[1].images.map((i) => i.id)).toEqual(
+          expect(bothVariantsAfterRemove[1]!.images.map((i) => i.id)).toEqual(
             expect.arrayContaining(imageeIds)
           )
         })
@@ -363,7 +362,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
               id: variantOne.id,
             },
             {
-              select: ["id", "title", "product.title"] as any,
+              select: ["id", "title", "product.title"] as (keyof ProductVariantDTO)[],
               relations: ["product"],
             }
           )
@@ -397,7 +396,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should return requested attributes when requested through config", async () => {
           const result = await service.retrieveProductVariant(variantOne.id, {
-            select: ["id", "title", "product.title"] as any,
+            select: ["id", "title", "product.title"] as (keyof ProductVariantDTO)[],
             relations: ["product"],
           })
 
@@ -422,7 +421,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             "ProductVariant with id: does-not-exist was not found"
           )
         })
@@ -476,7 +475,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             `Cannot update non-existing variants with ids: does-not-exist`
           )
         })
@@ -488,7 +487,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           const data: CreateProductVariantDTO = {
             title: "variant 3",
-            product_id: productOne.id,
+            product_id: productOne!.id,
             options: { size: "small", color: "blue" },
           }
 
@@ -497,7 +496,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(variant).toEqual(
             expect.objectContaining({
               title: "variant 3",
-              product_id: productOne.id,
+              product_id: productOne!.id,
               options: expect.arrayContaining([
                 expect.objectContaining({
                   value: "small",
@@ -531,7 +530,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           const data: CreateProductVariantDTO[] = [
             {
               title: "new variant",
-              product_id: productOne.id,
+              product_id: productOne!.id,
               options: { size: "small", color: "red" },
             },
             {
@@ -547,16 +546,16 @@ moduleIntegrationTestRunner<IProductModuleService>({
             expect.arrayContaining([
               expect.objectContaining({
                 title: "new variant",
-                product_id: productOne.id,
+                product_id: productOne!.id,
                 options: expect.arrayContaining([
                   expect.objectContaining({
-                    id: productOne.options
+                    id: productOne!.options
                       .find((o) => o.title === "size")
                       ?.values?.find((v) => v.value === "small")?.id,
                     value: "small",
                   }),
                   expect.objectContaining({
-                    id: productOne.options
+                    id: productOne!.options
                       .find((o) => o.title === "color")
                       ?.values?.find((v) => v.value === "red")?.id,
                     value: "red",
@@ -647,8 +646,8 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
-            `Variant (${variant.title}) with provided options already exists.`
+          expect((error as Error).message).toEqual(
+            `Variant (${variant!.title}) with provided options already exists.`
           )
         })
 
@@ -702,6 +701,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
               relations: ["options"],
             }
           )
+          void beforeDeletedVariants; // Preserve the original fixture call and its unused result.
 
           await service.softDeleteProductVariants([variantOne.id])
           const deletedVariants = await service.listProductVariants(
@@ -713,9 +713,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
           )
 
           expect(deletedVariants).toHaveLength(1)
-          expect(deletedVariants[0].deleted_at).not.toBeNull()
+          expect(deletedVariants[0]!.deleted_at).not.toBeNull()
 
-          for (const variantOption of deletedVariants[0].options) {
+          for (const variantOption of deletedVariants[0]!.options) {
             expect(variantOption?.deleted_at).toBeNull()
           }
         })

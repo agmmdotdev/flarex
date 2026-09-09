@@ -1,5 +1,5 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
-  IProductModuleService,
   ProductTypes,
 } from "@medusajs/framework/types"
 import {
@@ -13,15 +13,13 @@ import {
   moduleIntegrationTestRunner,
 } from "@medusajs/test-utils"
 import { buildProductAndRelationsData } from "../../__fixtures__/product"
-import { vi } from "vitest"
-
-moduleIntegrationTestRunner<IProductModuleService>({
+moduleIntegrationTestRunner({
   moduleName: Modules.PRODUCT,
   injectedDependencies: {
     [Modules.EVENT_BUS]: new MockEventBusService(),
   },
   testSuite: ({ service }) => {
-    let eventBusSpy
+    let eventBusSpy: import("vitest").MockInstance<MockEventBusService["emit"]>
 
     beforeEach(() => {
       eventBusSpy = vi.spyOn(MockEventBusService.prototype, "emit")
@@ -66,7 +64,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           const createdProduct = products[0]
 
           expect(eventBusSpy).toHaveBeenCalledTimes(1)
-          const emittedEvents = eventBusSpy.mock.calls[0][0]
+          const emittedEvents = eventBusSpy.mock.calls[0]![0]
 
           // Should emit events for:
           // 1. Product created
@@ -82,7 +80,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
               composeMessage(ProductEvents.PRODUCT_CREATED, {
-                data: { id: createdProduct.id },
+                data: { id: createdProduct!.id },
                 object: "product",
                 source: Modules.PRODUCT,
                 action: CommonEvents.CREATED,
@@ -91,7 +89,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           )
 
           // Verify product option created events
-          createdProduct.options.forEach((option) => {
+          createdProduct!.options.forEach((option) => {
             expect(emittedEvents).toEqual(
               expect.arrayContaining([
                 composeMessage(ProductEvents.PRODUCT_OPTION_CREATED, {
@@ -119,7 +117,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           })
 
           // Verify product variant created events
-          createdProduct.variants.forEach((variant) => {
+          createdProduct!.variants.forEach((variant) => {
             expect(emittedEvents).toEqual(
               expect.arrayContaining([
                 composeMessage(ProductEvents.PRODUCT_VARIANT_CREATED, {
@@ -133,7 +131,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           })
 
           // Verify product image created events
-          createdProduct.images.forEach((image) => {
+          createdProduct!.images.forEach((image) => {
             expect(emittedEvents).toEqual(
               expect.arrayContaining([
                 composeMessage(ProductEvents.PRODUCT_IMAGE_CREATED, {
@@ -149,7 +147,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
       })
 
       describe("Product Update", () => {
-        let existingProduct: ProductTypes.ProductDTO
+        let existingProduct: ProductTypes.ProductDTO | undefined
 
         beforeEach(async () => {
           const productData = buildProductAndRelationsData({
@@ -181,17 +179,17 @@ moduleIntegrationTestRunner<IProductModuleService>({
         })
 
         it("should emit cascade events when updating product with relations", async () => {
-          const existingOption = existingProduct.options.find(
+          const existingOption = existingProduct!.options.find(
             (option) => option.title === "existing-option"
           )!
-          const existingVariant = existingProduct.variants[0]
-          const expectedDeletedOption = existingProduct.options.find(
+          const existingVariant = existingProduct!.variants[0]
+          const expectedDeletedOption = existingProduct!.options.find(
             (option) => option.title === "existing-option-2"
           )!
-          const expectedDeletedImage = existingProduct.images[0]
+          const expectedDeletedImage = existingProduct!.images[0]
 
           const updateData = {
-            id: existingProduct.id,
+            id: existingProduct!.id,
             title: "Updated Product",
             images: [{ url: "new-image-1.jpg" }, { url: "new-image-2.jpg" }],
             options: [
@@ -207,7 +205,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             ],
             variants: [
               {
-                id: existingVariant.id,
+                id: existingVariant!.id,
                 title: "updated-existing-variant",
                 options: {
                   "new-size-option": "small",
@@ -224,9 +222,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
             ],
           }
 
-          await service.updateProducts(existingProduct.id, updateData)
+          await service.updateProducts(existingProduct!.id, updateData)
           const updatedProduct = await service.retrieveProduct(
-            existingProduct.id,
+            existingProduct!.id,
             {
               relations: [
                 "options",
@@ -239,7 +237,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           )
 
           expect(eventBusSpy).toHaveBeenCalledTimes(1)
-          const emittedEvents = eventBusSpy.mock.calls[0][0]
+          const emittedEvents = eventBusSpy.mock.calls[0]![0]
 
           // Total count should include: 1 product update + 1 option created + 2 option values created + 1 option update + 1 option deleted + 1 option value deleted + 1 variant created + 1 variant updated + 2 images created + 1 image deleted = 12 events
           expect(emittedEvents).toHaveLength(12)
@@ -248,7 +246,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
               composeMessage(ProductEvents.PRODUCT_UPDATED, {
-                data: { id: existingProduct.id },
+                data: { id: existingProduct!.id },
                 object: "product",
                 source: Modules.PRODUCT,
                 action: CommonEvents.UPDATED,
@@ -315,7 +313,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             expect.arrayContaining([
               composeMessage(ProductEvents.PRODUCT_OPTION_VALUE_DELETED, {
                 data: expect.objectContaining({
-                  id: expectedDeletedOption.values[0].id,
+                  id: expectedDeletedOption.values[0]!.id,
                 }),
                 object: "product_option_value",
                 source: Modules.PRODUCT,
@@ -340,7 +338,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
               composeMessage(ProductEvents.PRODUCT_VARIANT_UPDATED, {
-                data: expect.objectContaining({ id: existingVariant.id }),
+                data: expect.objectContaining({ id: existingVariant!.id }),
                 object: "product_variant",
                 source: Modules.PRODUCT,
                 action: CommonEvents.UPDATED,
@@ -366,7 +364,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
               composeMessage(ProductEvents.PRODUCT_IMAGE_DELETED, {
-                data: expect.objectContaining({ id: expectedDeletedImage.id }),
+                data: expect.objectContaining({ id: expectedDeletedImage!.id }),
                 object: "product_image",
                 source: Modules.PRODUCT,
                 action: CommonEvents.DELETED,
@@ -402,10 +400,10 @@ moduleIntegrationTestRunner<IProductModuleService>({
           const createdProduct = products[0]
           eventBusSpy.mockClear()
 
-          await service.softDeleteProducts([createdProduct.id])
+          await service.softDeleteProducts([createdProduct!.id])
 
           expect(eventBusSpy).toHaveBeenCalledTimes(1)
-          const emittedEvents = eventBusSpy.mock.calls[0][0]
+          const emittedEvents = eventBusSpy.mock.calls[0]![0]
 
           // Total count should include: 1 product deleted + 1 variant deleted + 1 option deleted + 2 option values deleted + 2 images deleted = 7 events
           expect(emittedEvents).toHaveLength(7)
@@ -414,7 +412,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
               composeMessage(ProductEvents.PRODUCT_DELETED, {
-                data: { id: createdProduct.id },
+                data: { id: createdProduct!.id },
                 object: "product",
                 source: Modules.PRODUCT,
                 action: CommonEvents.DELETED,
@@ -426,7 +424,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
               composeMessage(ProductEvents.PRODUCT_VARIANT_DELETED, {
-                data: { id: createdProduct.variants[0].id },
+                data: { id: createdProduct!.variants![0]!.id },
                 object: "product_variant",
                 source: Modules.PRODUCT,
                 action: CommonEvents.DELETED,
@@ -438,7 +436,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
               composeMessage(ProductEvents.PRODUCT_OPTION_DELETED, {
-                data: { id: createdProduct.options[0].id },
+                data: { id: createdProduct!.options![0]!.id },
                 object: "product_option",
                 source: Modules.PRODUCT,
                 action: CommonEvents.DELETED,
@@ -447,7 +445,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           )
 
           // Should emit delete events for option values
-          createdProduct.options[0].values.forEach((value) => {
+          createdProduct!.options![0]!.values.forEach((value) => {
             expect(emittedEvents).toEqual(
               expect.arrayContaining([
                 composeMessage(ProductEvents.PRODUCT_OPTION_VALUE_DELETED, {
@@ -463,7 +461,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           })
 
           // Should emit delete events for images
-          createdProduct.images.forEach((image) => {
+          createdProduct!.images.forEach((image) => {
             expect(emittedEvents).toEqual(
               expect.arrayContaining([
                 composeMessage(ProductEvents.PRODUCT_IMAGE_DELETED, {
@@ -481,7 +479,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
       })
 
       describe("Product Variant Operations", () => {
-        let productWithOptions: ProductTypes.ProductDTO
+        let productWithOptions: ProductTypes.ProductDTO | undefined
 
         beforeEach(async () => {
           const productData = buildProductAndRelationsData({
@@ -504,7 +502,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should emit PRODUCT_VARIANT_CREATED event only when creating standalone variant", async () => {
           const variantData = {
             title: "New Standalone Variant",
-            product_id: productWithOptions.id,
+            product_id: productWithOptions!.id,
             options: { size: "large", color: "green" },
           }
 
@@ -514,7 +512,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_VARIANT_CREATED, {
-                data: { id: variants[0].id },
+                data: { id: variants[0]!.id },
                 object: "product_variant",
                 source: Modules.PRODUCT,
                 action: CommonEvents.CREATED,
@@ -527,9 +525,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
         })
 
         it("should emit PRODUCT_VARIANT_UPDATED event only when updating variant", async () => {
-          const variant = productWithOptions.variants[0]
+          const variant = productWithOptions!.variants[0]
 
-          await service.updateProductVariants(variant.id, {
+          await service.updateProductVariants(variant!.id, {
             title: "Updated Variant Title",
           })
 
@@ -537,7 +535,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_VARIANT_UPDATED, {
-                data: { id: variant.id },
+                data: { id: variant!.id },
                 object: "product_variant",
                 source: Modules.PRODUCT,
                 action: CommonEvents.UPDATED,
@@ -560,7 +558,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_TAG_CREATED, {
-                data: { id: tags[0].id },
+                data: { id: tags[0]!.id },
                 object: "product_tag",
                 source: Modules.PRODUCT,
                 action: CommonEvents.CREATED,
@@ -578,13 +576,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
           ])
           eventBusSpy.mockClear()
 
-          await service.updateProductTags(tags[0].id, { value: "Updated Tag" })
+          await service.updateProductTags(tags[0]!.id, { value: "Updated Tag" })
 
           expect(eventBusSpy).toHaveBeenCalledTimes(1)
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_TAG_UPDATED, {
-                data: { id: tags[0].id },
+                data: { id: tags[0]!.id },
                 object: "product_tag",
                 source: Modules.PRODUCT,
                 action: CommonEvents.UPDATED,
@@ -603,15 +601,15 @@ moduleIntegrationTestRunner<IProductModuleService>({
           eventBusSpy.mockClear()
 
           const tags = await service.upsertProductTags([
-            { id: existingTag[0].id, value: "Updated Existing Tag" },
+            { id: existingTag[0]!.id, value: "Updated Existing Tag" },
             { value: "New Tag" },
           ])
 
-          const updatedTag = tags.find((tag) => tag.id === existingTag[0].id)!
+          const updatedTag = tags.find((tag) => tag.id === existingTag[0]!.id)!
           const createdTag = tags.find((tag) => tag.id !== updatedTag.id)!
 
           expect(eventBusSpy).toHaveBeenCalledTimes(1)
-          const emittedEvents = eventBusSpy.mock.calls[0][0]
+          const emittedEvents = eventBusSpy.mock.calls[0]![0]
 
           // Total count should include: 1 tag updated + 1 tag created = 2 events
           expect(emittedEvents).toHaveLength(2)
@@ -645,7 +643,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_TYPE_CREATED, {
-                data: { id: types[0].id },
+                data: { id: types[0]!.id },
                 object: "product_type",
                 source: Modules.PRODUCT,
                 action: CommonEvents.CREATED,
@@ -663,7 +661,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           ])
           eventBusSpy.mockClear()
 
-          await service.updateProductTypes(types[0].id, {
+          await service.updateProductTypes(types[0]!.id, {
             value: "Updated Type",
           })
 
@@ -671,7 +669,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_TYPE_UPDATED, {
-                data: { id: types[0].id },
+                data: { id: types[0]!.id },
                 object: "product_type",
                 source: Modules.PRODUCT,
                 action: CommonEvents.UPDATED,
@@ -690,17 +688,17 @@ moduleIntegrationTestRunner<IProductModuleService>({
           eventBusSpy.mockClear()
 
           const types = await service.upsertProductTypes([
-            { id: existingType[0].id, value: "Updated Existing Type" },
+            { id: existingType[0]!.id, value: "Updated Existing Type" },
             { value: "New Type" },
           ])
 
           const updatedType = types.find(
-            (type) => type.id === existingType[0].id
+            (type) => type.id === existingType[0]!.id
           )!
           const createdType = types.find((type) => type.id !== updatedType.id)!
 
           expect(eventBusSpy).toHaveBeenCalledTimes(1)
-          const emittedEvents = eventBusSpy.mock.calls[0][0]
+          const emittedEvents = eventBusSpy.mock.calls[0]![0]
 
           // Total count should include: 1 type updated + 1 type created = 2 events
           expect(emittedEvents).toHaveLength(2)
@@ -725,7 +723,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
       })
 
       describe("Product Option Operations", () => {
-        let productWithOptions: ProductTypes.ProductDTO
+        let productWithOptions: ProductTypes.ProductDTO | undefined
 
         beforeEach(async () => {
           const productData = buildProductAndRelationsData({
@@ -743,14 +741,14 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should emit PRODUCT_OPTION_CREATED event on createProductOptions", async () => {
           const optionData = {
             title: "New Option",
-            product_id: productWithOptions.id,
+            product_id: productWithOptions!.id,
             values: ["value1", "value2", "value3"],
           }
 
           const options = await service.createProductOptions([optionData])
 
           expect(eventBusSpy).toHaveBeenCalledTimes(1)
-          const emittedEvents = eventBusSpy.mock.calls[0][0]
+          const emittedEvents = eventBusSpy.mock.calls[0]![0]
 
           // Total count should include: 1 option created + 3 option values created = 4 events
           expect(emittedEvents).toHaveLength(4)
@@ -759,7 +757,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
               composeMessage(ProductEvents.PRODUCT_OPTION_CREATED, {
-                data: { id: options[0].id },
+                data: { id: options[0]!.id },
                 object: "product_option",
                 source: Modules.PRODUCT,
                 action: CommonEvents.CREATED,
@@ -768,7 +766,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           )
 
           // Should emit 3 option values created events
-          options[0].values.forEach((value) => {
+          options[0]!.values.forEach((value) => {
             expect(emittedEvents).toEqual(
               expect.arrayContaining([
                 composeMessage(ProductEvents.PRODUCT_OPTION_VALUE_CREATED, {
@@ -783,9 +781,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
         })
 
         it("should emit PRODUCT_OPTION_UPDATED event on updateProductOptions", async () => {
-          const option = productWithOptions.options[0]
+          const option = productWithOptions!.options[0]
 
-          await service.updateProductOptions(option.id, {
+          await service.updateProductOptions(option!.id, {
             title: "Updated Option",
           })
 
@@ -793,7 +791,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_OPTION_UPDATED, {
-                data: { id: option.id },
+                data: { id: option!.id },
                 object: "product_option",
                 source: Modules.PRODUCT,
                 action: CommonEvents.UPDATED,
@@ -806,27 +804,27 @@ moduleIntegrationTestRunner<IProductModuleService>({
         })
 
         it("should emit appropriate events on upsertProductOptions", async () => {
-          const existingOption = productWithOptions.options[0]
+          const existingOption = productWithOptions!.options[0]
           const newOptionData = {
             title: "New Option",
-            product_id: productWithOptions.id,
+            product_id: productWithOptions!.id,
             values: ["new1", "new2"],
           }
 
           const options = await service.upsertProductOptions([
-            { id: existingOption.id, title: "Updated Option" },
+            { id: existingOption!.id, title: "Updated Option" },
             newOptionData,
           ])
 
           const updatedOption = options.find(
-            (option) => option.id === existingOption.id
+            (option) => option.id === existingOption!.id
           )!
           const createdOption = options.find(
             (option) => option.id !== updatedOption.id
           )!
 
           expect(eventBusSpy).toHaveBeenCalledTimes(1)
-          const emittedEvents = eventBusSpy.mock.calls[0][0]
+          const emittedEvents = eventBusSpy.mock.calls[0]![0]
 
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
@@ -848,7 +846,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
       })
 
       describe("Product Option Value Operations", () => {
-        let productWithOptions: ProductTypes.ProductDTO
+        let productWithOptions: ProductTypes.ProductDTO | undefined
 
         beforeEach(async () => {
           const productData = buildProductAndRelationsData({
@@ -863,9 +861,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
         })
 
         it("should emit PRODUCT_OPTION_VALUE_UPDATED event on updateProductOptionValues", async () => {
-          const optionValue = productWithOptions.options[0].values[0]
+          const optionValue = productWithOptions!.options[0]!.values[0]
 
-          await service.updateProductOptionValues(optionValue.id, {
+          await service.updateProductOptionValues(optionValue!.id, {
             value: "Updated Value",
           })
 
@@ -873,7 +871,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_OPTION_VALUE_UPDATED, {
-                data: { id: optionValue.id },
+                data: { id: optionValue!.id },
                 object: "product_option_value",
                 source: Modules.PRODUCT,
                 action: CommonEvents.UPDATED,
@@ -898,7 +896,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_COLLECTION_CREATED, {
-                data: { id: collections[0].id },
+                data: { id: collections[0]!.id },
                 object: "product_collection",
                 source: Modules.PRODUCT,
                 action: CommonEvents.CREATED,
@@ -916,7 +914,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           ])
           eventBusSpy.mockClear()
 
-          await service.updateProductCollections(collections[0].id, {
+          await service.updateProductCollections(collections[0]!.id, {
             title: "Updated Collection",
           })
 
@@ -924,7 +922,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_COLLECTION_UPDATED, {
-                data: { id: collections[0].id },
+                data: { id: collections[0]!.id },
                 object: "product_collection",
                 source: Modules.PRODUCT,
                 action: CommonEvents.UPDATED,
@@ -944,21 +942,21 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           const collections = await service.upsertProductCollections([
             {
-              id: existingCollection[0].id,
+              id: existingCollection[0]!.id,
               title: "Updated Existing Collection",
             },
             { title: "New Collection" },
           ])
 
           const updatedCollection = collections.find(
-            (collection) => collection.id === existingCollection[0].id
+            (collection) => collection.id === existingCollection[0]!.id
           )!
           const createdCollection = collections.find(
             (collection) => collection.id !== updatedCollection.id
           )!
 
           expect(eventBusSpy).toHaveBeenCalledTimes(1)
-          const emittedEvents = eventBusSpy.mock.calls[0][0]
+          const emittedEvents = eventBusSpy.mock.calls[0]![0]
 
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
@@ -991,7 +989,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_CATEGORY_CREATED, {
-                data: { id: categories[0].id },
+                data: { id: categories[0]!.id },
                 object: "product_category",
                 source: Modules.PRODUCT,
                 action: CommonEvents.CREATED,
@@ -1009,7 +1007,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           ])
           eventBusSpy.mockClear()
 
-          await service.updateProductCategories(categories[0].id, {
+          await service.updateProductCategories(categories[0]!.id, {
             name: "Updated Category",
           })
 
@@ -1017,7 +1015,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(eventBusSpy).toHaveBeenCalledWith(
             [
               composeMessage(ProductEvents.PRODUCT_CATEGORY_UPDATED, {
-                data: { id: categories[0].id },
+                data: { id: categories[0]!.id },
                 object: "product_category",
                 source: Modules.PRODUCT,
                 action: CommonEvents.UPDATED,
@@ -1036,19 +1034,19 @@ moduleIntegrationTestRunner<IProductModuleService>({
           eventBusSpy.mockClear()
 
           const categories = await service.upsertProductCategories([
-            { id: existingCategory[0].id, name: "Updated Existing Category" },
+            { id: existingCategory[0]!.id, name: "Updated Existing Category" },
             { name: "New Category" },
           ])
 
           const updatedCategory = categories.find(
-            (category) => category.id === existingCategory[0].id
+            (category) => category.id === existingCategory[0]!.id
           )!
           const createdCategory = categories.find(
             (category) => category.id !== updatedCategory.id
           )!
 
           expect(eventBusSpy).toHaveBeenCalledTimes(1)
-          const emittedEvents = eventBusSpy.mock.calls[0][0]
+          const emittedEvents = eventBusSpy.mock.calls[0]![0]
 
           expect(emittedEvents).toEqual(
             expect.arrayContaining([
@@ -1094,11 +1092,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
           eventBusSpy.mockClear()
 
           // Test delete operations - these are handled automatically by base service
-          await service.deleteProducts([products[0].id])
-          await service.deleteProductTags([tags[0].id])
-          await service.deleteProductTypes([types[0].id])
-          await service.deleteProductCategories([categories[0].id])
-          await service.deleteProductCollections([collections[0].id])
+          await service.deleteProducts([products[0]!.id])
+          await service.deleteProductTags([tags[0]!.id])
+          await service.deleteProductTypes([types[0]!.id])
+          await service.deleteProductCategories([categories[0]!.id])
+          await service.deleteProductCollections([collections[0]!.id])
 
           // Each delete should emit the appropriate delete event
           expect(eventBusSpy).toHaveBeenCalledTimes(5)
@@ -1110,31 +1108,31 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(allEvents).toEqual(
             expect.arrayContaining([
               composeMessage(ProductEvents.PRODUCT_DELETED, {
-                data: { id: products[0].id },
+                data: { id: products[0]!.id },
                 object: "product",
                 source: Modules.PRODUCT,
                 action: CommonEvents.DELETED,
               }),
               composeMessage(ProductEvents.PRODUCT_TAG_DELETED, {
-                data: { id: tags[0].id },
+                data: { id: tags[0]!.id },
                 object: "product_tag",
                 source: Modules.PRODUCT,
                 action: CommonEvents.DELETED,
               }),
               composeMessage(ProductEvents.PRODUCT_TYPE_DELETED, {
-                data: { id: types[0].id },
+                data: { id: types[0]!.id },
                 object: "product_type",
                 source: Modules.PRODUCT,
                 action: CommonEvents.DELETED,
               }),
               composeMessage(ProductEvents.PRODUCT_CATEGORY_DELETED, {
-                data: { id: categories[0].id },
+                data: { id: categories[0]!.id },
                 object: "product_category",
                 source: Modules.PRODUCT,
                 action: CommonEvents.DELETED,
               }),
               composeMessage(ProductEvents.PRODUCT_COLLECTION_DELETED, {
-                data: { id: collections[0].id },
+                data: { id: collections[0]!.id },
                 object: "product_collection",
                 source: Modules.PRODUCT,
                 action: CommonEvents.DELETED,

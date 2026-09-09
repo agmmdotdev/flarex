@@ -1,7 +1,7 @@
 import { decodeCategoryProjection } from "../../src/product-category-projection";
 import { afterAll, beforeAll, beforeEach, afterEach, describe } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
-import type { IProductModuleService, IEventBusModuleService } from "@medusajs/framework/types";
+import type { IEventBusModuleService } from "@medusajs/framework/types";
 import { makeLocalProductCommands } from "../../src/product-service";
 import { prepareLocalProductProfile, prepareLocalProductScaleProfile } from "../../src/product-profile";
 import { captureProductSchema } from "../../src/product-schema";
@@ -15,7 +15,7 @@ import { createRelationalPGliteFixture } from "../../../persistence-postgres/tes
 import { createMigratedPGlitePersistence } from "../../../persistence-postgres/test/pgliteTestFixture";
 import { createFileScopedPostgresFixture } from "../../../persistence-postgres/test/postgresHelpers";
 import { makePostgresRelationalSession } from "../../../persistence-postgres/src/relationalTransaction/session";
-import type { ProductRunnerOptions } from "./runner-contract";
+import type { ProductRunnerOptions, ProductTestService } from "./runner-contract";
 
 // One lifecycle for the two imported suites in one serial Vitest entry file.
 // Per-case row cleanup leaves installed schema/readiness and authenticated history intact.
@@ -185,7 +185,7 @@ const service = new Proxy<object>({}, {
       Effect.catchCause(cause => Effect.failCause(Cause.map(cause, error => error.reason === "adapterFailure" && error.cause !== undefined ? error.cause : error))),
     )).then(value => structuredClone(value));
   },
-}) as IProductModuleService; // Test-only compatibility boundary for the original full-service callback.
+}) as ProductTestService; // Test-only compatibility boundary for the original full-service callback.
 
 export function productIntegrationTestRunner(options: ProductRunnerOptions) {
   registerFixture();

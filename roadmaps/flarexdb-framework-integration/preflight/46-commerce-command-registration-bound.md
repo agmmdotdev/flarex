@@ -125,8 +125,9 @@ cascades. The complete original file and three required data fixtures remain
 byte-identical to the pinned source. The active declaration inventory now
 contains ten complete Product files, 205 originals and one retained skip.
 
-Test cleanup, Jest/Vitest migration and import/editor diagnostics are still
-deferred. These results do not claim workflow, stored Module Link, general
+Test cleanup, Jest/Vitest migration and import/editor diagnostics were deferred
+at this checkpoint; [Record 48](./48-medusa-test-promotion-cleanup.md) now owns
+their completed follow-up. These results do not claim workflow, stored Module Link, general
 Payload integration, public serving or production readiness.
 
 

@@ -1,16 +1,15 @@
-import { IProductModuleService, ProductTypes } from "@medusajs/framework/types"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { ProductTypes } from "@medusajs/framework/types"
 import { Modules, ProductStatus } from "@medusajs/framework/utils"
 import { moduleIntegrationTestRunner } from "@medusajs/test-utils"
-import { vi } from "vitest"
-
-moduleIntegrationTestRunner<IProductModuleService>({
+moduleIntegrationTestRunner({
   moduleName: Modules.PRODUCT,
   testSuite: ({ service }) => {
     describe("ProductModuleService product collections", () => {
-      let productOne: ProductTypes.ProductDTO
-      let productTwo: ProductTypes.ProductDTO
-      let productCollectionOne: ProductTypes.ProductCollectionDTO
-      let productCollectionTwo: ProductTypes.ProductCollectionDTO
+      let productOne: ProductTypes.ProductDTO | undefined
+      let productTwo: ProductTypes.ProductDTO | undefined
+      let productCollectionOne: ProductTypes.ProductCollectionDTO | undefined
+      let productCollectionTwo: ProductTypes.ProductCollectionDTO | undefined
       let productCollections: ProductTypes.ProductCollectionDTO[]
 
       beforeEach(async () => {
@@ -34,13 +33,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
             id: "test-1",
             title: "collection 1",
             handle: "collection-1",
-            product_ids: [productOne.id],
+            product_ids: [productOne!.id],
           },
           {
             id: "test-2",
             title: "collection",
             handle: "collection",
-            product_ids: [productTwo.id],
+            product_ids: [productTwo!.id],
           },
         ])
 
@@ -55,12 +54,12 @@ moduleIntegrationTestRunner<IProductModuleService>({
       describe("listCollections", () => {
         it("should return collections queried by ID", async () => {
           const results = await service.listProductCollections({
-            id: productCollectionOne.id,
+            id: productCollectionOne!.id,
           })
 
           expect(results).toEqual([
             expect.objectContaining({
-              id: productCollectionOne.id,
+              id: productCollectionOne!.id,
             }),
           ])
         })
@@ -68,7 +67,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return collections based on the options and filter parameter", async () => {
           let results = await service.listProductCollections(
             {
-              id: productCollectionOne.id,
+              id: productCollectionOne!.id,
             },
             {
               take: 1,
@@ -77,7 +76,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(results).toEqual([
             expect.objectContaining({
-              id: productCollectionOne.id,
+              id: productCollectionOne!.id,
             }),
           ])
 
@@ -88,7 +87,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(results).toEqual([
             expect.objectContaining({
-              id: productCollectionTwo.id,
+              id: productCollectionTwo!.id,
             }),
           ])
         })
@@ -96,7 +95,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return only requested fields and relations for collections", async () => {
           const results = await service.listProductCollections(
             {
-              id: productCollectionOne.id,
+              id: productCollectionOne!.id,
             },
             {
               select: ["id", "title", "products.title"],
@@ -122,13 +121,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
       describe("listAndCountCollections", () => {
         it("should return collections and count queried by ID", async () => {
           const results = await service.listAndCountProductCollections({
-            id: productCollectionOne.id,
+            id: productCollectionOne!.id,
           })
 
           expect(results[1]).toEqual(1)
           expect(results[0]).toEqual([
             expect.objectContaining({
-              id: productCollectionOne.id,
+              id: productCollectionOne!.id,
             }),
           ])
         })
@@ -136,7 +135,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return collections and count based on the options and filter parameter", async () => {
           let results = await service.listAndCountProductCollections(
             {
-              id: productCollectionOne.id,
+              id: productCollectionOne!.id,
             },
             {
               take: 1,
@@ -146,7 +145,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(results[1]).toEqual(1)
           expect(results[0]).toEqual([
             expect.objectContaining({
-              id: productCollectionOne.id,
+              id: productCollectionOne!.id,
             }),
           ])
 
@@ -165,7 +164,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(results[1]).toEqual(2)
           expect(results[0]).toEqual([
             expect.objectContaining({
-              id: productCollectionTwo.id,
+              id: productCollectionTwo!.id,
             }),
           ])
         })
@@ -173,7 +172,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return only requested fields and relations for collections", async () => {
           const results = await service.listAndCountProductCollections(
             {
-              id: productCollectionOne.id,
+              id: productCollectionOne!.id,
             },
             {
               select: ["id", "title", "products.title"],
@@ -200,7 +199,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
       describe("retrieveCollection", () => {
         it("should return the requested collection", async () => {
           const result = await service.retrieveProductCollection(
-            productCollectionOne.id
+            productCollectionOne!.id
           )
 
           expect(result).toEqual(
@@ -213,7 +212,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should return requested attributes when requested through config", async () => {
           const result = await service.retrieveProductCollection(
-            productCollectionOne.id,
+            productCollectionOne!.id,
             {
               select: ["id", "title", "products.title"],
               relations: ["products"],
@@ -243,7 +242,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             "ProductCollection with id: does-not-exist was not found"
           )
         })
@@ -287,7 +286,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           await service.upsertProductCollections([
             {
               id: collectionId,
-              product_ids: [productOne.id, productTwo.id],
+              product_ids: [productOne!.id, productTwo!.id],
             },
           ])
 
@@ -304,10 +303,10 @@ moduleIntegrationTestRunner<IProductModuleService>({
             expect.objectContaining({
               products: expect.arrayContaining([
                 expect.objectContaining({
-                  id: productOne.id,
+                  id: productOne!.id,
                 }),
                 expect.objectContaining({
-                  id: productTwo.id,
+                  id: productTwo!.id,
                 }),
               ]),
             })
@@ -341,7 +340,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             "ProductCollection with id: does-not-exist was not found"
           )
         })
@@ -350,7 +349,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           await service.upsertProductCollections([
             {
               id: collectionId,
-              product_ids: [productOne.id, productTwo.id],
+              product_ids: [productOne!.id, productTwo!.id],
             },
           ])
 
@@ -360,7 +359,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           await service.upsertProductCollections([
             {
               id: collectionId,
-              product_ids: [productTwo.id],
+              product_ids: [productTwo!.id],
             },
           ])
 
@@ -377,7 +376,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             expect.objectContaining({
               products: expect.arrayContaining([
                 expect.objectContaining({
-                  id: productTwo.id,
+                  id: productTwo!.id,
                 }),
               ]),
             })
@@ -388,7 +387,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           await service.upsertProductCollections([
             {
               id: collectionId,
-              product_ids: [productOne.id, productTwo.id],
+              product_ids: [productOne!.id, productTwo!.id],
             },
           ])
 
@@ -421,12 +420,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
               title: "New Collection",
             },
           ])
+          void res; // Preserve the original fixture call and its unused result.
 
           const [productCollection] = await service.listProductCollections({
             title: "New Collection",
           })
 
-          expect(productCollection.title).toEqual("New Collection")
+          expect(productCollection!.title).toEqual("New Collection")
         })
 
         it("should create collection with products successfully", async () => {
@@ -434,7 +434,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             {
               title: "New Collection with products",
               handle: "new-collection-with-products",
-              product_ids: [productOne.id, productTwo.id],
+              product_ids: [productOne!.id, productTwo!.id],
             },
           ])
 
@@ -454,10 +454,10 @@ moduleIntegrationTestRunner<IProductModuleService>({
               handle: "new-collection-with-products",
               products: [
                 expect.objectContaining({
-                  id: productOne.id,
+                  id: productOne!.id,
                 }),
                 expect.objectContaining({
-                  id: productTwo.id,
+                  id: productTwo!.id,
                 }),
               ],
             })

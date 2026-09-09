@@ -1,6 +1,5 @@
 import { ProductTypes } from "@medusajs/framework/types"
 import { ProductStatus, toHandle } from "@medusajs/framework/utils"
-import { ProductImage } from "@models"
 import faker from "faker"
 
 export const buildProductOnlyData = ({
@@ -34,7 +33,7 @@ export const buildProductOnlyData = ({
     discountable: discountable ?? true,
     thumbnail: thumbnail as string,
     status: status ?? ProductStatus.PUBLISHED,
-    images: (images ?? []) as ProductImage[],
+    images: (images ?? []),
   }
 }
 
@@ -64,7 +63,7 @@ export const buildProductAndRelationsData = ({
     discountable: discountable ?? true,
     thumbnail: thumbnail as string,
     status: status ?? ProductStatus.PUBLISHED,
-    images: (images ?? []) as ProductImage[],
+    images: (images ?? []),
     type_id,
     tag_ids,
     collection_id,
@@ -80,7 +79,7 @@ export const buildProductAndRelationsData = ({
         sku: faker.commerce.productName(),
         options: options
           ? options.reduce((acc, option) => {
-              acc[option.title] = option.values[0]
+              acc[option.title] = option.values[0]!
               return acc
             }, {} as Record<string, string>)
           : {

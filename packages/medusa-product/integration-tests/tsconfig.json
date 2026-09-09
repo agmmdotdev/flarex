@@ -1,0 +1,31 @@
+{
+  "extends": "../../../tools/medusa/tsconfig.fork.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@models": [
+        "../dist/models/index.d.ts"
+      ],
+      "@services": [
+        "../dist/services/index.d.ts"
+      ],
+      "@types": [
+        "../dist/types/index.d.ts"
+      ],
+      "@medusajs/test-utils": [
+        "../../medusa-adapter/test/support/runner-contract.ts"
+      ]
+    },
+    "exactOptionalPropertyTypes": true
+  },
+  "include": [
+    "**/*.ts"
+  ]
+}

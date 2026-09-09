@@ -1,13 +1,18 @@
-import { Product, ProductCategory, ProductCollection } from "@models"
+import type { ProductTestService } from "@medusajs/test-utils"
+type ProductCategoryService = ProductTestService["productCategoryService_"]
+type ProductService = ProductTestService["productService_"]
+import type { ProductTypes } from "@medusajs/framework/types"
+type ProductDTO = ProductTypes.ProductDTO
+
+import { beforeEach, describe, expect, it } from "vitest"
+import { ProductCategory } from "@models"
 import {
   buildProductOnlyData,
 } from "../__fixtures__/product"
 
 import {
   InferEntityType,
-  IProductModuleService,
-  ProductDTO,
-} from "@medusajs/framework/types"
+  } from "@medusajs/framework/types"
 import {
   kebabCase,
   Module,
@@ -16,9 +21,7 @@ import {
 } from "@medusajs/framework/utils"
 import { moduleIntegrationTestRunner } from "@medusajs/test-utils"
 import {
-  ProductCategoryService,
   ProductModuleService,
-  ProductService,
 } from "@services"
 import {
   categoriesData,
@@ -26,12 +29,8 @@ import {
   variantsData,
 } from "../__fixtures__/product/data"
 
-type Service = IProductModuleService & {
-  productService_: ProductService
-  productCategoryService_: ProductCategoryService
-}
 
-moduleIntegrationTestRunner<Service>({
+moduleIntegrationTestRunner({
   moduleName: Modules.PRODUCT,
   testSuite: ({ service: moduleService }) => {
     let service: ProductService
@@ -159,8 +158,8 @@ moduleIntegrationTestRunner<Service>({
     })
 
     describe("Product Service", () => {
-      let products!: InferEntityType<typeof Product>[]
-      let productOne: InferEntityType<typeof Product>
+      let products!: ProductTypes.ProductDTO[]
+      let productOne: ProductTypes.ProductDTO | undefined
       let categories!: InferEntityType<typeof ProductCategory>[]
 
       describe("retrieve", () => {
@@ -182,7 +181,7 @@ moduleIntegrationTestRunner<Service>({
             error = e
           }
 
-          expect(error.message).toEqual("product - id must be defined")
+          expect((error as Error).message).toEqual("product - id must be defined")
         })
 
         it("should throw an error when product with id does not exist", async () => {
@@ -194,17 +193,17 @@ moduleIntegrationTestRunner<Service>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             "Product with id: does-not-exist was not found"
           )
         })
 
         it("should return a product when product with an id exists", async () => {
-          const result = await service.retrieve(productOne.id)
+          const result = await service.retrieve(productOne!.id)
 
           expect(result).toEqual(
             expect.objectContaining({
-              id: productOne.id,
+              id: productOne!.id,
             })
           )
         })
@@ -245,7 +244,7 @@ moduleIntegrationTestRunner<Service>({
         it("should update a product and its allowed relations", async () => {
           const updateData = [
             {
-              id: productOne.id,
+              id: productOne!.id,
               title: "update test 1",
             },
           ]
@@ -254,12 +253,12 @@ moduleIntegrationTestRunner<Service>({
 
           expect(products.length).toEqual(1)
 
-          let result = await service.retrieve(productOne.id)
+          let result = await service.retrieve(productOne!.id)
           let serialized = JSON.parse(JSON.stringify(result))
 
           expect(serialized).toEqual(
             expect.objectContaining({
-              id: productOne.id,
+              id: productOne!.id,
               title: "update test 1",
             })
           )
@@ -269,7 +268,7 @@ moduleIntegrationTestRunner<Service>({
           const updateData = [
             {
               selector: {
-                id: productOne.id,
+                id: productOne!.id,
               },
               data: {
                 title: "update test 1",
@@ -281,12 +280,12 @@ moduleIntegrationTestRunner<Service>({
 
           expect(products.length).toEqual(1)
 
-          let result = await service.retrieve(productOne.id)
+          let result = await service.retrieve(productOne!.id)
           let serialized = JSON.parse(JSON.stringify(result))
 
           expect(serialized).toEqual(
             expect.objectContaining({
-              id: productOne.id,
+              id: productOne!.id,
               title: "update test 1",
             })
           )
@@ -294,7 +293,7 @@ moduleIntegrationTestRunner<Service>({
 
         it("should update a single product and its allowed relations", async () => {
           const updateData = {
-            id: productOne.id,
+            id: productOne!.id,
             title: "update test 1",
           }
 
@@ -302,17 +301,17 @@ moduleIntegrationTestRunner<Service>({
 
           expect(product).toEqual(
             expect.objectContaining({
-              id: productOne.id,
+              id: productOne!.id,
               title: "update test 1",
             })
           )
 
-          let result = await service.retrieve(productOne.id)
+          let result = await service.retrieve(productOne!.id)
           let serialized = JSON.parse(JSON.stringify(result))
 
           expect(serialized).toEqual(
             expect.objectContaining({
-              id: productOne.id,
+              id: productOne!.id,
               title: "update test 1",
             })
           )
@@ -322,7 +321,7 @@ moduleIntegrationTestRunner<Service>({
           let error
           const updateData = [
             {
-              id: productOne.id,
+              id: productOne!.id,
               title: "update test 1",
             },
             {
@@ -337,9 +336,9 @@ moduleIntegrationTestRunner<Service>({
             error = e
           }
 
-          expect(error.message).toEqual(`Product with id "" not found`)
+          expect((error as Error).message).toEqual(`Product with id "" not found`)
 
-          let result = await service.retrieve(productOne.id)
+          let result = await service.retrieve(productOne!.id)
 
           expect(result.title).not.toBe("update test 1")
         })
@@ -359,7 +358,7 @@ moduleIntegrationTestRunner<Service>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             `Product with id "does-not-exist" not found`
           )
         })
@@ -375,24 +374,25 @@ moduleIntegrationTestRunner<Service>({
           })
 
           const products = await service.create([data, data2])
+          void products; // Preserve the original fixture call and its unused result.
 
           const result = await service.list({
             q: "test",
           })
 
           expect(result).toHaveLength(1)
-          expect(result[0].title).toEqual("test product")
+          expect(result[0]!.title).toEqual("test product")
 
           const result2 = await service.list({
             q: "space",
           })
 
           expect(result2).toHaveLength(1)
-          expect(result2[0].title).toEqual("space X")
+          expect(result2[0]!.title).toEqual("space X")
         })
 
         describe("soft deleted", function () {
-          let product
+          let product: ProductTypes.ProductDTO | undefined
 
           beforeEach(async () => {
             const products = await createProductFixtures(
@@ -401,14 +401,14 @@ moduleIntegrationTestRunner<Service>({
             )
 
             product = products[1]
-            await service.softDelete([products[0].id])
+            await service.softDelete([products[0]!.id])
           })
 
           it("should list all products that are not deleted", async () => {
             const products = await service.list()
 
             expect(products).toHaveLength(2)
-            expect(products[0].id).toEqual(product.id)
+            expect(products[0]!.id).toEqual(product!.id)
           })
 
           it("should list all products including the deleted", async () => {
@@ -426,7 +426,7 @@ moduleIntegrationTestRunner<Service>({
           it("should filter by id and including relations", async () => {
             const productsResult = await service.list(
               {
-                id: products[0].id,
+                id: products[0]!.id,
               },
               {
                 relations: ["tags"],
@@ -438,15 +438,15 @@ moduleIntegrationTestRunner<Service>({
 
               expect(product).toEqual(
                 expect.objectContaining({
-                  id: productsData[index].id,
-                  title: productsData[index].title,
+                  id: productsData[index]!.id,
+                  title: productsData[index]!.title,
                 })
               )
 
               tags.forEach((tag, tagIndex) => {
                 expect(tag).toEqual(
                   expect.objectContaining({
-                    ...productsData[index].tags[tagIndex],
+                    ...productsData[index]!.tags[tagIndex],
                   })
                 )
               })
@@ -455,7 +455,7 @@ moduleIntegrationTestRunner<Service>({
 
           it("should filter by id and without relations", async () => {
             const productsResult = await service.list({
-              id: products[0].id,
+              id: products[0]!.id,
             })
 
             productsResult.forEach((product, index) => {
@@ -463,8 +463,8 @@ moduleIntegrationTestRunner<Service>({
 
               expect(product).toEqual(
                 expect.objectContaining({
-                  id: productsData[index].id,
-                  title: productsData[index].title,
+                  id: productsData[index]!.id,
+                  title: productsData[index]!.title,
                 })
               )
 
@@ -474,7 +474,7 @@ moduleIntegrationTestRunner<Service>({
         })
 
         describe("relation: categories", () => {
-          let workingProduct: InferEntityType<typeof Product>
+          let workingProduct: ProductTypes.ProductDTO
           let workingCategory: InferEntityType<typeof ProductCategory>
 
           beforeEach(async () => {
@@ -482,7 +482,7 @@ moduleIntegrationTestRunner<Service>({
             workingProduct = products.find((p) => p.id === "test-1")!
             categories = []
             for (const entry of categoriesData) {
-              categories.push((await categoryService.create([entry]))[0])
+              categories.push((await categoryService.create([entry]))[0]!)
             }
 
             workingCategory = categories.find((entry) => entry.id === "category-1")!
@@ -563,10 +563,10 @@ moduleIntegrationTestRunner<Service>({
         })
 
         describe("relation: collections", () => {
-          let workingProduct: InferEntityType<typeof Product>
-          let workingProductTwo: InferEntityType<typeof Product>
-          let workingCollection: InferEntityType<typeof ProductCollection>
-          let workingCollectionTwo: InferEntityType<typeof ProductCollection>
+          let workingProduct: ProductTypes.ProductDTO
+          let workingProductTwo: ProductTypes.ProductDTO
+          let workingCollection: ProductTypes.ProductCollectionDTO | undefined
+          let workingCollectionTwo: ProductTypes.ProductCollectionDTO | undefined
           const collectionData = [
             {
               id: "test-1",
@@ -593,15 +593,15 @@ moduleIntegrationTestRunner<Service>({
 
             products = await createProductFixtures(moduleService, [
               {
-                ...productsData[0],
+                ...productsData[0]!,
                 collection_id: workingCollection.id,
               },
               {
-                ...productsData[1],
+                ...productsData[1]!,
                 collection_id: workingCollectionTwo.id,
               },
               {
-                ...productsData[2],
+                ...productsData[2]!,
               },
             ])
 
@@ -613,7 +613,7 @@ moduleIntegrationTestRunner<Service>({
             const products = await moduleService.listProducts(
               {
                 id: workingProduct.id,
-                collection_id: workingCollection.id,
+                collection_id: workingCollection!.id,
               },
               {
                 select: [
@@ -632,11 +632,11 @@ moduleIntegrationTestRunner<Service>({
                 id: workingProduct.id,
                 title: workingProduct.title,
                 handle: "product-1",
-                collection_id: workingCollection.id,
+                collection_id: workingCollection!.id,
                 collection: {
                   handle: "col-1",
-                  id: workingCollection.id,
-                  title: workingCollection.title,
+                  id: workingCollection!.id,
+                  title: workingCollection!.title,
                 },
               },
             ])
@@ -645,7 +645,7 @@ moduleIntegrationTestRunner<Service>({
           it("should filter by collection when multiple collection ids are passed", async () => {
             const products = await moduleService.listProducts(
               {
-                collection_id: [workingCollection.id, workingCollectionTwo.id],
+                collection_id: [workingCollection!.id, workingCollectionTwo!.id],
               },
               {
                 select: [
@@ -664,22 +664,22 @@ moduleIntegrationTestRunner<Service>({
                 id: workingProduct.id,
                 title: workingProduct.title,
                 handle: "product-1",
-                collection_id: workingCollection.id,
+                collection_id: workingCollection!.id,
                 collection: {
                   handle: "col-1",
-                  id: workingCollection.id,
-                  title: workingCollection.title,
+                  id: workingCollection!.id,
+                  title: workingCollection!.title,
                 },
               },
               {
                 id: workingProductTwo.id,
                 title: workingProductTwo.title,
                 handle: "product",
-                collection_id: workingCollectionTwo.id,
+                collection_id: workingCollectionTwo!.id,
                 collection: {
                   handle: "col-2",
-                  id: workingCollectionTwo.id,
-                  title: workingCollectionTwo.title,
+                  id: workingCollectionTwo!.id,
+                  title: workingCollectionTwo!.title,
                 },
               },
             ])
@@ -717,7 +717,7 @@ moduleIntegrationTestRunner<Service>({
           it("should filter by id and including relations", async () => {
             const productsResult = await service.list(
               {
-                id: products[0].id,
+                id: products[0]!.id,
               },
               {
                 relations: ["variants"],
@@ -729,8 +729,8 @@ moduleIntegrationTestRunner<Service>({
 
               expect(product).toEqual(
                 expect.objectContaining({
-                  id: productsData[index].id,
-                  title: productsData[index].title,
+                  id: productsData[index]!.id,
+                  title: productsData[index]!.title,
                 })
               )
 
@@ -740,12 +740,13 @@ moduleIntegrationTestRunner<Service>({
                 )[variantIndex]
 
                 const variantProduct = variant.product
+          void variantProduct; // Preserve the original fixture call and its unused result.
 
                 expect(variant).toEqual(
                   expect.objectContaining({
-                    id: expectedVariant.id,
-                    sku: expectedVariant.sku,
-                    title: expectedVariant.title,
+                    id: expectedVariant!.id,
+                    sku: expectedVariant!.sku,
+                    title: expectedVariant!.title,
                   })
                 )
               })
@@ -774,7 +775,7 @@ moduleIntegrationTestRunner<Service>({
           )
 
           expect(deleteProducts).toHaveLength(1)
-          expect(deleteProducts[0].deleted_at).not.toBeNull()
+          expect(deleteProducts[0]!.deleted_at).not.toBeNull()
         })
       })
 
@@ -784,11 +785,11 @@ moduleIntegrationTestRunner<Service>({
 
           const products = await service.create([data])
           const product = products[0]
-          await service.softDelete([product.id])
-          const [restoreProducts] = await service.restore([product.id])
+          await service.softDelete([product!.id])
+          const [restoreProducts] = await service.restore([product!.id])
 
           expect(restoreProducts).toHaveLength(1)
-          expect(restoreProducts[0].deleted_at).toBeNull()
+          expect(restoreProducts[0]!.deleted_at).toBeNull()
         })
       })
     })
@@ -796,10 +797,10 @@ moduleIntegrationTestRunner<Service>({
 })
 
 async function createProductFixtures(
-  moduleService: IProductModuleService,
-  data: typeof productsData
-): Promise<InferEntityType<typeof Product>[]> {
-  const output: InferEntityType<typeof Product>[] = []
+  moduleService: ProductTestService,
+  data: ((typeof productsData)[number] & { collection_id?: string })[]
+): Promise<ProductTypes.ProductDTO[]> {
+  const output: ProductTypes.ProductDTO[] = []
 
   for (const entry of data) {
     const tags = entry.tags?.length
@@ -813,7 +814,7 @@ async function createProductFixtures(
       tag_ids: tags.map((tag) => tag.id),
       ...("collection_id" in entry ? { collection_id: entry.collection_id } : {}),
     })
-    output.push(product as InferEntityType<typeof Product>)
+    output.push(product )
   }
 
   return output
@@ -827,6 +828,7 @@ function relationItems<T>(
         getItems?(initialized?: boolean): T[]
       }
     | undefined
+    | null
 ): T[] {
   if (Array.isArray(relation)) {
     return relation

@@ -1,11 +1,11 @@
-import { ICurrencyModuleService } from "@medusajs/framework/types"
+import { describe, expect, it } from "vitest"
 import { Module, Modules } from "@medusajs/framework/utils"
 import { CurrencyModuleService } from "@services"
 import { moduleIntegrationTestRunner } from "@medusajs/test-utils"
 
-jest.setTimeout(100000)
+// The owning Vitest configuration sets testTimeout to 100000 ms.
 
-moduleIntegrationTestRunner<ICurrencyModuleService>({
+moduleIntegrationTestRunner({
   moduleName: Modules.CURRENCY,
   testSuite: ({ service }) => {
     describe("Currency Module Service", () => {
@@ -17,7 +17,7 @@ moduleIntegrationTestRunner<ICurrencyModuleService>({
         expect(Object.keys(linkable)).toEqual(["currency"])
 
         Object.keys(linkable).forEach((key) => {
-          delete linkable[key].toJSON
+          delete (linkable[key as keyof typeof linkable] as Partial<(typeof linkable)["currency"]>).toJSON
         })
 
         expect(linkable).toEqual({
@@ -188,7 +188,7 @@ moduleIntegrationTestRunner<ICurrencyModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             "Currency with code: does-not-exist was not found"
           )
         })
@@ -202,7 +202,7 @@ moduleIntegrationTestRunner<ICurrencyModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual("currency - code must be defined")
+          expect((error as Error).message).toEqual("currency - code must be defined")
         })
 
         it("should return currency based on config select param", async () => {

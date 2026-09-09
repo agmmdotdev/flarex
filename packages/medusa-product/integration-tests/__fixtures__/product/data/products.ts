@@ -44,12 +44,12 @@ export const variantsData = [
     id: "test-1",
     title: "variant title",
     sku: "sku 1",
-    product: { id: productsData[0].id },
+    product: { id: productsData[0]!.id },
   },
   {
     id: "test-2",
     title: "variant title",
     sku: "sku 2",
-    product: { id: productsData[1].id },
+    product: { id: productsData[1]!.id },
   },
 ]

@@ -1,16 +1,16 @@
-import { IProductModuleService, ProductTypes } from "@medusajs/framework/types"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { ProductTypes } from "@medusajs/framework/types"
 import { Modules, ProductStatus } from "@medusajs/framework/utils"
 import { moduleIntegrationTestRunner } from "@medusajs/test-utils"
-import { vi } from "vitest"
-
-moduleIntegrationTestRunner<IProductModuleService>({
+moduleIntegrationTestRunner({
   moduleName: Modules.PRODUCT,
   testSuite: ({ service }) => {
     describe("ProductModuleService product tags", () => {
-      let tagOne: ProductTypes.ProductTagDTO
-      let tagTwo: ProductTypes.ProductTagDTO
-      let productOne: ProductTypes.ProductDTO
-      let productTwo: ProductTypes.ProductDTO
+      let tagOne: ProductTypes.ProductTagDTO | undefined
+      let tagTwo: ProductTypes.ProductTagDTO | undefined
+      let productOne: ProductTypes.ProductDTO | undefined
+      let productTwo: ProductTypes.ProductDTO | undefined
+          void productTwo; // Preserve the original fixture call and its unused result.
 
       beforeEach(async () => {
         ;[tagOne, tagTwo] = await service.createProductTags([
@@ -29,14 +29,14 @@ moduleIntegrationTestRunner<IProductModuleService>({
             title: "product 1",
             handle: "product-1",
             status: ProductStatus.PUBLISHED,
-            tags: [{ id: tagOne.id }],
+            tags: [{ id: tagOne!.id }],
           },
           {
             id: "product-2",
             title: "product 2",
             handle: "product-2",
             status: ProductStatus.PUBLISHED,
-            tags: [{ id: tagTwo.id }],
+            tags: [{ id: tagTwo!.id }],
           },
         ])
       })
@@ -44,12 +44,12 @@ moduleIntegrationTestRunner<IProductModuleService>({
       describe("listTags", () => {
         it("should return tags and count queried by ID", async () => {
           const tags = await service.listProductTags({
-            id: tagOne.id,
+            id: tagOne!.id,
           })
 
           expect(tags).toEqual([
             expect.objectContaining({
-              id: tagOne.id,
+              id: tagOne!.id,
             }),
           ])
         })
@@ -57,7 +57,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return tags and count based on the options and filter parameter", async () => {
           let tags = await service.listProductTags(
             {
-              id: tagOne.id,
+              id: tagOne!.id,
             },
             {
               take: 1,
@@ -66,7 +66,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(tags).toEqual([
             expect.objectContaining({
-              id: tagOne.id,
+              id: tagOne!.id,
             }),
           ])
 
@@ -74,7 +74,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(tags).toEqual([
             expect.objectContaining({
-              id: tagTwo.id,
+              id: tagTwo!.id,
             }),
           ])
         })
@@ -82,7 +82,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return only requested fields and relations for tags", async () => {
           const tags = await service.listProductTags(
             {
-              id: tagOne.id,
+              id: tagOne!.id,
             },
             {
               select: ["value", "products.id"],
@@ -93,11 +93,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(tags).toEqual([
             {
-              id: tagOne.id,
-              value: tagOne.value,
+              id: tagOne!.id,
+              value: tagOne!.value,
               products: [
                 {
-                  id: productOne.id,
+                  id: productOne!.id,
                 },
               ],
             },
@@ -107,7 +107,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should set foreign key to null when relation is select and is null", async () => {
           const tags = await service.listProductTags(
             {
-              id: tagOne.id,
+              id: tagOne!.id,
             },
             {
               select: ["value", "products.id"],
@@ -118,13 +118,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(tags).toEqual([
             {
-              id: tagOne.id,
-              value: tagOne.value,
+              id: tagOne!.id,
+              value: tagOne!.value,
               products: [
                 {
                   collection: null,
                   collection_id: null,
-                  id: productOne.id,
+                  id: productOne!.id,
                 },
               ],
             },
@@ -135,13 +135,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
       describe("listAndCountTags", () => {
         it("should return tags and count queried by ID", async () => {
           const [tags, count] = await service.listAndCountProductTags({
-            id: tagOne.id,
+            id: tagOne!.id,
           })
 
           expect(count).toEqual(1)
           expect(tags).toEqual([
             expect.objectContaining({
-              id: tagOne.id,
+              id: tagOne!.id,
             }),
           ])
         })
@@ -149,7 +149,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return tags and count based on the options and filter parameter", async () => {
           let [tags, count] = await service.listAndCountProductTags(
             {
-              id: tagOne.id,
+              id: tagOne!.id,
             },
             {
               take: 1,
@@ -159,7 +159,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(count).toEqual(1)
           expect(tags).toEqual([
             expect.objectContaining({
-              id: tagOne.id,
+              id: tagOne!.id,
             }),
           ])
           ;[tags, count] = await service.listAndCountProductTags(
@@ -176,7 +176,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(count).toEqual(2)
           expect(tags).toEqual([
             expect.objectContaining({
-              id: tagTwo.id,
+              id: tagTwo!.id,
             }),
           ])
         })
@@ -184,7 +184,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should return only requested fields and relations for tags", async () => {
           const [tags, count] = await service.listAndCountProductTags(
             {
-              id: tagOne.id,
+              id: tagOne!.id,
             },
             {
               select: ["value", "products.id"],
@@ -196,11 +196,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(count).toEqual(1)
           expect(tags).toEqual([
             {
-              id: tagOne.id,
-              value: tagOne.value,
+              id: tagOne!.id,
+              value: tagOne!.value,
               products: [
                 {
-                  id: productOne.id,
+                  id: productOne!.id,
                 },
               ],
             },
@@ -210,25 +210,25 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
       describe("retrieveTag", () => {
         it("should return the requested tag", async () => {
-          const tag = await service.retrieveProductTag(tagOne.id)
+          const tag = await service.retrieveProductTag(tagOne!.id)
 
           expect(tag).toEqual(
             expect.objectContaining({
-              id: tagOne.id,
+              id: tagOne!.id,
             })
           )
         })
 
         it("should return requested attributes when requested through config", async () => {
-          const tag = await service.retrieveProductTag(tagOne.id, {
+          const tag = await service.retrieveProductTag(tagOne!.id, {
             select: ["id", "value", "products.title"],
             relations: ["products"],
           })
 
           expect(tag).toEqual(
             expect.objectContaining({
-              id: tagOne.id,
-              value: tagOne.value,
+              id: tagOne!.id,
+              value: tagOne!.value,
               products: [
                 expect.objectContaining({
                   title: "product 1",
@@ -247,7 +247,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             "ProductTag with id: does-not-exist was not found"
           )
         })
@@ -292,7 +292,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             error = e
           }
 
-          expect(error.message).toEqual(
+          expect((error as Error).message).toEqual(
             "ProductTag with id: does-not-exist was not found"
           )
         })
@@ -355,7 +355,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
           )
 
           const newTag = productTags.find((t) => t.value === "new")!
+          void newTag; // Preserve the original fixture call and its unused result.
           const updatedTag = productTags.find((t) => t.value === "updated")!
+          void updatedTag; // Preserve the original fixture call and its unused result.
 
         })
       })

@@ -1,30 +1,27 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
-  IProductModuleService,
   ProductCategoryDTO,
   ProductTagDTO,
 } from "@medusajs/framework/types"
 import { kebabCase, Modules, ProductStatus } from "@medusajs/framework/utils"
-import {
-  Product,
-  ProductCategory,
-  ProductCollection,
-  ProductType,
-} from "@models"
+import type { ProductTypes } from "@medusajs/framework/types"
+type Product = ProductTypes.ProductDTO
+type ProductCategory = ProductTypes.ProductCategoryDTO
+type ProductCollection = ProductTypes.ProductCollectionDTO
+type ProductType = ProductTypes.ProductTypeDTO
 import { setTimeout } from "timers/promises"
-import { vi } from "vitest"
-
 import { moduleIntegrationTestRunner } from "@medusajs/test-utils"
 import { UpdateProductInput } from "@types"
 import { buildProductAndRelationsData } from "../../__fixtures__/product"
 
-moduleIntegrationTestRunner<IProductModuleService>({
+moduleIntegrationTestRunner({
   moduleName: Modules.PRODUCT,
   // dbName: "product_update_performance",
   // debug: true,
   testSuite: ({ service }) => {
     describe("ProductModuleService products", function () {
-      let productCollectionOne: ProductCollection
-      let productCollectionTwo: ProductCollection
+      let productCollectionOne: ProductCollection | undefined
+      let productCollectionTwo: ProductCollection | undefined
 
       const productCollectionsData = [
         {
@@ -42,12 +39,12 @@ moduleIntegrationTestRunner<IProductModuleService>({
       })
 
       describe("update", function () {
-        let productOne: Product
-        let productTwo: Product
-        let productCategoryOne: ProductCategory
-        let productCategoryTwo: ProductCategory
-        let productTypeOne: ProductType
-        let productTypeTwo: ProductType
+        let productOne: Product | undefined
+        let productTwo: Product | undefined
+        let productCategoryOne: ProductCategory | undefined
+        let productCategoryTwo: ProductCategory | undefined
+        let productTypeOne: ProductType | undefined
+        let productTypeTwo: ProductType | undefined
         let images = [{ url: "image-1" }]
 
         const productCategoriesData = [
@@ -129,9 +126,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
           productTwo = await service.createProducts({
             title: "product 2",
             status: ProductStatus.PUBLISHED,
-            collection_id: productCollectionOne.id,
-            category_ids: [productCategoryOne.id],
-            tag_ids: [tags[0].id],
+            collection_id: productCollectionOne!.id,
+            category_ids: [productCategoryOne!.id],
+            tag_ids: [tags[0]!.id],
             options: [
               {
                 title: "size",
@@ -193,8 +190,8 @@ moduleIntegrationTestRunner<IProductModuleService>({
                     colorValues[c]
                   }-${Date.now()}-${Math.random()}`,
                   options: {
-                    size: sizeValues[s],
-                    color: colorValues[c],
+                    size: sizeValues[s]!,
+                    color: colorValues[c]!,
                   },
                 })
               }
@@ -245,7 +242,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           // Create products in batches to avoid memory issues
           const BATCH_SIZE = 10
-          const createdProducts: any[] = []
+          type MutableVariant = Omit<ProductTypes.ProductVariantDTO, "options"> & { options?: ProductTypes.ProductOptionValueDTO[] | Record<string, string> | null }
+          type MutableProduct = Omit<ProductTypes.ProductDTO, "variants"> & { variants?: MutableVariant[] | null }
+          const createdProducts: MutableProduct[] = []
 
           for (let i = 0; i < PRODUCT_COUNT; i += BATCH_SIZE) {
             const batch = productsData.slice(i, i + BATCH_SIZE)
@@ -272,7 +271,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           // Retrieve a sample product to verify structure
           const sampleProduct = await service.retrieveProduct(
-            createdProducts[0].id,
+            createdProducts[0]!.id,
             {
               relations: ["variants", "images", "options", "options.values"],
             }
@@ -292,25 +291,25 @@ moduleIntegrationTestRunner<IProductModuleService>({
           console.log(`IT IS TIME TO CLEAR THE LOGS`)
           await setTimeout(2000)
 
-          const productToUpdateId = createdProducts[0].id
-          createdProducts[0].variants[0].title = "updated variant 1"
+          const productToUpdateId = createdProducts[0]!.id
+          createdProducts[0]!.variants![0]!.title = "updated variant 1"
 
-          function formatVariantOptions(variant) {
-            const result = {}
-            for (const option of variant.options) {
-              result[option.option.title] = option.value
+          function formatVariantOptions(variant: MutableVariant) {
+            const result: Record<string, string> = {}
+            for (const option of variant.options as ProductTypes.ProductOptionValueDTO[]) {
+              result[option.option!.title] = option.value
             }
             return result
           }
 
-          createdProducts[0].variants.forEach((variant) => {
+          createdProducts[0]!.variants!.forEach((variant) => {
             variant.options = formatVariantOptions(variant)
           })
 
           const now = performance.now()
           await service.updateProducts(productToUpdateId, {
             title: "updated title",
-            variants: createdProducts[0].variants,
+            variants: createdProducts[0]!.variants as ProductTypes.UpdateProductVariantDTO[],
           })
           const end = performance.now()
           console.log(`Update time: ${end - now}ms`)
@@ -320,37 +319,37 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should update multiple products", async () => {
           await service.upsertProducts([
-            { id: productOne.id, title: "updated title 1" },
-            { id: productTwo.id, title: "updated title 2" },
+            { id: productOne!.id, title: "updated title 1" },
+            { id: productTwo!.id, title: "updated title 2" },
           ])
 
           const products = await service.listProducts(
-            { id: [productOne.id, productTwo.id] },
+            { id: [productOne!.id, productTwo!.id] },
             { relations: ["*"] }
           )
 
           expect(products).toHaveLength(2)
-          expect(products[0].title).toEqual("updated title 1")
-          expect(products[1].title).toEqual("updated title 2")
+          expect(products[0]!.title).toEqual("updated title 1")
+          expect(products[1]!.title).toEqual("updated title 2")
         })
 
         it("should update a product and upsert relations that are not created yet", async () => {
           const tags = await service.createProductTags([{ value: "tag-1" }])
           const data = buildProductAndRelationsData({
             images,
-            thumbnail: images[0].url,
+            thumbnail: images[0]!.url,
             options: [
               {
                 title: "opt-title",
                 values: ["val-1", "val-2"],
               },
             ],
-            tag_ids: [tags[0].id],
+            tag_ids: [tags[0]!.id],
           })
 
-          const variantTitle = data.variants[0].title
+          const variantTitle = data.variants[0]!.title
 
-          const productBefore = (await service.retrieveProduct(productOne.id, {
+          const productBefore = (await service.retrieveProduct(productOne!.id, {
             relations: [
               "images",
               "variants",
@@ -365,7 +364,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           productBefore.title = "updated title"
           productBefore.variants = [
             {
-              ...productBefore.variants[0]!,
+              ...productBefore.variants![0]!,
               options: { "opt-title": "val-2" },
             },
             ...data.variants,
@@ -373,7 +372,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           productBefore.options = data.options
           productBefore.images = data.images
           productBefore.thumbnail = data.thumbnail
-          productBefore.tag_ids = data.tag_ids
+          productBefore.tag_ids = data.tag_ids!
           // Update the weight/length/height/width to ensure we are compensating the type mismatch with the DB
           productBefore.weight = 101
           productBefore.length = 201
@@ -411,7 +410,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
               subtitle: productBefore.subtitle,
               is_giftcard: productBefore.is_giftcard,
               discountable: productBefore.discountable,
-              thumbnail: images[0].url,
+              thumbnail: images[0]!.url,
               status: productBefore.status,
               // TODO: Notice how the weight/length/height/width are strings, not respecting the ProductDTO typings
               weight: "101",
@@ -421,17 +420,17 @@ moduleIntegrationTestRunner<IProductModuleService>({
               images: expect.arrayContaining([
                 expect.objectContaining({
                   id: expect.any(String),
-                  url: images[0].url,
+                  url: images[0]!.url,
                 }),
               ]),
               options: expect.arrayContaining([
                 expect.objectContaining({
                   id: expect.any(String),
-                  title: productBefore.options?.[0].title,
+                  title: productBefore.options?.[0]!.title,
                   values: expect.arrayContaining([
                     expect.objectContaining({
                       id: expect.any(String),
-                      value: data.options[0].values[0],
+                      value: data.options[0]!.values[0],
                     }),
                   ]),
                 }),
@@ -439,7 +438,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
               tags: expect.arrayContaining([
                 expect.objectContaining({
                   id: expect.any(String),
-                  value: tags[0].value,
+                  value: tags[0]!.value,
                 }),
               ]),
               variants: expect.arrayContaining([
@@ -453,7 +452,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
                   options: expect.arrayContaining([
                     expect.objectContaining({
                       id: expect.any(String),
-                      value: data.options[0].values[0],
+                      value: data.options[0]!.values[0],
                     }),
                   ]),
                 }),
@@ -484,7 +483,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             },
           ])
 
-          product = await service.retrieveProduct(product.id, {
+          product = await service.retrieveProduct(product!.id, {
             relations: [
               "options",
               "options.values",
@@ -624,7 +623,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         })
 
         it("should preserve option and value identity on update", async () => {
-          const productBefore = await service.retrieveProduct(productTwo.id, {
+          const productBefore = await service.retrieveProduct(productTwo!.id, {
             relations: [
               "images",
               "variants",
@@ -681,8 +680,8 @@ moduleIntegrationTestRunner<IProductModuleService>({
                 title: beforeOption.title,
                 values: expect.arrayContaining([
                   expect.objectContaining({
-                    id: beforeOption.values[0].id,
-                    value: beforeOption.values[0].value,
+                    id: beforeOption.values[0]!.id,
+                    value: beforeOption.values[0]!.value,
                   }),
                 ]),
               }),
@@ -709,14 +708,14 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should add relationships to a product", async () => {
           const updateData = {
-            id: productOne.id,
+            id: productOne!.id,
             categories: [
               {
-                id: productCategoryOne.id,
+                id: productCategoryOne!.id,
               },
             ],
-            collection_id: productCollectionOne.id,
-            type_id: productTypeOne.id,
+            collection_id: productCollectionOne!.id,
+            type_id: productTypeOne!.id,
           }
 
           await service.upsertProducts([updateData])
@@ -727,17 +726,17 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(product).toEqual(
             expect.objectContaining({
-              id: productOne.id,
+              id: productOne!.id,
               categories: [
                 expect.objectContaining({
-                  id: productCategoryOne.id,
+                  id: productCategoryOne!.id,
                 }),
               ],
               collection: expect.objectContaining({
-                id: productCollectionOne.id,
+                id: productCollectionOne!.id,
               }),
               type: expect.objectContaining({
-                id: productTypeOne.id,
+                id: productTypeOne!.id,
               }),
             })
           )
@@ -745,8 +744,8 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should upsert a product type when type object is passed", async () => {
           let updateData = {
-            id: productTwo.id,
-            type_id: productTypeOne.id,
+            id: productTwo!.id,
+            type_id: productTypeOne!.id,
           }
 
           await service.upsertProducts([updateData])
@@ -757,9 +756,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(product).toEqual(
             expect.objectContaining({
-              id: productTwo.id,
+              id: productTwo!.id,
               type: expect.objectContaining({
-                id: productTypeOne.id,
+                id: productTypeOne!.id,
               }),
             })
           )
@@ -774,14 +773,14 @@ moduleIntegrationTestRunner<IProductModuleService>({
           await service.createProductTags(newTagData)
 
           const updateData = {
-            id: productTwo.id,
+            id: productTwo!.id,
             categories: [
               {
-                id: productCategoryTwo.id,
+                id: productCategoryTwo!.id,
               },
             ],
-            collection_id: productCollectionTwo.id,
-            type_id: productTypeTwo.id,
+            collection_id: productCollectionTwo!.id,
+            type_id: productTypeTwo!.id,
             tags: [{ id: newTagData.id }],
           }
 
@@ -793,14 +792,14 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(product).toEqual(
             expect.objectContaining({
-              id: productTwo.id,
+              id: productTwo!.id,
               categories: [
                 expect.objectContaining({
-                  id: productCategoryTwo.id,
+                  id: productCategoryTwo!.id,
                 }),
               ],
               collection: expect.objectContaining({
-                id: productCollectionTwo.id,
+                id: productCollectionTwo!.id,
               }),
               tags: [
                 expect.objectContaining({
@@ -809,7 +808,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
                 }),
               ],
               type: expect.objectContaining({
-                id: productTypeTwo.id,
+                id: productTypeTwo!.id,
               }),
             })
           )
@@ -817,7 +816,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should remove relationships of a product", async () => {
           const updateData = {
-            id: productTwo.id,
+            id: productTwo!.id,
             categories: [],
             collection_id: null,
             type_id: null,
@@ -832,7 +831,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           expect(product).toEqual(
             expect.objectContaining({
-              id: productTwo.id,
+              id: productTwo!.id,
               categories: [],
               tags: [],
               collection: null,
@@ -846,7 +845,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           try {
             await service.updateProducts("does-not-exist", { title: "test" })
           } catch (e) {
-            error = e.message
+            error = (e as Error).message
           }
 
           expect(error).toEqual(`Product with id: does-not-exist was not found`)
@@ -854,11 +853,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should update, create and delete variants", async () => {
           const updateData = {
-            id: productTwo.id,
+            id: productTwo!.id,
             // Note: VariantThree is already assigned to productTwo, that should be deleted
             variants: [
               {
-                id: productTwo.variants[0].id,
+                id: productTwo!.variants[0]!.id,
                 title: "updated-variant",
               },
               {
@@ -879,7 +878,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
               id: expect.any(String),
               variants: expect.arrayContaining([
                 expect.objectContaining({
-                  id: productTwo.variants[0].id,
+                  id: productTwo!.variants[0]!.id,
                   title: "updated-variant",
                 }),
                 expect.objectContaining({
@@ -892,11 +891,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
         })
 
         it("should do a partial update on the options of a variant successfully", async () => {
-          const variantToUpdate = productTwo.variants.find(
+          const variantToUpdate = productTwo!.variants.find(
             (variant) => variant.title === "variant 3"
           )!
 
-          await service.updateProducts(productTwo.id, {
+          await service.updateProducts(productTwo!.id, {
             variants: [
               {
                 id: variantToUpdate.id,
@@ -905,11 +904,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
             ],
           })
 
-          const fetchedProduct = await service.retrieveProduct(productTwo.id, {
+          const fetchedProduct = await service.retrieveProduct(productTwo!.id, {
             relations: ["variants", "variants.options"],
           })
 
-          expect(fetchedProduct.variants[0].options).toEqual(
+          expect(fetchedProduct.variants[0]!.options).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
                 value: "small",
@@ -923,7 +922,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should create a variant with id that was passed if it does not exist", async () => {
           const updateData = {
-            id: productTwo.id,
+            id: productTwo!.id,
             // Note: VariantThree is already assigned to productTwo, that should be deleted
             variants: [
               {
@@ -958,14 +957,14 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should simultaneously update options and variants", async () => {
           const updateData = {
-            id: productTwo.id,
+            id: productTwo!.id,
             options: [{ title: "material", values: ["cotton", "silk"] }],
             variants: [{ title: "variant 1", options: { material: "cotton" } }],
           }
 
           await service.upsertProducts([updateData])
 
-          const product = await service.retrieveProduct(productTwo.id, {
+          const product = await service.retrieveProduct(productTwo!.id, {
             relations: [
               "options",
               "options.values",
@@ -975,8 +974,8 @@ moduleIntegrationTestRunner<IProductModuleService>({
           })
 
           expect(product.options).toHaveLength(1)
-          expect(product.options[0].title).toEqual("material")
-          expect(product.options[0].values).toEqual(
+          expect(product.options[0]!.title).toEqual("material")
+          expect(product.options[0]!.values).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
                 value: "cotton",
@@ -988,7 +987,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           )
 
           expect(product.variants).toHaveLength(1)
-          expect(product.variants[0].options).toEqual(
+          expect(product.variants[0]!.options).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
                 value: "cotton",
@@ -999,7 +998,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should throw an error when some tag id does not exist", async () => {
           const error = await service
-            .updateProducts(productOne.id, {
+            .updateProducts(productOne!.id, {
               tag_ids: ["does-not-exist"],
             })
             .catch((e) => e)
@@ -1011,7 +1010,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should throw an error when some category id does not exist", async () => {
           const error = await service
-            .updateProducts(productOne.id, {
+            .updateProducts(productOne!.id, {
               category_ids: ["does-not-exist"],
             })
             .catch((e) => e)
@@ -1023,7 +1022,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should throw an error when collection id does not exist", async () => {
           const error = await service
-            .updateProducts(productOne.id, {
+            .updateProducts(productOne!.id, {
               collection_id: "does-not-exist",
             })
             .catch((e) => e)
@@ -1035,7 +1034,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should throw an error when type id does not exist", async () => {
           const error = await service
-            .updateProducts(productOne.id, {
+            .updateProducts(productOne!.id, {
               type_id: "does-not-exist",
             })
             .catch((e) => e)
@@ -1047,7 +1046,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should throw if two variants have the same options combination", async () => {
           const error = await service
-            .updateProducts(productTwo.id, {
+            .updateProducts(productTwo!.id, {
               variants: [
                 {
                   title: "variant 1",
@@ -1068,7 +1067,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should throw if a variant doesn't have all options set", async () => {
           const error = await service
-            .updateProducts(productTwo.id, {
+            .updateProducts(productTwo!.id, {
               variants: [
                 {
                   title: "variant 1",
@@ -1085,7 +1084,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should throw if a variant uses a non-existing option", async () => {
           const error = await service
-            .updateProducts(productTwo.id, {
+            .updateProducts(productTwo!.id, {
               variants: [
                 {
                   title: "variant 1",
@@ -1110,14 +1109,14 @@ moduleIntegrationTestRunner<IProductModuleService>({
           const tags = await service.createProductTags([{ value: "tag-1" }])
           const data = buildProductAndRelationsData({
             images,
-            thumbnail: images[0].url,
-            tag_ids: [tags[0].id],
+            thumbnail: images[0]!.url,
+            tag_ids: [tags[0]!.id],
           })
 
           const productsCreated = await service.createProducts([data])
 
           const products = await service.listProducts(
-            { id: productsCreated[0].id },
+            { id: productsCreated[0]!.id },
             {
               relations: [
                 "images",
@@ -1132,11 +1131,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
           )
 
           expect(products).toHaveLength(1)
-          expect(products[0].images).toHaveLength(1)
-          expect(products[0].options).toHaveLength(1)
-          expect(products[0].tags).toHaveLength(1)
-          expect(products[0].categories).toHaveLength(0)
-          expect(products[0].variants).toHaveLength(1)
+          expect(products[0]!.images).toHaveLength(1)
+          expect(products[0]!.options).toHaveLength(1)
+          expect(products[0]!.tags).toHaveLength(1)
+          expect(products[0]!.categories).toHaveLength(0)
+          expect(products[0]!.variants).toHaveLength(1)
 
           expect(products[0]).toEqual(
             expect.objectContaining({
@@ -1147,22 +1146,22 @@ moduleIntegrationTestRunner<IProductModuleService>({
               subtitle: data.subtitle,
               is_giftcard: data.is_giftcard,
               discountable: data.discountable,
-              thumbnail: images[0].url,
+              thumbnail: images[0]!.url,
               status: data.status,
               images: expect.arrayContaining([
                 expect.objectContaining({
                   id: expect.any(String),
-                  url: images[0].url,
+                  url: images[0]!.url,
                 }),
               ]),
               options: expect.arrayContaining([
                 expect.objectContaining({
                   id: expect.any(String),
-                  title: data.options[0].title,
+                  title: data.options[0]!.title,
                   values: expect.arrayContaining([
                     expect.objectContaining({
                       id: expect.any(String),
-                      value: data.options[0].values[0],
+                      value: data.options[0]!.values[0],
                     }),
                   ]),
                 }),
@@ -1170,21 +1169,21 @@ moduleIntegrationTestRunner<IProductModuleService>({
               tags: expect.arrayContaining([
                 expect.objectContaining({
                   id: expect.any(String),
-                  value: tags[0].value,
+                  value: tags[0]!.value,
                 }),
               ]),
               variants: expect.arrayContaining([
                 expect.objectContaining({
                   id: expect.any(String),
-                  title: data.variants[0].title,
-                  sku: data.variants[0].sku,
+                  title: data.variants[0]!.title,
+                  sku: data.variants[0]!.sku,
                   allow_backorder: false,
                   manage_inventory: true,
                   variant_rank: 0,
                   options: expect.arrayContaining([
                     expect.objectContaining({
                       id: expect.any(String),
-                      value: data.options[0].values[0],
+                      value: data.options[0]!.values[0],
                     }),
                   ]),
                 }),
@@ -1223,7 +1222,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should soft delete a product and its cascaded relations", async () => {
           const data = buildProductAndRelationsData({
             images,
-            thumbnail: images[0].url,
+            thumbnail: images[0]!.url,
             options: [
               { title: "size", values: ["large", "small"] },
               { title: "color", values: ["red", "blue"] },
@@ -1307,10 +1306,10 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           const products = await service.createProducts([data])
 
-          await service.softDeleteProducts([products[0].id])
+          await service.softDeleteProducts([products[0]!.id])
 
           const deletedProducts = await service.listProducts(
-            { id: products[0].id },
+            { id: products[0]!.id },
             {
               relations: [
                 "variants",
@@ -1323,13 +1322,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
           )
 
           expect(deletedProducts).toHaveLength(1)
-          expect(deletedProducts[0].deleted_at).not.toBeNull()
+          expect(deletedProducts[0]!.deleted_at).not.toBeNull()
 
-          for (const option of deletedProducts[0].options) {
+          for (const option of deletedProducts[0]!.options) {
             expect(option.deleted_at).not.toBeNull()
           }
 
-          const productOptionsValues = deletedProducts[0].options
+          const productOptionsValues = deletedProducts[0]!.options
             .map((o) => o.values)
             .flat()
 
@@ -1337,11 +1336,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
             expect(optionValue.deleted_at).not.toBeNull()
           }
 
-          for (const variant of deletedProducts[0].variants) {
+          for (const variant of deletedProducts[0]!.variants) {
             expect(variant.deleted_at).not.toBeNull()
           }
 
-          const variantsOptions = deletedProducts[0].options
+          const variantsOptions = deletedProducts[0]!.options
             .map((o) => o.values)
             .flat()
 
@@ -1353,12 +1352,12 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should retrieve soft-deleted products if filtered on deleted_at", async () => {
           const data = buildProductAndRelationsData({
             images,
-            thumbnail: images[0].url,
+            thumbnail: images[0]!.url,
           })
 
           const products = await service.createProducts([data])
 
-          await service.softDeleteProducts([products[0].id])
+          await service.softDeleteProducts([products[0]!.id])
 
           const softDeleted = await service.listProducts(
             {
@@ -1379,34 +1378,34 @@ moduleIntegrationTestRunner<IProductModuleService>({
         it("should restore a soft deleted product and its cascaded relations", async () => {
           const data = buildProductAndRelationsData({
             images,
-            thumbnail: images[0].url,
+            thumbnail: images[0]!.url,
           })
 
           const products = await service.createProducts([data])
 
           let retrievedProducts = await service.listProducts({
-            id: products[0].id,
+            id: products[0]!.id,
           })
 
           expect(retrievedProducts).toHaveLength(1)
-          expect(retrievedProducts[0].deleted_at).toBeNull()
+          expect(retrievedProducts[0]!.deleted_at).toBeNull()
 
-          await service.softDeleteProducts([products[0].id])
+          await service.softDeleteProducts([products[0]!.id])
 
           retrievedProducts = await service.listProducts(
-            { id: products[0].id },
+            { id: products[0]!.id },
             {
               withDeleted: true,
             }
           )
 
           expect(retrievedProducts).toHaveLength(1)
-          expect(retrievedProducts[0].deleted_at).not.toBeNull()
+          expect(retrievedProducts[0]!.deleted_at).not.toBeNull()
 
-          await service.restoreProducts([products[0].id])
+          await service.restoreProducts([products[0]!.id])
 
           const deletedProducts = await service.listProducts(
-            { id: products[0].id },
+            { id: products[0]!.id },
             {
               relations: [
                 "variants",
@@ -1419,13 +1418,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
           )
 
           expect(deletedProducts).toHaveLength(1)
-          expect(deletedProducts[0].deleted_at).toBeNull()
+          expect(deletedProducts[0]!.deleted_at).toBeNull()
 
-          for (const option of deletedProducts[0].options) {
+          for (const option of deletedProducts[0]!.options) {
             expect(option.deleted_at).toBeNull()
           }
 
-          const productOptionsValues = deletedProducts[0].options
+          const productOptionsValues = deletedProducts[0]!.options
             .map((o) => o.values)
             .flat()
 
@@ -1433,11 +1432,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
             expect(optionValue.deleted_at).toBeNull()
           }
 
-          for (const variant of deletedProducts[0].variants) {
+          for (const variant of deletedProducts[0]!.variants) {
             expect(variant.deleted_at).toBeNull()
           }
 
-          const variantsOptions = deletedProducts[0].options
+          const variantsOptions = deletedProducts[0]!.options
             .map((o) => o.values)
             .flat()
 
@@ -1448,8 +1447,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
       })
 
       describe("list", function () {
-        let productOneData
-        let productTwoData
+        let productOneData: ProductTypes.ProductDTO | undefined
+        let productTwoData: ProductTypes.ProductDTO | undefined
+          void productTwoData; // Preserve the original fixture call and its unused result.
         beforeEach(async () => {
           const collections = await service.createProductCollections(
             productCollectionsData
@@ -1462,13 +1462,13 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           const resp = await service.createProducts([
             buildProductAndRelationsData({
-              collection_id: productCollectionOne.id,
+              collection_id: productCollectionOne!.id,
               options: [{ title: "size", values: ["large", "small"] }],
               variants: [{ title: "variant 1", options: { size: "small" } }],
-              tag_ids: [tags[0].id],
+              tag_ids: [tags[0]!.id],
             }),
             buildProductAndRelationsData({
-              collection_id: productCollectionTwo.id,
+              collection_id: productCollectionTwo!.id,
             }),
           ])
 
@@ -1478,7 +1478,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
         it("should return a list of products scoped by collection id", async () => {
           const productsWithCollectionOne = await service.listProducts(
-            { collection_id: productCollectionOne.id },
+            { collection_id: productCollectionOne!.id },
             {
               relations: ["collection"],
             }
@@ -1489,7 +1489,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(productsWithCollectionOne).toEqual([
             expect.objectContaining({
               collection: expect.objectContaining({
-                id: productCollectionOne.id,
+                id: productCollectionOne!.id,
               }),
             }),
           ])
@@ -1500,7 +1500,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             {
               variants: {
                 options: {
-                  option_id: productOneData.options[0].id,
+                  option_id: productOneData!.options[0]!.id,
                   value: "small",
                 },
               },
@@ -1513,7 +1513,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           expect(productsWithVariants).toHaveLength(1)
           expect(productsWithVariants).toEqual([
             expect.objectContaining({
-              id: productOneData.id,
+              id: productOneData!.id,
             }),
           ])
         })
@@ -1545,8 +1545,8 @@ moduleIntegrationTestRunner<IProductModuleService>({
             buildProductAndRelationsData({ images }),
           ])
 
-          expect(product.images).toHaveLength(3)
-          expect(product.images).toEqual([
+          expect(product!.images).toHaveLength(3)
+          expect(product!.images).toEqual([
             expect.objectContaining({
               url: "image-1",
               rank: 0,
@@ -1573,9 +1573,9 @@ moduleIntegrationTestRunner<IProductModuleService>({
             buildProductAndRelationsData({ images }),
           ])
 
-          const reversedImages = [...product.images].reverse()
+          const reversedImages = [...product!.images].reverse()
 
-          const updatedProduct = await service.updateProducts(product.id, {
+          const updatedProduct = await service.updateProducts(product!.id, {
             images: reversedImages,
           })
 
@@ -1606,11 +1606,11 @@ moduleIntegrationTestRunner<IProductModuleService>({
             buildProductAndRelationsData({ images }),
           ])
 
-          await service.updateProducts(product.id, {
+          await service.updateProducts(product!.id, {
             images: [],
           })
 
-          const productAfterUpdate = await service.retrieveProduct(product.id, {
+          const productAfterUpdate = await service.retrieveProduct(product!.id, {
             relations: ["*"],
           })
 
@@ -1626,12 +1626,12 @@ moduleIntegrationTestRunner<IProductModuleService>({
             buildProductAndRelationsData({ images }),
           ])
 
-          const retrievedProduct = await service.retrieveProduct(product.id, {
+          const retrievedProduct = await service.retrieveProduct(product!.id, {
             relations: ["images"],
           })
 
           const retrievedProductAgain = await service.retrieveProduct(
-            product.id,
+            product!.id,
             {
               relations: ["images"],
             }
@@ -1654,7 +1654,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           retrievedProduct.images.forEach((img, idx) => {
             if (idx > 0) {
               expect(img.rank).toBeGreaterThan(
-                retrievedProduct.images[idx - 1].rank
+                retrievedProduct.images[idx - 1]!.rank
               )
             }
           })
@@ -1667,23 +1667,23 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           await service.createProductImages([
             {
-              product_id: product.id,
+              product_id: product!.id,
               url: "image-one",
               rank: 1,
             },
             {
-              product_id: product.id,
+              product_id: product!.id,
               url: "image-two",
               rank: 0,
             },
             {
-              product_id: product.id,
+              product_id: product!.id,
               url: "image-three",
               rank: 2,
             },
           ])
 
-          const retrievedProduct = await service.retrieveProduct(product.id, {
+          const retrievedProduct = await service.retrieveProduct(product!.id, {
             relations: ["images"],
           })
 
@@ -1721,22 +1721,23 @@ moduleIntegrationTestRunner<IProductModuleService>({
             }),
           ])
 
-          const generalImage1 = product.images.find(
+          const generalImage1 = product!.images.find(
             (img) => img.url === "general-image-1"
           )!
-          const generalImage2 = product.images.find(
+          const generalImage2 = product!.images.find(
             (img) => img.url === "general-image-2"
           )!
-          const variantSpecificImage = product.images.find(
+          const variantSpecificImage = product!.images.find(
             (img) => img.url === "variant-specific-image"
           )!
 
-          const smallVariant = product.variants.find(
+          const smallVariant = product!.variants.find(
             (v) => v.title === "Small"
           )!
-          const largeVariant = product.variants.find(
+          const largeVariant = product!.variants.find(
             (v) => v.title === "Large"
           )!
+          void largeVariant; // Preserve the original fixture call and its unused result.
 
           // Add variant-specific image assignment
           await service.addImageToVariant([
@@ -1747,7 +1748,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
           ])
 
           // Test retrieveProduct with variants.images relation
-          const retrievedProduct = await service.retrieveProduct(product.id, {
+          const retrievedProduct = await service.retrieveProduct(product!.id, {
             relations: ["variants", "variants.images", "images"],
           })
 
@@ -1780,14 +1781,14 @@ moduleIntegrationTestRunner<IProductModuleService>({
 
           // Test listProducts with variants.images relation
           const products = await service.listProducts(
-            { id: product.id },
+            { id: product!.id },
             { relations: ["variants", "variants.images", "images"] }
           )
 
           expect(products).toHaveLength(1)
-          expect(products[0].variants).toHaveLength(2)
+          expect(products[0]!.variants).toHaveLength(2)
 
-          const listSmallVariant = products[0].variants.find(
+          const listSmallVariant = products[0]!.variants.find(
             (v) => v.title === "Small"
           )!
           expect(listSmallVariant.images).toHaveLength(3)
@@ -1799,7 +1800,7 @@ moduleIntegrationTestRunner<IProductModuleService>({
             ])
           )
 
-          const listLargeVariant = products[0].variants.find(
+          const listLargeVariant = products[0]!.variants.find(
             (v) => v.title === "Large"
           )!
           expect(listLargeVariant.images).toHaveLength(2)

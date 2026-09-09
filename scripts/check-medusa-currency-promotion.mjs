@@ -1,4 +1,5 @@
 // @ts-check
+import { verifyTestPort } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -102,7 +103,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const sourceHashes = new Map(readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"), "utf8")
     .split(/\r?\n/).filter(Boolean).map((line) => ["third_party/medusa/" + line.slice(66), line.slice(0, 64)]));
   for (const file of promotion.files) {
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     const owned = [...owners.keys()].some((owner) => file.target.startsWith(owner + "/"))
@@ -116,6 +117,13 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       noSymlinks(root, file.source);
       const hash = sha256(readFileSync(path.join(root, file.source)));
       if (hash !== file.sourceSha256) throw new Error(`Changed promotion source: ${file.source}`);
+      if (file.classification === "testPort" || file.classification === "testFixturePort") {
+        if (!file.target.endsWith(".ts") || !(file.classification === "testPort" ? file.target.includes("/__tests__/") : file.target.includes("/integration-tests/__fixtures__/"))) throw new Error("Invalid test-port target");
+        verifyTestPort(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), {
+          currencyTimeout: file.target === "packages/medusa-currency/integration-tests/__tests__/currency-module-service.spec.ts",
+          currencyStaticImports: file.target === "packages/medusa-currency/src/__tests__/static-manifest.spec.ts",
+        });
+      }
       if (["unchanged", "preserved", "unchangedTest"].includes(file.classification) && hash !== file.targetSha256) {
         throw new Error(`Preserved source changed: ${file.target}`);
       }
@@ -172,13 +180,13 @@ export function admitsCurrencyImport(promotion, file, specifier) {
   const internalProductConfig = file === "packages/medusa-adapter/test/product-upstream.test.ts" ? "vitest.product-upstream.config.ts"
     : file === "packages/medusa-adapter/test/product-internal-upstream.test.ts" ? "vitest.product-internal.config.ts" : undefined;
   if (internalProductConfig !== undefined && specifier === "../../medusa-product/integration-tests/__tests__/product.spec"
-    && promotion.files.some(entry => entry.target === internalProductTarget && entry.classification === "unchangedTest")
+    && promotion.files.some(entry => entry.target === internalProductTarget && ["unchangedTest", "testPort"].includes(entry.classification))
     && promotion.testAliases.some(alias => alias.importer === internalProductTarget && alias.configuration === "packages/medusa-adapter/" + internalProductConfig)) return true;
   const internalCategoryTarget = "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts";
   const internalCategoryConfig = file === "packages/medusa-adapter/test/product-upstream.test.ts" ? "vitest.product-upstream.config.ts"
     : file === "packages/medusa-adapter/test/product-internal-categories-upstream.test.ts" ? "vitest.product-internal-categories.config.ts" : undefined;
   if (internalCategoryConfig !== undefined && specifier === "../../medusa-product/integration-tests/__tests__/product-category.spec"
-    && promotion.files.some(entry => entry.target === internalCategoryTarget && entry.classification === "unchangedTest")
+    && promotion.files.some(entry => entry.target === internalCategoryTarget && ["unchangedTest", "testPort"].includes(entry.classification))
     && promotion.testAliases.some(alias => alias.importer === internalCategoryTarget && alias.configuration === "packages/medusa-adapter/" + internalCategoryConfig)) return true;
   const wrapper = file === "packages/medusa-adapter/test/product-upstream.test.ts"
     ? { names: ["events", "products", "product-types", "product-tags", "product-collections", "product-options", "product-variants", "product-categories"], configuration: "vitest.product-upstream.config.ts" }
@@ -198,7 +206,7 @@ export function admitsCurrencyImport(promotion, file, specifier) {
     for (const name of wrapper.names) {
       const target = `packages/medusa-product/integration-tests/__tests__/product-module-service/${name}.spec.ts`;
       if (specifier === `../../medusa-product/integration-tests/__tests__/product-module-service/${name}.spec`
-        && promotion.files.some((entry) => entry.target === target && entry.classification === "unchangedTest")
+        && promotion.files.some((entry) => entry.target === target && ["unchangedTest", "testPort"].includes(entry.classification))
         && promotion.testAliases.some((alias) => alias.importer === target
           && alias.configuration === "packages/medusa-adapter/" + wrapper.configuration)) return true;
     }

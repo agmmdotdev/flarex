@@ -321,6 +321,8 @@ export function discoverRootToolSources(repoRoot) {
   const excluded = new Set([
     "scripts/check-medusa-currency-promotion.mjs",
     "scripts/check-medusa-currency-promotion.test.js",
+    "scripts/check-medusa-test-port.mjs",
+    "scripts/check-medusa-test-port.test.js",
     "scripts/check-medusa-currency-portable.mjs",
     "scripts/check-medusa-source-island-boundary.mjs",
     "scripts/check-medusa-source-island-boundary.test.js",

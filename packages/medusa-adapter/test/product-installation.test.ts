@@ -244,7 +244,7 @@ describe("Product fresh schema on " + driver, () => {
     } finally {
       clearTimeout(timeout);
     }
-  });
+  }, 120000); // Allow the 90-second migration owner to cancel and finish cleanup.
 
   it.skipIf(!measureOnly)("measures two installation steps", () => {});
 
