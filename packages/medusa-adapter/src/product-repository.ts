@@ -1,7 +1,7 @@
 import { productRelations, type ProductRuntimeMetadata, type ProductEntityMetadata } from "./product-runtime-metadata";
 import { Effect } from "effect";
 import type { Context, DAL, ModulePersistenceAdapter } from "@medusajs/framework/types";
-import { createDrizzleEventSubscriber, registerDrizzleEventSubscriber, dispatchCreatedMutations, dispatchDrizzleMutationRows, dispatchDrizzleMutationEvent, dispatchCascadedUpdateMutations } from "@medusajs/drizzle/mutation-events";
+import { commerceMutationEvents } from "./commerce-mutation-events";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductProjection, decodeProductCount } from "./product-value-profile";
@@ -26,19 +26,17 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   const categoryProjection = profile === "categoryProjection";
   const internalProduct = profile === "internalProduct";
   const bridge = commerceRepositoryContext(root, owner);
-  const subscribed = new WeakSet<object>();
-  const ownedSubscribers = new WeakSet<object>();
+  const events = commerceMutationEvents(owner);
   const unsupported = () => owner.reject(commerceError("unsupportedProfile"));
   const persistence: ModulePersistenceAdapter = {
     name: "flarex-product-local",
-    createEventSubscriber: (keys, service) => { const subscriber = createDrizzleEventSubscriber(keys, service); ownedSubscribers.add(subscriber); return subscriber; },
+    createEventSubscriber: events.createSubscriber,
     prepareModels: unsupported, createConnectionLoader: unsupported,
     createBaseRepository: unsupported, createRepository: unsupported,
-    registerEventSubscriber: (context, Subscriber) => { registerDrizzleEventSubscriber(context, Subscriber); subscribed.add(context); },
+    registerEventSubscriber: events.registerSubscriber,
     dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-      if ((!subscribed.has(shared) && (subscriber === undefined || !ownedSubscribers.has(subscriber))) || !["afterCreate", "afterUpdate", "afterDelete"].includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-      yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationEvent(event, args, shared, subscriber), signal),
-        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      if ((!events.isSubscribed(shared) && (subscriber === undefined || !events.ownsSubscriber(subscriber))) || !["afterCreate", "afterUpdate", "afterDelete"].includes(event)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+      yield* events.dispatch(event, args, shared, subscriber);
     }))),
   };
   const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
@@ -53,15 +51,14 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     })))));
   const lifecycle = (entity: ProductEntityMetadata, operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
     const result = yield* changeProductLifecycle(ctx, metadata, entity, operation, input);
-    if (shared === undefined || (operation === "softDelete" && !subscribed.has(shared))) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+    if (shared === undefined || (operation === "softDelete" && !events.isSubscribed(shared))) return yield* ctx.refuse(commerceError("unadmittedEvent"));
     // Preserve the pinned Drizzle subscriber's lifecycle callback convention,
     // including restored events for selected already-active rows. Core records
     // the actual before/after state and authenticates the managed operation.
     // Pinned restore does not register a subscriber: the existing dispatcher
     // uses its conventional aggregator path on that framework-owned context.
-    yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchCascadedUpdateMutations(result.cascades, shared,
-      row => ({ entity: row, originalEntity: { deleted_at: operation === "softDelete" ? null : row.updated_at } })), signal),
-      catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+    yield* events.cascades(result.cascades, shared,
+      row => ({ entity: row, originalEntity: { deleted_at: operation === "softDelete" ? null : row.updated_at } }));
     return [result.roots, result.cascades] satisfies [object[], Record<string, unknown[]>];
   })));
   const repository: DAL.RepositoryService = {
@@ -82,10 +79,9 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     create: (input: unknown[], shared?: Context) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       const graph = yield* captureProductGraph(metadata, input, ctx.resources);
       const rows = yield* insertProductGraph(ctx, metadata, graph);
-      if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+      if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
       const mutations = metadata.entities.flatMap(entity => (rows.get(entity.table.name) ?? []).map(row => ({ modelName: entity.model, entity: { ...row } })));
-      yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchCreatedMutations(mutations, shared), signal),
-        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      yield* events.created(mutations, shared);
       return yield* populateCommerceRelations(ctx, metadata.product.table.name, assembleProducts(metadata, rows,
         productRelations.filter(name => !["tags", "categories", "collection", "type"].includes(name))),
       ["tags", "categories", "collection", "type"], metadata.queryRelations, new Map());
@@ -98,9 +94,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
           const store = yield* ctx.table(metadata.product.table.name);
           return yield* store.write(ctx.manager, "update", updates);
         });
-      if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-      yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", metadata.product.model, rows.map(row => ({ ...row })), shared), signal),
-        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+      yield* events.rows("afterUpdate", metadata.product.model, rows.map(row => ({ ...row })), shared);
       return [...rows];
     }))) : refuse, upsert: refuse, delete: deleteRows(metadata.product), softDelete: lifecycle(metadata.product, "softDelete"), restore: lifecycle(metadata.product, "restore"),
     upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, replaceProductRows(ctx, metadata, metadata.product, input, config))),
@@ -112,9 +107,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (![metadata.tag, metadata.type, metadata.collection, metadata.category, metadata.value].includes(entity)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
       const rows = yield* updateProductRelated(ctx, metadata, entity, input);
-      if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-      if (entity !== metadata.category) yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", entity.model, rows.map(row => ({ ...row })), shared), signal),
-        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+      if (entity !== metadata.category) yield* events.rows("afterUpdate", entity.model, rows.map(row => ({ ...row })), shared);
       return [...rows];
     }))),
     find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, findProductRelated(ctx, metadata, entity, input, false)).pipe(Effect.map(value => [...value.rows]))),
@@ -125,16 +119,14 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       if (entity === metadata.collection) return yield* ctx.refuse(commerceError("unsupportedProfile"));
       if (entity === metadata.option || entity === metadata.variant) {
         const result = yield* replaceProductRows(ctx, metadata, entity, input, { relations: entity === metadata.option ? ["values"] : ["options"] }, true);
-        if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+        if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
         const mutations = Object.entries(result.performedActions.created).flatMap(([modelName, values]) => values.map(value => ({ modelName, entity: { ...value } })));
-        yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchCreatedMutations(mutations, shared), signal),
-          catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+        yield* events.created(mutations, shared);
         return result.entities;
       }
       const rows = yield* insertProductRelated(ctx, metadata, entity, input);
-      if (shared === undefined || !subscribed.has(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-      if (entity !== metadata.category && entity !== metadata.assignment) yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchCreatedMutations(rows.map(row => ({ modelName: entity.model, entity: { ...row } })), shared), signal),
-        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+      if (entity !== metadata.category && entity !== metadata.assignment) yield* events.created(rows.map(row => ({ modelName: entity.model, entity: { ...row } })), shared);
       return [...rows];
     }))),
     upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
@@ -157,15 +149,13 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       const result = yield* insertCategoryRows(ctx, metadata, input);
       if (shared === undefined) return yield* ctx.refuse(commerceError("invalidAuthority"));
-      if (result.reranked.length) yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", metadata.category.model, result.reranked.map(row => ({ ...row })), shared), signal),
-        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      if (result.reranked.length) yield* events.rows("afterUpdate", metadata.category.model, result.reranked.map(row => ({ ...row })), shared);
       return result.rows;
     }))),
     update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       const rows = yield* updateCategoryRows(ctx, metadata, input);
       if (shared === undefined) return yield* ctx.refuse(commerceError("invalidAuthority"));
-      yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", metadata.category.model, rows.map(row => ({ ...row })), shared), signal),
-        catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
+      yield* events.rows("afterUpdate", metadata.category.model, rows.map(row => ({ ...row })), shared);
       return [...rows];
     }))),
     delete: (ids, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {

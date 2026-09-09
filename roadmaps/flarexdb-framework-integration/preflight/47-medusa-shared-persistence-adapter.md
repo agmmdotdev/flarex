@@ -3,10 +3,11 @@
 ## Status and scope
 
 Status: shared reads, checked schema lowering, JSON-field decoding, keyed
-updates and graph creation/replacement are implemented and validated on
-PGlite and ordinary-role PostgreSQL. Currency and Product share the applicable
-adapter owners while retaining explicit module policies. Event dispatch and
-module composition retain separate implementation slices.
+updates, graph creation/replacement and the mutation-dispatch boundary are
+implemented and validated on PGlite and ordinary-role PostgreSQL. Currency and
+Product share the applicable adapter owners while retaining explicit module
+policies. Module preparation and composition retain separate implementation
+slices.
 
 This adapter refactor does not authorize changes to Flarex
 transaction settlement, commit compilation, schema identity, resource limits,
@@ -546,18 +547,71 @@ privileges; the temporary fixture was stopped after validation. Logs are under
 `work/validation/shared-medusa-graph/`. Deployed Worker/Hyperdrive, arbitrary
 module admission and production support remain separate proof obligations.
 
+## Implemented shared mutation dispatch boundary
+
+This step starts from `2197f17d`. `commerce-mutation-events.ts` centralizes the
+request-local subscriber/context registration sets and nine repeated foreign
+dispatch adapters from Product repository composition. It delegates to the
+already-promoted pinned Medusa subscriber, created-row, row-update and cascade
+helpers. It does not duplicate their grouping, callback concurrency, explicit
+subscriber precedence, suppression, duplicate-token accounting or conventional
+aggregator behavior.
+
+Product retains each admission check at its original position after storage
+work: required registration, the permitted direct callback kinds, exceptions
+for Category/assignment event dispatch, restore's unsubscribed conventional
+path, lifecycle change-set construction and actual-row selection/copying.
+The shared instance is scoped to one repository family and borrows the existing
+Promise owner. Foreign failures retain their existing `adapterFailure` envelope
+and original cause; the repository's checked boundary still poisons the current
+transaction. No runner, transaction or publication authority is introduced.
+
+Currency currently composes its internal service without mutation-event
+dispatch, so it does not gain an event subscriber or change lifecycle behavior.
+Product local-event schemas, command-specific intent, authenticated facts,
+managed lifecycle observations and post-commit delivery retain their current
+owners. The new generic dispatch tests use renamed models and keys, exact
+callback/context identity, duplicate consumption, conventional restore,
+registration isolation, asynchronous shutdown and Product refusal/rollback
+evidence. Registration alone is never proof of publication authority.
+
+### Mutation dispatch validation
+
+All 11 focused dispatch cases and 134 authored Product boundary checks pass.
+The ten-package private build and all four strict TypeScript lanes pass, as do
+56 promotion guards, the 387-file exact source manifest and browser portability
+across 651 inputs. Both required reviewers report no findings against the final
+source and tests. Core and worktree-diff lint pass; the adapter remains outside
+the configured Oxlint source roots.
+
+| Suite | PGlite | Ordinary-role PostgreSQL 18.3 |
+| --- | --- | --- |
+| Product originals | 205 passed; one unchanged upstream skip | 205 passed; same skip |
+| Currency live originals and authored boundaries | 20 passed | 19 passed; existing PGlite-only interruption skip |
+
+The database suites ran sequentially. Both Product runs passed on their first
+attempts, and all thirteen Currency originals run on each driver. An initial
+Currency invocation named PGlite inherited `FLAREX_TEST_DRIVER=postgres` from
+the preceding run; its PostgreSQL receipt is preserved as
+`currency-postgres-inherited-driver.log`. The subsequent explicitly selected
+PGlite run passed all 20 checks, including its interruption case. Logs are in
+`work/validation/shared-medusa-events/`. PostgreSQL used an ordinary role with
+no superuser, database-creation or role-creation privileges and was stopped
+after validation. Assertions, coverage reporters, ceilings, lifecycle policy
+and persistence/publication owners remain unchanged.
+
 ## Following capabilities and module proof
 
 Shared reads, checked DML lowering, JSON-field decoders, keyed updates and graph
-creation/replacement now have common owners. Next consolidate event dispatch
-mechanics. Preserve insert versus upsert, omitted versus empty relationships,
+creation/replacement and mutation dispatch now have common owners. Preserve
+insert versus upsert, omitted versus empty relationships,
 identity retention, metadata merging, reference ownership, managed-field
 refusal, actual-row performed-actions, and mutation order. Keep domain
 extensions explicit. Currency/Product lifecycle policy differences require
 an explicit decision; shared algorithms alone do not authorize changing them.
 Delete each displaced path when both consumers and boundary tests pass.
 
-Then add module-scoped preparation and repository construction through the
+Next add module-scoped preparation and repository construction through the
 actual Medusa persistence contract, retaining trusted command admission and
 Flarex installation ownership. A complete configured module set is a separate
 composition obligation; sharing a query engine does not automatically combine

@@ -216,5 +216,8 @@ metadata and explicit `product-graph-profile.ts` traversal, ownership,
 membership and projection policies. Shared plans retain the existing scoped
 manager and produce results/actions from actual storage receipts. Renamed
 Volume/Edition/Label fixtures exercise reuse without admitting another module.
-Numeric representation, stored metadata merging, event dispatch and full
-module preparation retain their respective owners.
+`commerce-mutation-events.ts` now owns request-local subscriber tracking and
+the Effect boundary around pinned Medusa dispatch. Product retains event
+admission, lifecycle payloads and authenticated local-event policy; Currency
+keeps its existing event-free service path. Numeric representation, stored
+metadata merging and full module preparation retain their respective owners.
