@@ -815,15 +815,18 @@ const loadPlanRootByDigest = Effect.fn(
   // normally; a mismatch still transfers bounded bytes for full verification.
   const sameBytes = expected === undefined ? sql<boolean>`false` : sql<boolean>`
     ${fxSystemFrameworkMigrationPlans.canonicalBytes} =
-      convert_to(${new TextDecoder().decode(expected.bytes)}::text, 'UTF8')
+      expected_plan.bytes
   `;
+  // Both projections reference one bound value. Interpolating the same SQL
+  // fragment twice otherwise sends the full canonical plan twice per read.
+  const expectedPlan = sql`(select convert_to(${expected === undefined ? null : new TextDecoder().decode(expected.bytes)}::text, 'UTF8') as bytes) expected_plan`;
   const query = transaction.select({ ...migrationPlanReadSelection,
     matchesExpectedBytes: sameBytes,
     canonicalBytes: sql<Uint8Array | null>`case when ${sameBytes} then null
       else ${migrationPlanReadSelection.canonicalBytes} end`,
   }).from(
     fxSystemFrameworkMigrationPlans,
-  ).where(eq(
+  ).crossJoin(expectedPlan).where(eq(
     fxSystemFrameworkMigrationPlans.migrationPlanSha256,
     migrationPlanSha256,
   )).limit(1);

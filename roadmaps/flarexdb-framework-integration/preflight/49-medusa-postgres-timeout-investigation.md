@@ -1,9 +1,38 @@
 # Medusa PostgreSQL timeout investigation
 
-Status: fixture-local cleanup implemented; shared timeout diagnosis remains open.
+Status: fixture cleanup, first-cause preservation and duplicate plan-transfer
+correction implemented; intermittent storage-stall diagnosis remains open.
 Investigation date: 2026-09-09. Implementation baseline: `20476446`;
-comparison baseline: `bae23025`. This investigation does not authorize a shared
-persistence, transaction, deadline, recovery or publication change.
+comparison baseline: `bae23025`. The original investigation authorized no shared
+owner change; the follow-up correction below defines the subsequently approved
+scope. Deadline, recovery and publication policy remain unchanged.
+
+## Approved failure correction
+
+The follow-up request to fix the recorded failures authorizes a bounded
+correction of first-failure visibility and investigation of cold installation
+cost. Before correction, an authenticated operation after a latched failure returned
+`rollbackOnly` without its retained first cause; the Medusa refusal bridge can
+therefore hide the originating statement failure before sealing. Preserve that
+full cause on the rollback-only error, retaining the existing error reason,
+authority checks, failure latch, settlement and recovery decisions. Rejected
+foreign or revoked contexts must not gain access to another request's cause.
+Prove this deterministically before relying on another intermittent timeout.
+
+Profile cold setup before changing its implementation. A passing repetition
+alone cannot resolve storage stalls or justify changing statement/command/setup
+limits, automatic callback retries, or durability policy.
+
+The cold Product trace identifies repeated warm migration-plan reads during
+fixture installation. Each previously sent the complete canonical-plan text twice, once for each SQL
+equality expression. The expected behavior is one exact-byte comparison input
+per read; the duplicate transfer is unnecessary serialization work. Its owner
+is `migrationCoordination/migrationPlanRepository.ts`. The bounded correction
+binds that text once through a one-row SQL relation while preserving the exact
+byte comparison, bounded corrupt-byte transfer, all projections, sidecars and
+transaction-local restoration. Require warm/cold corruption tests and measured
+setup improvement before retaining it. No cache of database truth or authority
+may cross transaction boundaries.
 
 ## Findings and disposition
 
@@ -39,9 +68,10 @@ failures, remain unproven. Do not describe an eventual passing run as a fix.
 - Store statements participate in `BoundedRequestLifetime.operation`. Its first
   failing cause is latched. `commerceRepositoryContext.checked` can then call
   `ctx.refuse`, which re-enters that already failed lifetime and reports
-  `rollbackOnly`. `seal` can expose the stored first cause, but an already failed
-  command can unwind before normal sealing. This explains why the first receipt
-  needs the server log; it does not establish that rollback protection is wrong.
+  `rollbackOnly`. The corrected refusal carries the retained complete Cause;
+  `seal` continues to expose it through its existing full-Cause failure. The
+  earlier implementation could unwind before sealing without that evidence,
+  explaining why the first historical receipt needed the server log.
 - Outcome publication occurs after command execution/sealing. The second error
   retained `statementFailure`, `writeOutcome` and PostgreSQL SQLSTATE `57014`.
   It is a setup write's outcome, not an idempotency write caused by a read API.
@@ -142,11 +172,10 @@ Keep these validation boundaries when evolving fixture cleanup:
    after those gates pass. No general persistence-test helper migration is
    included merely because other suites also use `TRUNCATE`.
 
-Separately, if recurrence still loses the first SQL cause, propose a bounded
-trusted-owner diagnostic surface with statement stage, elapsed time and SQLSTATE.
-It must preserve the existing failure/rollback contract and exclude SQL argument
-values. Changing a shared lifetime or publication owner for that purpose needs
-its own explicit approval; this preflight is not that approval.
+The approved first-cause correction keeps the existing trusted error chain
+through a rollback-only refusal. It introduces no logging surface or SQL argument
+projection. Further diagnostic fields or publication changes remain separately
+scoped work.
 
 Cold fixture installation has a separate reliability boundary: the PGlite
 preservation lane can exhaust `commerceHostFixture`'s existing 90-second
@@ -163,7 +192,8 @@ unchanged and require separate owner approval for a correction.
 | Product fixture row cleanup | Retain the layout-derived row-deletion batch; per-case truncation is retired |
 | Pinned original tests, source guards, assertions, skips | Retain unchanged |
 | Request/physical-session limits and authenticated publication | Retain unchanged |
-| First-failure visibility | Record diagnostic gap; separately scope any shared-owner change |
+| First-failure visibility | Preserve the first complete Cause on authenticated rollback-only refusals |
+| Migration plan comparison input | Bind canonical text once; preserve exact-byte and cold-restoration checks |
 | Temporary source substitution and sampler | Diagnostic artifacts only; never package exports or normal test fallback |
 
 Customer admission and general module-set bootstrap remain separate work. This

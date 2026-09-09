@@ -37,6 +37,13 @@ authenticated history. This test-owner change does not close the intermittent
 command-reliability gate; shared deadline, rollback, recovery and publication
 changes remain separately gated.
 
+The approved follow-up preserves the first complete Cause on an authenticated
+rollback-only refusal before sealing. It retains the existing reason and
+failure latch and does not disclose causes to foreign or revoked contexts.
+Product insert and outcome-publication cancellation checks require complete
+rollback, no automatic replay, no delivered events and retained explicit-retry
+idempotency. The original intermittent storage-stall cause remains open.
+
 ## Conformance Obligations
 
 Select tests from the changed call graph and admitted profiles. Preserve

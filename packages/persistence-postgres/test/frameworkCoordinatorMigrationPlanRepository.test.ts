@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
 import * as persistenceRoot from "../src";
 
@@ -40,6 +40,8 @@ import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { bindFrameworkMigrationPlanVerification } from "../src/migrationCoordination/planVerificationScope";
 import { capturedPlanForStep } from "../src/migrationCoordination/authority";
 import { withFrameworkGraphReadPass } from "../src/migrationCoordination/graphReadPass";
+import { createRelationalPGliteFixture } from "./relationalPGliteWorkerTestSupport";
+import { createFileScopedPostgresFixture, postgresUrl } from "./postgresHelpers";
 
 const PGLITE_TEST_TIMEOUT = 30_000;
 
@@ -65,8 +67,15 @@ describe("framework coordinator migration-plan repository", () => {
     });
   }, PGLITE_TEST_TIMEOUT);
 
-  it("rechecks stored bytes and projections across transactions with warm verification", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+  for (const driver of ["pglite", "postgres"] as const) it.skipIf(driver === "postgres" && postgresUrl === null)(`rechecks stored bytes and projections across transactions with warm verification on ${driver}`, async () => {
+    const queries: string[] = [];
+    const persistence = driver === "pglite"
+      ? (await createRelationalPGliteFixture({ observeQuery: text => { queries.push(text); } })).persistence
+      : await (async () => {
+        const fixture = await createFileScopedPostgresFixture();
+        onTestFinished(fixture.dispose);
+        return fixture.persistence;
+      })();
     const values = await freshPlanRepositoryValues();
     const initial = await persistence.drizzle.transaction(async transaction => {
       const { collision } = await ensurePlanPrerequisites(transaction, values);
@@ -87,15 +96,20 @@ describe("framework coordinator migration-plan repository", () => {
       expect(firstStep).not.toBe(secondStep);
       expect(capturedPlanForStep(firstStep)).toBe(first.plan);
       expect(capturedPlanForStep(secondStep)).toBe(second.plan);
+      if (driver === "pglite") {
+        const comparisons = queries.filter(text => text.includes('from "fx_system_framework_migration_plan"') && text.includes("convert_to"));
+        expect(comparisons.length).toBeGreaterThan(0);
+        for (const text of comparisons) expect(text.match(/convert_to/g)).toHaveLength(1);
+      }
 
       yield* Effect.promise(() => persistence.drizzle.update(fxSystemFrameworkMigrationPlans).set({
         locatorDatabaseKey: "tampered",
-      }).where(eq(fxSystemFrameworkMigrationPlans.planStorageId, first.storageId)));
+      }).where(eq(fxSystemFrameworkMigrationPlans.planStorageId, first.storageId)).then(() => undefined));
       yield* Effect.promise(() => expect(read()).rejects.toMatchObject({ reason: "storedCorruption" }));
       yield* Effect.promise(() => persistence.drizzle.update(fxSystemFrameworkMigrationPlans).set({
         locatorDatabaseKey: values.plan.frame.physicalLocator.databaseKey,
         canonicalBytes: new TextEncoder().encode(values.plan.canonicalJson.replace("deployment-a", "deployment-b")),
-      }).where(eq(fxSystemFrameworkMigrationPlans.planStorageId, first.storageId)));
+      }).where(eq(fxSystemFrameworkMigrationPlans.planStorageId, first.storageId)).then(() => undefined));
       yield* Effect.promise(() => expect(read()).rejects.toMatchObject({ reason: "storedCorruption" }));
     })));
   }, PGLITE_TEST_TIMEOUT);

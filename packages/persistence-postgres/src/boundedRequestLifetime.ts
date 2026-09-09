@@ -107,7 +107,13 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
       state.request.owner !== owner || state.request.requestIdentity !== requestIdentity) {
       return yield* Effect.fromResult(fail("invalidAuthority"));
     }
-    if (request.phase !== "open") return yield* Effect.fail(failure(request.phase === "rollbackOnly" ? "rollbackOnly" : "closed"));
+    if (request.phase !== "open") {
+      // A framework refusal may re-enter before seal. Keep its rollback-only
+      // verdict while retaining the original complete cause for the owner.
+      return yield* Effect.fail(request.phase === "rollbackOnly"
+        ? failure("rollbackOnly", Option.getOrUndefined(request.failure))
+        : failure("closed"));
+    }
     if ((yield* Clock.currentTimeMillis) >= request.expiresAt) return yield* Effect.fromResult(fail("deadlineExceeded"));
     if (request.active !== supplied) return yield* Effect.fromResult(fail("overlappingOperation"));
   });

@@ -19,6 +19,14 @@ uses the bounded worker policy and combined/focused selectors owned by the
 [testing strategy](../../11-testing-and-simulation-strategy.md#framework-database-acceptance-runtime).
 The exact migration and repository proof inventory remains unchanged.
 
+The [Medusa timeout correction](./49-medusa-postgres-timeout-investigation.md#approved-failure-correction)
+also covers duplicate canonical-plan transfer during cold installation. A warm
+plan read binds its complete comparison text once through a one-row SQL
+relation, shared by both result projections. Exact database-byte equality,
+bounded corrupt-byte transfer, metadata projections, sidecars and fresh
+transaction-local authority restoration remain required. This reduces input
+serialization without introducing a cache of stored truth across transactions.
+
 ## Decision
 
 Implement checkpoint 2 from
