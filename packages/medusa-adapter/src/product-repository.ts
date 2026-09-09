@@ -47,8 +47,8 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       }
       return ids;
     })))));
-  const lifecycle = (operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-    const result = yield* changeProductLifecycle(ctx, metadata, metadata.product, operation, input);
+  const lifecycle = (entity: ProductEntityMetadata, operation: "softDelete" | "restore"): DAL.RepositoryService["softDelete"] => (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+    const result = yield* changeProductLifecycle(ctx, metadata, entity, operation, input);
     if (shared === undefined || (operation === "softDelete" && !subscribed.has(shared))) return yield* ctx.refuse(commerceError("unadmittedEvent"));
     // Preserve the pinned Drizzle subscriber's lifecycle callback convention,
     // including restored events for selected already-active rows. Core records
@@ -92,13 +92,13 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
       yield* Effect.tryPromise({ try: signal => owner.callback(() => dispatchDrizzleMutationRows("afterUpdate", metadata.product.model, rows.map(row => ({ ...row })), shared), signal),
         catch: (cause): CommerceTransactionError => commerceError("adapterFailure", cause) });
       return [...rows];
-    }))) : refuse, upsert: refuse, delete: deleteRows(metadata.product), softDelete: lifecycle("softDelete"), restore: lifecycle("restore"),
+    }))) : refuse, upsert: refuse, delete: deleteRows(metadata.product), softDelete: lifecycle(metadata.product, "softDelete"), restore: lifecycle(metadata.product, "restore"),
     upsertWithReplace: (input, config, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, replaceProductRows(ctx, metadata, metadata.product, input, config))),
   };
   /** Table-bound repositories share this request's bridge and subscriber set. */
   const relatedRepository = (entity: ProductEntityMetadata): DAL.RepositoryService => ({
     ...repository,
-    delete: deleteRows(entity), softDelete: refuse, restore: refuse,
+    delete: deleteRows(entity), softDelete: entity === metadata.variant ? lifecycle(entity, "softDelete") : refuse, restore: refuse,
     update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (![metadata.tag, metadata.type, metadata.collection, metadata.category, metadata.value].includes(entity)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
       const rows = yield* updateProductRelated(ctx, metadata, entity, input);

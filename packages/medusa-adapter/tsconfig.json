@@ -16,7 +16,7 @@
     "vitest.product-types.config.ts",
     "vitest.product-tags.config.ts",
     "vitest.product-collections.config.ts",
-    "vitest.product-options.config.ts"
+    "vitest.product-options.config.ts", "vitest.product-variants.config.ts"
   ],
   "exclude": [
     "test/product-upstream.test.ts",
@@ -25,6 +25,6 @@
     "test/product-types-upstream.test.ts",
     "test/product-tags-upstream.test.ts",
     "test/product-collections-upstream.test.ts",
-    "test/product-options-upstream.test.ts"
+    "test/product-options-upstream.test.ts", "test/product-variants-upstream.test.ts"
   ]
 }

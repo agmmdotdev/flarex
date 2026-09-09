@@ -181,7 +181,10 @@ Use these sources in order:
 41. [`preflight/40-medusa-product-options.md`](./preflight/40-medusa-product-options.md)
     adds the complete 13-case Options family, parent Product projections and
     standalone Option deletion; Variants is next.
-42. Current code, migrations, any source snapshot already admitted by its own
+42. [`preflight/41-medusa-product-variants.md`](./preflight/41-medusa-product-variants.md)
+    adds the complete 15-case Variants family, scoped images, assignment removal
+    and Variant soft deletion; public Categories is next.
+43. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by
@@ -256,6 +259,7 @@ Preflight records:
 | [`preflight/38-medusa-product-tags.md`](./preflight/38-medusa-product-tags.md) | Product Tags implemented privately on both drivers | Complete 15-case Tag file brings the gate to 84 originals plus one upstream skip; bounded inverse Product reads and DTO echo authentication; 121 declarations across six files remain, with Collections next |
 | [`preflight/39-medusa-product-collections.md`](./preflight/39-medusa-product-collections.md) | Product Collections implemented privately on both drivers | Complete 18-case Collection file brings the gate to 102 originals plus one upstream skip; scoped Product membership, inverse projection and publication checks; 103 declarations across five files remain, with Options next |
 | [`preflight/40-medusa-product-options.md`](./preflight/40-medusa-product-options.md) | Product Options implemented privately on both drivers | Complete 13-case Option file brings the gate to 115 originals plus one upstream skip; scoped Product projection and atomic cascade deletion; 90 declarations across four files remain, with Variants next |
+| [`preflight/41-medusa-product-variants.md`](./preflight/41-medusa-product-variants.md) | Product Variants implemented privately on both drivers | Complete 15-case file brings the gate to 130 originals plus one upstream skip; exact image assignment removal and Variant lifecycle preserve scoped authority and shared values; public Categories (21) is next |
 
 ## Current Architecture
 

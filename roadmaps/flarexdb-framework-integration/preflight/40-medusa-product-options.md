@@ -100,3 +100,5 @@ Product/Category 54. The admitted-case inventory now includes six complete files
 Variants is the next bounded slice. Workflow, Module Link, durable event
 providers, public serving, broad Payload integration and production activation
 remain separately gated.
+
+The subsequent Variants slice is tracked in [Record 41](./41-medusa-product-variants.md); these receipts remain the Options checkpoint.

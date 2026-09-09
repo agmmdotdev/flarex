@@ -1,6 +1,6 @@
 {
   "sourceCommit": "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
-  "scope": "Six complete Product module-service files (events, products, product types, product tags, product collections, product options); other Product suites are not registered.",
+  "scope": "Seven complete Product module-service files (events, products, types, tags, collections, options, variants); other Product suites are not registered.",
   "cases": [
     {
       "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
@@ -697,6 +697,96 @@
       "title": "ProductModuleService product options > createOptions > should create a option successfully",
       "status": "admitted",
       "reason": "Record 40: complete Options suite, bounded Product projection and standalone deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > listAndCountVariants > should return variants and count queried by ID",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > listAndCountVariants > should retrieve variant images including product images not associated with other variants",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > listAndCountVariants > should return variants and count based on the options and filter parameter",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > listAndCountVariants > should return only requested fields and relations for variants",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > retrieveVariant > should return the requested variant",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > retrieveVariant > should return requested attributes when requested through config",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > retrieveVariant > should throw an error when a variant with ID does not exist",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > updateVariants > should update the title of the variant successfully",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > updateVariants > should do a partial update on the options of a variant successfully",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > updateVariants > should throw an error when an id does not exist",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > createVariants > should create variants successfully",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > createVariants > should correctly associate variants with own product options",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > createVariants > should throw if there is an existing variant with same options combination",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > createVariants > should throw if there is an existing variant with same options combination (on update)",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
+    },
+    {
+      "source": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "title": "ProductModuleService product variants > softDelete variant > should soft delete a variant and its relations",
+      "status": "admitted",
+      "reason": "Record 41: bounded Variant reads, image assignment removal and managed soft deletion"
     }
   ]
 }

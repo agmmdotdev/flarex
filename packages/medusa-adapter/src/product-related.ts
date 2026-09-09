@@ -9,7 +9,7 @@ import { QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
 import { decodeGraphArray } from "./product-value-profile";
 import { readCommerceRelationRows, populateCommerceRelations } from "./commerce-relations";
 import { productInverseProjection, projectProductInverseRows } from "./product-inverse-query";
-import { productOptionProjection, projectProductOptionRows } from "./product-option-query";
+import { productParentProjection, projectProductParentRows } from "./product-parent-query";
 import { projectRowFields } from "@medusajs/drizzle/relation-query";
 
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
@@ -17,6 +17,7 @@ const decodeWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
 const decodeNamedValue = commerceDecoder(Schema.String, "unsupportedProfile");
 const decodeFilter = commerceDecoder(Schema.Union([Schema.Null, Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))]), "unsupportedProfile");
 const decodeOr = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String })).check(Schema.isMinLength(1), Schema.isMaxLength(256)), "unsupportedProfile");
+const decodeAssignmentPairs = commerceDecoder(Schema.Array(Schema.Struct({ variant_id: Schema.String, image_id: Schema.String })).check(Schema.isMaxLength(256)), "unsupportedProfile");
 const decodeOptions = commerceDecoder(Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
   populate: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -35,22 +36,27 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   const options = yield* Effect.fromResult(decodeOptions(envelope.options ?? {}));
   const relations = options.populate ?? [];
   const inverseProjection = (entity === metadata.tag || entity === metadata.collection) ? yield* productInverseProjection(metadata, entity === metadata.tag ? "tag" : "collection", options.fields, relations) : undefined;
-  const optionProjection = entity === metadata.option ? yield* productOptionProjection(metadata, options.fields, relations) : undefined;
+  const parentProjection = entity === metadata.option || entity === metadata.variant ? yield* productParentProjection(metadata, entity === metadata.option ? "option" : "variant", options.fields, relations) : undefined;
   // Pinned Type projections retain primary keys even when select omits them.
-  const fields = inverseProjection?.rootFields ?? optionProjection?.rootFields ?? (options.fields === undefined ? entity.table.columns.map(column => column.name)
+  const fields = inverseProjection?.rootFields ?? parentProjection?.rootFields ?? (options.fields === undefined ? entity.table.columns.map(column => column.name)
     : entity === metadata.type ? [...new Set([...entity.table.columns.filter(column => column.primaryKey).map(column => column.name), ...options.fields])]
       : options.fields);
   if (fields.some(name => !entity.table.columns.some(column => column.name === name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  if (inverseProjection === undefined && relations.some(name => !metadata.queryRelations.get(entity.table.name)?.has(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (inverseProjection === undefined && parentProjection === undefined && relations.some(name => !metadata.queryRelations.get(entity.table.name)?.has(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const withDeleted = options.filters?.softDeletable.withDeleted ?? false;
   const children: Json[] = !withDeleted && entity.table.columns.some(column => column.name === "deleted_at") ? [{ kind: "isNull", column: "deleted_at" }] : [];
   for (const [name, value] of Object.entries(where)) {
-    if (((entity === metadata.type || entity === metadata.tag) && name === "value" || entity === metadata.collection && (name === "title" || name === "handle") || entity === metadata.option && name === "title") && entity.table.columns.some(column => column.name === name)) {
+    if (((entity === metadata.type || entity === metadata.tag) && name === "value" || entity === metadata.collection && (name === "title" || name === "handle") || (entity === metadata.option || entity === metadata.variant) && name === "title") && entity.table.columns.some(column => column.name === name)) {
       const text = yield* Effect.fromResult(decodeNamedValue(value));
       children.push({ kind: "in", column: name, values: [text] });
       continue;
     }
     if (name === "$or") {
+      if (entity === metadata.assignment) {
+        const pairs = yield* Effect.fromResult(decodeAssignmentPairs(value));
+        children.push({ kind: "or", children: pairs.map(pair => ({ kind: "and", children: Object.entries(pair).map(([column, value]) => ({ kind: "in", column, values: [value] })) })) });
+        continue;
+      }
       const selectors = yield* Effect.fromResult(decodeOr(value));
       children.push({ kind: "in", column: "id", values: [...new Set(selectors.map(selector => selector.id))] });
       continue;
@@ -65,7 +71,7 @@ export const findProductRelated = Effect.fn("ProductAdapter.findRelated")(functi
   } satisfies JsonObject;
   const project = Effect.fn("ProductAdapter.projectRelated")(function* (rows: readonly JsonObject[]) {
     if (inverseProjection !== undefined) return yield* projectProductInverseRows(rows, inverseProjection, relations.length > 0);
-    if (optionProjection !== undefined) return yield* projectProductOptionRows(rows, optionProjection);
+    if (parentProjection !== undefined) return yield* projectProductParentRows(rows, parentProjection);
     const selected = new Set([...fields, ...relations]);
     return rows.map(row => projectRowFields(row, selected));
   });

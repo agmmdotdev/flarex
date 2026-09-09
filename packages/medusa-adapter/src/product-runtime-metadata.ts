@@ -97,7 +97,7 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
   const categoryPivot = metadata.tables.find(table => categoryRelation?.join.type === "manyToMany" && table.name === categoryRelation.join.pivotTable);
   if (tagPivot === undefined || categoryPivot === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   // Additional paths are internal service capabilities, derived from the same DML.
-  for (const [source, names] of [[option, ["values"]], [variant, ["options"]], [tag, ["products"]], [collection, ["products"]]] as const) {
+  for (const [source, names] of [[option, ["values"]], [variant, ["options", "images"]], [image, ["variants"]], [tag, ["products"]], [collection, ["products"]]] as const) {
     const declared = queryRelations.get(source.table.name) ?? new Map<string, CommerceRelation>();
     for (const name of names) {
       const descriptor = describeToManyRelation(source.table, name, metadata.tables);
@@ -106,12 +106,14 @@ export const productRuntimeMetadata = Effect.fn("ProductAdapter.runtimeMetadata"
     }
     queryRelations.set(source.table.name, declared);
   }
-  const optionProduct = option.table.relationships.find(relation => relation.name === "product");
-  if (optionProduct?.type !== "belongsTo" || optionProduct.targetModel !== product.model) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const optionRelations = queryRelations.get(option.table.name);
-  if (optionRelations === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  optionRelations.set("product", { name: "product", sourcePrimaryKeys: ["id"], targetTable: product.table.name, targetPrimaryKeys: ["id"],
-    join: { type: "belongsTo", foreignKeys: [yield* foreignKey(option, product)] } });
+  for (const source of [option, variant]) {
+    const parent = source.table.relationships.find(relation => relation.name === "product");
+    if (parent?.type !== "belongsTo" || parent.targetModel !== product.model) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const declared = queryRelations.get(source.table.name);
+    if (declared === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    declared.set("product", { name: "product", sourcePrimaryKeys: ["id"], targetTable: product.table.name, targetPrimaryKeys: ["id"],
+      join: { type: "belongsTo", foreignKeys: [yield* foreignKey(source, product)] } });
+  }
   const entities = [product, option, value, variant, image, tag, type, collection, category, assignment];
   return { product, option, value, variant, image, tag, type, collection, category, assignment, entities,
     tables: [...entities.map(item => item.table), pivot, tagPivot, categoryPivot], writablePivots: [pivot, tagPivot, categoryPivot],

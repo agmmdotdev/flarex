@@ -1,4 +1,4 @@
-import { productOptionProjection, projectProductOptionRows } from "../src/product-option-query";
+import { productParentProjection, projectProductParentRows } from "../src/product-parent-query";
 import { findCollectionMembershipProducts } from "../src/product-collection-membership";
 import { productInverseProjection, projectProductInverseRows } from "../src/product-inverse-query";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -48,19 +48,19 @@ describe("Medusa relation query extraction", () => {
     }));
   });
 
-  it("retains Option and Product keys while projecting owned nested fields without mutation", async () => {
+  it.each(["option", "variant"] as const)("retains %s and Product keys while projecting owned nested fields without mutation", async (kind) => {
     await Effect.runPromise(Effect.gen(function* () {
-      const projection = yield* productOptionProjection(catalog, ["title", "product.title"], ["product"]);
+      const projection = yield* productParentProjection(catalog, kind, ["title", "product.title"], ["product"]);
       expect(projection.rootFields).toEqual(["id", "title", "product_id"]);
       const rows = [{ id: "o", title: "size", product_id: "p", metadata: null, product: { id: "p", title: "shirt", handle: "secret", collection_id: null } }];
       const snapshot = structuredClone(rows);
-      expect(yield* projectProductOptionRows(rows, projection)).toEqual([{ id: "o", title: "size", product_id: "p", product: { id: "p", title: "shirt" } }]);
+      expect(yield* projectProductParentRows(rows, projection)).toEqual([{ id: "o", title: "size", product_id: "p", product: { id: "p", title: "shirt" } }]);
       expect(rows).toEqual(snapshot);
-      expect(yield* projectProductOptionRows([{ id: "o", title: "size", product_id: "p", product: null }], projection))
+      expect(yield* projectProductParentRows([{ id: "o", title: "size", product_id: "p", product: null }], projection))
         .toEqual([{ id: "o", title: "size", product_id: "p", product: null }]);
-      expect(yield* Effect.result(projectProductOptionRows([{ id: "o" }], projection))).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
-      for (const relations of [["product.tags"], ["values.variants"]]) expect(yield* Effect.result(productOptionProjection(catalog, undefined, relations))).toMatchObject({ _tag: "Failure" });
-      expect(yield* Effect.result(productOptionProjection(catalog, ["product.title"], []))).toMatchObject({ _tag: "Failure" });
+      expect(yield* Effect.result(projectProductParentRows([{ id: "o" }], projection))).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+      for (const relations of [["product.tags"], ["values.variants"]]) expect(yield* Effect.result(productParentProjection(catalog, kind, undefined, relations))).toMatchObject({ _tag: "Failure" });
+      expect(yield* Effect.result(productParentProjection(catalog, kind, ["product.title"], []))).toMatchObject({ _tag: "Failure" });
     }));
   });
 

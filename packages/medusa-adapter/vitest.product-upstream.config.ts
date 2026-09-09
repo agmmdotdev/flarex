@@ -68,8 +68,25 @@ export const admittedProductOptionCases = [
   "Product service > ProductModuleService product options > updateOptions > should throw an error when an id does not exist",
   "Product service > ProductModuleService product options > createOptions > should create a option successfully"
 ];
+export const admittedProductVariantCases = [
+  "Product service > ProductModuleService product variants > listAndCountVariants > should return variants and count queried by ID",
+  "Product service > ProductModuleService product variants > listAndCountVariants > should retrieve variant images including product images not associated with other variants",
+  "Product service > ProductModuleService product variants > listAndCountVariants > should return variants and count based on the options and filter parameter",
+  "Product service > ProductModuleService product variants > listAndCountVariants > should return only requested fields and relations for variants",
+  "Product service > ProductModuleService product variants > retrieveVariant > should return the requested variant",
+  "Product service > ProductModuleService product variants > retrieveVariant > should return requested attributes when requested through config",
+  "Product service > ProductModuleService product variants > retrieveVariant > should throw an error when a variant with ID does not exist",
+  "Product service > ProductModuleService product variants > updateVariants > should update the title of the variant successfully",
+  "Product service > ProductModuleService product variants > updateVariants > should do a partial update on the options of a variant successfully",
+  "Product service > ProductModuleService product variants > updateVariants > should throw an error when an id does not exist",
+  "Product service > ProductModuleService product variants > createVariants > should create variants successfully",
+  "Product service > ProductModuleService product variants > createVariants > should correctly associate variants with own product options",
+  "Product service > ProductModuleService product variants > createVariants > should throw if there is an existing variant with same options combination",
+  "Product service > ProductModuleService product variants > createVariants > should throw if there is an existing variant with same options combination (on update)",
+  "Product service > ProductModuleService product variants > softDelete variant > should soft delete a variant and its relations"
+];
 export const admittedProductCases = [
-  ...admittedProductOptionCases,
+  ...admittedProductOptionCases, ...admittedProductVariantCases,
   ...admittedProductCollectionCases,
   ...admittedProductTagCases,
   ...admittedProductTypeCases,

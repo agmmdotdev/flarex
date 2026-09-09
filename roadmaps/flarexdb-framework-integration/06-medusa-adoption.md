@@ -45,8 +45,11 @@ managed-field DTO echoes. The subsequent [Collections slice](./preflight/39-medu
 adds all 18 original Collection cases, inverse Product projections and bounded
 membership changes through the unchanged service. The subsequent [Options slice](./preflight/40-medusa-product-options.md) adds
 all 13 original Option cases, Product projections and standalone cascade deletion.
-The six-file gate passes 115 originals plus one upstream skip per driver. There
-are 90 declarations in four unregistered files; Variants (15 cases) is next.
+The subsequent [Variants slice](./preflight/41-medusa-product-variants.md) adds
+all 15 original cases, scoped images, assignment removal and Variant-only managed
+soft deletion. Both drivers pass the complete seven-file gate: 130 originals plus one upstream
+skip. Final receipts are tracked in that record. There are
+75 declarations in three unregistered files; public Categories (21 cases) is next.
 Durable event storage/dispatch are deferred. Product
 mutations beyond the admitted graph/related-entity and lifecycle profile,
 stored Links and production

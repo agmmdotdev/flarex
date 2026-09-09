@@ -21,7 +21,11 @@ export const decodeProductCollectionRead = commerceDecoder(Schema.Struct({
     title: Schema.optionalKey(Schema.String), handle: Schema.optionalKey(Schema.String),
   })),
 }), "invalidInput");
-export const decodeProductOptionRead = commerceDecoder(Schema.Struct({
+export const decodeVariantImageInput = commerceDecoder(Schema.Union([
+  Schema.Struct({ variant_id: Schema.String, image_id: Schema.String }),
+  Schema.Array(Schema.Struct({ variant_id: Schema.String, image_id: Schema.String })).check(Schema.isMaxLength(256)),
+]), "invalidInput");
+export const decodeProductParentRead = commerceDecoder(Schema.Struct({
   ...Read.fields,
   filters: Schema.optionalKey(Schema.Struct({
     id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))])),

@@ -42,7 +42,7 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
         const id = key.components[0]?.value;
         if (key.components.length !== 1 || typeof id !== "string" ||
-          commandName !== (observation.operation === "restore" ? "productRestore" : "productSoftDelete") ||
+          !(commandName === (observation.operation === "restore" ? "productRestore" : "productSoftDelete") || (commandName === "productSoftDeleteVariant" && observation.operation === "softDelete" && observation.tableId === catalog.variant.table.name)) ||
           (observation.operation === "restore" ? observation.afterDeletedAt !== null : observation.afterDeletedAt === null)) return yield* Effect.fail(commerceError("receiptMismatch"));
         const identity = observation.tableId + ":" + id;
         if (observations.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -56,7 +56,7 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
         const id = key.components[0];
         if (object === undefined || key.components.length !== 1 || id?.columnId !== "id" || typeof id.value !== "string") return yield* Effect.fail(commerceError("receiptMismatch"));
         if (object === catalog.assignment) {
-          if (!((row.operation === "insert" && commandName === "productCreateassignment") || (row.operation === "delete" && commandName === "productDeleteproduct"))) return yield* Effect.fail(commerceError("unadmittedEvent"));
+          if (!((row.operation === "insert" && commandName === "productCreateassignment") || (row.operation === "delete" && ["productDeleteproduct", "productDeleteassignment"].includes(commandName)))) return yield* Effect.fail(commerceError("unadmittedEvent"));
           continue;
         }
         // The pinned physical-delete internal service dispatches only root IDs;

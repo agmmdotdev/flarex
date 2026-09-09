@@ -77,12 +77,12 @@ Business events use the authenticated in-memory test buffer after
 acknowledged commit; no durable provider or query sync is activated.
 
 Run `pnpm --filter @flarex/medusa-adapter test:product:upstream` from the workspace
-root. It uses the explicit private Product scale profile and runs 115 exact
-original cases from six unchanged files, including the 1000-image ordering case.
+root. It uses the explicit private Product scale profile and runs 130 exact
+original cases from seven unchanged files, including the 1000-image ordering case.
 Only the original upstream performance skip remains. Set `FLAREX_TEST_DRIVER=postgres` and
 `FLAREX_POSTGRES_DATABASE_URL` for the same ordinary-role PostgreSQL proof.
-All six files share one installed fixture per driver and clear business rows
-between cases. The case inventory and records 29-40 in the framework-integration
+All seven files share one installed fixture per driver and clear business rows
+between cases. The case inventory and records 29-41 in the framework-integration
 roadmap distinguish current coverage from the remaining module capabilities.
 
 Record 35 keeps the original profile and its hashes unchanged. Its explicit scale
@@ -147,8 +147,23 @@ Creation, value normalization and updates continue through the existing service.
 
 Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-options.config.ts`
 for 13 originals and four scope, cascade/rollback, replay and input-refusal checks.
-The combined gate now covers 115 originals plus its retained upstream skip.
-Variants (15 cases) is next; 90 declarations remain across four unregistered files.
+At the Options checkpoint, the combined gate covered 115 originals plus its
+retained upstream skip. Record 41 continues with Variants.
 [Record 40](../../roadmaps/flarexdb-framework-integration/preflight/40-medusa-product-options.md)
 owns the exact scope and final receipts. Original tests retain the established
 runtime/source-hash compiler policy; authored support code is strict-compiled.
+
+Record 41 adds the complete 15-case Product Variants suite, including scoped
+parent projection and title filtering, Medusa-owned image selection, exact
+image-assignment removal and Variant soft deletion. Assignment removal preserves
+images and emits relational facts without business events. Soft deletion preserves
+shared Option Values and pivots and emits the authenticated Variant event.
+The focused gate includes four additional boundary checks for scope, rollback,
+replay, dependency survival and refusal without publication.
+
+Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-variants.config.ts`.
+Both drivers pass the 19-check focused gate and the seven-file combined gate of
+130 originals plus one upstream skip. Final receipts are tracked in Record 41. After Variants, 75
+unregistered declarations remain across three files; public Categories (21 cases)
+is next. Workflow, Module Link, durable events, public serving, broader Payload
+integration and production activation retain their separate gates.

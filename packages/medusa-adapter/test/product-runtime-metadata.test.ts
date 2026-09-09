@@ -27,9 +27,9 @@ describe("Product runtime derives its schema facts from Medusa", () => {
     const derived = await Effect.runPromise(productRuntimeMetadata(altered));
     expect(derived.entities.every(entity => entity.prefix === "derived_test")).toBe(true);
   });
-  it("refuses a missing Option parent relationship", async () => {
+  it.each(["product_option", "product_variant"])("refuses a missing %s parent relationship", async (name) => {
     const captured = await Effect.runPromise(captureProductSchema("option-metadata"));
-    const broken = { ...captured.metadata.frame, tables: captured.metadata.frame.tables.map(table => table.name === "product_option"
+    const broken = { ...captured.metadata.frame, tables: captured.metadata.frame.tables.map(table => table.name === name
       ? { ...table, relationships: table.relationships.filter(relation => relation.name !== "product") } : table) };
     expect(await Effect.runPromise(Effect.result(productRuntimeMetadata(broken)))).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
   });
