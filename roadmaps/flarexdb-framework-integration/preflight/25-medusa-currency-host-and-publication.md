@@ -254,8 +254,8 @@ access leaves its acceptance explicitly incomplete, never inferred from PGlite.
 
 
 Continuation: [Internal Product preflight](./45-medusa-internal-product.md)
-proposes one private text-pattern predicate in the shared commerce store.
-The existing predicate set cannot express pinned Product free-text search.
-The proposal retains scope, resource and transaction ownership, and records
-SQLite/PGlite semantic evidence. Shared-owner approval is pending; current
-runtime capabilities are unchanged.
+implements the approved private text-pattern predicate in the shared commerce
+store. Scope, resource and transaction ownership are preserved.
+[Record 46](./46-commerce-command-registration-bound.md) owns the separately
+discovered command catalog limit. The active Product compatibility gate remains
+182 originals plus one skip; all 23 internal Product cases remain unproven.

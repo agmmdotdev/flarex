@@ -198,10 +198,14 @@ Use these sources in order:
     has 23 declarations remaining; the combined gate is 182 originals plus one skip
     per driver. Record 44 owns the final regression receipts.
 46. [Internal Product implementation preflight](./preflight/45-medusa-internal-product.md)
-    identifies the required private text-pattern predicate, records SQLite/PGlite
-    semantic evidence and the 23-case implementation plan; shared-owner approval
-    is pending. The current gate remains 182 plus one skip.
-47. Current code, migrations, any source snapshot already admitted by its own
+    implements the approved private text-pattern predicate. Adapter completion
+    reached the separate command registration bound; the current original gate
+    remains 182 plus one skip.
+47. [Commerce command registration bound](./preflight/46-commerce-command-registration-bound.md)
+    preflights the 67-command catalog exceeding the current limit of 64.
+    The recommendation separates registry capacity from request/statement limits;
+    approval is pending, with the 23-case draft preserved externally.
+48. Current code, migrations, any source snapshot already admitted by its own
     gate, and decisive tests prove exact implemented behavior.
 
 If this roadmap conflicts with an implemented application invariant owned by

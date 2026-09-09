@@ -1,6 +1,7 @@
 # Internal Product compatibility implementation preflight
 
-Status: preflight complete; shared commerce query capability requires approval.
+Status: approved text predicate implemented; adapter completion paused at the
+separate command registration bound in [Record 46](./46-commerce-command-registration-bound.md).
 Baseline: e31385a0. Current gate: 182 original passes plus one upstream skip
 per driver. Pinned Medusa: 48d5cc675e4e8bc821e22c20c88a751acc66fb5f.
 
@@ -137,3 +138,36 @@ Product property. No fallback or second query/transaction engine is retained.
 
 No runtime source, test source, active case inventory or core owner was changed
 by this preflight. The current gate remains 182 originals plus one skip.
+
+
+## Approved implementation checkpoint
+
+The private textLikeAscii predicate now uses trusted text columns and bound
+parameters, ASCII-only translation, C collation and no escape character.
+It charges one filter operand and applies the existing row-byte ceiling to
+the pattern, alongside unchanged request bytes, scope, node/depth and query
+limits. Find and count share the compiler.
+
+The core test covers ten SQLite semantic vectors, filtering before paging,
+count independent of paging, malformed predicate keys/types, unsupported
+columns, NUL/invalid Unicode, row-byte and operand/node/depth limits, and a
+colliding foreign-scope row. Invalid UTF-16 is refused at the existing outer
+canonical command boundary before it can reach the store.
+
+The original-file attempt exposed a separate 67-versus-64 command catalog
+limit before cases ran. Record 46 owns that follow-up decision. The adapter
+draft is recoverable externally; active promotion and case inventories remain
+at nine Product files, 182 originals and the retained skip. No test cleanup
+or assertion changes are included in this checkpoint.
+
+Validation receipts (2026-09-09):
+- commerceAdmittedWrites.test.ts: five passed on PGlite (22.900 seconds)
+  and five passed on ordinary-role PostgreSQL 18.3 (17.995 seconds).
+  The final vectors seed their own operand/scope fixtures.
+- Persistence package typecheck passed (73.624 seconds).
+- Both standing reviewers returned no findings on the final code/test diff.
+- Main core/diff lint passed; promotion verification retained 360 files across
+  ten private packages; source pin verified 8,496 files and zero symlinks.
+- The owned PostgreSQL fixture was stopped after validation.
+- The prior 182-original compatibility gate is retained, not claimed as rerun
+  by these focused core tests. The 23 internal Product cases remain unexecuted.

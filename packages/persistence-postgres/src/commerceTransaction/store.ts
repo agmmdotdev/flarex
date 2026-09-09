@@ -228,6 +228,15 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
         return parts.length === 0 ? (supplied.kind === "and" ? sql`true` : sql`false`) : sql`(${sql.join(parts, supplied.kind === "and" ? sql` and ` : sql` or `)})`;
       }
       const field = yield* column(supplied.column);
+      if (supplied.kind === "textLikeAscii" && field.type === "text" && Object.keys(supplied).every(name => ["kind", "column", "pattern"].includes(name))) {
+        if (!isPrivateValueText(supplied.pattern)) return yield* Result.fail(invalid());
+        if (++operands > commerceLimits.filterOperands) return yield* Result.fail(commerceError("limitExceeded"));
+        yield* capturePrivateJsonData(supplied.pattern, commerceLimits.rowBytes, commerceError);
+        // SQLite's pinned Medusa LIKE contract folds ASCII only and treats
+        // backslashes literally. Parameters and trusted columns retain the
+        // ordinary bounded, scoped read path for both find and count.
+        return sql`translate(${sql.identifier(field.name)}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') collate "C" like translate(${supplied.pattern}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') collate "C" escape ''`;
+      }
       if (supplied.kind === "isNull" && Object.keys(supplied).every(name => ["kind", "column"].includes(name))) return sql`${sql.identifier(field.name)} is null`;
       if (supplied.kind === "greaterThan" && field.type === "timestamp with time zone" && Object.keys(supplied).every(name => ["kind", "column", "value"].includes(name))) {
         if (typeof supplied.value !== "string") return yield* Result.fail(invalid());
