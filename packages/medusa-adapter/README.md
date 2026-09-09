@@ -205,5 +205,10 @@ the pure `src/schema/` compiler for checked DML columns/defaults, keys, indexes,
 foreign keys and persistence capabilities. Closed module admission and source
 provenance remain explicit; canonical schema artifacts are unchanged. Exact
 numeric companions carry explicit field and capability identities. This internal
-compiler does not admit another module or install a schema. Scalar value codecs,
-keyed/graph writes, events and full module preparation remain following steps.
+compiler does not admit another module or install a schema. The shared
+`src/write/keyed.ts` compiler now assembles admitted single-text-key update
+pairs for both modules. Profiles retain decoding order, key and duplicate
+policy, field admission and later scalar conversion. It does not acquire a
+store or settle a transaction. Metadata-field JSON decoders share
+`commerceRowDecoder`; numeric representation, stored metadata merging, graph
+writes, events and full module preparation retain their respective owners.

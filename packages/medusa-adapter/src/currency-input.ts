@@ -1,6 +1,7 @@
 import { Result, Schema } from "effect";
 import { commerceDecoder } from "./commerce-decoder";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { compileKeyedUpdates } from "./write/keyed";
 
 export const decodeCurrencyRead = commerceDecoder(Schema.Struct({
   code: Schema.optionalKey(Schema.String), filters: Schema.optionalKey(Schema.Json), config: Schema.optionalKey(Schema.Json),
@@ -11,11 +12,11 @@ const decodeChange = commerceDecoder(Schema.StructWithRest(Schema.Struct({
   update: Schema.StructWithRest(Schema.Struct({ code: Schema.optionalKey(Schema.Never) }), [Schema.Record(Schema.String, Schema.Json)]),
 }), [Schema.Record(Schema.String, Schema.Json)]), "invalidInput");
 
-export const currencyUpdateRows = (input: Json) => Result.gen(function* () {
-  const rows = [];
-  for (const value of yield* decodeChanges(input)) {
-    const change = yield* decodeChange(value);
-    rows.push({ ...change.update, code: change.entity.code });
-  }
-  return rows;
+export const currencyUpdateRows = compileKeyedUpdates({
+  keyColumn: "code",
+  repeatedKeys: "preserve",
+  decodeEntries: decodeChanges,
+  readEntry: (value: Json) => decodeChange(value).pipe(
+    Result.map(change => ({ key: change.entity.code, update: change.update })),
+  ),
 });

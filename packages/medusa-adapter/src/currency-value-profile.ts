@@ -2,7 +2,7 @@ import { Result, Schema } from "effect";
 import { Currency } from "@medusajs/currency/models";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { readCurrencyMetadata, type CurrencyDmlSource } from "./currency-schema";
-import { commerceDecoder } from "./commerce-decoder";
+import { commerceDecoder, commerceRowDecoder } from "./commerce-decoder";
 
 /** Compile from the admitted DML, then apply the adapter's representation rules.
  * Ordinary write-column validation remains owned by persistence. */
@@ -27,9 +27,7 @@ export const compileCurrencyValueProfile = (model: CurrencyDmlSource) => readCur
     }), [Schema.Record(Schema.Literals(writableFields), Schema.optionalKey(Schema.Json))]);
     return {
       decodeWriteRow: commerceDecoder(WriteRow, "invalidInput"),
-      decodeStoredRow: commerceDecoder(Schema.Record(
-        Schema.Literals(fields.map(field => field.fieldName)), Schema.optionalKey(Schema.Json),
-      ), "storedCorruption"),
+      decodeStoredRow: commerceRowDecoder(fields.map(field => field.fieldName), "storedCorruption"),
       decodeProjection: commerceDecoder(Projection, "storedCorruption"),
       decodeProjections: commerceDecoder(Schema.Array(Projection), "storedCorruption"),
       decodeCountResult: commerceDecoder(Schema.Tuple([Schema.Array(Projection), Schema.Number]), "storedCorruption"),

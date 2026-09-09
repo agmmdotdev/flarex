@@ -1,7 +1,8 @@
 import { Result, Schema } from "effect";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceDecoder } from "./commerce-decoder";
+import { commerceDecoder, commerceRowDecoder } from "./commerce-decoder";
+import { compileKeyedUpdates } from "./write/keyed";
 import type { ProductEntityMetadata } from "./product-runtime-metadata";
 
 export const decodeGraphArray = commerceDecoder(Schema.Array(Schema.Json), "invalidInput");
@@ -35,9 +36,7 @@ export function compileProductValueProfile(catalog: {
     const managed = ["created_at", "updated_at", "deleted_at", ...entity.table.foreignKeys.flatMap(key => key.columns)];
     return entity.table.columns.map(column => column.name).filter(name => !managed.includes(name));
   };
-  const shape = (names: readonly string[], reason: "invalidInput" | "unsupportedProfile") =>
-    commerceDecoder(Schema.Record(Schema.Literals(names), Schema.optionalKey(Schema.Json)), reason);
-  const createRoot = shape([...scalarNames(catalog.product), "options", "variants", "images", "tags", "tag_ids", "category_ids", "collection_id", "type_id"], "unsupportedProfile");
+  const createRoot = commerceRowDecoder([...scalarNames(catalog.product), "options", "variants", "images", "tags", "tag_ids", "category_ids", "collection_id", "type_id"], "unsupportedProfile");
   const decodeIds = commerceDecoder(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256)), "invalidInput");
   const decodeTagReferences = commerceDecoder(Schema.Array(Schema.Struct({ id: Schema.String.check(Schema.isLengthBetween(1, 256)) })).check(Schema.isMaxLength(256)), "invalidInput");
   const decodeReference = commerceDecoder(Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1, 256))), "invalidInput");
@@ -45,23 +44,23 @@ export function compileProductValueProfile(catalog: {
     : entity === catalog.category ? ["parent_category_id", "products"] : entity === catalog.collection ? ["product_ids"] : entity === catalog.image ? ["product_id"] : entity === catalog.assignment ? ["variant_id", "image_id"] : [];
   const commandScalars = (entity: ProductEntityMetadata) => scalarNames(entity).filter(name => entity !== catalog.category || name !== "mpath");
   const standalone = new Map(Object.values(catalog).filter(entity => entity !== catalog.product).map(entity => [entity.table.name,
-    shape([...commandScalars(entity), ...extra(entity)], "unsupportedProfile"),
+    commerceRowDecoder([...commandScalars(entity), ...extra(entity)], "unsupportedProfile"),
   ]));
   const updateData = new Map(Object.values(catalog).filter(entity => entity !== catalog.assignment).map(entity => [entity.table.name,
-    shape([...commandScalars(entity).filter(name => name !== "id"), ...(entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : entity === catalog.category ? ["parent_category_id"] : [])], "unsupportedProfile"),
+    commerceRowDecoder([...commandScalars(entity).filter(name => name !== "id"), ...(entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : entity === catalog.category ? ["parent_category_id"] : [])], "unsupportedProfile"),
   ]));
-  const collectionScalar = shape(commandScalars(catalog.collection), "unsupportedProfile");
-  const collectionUpdate = shape([...commandScalars(catalog.collection).filter(name => name !== "id"), "product_ids"], "unsupportedProfile");
+  const collectionScalar = commerceRowDecoder(commandScalars(catalog.collection), "unsupportedProfile");
+  const collectionUpdate = commerceRowDecoder([...commandScalars(catalog.collection).filter(name => name !== "id"), "product_ids"], "unsupportedProfile");
   const createChildren = {
-    options: shape(["title", "values"], "unsupportedProfile"),
-    variants: shape([...scalarNames(catalog.variant), "options"], "unsupportedProfile"),
-    images: shape(scalarNames(catalog.image), "unsupportedProfile"),
+    options: commerceRowDecoder(["title", "values"], "unsupportedProfile"),
+    variants: commerceRowDecoder([...scalarNames(catalog.variant), "options"], "unsupportedProfile"),
+    images: commerceRowDecoder(scalarNames(catalog.image), "unsupportedProfile"),
   };
-  const updateRoot = shape([...catalog.product.table.columns.map(column => column.name), "options", "variants", "images", "tags", "categories", "tag_ids", "category_ids", "collection", "type"], "unsupportedProfile");
-  const updateOption = shape(["id", "title", "values"], "unsupportedProfile");
+  const updateRoot = commerceRowDecoder([...catalog.product.table.columns.map(column => column.name), "options", "variants", "images", "tags", "categories", "tag_ids", "category_ids", "collection", "type"], "unsupportedProfile");
+  const updateOption = commerceRowDecoder(["id", "title", "values"], "unsupportedProfile");
   const updateChildren = {
-    variants: shape([...catalog.variant.table.columns.map(column => column.name), "options"], "unsupportedProfile"),
-    images: shape(catalog.image.table.columns.map(column => column.name), "unsupportedProfile"),
+    variants: commerceRowDecoder([...catalog.variant.table.columns.map(column => column.name), "options"], "unsupportedProfile"),
+    images: commerceRowDecoder(catalog.image.table.columns.map(column => column.name), "unsupportedProfile"),
   };
   const relations = new Map([
     [catalog.product.table.name, ["images", "options", "variants", "tags", "categories", "collection", "type"]],
@@ -70,10 +69,27 @@ export function compileProductValueProfile(catalog: {
     [catalog.variant.table.name, ["options"]], [catalog.image.table.name, []],
   ]);
   const graphRows = new Map(Object.values(catalog).map(entity => [entity.table.name,
-    shape([...entity.table.columns.map(column => column.name), ...relations.get(entity.table.name) ?? []], "invalidInput"),
+    commerceRowDecoder([...entity.table.columns.map(column => column.name), ...relations.get(entity.table.name) ?? []], "invalidInput"),
   ]));
+  const keyedUpdates = new Map(Object.values(catalog).flatMap(entity => {
+    const validateData = updateData.get(entity.table.name);
+    const decodeEntity = graphRows.get(entity.table.name);
+    if (validateData === undefined || decodeEntity === undefined) return [];
+    return [[entity.table.name, compileKeyedUpdates({
+      keyColumn: "id",
+      repeatedKeys: "reject",
+      decodeEntries: decodeUpdatePairs,
+      readEntry: pair => Result.gen(function* () {
+        const current = yield* decodeEntity(pair.entity);
+        const key = yield* decodeId(current.id);
+        if (key === undefined) return yield* Result.fail(commerceError("invalidInput"));
+        return { key, update: pair.update };
+      }),
+      validateData,
+    })] as const];
+  }));
   return {
-    decodeInternalProductScalars: shape(scalarNames(catalog.product), "unsupportedProfile"),
+    decodeInternalProductScalars: commerceRowDecoder(scalarNames(catalog.product), "unsupportedProfile"),
     validateUpdate: (input: Json) => Result.gen(function* () {
       const products = Array.isArray(input) ? input : [input];
       if (products.length > 256) return yield* Result.fail(commerceError("limitExceeded"));
@@ -97,7 +113,7 @@ export function compileProductValueProfile(catalog: {
             const child = yield* (relation === "options" ? updateOption(member) : updateChildren[relation](member));
             yield* decodeId(child.id);
             if (relation === "options" && child.values !== undefined) yield* decodeOptionValues(child.values);
-            if (relation === "variants" && child.options !== undefined) yield* decodeVariantOptions(child.options);
+            if (relation === "variants" && "options" in child && child.options !== undefined) yield* decodeVariantOptions(child.options);
           }
         }
       }
@@ -123,23 +139,10 @@ export function compileProductValueProfile(catalog: {
       return decode === undefined ? Result.fail(commerceError("unsupportedProfile")) : decode(input).pipe(Result.flatMap(value =>
         table === catalog.collection.table.name && value.product_ids !== undefined ? decodeIds(value.product_ids).pipe(Result.map(() => value)) : Result.succeed(value)));
     },
-    decodeRelatedUpdatePairs: (table: string, input: Json) => Result.gen(function* () {
-      const decode = updateData.get(table);
-      const decodeEntity = graphRows.get(table);
-      if (decode === undefined || decodeEntity === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-      const rows = [];
-      const ids = new Set<string>();
-      for (const pair of yield* decodeUpdatePairs(input)) {
-        const entity = yield* decodeEntity(pair.entity);
-        const id = yield* decodeId(entity.id);
-        if (id === undefined || ids.has(id) || (pair.update.id !== undefined && pair.update.id !== id)) return yield* Result.fail(commerceError("invalidInput"));
-        ids.add(id);
-        const { id: selectedId, ...data } = pair.update;
-        yield* decode(data);
-        rows.push({ ...data, id });
-      }
-      return rows;
-    }),
+    decodeRelatedUpdatePairs: (table: string, input: Json) => {
+      const decode = keyedUpdates.get(table);
+      return decode === undefined ? Result.fail(commerceError("unsupportedProfile")) : decode(input);
+    },
     validateCreate: (input: Json) => Result.gen(function* () {
       for (const product of Array.isArray(input) ? input : [input]) {
         const root = yield* createRoot(product);
@@ -156,7 +159,7 @@ export function compileProductValueProfile(catalog: {
           for (const inputChild of yield* decodeGraphArray(children)) {
             const child = yield* createChildren[relation](inputChild);
             if (relation === "options" && child.values !== undefined) yield* decodeOptionValues(child.values);
-            if (relation === "variants" && child.options !== undefined) yield* decodeVariantOptions(child.options);
+            if (relation === "variants" && "options" in child && child.options !== undefined) yield* decodeVariantOptions(child.options);
           }
         }
       }

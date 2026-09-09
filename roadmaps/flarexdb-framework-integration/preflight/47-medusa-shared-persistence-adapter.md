@@ -2,11 +2,11 @@
 
 ## Status and scope
 
-Status: shared reads and checked schema lowering are implemented and validated
-on PGlite and ordinary-role PostgreSQL. Currency and Product share a runtime
-catalog, query compiler, read/projection executor and pure schema compiler.
-Subsequent capabilities generalize
-value/write mechanics and module composition in separate implementation slices.
+Status: shared reads, checked schema lowering, JSON-field decoding and keyed
+update planning are implemented and validated on PGlite and ordinary-role
+PostgreSQL. Currency and Product share these adapter owners while retaining
+explicit module policies. Subsequent capabilities generalize graph-write
+mechanics and module composition in separate implementation slices.
 
 This adapter refactor does not authorize changes to Flarex
 transaction settlement, commit compilation, schema identity, resource limits,
@@ -418,11 +418,67 @@ The final staged diff gate also passes. These receipts establish the current
 bounded schemas and services; they do not admit arbitrary Medusa modules or
 claim deployed Worker or production support.
 
+## Implemented keyed-update and value-field ownership
+
+This step starts from `69b20f6d`. Currency and Product now compile their
+admitted single-text-key update pairs through `src/write/keyed.ts`.
+`commerceRowDecoder` owns their identical metadata-field JSON decoding
+mechanics, including strict keys and original property order. It proves an
+allowed JSON field shape, not a scalar storage type. Currency's exact-number
+conversion remains a module-owned codec with one current consumer.
+
+Module profiles retain batch/per-entry decoding order, key validation,
+writable-field policy and duplicate handling. Currency rejects any supplied
+update code, preserves repeated keys for its existing downstream checks, and
+performs lowercase/numeric/storage validation later. Product accepts only a
+repeated matching ID and rejects duplicate IDs before data validation. Its
+whole-batch structural decoder still runs before per-row admission, and an
+unadmitted table still fails before batch decoding.
+
+The shared compiler retains omission, null, empty relation data, metadata,
+row order, original errors and per-call state. Data decoding validates the
+payload without substituting a transformed value. The existing repository
+still owns capture/refusal and store dispatch; persistence owns stored-row
+merging, constraints and mutation facts. No transaction, lifecycle or graph
+authority moves into this compiler. The displaced per-module assembly loops
+and Product-local JSON-field schema factory are removed.
+
+The pinned Drizzle `normalizeUpdateEntry` at
+`packages/database/drizzle/src/medusa.ts` also accepts bare records and
+contains a fallback outside this adapter's admitted pair grammar. The shared
+compiler therefore remains an adapter-owned checked-pair implementation;
+it neither imports the SQLite manager nor broadens input admission.
+Renamed-key, error-identity, duplicate-order, payload-preservation, boundary
+ordering and full original-service tests gate the extraction.
+
+### Keyed-update validation
+
+All 103 focused checks pass, covering shared writes, module value profiles,
+structural boundaries, runtime metadata and unchanged schema artifacts.
+The four strict TypeScript lanes and ten-package private build pass. All 56
+promotion guards pass; the manifest verifies 380 exact files and browser
+portability verifies 647 inputs without Node, ORM, database-driver or
+source-island runtime imports.
+
+Database suites ran sequentially and passed on their first runs:
+
+| Suite | PGlite | Ordinary-role PostgreSQL 18.3 |
+| --- | --- | --- |
+| Product originals | 205 passed; one unchanged upstream skip | 205 passed; same skip |
+| Currency live originals and authored boundaries | 20 passed | 19 passed; existing PGlite-only interruption skip |
+
+All thirteen Currency original cases run on both drivers. Assertions, coverage
+reporters and resource ceilings are unchanged. Logs are retained under
+`work/validation/shared-medusa-write/`. Both required reviewers report no
+findings. Core, worktree-diff and exact staged-diff lint pass; the adapter
+remains outside the configured Oxlint source roots. This validates the admitted
+single-text-key profiles, not composite-key writes or arbitrary module support.
+
 ## Following capabilities and module proof
 
-Shared reads and checked DML lowering now have common owners. Next consolidate
-value and write machinery into reusable Medusa-owned components: scalar codecs, keyed
-updates, graph creation/replacement, FK/pivot planning, and event dispatch
+Shared reads, checked DML lowering, JSON-field decoders and keyed-update
+planning now have common owners. Next consolidate graph creation/replacement,
+FK/pivot planning, and event dispatch
 mechanics. Preserve insert versus upsert, omitted versus empty relationships,
 identity retention, metadata merging, reference ownership, managed-field
 refusal, actual-row performed-actions, and mutation order. Keep domain

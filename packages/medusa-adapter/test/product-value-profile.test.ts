@@ -14,6 +14,19 @@ beforeAll(async () => {
 });
 
 describe("Product creation and normalized graph profiles", () => {
+  it("retains batch, identity and writable-field refusal order for keyed updates", () => {
+    const decode = (input: Json) => catalog.valueProfile.decodeRelatedUpdatePairs(catalog.tag.table.name, input);
+    expect(decode([{ entity: { id: "a" }, update: { extra: true } }, { entity: null, update: {} }]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(decode([{ entity: { id: "a" }, update: { extra: true } }]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(decode([{ entity: { id: "a" }, update: {} }, { entity: { id: "a" }, update: { extra: true } }]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(decode(Array.from({ length: 257 }, (_, index) => ({ entity: { id: String(index) }, update: {} }))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(catalog.valueProfile.decodeRelatedUpdatePairs("unadmitted", null))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+  });
   it("checks DML update pairs without allowing identity, managed or undeclared writes", () => {
     const profile = catalog.valueProfile;
     const table = catalog.tag.table.name;
