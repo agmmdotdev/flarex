@@ -6,12 +6,15 @@
   "exports": {
     "./product/create-product-tags": "./src/product/workflows/create-product-tags.ts",
     "./product/update-product-tags": "./src/product/workflows/update-product-tags.ts",
-    "./product/delete-product-tags": "./src/product/workflows/delete-product-tags.ts"
+    "./product/delete-product-tags": "./src/product/workflows/delete-product-tags.ts",
+    "./product/batch-variant-images": "./src/product/workflows/batch-variant-images.ts",
+    "./common/use-query-graph": "./src/common/steps/use-query-graph.ts"
   },
   "dependencies": {
     "@medusajs/types": "workspace:*",
     "@medusajs/utils": "workspace:*",
-    "@medusajs/workflows-sdk": "workspace:*"
+    "@medusajs/workflows-sdk": "workspace:*",
+    "effect": "catalog:"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

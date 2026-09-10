@@ -17,6 +17,9 @@ other installed modules.
 The [Product-tag deletion capability](./13-product-tag-deletion.md) completes
 the tag workflow lifecycle with managed soft deletion, native null completion
 and authenticated successful-command input evidence.
+The [conditional variant-image capability](./14-conditional-variant-image-workflow.md)
+adds reusable named conditions, stable step instances and the checked common
+graph step, with an explicitly ordered Product consumer.
 This folder does not select a universal workflow architecture.
 
 Prepare reusable native capabilities before full workflow integration. Native
@@ -62,8 +65,9 @@ instead of copying changing implementation inventories here.
 Atomic composition and Local Graph Query have approved, validated source-private
 implementations. Topics 07 and 10 have one connected private workflow/event
 implementation. Topic 11 implements shared workflow host composition; Topic 12
-adds selector updates and selected-participant admission. The remaining topics retain their pending
-preflights, with related findings linked where useful.
+adds selector updates and selected-participant admission. Topics 13 and 14 add
+tag deletion and conditional variant-image composition. The remaining topics
+retain their pending preflights, with related findings linked where useful.
 Numbers provide a reading order, not fixed commit boundaries or a requirement
 to build every capability before the first useful integration.
 
@@ -82,7 +86,7 @@ to build every capability before the first useful integration.
 | [11 Workflow host composition](./11-workflow-host-composition.md) | Implemented private module-owned registrations and shared scoped workflow assembly. |
 | [12 Product-tag updates](./12-product-tag-updates.md) | Private selector update workflow and authenticated selected-participant admission, including one-module execution. |
 | [13 Product-tag deletion](./13-product-tag-deletion.md) | Private soft-delete workflow, native void-to-null completion and successful-command input evidence. |
-| [14 Conditional variant-image workflow](./14-conditional-variant-image-workflow.md) | Researched proposal for named conditional steps, a checked graph-step adapter and an explicitly ordered Product variant-image workflow; implementation approval pending. |
+| [14 Conditional variant-image workflow](./14-conditional-variant-image-workflow.md) | Private named conditions, checked common graph-step adaptation and an explicitly ordered Product variant-image workflow. |
 
 The first foundation is a private Product/Currency command over the existing
 shared transaction owner, including multiple commerce installations, pending
@@ -122,8 +126,7 @@ shared [workflow host](./11-workflow-host-composition.md) across commands, graph
 events and lifecycle. [Product-tag updates](./12-product-tag-updates.md) reuse that
 host with Product as the only selected participant. [Product-tag deletion](./13-product-tag-deletion.md)
 uses the real soft-delete flow to establish native completion results and
-captured command-input evidence. The next researched proposal is the
-[conditional variant-image workflow](./14-conditional-variant-image-workflow.md).
-It recommends explicit ordered composition for this atomic consumer and keeps
-general parallel execution deferred. Its implementation awaits approval; the
-remaining outlines are not a universal plan.
+captured command-input evidence. The
+[conditional variant-image workflow](./14-conditional-variant-image-workflow.md)
+uses explicit ordered composition for this atomic consumer and keeps general
+parallel execution deferred. Remaining outlines retain their own preflights.

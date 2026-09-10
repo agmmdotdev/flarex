@@ -2,16 +2,16 @@
 
 ## Status And Scope
 
-Status: researched proposal; implementation approval is pending. This note is
-the deliverable of the control-flow preflight. It does not extend the current
-SDK, Graph Query, Product method admission or transaction contracts by itself.
+Status: implemented, validated and reviewed. This private capability uses the
+existing SDK, core-flows and Medusa adapter packages. It extends no shared
+database or transaction owner.
 
-Recommend one coherent capability: execute the pinned variant-image batch
+The accepted capability executes the pinned variant-image batch
 workflow as an explicitly ordered, conditional native atomic workflow. Build
 the reusable SDK and graph-step foundations first within that capability, then
 prove them through the actual Product consumer before declaring it complete.
 
-The proposed native fork adds images, removes images, and conditionally clears
+The native fork adds images, removes images, and conditionally clears
 the variant thumbnail in one existing Flarex transaction. It rejects duplicate
 IDs within either input list and IDs present in both lists. It preserves the
 original requested-ID result and service-owned relational behavior. General
@@ -44,10 +44,10 @@ fork commit `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, package baseline 2.13.4.
 | [Workflow value capture](../../packages/medusa-adapter/src/workflow-value.ts) | Step values are owned copies with accounted omissions. Input mutation is therefore not evidence of a frozen-input failure; preservation of caller values, result ownership and strict final JSON are the actual obligations. |
 | [Pinned parallel composer](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/parallelize.ts) | Merges graph actions; it is not a result-array helper. A sequential replacement must be an explicit source-fork change. |
 | [Pinned conditions](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/when.ts) and [step wrappers](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-step.ts) | Build branch contents during composition, attach execution predicates to steps, and synthesize a return step for transformed branch results. The wrapper can reevaluate a predicate for each enclosed step. |
-| [Native definition](../../packages/medusa-workflows-sdk/src/definition.ts), [references](../../packages/medusa-workflows-sdk/src/references.ts), [runner](../../packages/medusa-workflows-sdk/src/runtime.ts) | Admit finite ordered steps. Duplicate names are rejected immediately; `.config` and conditions are refused. Branches and repeated renamed instances need real preparation/runtime support. |
+| [Native definition](../../packages/medusa-workflows-sdk/src/definition.ts), [references](../../packages/medusa-workflows-sdk/src/references.ts), [runner](../../packages/medusa-workflows-sdk/src/runtime.ts) | One ordered runner supports named conditions and renamed instances. Opaque identity survives renaming; final preparation rejects collisions and authentic references to later nodes. |
 | [Request lifetime](../../packages/persistence-postgres/src/boundedRequestLifetime.ts) | Rejects overlapping operations and sibling ownership misuse. Driver-level query queuing does not authorize concurrent callbacks or make multi-query service operations independent. |
-| [Product commands](../../packages/medusa-adapter/src/product-service.ts) and [workflow registration](../../packages/medusa-adapter/src/product-workflow-module.ts) | Native image-association commands already exist. Workflow method registration is tag-only; Variant's current native update command takes an ID/data form rather than the selector signature used by the step. |
-| [Product graph registration](../../packages/medusa-adapter/src/product-graph-query.ts) and [read profiles](../../packages/medusa-adapter/src/product-read-profile.ts) | Variant reads are admitted. Image read metadata exists, but a standalone Image graph command/entry is missing. Add the service-backed read through these owners. |
+| [Product commands](../../packages/medusa-adapter/src/product-service.ts) and [workflow registration](../../packages/medusa-adapter/src/product-workflow-module.ts) | Workflow methods reuse association commands and projected Variant reads. The bounded selector command calls the real selector overload for thumbnail updates; existing ID/data commands remain separate. |
+| [Product graph registration](../../packages/medusa-adapter/src/product-graph-query.ts) and [read profiles](../../packages/medusa-adapter/src/product-read-profile.ts) | Image count reads use the generated service and existing Image profile alongside Variant and other admitted roots. |
 | [Graph Query](../../packages/medusa-adapter/src/local-graph/query.ts) and [resource binding](../../packages/medusa-adapter/src/workflow/binding.ts) | Native Graph Query requires explicit pagination and returns arrays. Its resource wrapper takes one input; upstream second-argument options are not an admitted compatibility surface. |
 | [Product service](../../packages/medusa-product/src/services/product-module-service.ts) and [Variant proofs](../../packages/medusa-adapter/test/support/product-variant-checks.ts) | Association removal preserves image rows. Variant image hydration also includes general product images; removing an assignment does not necessarily remove that image from a hydrated `variant.images` result. |
 
@@ -80,6 +80,10 @@ intermediate `undefined` representation. A branch returning a transform still
 needs a guarded result boundary. Nested named branches retain parent guards;
 downstream consumers see a skipped result only through the declared optional
 type. Final JSON/output validation and void-to-null completion stay unchanged.
+Configurable step references remain available for null, undefined, void and
+never outputs. Optional branch results cannot satisfy required step inputs
+without narrowing in a resolved callback. Builder types reject a possible
+Promise result as well as an exclusively asynchronous result.
 
 Names label authentic step instances; renaming must not redirect an existing
 reference to another invocation. Check collisions, foreign references, unfinished
@@ -90,6 +94,15 @@ route predicates through the existing invocation/checkpoint/failure owner.
 Do not introduce random branch names, process-global runtime state, retries,
 loops, dynamic runtime graph construction or nested-workflow execution.
 
+Pure property references select from already captured values without scheduling
+a callback. Every real callback receives a lifetime-checked, charged, detached
+input, preventing transforms from mutating cached predecessor outputs. Step
+output and distinct compensation data are captured in one envelope; identical
+values are captured once. Guarded result nodes only forward resolved values.
+The final checkpoint and native output capture still run, including empty or
+fully skipped workflows. The existing 64-call and byte ceilings are unchanged;
+there is no independent workflow allowance or bypass of module operations.
+
 ### Checked Workflow Graph Step
 
 Adapt the shared graph step once, beside the promoted common workflow steps.
@@ -98,6 +111,8 @@ pagination and array result contract intact.
 
 The step accepts the existing native entity/field/filter/page subset plus a
 checked `isList` choice. Other remote/index/context/cache options remain refused.
+The bound query exposes native `maxPageSize` alongside `graph`; the common step
+uses it for the default page, and core validates every requested page.
 Explicit pages retain their existing semantics. For an omitted page, issue one
 explicit bounded page using the admitted native ceiling and require a complete
 result: refuse if the count exceeds that ceiling. Never silently truncate,
@@ -201,10 +216,9 @@ failure. Conditional steps neither add Convex child rollback nor convert
 commerce reads into Application OCC evidence. This is host-neutral private
 work; deployed Cloudflare and public activation require their own proof.
 
-## Completion And Execution Order
+## Verification Requirements
 
-After approval, complete the following as one capability rather than requesting
-approval between ordinary implementation steps:
+The capability is complete only with the following connected proof:
 
 1. Extend SDK preparation, instance naming and guarded execution together.
    Prove true/false and nested guards, skipped transforms, guarded transform

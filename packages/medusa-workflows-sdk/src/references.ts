@@ -4,16 +4,19 @@ import { definitionError } from "./model";
 const references = new WeakMap<object, Reference>();
 export const referenceOf = (value: unknown) => typeof value === "object" && value !== null ? references.get(value) : undefined;
 
-/** Pinned proxy algorithm: property access becomes a deferred transform of its
- * target. Fork changes authenticate reference identity and prevent thenable assimilation. */
-export function proxify<T>(reference: Reference): WorkflowData<T> {
+/** Pinned staged property access, represented as pure selection in the native
+ * fork. Authenticate reference identity and prevent thenable assimilation. */
+export function proxify<T>(reference: Reference, configure?: (options: unknown) => void): WorkflowData<T> {
   const proxy = new Proxy({}, {
     get(_target, property) {
       if (property === "then") return undefined;
-      if (property === "config" || property === "if") return () => { throw definitionError("unsupportedProfile", "Step reconfiguration and conditions require a separate profile"); };
-      return proxify({ kind: "transform", owner: reference.owner, input: proxy,
-        transform: (value: unknown) => value == null ? undefined : Reflect.get(Object(value), property),
-      });
+      if (property === "config") return (options: unknown) => {
+        if (configure === undefined) throw definitionError("unsupportedProfile", "Only step instances support name configuration");
+        configure(options);
+        return proxy;
+      };
+      if (property === "if") return () => { throw definitionError("unsupportedProfile", "Use a named when/then branch"); };
+      return proxify({ kind: "property", owner: reference.owner, input: proxy, property });
     },
     set() { throw definitionError("invalidDefinition", "Workflow references are immutable"); },
   });
@@ -22,6 +25,6 @@ export function proxify<T>(reference: Reference): WorkflowData<T> {
   return proxy as WorkflowData<T>;
 }
 
-export function transformer<T>(owner: object, input: unknown, transform: (value: unknown, context: StepExecutionContext) => unknown | Promise<unknown>): WorkflowData<T> {
-  return proxify({ kind: "transform", owner, input, transform });
+export function transformer<T>(owner: object, input: unknown, transform: (value: unknown, context: StepExecutionContext) => unknown | Promise<unknown>, guards: readonly object[]): WorkflowData<T> {
+  return proxify({ kind: "transform", owner, input, transform, guards });
 }

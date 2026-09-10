@@ -5,6 +5,7 @@
     "test/product-tag-workflow.test.ts",
     "test/product-tag-update-workflow.test.ts",
     "test/product-tag-delete-workflow.test.ts",
+    "test/product-variant-images-workflow.test.ts",
     "test/currency-announcement.test.ts"
   ]
 }

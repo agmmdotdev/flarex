@@ -3,9 +3,13 @@ import type { StepResponse } from "./responses";
 
 /** Medusa's staged authoring type: values are references until runtime resolution. */
 export declare const dataBrand: unique symbol;
-export type WorkflowData<T> = T & { readonly [dataBrand]: T };
-export interface StepFunction<Input, Output> { (input: Input | WorkflowData<Input>): WorkflowData<Output> }
-export type Resolved<T> = T extends WorkflowData<infer Value> ? Value : T extends readonly unknown[]
+export type WorkflowData<T> = [T] extends [never] ? { readonly [dataBrand]: T }
+  : T extends null | void ? { readonly [dataBrand]: T } : T & { readonly [dataBrand]: T };
+export type StepOutput<Output> = WorkflowData<Output> & {
+  readonly config: (options: { readonly name: string }) => StepOutput<Output>;
+};
+export interface StepFunction<Input, Output> { (input: Input | WorkflowData<Input>): StepOutput<Output> }
+export type Resolved<T> = T extends { readonly [dataBrand]: infer Value } ? Value : T extends readonly unknown[]
   ? { [Key in keyof T]: Resolved<T[Key]> } : T extends object ? { [Key in keyof T]: Resolved<T[Key]> } : T;
 /** Narrow, trusted resource view. The adapter authenticates every resolved method. */
 export interface WorkflowContainer { resolve<T>(name: string): T }
@@ -20,6 +24,9 @@ export class WorkflowDefinitionError extends Data.TaggedError("WorkflowDefinitio
 }> { override get message() { return this.detail; } }
 export const definitionError = (reason: WorkflowDefinitionError["reason"], detail: string) => new WorkflowDefinitionError({ reason, detail });
 export interface WorkflowNode {
+  readonly id: object;
+  readonly kind: "step" | "condition" | "branchResult";
+  readonly guards: readonly object[];
   readonly name: string;
   readonly input: unknown;
   readonly invoke: Invoke<unknown, unknown>;
@@ -28,10 +35,12 @@ export interface WorkflowNode {
   readonly hook: boolean;
 }
 export interface Reference {
-  readonly kind: "input" | "step" | "transform";
+  readonly kind: "input" | "step" | "transform" | "property";
   readonly owner: object;
-  readonly step?: string;
+  readonly step?: object;
+  readonly guards?: readonly object[];
   readonly input?: unknown;
+  readonly property?: PropertyKey;
   readonly transform?: (value: unknown, context: StepExecutionContext) => unknown | Promise<unknown>;
 }
 export interface Hook<Name extends string, Input, Output = unknown> {

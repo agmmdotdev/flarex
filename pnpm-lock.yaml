@@ -874,6 +874,9 @@ importers:
       '@medusajs/workflows-sdk':
         specifier: workspace:*
         version: link:../medusa-workflows-sdk
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.112
 
   packages/medusa-currency:
     dependencies:

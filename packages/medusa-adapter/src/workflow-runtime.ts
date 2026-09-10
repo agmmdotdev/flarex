@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect";
 import { executeWorkflow } from "@medusajs/workflows-sdk/native";
-import type { PreparedWorkflow, WorkflowContainer } from "@medusajs/workflows-sdk";
+import { WorkflowDefinitionError, type PreparedWorkflow, type WorkflowContainer } from "@medusajs/workflows-sdk";
 import type { AtomicCommerceContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { makeCommercePromiseOwner, type CommercePromiseOwner } from "./commerce-promise-owner";
@@ -18,7 +18,7 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
     context: { container: bind(owner), eventGroupId: ctx.eventGroupId },
     invoke: work => Effect.tryPromise({
       try: signal => owner.callback(() => Promise.resolve(work()), signal),
-      catch: cause => cause instanceof CommerceTransactionError ? cause : commerceError("adapterFailure", cause),
+      catch: cause => cause instanceof CommerceTransactionError ? cause : commerceError(cause instanceof WorkflowDefinitionError ? "unsupportedProfile" : "adapterFailure", cause),
     }),
   })).pipe(
     Effect.catchTag("WorkflowDefinitionError", cause => ctx.refuse(commerceError("unsupportedProfile", cause))),

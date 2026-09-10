@@ -1,7 +1,7 @@
 import { Effect, Result } from "effect";
 import type { WorkflowContainer } from "@medusajs/workflows-sdk";
 import type { AtomicCommerceContext, CommerceEventContract } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, isJsonObject, type Json, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, commerceLimits, isJsonObject, type Json, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommercePromiseOwner } from "../commerce-promise-owner";
 import { captureCommerceInput } from "../commerce-input";
 import type { PreparedLocalGraph } from "../local-graph/model";
@@ -42,7 +42,9 @@ export function bindWorkflowResources(selection: PreparedWorkflowResources, memb
   }
   if (graph !== undefined) {
     const query = graph.bind(ctx);
-    entries.push(["query", Object.freeze({ graph: (input: unknown) => owner.run(query.graph(input)) })]);
+    entries.push(["query", Object.freeze({ maxPageSize: commerceLimits.catalogRows,
+      graph: (...args: unknown[]) => owner.run(args.length === 1 ? query.graph(args[0]) : ctx.refuse(commerceError("unsupportedProfile"))),
+    })]);
   }
   if (selection.events) {
     const contracts = new Map(events.map(event => [event.name, event]));

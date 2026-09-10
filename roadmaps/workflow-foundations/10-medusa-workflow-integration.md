@@ -14,6 +14,10 @@ soft-delete/hook/input-ID-event sequence. Its SDK result is void; the native
 completion boundary stores and returns null. Create/update output schemas remain
 strict, and nested undefined values are not normalized into valid JSON.
 
+The [conditional variant-image workflow](./14-conditional-variant-image-workflow.md)
+uses the same host for ordered associations, named conditional graph reads and
+a thumbnail update. It emits only the actual internal Variant update event.
+
 The host uses one authenticated, bounded SQL transaction. It does not add a
 Task, relational journal/OCC engine, distributed lock or second commit owner.
 Product supplies business semantics; Currency reads demonstrate another admitted
@@ -61,8 +65,9 @@ Each service call enters an authentic command using fresh scoped module services
 
 Definitions are built synchronously. Construction-only ambient context is
 restored on every exit and never selects request resources. The ordered builder
-retains the pinned add-action/find-last-step mechanics; branching, movement and
-persisted-transaction loading are not part of this profile.
+retains the pinned add-action/find-last-step mechanics. Named conditions guard
+that finite order; parallel graph movement and persisted-transaction loading
+are not part of this profile.
 
 Each definition owns authentic deferred references and an immutable captured
 graph. Literal capture rejects cycles, accessors, custom prototypes, sparse
@@ -77,18 +82,23 @@ cannot reuse a retained result under the same request key. Caller labels,
 workflow names, schema artifacts and Function.toString alone are not revisions.
 Public bundle distribution and application activation remain later decisions.
 
-The selected surface admits up to 64 ordered steps, deferred property/nested
+The selected surface admits up to 64 ordered nodes, including conditions and
+their guarded results, deferred property/nested
 references, one-to-seven-function transform chains, StepResponse, WorkflowResponse
 and named hooks. Unsupported step options are refused during construction:
 parallel, scheduled/durable async steps, retries, nested workflows, waits/signals
 and post-completion cancellation. Do not silently serialize or fall back to the
-original scheduler. Conditions/reconfiguration and hook validators are also
-unadmitted.
+original scheduler. Named `when(...).then(...)` and name-only `.config(...)`
+are admitted; synchronous Boolean predicates run once per reached branch per
+invocation. Other reconfiguration and hook validators remain unadmitted.
 
 ## Runtime And Failure Contract
 
-Every evaluated step/transform and every captured input, intermediate, event and
-result consumes the SAME root call/byte/lifetime budget as module operations.
+Callback input/output capture consumes the SAME root call/byte/lifetime budget
+as module operations. Capture checks the lifetime and gives callbacks owned
+inputs. Pure property selection and guarded reference forwarding do not schedule
+callbacks. Step output and compensation are captured together, with identical
+values captured once.
 A workflow gets no independent full allowance. Internal own-undefined properties
 and absent hook results use a charged omission envelope; module/event/final
 results retain their strict native JSON boundaries. Undefined array members and

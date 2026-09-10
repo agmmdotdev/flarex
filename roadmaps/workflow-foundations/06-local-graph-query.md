@@ -57,9 +57,11 @@ aliases and malformed admitted registrations during preparation. Retain
 Product's explicit variant aliases. A generated alias or repository alone does
 not admit an entity.
 
-Initial roots are Product, Category, Collection, Type, Tag, Option, Variant and
-Currency through existing read commands. Image and option value are relation
-targets only where existing profiles admit them. Each module owns specialized
+Roots are Product, Category, Collection, Type, Tag, Option, Variant, Image and
+Currency through existing read commands. The
+[conditional workflow capability](./14-conditional-variant-image-workflow.md)
+adds Image through its generated service and existing read profile. Option value
+remains a relation target where profiles admit it. Each module owns specialized
 path and response policies; ordinary authors should not manually assemble a
 graph repository for every model.
 
@@ -76,6 +78,13 @@ Product command preparation exposes its module-owned `graph` description;
 Currency exposes the checked `currencyGraph` definition. The composition root
 supplies participant tokens, and the host independently admits the read
 commands. These APIs remain source-private; no application ingress is added.
+
+The shared `useQueryGraphStep` adapts this native contract for workflows. An
+omitted page uses the native ceiling and requires a complete result;
+`isList: false` requires zero or one match with no skipped rows. Only the step
+unwraps a single result. It exposes partial JSON and preserves absence as an
+intermediate undefined value. The native resource accepts exactly one argument
+and returns arrays; extra arguments latch a refusal.
 
 ```ts
 const query = preparedGraph.bind(commandContext)

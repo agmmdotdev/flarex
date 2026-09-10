@@ -10,6 +10,14 @@ version 2.13.4. Their `source` export condition supports the portable graph;
 default exports select local checked Node builds for the comparison lane. Broad
 root framework/utils imports and runtime source-island aliases are absent.
 
+Private workflow composition also supports named conditions, stable renamed
+step instances and a shared checked graph step. The
+[Variant Image workflow](../../roadmaps/workflow-foundations/14-conditional-variant-image-workflow.md)
+executes add, remove and any thumbnail update in one existing transaction.
+Association results describe requested IDs; only an actual thumbnail update
+emits its internal module event. Durable suspension and parallel execution
+retain separate preflights.
+
 From the workspace root:
 
 ```sh

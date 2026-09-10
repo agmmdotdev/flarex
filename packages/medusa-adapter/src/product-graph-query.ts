@@ -13,7 +13,7 @@ const decodeCategoryCount = (input: Json) => decodeCategoryProjection(input).pip
   Result.flatMap(value => captureCommerceInput(value)), Result.flatMap(decodeGraphCount),
 );
 
-type ProductGraphCommands = Readonly<Record<"count" | "countCategories" | "countCollections" | "countTypes" | "countTags" | "countOptions" | "countVariants", GraphReadCommand>>;
+type ProductGraphCommands = Readonly<Record<"count" | "countCategories" | "countCollections" | "countTypes" | "countTags" | "countOptions" | "countVariants" | "countImages", GraphReadCommand>>;
 
 /** Module-owned capabilities extend checked metadata; Category hydration and
  * Product's image-assignment path remain the actual services' responsibility. */
@@ -28,6 +28,7 @@ export function productGraphDefinition(metadata: ProductRuntimeMetadata, command
       { entity: metadata.tag, command: commands.countTags, methodSuffix: "ProductTags" },
       { entity: metadata.option, command: commands.countOptions, methodSuffix: "ProductOptions" },
       { entity: metadata.variant, command: commands.countVariants, methodSuffix: "ProductVariants" },
+      { entity: metadata.image, command: commands.countImages, methodSuffix: "ProductImages" },
     ];
     for (const item of selected) {
       const { entity, command, methodSuffix } = item;

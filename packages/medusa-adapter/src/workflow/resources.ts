@@ -25,7 +25,7 @@ export type NativeWorkflowResources<Selections extends WorkflowSelections, Event
   readonly [Key in keyof Selections as Selections[Key]["methods"][number] extends never ? never : Key]: {
     readonly [Method in Selections[Key]["methods"][number]]: BoundWorkflowMethod<WorkflowModuleMethods<Selections[Key]["module"]>[Method]>;
   };
-} & ([GraphKeys<Selections>] extends [never] ? {} : { readonly query: { readonly graph: (input: unknown) => Promise<LocalGraphResult> } })
+} & ([GraphKeys<Selections>] extends [never] ? {} : { readonly query: { readonly maxPageSize: number; readonly graph: (input: unknown) => Promise<LocalGraphResult> } })
   & (Events extends true ? { readonly event_bus: { readonly emit: (messages: readonly Json[]) => Promise<void> } } : {});
 export type NativeWorkflowContext<Resources> = StepExecutionContext & { readonly resources: Resources };
 export type NativeWorkflowHooks<Hooks, Resources> = {

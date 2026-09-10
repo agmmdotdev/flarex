@@ -20,6 +20,13 @@ Event validators can inspect captured native inputs and results of successful
 calls through authentic selected method tokens; existing result-only projections
 remain available from the same evidence.
 
+[Variant-image workflows](./14-conditional-variant-image-workflow.md) select
+association methods, a projected Variant list, its bounded thumbnail selector
+update and graph reads. The shared binding exposes the native graph page ceiling
+and rejects extra graph arguments through sticky refusal. An empty external
+workflow-contract list coexists with its selected internal module event contract
+and subscribers; this consumer emits only the actual Variant update.
+
 ## Authority And Sources
 
 The [accepted design](../../design-notes/flarex-db-accepted-design.md) and

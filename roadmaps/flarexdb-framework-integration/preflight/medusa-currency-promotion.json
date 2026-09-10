@@ -12,7 +12,7 @@
     {
       "target": "packages/medusa-adapter/README.md",
       "classification": "authored",
-      "targetSha256": "79823973f8da2d32b7b1db1c2d25808b4cabb26acd874500e7f851a17ea3f889"
+      "targetSha256": "e3f169e5d4274c7bf7d98899ae8054aff2b50f254b691a34e9f8ef382fb34c16"
     },
     {
       "target": "packages/medusa-adapter/package.json",
@@ -192,7 +192,7 @@
     {
       "target": "packages/medusa-adapter/src/product-graph-query.ts",
       "classification": "authored",
-      "targetSha256": "8ea1724b69c4b16b7f06c143e72445b804f4e416dcf262c7a0f0c4fa849ba96b"
+      "targetSha256": "c849176247eb650f63b44704a69ecc30408be91b9d74b8f2355ca14a3d4e3c3e"
     },
     {
       "target": "packages/medusa-adapter/src/product-graph.ts",
@@ -272,7 +272,7 @@
     {
       "target": "packages/medusa-adapter/src/product-service.ts",
       "classification": "authored",
-      "targetSha256": "93c0ff3b9133abc835c9e8360c8740abdcd27de37f9724fad6a0a15fb36586a7"
+      "targetSha256": "6b6707fcedf05a94ae1a9ba73fdde92b4172970abcd7de30379b662e7381ca10"
     },
     {
       "target": "packages/medusa-adapter/src/product-tag-delete-workflow.ts",
@@ -310,9 +310,19 @@
       "targetSha256": "747967ebf97b822d5fbb1a16df99b8b81397b71c62517491a734f29308d46c3e"
     },
     {
+      "target": "packages/medusa-adapter/src/product-variant-images-workflow.ts",
+      "classification": "authored",
+      "targetSha256": "5d53b0e4dbc8a1a38b1279454542b83b22502114037ef21f468a6434eb500476"
+    },
+    {
+      "target": "packages/medusa-adapter/src/product-variant-workflow-input.ts",
+      "classification": "authored",
+      "targetSha256": "1eaa04667d8fb82eab2748c5ff8d773064bed8b26f6155000aabe57328fb7855"
+    },
+    {
       "target": "packages/medusa-adapter/src/product-workflow-module.ts",
       "classification": "authored",
-      "targetSha256": "abdc822f46e278ba56e7b436d203be9ecfc9351029f837d4e98566c5f3433e1e"
+      "targetSha256": "956c482aac7a1be3dcebb74628aaf8d0c6228ac59189cc13b9a8e9f8473ce6bb"
     },
     {
       "target": "packages/medusa-adapter/src/query-decoder.ts",
@@ -352,7 +362,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow-runtime.ts",
       "classification": "authored",
-      "targetSha256": "12858e9003a1b52187594f7113991ffa886e10eb0af311b49baebecf230f12a1"
+      "targetSha256": "1520d4c7205a9fcc66096fcb11c6897cb2a2e7c3d2c28c8656ad0b0754b35d37"
     },
     {
       "target": "packages/medusa-adapter/src/workflow-value.ts",
@@ -362,7 +372,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/binding.ts",
       "classification": "authored",
-      "targetSha256": "80be9a079282cf4f92c54b45f11375dd249dd6c2645f4447f672051a12b7d611"
+      "targetSha256": "52969823b40be3151d9bf71b8d138e3f33c42ce5bcb0c575b7707940b7ddc7dc"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/configuration.ts",
@@ -382,7 +392,7 @@
     {
       "target": "packages/medusa-adapter/src/workflow/resources.ts",
       "classification": "authored",
-      "targetSha256": "68ceba018caa14b76d4a35750c6076f264bfa5c0d1309bbe37b8f9845a0fc694"
+      "targetSha256": "b16304c504ab324d9e2beae961618f5226087eca11fa89d3cdf176bbda632a0c"
     },
     {
       "target": "packages/medusa-adapter/src/write/create.ts",
@@ -442,7 +452,7 @@
     {
       "target": "packages/medusa-adapter/test/local-graph.test.ts",
       "classification": "authored",
-      "targetSha256": "e7f51693347b42f21364660a29d635ca1f890c37947692edf5c3f0fa5398209a"
+      "targetSha256": "2e3fe6ab914a62f7d100fafd856a4cd0a7e999e5af0f4bd6c2ef1467f35f3360"
     },
     {
       "target": "packages/medusa-adapter/test/module-definition.test.ts",
@@ -560,6 +570,11 @@
       "target": "packages/medusa-adapter/test/product-value-profile.test.ts",
       "classification": "authored",
       "targetSha256": "2319956534a7f2db6107f4dfab311f1efb7e8444a5ff9fc85c176068d353e40d"
+    },
+    {
+      "target": "packages/medusa-adapter/test/product-variant-images-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "d552bce5b32b355bc17d129592665e2549d605a992a4079fa1aecb85aaf954c0"
     },
     {
       "target": "packages/medusa-adapter/test/product-variants-upstream.test.ts",
@@ -704,9 +719,19 @@
       "targetSha256": "3d2b8e94b6dce59bdd87fda9fbb07ad483bf64922d42cfc044137aad6b9e7d5c"
     },
     {
+      "target": "packages/medusa-adapter/test/workflow-conditions.test.ts",
+      "classification": "authored",
+      "targetSha256": "74974c731de830f783fb2f635173581be549114611b0c1656de9fdf286af9c0a"
+    },
+    {
       "target": "packages/medusa-adapter/test/workflow-host.test.ts",
       "classification": "authored",
       "targetSha256": "2fb8376a0afb9036f0c4e856234f857c9d6d7ee29f98a4f8f9c464afc7b9a944"
+    },
+    {
+      "target": "packages/medusa-adapter/test/workflow-query-graph.test.ts",
+      "classification": "authored",
+      "targetSha256": "b97e0084e60dad2291a9528f9010e7b4c93083df8e8ea08204bb23e8f3f84060"
     },
     {
       "target": "packages/medusa-adapter/tsconfig.compatibility.json",
@@ -716,12 +741,12 @@
     {
       "target": "packages/medusa-adapter/tsconfig.composite.json",
       "classification": "authored",
-      "targetSha256": "1d89981c1bd751f66696aa792fa5c581f3ba02458eba6d40d19be36a829284a5"
+      "targetSha256": "0eaf2ed04425f22bb540935dd34e09fe45cc1b9009e4297285a4ffe3aa711812"
     },
     {
       "target": "packages/medusa-adapter/tsconfig.json",
       "classification": "authored",
-      "targetSha256": "047c7b6743d784f5906c3472a50a51d8ae7c2eda21f27650614ee8d8284b3bbc"
+      "targetSha256": "a73d6bda435240bd9d632bf0151561bae0e3abb0b9ee02c70d20f8bcc0e402dc"
     },
     {
       "target": "packages/medusa-adapter/vitest.config.ts",
@@ -828,7 +853,7 @@
     {
       "target": "packages/medusa-core-flows/package.json",
       "classification": "authored",
-      "targetSha256": "4e95dd4f8bd4e68ef160418e87c1eddc4051cc27557458676749524901a31008"
+      "targetSha256": "312d6e45d71a498c0b97d50e974989d064797bc38712b731bb1d81ad03c479b6"
     },
     {
       "target": "packages/medusa-core-flows/src/common/steps/emit-event.ts",
@@ -838,11 +863,25 @@
       "targetSha256": "fa7f7ac62b393578320b58ed6e6b22caa9df562dbec4c39e9e9fba7ca8e6c0b2"
     },
     {
+      "target": "packages/medusa-core-flows/src/common/steps/use-query-graph.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/common/steps/use-query-graph.ts",
+      "sourceSha256": "3d6da8ea2a9b3762e564d865c82a7dcdc820543b3d8e299faec7ecb80078c3f0",
+      "targetSha256": "c8092cc988b22e20d036a6c06099c245c876f57ebf3c81ecba6a17834311b30e"
+    },
+    {
       "target": "packages/medusa-core-flows/src/events.ts",
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/utils/src/core-flows/events.ts",
       "sourceSha256": "c5b478f630b609a35527e7325f7583792dffae1a95a9785e34970a77c587afb4",
       "targetSha256": "5423c58ca59f6cce6c184c6dca893ecff7fa66adb3b266fa52fd21f4a2ef38dc"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/product/steps/add-images-to-variant.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/product/steps/add-images-to-variant.ts",
+      "sourceSha256": "0a8903db08010bc24d117da557e05f2fd1b9cd65226b31c37d6da60563f3f089",
+      "targetSha256": "657464fe26378436f27fb5575c164e338714c6711e122d882f8c90ee24aa5681"
     },
     {
       "target": "packages/medusa-core-flows/src/product/steps/create-product-tags.ts",
@@ -859,11 +898,32 @@
       "targetSha256": "54043dd4a2d3c0595187ab27051c4582be3d9889846bbf80774756b919e4b0fa"
     },
     {
+      "target": "packages/medusa-core-flows/src/product/steps/remove-images-from-variant.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/product/steps/remove-images-from-variant.ts",
+      "sourceSha256": "278e7571a82a2b83ba8564f4835ecf39dc0dc9282ac0d265c44c7ae674fd74e5",
+      "targetSha256": "9ebc796573bac16d106a05ec808ac9846c8743b5b28ba938db4f6f8623fe9577"
+    },
+    {
       "target": "packages/medusa-core-flows/src/product/steps/update-product-tags.ts",
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/product/steps/update-product-tags.ts",
       "sourceSha256": "1ec05528d30bcd40bf79b5c7fcea30f9ce9560047bc93a8379cf303e58e5f11a",
       "targetSha256": "9e9f3b163e8d3fb66f4ea8d430499624d2f2b318e3d9c4b67a559d9f7d84ad48"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/product/steps/update-product-variants.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/product/steps/update-product-variants.ts",
+      "sourceSha256": "21dfddfaeffc634453af99ce2a2233e3bb2e8a52459c26d3cdb9d918016ace15",
+      "targetSha256": "8967435ea32e51b08e8462915cff2fdd4700f5bbe64ba9a60106170cc8a9556e"
+    },
+    {
+      "target": "packages/medusa-core-flows/src/product/workflows/batch-variant-images.ts",
+      "classification": "workflowFork",
+      "source": "third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/batch-variant-images.ts",
+      "sourceSha256": "fb368cc3ee62ebb5f49a62e507661f28823f245ada1badace391920e33a5e2c5",
+      "targetSha256": "bf5ee59951867381a2c86b5bb6fa5c6c10bf3997503e42bfca5180ede445ccd9"
     },
     {
       "target": "packages/medusa-core-flows/src/product/workflows/create-product-tags.ts",
@@ -2731,19 +2791,19 @@
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-workflow.ts",
       "sourceSha256": "f5570bf0877ffc08838782735ae6d2274acaf7c39e7285e5d0edad6aa1eed66b",
-      "targetSha256": "edf94d39ba447fd952c71670d4859f6d6bd5524ca72bedb8746fb24fb380b8c0"
+      "targetSha256": "28db4b3a7c151197330495c1d186cb825eefecea68daa9df873a13dd272453ee"
     },
     {
       "target": "packages/medusa-workflows-sdk/src/index.ts",
       "classification": "authored",
-      "targetSha256": "b84ab4a51d34661aed517c5af5fff49167a2d586e2af2dfc3ed168c9ee8c136c"
+      "targetSha256": "f5e1e2446f5b370907947b177938e769c7682ebfc027ec38f978fc11875fdd24"
     },
     {
       "target": "packages/medusa-workflows-sdk/src/model.ts",
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/type.ts",
       "sourceSha256": "dd3511dd3bff9ee1e192fdec72790c20a5944e2a10262d36b0e90ef4db87a538",
-      "targetSha256": "5ef4bc52f86371c0863e1c24dab4a86562aaa0cd172bf44db02832dc2664ca49"
+      "targetSha256": "f77cb26fadeedc4163c471295e1f2636f16e8a2643d4cf87a8aff68808b0228b"
     },
     {
       "target": "packages/medusa-workflows-sdk/src/orchestrator-builder.ts",
@@ -2757,7 +2817,7 @@
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/helpers/proxy.ts",
       "sourceSha256": "001c15105d47e632cd55a782741442ba66e1f16372a841e6b92ab5936bd94aee",
-      "targetSha256": "91a4ec495b7d07db8deb3a4a96ba4b8b5c8d890e89cf4080e734297d57d00edf"
+      "targetSha256": "82db6e4536e1e8d976e8350a01f39edcee66eebd2e14e2018b3840848b5908af"
     },
     {
       "target": "packages/medusa-workflows-sdk/src/responses.ts",
@@ -2771,7 +2831,7 @@
       "classification": "workflowFork",
       "source": "third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/helpers/resolve-value.ts",
       "sourceSha256": "064c5015b436076e84c33688bcb9b75b00d3b70f1753bdfb93ef7424bddc1640",
-      "targetSha256": "cd66ea3660549dfd5fe654f9c53c9c67952c7b550c177fe4f0c13a5249bdcb51"
+      "targetSha256": "d66c5976438d1834af15c0c732b273c8cf09035cbcf1062dc5d381543cf42668"
     },
     {
       "target": "packages/medusa-workflows-sdk/tsconfig.json",
@@ -3057,12 +3117,15 @@
       "dependencies": {
         "@medusajs/types": "workspace:*",
         "@medusajs/utils": "workspace:*",
-        "@medusajs/workflows-sdk": "workspace:*"
+        "@medusajs/workflows-sdk": "workspace:*",
+        "effect": "catalog:"
       },
       "exports": [
         "./product/create-product-tags",
         "./product/update-product-tags",
-        "./product/delete-product-tags"
+        "./product/delete-product-tags",
+        "./product/batch-variant-images",
+        "./common/use-query-graph"
       ]
     }
   ],

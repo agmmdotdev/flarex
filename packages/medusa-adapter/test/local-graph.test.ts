@@ -34,11 +34,11 @@ describe("native local Graph Query contract", () => {
       "product", "products", "product_category", "product_categories", "product_collection", "product_type", "product_tag",
       "product_option", "product_variant", "variant", "variants", "product_variants", "currency", "currencies",
     ]));
-    expect(prepared.entities).not.toContain("product_image");
+    expect(prepared.entities).toContain("product_image");
     expect(prepared.entities).not.toContain("product_option_value");
   });
 
-  it.each(["product", "product_category", "product_collection", "product_type", "product_tag", "product_option", "product_variant", "currency"])("dispatches %s to its registered count read", async entity => {
+  it.each(["product", "product_category", "product_collection", "product_type", "product_tag", "product_option", "product_variant", "product_image", "currency"])("dispatches %s to its registered count read", async entity => {
     const calls: Json[] = [];
     // Category's actual command transport is distinct from an ordinary tuple.
     const value: Json = entity === "product_category" ? [{ payload: [], omitted: [] }, 0] : [[], 0];

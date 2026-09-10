@@ -14,6 +14,7 @@ import { decodeProductRead, decodeProductNamedRead, decodeProductCollectionRead,
 import { captureProductTagUpsert } from "./product-tag-input";
 import { productWorkflowModule } from "./product-workflow-module";
 import { decodeProductTagUpdateInput } from "./product-tag-update-input";
+import { decodeVariantThumbnailUpdate } from "./product-variant-workflow-input";
 import { captureCommerceInput } from "./commerce-input";
 import { captureProductSchema } from "./product-schema";
 import { validateProductCreate } from "./product-graph";
@@ -340,6 +341,23 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     const selector = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
     return yield* withService(ctx, ({ service, context }) => service.updateProductTags(selector, { ...decoded.update }, context));
   }));
+  const updateVariantsBySelector = defineCommerceCommand("productUpdateVariantsBySelector", "write", Effect.fn("ProductAdapter.updateVariantsBySelector")(function* (ctx, input) {
+    const decoded = yield* Effect.fromResult(decodeVariantThumbnailUpdate(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata.variant.table.name, decoded.update))
+      .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    return yield* withService(ctx, ({ service, context }) => service.updateProductVariants({ ...decoded.selector }, { ...decoded.update }, context));
+  }));
+  const countImages = defineGraphReadCommand("productImagecount", Effect.fn("ProductAdapter.image.count")(function* (ctx, input) {
+    const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    if (decoded.id !== undefined || decoded.deletedAfter !== undefined) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+    const copied = structuredClone(decoded);
+    // SAFETY: the existing Image DML read profile validates the actual generated
+    // service query, including projection, filters, ordering and row bounds.
+    return yield* withService(ctx, ({ service, context }) => service.listAndCountProductImages(
+      copied.filters as Parameters<typeof service.listAndCountProductImages>[0],
+      copied.config as Parameters<typeof service.listAndCountProductImages>[1], context));
+  }));
   const commands = Object.freeze({
     internalProductList: internalProductRead("list"), internalProductRetrieve: internalProductRead("retrieve"),
     internalProductCreate: internalProductChange("create"), internalProductUpdate: internalProductChange("update"),
@@ -358,11 +376,11 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     updateTags: changeRelated("tag", "update"), updateTagsBySelector, updateTypes: changeRelated("type", "update"),
     upsertTags: changeRelated("tag", "upsert"), upsertTypes: changeRelated("type", "upsert"),
     update: productChange("update"), upsert: productChange("upsert"), createOptions: related("option"), createVariants: related("variant"), createCategories: related("category"), addImageToVariant: related("assignment"),
-    updateOptions: changeRelated("option", "update"), updateVariants: changeRelated("variant", "update"), updateValues: changeRelated("value", "update"),
+    updateOptions: changeRelated("option", "update"), updateVariants: changeRelated("variant", "update"), updateVariantsBySelector, countImages, updateValues: changeRelated("value", "update"),
     updateCollections: changeRelated("collection", "update"), updateCategories: changeRelated("category", "update"),
     upsertOptions: changeRelated("option", "upsert"), upsertVariants: changeRelated("variant", "upsert"), upsertCollections: changeRelated("collection", "upsert"), upsertCategories: changeRelated("category", "upsert") });
   const graph = yield* Effect.fromResult(productGraphDefinition(metadata, commands));
   const workflow = yield* Effect.fromResult(productWorkflowModule(standard.description, commands, graph,
-    { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent }));
+    { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent, variantUpdated: metadata.variant.updatedEvent }));
   return { commands, withService, graph, workflow };
 });
