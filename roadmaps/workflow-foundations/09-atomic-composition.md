@@ -18,6 +18,13 @@ This preflight addresses execution ownership and its consequences for local
 Graph Query and Medusa integration. It does not select a universal workflow
 API, add commerce modules, or claim complete workflow compatibility.
 
+The next [Product-tag update preflight](./12-product-tag-updates.md) proposes one
+through eight explicitly selected participants as an authenticated subset of the
+active commerce binding. Current implementation still requires at least two and
+the complete active set. The proposed admission change retains individual
+authority checks, whole-binding replay evidence and the existing settlement owner;
+it awaits approval as part of that connected workflow capability.
+
 ## Product Decision
 
 ### Implementation Finding: Module Installation Lineage

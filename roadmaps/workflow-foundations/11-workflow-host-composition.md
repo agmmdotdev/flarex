@@ -179,8 +179,11 @@ TypeScript, provenance, portable imports, lint and both reviewer scopes remain
 required regression evidence. These checks do not establish whole-SDK parity,
 Cloudflare deployment or production dispatcher readiness.
 
-Select the next actual workflow need before expanding the profile. Single-module
-execution, durable steps, Task integration, waits/signals, external effects,
+The next [Product-tag update preflight](./12-product-tag-updates.md) covers
+single-module execution and authenticated selected-module admission as one
+proposed capability, including the real selector update step. It awaits approval;
+the current minimum and complete active-set restriction still apply. Durable steps,
+Task integration, waits/signals, external effects,
 remote joins, Module Link, additional modules and public serving remain separate
 decisions. Exceeding an atomic bound never silently switches execution mode.
 

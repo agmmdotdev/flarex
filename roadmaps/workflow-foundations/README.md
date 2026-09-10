@@ -11,6 +11,9 @@ topics retain their own proportional preflights. The connected
 [durable events](./07-durable-workflow-events.md), is implemented as a private
 atomic profile. Its [reusable host composition](./11-workflow-host-composition.md)
 is implemented with module-owned registrations and inferred scoped resources.
+The next [Product-tag update capability](./12-product-tag-updates.md) is
+preflighted and awaits implementation approval, including selected-module atomic
+admission so a Product-only workflow can coexist with other installed modules.
 This folder does not select a universal workflow architecture.
 
 Prepare reusable native capabilities before full workflow integration. Native
@@ -74,6 +77,7 @@ to build every capability before the first useful integration.
 | [09 Atomic composition](./09-atomic-composition.md) | Private bounded composition across authentic commerce installations; native relational OCC remains a separate decision. |
 | [10 Medusa workflow integration](./10-medusa-workflow-integration.md) | Connect a supported workflow surface to the proven foundations. |
 | [11 Workflow host composition](./11-workflow-host-composition.md) | Implemented private module-owned registrations and shared scoped workflow assembly. |
+| [12 Product-tag updates](./12-product-tag-updates.md) | Proposed selector update workflow and authenticated selected-participant admission, including one-module execution. |
 
 The first foundation is a private Product/Currency command over the existing
 shared transaction owner, including multiple commerce installations, pending
@@ -110,5 +114,7 @@ The private [Product-tag workflow](./10-medusa-workflow-integration.md) now uses
 the selected SDK fork, bounded hooks, Local Graph Query and
 [durable event delivery](./07-durable-workflow-events.md), assembled through the
 shared [workflow host](./11-workflow-host-composition.md) across commands, graph,
-events and lifecycle. Select real workflow needs before extending execution
-profiles; this does not authorize the remaining outlines as a universal plan.
+events and lifecycle. The next recommended capability is
+[Product-tag updates with selected atomic participants](./12-product-tag-updates.md).
+Its preflight covers the concrete adapter and admission gaps in one decision;
+this does not authorize the remaining outlines as a universal plan.
