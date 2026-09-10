@@ -72,6 +72,10 @@ export interface PreparedWorkflow {
   readonly nodes: readonly WorkflowNode[];
   readonly result: unknown;
 }
+const preparedWorkflows = new WeakSet<object>();
+/** Only SDK preparation establishes the frozen graph and reference ownership. */
+export const isPreparedWorkflow = (value: unknown): value is PreparedWorkflow =>
+  typeof value === "object" && value !== null && preparedWorkflows.has(value);
 export interface WorkflowDefinition<Input, Output, Hooks extends readonly unknown[]> {
   readonly name: string;
   readonly prepare: (hooks?: HookHandlers<Hooks>, ...additional: readonly HookHandlers<Hooks>[]) => Result.Result<PreparedWorkflow, ReturnType<typeof definitionError>>;
@@ -123,7 +127,9 @@ export function createWorkflow<Input, Output, const Hooks extends readonly unkno
         // SAFETY: HookHandlers binds this handler to the named declaration's input.
         return Object.freeze({ ...node, invoke: handler as Invoke<unknown, unknown> });
       });
-      return Object.freeze({ name, owner: context.owner, nodes: Object.freeze(bound), result });
+      const prepared = Object.freeze({ name, owner: context.owner, nodes: Object.freeze(bound), result });
+      preparedWorkflows.add(prepared);
+      return prepared;
     },
     catch: cause => cause instanceof WorkflowDefinitionError ? cause : definitionError("invalidDefinition", "Invalid hook registration"),
   });

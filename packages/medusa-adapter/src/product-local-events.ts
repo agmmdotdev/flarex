@@ -19,11 +19,9 @@ const messageSchema = (maximumIds: number) => Schema.Struct({
 });
 
 
-/** Adapter-owned message contract; core supplies unforgeable row observations.
- * The destination is explicitly local and receives no transaction manager. */
-export function productLocalEventPolicy(descriptor: CommerceProfileState, catalog: ProductRuntimeMetadata,
-  deliver: (events: readonly Json[]) => Effect.Effect<void, CommerceTransactionError>,
-): LocalCommerceEventPolicy {
+/** Adapter-owned capture and fact validation, shared by local delivery and
+ * durable workflow publication. Neither consumer invents a dummy destination. */
+export function productModuleEventPolicy(descriptor: CommerceProfileState, catalog: ProductRuntimeMetadata): Pick<LocalCommerceEventPolicy, "capture" | "validate"> {
   const decode = Schema.decodeUnknownEffect(messageSchema(descriptor.resources.eventIds), { onExcessProperty: "error" });
   const capture = Effect.fn("ProductEvents.capture")(function* (input: unknown) {
     const value = yield* Effect.fromResult(captureCommerceInput(input, descriptor.resources));
@@ -33,7 +31,7 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
       (message.metadata.action === CommonEvents.CREATED ? entity.createdEvent : message.metadata.action === CommonEvents.UPDATED ? entity.updatedEvent : message.metadata.action === CommonEvents.RESTORED ? entity.restoredEvent : entity.deletedEvent) === message.name)) return yield* Effect.fail(commerceError("unadmittedEvent"));
     return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
   });
-  return { capture, deliver,
+  return { capture,
     validate: Effect.fn("ProductEvents.validate")(function* (events, rows, commandName, lifecycle = []) {
       const internalCategory = ["productInternalCategorycreate", "productInternalCategoryupdate", "productInternalCategorydelete"].includes(commandName);
       if (internalCategory && (events.length !== 0 || lifecycle.length !== 0)) return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -120,4 +118,12 @@ export function productLocalEventPolicy(descriptor: CommerceProfileState, catalo
       if (expected.size !== 0 || observations.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     }),
   };
+}
+
+/** Existing standalone local delivery profile. */
+export function productLocalEventPolicy(descriptor: CommerceProfileState, catalog: ProductRuntimeMetadata,
+  deliver: (events: readonly Json[]) => Effect.Effect<void, CommerceTransactionError>,
+): LocalCommerceEventPolicy {
+  const policy = productModuleEventPolicy(descriptor, catalog);
+  return { capture: policy.capture, deliver, validate: policy.validate };
 }

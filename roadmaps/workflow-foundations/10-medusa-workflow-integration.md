@@ -33,16 +33,18 @@ flowchart TD
 | --- | --- |
 | [medusa-core-flows](../../packages/medusa-core-flows/src/product/workflows/create-product-tags.ts) | Original business sequence: create tags, invoke the named hook, transform IDs, emit workflow events and return tags. |
 | [medusa-workflows-sdk](../../packages/medusa-workflows-sdk/src/definition.ts) | Staged definitions, ordered builder, references, transforms, responses, immutable prepared hook registrations and selected execution through caller-owned ports. |
-| [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Bind actual Product command tokens, Local Graph Query and the two admitted event contracts; correlate workflow event IDs with successful creation output. |
+| [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Select module resources, validate native input/hook views and correlate workflow event IDs with successful creation output. |
+| [Shared workflow host](../../packages/medusa-adapter/src/workflow/host.ts) | Derive participants, command allowlists, graph/event bindings and scoped resources from module-owned registrations. |
 | [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Own foreign callbacks and scoped service runners, charge root budgets and preserve sticky refusal/cancellation. |
 | [Atomic commerce](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Authenticate installations, share one lifetime and transaction, validate participant facts, seal the result and event contribution, and use existing root recovery. |
 | [Committed events](../../packages/persistence-postgres/src/commitEvents/store.ts) | Durable intent, completeness verification, fresh scope authority, fenced delivery claims and retained subscriber outcomes. |
 
 The author defines steps, transforms, the response and exposed hooks. Trusted
 host assembly supplies the reviewed code/hook revision and subscriber revisions.
-The selected adapter factory assembles those resources. Its workflow-specific
-service wrappers are still manual; the next recommended refactor is recorded in
-[the host composition preflight](./11-workflow-host-composition.md).
+The [shared host composition](./11-workflow-host-composition.md) assembles those
+resources from module-owned registrations. Native callbacks receive inferred
+resources; the Product-tag facade retains its business input, hook and event
+policy without manual service wrappers or participant-list construction.
 
 The resolver exposes only selected Product methods, graph reads and checked
 emit. Its generic signature is the Medusa compatibility boundary; its type
@@ -159,13 +161,13 @@ wake and migration regressions. Promotion/portable checks inspect the resulting
 import closure. Node/database and browser-bundle checks do not establish deployed
 Cloudflare or production dispatcher readiness.
 
-The researched [workflow host composition preflight](./11-workflow-host-composition.md)
-recommends one connected refactor of command wrappers, graph/event assembly,
-validation/refusal and scoped runtime binding. It adds a module-owned integration
-description beside existing command catalogs and derives native resource types
-from checked adapters. It preserves the underlying module constructor and
-transaction owner. This recommendation awaits capability approval; manual
-Product-tag assembly remains the current implementation.
+The implemented [workflow host composition](./11-workflow-host-composition.md)
+shares command wrappers, graph/event assembly, validation/refusal and scoped
+runtime binding. Module-owned registrations reference existing command catalogs;
+native types follow checked adapters. A second event-free composition proves
+reuse with Currency retrieval and Product graph. Input/output Schemas preserve
+encoded versus decoded representations across execution and replay. The module
+constructor and transaction owner remain independent of workflow assembly.
 
 The next selected workflow should determine further execution capabilities. Cross-commit
 steps, waits/signals, external effects, general subscriptions, administrative

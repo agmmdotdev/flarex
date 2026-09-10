@@ -2,151 +2,98 @@
 
 ## Status And Scope
 
-Status: researched implementation recommendation, awaiting capability approval.
-The [Product-tag workflow](./10-medusa-workflow-integration.md) is implemented;
-the reusable composition described here is not. This is one connected refactor,
-including its consumers and removal of displaced wiring, not a new sequence of
-prerequisite framework projects.
+Status: implemented as a private, finite atomic workflow capability. Module-owned
+registrations and one shared host now assemble commands, graph reads, events and
+scoped resources. The Product-tag consumer uses this assembly; its displaced
+manual wrappers and outer participant-list construction are removed.
 
-Recommended outcome: a module integration declares its checked workflow-facing
-operations once. A shared private atomic workflow host assembles the selected
-commands, graph, events and execution lifetime. Workflow authors keep the
-business sequence, dependencies, hooks and event correlation. Trusted deployment
-assembly supplies installations, scope authority, code revision and subscribers.
+Product and Currency remain the admitted consumers. The existing minimum of two
+participants, command limits, transaction ownership and recovery contracts remain
+in force. This adds no Task, suspension, remote effect, lock, relational OCC,
+schema, commerce module or public application API.
 
-The first consumers remain Product and Currency. Preserve the current finite
-atomic profile, including its minimum of two participants. This does not add
-single-module execution, another commerce module, Tasks, suspension, remote
-effects, locks, relational OCC, schema changes or a public application API.
-
-## Current Sources Of Truth
+## Authority And Sources
 
 The [accepted design](../../design-notes/flarex-db-accepted-design.md) and
 [framework storage architecture](../../design-notes/flarexdb-framework-storage-architecture.md)
 own transaction authority and execution profiles. Topics
 [06](./06-local-graph-query.md), [07](./07-durable-workflow-events.md),
 [09](./09-atomic-composition.md) and [10](./10-medusa-workflow-integration.md)
-own the implemented graph, events, atomic root and selected workflow semantics.
-This preflight changes assembly, not those owners.
+own graph, events, atomic execution and the selected Medusa workflow semantics.
+This capability changes their assembly and adapter validation boundaries.
 
-| Current source | Finding that shapes the recommendation |
+| Owner | Current responsibility |
 | --- | --- |
-| [Module definition](../../packages/medusa-adapter/src/module-definition.ts) | Already prepares repository/internal-service construction and creates fresh scoped services. Its result exposes `description` and `use`; it is not yet a workflow operation catalog. |
-| [Product commands](../../packages/medusa-adapter/src/product-service.ts), [Product module](../../packages/medusa-adapter/src/product-module.ts) and [Currency commands](../../packages/medusa-adapter/src/currency-service.ts) | Own service input translation, command tokens and checked graph descriptions. Commands depend on the module constructor; putting command creation inside that constructor would create a circular assembly dependency. |
-| [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Manually creates participants, wraps `createProductTags`, builds graph/event resources, handles pre-call refusal and implements a string resolver. It also owns legitimate Product-tag event correlation. |
-| [Connected workflow fixture](../../packages/medusa-adapter/test/product-tag-workflow.test.ts) | Repeats participant-to-installation, command-list, validator and event-contract wiring after preparing the workflow. A resolver-only extraction would leave this assembly burden behind. |
-| [Workflow runtime](../../packages/medusa-adapter/src/workflow-runtime.ts) and [Promise owner](../../packages/medusa-adapter/src/commerce-promise-owner.ts) | Already own foreign callbacks, borrowed runners, cancellation, pending-work detection and escaped-service revocation. Extend this boundary rather than adding a runtime per resource. |
-| [Graph preparation](../../packages/medusa-adapter/src/local-graph/query.ts) and [graph model](../../packages/medusa-adapter/src/local-graph/model.ts) | Already validate aliases and read definitions and bind to the current atomic context. Results are checked JSON projections; metadata does not establish a statically complete DTO. |
-| [Atomic commands](../../packages/persistence-postgres/src/atomicCommerce/commands.ts), [participants](../../packages/persistence-postgres/src/atomicCommerce/participants.ts) and [host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Commands are authentic opaque tokens with JSON input/output. Core independently admits commands, installations and scope. The host requires at least two participants and owns root accounting, settlement and recovery. |
-| [Atomic events](../../packages/persistence-postgres/src/atomicCommerce/events.ts) and [Product event policy](../../packages/medusa-adapter/src/product-local-events.ts) | Module facts and workflow correlation are separate validation obligations. The current durable profile uses one pinned subscriber set; it is not a general subscription router. |
+| [Module definition](../../packages/medusa-adapter/src/module-definition.ts) | Repository/internal-service construction and fresh scoped services; independent of workflow orchestration. |
+| [Product commands](../../packages/medusa-adapter/src/product-service.ts) and [Currency commands](../../packages/medusa-adapter/src/currency-service.ts) | Existing command tokens, service translation, graph metadata and module-owned workflow registration. |
+| [Workflow module registration](../../packages/medusa-adapter/src/workflow/module.ts) | Authentic typed method adapters and captured module/graph metadata; no command execution or installation authority. |
+| [Resource selections](../../packages/medusa-adapter/src/workflow/resources.ts) | Select methods/graph/events and infer the native callback view from that exact selection. |
+| [Shared host](../../packages/medusa-adapter/src/workflow/host.ts) | Derive participants, allowlists, graph bindings, event contracts and replay policy; delegate preparation to the trusted atomic host factory. |
+| [Shared binding](../../packages/medusa-adapter/src/workflow/binding.ts) | Create the native and Medusa compatibility views over the same scoped functions. |
+| [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Business input, actual core-flow sequence, hook adaptation and event correlation. |
+| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Foreign callbacks, borrowed runners, cancellation, pending-work detection and closure, including resource-construction failure. |
+| [Atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Authentic command/installations/scope admission, root accounting, settlement and recovery. |
 
-The Medusa reference remains the exact fork revision in
-[SOURCE.json](../../third_party/medusa/SOURCE.json). Its
-[step handler](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/helpers/create-step-handler.ts)
-receives the execution container, while
-[workflow-export](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/helper/workflow-export.ts)
-can fall back to cached loaded modules and mutate the workflow's container.
-[create-workflow](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-workflow.ts)
-also resolves the workflow engine for nested async execution. Those execution
-paths remain reference-only in the native atomic profile.
+The Medusa reference remains the exact revision in
+[SOURCE.json](../../third_party/medusa/SOURCE.json). The pinned step handler takes
+an execution container; workflow-export can use cached modules and mutable
+container state. Those fallback execution paths remain reference-only. The
+selected SDK fork retains the business authoring surface while using explicit
+Flarex execution resources.
 
-Current Medusa documentation explains the convenience of its
-[automatically populated container](https://docs.medusajs.com/learn/fundamentals/medusa-container)
-and uses [workflows across isolated modules](https://docs.medusajs.com/learn/fundamentals/modules/isolation).
-Keep that authoring convenience while using Flarex's explicit execution-scoped
-resources. Current documentation is context; the pinned source and selected
-tests determine compatibility.
+## Module And Workflow Authoring
 
-## Recommendation And Design Challenges
+A module-owned registration references its existing checked command tokens.
+Each selected method has a tuple argument decoder, command-input encoder and
+result decoder. Graph registration reuses the existing read tokens and checked
+metadata. Module event capture and fact validation stay module-owned.
 
-| Alternative | Decision and reason |
-| --- | --- |
-| Extract only `resolve(name)` | Reject. Command packing, validation, event routing, admission lists and lifetime wiring would still be repeated by each workflow. |
-| Expose complete module service instances | Reject. Existing command wrappers deliberately select profiles, validate input and construct scoped services. A complete service type would also promise unsupported methods and result shapes. |
-| Derive every operation from DML/model names | Reject. Checked DML can describe storage and graph metadata; it cannot infer specialized service semantics, compensation policy or workflow dependencies. |
-| Copy the full Medusa container and scheduler | Reject for this capability. Mutable fallback registration and additional execution owners are unnecessary for the admitted local atomic profile. |
-| Put workflow commands into the low-level repository module constructor | Reject the dependency cycle. Add a module-owned integration description beside the existing command catalog, using its exact tokens and checked metadata. |
-| Share complete assembly through explicit module descriptions | Recommend. It removes real caller work while preserving the existing authority and lifetime boundaries. |
+Product exposes the selected array-only tag creation signature and its current
+graph profile. Native tag results validate `id` and `value` and retain checked
+JSON projection fields; they do not promise a full Medusa DTO. Currency's native
+retrieve method reuses its existing value decoder and validates `code` and
+`name`. The Product-tag workflow selects Currency graph reads only. A separate
+connected test composition selects direct Currency retrieval and Product graph,
+with no event resource.
 
-The shared implementation must contain no Product/Currency name switch. However,
-module-owned argument packing, result decoding and event semantics remain
-explicit. A descriptor whose only useful member is an unrestricted `bind(ctx)`
-callback would move the manual wrappers without simplifying them.
+`prepareWorkflowResources` selects literal method tuples and graph flags.
+Widened arrays, union-valued tuple members and union tuples cannot promise a
+complete method set and are rejected by its type contract. A literal `true`
+graph flag establishes the inferred query resource. Runtime preparation still
+checks every selection and authentic registration.
 
-## Proposed Ownership And Authoring Contract
+Native step/hook callbacks use the selection's `callback` adapter and receive
+inferred `resources`. The generic `hooks` adapter is available for hook contracts
+whose input already agrees with the native boundary. Product's hook explicitly
+decodes its native JSON view because Medusa DTO date fields differ. The existing
+`container.resolve<T>` signature remains only a compatibility facade for promoted
+steps. Both views invoke the same selected functions; `T` grants no authority.
 
-### Module Integration
+A workflow definition carries an SDK-authenticated immutable prepared graph,
+its resource selection, input/output Schemas and optional event contracts.
+The SDK's preparation registry rejects structural copies before host preparation
+can retain mutable nodes or callbacks. Callback code itself remains trusted;
+registration capture is not a JavaScript sandbox.
 
-Each module-owned command factory exposes one immutable integration description
-alongside its existing supported command catalog. The description references
-the existing module definition; it does not reconstruct repositories or create
-new commands for identical operations. Keep the low-level `defineCommerceModule`
-free of workflow orchestration dependencies.
+Input uses the Schema's encoded representation at `run`, then decodes once
+inside the atomic command. Output decodes before settlement; returned and
+replayed values use the same Schema's decoded-type validator. Transformations
+therefore do not run again against already normalized stored results.
 
-The selected description contains:
+## Trusted Host And Execution
 
-- Workflow-facing method names, exact existing command tokens and the owning
-  argument/result adapters. Supported signatures are explicit, including tuple
-  arguments, optional fields and the selected array-only Product-tag input.
-- Existing checked graph metadata and read tokens. Workflow selection refers to
-  that metadata rather than repeating aliases and command lists.
-- Module event capture/validation policy for the chosen profile, separate from
-  workflow event contracts. Product's fact validator remains Product-owned.
+`AtomicWorkflowExecution` contains captured identity/access policy and one
+`prepare(composition)` factory. The trusted database composition closes over
+its existing session, database, installation authority and host inputs, and
+calls `makeAtomicCommerceHost`. The portable adapter receives only the prepared
+composition interface; it does not import a database implementation at runtime.
 
-Native resource types follow these registrations. A method returning only
-validated `{ id, value }` must not be typed as a complete ProductTag DTO. Reuse
-existing value/projection decoders where exact; add a narrow module-owned result
-decoder when the exposed native shape is stronger than the current JSON token.
-Currency's compatibility DTO assertion is not proof of a full native DTO.
-Graph results retain their current checked projection type in this refactor.
-
-The initial Product-tag descriptor exposes its current creation method and graph
-profile. Currency remains graph-only for that workflow. Prove direct Currency
-read registration using a second, test-only composition with the existing
-retrieve command; do not broaden Product-tag's resource set to supply it.
-
-### Workflow Definition
-
-A workflow integration selects module operations, graph profiles and emitted
-event contracts from those descriptions. Hook dependencies are explicit and
-included in the prepared workflow's selected resource set. The current profile
-uses one resource set for the workflow and its trusted hooks; per-step access
-policies are not introduced here.
-
-No source scanning or trial execution attempts to discover arbitrary
-`container.resolve` calls. Preparation validates declared dependencies; an
-undeclared dynamic lookup is still refused during execution.
-
-Product-tag retains its input contract, actual core-flow business sequence,
-optional `productTagsCreated` hook, `product-tag.created` schema and correlation
-against the actual successful creation command observations. Shared event
-handling may capture batches, enforce group identity and dispatch admitted
-contracts; it must not infer Product event meaning or create correlation from
-caller-supplied IDs alone.
-
-Native callbacks receive resources inferred from the selected registration,
-without `resolve<T>` supplied by the caller. Keep Medusa's existing
-`container.resolve<T>(name)` only at the compatibility facade needed by promoted
-steps. Both views dispatch to the same scoped methods. This requires neither a
-second workflow DSL nor a rewrite of the preserved Product business composer.
-
-### Trusted Host And Execution
-
-One source-private adapter composition entry point prepares a workflow against
-the trusted execution inputs and installed module bindings. It derives exact
-participant tokens, command allowlists, graph bindings and event policy, then
-delegates to the existing atomic host. Ordinary callers do not separately build
-`productCommands`, `currencyCommands`, event-contract associations or a container.
-The resulting facade accepts a request key and workflow input; installations and
-revision policy are not request arguments.
-
-Conceptual usage, with names illustrative rather than a shipped API:
+For the Product-tag consumer:
 
 ```ts
-const host = yield* prepareAtomicWorkflowHost({
+const host = yield* prepareProductTagWorkflow({
   execution: trustedExecution,
   modules: { product: installedProduct, currency: installedCurrency },
-  workflow: productTagWorkflow,
   hooks,
   revision: reviewedBundleRevision,
   subscribers,
@@ -155,124 +102,89 @@ const host = yield* prepareAtomicWorkflowHost({
 const tags = yield* host.run(requestKey, input)
 ```
 
-`installedProduct` pairs the module-owned description with the already prepared
-profile/installation and its module event policy. It does not install a schema
-or authorize itself. Preparation rejects missing dependencies, ambiguous names,
-duplicate registrations and unsupported profiles before business execution;
-core remains the authority for authentic commands, bindings and scope admission.
+Each installed binding pairs a module registration with its already prepared
+profile/installation and optional module-event capture/validation. It neither
+installs a schema nor authorizes itself. The shared host derives the exact
+participant tokens, command allowlists, graph and event policy and delegates to
+core. Ordinary callers no longer construct those lists or a resolver.
 
-Prepared descriptions capture configuration and callbacks once and retain no
-transaction manager, Promise runner or live module service. Every execution
-creates its scoped wrappers and one workflow Promise owner. Each module call
-continues to construct services through the existing command path; do not cache
-live services across calls or requests to make DI appear cheaper.
+Prepared hosts support simultaneous module sets and revisions. Explicit instances
+preserve this cardinality; no process-global Context tag or mutable container
+selects request resources. Every invocation creates fresh scoped wrappers and
+one existing Promise owner. Every module call constructs services through the
+existing command path; live managers/services are never cached across requests.
 
-Use Effect for preparation/execution and Result for pure recoverable descriptor
-checks. These prepared hosts intentionally support multiple simultaneous module
-sets and revisions; use explicit instances with scoped execution, not one global
-Context service for all hosts. A future long-lived deployment service can own
-instances through a Layer at its host boundary. Follow the current
-[Effect lifetime guidance](../effect-native-guidance/14-domain-services-layers-and-composition.md).
+## Capture, Failure And Replay
 
-## Invariants And Failure Boundaries
-
-- Preserve the existing root call, byte and deadline limits. Wrappers must not
-  obtain independent allowances or call standalone module hosts.
-- Capture and validate before dispatch. New pre-call failures must refuse the
-  root even if a callback catches the Promise rejection. Already-owned
-  participant failures retain their complete Cause; do not rewrap them merely
-  to invoke refusal again.
-- Keep a finalizer around resource construction as well as execution. Preserve
-  cancellation, overlapping-work refusal, draining/joining and rejection of
-  services or native resources retained after closure.
-- Missing compatibility resources and explicitly unsupported methods preserve
-  refusal behavior. Neither the native view nor a caller type argument grants
-  a manager, raw SQL, event delivery control or unregistered command.
-- Copy registration records without invoking accessors. Preserve authentic
-  token identity; do not serialize/reconstruct command tokens or freeze
-  caller-owned objects in place. Reject ambiguous resource/alias registrations.
-- Preserve the current Product-tag graph surface explicitly. Do not silently
-  narrow existing hook graph access or grant all registered module methods.
-- Keep module fact validation and workflow event correlation. Module and
-  workflow messages retain their order, names, `internal` distinction, group,
-  revisions and the current common subscriber set. Event-free compositions do
-  not fabricate event contracts, subscribers or a dummy local delivery function.
-- Trusted bundle revision covers workflow, hook and adapter code. Captured
-  method/alias selections and other behavior-affecting configuration must enter
-  the existing identity/access-policy input when not already represented by its
-  canonical participant/event evidence. Use the existing hash/replay owner;
-  introduce no second identity store or code-hashing mechanism.
-- Preserve exact replay and uncertain-commit recovery. Changed capability or
-  bundle identity must conflict with an old request key, rather than reuse its
-  result under changed behavior. No persisted format or data migration is
-  needed for this source-private host refactor.
-
-The current two-participant minimum and atomic-versus-durable distinction are
-intentional limits for this work. Generalizing either requires execution
-evidence beyond an assembly refactor. The selected tests must not fake a second
-participant merely to advertise single-module workflow support.
+- Registration records and arrays use bounded descriptor inspection to avoid
+  invoking getters and to preserve authentic capability identity. Graph data
+  uses existing JSON capture and named structural Schemas before graph admission.
+  Caller-owned configuration is copied rather than frozen in place.
+- Method/module/resource tokens use private registries. Missing, ambiguous,
+  forged and unsupported registrations fail before business execution. Core
+  independently authenticates command tokens, installations and scope.
+- New planner, argument, result and event validation failures latch root refusal
+  before a callback can catch the rejection. Trusted decoder defects also poison
+  pending work while retaining their defect channel. Existing participant calls
+  bypass this adapter check and preserve their already-owned full Cause.
+- Root call/byte/deadline limits, cancellation, draining/joining and escaped-method
+  closure remain with the existing runtime. Finalization also covers resource
+  construction. Resources cannot grant raw SQL, managers or delivery authority.
+- Module fact validation and workflow event correlation remain separate. The
+  Product-tag adapter correlates emitted IDs with actual successful command
+  observations. Shared event handling captures batches, checks names/group and
+  dispatches admitted contracts, preserving event order and subscriber policy.
+- Event-free hosts have no event bus, contracts or subscribers. The durable
+  Product binding uses capture/validation directly, without a dummy local
+  destination. The standalone local-event profile retains delivery for its
+  supported callers.
+- Trusted bundle revision covers workflow, hook, decoder and adapter code.
+  Captured selections, graph metadata, each method/read-to-command name and mode,
+  and event associations enter the existing identity/access-policy input. The
+  private core facade projects command identity without exposing executable
+  callbacks. No new hash store, identity authority or code-scanning mechanism is
+  introduced.
+- Exact replay and uncertain-commit recovery remain core-owned. Changed bundle,
+  selected capabilities or dispatch associations conflict with an old request
+  key. Persisted formats and database schemas do not change.
 
 ## Replacement And Compatibility Inventory
 
-| Path or responsibility | Disposition and completion condition |
+| Responsibility | Disposition |
 | --- | --- |
-| Existing module/service/repository construction and command execution | **Keep.** Descriptions reuse exact commands; original Product/Currency behavior remains covered. |
-| Product-tag manual resource factory and outer participant-list assembly | **Rewrite**, then **delete** displaced assembly once the shared host passes connected tests. Keep only workflow input/hook/event semantics and declarative selections. |
-| Workflow runtime and Promise ownership | **Keep/extend** for shared binding and finalization. No independent runner, global container or second cleanup path. |
-| Graph preparation and execution | **Keep.** Centralize its host assembly, not its planner, query contract or service-owned population. |
-| Product module-event capture/validation | **Keep.** Share capture/validation with the durable composition without requiring a dummy local destination. Preserve the standalone local-event delivery profile and its supported callers. |
-| Medusa `resolve<T>` ABI | **Keep** as the narrow facade used by promoted steps; native callbacks use inferred resources. No full Medusa container is admitted. |
-| Category/Currency atomic conformance command | **Keep.** It proves lower-level composition independently and need not become a workflow or depend on the SDK. |
-| Atomic host, publication, recovery and durable event store/pump | **Keep unchanged.** No schema, migration, lock, retention or settlement refactor. |
+| Existing module/service/repository and command execution | Retained; registrations reference exact command tokens. |
+| Product-tag manual wrappers, graph/event resolver and outer participant lists | Replaced by shared assembly and deleted from the consumer. |
+| Product-tag input/hook/event business semantics | Retained in its thin workflow facade. |
+| Graph planner and service-owned query/population | Retained; newly originated decoder failures use the shared adapter refusal boundary. |
+| Workflow Promise owner | Retained; no independent runner or cleanup owner. |
+| Product module-event policy | Capture/validation shared between explicit local and durable host profiles. |
+| Category/Currency atomic conformance command | Retained independently; it need not depend on the workflow SDK. |
+| Core transaction, publication, recovery and durable event store/pump | Unchanged execution and storage ownership. |
 
-The Product-tag preparation function is source-private and currently consumed by
-its connected test. It can become a thin workflow-specific definition/facade or
-be replaced at that caller. Do not keep a second manual execution path merely
-for source compatibility; no published production obligation is established.
+## Validation Boundary And Remaining Decisions
 
-## Next Correctness Gates
+[Registration tests](../../packages/medusa-adapter/test/workflow-host.test.ts)
+pin inferred methods, invalid selections, authentic definitions, captured
+metadata, shared native/compatibility resources and closure.
+[Connected workflow scenarios](../../packages/medusa-adapter/test/product-tag-workflow.test.ts)
+cover both event families, pending graph reads, one commit, rollback, swallowed
+validation/decoder failures, cancellation, budgets, exact replay, revision and
+association isolation, transforming schemas, uncertain settlement and durable
+delivery. A different event-free composition proves reuse with both real modules.
 
-Implement the descriptions, shared preparation/runtime and Product-tag consumer
-as one capability. Prove the following before removing displaced assembly:
+PGlite and ordinary-role PostgreSQL cover the connected workflow/atomic/graph
+lanes. Competing transactions and pending-write invisibility remain PostgreSQL
+proofs. Original Product/Currency and selected composer assertions, affected
+TypeScript, provenance, portable imports, lint and both reviewer scopes remain
+required regression evidence. These checks do not establish whole-SDK parity,
+Cloudflare deployment or production dispatcher readiness.
 
-1. Registration inference checks valid method arguments/results and rejects
-   unavailable methods, wrong inputs and invented resources. Runtime tests also
-   reject malformed, ambiguous or mutable registrations; types alone are not
-   admission evidence.
-2. Real Product-tag execution retains both event families, pending Product and
-   Currency graph reads, optional hook behavior, one commit, replay and revision
-   isolation. Preserve rollback, swallowed validation/refusal, cancellation,
-   escaped-service, shared-budget and uncertain-commit assertions.
-3. A second test-only workflow uses a different selected resource set: existing
-   Currency retrieval and Product graph reads, with no event bus. Run it through
-   the same host implementation with both actual modules; shared files acquire
-   no business-name branches or per-workflow wrapper factories.
-4. Two prepared hosts with different selections/hooks remain isolated, including
-   interleaved executions and resources captured by a callback. Missing or
-   refused resources cannot become accessible through the compatibility view.
-5. Use PGlite plus ordinary-role PostgreSQL for the connected workflow/atomic/
-   graph lanes. PostgreSQL retains pending-write invisibility and competing-run
-   coverage; PGlite alone does not establish these properties. Preserve the
-   affected original Product/Currency and composer regressions, event delivery
-   tests and existing assertion/time limits.
-6. Run affected TypeScript configurations, source/provenance guard tests,
-   portable bundle checks, core/diff lint and both required reviewers. Refresh
-   approved source hashes when necessary without relaxing preserved-source or
-   original-test rules. No whole-workspace or Cloudflare parity claim follows.
-7. Reconcile Topics 10/11 and their index, remove superseded manual bindings,
-   verify that tests clean their owned database artifacts, and commit the
-   complete capability.
+Select the next actual workflow need before expanding the profile. Single-module
+execution, durable steps, Task integration, waits/signals, external effects,
+remote joins, Module Link, additional modules and public serving remain separate
+decisions. Exceeding an atomic bound never silently switches execution mode.
 
-## Convex Compatibility And Flarex Divergence
-
-The checked-in Convex SDK's `npm-packages/convex/src/server/registration.ts` and
-`server/impl/registration_impl.ts` use explicit function references and runtime
-context for cross-function calls. Preserve the useful distinction between a
-typed callable reference and runtime execution authority.
-
-This host remains a trusted Medusa integration over the already approved atomic
-commerce profile. It does not adopt Convex's nested-mutation sub-transaction
-rollback semantics: Flarex's existing commerce refusal remains sticky for the
-whole root. It does not expose `ctx.db`, extend Application OCC, or make durable
-steps share one transaction. This is a deliberate framework execution profile,
-not general Convex function registration.
+The Convex reference's typed function references and runtime call context remain
+useful distinctions, but this host does not adopt nested-mutation sub-transaction
+rollback. Flarex commerce refusal stays sticky for the whole atomic root, with
+no `ctx.db` exposure or Application OCC extension.

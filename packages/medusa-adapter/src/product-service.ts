@@ -12,6 +12,7 @@ import { defineCommerceCommand, type CommerceCommandContext } from "@flarex/pers
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeProductRead, decodeProductNamedRead, decodeProductCollectionRead, decodeProductCategoryRead, decodeProductParentRead, decodeVariantImageInput, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
 import { captureProductTagUpsert } from "./product-tag-input";
+import { productWorkflowModule } from "./product-workflow-module";
 import { captureCommerceInput } from "./commerce-input";
 import { captureProductSchema } from "./product-schema";
 import { validateProductCreate } from "./product-graph";
@@ -346,5 +347,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     updateOptions: changeRelated("option", "update"), updateVariants: changeRelated("variant", "update"), updateValues: changeRelated("value", "update"),
     updateCollections: changeRelated("collection", "update"), updateCategories: changeRelated("category", "update"),
     upsertOptions: changeRelated("option", "upsert"), upsertVariants: changeRelated("variant", "upsert"), upsertCollections: changeRelated("collection", "upsert"), upsertCategories: changeRelated("category", "upsert") });
-  return { commands, withService, graph: yield* Effect.fromResult(productGraphDefinition(metadata, commands)) };
+  const graph = yield* Effect.fromResult(productGraphDefinition(metadata, commands));
+  const workflow = yield* Effect.fromResult(productWorkflowModule(standard.description, commands.createTags, graph, metadata.tag.createdEvent));
+  return { commands, withService, graph, workflow };
 });

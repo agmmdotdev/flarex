@@ -1,6 +1,7 @@
 import { Effect, Result, Schema } from "effect";
 import { commerceError, commerceLimits, capturePrivateJsonData, isJsonObject, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../commerce-decoder";
+import { checkedCommerceValue } from "../commerce-checked-value";
 import { QueryLimit, QueryOffset } from "../query-decoder";
 import { makeReadCatalog } from "../query/catalog";
 import { isGraphReadCommand } from "./commands";
@@ -100,15 +101,13 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
     return Object.freeze({ entities: Object.freeze([...entries.keys()]), bind: (context): LocalGraphQuery => {
       // Only newly originated planner/result failures enter refusal here. A
       // participant call already owns its full failure Cause and must propagate.
-      const checked = <Value>(result: Result.Result<Value, CommerceTransactionError>) => Effect.fromResult(result)
-        .pipe(Effect.catchTag("CommerceTransactionError", error => context.refuse(error)));
       const graph: LocalGraphQuery["graph"] = Effect.fn("LocalGraph.query")(function* (input: unknown) {
-        const { entry, args, fields, order } = yield* checked(planQuery(input, entries));
+        const { entry, args, fields, order } = yield* checkedCommerceValue(context, () => planQuery(input, entries));
         const skip = args.pagination.skip ?? 0, take = args.pagination.take;
         const value = yield* context.call(entry.participant, entry.read.command, {
           filters: args.filters ?? {}, config: { select: fields.select, relations: fields.relations, order, skip, take },
         });
-        return yield* checked(graphResult(value, entry.read, fields, skip, take));
+        return yield* checkedCommerceValue(context, () => graphResult(value, entry.read, fields, skip, take));
       });
       return Object.freeze({ graph });
     } } satisfies PreparedLocalGraph);

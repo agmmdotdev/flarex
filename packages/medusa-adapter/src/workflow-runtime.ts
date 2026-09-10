@@ -12,7 +12,7 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
   bind: (owner: CommercePromiseOwner) => WorkflowContainer,
 ) {
   const owner = makeCommercePromiseOwner();
-  return yield* executeWorkflow(definition, input, {
+  return yield* Effect.suspend(() => executeWorkflow(definition, input, {
     checkpoint: ctx.checkpoint,
     capture: value => captureWorkflowValue(ctx, value),
     context: { container: bind(owner), eventGroupId: ctx.eventGroupId },
@@ -20,7 +20,7 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
       try: signal => owner.callback(() => Promise.resolve(work()), signal),
       catch: cause => cause instanceof CommerceTransactionError ? cause : commerceError("adapterFailure", cause),
     }),
-  }).pipe(
+  })).pipe(
     Effect.catchTag("WorkflowDefinitionError", cause => ctx.refuse(commerceError("unsupportedProfile", cause))),
     Effect.flatMap(value => {
       const refusal = owner.refusal();

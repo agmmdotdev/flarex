@@ -9,7 +9,9 @@ validated and reviewed as a private facade over existing module reads. Other
 topics retain their own proportional preflights. The connected
 [native Product-tag workflow](./10-medusa-workflow-integration.md), including
 [durable events](./07-durable-workflow-events.md), is implemented as a private
-atomic profile. This folder does not select a universal workflow architecture.
+atomic profile. Its [reusable host composition](./11-workflow-host-composition.md)
+is implemented with module-owned registrations and inferred scoped resources.
+This folder does not select a universal workflow architecture.
 
 Prepare reusable native capabilities before full workflow integration. Native
 contracts should serve multiple workflow domains. Product and Currency are
@@ -53,8 +55,8 @@ instead of copying changing implementation inventories here.
 
 Atomic composition and Local Graph Query have approved, validated source-private
 implementations. Topics 07 and 10 have one connected private workflow/event
-implementation. Topic 11 has a researched implementation recommendation awaiting
-capability approval. The remaining discussion topics retain their pending
+implementation. Topic 11 implements shared workflow host composition. The
+remaining discussion topics retain their pending
 preflights, with related findings linked where useful.
 Numbers provide a reading order, not fixed commit boundaries or a requirement
 to build every capability before the first useful integration.
@@ -71,7 +73,7 @@ to build every capability before the first useful integration.
 | [08 Resource coordination](./08-resource-coordination.md) | Assess coordination needs between different workflow executions. |
 | [09 Atomic composition](./09-atomic-composition.md) | Private bounded composition across authentic commerce installations; native relational OCC remains a separate decision. |
 | [10 Medusa workflow integration](./10-medusa-workflow-integration.md) | Connect a supported workflow surface to the proven foundations. |
-| [11 Workflow host composition](./11-workflow-host-composition.md) | Researched recommendation for module-owned registrations and shared scoped workflow assembly; awaiting capability approval. |
+| [11 Workflow host composition](./11-workflow-host-composition.md) | Implemented private module-owned registrations and shared scoped workflow assembly. |
 
 The first foundation is a private Product/Currency command over the existing
 shared transaction owner, including multiple commerce installations, pending
@@ -106,7 +108,7 @@ For one coherent capability at a time:
 
 The private [Product-tag workflow](./10-medusa-workflow-integration.md) now uses
 the selected SDK fork, bounded hooks, Local Graph Query and
-[durable event delivery](./07-durable-workflow-events.md). The next recommended
-capability is the researched [workflow host composition](./11-workflow-host-composition.md)
-refactor across commands, graph, events and lifecycle. Select real workflow needs before extending execution
+[durable event delivery](./07-durable-workflow-events.md), assembled through the
+shared [workflow host](./11-workflow-host-composition.md) across commands, graph,
+events and lifecycle. Select real workflow needs before extending execution
 profiles; this does not authorize the remaining outlines as a universal plan.

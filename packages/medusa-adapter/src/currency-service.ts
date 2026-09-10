@@ -1,4 +1,4 @@
-import { Effect, Cause, type Result } from "effect";
+import { Effect, Cause, Result, Schema } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Currency } from "@medusajs/currency/models";
 import { CurrencyModuleService } from "@medusajs/currency/services";
@@ -12,6 +12,9 @@ import { currencyDto, currencyDtos, currencyCountResult } from "./currency-resul
 import { decodeCurrencyRead } from "./currency-input";
 import { defineGraphReadCommand } from "./local-graph/commands";
 import { currencyGraphDefinition } from "./currency-graph-query";
+import { defineWorkflowMethod, defineWorkflowModule } from "./workflow/module";
+import { commerceDecoder } from "./commerce-decoder";
+import { currencyValueProfile } from "./currency-value-profile";
 
 const currencyModule = defineCommerceModule({
   name: "flarex-currency-local", models: [Currency],
@@ -49,6 +52,20 @@ const read = (kind: "list" | "count" | "retrieve") => defineGraphReadCommand(`cu
 
 export const currencyCommands = Object.freeze({ list: read("list"), count: read("count"), retrieve: read("retrieve") });
 export const currencyGraph = currencyGraphDefinition(currencyCommands);
+const decodeWorkflowArguments = commerceDecoder(Schema.Tuple([Schema.String]), "invalidInput");
+const decodeWorkflowCurrency = commerceDecoder(Schema.StructWithRest(Schema.Struct({ code: Schema.String, name: Schema.String }),
+  [Schema.Record(Schema.String, Schema.Json)]), "storedCorruption");
+/** Workflow reads reuse the same command and validate their actual projection;
+ * they do not inherit the compatibility facade's full-DTO assertion. */
+export const currencyWorkflowModule = Result.gen(function* () {
+  const module = yield* currencyModule.pipe(Result.mapError(error => commerceError("unsupportedProfile", error)));
+  const values = yield* currencyValueProfile;
+  const retrieveCurrency = yield* defineWorkflowMethod({ command: currencyCommands.retrieve, arguments: decodeWorkflowArguments,
+    encode: ([code]) => ({ code }), output: value => values.decodeProjection(value).pipe(Result.flatMap(decodeWorkflowCurrency)),
+  });
+  return yield* defineWorkflowModule({ name: "currency", source: module.description, methods: { retrieveCurrency }, graph: yield* currencyGraph });
+});
+export type CurrencyWorkflowModule = Result.Result.Success<typeof currencyWorkflowModule>;
 /** Private composite-command participant; uses the existing internal service/DAL owner. */
 export const currencyAnnouncementWrite = defineCommerceCommand("currencyAnnouncementWrite", "write", Effect.fn("CurrencyAdapter.announcementWrite")(function* (ctx, value) {
   if (!isNonArrayRecord(value) || typeof value.code !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
