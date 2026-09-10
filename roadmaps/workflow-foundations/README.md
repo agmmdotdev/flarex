@@ -78,6 +78,7 @@ to build every capability before the first useful integration.
 | [10 Medusa workflow integration](./10-medusa-workflow-integration.md) | Connect a supported workflow surface to the proven foundations. |
 | [11 Workflow host composition](./11-workflow-host-composition.md) | Implemented private module-owned registrations and shared scoped workflow assembly. |
 | [12 Product-tag updates](./12-product-tag-updates.md) | Private selector update workflow and authenticated selected-participant admission, including one-module execution. |
+| [13 Product-tag deletion](./13-product-tag-deletion.md) | Proposed soft-delete workflow, native void-to-null completion and successful-command input evidence; awaiting capability approval. |
 
 The first foundation is a private Product/Currency command over the existing
 shared transaction owner, including multiple commerce installations, pending
@@ -115,6 +116,8 @@ the selected SDK fork, bounded hooks, Local Graph Query and
 [durable event delivery](./07-durable-workflow-events.md), assembled through the
 shared [workflow host](./11-workflow-host-composition.md) across commands, graph,
 events and lifecycle. [Product-tag updates](./12-product-tag-updates.md) reuse that
-host with Product as the only selected participant. Select the next real workflow
-need before extending execution profiles; this does not authorize the remaining
-outlines as a universal plan.
+host with Product as the only selected participant. The next researched proposal
+is [Product-tag deletion](./13-product-tag-deletion.md), using the real soft-delete
+flow to establish native completion results and captured command-input evidence.
+It awaits approval for those specific boundaries; it does not authorize the
+remaining outlines as a universal plan.
