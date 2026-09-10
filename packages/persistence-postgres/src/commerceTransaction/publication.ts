@@ -1,4 +1,4 @@
-import { runOwnedPromise } from "../ownedPromise";
+import { publishCommerceAtoms } from "./publicationBoundary";
 import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
 import { fxSystemFrameworkInitializations } from "../frameworkSchema/installation/initializationSchema";
 import { requireCommerceAdmission, type CommerceAdmission } from "./admission";
@@ -12,9 +12,7 @@ import { type ResolveCommittedPointOutcomeInputV1 } from "../committedPointOutco
 import { allocateScopePublicationResult, readScopePublicationDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock } from "../commitPublication/publication";
 import type { ScopePublicationContribution, ScopePublicationKernel } from "../commitPublication/scopePublicationModel";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
-
-const publishCommerceAtoms = Effect.fn("CommerceCommit.publishAtoms")(<Value>(work: (signal: AbortSignal) => Promise<Value>) =>
-  runOwnedPromise(work, cause => commerceError("statementFailure", cause)));
+import { consumeCommerceEvents, type CommerceEventClosure } from "../atomicCommerce/events";
 
 /** Authenticated domain contribution; allocation and settlement belong to the root. */
 export const consumeCommerceContribution = Effect.fn("CommerceCommit.consumeContribution")(function* (
@@ -33,6 +31,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   result: CanonicalSuccessfulResultV1,
   resultSha256: Uint8Array,
   additional: readonly Readonly<{ admission: CommerceAdmission; closure: CommerceRowClosure }>[] = [],
+  events?: Readonly<{ admission: CommerceAdmission; closure: CommerceEventClosure }>,
 ): Effect.fn.Return<CommitSeq, CommerceTransactionError> {
   const state = yield* requireCommerceAdmission(admission);
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
@@ -56,6 +55,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
     rowIntents: [], identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
     requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
     relationalFacts: facts,
+    ...(events === undefined ? {} : { events: yield* consumeCommerceEvents(events.closure, events.admission, lifetime) }),
   };
   const kernel: ScopePublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: [] };
   // The existing owner bridges its Promise-based publication kernel once.

@@ -1,4 +1,5 @@
 import { fxSystemCommitRelationalChanges } from "../commitPublication/relationalFactsSchema";
+import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../commitEvents/schema";
 import { copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, eq, sql } from "drizzle-orm";
@@ -39,6 +40,8 @@ export async function writeScopePublicationPrefix(
       relationAdjacencyChangeCount,
       payloadPreferenceDeletionCount: command.payloadPreferenceDeletionCount ?? 0,
       relationalChangeCount: command.relationalFacts?.length ?? 0,
+      eventCount: command.events?.values.length ?? 0,
+      eventSha256: command.events?.sha256 ?? null,
       committedAt: publicationTime,
     }).returning({ commitSeq: fxSystemCommits.commitSeq }));
   projectScopePublicationResult(
@@ -124,6 +127,23 @@ export async function writeScopePublicationPrefix(
       facts.some(fact => fact.ordinal < 0 || fact.ordinal >= (command.relationalFacts?.length ?? 0))) throw corruption("publicationInvariantInvalid");
   }
 
+  signal?.throwIfAborted();
+  const events = command.events?.values ?? [];
+  if (events.length > 0) {
+    const written = await sqlCall("writeCommitChange", () => tx.insert(fxSystemCommitEvents).values(events.map((envelope, eventOrdinal) => ({
+      scopeUuid, epochUuid, commitSeq, eventOrdinal, envelope,
+    }))).returning({ ordinal: fxSystemCommitEvents.eventOrdinal }));
+    if (written.length !== events.length || new Set(written.map(row => row.ordinal)).size !== events.length || written.some(row => row.ordinal < 0 || row.ordinal >= events.length)) throw corruption("publicationInvariantInvalid");
+    const deliveries = events.flatMap((event, eventOrdinal) => event.subscribers.map(subscriber => ({
+      scopeUuid, epochUuid, commitSeq, eventOrdinal, subscriberId: subscriber.id, handlerRevision: subscriber.revision,
+      state: "pending" as const, nextAttemptAt: publicationTime,
+    })));
+    if (deliveries.length === 0) throw corruption("publicationInvariantInvalid");
+    const delivered = await sqlCall("writeCommitChange", () => tx.insert(fxSystemCommitEventDeliveries).values(deliveries)
+      .returning({ ordinal: fxSystemCommitEventDeliveries.eventOrdinal, subscriber: fxSystemCommitEventDeliveries.subscriberId }));
+    const expected = new Set(deliveries.map(row => `${row.eventOrdinal}:${row.subscriberId}`));
+    if (delivered.length !== deliveries.length || delivered.some(row => !expected.delete(`${row.ordinal}:${row.subscriber}`)) || expected.size !== 0) throw corruption("publicationInvariantInvalid");
+  }
   signal?.throwIfAborted();
   const outcome = await sqlCall("writeOutcome", () =>
     tx.insert(fxSystemIdempotency).values({

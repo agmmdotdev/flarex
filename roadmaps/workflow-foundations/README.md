@@ -7,11 +7,9 @@ is implemented, validated and reviewed. The
 [Local Graph Query capability](./06-local-graph-query.md) is also implemented,
 validated and reviewed as a private facade over existing module reads. Other
 topics retain their own proportional preflights. The connected
-[native workflow preflight](./10-medusa-workflow-integration.md), including
-[durable events](./07-durable-workflow-events.md), is ready for its execution
-and persistence decision. Fork-source adaptation is authorized; the proposed
-shared event contribution and migration are not yet implemented. This folder
-does not select a universal API, package layout, or complete workflow architecture.
+[native Product-tag workflow](./10-medusa-workflow-integration.md), including
+[durable events](./07-durable-workflow-events.md), is implemented as a private
+atomic profile. This folder does not select a universal workflow architecture.
 
 Prepare reusable native capabilities before full workflow integration. Native
 contracts should serve multiple workflow domains. Product and Currency are
@@ -54,8 +52,8 @@ instead of copying changing implementation inventories here.
 ## Topic Map
 
 Atomic composition and Local Graph Query have approved, validated source-private
-implementations. Topics 07 and 10 now have one connected implementation proposal;
-their event/execution contract is pending approval. Other entries remain
+implementations. Topics 07 and 10 have one connected private workflow/event
+implementation. Other entries remain
 **preflight pending**, with related findings linked where useful.
 Numbers provide a reading order, not fixed commit boundaries or a requirement
 to build every capability before the first useful integration.
@@ -82,8 +80,7 @@ adding a Task, SQL transaction or query execution owner.
 
 Native Task extensions are conditional on durable execution needs. General
 relational OCC is conditional on a stronger mixed-mutation product promise or
-a demonstrated execution need. Workflow events remain an actual dependency
-of the proposed first original Medusa workflow. No execution mode may silently
+a demonstrated execution need. Workflow events are durably captured by the first original Medusa workflow. No execution mode may silently
 change because a command exceeds its bounds. These remaining topics are not
 implementation approval or a promise that every workflow is atomic.
 
@@ -105,9 +102,9 @@ For one coherent capability at a time:
    and cleanup obligations when anything is displaced; Git owns chronology and
    test receipts.
 
-The next recommended capability is the private
-[Product-tag workflow integration](./10-medusa-workflow-integration.md), including
-the selected SDK fork changes, bounded hook execution and
-[durable event delivery](./07-durable-workflow-events.md). Local Graph Query
-already supplies its pending-read dependency. These related topics are one
-connected proof, not separate planner-only or event-mock completion gates.
+The private [Product-tag workflow](./10-medusa-workflow-integration.md) now uses
+the selected SDK fork, bounded hooks, Local Graph Query and
+[durable event delivery](./07-durable-workflow-events.md). The next preflight concerns
+reusable workflow host assembly across commands, graph, events and lifecycle,
+as described in Topic 10. Select real workflow needs before extending execution
+profiles; this does not authorize the remaining outlines as a universal plan.

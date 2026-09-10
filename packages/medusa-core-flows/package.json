@@ -1,0 +1,9 @@
+{
+  "name": "@medusajs/core-flows",
+  "version": "2.13.4",
+  "private": true,
+  "type": "module",
+  "exports": { "./product/create-product-tags": "./src/product/workflows/create-product-tags.ts" },
+  "dependencies": { "@medusajs/types": "workspace:*", "@medusajs/utils": "workspace:*", "@medusajs/workflows-sdk": "workspace:*" },
+  "scripts": { "typecheck": "tsc -p tsconfig.json" }
+}

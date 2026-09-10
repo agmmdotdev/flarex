@@ -11,6 +11,8 @@ const revision = "48d5cc675e4e8bc821e22c20c88a751acc66fb5f";
 const owners = new Map([
   ["packages/medusa-currency", "@medusajs/currency"],
   ["packages/medusa-product", "@medusajs/product"],
+  ["packages/medusa-core-flows", "@medusajs/core-flows"],
+  ["packages/medusa-workflows-sdk", "@medusajs/workflows-sdk"],
   ["packages/medusa-drizzle", "@medusajs/drizzle"],
   ["packages/medusa-types", "@medusajs/types"],
   ["packages/medusa-utils", "@medusajs/utils"],
@@ -103,8 +105,11 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const sourceHashes = new Map(readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"), "utf8")
     .split(/\r?\n/).filter(Boolean).map((line) => ["third_party/medusa/" + line.slice(66), line.slice(0, 64)]));
   for (const file of promotion.files) {
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
+    }
+    if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target === "packages/medusa-adapter/test/workflow-composer-upstream.test.ts")) {
+      throw new Error("Workflow fork adaptation outside its approved source closure");
     }
     const owned = [...owners.keys()].some((owner) => file.target.startsWith(owner + "/"))
       || file.target === "tools/medusa/tsconfig.fork.json";

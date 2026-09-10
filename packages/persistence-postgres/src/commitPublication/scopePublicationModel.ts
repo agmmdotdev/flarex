@@ -7,11 +7,13 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { ApplicationRelationAdjacencyChange } from "../applicationRelationCommit";
 import type { fxSystemCommitRelationalChanges } from "./relationalFactsSchema";
+import type { CommittedEvent } from "../commitEvents/model";
 
 export type ScopePublicationMode = "rollbackProof" | "publish";
 export interface ScopePublicationClock { readonly record: ScopeClockRecord; readonly scopeUuid: ScopeUuidV1; readonly epochUuid: ScopeEpochUuidV1 }
 /** Source-private facts; authenticated participants own admission and lowering. */
 export interface ScopePublicationContribution {
+  readonly events?: { readonly values: readonly CommittedEvent[]; readonly sha256: string | null };
   readonly relationalFacts?: readonly Omit<typeof fxSystemCommitRelationalChanges.$inferInsert, "scopeUuid" | "epochUuid" | "commitSeq" | "changeOrdinal">[];
   readonly payloadPreferenceDeletionCount?: number;
   readonly authorityPins: { readonly scopeId: ReplacementScopeIdV1; readonly requestKey: TransactionRequestKeyV1; readonly functionPath: TransactionFunctionPathV1 };

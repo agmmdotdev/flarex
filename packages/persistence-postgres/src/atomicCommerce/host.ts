@@ -27,11 +27,13 @@ import { defaultCommerceResources } from "../commerceTransaction/resources";
 import { getAtomicCommerceCommand, type AtomicCommerceCommand, type AtomicCommerceHost, type AtomicCommerceContext } from "./commands";
 import { withAtomicCommerceAdmissions } from "./admission";
 import { prepareAtomicCommerceParticipants, isCommerceDefinitionName, type AtomicCommerceParticipantInput } from "./participants";
+import { makeAtomicEventCapture, prepareAtomicCommerceEvents, type AtomicCommerceEvents, type AtomicCommerceCallObservation } from "./events";
 
 export type AtomicCommerceHostInput<Failure> = Pick<CommerceHostInput<Failure>,
   "database" | "session" | "target" | "deploymentId" | "authority" | "application" | "identityAndAccessPolicy"> & {
   readonly participants: readonly AtomicCommerceParticipantInput[];
   readonly commands: readonly AtomicCommerceCommand[];
+  readonly events?: AtomicCommerceEvents;
 };
 const decodeKey = Schema.decodeUnknownEffect(TransactionRequestKeyV1Schema);
 const sha = (bytes: Uint8Array) => commerceRequestHash(bytes, { maximumInputBytes: commerceLimits.commandBytes });
@@ -55,7 +57,9 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
   }
   const policy = yield* Effect.fromResult(capturePrivateJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes, commerceError));
   const members = yield* prepareAtomicCommerceParticipants(database, target, input.participants);
-  const identity = yield* canonicalizeSuccessfulResultV1Effect(policy.value).pipe(Effect.mapError(projectCommerceRequestFailure));
+  const eventPolicy = input.events === undefined ? undefined : yield* prepareAtomicCommerceEvents(input.events);
+  if (members.some(member => member.eventContract !== undefined && (member.validate === undefined || !eventPolicy?.allowed.has(member.eventContract)))) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const identity = yield* canonicalizeSuccessfulResultV1Effect(eventPolicy === undefined ? policy.value : { policy: policy.value, events: eventPolicy.identity }).pipe(Effect.mapError(projectCommerceRequestFailure));
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha(identity.canonicalBytes));
   const limits = { ...commerceLimits,
     calls: Math.min(commerceLimits.calls, ...members.map(member => member.descriptor.resources.calls)),
@@ -96,11 +100,23 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
           if (recoverOnly) return yield* Effect.fail(commerceError("decisionUncertain"));
           const id = crypto.randomUUID();
           const lifetime = yield* makeBoundedRequestLifetime(commerceError, limits, owner, Object.freeze({ requestId: Symbol("atomic.commerce.request") }), id, "write");
+          const eventCapture = eventPolicy === undefined ? undefined : makeAtomicEventCapture(first, lifetime, key, eventPolicy,
+            Math.min(defaultCommerceResources.eventMessages, ...members.map(member => member.descriptor.resources.eventMessages)));
           return yield* Effect.gen(function* () {
             yield* Effect.fromResult(lifetime.charge(evidence.canonicalBytes.byteLength));
             const contributions: Array<{ admission: typeof first; working: Effect.Success<ReturnType<typeof makeCommerceStore>> }> = [];
             let facts = 0;
+            const observations: AtomicCommerceCallObservation[] = [];
             const context = Object.freeze<AtomicCommerceContext>({
+              eventGroupId: key,
+              checkpoint: lifetime.operation(lifetime.context, id, "read", Effect.void),
+              capture: value => lifetime.operation(lifetime.context, id, "read", Effect.gen(function* () {
+                const intermediate = yield* Effect.fromResult(capturePrivateJsonData(value, lifetime.remainingBytes(), commerceError));
+                yield* Effect.fromResult(lifetime.charge(intermediate.bytes));
+                return intermediate.value;
+              })),
+              emit: (contract, message) => lifetime.operation(lifetime.context, id, "write", eventCapture === undefined
+                ? Effect.fail(commerceError("unadmittedEvent")) : eventCapture.capture(contract, message).pipe(Effect.asVoid)),
               refuse: error => lifetime.operation(lifetime.context, id, "write", Effect.fail(error)),
               call: (participant, command, inputArgs) => lifetime.nested(lifetime.context, id, child => Effect.gen(function* () {
                 const index = members.findIndex(member => member.participant === participant);
@@ -110,6 +126,7 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
                 if (member === undefined || admission === undefined || root === undefined || !member.commands.has(command)) return yield* Effect.fail(commerceError("invalidAuthority"));
                 const working = yield* makeCommerceStore(admission, lifetime, id);
                 contributions.push({ admission, working });
+                const events: Json[] = [];
                 const invoke = Effect.fn("AtomicCommerce.invokeParticipant")(function* (
                   manager: BoundedRequestContext, nested: CommerceCommand, nestedArgs: Json,
                 ): Effect.fn.Return<Json, CommerceTransactionError> {
@@ -118,7 +135,10 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
                   const value = yield* Effect.fromResult(capturePrivateJsonData(nestedArgs, lifetime.remainingBytes(), commerceError));
                   yield* Effect.fromResult(lifetime.charge(value.bytes));
                   const commandContext = makeCommerceCommandContext(lifetime, working, id, manager, invoke,
-                    current => lifetime.operation(current, id, "write", Effect.fail(commerceError("unadmittedEvent"))));
+                    (current, event) => lifetime.operation(current, id, "write", Effect.gen(function* () {
+                      if (eventCapture === undefined || member.eventContract === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
+                      events.push(yield* eventCapture.capture(member.eventContract, event));
+                    })));
                   const output = yield* operation.run(commandContext, value.value);
                   const result = yield* Effect.fromResult(capturePrivateJsonData(output, lifetime.remainingBytes(), commerceError));
                   yield* Effect.fromResult(lifetime.charge(result.bytes));
@@ -128,7 +148,8 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
                 const rows = working.snapshot();
                 facts += rows.length;
                 if (facts > factLimit) return yield* Effect.fail(commerceError("limitExceeded"));
-                if (member.validate !== undefined) yield* member.validate([], rows, root.name, working.lifecycleSnapshot());
+                if (member.validate !== undefined) yield* member.validate(events, rows, root.name, working.lifecycleSnapshot());
+                if (eventCapture !== undefined) observations.push({ participant, command, result: value });
                 return value;
               }), getCommerceCommand(command)?.mode),
             });
@@ -153,7 +174,9 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
             for (const contribution of contributions) closed.push({ admission: contribution.admission, closure: yield* contribution.working.close() });
             const root = closed[0];
             if (root === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-            yield* finalizeCommerceCommit(root.admission, lifetime, root.closure, lookup, result, yield* sha(result.canonicalBytes), closed.slice(1));
+            const eventClosure = eventCapture === undefined ? undefined : yield* eventCapture.close(observations);
+            yield* finalizeCommerceCommit(root.admission, lifetime, root.closure, lookup, result, yield* sha(result.canonicalBytes), closed.slice(1),
+              eventClosure === undefined ? undefined : { admission: first, closure: eventClosure });
             return result.valueJson;
           }).pipe(Effect.timeoutOrElse({ duration: commerceLimits.commandMs, orElse: () => Effect.fail(commerceError("deadlineExceeded")) }), Effect.ensuring(lifetime.close));
         }));

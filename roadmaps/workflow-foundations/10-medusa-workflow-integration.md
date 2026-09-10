@@ -1,266 +1,181 @@
 # Native Medusa Workflow Integration
 
-## Status And Decision
+## Status And Scope
 
-Status: connected preflight complete; implementation of the proposed execution
-and durable-event capability is pending approval. The user has authorized
-modifying promoted Medusa fork source. The remaining decision is the concrete
-capability below, including its shared publication and persistence changes.
-No workflow runtime or event schema has been promoted by this preflight.
+Status: implemented as a private, finite atomic workflow profile. The active
+fork runs the actual Product-tag workflow, optional registered hook, pending
+Local Graph Query reads and both committed event families. [Topic 07](./07-durable-workflow-events.md)
+owns event persistence and delivery; [Topic 09](./09-atomic-composition.md) owns
+the existing atomic commerce transaction. These are one connected capability.
 
-Recommendation: bring the actual `create-product-tags` workflow and its needed
-SDK logic into private workspace packages, adapt them to the existing atomic
-commerce owner, and prove hooks and durable events in the same capability.
-[Topic 07](./07-durable-workflow-events.md) owns the event contract; this note
-owns the connected integration and execution order.
+The host uses one authenticated, bounded SQL transaction. It does not add a
+Task, relational journal/OCC engine, distributed lock or second commit owner.
+Product supplies business semantics; Currency reads demonstrate another admitted
+participant inside the same hook. No additional commerce module is admitted.
 
-The completed [atomic composition](./09-atomic-composition.md) and
-[Local Graph Query](./06-local-graph-query.md) are the starting point. This
-profile uses their bounded SQL transaction; it does not add relational journal
-or OCC semantics. Product remains the business consumer, with Currency reads
-available to prove that a registered hook can use another admitted participant.
+Only reviewed trusted callbacks are supported. A finite resolver and timeout
+are not a sandbox and cannot establish that arbitrary JavaScript has no external
+effects. Public application exposure, production delivery, Cloudflare deployment,
+full create-products, remote joins and Module Link remain separate gates.
 
-## Outcome And Limits
-
-The private host runs the promoted Product-tag workflow with either its
-unhandled hook or one registered, trusted hook. The actual Product service
-creates the tags. Steps and the hook share one authenticated atomic context,
-pending reads, budgets and root result. Module events and the workflow event
-become durable only with the successful commit. A restarted private dispatcher
-can deliver them from storage without rerunning the workflow.
+## Execution And Ownership
 
 ```mermaid
 flowchart TD
-  A[Prepared Medusa workflow and hooks] --> B[Existing Flarex atomic context]
-  B --> C[Product service, hook graph reads and checked event capture]
+  A[Prepared workflow and registered hook] --> B[Existing atomic commerce context]
+  B --> C[Actual Product service and pending graph reads]
   C --> D[One commit: rows, result, event intent and wake]
-  D --> E[Private delivery pump after commit]
-  E --> F[Registered subscribers]
+  D --> E[Private restartable event pump]
+  E --> F[Revision-pinned subscribers]
 ```
 
-The first profile admits ordered finite steps, transforms, step references,
-`StepResponse`, `WorkflowResponse` and the selected named hook behavior.
-Ordinary Promise-returning module calls may be awaited; Medusa's durable
-`async` step option is a different capability and is refused. Reject unsupported
-options during preparation, before any service mutation: parallel branches,
-scheduled/durable steps, step retries, nested workflows, waits/signals,
-post-completion cancellation and remote side effects. Do not silently serialize
-a parallel workflow or fall back to another engine.
-
-No new commerce module, full `create-products`, remote join, Module Link,
-public `ctx.workflow`, application sandbox exposure, general plugin container,
-production dispatcher, Cloudflare provider, Task extension or distributed lock
-is included. Only reviewed trusted callbacks are admitted to this host profile.
-A timeout or restricted resolver is not a sandbox and cannot certify arbitrary
-JavaScript hooks as free of external effects.
-
-## Current Source Evidence
-
-The reference is [SOURCE.json](../../third_party/medusa/SOURCE.json), fork
-revision `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, package baseline 2.13.4.
-The active workflow SDK is not installed yet. The reference stays inert;
-modified promoted packages become the executable fork.
-
-| Inspected owner | Finding and decision |
+| Owner | Accepted responsibility |
 | --- | --- |
-| [Product-tag workflow](../../third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/create-product-tags.ts) | Creates tags, declares `productTagsCreated`, transforms returned IDs and invokes `emitEventStep`. It has no Graph Query call itself; query proof belongs in a registered hook without changing its business sequence. |
-| [Creation step](../../third_party/medusa/upstream/packages/core/core-flows/src/product/steps/create-product-tags.ts) | Calls actual `createProductTags`, returns records and compensation IDs, and declares a delete compensator. Existing adapter commands already accept a batch. |
-| [Composer](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-workflow.ts) and [step factory](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-step.ts) | Build definitions and handlers through `WorkflowManager`; step configuration can update that manager. Dev-server registration and broader execution methods are also connected. Swapping one engine service leaves those dependencies intact. |
-| [WorkflowManager](../../third_party/medusa/upstream/packages/core/orchestration/src/workflow/workflow-manager.ts) | A process-global name registry constructs `TransactionOrchestrator` and a scheduler. Name registration does not bind a workflow/hook revision to Flarex authority. |
-| [LocalWorkflow](../../third_party/medusa/upstream/packages/core/orchestration/src/workflow/local-workflow.ts) and [export wrapper](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/helper/workflow-export.ts) | Construct runtime/container state, resolve loaded modules, expose retry/cancel/resume and finish through event-group release. Do not adopt their whole runtime as the native execution owner. |
-| [Hook factory](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-hook.ts) | Registers a replaceable no-op step, permits one handler, and supports a hook-result reference. Preserve selected behavior and reject duplicate or late registration. |
-| [Step handler](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/helpers/create-step-handler.ts), [reference resolution](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/helpers/resolve-value.ts) and [builder](../../third_party/medusa/upstream/packages/core/orchestration/src/transaction/orchestrator-builder.ts) | Reference and definition-building mechanics are reusable. Step-context construction currently requires transaction/orchestrator objects; adapt the seam rather than fabricating a distributed transaction. |
-| [Event step](../../third_party/medusa/upstream/packages/core/core-flows/src/common/steps/emit-event.ts) and export completion | Carries a group and clears selected events on compensation. Completion clears failed/reverted groups; release failure can invoke `flow.cancel`. Adapt that policy for delivery after a Flarex commit. |
-| [Product binding](../../packages/medusa-adapter/src/product-module.ts) and [local events](../../packages/medusa-adapter/src/product-local-events.ts) | Current emit admits selected internal module events; release/clear are refused. Local validation correlates events with row/lifecycle facts but does not persist delivery. |
-| [Atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Refuses event capture and validates participants with an empty event list. Public Product writes require an explicit event-admitting extension. |
-| [Publication model](../../packages/persistence-postgres/src/commitPublication/scopePublicationModel.ts) and [publisher](../../packages/persistence-postgres/src/commitPublication/publication.ts) | No business-event contribution exists. Typed event facts and delivery state are real persistence work, not a feature obtained by renaming the wake outbox. |
+| [medusa-core-flows](../../packages/medusa-core-flows/src/product/workflows/create-product-tags.ts) | Original business sequence: create tags, invoke the named hook, transform IDs, emit workflow events and return tags. |
+| [medusa-workflows-sdk](../../packages/medusa-workflows-sdk/src/definition.ts) | Staged definitions, ordered builder, references, transforms, responses, immutable prepared hook registrations and selected execution through caller-owned ports. |
+| [Product-tag adapter](../../packages/medusa-adapter/src/product-tag-workflow.ts) | Bind actual Product command tokens, Local Graph Query and the two admitted event contracts; correlate workflow event IDs with successful creation output. |
+| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Own foreign callbacks and scoped service runners, charge root budgets and preserve sticky refusal/cancellation. |
+| [Atomic commerce](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Authenticate installations, share one lifetime and transaction, validate participant facts, seal the result and event contribution, and use existing root recovery. |
+| [Committed events](../../packages/persistence-postgres/src/commitEvents/store.ts) | Durable intent, completeness verification, fresh scope authority, fenced delivery claims and retained subscriber outcomes. |
 
-Current [Medusa hook documentation](https://docs.medusajs.com/learn/fundamentals/workflows/workflow-hooks)
-also describes one handler per hook, and its
-[compensation documentation](https://docs.medusajs.com/learn/fundamentals/workflows/compensation-function)
-explains reverse business actions. These explain intent; executable compatibility
-is assessed against the pinned fork, not a newer documentation release.
+The author defines steps, transforms, the response and exposed hooks. Trusted
+host assembly supplies the reviewed code/hook revision and subscriber revisions.
+The selected adapter factory assembles those resources. Its workflow-specific
+service wrappers are still manual; reusable host composition is the next
+preflight below.
 
-## What Was Challenged
+The resolver exposes only selected Product methods, graph reads and checked
+emit. Its generic signature is the Medusa compatibility boundary; its type
+argument grants no authority. There is no arbitrary DI lookup or SQL manager.
+Each service call enters an authentic command using fresh scoped module services.
 
-1. **Copying the SDK unchanged and swapping one service.** The connected source
-   constructs its own orchestrator and mutable global registry. Modify the
-   promoted composer/runner boundary explicitly.
-2. **Rewriting composition because execution becomes native.** Reuse the builder,
-   proxy/reference machinery, transforms, response representation and hooks where
-   selected semantics fit. Algorithm changes require source-based regressions.
-3. **Building an unrestricted event bus before selecting a workflow.** Admit only
-   the actual module/workflow event contracts this flow emits. Generic
-   persistence mechanics do not grant arbitrary event publication authority.
-4. **Equating compensation with SQL rollback.** This profile aborts all pending
-   writes once and must not run the delete compensator against aborted work.
-   That is an explicit fork difference, not unchanged cancellation semantics.
-5. **Moving workflow hooks after commit.** The admitted hook remains a workflow
-   step: it can read pending rows and fail the operation. Subscriber delivery
-   happens separately after commit. Remote or unbounded hooks need another profile.
-6. **Making only the workflow event succeed.** Public Product creation emits
-   module events too. Preserve both families and their distinct metadata.
-7. **Using Task delivery or the commit wake as a generic queue.** Task delivery
-   is tied to admitted runs/effects. The current wake kind is
-   `deployment_sync_commit_wake_v1`. Neither is an interchangeable event envelope.
+## Definition And Identity
 
-## Source Promotion And Ownership
+Definitions are built synchronously. Construction-only ambient context is
+restored on every exit and never selects request resources. The ordered builder
+retains the pinned add-action/find-last-step mechanics; branching, movement and
+persisted-transaction loading are not part of this profile.
 
-Proposed private ownership follows the existing Medusa package layout:
+Each definition owns authentic deferred references and an immutable captured
+graph. Literal capture rejects cycles, accessors, custom prototypes, sparse
+arrays and excessive depth/node counts without invoking getters. The prepared
+hook set is an owned record, not a mutable process-global name registry. Separate
+hosts can use the same workflow name with different hook bundles.
 
-| Source or owner | Disposition |
+Trusted assembly supplies a content identity for the reviewed workflow code AND
+hook bundle. The atomic host hashes it, admitted event contracts/routing and
+subscriber revisions with its existing identity/access policy. A changed bundle
+cannot reuse a retained result under the same request key. Caller labels,
+workflow names, schema artifacts and Function.toString alone are not revisions.
+Public bundle distribution and application activation remain later decisions.
+
+The selected surface admits up to 64 ordered steps, deferred property/nested
+references, one-to-seven-function transform chains, StepResponse, WorkflowResponse
+and named hooks. Unsupported step options are refused during construction:
+parallel, scheduled/durable async steps, retries, nested workflows, waits/signals
+and post-completion cancellation. Do not silently serialize or fall back to the
+original scheduler. Conditions/reconfiguration and hook validators are also
+unadmitted.
+
+## Runtime And Failure Contract
+
+Every evaluated step/transform and every captured input, intermediate, event and
+result consumes the SAME root call/byte/lifetime budget as module operations.
+A workflow gets no independent full allowance. Internal own-undefined properties
+and absent hook results use a charged omission envelope; module/event/final
+results retain their strict native JSON boundaries. Undefined array members and
+non-JSON runtime values are outside this selected capture contract.
+
+The optional productTagsCreated hook receives created tags and additional_data.
+It runs before commit and can read pending tags plus Currency through graph.
+An absent handler is a no-op; duplicate registrations are refused. Hook-result
+references remain available in the selected SDK. Registrations cannot change an
+already prepared host.
+
+The creation and event steps explicitly declare transaction-covered compensation.
+Their original compensation callbacks remain in source, but the native runner
+does not invoke them: failed pending work rolls back once. Unknown compensators
+are refused unless trusted authoring explicitly declares this policy. That
+annotation is an author obligation, not proof that an arbitrary callback is safe.
+
+Hook failures, swallowed resource refusals, overlapping work and interruption
+leave the root failed. Existing Promise ownership drains/revokes borrowed work;
+escaped services cannot operate after closure. Exact replay returns the retained
+root result without rerunning any step/hook/transform or event capture. Physical
+commit uncertainty uses existing recovery-only routing. There are no persisted
+step checkpoints or implicit workflow retries.
+
+Subscriber delivery occurs after commit with fresh authority and no business
+transaction manager. Its failure changes delivery evidence only; it cannot
+replace a successful root result, delete committed tags or run compensation.
+
+## Fork Provenance And Compatibility
+
+The immutable reference is [SOURCE.json](../../third_party/medusa/SOURCE.json),
+revision 48d5cc675e4e8bc821e22c20c88a751acc66fb5f, baseline 2.13.4. Active private
+workspace packages contain the executable fork. Nothing imports the inert island
+at runtime. The [promotion inventory](../flarexdb-framework-integration/preflight/medusa-currency-promotion.json)
+pins every source/input, package dependency/export and available build output.
+Workflow adaptations use an explicit workflowFork classification; preserved
+Product/Currency source and original-test checks retain their strict policies.
+
+| Pinned source | Active disposition |
 | --- | --- |
-| `core-flows/src/product/workflows/create-product-tags.ts`, its creation step and `common/steps/emit-event.ts` | **Port** to selected `packages/medusa-core-flows` sources. Preserve business sequence and response shape; adapt exact imports/context types. Retain the compensation declaration, with explicit atomic execution policy. |
-| `workflows-sdk/src/utils/composer/{create-workflow,create-step,create-hook,transform}.ts` | **Port and rewrite connected boundaries** in `packages/medusa-workflows-sdk`: preparation/registration, configuration checks, runtime binding and hook sealing. Preserve reusable composition. |
-| `helpers/{proxy,resolve-value,step-response,workflow-response}.ts`, orchestration symbols, required errors/types and the builder | **Port/reuse** selected mechanics under the workflow definition owner, with provenance for extracts. Remove unnecessary barrel dependencies; reuse already-promoted owners where suitable. |
-| `helpers/create-step-handler.ts` and runtime-facing `composer/type.ts` | **Rewrite** the context seam around the admitted native runner. Preserve selected references/results; expose no fake orchestrator, SQL manager or retry authority. |
-| `WorkflowManager`, `LocalWorkflow`, `workflow-export.ts`, `MedusaWorkflow`, scheduler and distributed-transaction persistence/retry chain | **Keep reference-only** for this profile. Reuse suitable definition algorithms directly; do not promote an executable fallback runtime. |
-| Dev-server detection, global loaded-module cache and mutable global execution registry | **Delete from the promoted runtime dependency chain**. Definition construction and runtime instances must be separable. |
-| Existing framework/types/utils exports | **Extend exact required imports**, including a private framework workflow-SDK facade where needed. Do not import every commerce module through a core-flows barrel. |
-| `packages/medusa-adapter` | **Keep/extend** workflow preparation/binding and a narrow Medusa resource view backed by authentic command tokens and Local Graph Query. Module names remain here. |
-| Atomic commerce, event validation, shared publication and persistence | **Keep/extend** authenticated event capture, sealed contribution and Topic 07's durable event/delivery contracts. Retain transaction, scope-lock order, native OCC and root recovery owners. |
-| Standalone Product local-event mode | **Keep** for supported private callers and original tests. Select durable mode explicitly; do not also call the local destination or silently fall back to it. |
+| core-flows product/workflows/create-product-tags, product/steps/create-product-tags, common/steps/emit-event | Preserve business composer/service calls/event construction; relocate imports, mark transaction-covered compensation and omit undefined optional event options at the strict native boundary. |
+| workflows-sdk create-workflow, create-step, create-hook and transform | Fork construction/registration and runtime binding; remove WorkflowManager and mutable global execution registration. |
+| helpers/proxy and resolve-value | Retain staged property/reference and cached transform semantics; authenticate reference identity and use an Effect-native caller-owned runner. |
+| helpers/step-response and workflow-response | Retain selected output/compensation-input and response/hook representations. |
+| orchestration/transaction/orchestrator-builder | Extract ordered graph construction and return an owned immutable graph; no distributed transaction is fabricated. |
+| WorkflowManager, LocalWorkflow, workflow-export, scheduler, distributed transaction persistence, loaded-module cache | Reference-only; no executable fallback or parallel legacy owner. |
+| Existing standalone Product local-event profile | Retain for supported callers and original compatibility tests. Durable capture selects another explicit host profile and never also calls the local destination. |
 
-Promotion includes the exact resulting import closure, source hashes,
-extraction/adaptation classifications and test ports in the owning inventory.
-Active fork packages may be modified. Never import the inert island at runtime
-or weaken source checks to avoid listing dependencies. Proposed package names
-above do not imply those packages already exist.
+[Composer regressions](../../packages/medusa-adapter/test/workflow-composer-upstream.test.ts)
+retain selected business composers and assertions from pinned compose.spec.ts:
+sequential steps, chained transforms, destructured/nested properties, arrays of
+step results and mixed result objects. The hook-result case derives from
+index.spec.ts. Invocation/fixtures use the native executor, Jest becomes Vitest,
+no-input steps are explicit, and checked optional mock access preserves the same
+expected values. These are adapted cases, not an unchanged whole-SDK suite.
+Sequential cases exercise the extracted builder through actual composition.
 
-## Definition, Execution And Identity
+Original tests requiring parallel branches, durable/async retries, nested
+workflow execution, scheduler registration, wait/resume, remote effects,
+post-completion cancel, conditional/configured steps or global workflow state
+remain reference-only. No whole-SDK parity is claimed. The source did not contain
+a focused create-product-tags unit suite; its new proof runs the real workflow.
 
-Preparation captures the graph, step options, handlers, hook set, input/result
-validators, resource requirements, module-command bindings and event contracts.
-Preserve useful authoring input/output/hook inference while checking unknown
-inputs and foreign results. Metadata grants no installation authority.
+## Validation Boundary And Remaining Gates
 
-Keep authoring small: definitions and hooks are supplied by authors; standard
-host binding is assembled once. Do not make each workflow wire repositories,
-publishers, schedulers and service factories separately.
+The [connected workflow scenarios](../../packages/medusa-adapter/test/product-tag-workflow.test.ts)
+exercise both database drivers: pending hook reads, one commit, exact event
+families, late rollback, cancellation, closed services, root replay/revision
+isolation, uncertain commit recovery, publication faults, shared bounds, durable
+restart after result expiry, stale claims, subscriber independence, corruption
+and retention. Actual competing claims and outside-transaction visibility are
+ordinary-role PostgreSQL proofs; PGlite is not a concurrency substitute.
 
-Use an owned prepared registry. If retained synchronous composition requires
-ambient context, restrict it to definition building and restore it on every
-exit. It cannot select request services or mutate a prepared hook set. Separate
-hosts must support different reviewed definitions with the same workflow name.
+Preserve original Product/Currency suites and atomic/graph, publication, recovery,
+wake and migration regressions. Promotion/portable checks inspect the resulting
+import closure. Node/database and browser-bundle checks do not establish deployed
+Cloudflare or production dispatcher readiness.
 
-Bind a trusted workflow-code/hook-bundle content identity and the execution
-profile into the existing host `identityAndAccessPolicy` input; the host already
-hashes this for retained-result authentication. Trusted assembly owns that
-identity. Caller labels, workflow names, schema artifact hashes or
-`Function.toString()` alone cannot prove the code revision. Demonstrate that a
-changed code/hook bundle cannot reuse an old result under the same request key.
-Public bundle distribution and application activation remain separate work.
+The next preflight covers reusable workflow host composition. It includes the
+whole assembly boundary, not only the resolve switch: command wrappers, graph
+binding, event handling, validation/refusal, Promise ownership, cancellation and
+escaped-service rejection. Build on existing checked module definitions and
+command catalogs rather than inventing another registration owner.
 
-Each run borrows the atomic context. Registered service methods invoke actual
-command tokens; graph reads use Local Graph Query. Existing scoped bridges
-construct fresh module services. The resource view resolves only admitted
-services/methods and exposes no transaction manager or arbitrary DI lookup.
+Module definitions should describe available service methods, authentic commands,
+graph metadata and module-event contracts. A shared host should prepare required
+capabilities and construct fresh execution-scoped resources. Each workflow should
+supply its business sequence, selected capabilities, hooks and event correlation.
+Infer native resource types from registration; retain container.resolve only as
+the Medusa compatibility facade. Atomic and future durable profiles keep their
+distinct lifetimes and commit semantics. These are discussion constraints, not
+approval of an illustrative API or a universal workflow engine.
 
-Execute admitted definition order with one owned result context. Preserve
-required internal undefined/response/reference semantics; validate data at
-module-call, event and final-result boundaries rather than serializing proxy or
-symbol objects as native command input. Every evaluated step/transform consumes
-an explicit bounded budget even without a database call. Charge captured input,
-step data, events and results against root limits; do not enlarge them for proof.
-
-The current atomic context exposes only call/refuse, so the runner cannot
-already charge arbitrary intermediate values to the root. Add a narrow scoped
-budget/capture capability issued by that same lifetime owner alongside event
-capture. Do not give the runner an independent full allowance that ignores
-budgets already consumed by module calls, or expose the underlying manager.
-
-Interruption or rejection leaves the root failed/rollback-only. Existing Promise
-ownership drains/revokes borrowed work; a caught error or `Promise.race` cannot
-authorize a later write. Preserve typed failures and the complete refusal Cause.
-Exact root replay returns the retained result without rerunning steps, hooks,
-transforms or capture. Commit uncertainty uses current recovery-only routing.
-There are no persisted step checkpoints or implicit workflow retries.
-
-## Hooks And Failure Contract
-
-Preserve optional `productTagsCreated`, its created-tag input and
-`additional_data`, and duplicate-handler rejection. Register hooks before
-sealing preparation; absence remains a no-op. Characterize hook-result references
-used by selected SDK cases. This consumer does not require every validator or
-conditional feature from the SDK.
-
-The proof registers a trusted hook that graph-reads its pending tags and reads
-Currency through another admitted participant. A failure case rejects after
-those reads. The original workflow's business sequence remains intact.
-
-Admit the creation step with an explicit transaction-covered compensation policy.
-Its delete callback is not invoked after rollback or after a subscriber failure
-following commit. Unknown compensators/external-effect hooks are not silently
-ignored; their definitions cannot be admitted. Post-completion business undo
-requires a new command or separately designed durable workflow profile.
-
-## Event And Commit Extension
-
-[Topic 07](./07-durable-workflow-events.md) specifies event identity, typed
-capture, persistence, claims, restart and retention. This crosses shared
-publication and requires an additive persistence migration. These are proposed
-owner changes, not an incidental SDK import or a defect exposed by a test.
-
-Collect module-event handoffs under the participant's existing fact validator.
-Bind workflow events to their admitted definition and successful step output.
-Unknown names/payloads, foreign group IDs or destinations cannot bypass admission.
-
-Seal intent after successful workflow/hook completion and persist it with row
-facts, root result and the common wake. Only the outer owner commits. Delivery
-uses fresh scope-bound services after commit and never the command's SQL manager.
-
-## Implementation Order And Completion Proof
-
-One connected capability, with implementation checkpoints rather than new
-approval gates for individual files:
-
-1. Inventory and promote/adapt the selected definition closure. Characterize
-   composition, transforms, references, responses, definitions, duplicate hooks
-   and selected absence behavior against retained source tests.
-2. Implement registry/identity and atomic execution with actual Product and Graph
-   Query bindings. Refuse unsupported options before mutation.
-3. Add typed capture, sealed publication contribution, migration and private
-   delivery/repair; connect both original workflow and public-service events.
-   An in-memory callback is not a completed substitute.
-4. Run the real workflow and hooks on PGlite and ordinary-role PostgreSQL. Prove
-   one commit, pending cross-participant reads, DTOs, both event families, late
-   failure, cancellation, escaped-context refusal, bounds and replay isolation.
-5. Fault event insertion, publication, physical commit and acknowledgement/
-   delivery. Restart host/pump; prove stored-intent recovery, fenced claims,
-   subscriber isolation, duplicate behavior and no compensating writes after
-   successful commit.
-6. Preserve Product/Currency, atomic, graph, publication, recovery and wake
-   regressions. Run typechecks, migrations, promotion/portability checks, scoped
-   lint and both standing reviewers. Clean temporary databases and reconcile
-   owning roadmaps with the proven result.
-
-Selected retained SDK evidence:
-[compose.spec.ts](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/__tests__/compose.spec.ts)
-(sequential composition, transforms, property/nested references, duplicate hooks,
-grouped success/failure),
-[index.spec.ts](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/__tests__/index.spec.ts)
-(step/hook results, transformer failures, hook absence), and
-[builder tests](../../third_party/medusa/upstream/packages/core/orchestration/src/__tests__/transaction/orchestrator-builder.ts).
-Preserve original assertions for compatible selected cases and separately label
-intentional atomic differences. If native binding requires changing a test's
-fixture or invocation arrangement, record that adaptation; do not classify a
-rewritten execution case as an unchanged upstream test. Source inspection did not identify a focused
-unit suite for `create-product-tags`; add its real private workflow proof.
-Entity-matching HTTP suites do not automatically belong in this host's closure.
-
-Full orchestrator tests include durable retries, parallel/nested flows and
-post-completion cancellation outside this profile. Enumerate deferred cases;
-do not claim whole-SDK parity or silently skip failing admitted cases. Private
-Node/database tests do not prove deployed Cloudflare or production readiness.
-
-## Retirement And Remaining Gates
-
-Remove temporary probes, fake runtime/container implementations, duplicate
-reference resolvers and provisional delivery callbacks introduced during
-implementation. Retain the immutable reference and supported standalone module
-paths. No production workflow engine is displaced today; no permanent legacy
-runtime fallback is needed in the new package.
-
-Waits, cross-commit compensation, external effects, Tasks, leases, general event
-subscriptions, more modules, nested workflows and public serving follow only
-when a selected next workflow needs them.
+The next selected workflow should determine further execution capabilities. Cross-commit
+steps, waits/signals, external effects, general subscriptions, administrative
+redrive, event pruning, Tasks, more modules and public serving remain separate
+capabilities. No universal workflow architecture or automatic escalation from an
+exceeded atomic budget is approved by this implementation.

@@ -111,6 +111,8 @@ describe("createPGlitePersistence", () => {
       "fx_system_application_write_ownership",
       "fx_system_commit",
       "fx_system_commit_app_row_change",
+      "fx_system_commit_event",
+      "fx_system_commit_event_delivery",
       "fx_system_commit_payload_preference_deletion",
       "fx_system_commit_relation_adjacency_change",
       "fx_system_commit_relational_change",

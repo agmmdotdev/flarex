@@ -11,7 +11,7 @@ const source = "packages/medusa-currency/src/models/currency.ts";
 
 describe("exact Currency promotion", () => {
   it("authenticates source, transformed inputs, package exports, and available build outputs", () => {
-    expect(promotion.packages).toHaveLength(10);
+    expect(promotion.packages).toHaveLength(12);
     expect(promotion.files.some((file) => file.target === source && file.classification === "unchanged")).toBe(true);
   });
   it.each([
@@ -19,6 +19,7 @@ describe("exact Currency promotion", () => {
     ["changed source", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, sourceSha256: "0".repeat(64) } : file) }],
     ["missing input", { ...promotion, files: promotion.files.filter((file) => file.target !== source) }],
     ["unapproved owner", { ...promotion, packages: promotion.packages.map((pkg) => ({ ...pkg, path: "packages/executor" })) }],
+    ["misclassified preserved source", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "workflowFork" } : file) }],
     ["unapproved transform", { ...promotion, files: promotion.files.map((file) => ({ ...file, classification: "anything" })) }],
   ])("rejects %s", (_name, input) => {
     expect(() => verifyCurrencyPromotion(root, input)).toThrow();

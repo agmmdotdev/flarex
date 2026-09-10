@@ -8,7 +8,7 @@ const root = process.cwd();
 const promotion = verifyCurrencyPromotion(root);
 const admitted = new Set(promotion.files.map((file) => path.resolve(root, file.target).replaceAll("\\", "/")));
 const inputs = new Set();
-for (const entry of ["packages/medusa-currency/src/static-manifest.ts", "packages/medusa-adapter/src/currency-service.ts", "packages/medusa-adapter/src/product-schema.ts", "packages/medusa-adapter/src/product-service.ts"]) {
+for (const entry of ["packages/medusa-currency/src/static-manifest.ts", "packages/medusa-adapter/src/currency-service.ts", "packages/medusa-adapter/src/product-schema.ts", "packages/medusa-adapter/src/product-service.ts", "packages/medusa-core-flows/src/product/workflows/create-product-tags.ts", "packages/medusa-workflows-sdk/src/runtime.ts", "packages/medusa-adapter/src/product-tag-workflow.ts"]) {
 await build({
   configFile: false,
   logLevel: "silent",
@@ -37,4 +37,4 @@ await build({
   },
 });
 }
-console.log(`Verified Currency and Product schema/service browser bundles across ${inputs.size} inputs; no Node, ORM, database, or island runtime imports.`);
+console.log(`Verified Currency, Product and native workflow browser bundles across ${inputs.size} inputs; no Node, ORM, database, or island runtime imports.`);

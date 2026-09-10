@@ -1650,12 +1650,16 @@ export const fxSystemCommits = pgTable(
       integer("relation_adjacency_change_count").notNull().default(0),
     payloadPreferenceDeletionCount: integer("payload_preference_deletion_count").notNull().default(0),
     relationalChangeCount: integer("relational_change_count").notNull().default(0),
+    eventCount: integer("event_count").notNull().default(0),
+    eventSha256: text("event_sha256"),
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
     primaryKey({ columns: [table.scopeUuid, table.commitSeq] }),
+    index("fx_commit_event_directory_idx").on(table.scopeUuid, table.epochUuid, table.commitSeq).where(sql`${table.eventCount} > 0`),
+    index("fx_commit_event_free_history_idx").on(table.scopeUuid, table.commitSeq).where(sql`${table.eventCount} = 0`),
     unique("fx_system_commit_scope_epoch_seq_unique").on(
       table.scopeUuid,
       table.epochUuid,
@@ -1678,6 +1682,8 @@ export const fxSystemCommits = pgTable(
     ),
     check("fx_system_commit_preference_deletion_count_check", sql`${table.payloadPreferenceDeletionCount} between 0 and 256`),
     check("fx_system_commit_relational_change_count_check", sql`${table.relationalChangeCount} between 0 and 16000`),
+    check("fx_system_commit_event_count_check", sql`${table.eventCount} between 0 and 64`),
+    check("fx_system_commit_event_digest_check", sql`(${table.eventCount} = 0 and ${table.eventSha256} is null) or (${table.eventCount} > 0 and ${table.eventSha256} is not null and ${table.eventSha256} ~ '^[0-9a-f]{64}$')`),
     check(
       "fx_system_commit_relation_adjacency_change_count_check",
       sql`${table.relationAdjacencyChangeCount} between 0 and ${sql.raw(

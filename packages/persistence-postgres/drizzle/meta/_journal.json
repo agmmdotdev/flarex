@@ -638,6 +638,13 @@
       "when": 1788976699805,
       "tag": "0090_atomic-commerce-bindings",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1789021998146,
+      "tag": "0091_committed-workflow-events",
+      "breakpoints": true
     }
   ]
 }

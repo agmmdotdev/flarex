@@ -1,5 +1,5 @@
 import { fxSystemCommitRelationalChanges } from "./commitPublication/relationalFactsSchema";
-import { and, asc, eq, lt } from "drizzle-orm";
+import { and, asc, eq, lt, sql } from "drizzle-orm";
 import { Data, Effect, Option, Result, Schema } from "effect";
 import { MAX_COMMIT_WRITE_OPERATIONS_V1 } from
   "flarex-protocol/commit-protocol";
@@ -295,6 +295,9 @@ const compactInTransaction = Effect.fn(
   }).from(fxSystemCommits).where(and(
     eq(fxSystemCommits.scopeUuid, scopeUuid.scopeUuid),
     lt(fxSystemCommits.commitSeq, clock.oldestAvailableCommitSeq),
+    // Business-event evidence has its own delivery lifetime. This compactor
+    // cannot retire even terminal event groups until the event pruning gate.
+    sql`${fxSystemCommits.eventCount} = 0`,
   )).orderBy(asc(fxSystemCommits.commitSeq)).limit(1).for("update");
   observeDrizzleQuery("headerDirectory", headerQuery, state.observeQuery);
   const headerRows = yield* queryEffect("headerDirectory", headerQuery);

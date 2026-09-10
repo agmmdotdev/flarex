@@ -825,6 +825,9 @@ importers:
       '@flarex/utils':
         specifier: workspace:*
         version: link:../utils
+      '@medusajs/core-flows':
+        specifier: workspace:*
+        version: link:../medusa-core-flows
       '@medusajs/currency':
         specifier: workspace:*
         version: link:../medusa-currency
@@ -837,6 +840,9 @@ importers:
       '@medusajs/utils':
         specifier: workspace:*
         version: link:../medusa-utils
+      '@medusajs/workflows-sdk':
+        specifier: workspace:*
+        version: link:../medusa-workflows-sdk
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.112
@@ -856,6 +862,18 @@ importers:
       '@medusajs/types':
         specifier: workspace:*
         version: link:../medusa-types
+
+  packages/medusa-core-flows:
+    dependencies:
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+      '@medusajs/workflows-sdk':
+        specifier: workspace:*
+        version: link:../medusa-workflows-sdk
 
   packages/medusa-currency:
     dependencies:
@@ -969,6 +987,12 @@ importers:
       bignumber.js:
         specifier: 9.3.1
         version: 9.3.1
+
+  packages/medusa-workflows-sdk:
+    dependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.112
 
   packages/persistence-postgres:
     dependencies:

@@ -16,7 +16,9 @@
     "@flarex/persistence-postgres": "workspace:*",
     "effect": "catalog:",
     "@medusajs/product": "workspace:*",
-    "@medusajs/drizzle": "workspace:*"
+    "@medusajs/drizzle": "workspace:*",
+    "@medusajs/workflows-sdk": "workspace:*",
+    "@medusajs/core-flows": "workspace:*"
   },
   "devDependencies": {
     "@medusajs/deps": "workspace:*",

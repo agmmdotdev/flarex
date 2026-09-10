@@ -2,6 +2,7 @@ import type { Effect } from "effect";
 import type { Json } from "flarex-protocol/json";
 import type { CommerceCommand } from "../commerceTransaction/commands";
 import type { CommerceTransactionError } from "../commerceTransaction/model";
+import type { CommerceEventContract } from "./events";
 
 declare const participantBrand: unique symbol;
 export interface AtomicCommerceParticipant { readonly [participantBrand]: true }
@@ -17,6 +18,11 @@ export function defineAtomicCommerceParticipant(name: string): AtomicCommercePar
 export const getAtomicCommerceParticipant = (participant: AtomicCommerceParticipant) => participants.get(participant);
 
 export interface AtomicCommerceContext {
+  readonly eventGroupId: string;
+  /** Charge a finite node even when it makes no module call. */
+  readonly checkpoint: Effect.Effect<void, CommerceTransactionError>;
+  readonly capture: (value: unknown) => Effect.Effect<Json, CommerceTransactionError>;
+  readonly emit: (contract: CommerceEventContract, message: unknown) => Effect.Effect<void, CommerceTransactionError>;
   readonly call: (participant: AtomicCommerceParticipant, command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
   readonly refuse: (error: CommerceTransactionError) => Effect.Effect<never, CommerceTransactionError>;
 }

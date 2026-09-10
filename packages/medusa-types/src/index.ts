@@ -61,3 +61,5 @@ export * as ProductTypes from "./product/index";
 export { ModulePersistenceMutationService } from "./modules-sdk/index";
 
 export { Subscriber } from "./event-bus/common";
+export { IProductModuleService } from "./product/service";
+export { AdditionalData } from "./http/common/additional_data";
