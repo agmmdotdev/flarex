@@ -41,8 +41,8 @@ flowchart TD
 The author defines steps, transforms, the response and exposed hooks. Trusted
 host assembly supplies the reviewed code/hook revision and subscriber revisions.
 The selected adapter factory assembles those resources. Its workflow-specific
-service wrappers are still manual; reusable host composition is the next
-preflight below.
+service wrappers are still manual; the next recommended refactor is recorded in
+[the host composition preflight](./11-workflow-host-composition.md).
 
 The resolver exposes only selected Product methods, graph reads and checked
 emit. Its generic signature is the Medusa compatibility boundary; its type
@@ -159,20 +159,13 @@ wake and migration regressions. Promotion/portable checks inspect the resulting
 import closure. Node/database and browser-bundle checks do not establish deployed
 Cloudflare or production dispatcher readiness.
 
-The next preflight covers reusable workflow host composition. It includes the
-whole assembly boundary, not only the resolve switch: command wrappers, graph
-binding, event handling, validation/refusal, Promise ownership, cancellation and
-escaped-service rejection. Build on existing checked module definitions and
-command catalogs rather than inventing another registration owner.
-
-Module definitions should describe available service methods, authentic commands,
-graph metadata and module-event contracts. A shared host should prepare required
-capabilities and construct fresh execution-scoped resources. Each workflow should
-supply its business sequence, selected capabilities, hooks and event correlation.
-Infer native resource types from registration; retain container.resolve only as
-the Medusa compatibility facade. Atomic and future durable profiles keep their
-distinct lifetimes and commit semantics. These are discussion constraints, not
-approval of an illustrative API or a universal workflow engine.
+The researched [workflow host composition preflight](./11-workflow-host-composition.md)
+recommends one connected refactor of command wrappers, graph/event assembly,
+validation/refusal and scoped runtime binding. It adds a module-owned integration
+description beside existing command catalogs and derives native resource types
+from checked adapters. It preserves the underlying module constructor and
+transaction owner. This recommendation awaits capability approval; manual
+Product-tag assembly remains the current implementation.
 
 The next selected workflow should determine further execution capabilities. Cross-commit
 steps, waits/signals, external effects, general subscriptions, administrative

@@ -122,7 +122,7 @@ consumers.
 
 | Decision record | Classification | Purpose |
 | --- | --- | --- |
-| [`workflow-foundations/`](./workflow-foundations/README.md) | Private atomic commerce, Graph Query and Product-tag workflow implemented | Promoted workflow logic and bounded hooks share one native transaction; both event families have durable intent and private recoverable delivery. Native relational OCC, Tasks and production workflow activation remain separate. |
+| [`workflow-foundations/`](./workflow-foundations/README.md) | Private atomic commerce, Graph Query and Product-tag workflow implemented; reusable host preflight researched | Promoted workflow logic and bounded hooks share one native transaction; both event families have durable intent and private recoverable delivery. The next recommendation centralizes workflow assembly through module-owned registrations. Native relational OCC, Tasks and production workflow activation remain separate. |
 | [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md) | Accepted direction; preflight required | Standard versioned contract chain between developer definitions, direct fixtures, artifact generation, analysis, verification, and runtime projection without making SDK objects downstream authority. |
 | [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md) | FAC01-FAC19 complete; FAC20 preflight required | Shared user-code execution semantics with Cloudflare Dynamic Worker and in-process adapters while preserving executor and FlarexDB authority and retaining platform evidence. |
 

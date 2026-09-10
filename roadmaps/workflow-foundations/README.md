@@ -53,8 +53,9 @@ instead of copying changing implementation inventories here.
 
 Atomic composition and Local Graph Query have approved, validated source-private
 implementations. Topics 07 and 10 have one connected private workflow/event
-implementation. Other entries remain
-**preflight pending**, with related findings linked where useful.
+implementation. Topic 11 has a researched implementation recommendation awaiting
+capability approval. The remaining discussion topics retain their pending
+preflights, with related findings linked where useful.
 Numbers provide a reading order, not fixed commit boundaries or a requirement
 to build every capability before the first useful integration.
 
@@ -70,6 +71,7 @@ to build every capability before the first useful integration.
 | [08 Resource coordination](./08-resource-coordination.md) | Assess coordination needs between different workflow executions. |
 | [09 Atomic composition](./09-atomic-composition.md) | Private bounded composition across authentic commerce installations; native relational OCC remains a separate decision. |
 | [10 Medusa workflow integration](./10-medusa-workflow-integration.md) | Connect a supported workflow surface to the proven foundations. |
+| [11 Workflow host composition](./11-workflow-host-composition.md) | Researched recommendation for module-owned registrations and shared scoped workflow assembly; awaiting capability approval. |
 
 The first foundation is a private Product/Currency command over the existing
 shared transaction owner, including multiple commerce installations, pending
@@ -104,7 +106,7 @@ For one coherent capability at a time:
 
 The private [Product-tag workflow](./10-medusa-workflow-integration.md) now uses
 the selected SDK fork, bounded hooks, Local Graph Query and
-[durable event delivery](./07-durable-workflow-events.md). The next preflight concerns
-reusable workflow host assembly across commands, graph, events and lifecycle,
-as described in Topic 10. Select real workflow needs before extending execution
+[durable event delivery](./07-durable-workflow-events.md). The next recommended
+capability is the researched [workflow host composition](./11-workflow-host-composition.md)
+refactor across commands, graph, events and lifecycle. Select real workflow needs before extending execution
 profiles; this does not authorize the remaining outlines as a universal plan.
