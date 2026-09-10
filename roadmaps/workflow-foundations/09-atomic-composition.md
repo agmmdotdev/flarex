@@ -18,12 +18,10 @@ This preflight addresses execution ownership and its consequences for local
 Graph Query and Medusa integration. It does not select a universal workflow
 API, add commerce modules, or claim complete workflow compatibility.
 
-The next [Product-tag update preflight](./12-product-tag-updates.md) proposes one
-through eight explicitly selected participants as an authenticated subset of the
-active commerce binding. Current implementation still requires at least two and
-the complete active set. The proposed admission change retains individual
-authority checks, whole-binding replay evidence and the existing settlement owner;
-it awaits approval as part of that connected workflow capability.
+The approved [Product-tag update capability](./12-product-tag-updates.md) extends
+admission to one through eight explicitly selected participants as an authenticated
+subset of the active commerce binding. Individual authority checks, whole-binding
+replay evidence and the existing settlement owner remain unchanged.
 
 ## Product Decision
 
@@ -101,7 +99,7 @@ The source island remains reference-only until promotion gates pass.
 | [Commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts) | Executes SQL in a bounded relational session, takes the scope clock lock before services run, and recovers retained outcomes. This is not native journal execution. |
 | [Commerce publication](../../packages/persistence-postgres/src/commerceTransaction/publication.ts) | Authenticated contribution consumption is already separate from finalization. Reuse it instead of adding another publisher. |
 | [Composite host](../../packages/persistence-postgres/src/crossDomainCommand/host.ts) and [actual assertions](../../packages/medusa-adapter/test/currency-announcement.test.ts) | A fixed Currency/CMS/Application command has one physical owner, pending reads, combined facts, retained replay, late-failure rollback and physical-failure assertions. This does not establish a generic two-commerce-module host or application API. |
-| [Binding model](../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/atomicCommerce/admission.ts) | Format 2 admits an ordered set of at most eight commerce installations; the atomic host requires exactly its registered set. Existing single-module hosts select their own authenticated installation. |
+| [Binding model](../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/atomicCommerce/admission.ts) | Format 2 admits an ordered set of at most eight commerce installations; the atomic host authenticates its nonempty selected subset. Existing standalone hosts select their own authenticated installation. |
 | [Relational fact reader](../../packages/persistence-postgres/src/commitPublication/relationalFacts.ts) | Validates every fact against a caller-supplied directory of original captured installation layouts before returning a participant projection. Active bindings do not reinterpret old commits. |
 | [Module definition](../../packages/medusa-adapter/src/module-definition.ts) | Checked definitions and fresh scoped services already exist. Preparation stays separate from request authority. |
 | [Read execution](../../packages/medusa-adapter/src/query/read.ts) and [catalog](../../packages/medusa-adapter/src/query/catalog.ts) | Relation filtering, root selection, population, count and projection are reusable semantics; they do not produce native relational OCC dependencies. |
@@ -233,7 +231,7 @@ at each participant's closure.
 
 ### Implemented Owner Changes
 
-- Framework binding/admission: authenticate an exact bounded installation set,
+- Framework binding/admission: authenticate an explicitly selected bounded installation set,
   profiles and active frame/head. Keep deterministic installation lock order,
   scope/placement checks and table authority. The current persisted binding
   contract now has format 2: a bounded commerce array ordered strictly by

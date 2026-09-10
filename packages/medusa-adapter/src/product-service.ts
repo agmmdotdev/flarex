@@ -13,6 +13,7 @@ import { commerceError, isJsonObject, type Json } from "@flarex/persistence-post
 import { decodeProductRead, decodeProductNamedRead, decodeProductCollectionRead, decodeProductCategoryRead, decodeProductParentRead, decodeVariantImageInput, decodeProductFindConfig, decodeProductCreateInput, productReadFilters } from "./product-service-input";
 import { captureProductTagUpsert } from "./product-tag-input";
 import { productWorkflowModule } from "./product-workflow-module";
+import { decodeProductTagUpdateInput } from "./product-tag-update-input";
 import { captureCommerceInput } from "./commerce-input";
 import { captureProductSchema } from "./product-schema";
 import { validateProductCreate } from "./product-graph";
@@ -326,6 +327,14 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     return yield* withService(ctx, async ({ service, context }) => (await service.softDeleteProductVariants(ids, {}, context)) ?? null);
   }));
+  const updateTagsBySelector = defineCommerceCommand("productUpdateTagsBySelector", "write", Effect.fn("ProductAdapter.updateTagsBySelector")(function* (ctx, input) {
+    const decoded = yield* Effect.fromResult(decodeProductTagUpdateInput(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata.tag.table.name, decoded.update))
+      .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const { id, ...scalars } = decoded.selector;
+    const selector = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
+    return yield* withService(ctx, ({ service, context }) => service.updateProductTags(selector, { ...decoded.update }, context));
+  }));
   const commands = Object.freeze({
     internalProductList: internalProductRead("list"), internalProductRetrieve: internalProductRead("retrieve"),
     internalProductCreate: internalProductChange("create"), internalProductUpdate: internalProductChange("update"),
@@ -341,13 +350,14 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     delete: remove("product"), deleteTags: remove("tag"), deleteTypes: remove("type"), deleteCategories: remove("category"), deleteCollections: remove("collection"),
     softDelete: lifecycle("softDelete"), restore: lifecycle("restore"),
     createTags: related("tag"), createTypes: related("type"), createCollections: related("collection"), createImages: related("image"),
-    updateTags: changeRelated("tag", "update"), updateTypes: changeRelated("type", "update"),
+    updateTags: changeRelated("tag", "update"), updateTagsBySelector, updateTypes: changeRelated("type", "update"),
     upsertTags: changeRelated("tag", "upsert"), upsertTypes: changeRelated("type", "upsert"),
     update: productChange("update"), upsert: productChange("upsert"), createOptions: related("option"), createVariants: related("variant"), createCategories: related("category"), addImageToVariant: related("assignment"),
     updateOptions: changeRelated("option", "update"), updateVariants: changeRelated("variant", "update"), updateValues: changeRelated("value", "update"),
     updateCollections: changeRelated("collection", "update"), updateCategories: changeRelated("category", "update"),
     upsertOptions: changeRelated("option", "upsert"), upsertVariants: changeRelated("variant", "upsert"), upsertCollections: changeRelated("collection", "upsert"), upsertCategories: changeRelated("category", "upsert") });
   const graph = yield* Effect.fromResult(productGraphDefinition(metadata, commands));
-  const workflow = yield* Effect.fromResult(productWorkflowModule(standard.description, commands.createTags, graph, metadata.tag.createdEvent));
+  const workflow = yield* Effect.fromResult(productWorkflowModule(standard.description, commands, graph,
+    { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent }));
   return { commands, withService, graph, workflow };
 });

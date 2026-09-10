@@ -2,17 +2,21 @@
 
 ## Status And Decision
 
-Status: researched proposal, awaiting approval of this implementation capability.
-The existing host still requires at least two participants and the complete
-active commerce binding set. Selector-based tag updates are not yet registered.
+Status: implemented as a source-private atomic capability, with connected
+PGlite and ordinary-role PostgreSQL validation and both standing reviews.
+The host accepts one through eight explicitly selected participants, authenticates
+them against the active commerce binding, and registers selector-based tag updates.
+The validation contract below remains required for future changes; runtime
+receipts belong in Git.
 
-Recommended outcome: run the pinned Product-tag update workflow with Product as
+The [update facade](../../packages/medusa-adapter/src/product-tag-update-workflow.ts)
+runs the pinned Product-tag update workflow with Product as
 its only selected participant, both in a Product-only deployment and in a
 deployment that also has Currency installed. Preserve one existing transaction,
 pending graph reads, checked hooks, durable events and core-owned recovery.
 
-This is one coherent capability: extend selected-participant admission, add the
-Product-owned selector command, and port the actual update flow onto the shared
+This capability extends selected-participant admission, adds the
+Product-owned selector command, and ports the actual update flow onto the shared
 host. It exercises a second real workflow without another commerce module or
 another execution engine. It needs no preceding Task extension, graph rewrite,
 lock engine or relational OCC project.
@@ -21,7 +25,7 @@ The [accepted design](../../design-notes/flarex-db-accepted-design.md),
 [framework storage architecture](../../design-notes/flarexdb-framework-storage-architecture.md),
 [atomic composition](./09-atomic-composition.md) and
 [workflow host](./11-workflow-host-composition.md) retain their authority. This
-proposal explicitly changes private atomic admission from the complete active
+approved capability changes private atomic admission from the complete active
 set to an authenticated selected subset. That is an intentional contract change,
 not a diagnosed shared-core defect or permission inferred from a failing test.
 
@@ -29,12 +33,12 @@ not a diagnosed shared-core defect or permission inferred from a failing test.
 
 | Source | Finding and consequence |
 | --- | --- |
-| [Participant preparation](../../packages/persistence-postgres/src/atomicCommerce/participants.ts) and [workflow host](../../packages/medusa-adapter/src/workflow/host.ts) | Both reject fewer than two participants. Lowering these checks alone is insufficient. |
-| [Atomic admission](../../packages/persistence-postgres/src/atomicCommerce/admission.ts) | Requires the selected members to equal the complete active commerce binding set. A Product-only selection in a Product/Currency deployment would still fail. |
+| [Participant preparation](../../packages/persistence-postgres/src/atomicCommerce/participants.ts) and [workflow host](../../packages/medusa-adapter/src/workflow/host.ts) | Admit a nonempty selection; core retains the eight-installation ceiling and the workflow host requires exact selection/configuration matching. |
+| [Atomic admission](../../packages/persistence-postgres/src/atomicCommerce/admission.ts) | Every selected member must occur in the active commerce binding; unselected installations grant no authority. |
 | [Per-installation admission](../../packages/persistence-postgres/src/commerceTransaction/admission.ts) | Already authenticates one selected installation within the active binding, including scope, placement, profile and current evidence. Reuse this owner for each selected member. |
 | [Binding model](../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts) and [decoder](../../packages/persistence-postgres/src/frameworkSchema/binding/canonical.ts) | Format 2 permits up to eight installations, including a one-installation array. No new persisted binding format is needed for this cardinality. |
 | [Atomic execution](../../packages/persistence-postgres/src/atomicCommerce/host.ts) and [publication](../../packages/persistence-postgres/src/commerceTransaction/publication.ts) | Already finalize a first admitted contribution plus additional contributions. One member leaves the additional list empty; retain this settlement owner and prove that path. |
-| [Product service adapter](../../packages/medusa-adapter/src/product-service.ts) and [update decoder](../../packages/medusa-adapter/src/product-value-profile.ts) | Existing `updateTags` accepts `{ id, data }` and invokes the service's ID overload. It does not implement a selector update. |
+| [Product service adapter](../../packages/medusa-adapter/src/product-service.ts) and [selector decoder](../../packages/medusa-adapter/src/product-tag-update-input.ts) | `updateTagsBySelector` invokes the selector overload once; existing `updateTags` retains its ID overload and `{ id, data }` contract. |
 | [Named read inputs](../../packages/medusa-adapter/src/product-service-input.ts) | Existing `listTags` admits ID or ID-array and exact value filters through checked module reads. Reuse these semantics for the step's pre-read. |
 | [Product tag model](../../packages/medusa-product/src/models/product-tag.ts) | Live tag values have a unique index. Assigning one value to several matching tags can fail; selector support does not promise a successful bulk rename. |
 
@@ -48,8 +52,8 @@ emits `product-tag.updated`, and returns the updated tags. Its
 first lists the prior projection, calls the service's selector update once, and
 retains prior data for an upsert compensator.
 
-The workflow input names Product Type DTOs, while its step uses the correct Tag
-DTOs. Correct those type references in the active fork during the port, preserving
+The reference workflow input names Product Type DTOs, while its step uses the
+correct Tag DTOs. The active fork corrects those type references and preserves
 the selected business sequence. The retained source island remains unchanged.
 
 ## Selected Participant Contract
@@ -93,11 +97,11 @@ remain valid instances of the new selected-set contract.
 
 ## Product Update Profile And Authoring
 
-Add a distinct Product-owned command, illustratively `updateTagsBySelector`,
-whose checked input carries the selector and update. It must invoke the actual
-Medusa selector overload once through the existing scoped service adapter.
-Retain the existing ID command and its accepted inputs. Reuse checked DML update
-validation; do not broaden every related-entity decoder to implement this case.
+The Product-owned `updateTagsBySelector` command accepts a checked selector and
+update and invokes the actual Medusa selector overload once through the existing
+scoped service adapter. The existing ID command retains its accepted inputs.
+Both reuse checked DML update validation; other related-entity decoders do not
+gain selector behavior.
 
 The initial workflow profile is explicit:
 
@@ -116,15 +120,15 @@ above are intentional private-profile limits, not full DTO parity. String
 validation and storage limits remain with the existing checked owners; the
 workflow must not silently trim or normalize tag values.
 
-No matches, including an empty ID array, should return the actual service's empty
+No matches, including an empty ID array, return the actual service's empty
 result and produce no invented update IDs. Same-value updates retain actual
 service/fact/event behavior rather than introducing an optimization. A selector
 matching multiple live tags can violate the unique value constraint; prove whole
 root rollback. The 256-member input ceiling is not a guarantee that a workload
 fits the smaller statement, byte or time limits.
 
-Extend the existing [Product workflow registration](../../packages/medusa-adapter/src/product-workflow-module.ts)
-with `listProductTags` over the existing read token and selector-based
+The [Product workflow registration](../../packages/medusa-adapter/src/product-workflow-module.ts)
+provides `listProductTags` over the existing read token and selector-based
 `updateProductTags` over the new token. Tuple decoders, command inputs and checked
 results remain Product-owned. A projected list result must not promise full DTO
 fields or require a field omitted by a valid selection. Updated tag results can
@@ -138,13 +142,13 @@ retaining order and event-group policy. Reuse durable event storage and delivery
 Do not grant create methods just to seed a test: mixed create/update module event
 families in one selected participant remain outside this capability.
 
-Keep the pinned pre-read and its compensation input, including their resource
-charges. Port the needed
+The pinned pre-read and its compensation input retain their resource charges.
+The active port includes the needed
 [projection helper](../../third_party/medusa/upstream/packages/core/utils/src/common/get-selects-and-relations-from-object-array.ts)
 and its [original assertion](../../third_party/medusa/upstream/packages/core/utils/src/common/__tests__/get-selects-and-relations-from-object-array.spec.ts)
 through narrow active-package imports. Its existing `deduplicate` and `isObject`
-dependencies already have active owners. Retain the compensator source and mark
-the step `compensation: "transactionCovered"`, as the create step does. The atomic
+dependencies retain their owners. The compensator source is retained and the
+step marks `compensation: "transactionCovered"`, as the create step does. The atomic
 runner rolls back uncommitted work and never executes compensating writes after
 rollback. This does not add durable-step recovery semantics.
 
@@ -156,23 +160,23 @@ dummy Currency participant makes workflow authority depend on unrelated
 installations. Mapping a selector into repeated ID updates changes service
 batching, accounting and event behavior. A second host or an exact/subset mode
 flag adds execution choices without a supported consumer that needs them.
-The recommended selected-set contract closes both admission restrictions while
+The selected-set contract closes both admission restrictions while
 keeping one owner and explicit resources.
 
 | Path | Disposition |
 | --- | --- |
-| Atomic participant cardinality and complete-set admission checks | Rewrite within this approved capability to require a nonempty authenticated subset; retain individual admission checks. |
-| Shared workflow host | Extend its minimum cardinality; retain exact selection/configuration matching and module-neutral assembly. |
-| Product ID update and named read commands | Keep current consumers and validation; add the semantically distinct selector command. |
-| Product workflow method registration and event correlation | Extend the module-owned registration and add a thin update facade. Do not copy host/resolver logic. |
-| Pinned update workflow, step, projection helper and relevant original tests | Port the needed closure with import relocation, the explicit atomic policy and corrected Tag type names. |
+| Atomic participant cardinality and complete-set admission checks | Rewritten to require a nonempty authenticated subset; individual admission checks retained. |
+| Shared workflow host | Extended minimum cardinality; exact selection/configuration matching and module-neutral assembly retained. |
+| Product ID update and named read commands | Existing consumers and validation retained; semantically distinct selector command added. |
+| Product workflow method registration and event correlation | Module-owned registration extended, thin update facade added; exact tag event correlation shared with creation through one package-local owner. |
+| Pinned update workflow, step, projection helper and relevant original tests | Needed closure ported with import relocation, the explicit atomic policy and corrected Tag type names. |
 | Existing Product/Currency create workflow and fixtures | Keep as the real cross-module profile and regression proof. Update fixtures use their own explicit Product-only selection. |
 | Shared transaction, graph execution, event publisher and recovery | Keep existing owners; no replacement or parallel bridge. |
 | Reference island and promotion guards | Keep immutable reference content; update the [promotion manifest](../flarexdb-framework-integration/preflight/medusa-currency-promotion.json), exports and required built outputs for the exact promoted closure without weakening guard policy. |
 
-No existing source-private facade is displaced here, so there is no new retained
-legacy path or data migration. Remove any temporary implementation wrappers before
-completion. Do not generalize the update registration to unimplemented modules.
+No existing source-private facade is displaced here, so there is no retained
+legacy path, temporary bridge or data migration. The creation facade's duplicated
+event-correlation body is removed in favor of the shared Product-tag owner.
 
 The checked-in [Convex context](../../../../npm-packages/convex/src/server/registration.ts)
 documents same-transaction calls and child mutation rollback. It supports the
@@ -180,18 +184,12 @@ distinction between function selection and runtime authority, but Flarex commerc
 continues to refuse the entire atomic root after a participant failure. This
 capability adds neither Convex child transactions nor native journal/OCC access.
 
-## Implementation Order And Completion Gates
+## Validation And Remaining Boundaries
 
-After approval, complete these connected steps within this capability:
-
-1. Refresh the relevant committed atomic/binding baseline, then implement
-   nonempty selected-participant admission and its authority tests. Prove a real
-   Product-only installation and a Product selection inside an active
-   Product/Currency deployment through the real installation/binding owners.
-2. Add the checked Product selector command and method registrations; port the
-   selected source closure and assemble the update workflow with the shared host.
-3. Complete the connected workflow, graph, event, rollback and recovery proofs;
-   reconcile these roadmaps, review the final change and commit the capability.
+The [connected update suite](../../packages/medusa-adapter/test/product-tag-update-workflow.test.ts)
+installs Product through the real coordinator, then adds Currency through the
+same binding owner. It exercises both selected-module configurations. The
+existing two-module workflow and atomic suites retain their independent proofs.
 
 Required evidence:
 
@@ -218,8 +216,10 @@ Required evidence:
   and both standing reviewers against the final significant diff. Clean only
   owned test artifacts according to the existing workspace cleanup rules.
 
-The capability is complete when both deployment configurations execute the real
-update flow with these proofs and the roadmap records implemented behavior.
-This preflight alone does not establish those results. Cloudflare execution,
+Both deployment configurations execute the real update flow through these owners.
+The existing atomic suite also activates a single-entry format-2 binding, while
+the update suite exercises a single-entry format-1 binding and coexistence with
+a format-2 multi-module binding. Both persisted contracts remain supported.
+Cloudflare execution,
 public serving, performance/production readiness, Task continuations, external
 effects, remote joins and additional commerce modules remain separate decisions.

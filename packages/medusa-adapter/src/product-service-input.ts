@@ -7,12 +7,13 @@ const Read = Schema.Struct({
   id: Schema.optionalKey(Schema.String), filters: Schema.optionalKey(Schema.Json), config: Schema.optionalKey(Schema.Json),
 });
 const decodeExternalRead = commerceDecoder(Read, "invalidInput");
-export const decodeProductNamedRead = commerceDecoder(Schema.Struct({
-  ...Read.fields,
-  filters: Schema.optionalKey(Schema.Struct({
+export const ProductNamedFilters = Schema.Struct({
     id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))])),
     value: Schema.optionalKey(Schema.String),
-  })),
+});
+export const decodeProductNamedRead = commerceDecoder(Schema.Struct({
+  ...Read.fields,
+  filters: Schema.optionalKey(ProductNamedFilters),
 }), "invalidInput");
 export const decodeProductCategoryRead = commerceDecoder(Schema.Struct({
   ...Read.fields,

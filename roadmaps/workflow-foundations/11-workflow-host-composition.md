@@ -7,9 +7,10 @@ registrations and one shared host now assemble commands, graph reads, events and
 scoped resources. The Product-tag consumer uses this assembly; its displaced
 manual wrappers and outer participant-list construction are removed.
 
-Product and Currency remain the admitted consumers. The existing minimum of two
-participants, command limits, transaction ownership and recovery contracts remain
-in force. This adds no Task, suspension, remote effect, lock, relational OCC,
+Product and Currency remain the admitted consumers. The approved
+[Product-tag update capability](./12-product-tag-updates.md) extends admission
+to one through eight selected participants. Command limits, transaction ownership
+and recovery contracts remain in force. This adds no Task, suspension, remote effect, lock, relational OCC,
 schema, commerce module or public application API.
 
 ## Authority And Sources
@@ -55,6 +56,12 @@ retrieve method reuses its existing value decoder and validates `code` and
 `name`. The Product-tag workflow selects Currency graph reads only. A separate
 connected test composition selects direct Currency retrieval and Product graph,
 with no event resource.
+
+[Product-tag updates](./12-product-tag-updates.md) add a separate selector-update
+method and a checked projected-list method to the Product registration. Each
+workflow selects its own methods and module event family; the update facade
+selects Product alone. Creation and update reuse one Product-owned event-ID
+correlator while retaining their distinct flow, hook and event names.
 
 `prepareWorkflowResources` selects literal method tuples and graph flags.
 Widened arrays, union-valued tuple members and union tuples cannot promise a
@@ -179,10 +186,10 @@ TypeScript, provenance, portable imports, lint and both reviewer scopes remain
 required regression evidence. These checks do not establish whole-SDK parity,
 Cloudflare deployment or production dispatcher readiness.
 
-The next [Product-tag update preflight](./12-product-tag-updates.md) covers
-single-module execution and authenticated selected-module admission as one
-proposed capability, including the real selector update step. It awaits approval;
-the current minimum and complete active-set restriction still apply. Durable steps,
+The [Product-tag update capability](./12-product-tag-updates.md) adds single-module
+execution and authenticated selected-module admission, including the real selector
+update step. The update host selects Product alone even when Currency is active;
+the existing creation host retains its cross-module selection. Durable steps,
 Task integration, waits/signals, external effects,
 remote joins, Module Link, additional modules and public serving remain separate
 decisions. Exceeding an atomic bound never silently switches execution mode.

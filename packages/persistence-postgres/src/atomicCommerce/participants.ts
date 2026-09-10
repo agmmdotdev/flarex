@@ -31,7 +31,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
   // Capture all configuration before the first asynchronous suspension.
   const captured = input.map(member => ({ ...member, commands: [...member.commands],
     reference: capturePrivateJsonData(member.installation, commerceLimits.rowBytes, commerceError) }));
-  if (captured.length < 2 || captured.length > MAX_COMMERCE_BINDINGS) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (captured.length < 1 || captured.length > MAX_COMMERCE_BINDINGS) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const names = new Set<string>();
   const installations = new Set<string>();
   const members = [];

@@ -32,7 +32,9 @@ export const withAtomicCommerceAdmissions = Effect.fn("AtomicCommerce.withAdmiss
   const candidate = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256).pipe(Effect.mapError(projectCommerceRequestFailure));
   if (Option.isNone(candidate)) return yield* Effect.fail(commerceError("storedCorruption"));
   const bindings = commerceBindings(candidate.value.frame);
-  if (bindings.length !== members.length || members.some(member => !bindings.some(binding => {
+  // Only explicitly selected installations gain authority. Per-member admission
+  // below retains full active-head evidence and checks profiles and placement.
+  if (members.some(member => !bindings.some(binding => {
     const { profiles: _profiles, ...reference } = binding;
     return sameBindingValue(reference, member.reference);
   }))) return yield* Effect.fail(commerceError("bindingChanged"));

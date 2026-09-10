@@ -10,14 +10,11 @@ import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type Installed
 import { captureWorkflowRecord } from "./workflow/configuration";
 import { captureCommerceInput } from "./commerce-input";
 
-const id = Schema.String.check(Schema.isLengthBetween(1, 256));
+import { productTagWorkflowEvents } from "./product-tag-workflow-events";
 const WorkflowInput = Schema.Struct({ product_tags: ProductTagWorkflowInput,
   additional_data: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
 });
 const decodeInput = commerceDecoder(WorkflowInput, "invalidInput");
-const decodeWorkflowMessage = commerceDecoder(Schema.Struct({ name: Schema.Literal("product-tag.created"), data: Schema.Struct({ id }),
-  metadata: Schema.Struct({ eventGroupId: Schema.String }),
-}), "unadmittedEvent");
 type ProductTagSelections = {
   readonly product: { readonly module: ProductWorkflowModule; readonly methods: readonly ["createProductTags"]; readonly graph: true };
   readonly currency: { readonly module: CurrencyWorkflowModule; readonly methods: readonly []; readonly graph: true };
@@ -70,21 +67,6 @@ export const prepareProductTagWorkflow = Effect.fn("MedusaWorkflow.prepareProduc
   const created = modules.product.module.methods.createProductTags;
   return yield* prepareAtomicWorkflowHost({ ...options, modules, workflow: {
     name: "createProductTagsWorkflow", resources, prepared, input: WorkflowInput, output: ProductTagWorkflowResult,
-    events: { contracts: [{ name: "product-tag.created", decode: decodeWorkflowMessage }],
-      validate: Effect.fn("ProductTagWorkflow.validateEvents")(function* (events, calls) {
-        const expected: string[] = [];
-        for (const result of calls.results(created)) {
-          for (const tag of yield* Effect.fromResult(decodeProductTagWorkflowResult(result))) expected.push(tag.id);
-        }
-        const observed: string[] = [];
-        for (const event of events) {
-          if (event.contract !== "product-tag.created") continue;
-          const message = yield* Effect.fromResult(decodeWorkflowMessage(event.message));
-          if (message.metadata.eventGroupId !== event.group) return yield* Effect.fail(commerceError("receiptMismatch"));
-          observed.push(message.data.id);
-        }
-        if (observed.length !== expected.length || observed.some((id, index) => id !== expected[index])) return yield* Effect.fail(commerceError("receiptMismatch"));
-      }),
-    },
+    events: productTagWorkflowEvents("product-tag.created", created),
   } });
 });

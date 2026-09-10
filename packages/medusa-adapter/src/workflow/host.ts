@@ -56,7 +56,7 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   if (!isPreparedWorkflow(workflow.prepared)) return yield* Effect.fail(commerceError("invalidAuthority"));
   const installed = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
   const members = workflowResourceSelections(workflow.resources);
-  if (members === undefined || members.length < 2 || members.length !== Object.keys(installed).length || typeof execution.prepare !== "function"
+  if (members === undefined || members.length < 1 || members.length !== Object.keys(installed).length || typeof execution.prepare !== "function"
     || !Schema.isSchema(workflow.input) || !Schema.isSchema(workflow.output) || !/^[a-f0-9]{64}$/.test(options.revision)
     || workflow.resources.events !== (workflow.events !== undefined) || (!workflow.resources.events && options.subscribers !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const eventDefinition = workflow.events === undefined ? undefined : yield* Effect.fromResult(captureWorkflowRecord(workflow.events));

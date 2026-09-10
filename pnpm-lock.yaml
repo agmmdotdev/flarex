@@ -987,6 +987,10 @@ importers:
       bignumber.js:
         specifier: 9.3.1
         version: 9.3.1
+    devDependencies:
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.0(@types/node@24.13.2)(vite@8.2.2(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/medusa-workflows-sdk:
     dependencies:

@@ -297,6 +297,11 @@
       "types": "./dist/modules-sdk/build-query.d.ts",
       "source": "./src/modules-sdk/build-query.ts",
       "default": "./dist/modules-sdk/build-query.js"
+    },
+    "./common/get-selects-and-relations-from-object-array": {
+      "types": "./dist/common/get-selects-and-relations-from-object-array.d.ts",
+      "source": "./src/common/get-selects-and-relations-from-object-array.ts",
+      "default": "./dist/common/get-selects-and-relations-from-object-array.js"
     }
   },
   "license": "MIT",
@@ -308,5 +313,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
   }
 }

@@ -61,7 +61,7 @@ describe("exact Currency promotion", () => {
 
   it("retains the executable original compatibility scenarios and assertions", () => {
     const tests = promotion.files.filter((file) => file.classification === "testPort");
-    expect(tests).toHaveLength(13);
+    expect(tests).toHaveLength(14);
     for (const file of tests) {
       const original = file.source;
       if (!original) throw new Error("Missing original test source");
