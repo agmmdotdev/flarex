@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-Status: implemented for the private atomic Product-tag workflow, together with
+Status: implemented for private atomic Product-tag creation, update and deletion, together with
 [native Medusa integration](./10-medusa-workflow-integration.md).
 Groups spanning multiple committed steps remain deferred.
 
@@ -49,7 +49,12 @@ JSON are not that contract. The first admission is limited to these events and
 a finite registered destination set.
 
 Correlate module events with real participant facts through existing policy.
-Correlate workflow tag IDs with successful admitted creation-step output.
+Correlate create/update workflow tag IDs with successful admitted command output.
+The [deletion workflow](./13-product-tag-deletion.md) instead names requested IDs,
+including missing or already-deleted rows after successful no-op calls. Validate
+those IDs against captured inputs of successful outer commands. Its module
+events still require actual managed row transitions. This ephemeral evidence is
+not persisted step history and introduces no event storage or delivery format.
 Do not derive every business event from row changes or let caller metadata
 select another scope, event contract or destination.
 

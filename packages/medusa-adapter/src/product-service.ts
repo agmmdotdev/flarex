@@ -327,6 +327,11 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     return yield* withService(ctx, async ({ service, context }) => (await service.softDeleteProductVariants(ids, {}, context)) ?? null);
   }));
+  const softDeleteTags = defineCommerceCommand("productSoftDeleteTag", "write", Effect.fn("ProductAdapter.softDeleteTags")(function* (ctx, input) {
+    const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    if (Array.isArray(ids) && new Set(ids).size !== ids.length) return yield* ctx.refuse(commerceError("invalidInput"));
+    return yield* withService(ctx, async ({ service, context }) => (await service.softDeleteProductTags(ids, {}, context)) ?? null);
+  }));
   const updateTagsBySelector = defineCommerceCommand("productUpdateTagsBySelector", "write", Effect.fn("ProductAdapter.updateTagsBySelector")(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductTagUpdateInput(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata.tag.table.name, decoded.update))
@@ -348,7 +353,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     listCollections: readCollection("list"), retrieveCollection: readCollection("retrieve"), countCollections: readCollection("count"),
     listTags: readNamed("tag", "list"), retrieveTag: readNamed("tag", "retrieve"), countTags: readNamed("tag", "count"),
     delete: remove("product"), deleteTags: remove("tag"), deleteTypes: remove("type"), deleteCategories: remove("category"), deleteCollections: remove("collection"),
-    softDelete: lifecycle("softDelete"), restore: lifecycle("restore"),
+    softDelete: lifecycle("softDelete"), restore: lifecycle("restore"), softDeleteTags,
     createTags: related("tag"), createTypes: related("type"), createCollections: related("collection"), createImages: related("image"),
     updateTags: changeRelated("tag", "update"), updateTagsBySelector, updateTypes: changeRelated("type", "update"),
     upsertTags: changeRelated("tag", "upsert"), upsertTypes: changeRelated("type", "upsert"),
@@ -358,6 +363,6 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     upsertOptions: changeRelated("option", "upsert"), upsertVariants: changeRelated("variant", "upsert"), upsertCollections: changeRelated("collection", "upsert"), upsertCategories: changeRelated("category", "upsert") });
   const graph = yield* Effect.fromResult(productGraphDefinition(metadata, commands));
   const workflow = yield* Effect.fromResult(productWorkflowModule(standard.description, commands, graph,
-    { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent }));
+    { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent }));
   return { commands, withService, graph, workflow };
 });

@@ -23,6 +23,13 @@ admission to one through eight explicitly selected participants as an authentica
 subset of the active commerce binding. Individual authority checks, whole-binding
 replay evidence and the existing settlement owner remain unchanged.
 
+The [Product-tag deletion capability](./13-product-tag-deletion.md) extends
+successful outer-call observations with their already-captured native inputs.
+Inputs and results are recursively frozen, charged by existing capture, and
+retained only after participant validation. Nested calls do not create additional
+outer observations. This is ephemeral event-validation evidence, not a journal,
+persisted step checkpoint or change to settlement/replay formats.
+
 ## Product Decision
 
 ### Implementation Finding: Module Installation Lineage

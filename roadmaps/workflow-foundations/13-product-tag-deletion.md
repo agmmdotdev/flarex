@@ -2,12 +2,13 @@
 
 ## Status And Scope
 
-Status: researched proposal awaiting capability approval. No implementation is
-authorized by this note. Topics [10](./10-medusa-workflow-integration.md),
-[11](./11-workflow-host-composition.md) and [12](./12-product-tag-updates.md)
-remain the implemented private atomic baseline.
+Status: implemented as a source-private atomic capability. The completion gates
+below remain the validation contract for this behavior. Topics
+[10](./10-medusa-workflow-integration.md), [11](./11-workflow-host-composition.md)
+and [12](./12-product-tag-updates.md) retain their connected regression coverage.
 
-Recommended outcome: execute the pinned Product-tag deletion workflow through
+The [deletion facade](../../packages/medusa-adapter/src/product-tag-delete-workflow.ts)
+executes the pinned Product-tag deletion workflow through
 the shared native host, with soft deletion, its checked hook, pending graph
 visibility, both event families, a retained null result and existing recovery.
 This completes the create/update/delete tag workflow lifecycle without adding
@@ -15,9 +16,9 @@ another commerce module. Two reusable capabilities earn their place through
 this consumer: native completion without a return value, and authenticated
 successful-command input evidence for workflow event validation.
 
-This proposal deliberately includes changes to private atomic call observations,
+This capability includes the approved changes to private atomic call observations,
 the native result boundary, and Product's admitted lifecycle operations. These
-are the material boundaries requiring approval. It does not add a transaction
+are its material boundaries. It does not add a transaction
 owner, persisted format, migration, execution profile, Task continuation, lock
 engine, remote join, Module Link, public API or deployment.
 
@@ -42,18 +43,18 @@ from the word "delete" or from current upstream documentation.
 | [Generated Medusa service](../../packages/medusa-utils/src/modules-sdk/medusa-service.ts) | Soft-delete methods call the existing internal service/repository and return a linkable-key map or void. The workflow step deliberately discards that value. |
 | [Pinned Drizzle repository](../../third_party/medusa/upstream/packages/database/drizzle/src/medusa.ts) | Soft deletion changes matching active rows, follows declared cascade metadata, and dispatches lifecycle events from actual changes. Missing and already-deleted rows produce no new row mutation. |
 | [Product tag model](../../packages/medusa-product/src/models/product-tag.ts) | Tag values are unique among active rows. The inverse Product relation declares no soft-delete cascade. |
-| [Product profile](../../packages/medusa-adapter/src/product-profile.ts), [repository](../../packages/medusa-adapter/src/product-repository.ts), [lifecycle planner](../../packages/medusa-adapter/src/product-lifecycle.ts) | Tag managed lifecycle is currently unadmitted at all three boundaries. Existing `deleteTags` is physical deletion and cannot substitute for this step. |
-| [Product module events](../../packages/medusa-adapter/src/product-local-events.ts) | Managed lifecycle evidence is checked against admitted commands and tables; a tag soft-delete command needs an explicit association. |
-| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Intermediate undefined values are supported, but the final strict JSON capture refuses a void workflow result. |
-| [Atomic observations](../../packages/persistence-postgres/src/atomicCommerce/events.ts) and [producer](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Successful outer participant calls expose participant, command and result, but not captured input. Returned rows therefore cannot authenticate deletion events that intentionally name requested IDs. |
-| [Shared host](../../packages/medusa-adapter/src/workflow/host.ts) | Projects results by authentic method token. Extend this projection with captured call inputs while retaining current result consumers. |
+| [Product profile](../../packages/medusa-adapter/src/product-profile.ts), [repository](../../packages/medusa-adapter/src/product-repository.ts), [lifecycle planner](../../packages/medusa-adapter/src/product-lifecycle.ts) | Admit managed Tag soft deletion. Existing `deleteTags` remains physical deletion; Tag restore and other unadmitted related-model operations remain refused. |
+| [Product module events](../../packages/medusa-adapter/src/product-local-events.ts) | Associates the new tag soft-delete command with managed lifecycle observations from the Tag table. |
+| [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) | Normalizes top-level void completion to null before strict JSON capture; intermediate omissions retain their existing contract. |
+| [Atomic observations](../../packages/persistence-postgres/src/atomicCommerce/events.ts) and [producer](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Successful validated outer calls retain their captured input and result with authentic participant and command tokens. |
+| [Shared host](../../packages/medusa-adapter/src/workflow/host.ts) | Projects call inputs/results by authentic selected method token and retains result-only access from those same observations. |
 
 The original [Product-tag integration cases](../../third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts)
 exercise physical deletion, not this soft-delete workflow. Keep those assertions
-and add connected evidence for the new behavior; existing green tests do not
-already prove it.
+alongside the [connected deletion suite](../../packages/medusa-adapter/test/product-tag-delete-workflow.test.ts).
+Original physical-delete assertions alone do not prove the soft-delete workflow.
 
-## Proposed Execution And Result Contract
+## Execution And Result Contract
 
 Preserve the original workflow/step sequence. Port only the required source
 closure, relocate imports, and declare the step's compensation
@@ -61,7 +62,7 @@ closure, relocate imports, and declare the step's compensation
 the atomic runner must never invoke it after rolling back pending work. Do not
 grant a restore command just to satisfy an unused compensator.
 
-Add a Product-owned `softDeleteTags` command that invokes the real
+The Product-owned `softDeleteTags` command invokes the real
 `softDeleteProductTags` method once through fresh scoped services. Retain its
 actual service result at the command boundary, with existing JSON normalization
 for a possible void result. Do not return requested IDs as though they were
@@ -76,7 +77,7 @@ profile's existing narrower contract; do not silently deduplicate or claim full
 upstream input parity. Keep physical `deleteTags`, Product/Variant lifecycle
 behavior and unsupported related-model operations distinct.
 
-Extend only Tag soft-delete capability declarations and their connected
+The extension covers only Tag soft-delete capability declarations and connected
 repository/planner/event validation. Reuse the metadata-driven traversal and
 core managed timestamp/fact operations. Soft deletion must retain tag rows and
 Product-tag pivots, leave Products active, hide deleted tags in ordinary root
@@ -101,7 +102,7 @@ Application OCC or child rollback semantics.
 
 ## Successful Call Evidence And Event Meaning
 
-Extend `AtomicCommerceCallObservation` with the native command input captured
+`AtomicCommerceCallObservation` includes the native command input captured
 by the existing authorized invocation boundary. Keep this generic to commands,
 participants and JSON; it contains no Product or workflow event names.
 
@@ -165,7 +166,7 @@ authority. The proposed core observation extension supplies one reusable owner.
 | Source island and promotion/portable guards | Keep the immutable reference and strict policy; record exact new active source provenance. |
 
 No deployed data, legacy engine or supported facade is displaced, and no
-temporary bridge or database migration is proposed.
+temporary bridge or database migration is introduced.
 
 ## Completion Gates
 

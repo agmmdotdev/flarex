@@ -44,7 +44,9 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
         const id = key.components[0]?.value;
         if (key.components.length !== 1 || typeof id !== "string" ||
-          !(commandName === (observation.operation === "restore" ? "productRestore" : "productSoftDelete") || commandName === (observation.operation === "restore" ? "productInternalProductrestore" : "productInternalProductsoftDelete") || (commandName === "productSoftDeleteVariant" && observation.operation === "softDelete" && observation.tableId === catalog.variant.table.name)) ||
+          !(commandName === (observation.operation === "restore" ? "productRestore" : "productSoftDelete") || commandName === (observation.operation === "restore" ? "productInternalProductrestore" : "productInternalProductsoftDelete")
+            || (observation.operation === "softDelete" && ((commandName === "productSoftDeleteVariant" && observation.tableId === catalog.variant.table.name)
+              || (commandName === "productSoftDeleteTag" && observation.tableId === catalog.tag.table.name)))) ||
           (observation.operation === "restore" ? observation.afterDeletedAt !== null : observation.afterDeletedAt === null)) return yield* Effect.fail(commerceError("receiptMismatch"));
         const identity = observation.tableId + ":" + id;
         if (observations.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));

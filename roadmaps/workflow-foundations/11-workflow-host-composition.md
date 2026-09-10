@@ -13,6 +13,13 @@ to one through eight selected participants. Command limits, transaction ownershi
 and recovery contracts remain in force. This adds no Task, suspension, remote effect, lock, relational OCC,
 schema, commerce module or public application API.
 
+[Product-tag deletion](./13-product-tag-deletion.md) uses the same host with
+Product soft deletion, graph and events selected. The native runner maps only a
+top-level missing return value to null before strict capture/output validation.
+Event validators can inspect captured native inputs and results of successful
+calls through authentic selected method tokens; existing result-only projections
+remain available from the same evidence.
+
 ## Authority And Sources
 
 The [accepted design](../../design-notes/flarex-db-accepted-design.md) and
@@ -138,8 +145,9 @@ existing command path; live managers/services are never cached across requests.
   closure remain with the existing runtime. Finalization also covers resource
   construction. Resources cannot grant raw SQL, managers or delivery authority.
 - Module fact validation and workflow event correlation remain separate. The
-  Product-tag adapter correlates emitted IDs with actual successful command
-  observations. Shared event handling captures batches, checks names/group and
+  Product-tag adapter correlates create/update IDs with successful command
+  results and deletion IDs with captured inputs of successful calls. Shared
+  event handling captures batches, checks names/group and
   dispatches admitted contracts, preserving event order and subscriber policy.
 - Event-free hosts have no event bus, contracts or subscribers. The durable
   Product binding uses capture/validation directly, without a dummy local

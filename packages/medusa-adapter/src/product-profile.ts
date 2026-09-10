@@ -20,7 +20,7 @@ const prepareProductProfile = Effect.fn("ProductAdapter.prepareLocalProfile")(fu
       ...(metadata.entities.some(entity => entity.table === selected && entity !== metadata.assignment) ? { update: "existingPrimaryKey" as const } : {}),
       ...(selected === metadata.product.table ? { referenceColumns: ["collection_id", "type_id"] } : selected === metadata.category.table ? { referenceColumns: ["parent_category_id"] } : {}),
       remove: "declaredKey",
-      ...([metadata.product.table, metadata.option.table, metadata.value.table, metadata.variant.table, metadata.image.table].includes(selected) ? { lifecycle: "managedSoftDelete" as const } : {}),
+      ...([metadata.product.table, metadata.option.table, metadata.value.table, metadata.variant.table, metadata.image.table, metadata.tag.table].includes(selected) ? { lifecycle: "managedSoftDelete" as const } : {}),
     });
   }
   const profile = yield* registerLocalCommerceProfile(prepared.artifact, prepared.layout, "medusa.product.local", capabilities, resources);

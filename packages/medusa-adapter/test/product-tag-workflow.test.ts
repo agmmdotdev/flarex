@@ -392,6 +392,43 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     expect(await inventory()).toEqual(unchanged);
   }, 60_000);
 
+  it("exposes native call inputs by authentic selected method and replays Currency void completion", async () => {
+    const modules = installedModules();
+    const resources = Result.getOrThrow(prepareWorkflowResources({
+      currency: { module: modules.currency.module, methods: ["retrieveCurrency"], graph: false },
+    }, true));
+    let executions = 0; let validations = 0;
+    const step = createStep("observe-currency-read", resources.callback(async (_input: undefined, { resources }) => {
+      executions++; await resources.currency.retrieveCurrency("usd");
+    }));
+    const flow = createWorkflow("currency-void-completion", () => new WorkflowResponse(step(undefined)));
+    const host = await runEffect(prepareAtomicWorkflowHost({ execution: execution(), modules: { currency: modules.currency }, revision, subscribers,
+      workflow: { name: "currencyVoidCompletion", resources, prepared: Result.getOrThrow(flow.prepare()), input: Schema.Null, output: Schema.Null,
+        events: { contracts: [{ name: "currency.read", decode: commerceDecoder(Schema.Null, "unadmittedEvent") }],
+          validate: (_events, calls) => Effect.sync(() => {
+            validations++;
+            const method = modules.currency.module.methods.retrieveCurrency;
+            const selected = calls.calls(method);
+            expect(selected).toHaveLength(1); expect(selected[0]?.input).toEqual({ code: "usd" });
+            expect(selected[0]?.result).toMatchObject({ code: "usd", name: "US Dollar" });
+            expect(calls.results(method)[0]).toBe(selected[0]?.result);
+            expect(Object.isFrozen(selected)).toBe(true); expect(Object.isFrozen(selected[0])).toBe(true);
+            expect(Object.isFrozen(selected[0]?.input)).toBe(true);
+            expect(calls.calls(modules.product.module.methods.createProductTags)).toEqual([]);
+            expect(calls.calls({ ...method })).toEqual([]); expect(calls.results({ ...method })).toEqual([]);
+          }),
+        },
+      },
+    }));
+    const before = await inventory(); const key = host.newRequestKey();
+    expect(await runEffect(host.run(key, null))).toBeNull();
+    const after = await inventory();
+    expect(after.events).toEqual(before.events); expect(after.product.facts).toEqual(before.product.facts);
+    expect(after.product.commits).toHaveLength(before.product.commits.length + 1);
+    expect(await runEffect(host.run(key, null))).toBeNull(); expect(await inventory()).toEqual(after);
+    expect(executions).toBe(1); expect(validations).toBe(1);
+  });
+
   it("keeps prepared native hook resources isolated and swallowed native validation fatal", async () => {
     const seen: string[] = [];
     const makeHook = (expected: string): ProductTagWorkflowHooks => ({ productTagsCreated: async (input, { resources }) => {

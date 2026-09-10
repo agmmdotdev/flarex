@@ -128,6 +128,21 @@ describe("workflow registration and scoped resource composition", () => {
     await expect(escaped?.run(Effect.succeed("late"))).rejects.toMatchObject({ reason: "closed" });
   });
 
+  it("normalizes only a completed top-level void result to native null", async () => {
+    for (const value of [undefined, null, false, 0, "", [], {}]) {
+      const flow = createWorkflow("completion-value", () => new WorkflowResponse(value));
+      expect(await Effect.runPromise(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), context(), null,
+        owner => bindWorkflowResources(resources, members, undefined, [], context(), owner))))
+        .toEqual(value === undefined ? null : value);
+    }
+    for (const value of [{ missing: undefined }, [undefined]]) {
+      const flow = createWorkflow("invalid-completion-value", () => new WorkflowResponse(value));
+      const exit = await Effect.runPromise(Effect.exit(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), context(), null,
+        owner => bindWorkflowResources(resources, members, undefined, [], context(), owner))));
+      expect(Exit.isFailure(exit)).toBe(true);
+    }
+  });
+
   it("refuses the root on a decoder defect while preserving the defect channel", async () => {
     const ctx = context();
     const refuse = vi.fn(ctx.refuse);

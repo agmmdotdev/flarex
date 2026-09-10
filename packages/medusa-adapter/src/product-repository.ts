@@ -100,7 +100,7 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
   /** Table-bound repositories share this request's bridge and subscriber set. */
   const relatedRepository = (entity: ProductEntityMetadata): DAL.RepositoryService => ({
     ...repository,
-    delete: deleteRows(entity), softDelete: entity === metadata.variant ? lifecycle(entity, "softDelete") : refuse, restore: refuse,
+    delete: deleteRows(entity), softDelete: [metadata.variant, metadata.tag].includes(entity) ? lifecycle(entity, "softDelete") : refuse, restore: refuse,
     update: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
       if (![metadata.tag, metadata.type, metadata.collection, metadata.category, metadata.value].includes(entity)) return yield* ctx.refuse(commerceError("unsupportedProfile"));
       const rows = yield* updateProductRelated(ctx, metadata, entity, input);

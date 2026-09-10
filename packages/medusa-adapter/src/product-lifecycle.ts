@@ -7,7 +7,8 @@ import { captureCommerceInput } from "./commerce-input";
 import { commerceDecoder } from "./commerce-decoder";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-export const decodeProductLifecycleIds = commerceDecoder(Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(commerceLimits.catalogRows))]), "invalidInput");
+export const ProductLifecycleIds = Schema.Array(Id).check(Schema.isMaxLength(commerceLimits.catalogRows));
+export const decodeProductLifecycleIds = commerceDecoder(Schema.Union([Id, ProductLifecycleIds]), "invalidInput");
 const decodeDelete = commerceDecoder(Schema.Struct({ $or: Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(commerceLimits.catalogRows)) }), "invalidInput");
 type Table = ProductRuntimeMetadata["tables"][number];
 
@@ -18,7 +19,7 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
   ctx: CommerceCommandContext, catalog: ProductRuntimeMetadata, entity: ProductEntityMetadata,
   operation: "delete" | "softDelete" | "restore", input: unknown,
 ) {
-  if (operation !== "delete" && entity !== catalog.product && !(operation === "softDelete" && entity === catalog.variant)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (operation !== "delete" && entity !== catalog.product && !(operation === "softDelete" && [catalog.variant, catalog.tag].includes(entity))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   if (operation === "delete" && ![catalog.product, catalog.tag, catalog.type, catalog.collection, catalog.category, catalog.option, catalog.assignment].includes(entity)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
   const selected = operation === "delete" ? (yield* Effect.fromResult(decodeDelete(captured))).$or.map(row => row.id)

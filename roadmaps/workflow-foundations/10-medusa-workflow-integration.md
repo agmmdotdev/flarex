@@ -8,6 +8,12 @@ Local Graph Query reads and both committed event families. [Topic 07](./07-durab
 owns event persistence and delivery; [Topic 09](./09-atomic-composition.md) owns
 the existing atomic commerce transaction. These are one connected capability.
 
+The shared host also runs [tag updates](./12-product-tag-updates.md) and
+[tag deletion](./13-product-tag-deletion.md). Deletion preserves the original
+soft-delete/hook/input-ID-event sequence. Its SDK result is void; the native
+completion boundary stores and returns null. Create/update output schemas remain
+strict, and nested undefined values are not normalized into valid JSON.
+
 The host uses one authenticated, bounded SQL transaction. It does not add a
 Task, relational journal/OCC engine, distributed lock or second commit owner.
 Product supplies business semantics; Currency reads demonstrate another admitted

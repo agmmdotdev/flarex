@@ -129,12 +129,13 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
                 const events: Json[] = [];
                 const invoke = Effect.fn("AtomicCommerce.invokeParticipant")(function* (
                   manager: BoundedRequestContext, nested: CommerceCommand, nestedArgs: Json,
-                ): Effect.fn.Return<Json, CommerceTransactionError> {
+                ): Effect.fn.Return<Pick<AtomicCommerceCallObservation, "input" | "result">, CommerceTransactionError> {
                   const operation = getCommerceCommand(nested);
                   if (operation === undefined || !member.commands.has(nested)) return yield* Effect.fail(commerceError("invalidAuthority"));
                   const value = yield* Effect.fromResult(capturePrivateJsonData(nestedArgs, lifetime.remainingBytes(), commerceError));
                   yield* Effect.fromResult(lifetime.charge(value.bytes));
-                  const commandContext = makeCommerceCommandContext(lifetime, working, id, manager, invoke,
+                  const commandContext = makeCommerceCommandContext(lifetime, working, id, manager,
+                    (current, nestedCommand, nestedInput) => invoke(current, nestedCommand, nestedInput).pipe(Effect.map(call => call.result)),
                     (current, event) => lifetime.operation(current, id, "write", Effect.gen(function* () {
                       if (eventCapture === undefined || member.eventContract === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
                       events.push(yield* eventCapture.capture(member.eventContract, event));
@@ -142,15 +143,17 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
                   const output = yield* operation.run(commandContext, value.value);
                   const result = yield* Effect.fromResult(capturePrivateJsonData(output, lifetime.remainingBytes(), commerceError));
                   yield* Effect.fromResult(lifetime.charge(result.bytes));
-                  return result.value;
+                  return Object.freeze({ input: value.value, result: result.value });
                 });
-                const value = yield* invoke(child, command, inputArgs);
+                const call = yield* invoke(child, command, inputArgs);
                 const rows = working.snapshot();
                 facts += rows.length;
                 if (facts > factLimit) return yield* Effect.fail(commerceError("limitExceeded"));
                 if (member.validate !== undefined) yield* member.validate(events, rows, root.name, working.lifecycleSnapshot());
-                if (eventCapture !== undefined) observations.push({ participant, command, result: value });
-                return value;
+                // Inputs/results are the already charged, recursively frozen
+                // captures. Only the validated outer call becomes evidence.
+                if (eventCapture !== undefined) observations.push(Object.freeze({ participant, command, ...call }));
+                return call.result;
               }), getCommerceCommand(command)?.mode),
             });
             const value = yield* definition.run(context, captured.value).pipe(Effect.catchCause(cause => Effect.gen(function* () {

@@ -25,7 +25,9 @@ export const runNativeMedusaWorkflow = Effect.fn("MedusaWorkflow.runNative")(fun
     Effect.flatMap(value => {
       const refusal = owner.refusal();
       if (Option.isSome(refusal)) return ctx.refuse(refusal.value);
-      return owner.hasPending() ? ctx.refuse(commerceError("overlappingOperation")) : ctx.capture(value);
+      // Like Convex's return boundary, a completed void workflow stores null.
+      // Intermediate omissions and nested JSON validation keep their owners.
+      return owner.hasPending() ? ctx.refuse(commerceError("overlappingOperation")) : ctx.capture(value === undefined ? null : value);
     }),
     Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)),
     Effect.ensuring(owner.close),

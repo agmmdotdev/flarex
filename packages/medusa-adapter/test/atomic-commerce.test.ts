@@ -5,6 +5,8 @@ import { isJsonObject } from "flarex-protocol/json";
 import { decodeCategoryProjection } from "../src/product-category-projection";
 import { makeCategoryCurrencyAtomicCommand } from "../src/category-currency-atomic-command";
 import { prepareCurrencyProfile } from "../src/currency-contract";
+import { currencyCommands } from "../src/currency-service";
+import { defineCommerceEventContract, type AtomicCommerceEvents } from "../../persistence-postgres/src/atomicCommerce/events";
 import { prepareLocalProductProfile } from "../src/product-profile";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
@@ -77,6 +79,53 @@ describe("private atomic commerce command", () => {
     host = await runEffect(makeAtomicCommerceHost(input));
   }, 150_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
+
+  it("retains captured Currency command inputs only for successful validated outer calls", async () => {
+    const supplied = { marker: { id: "original" } };
+    let executions = 0; let validations = 0;
+    const inner = defineCommerceCommand("observationInner", "read", ctx => ctx.nested(currencyCommands.retrieve, { code: "usd" }));
+    const outer = defineCommerceCommand("observationOuter", "read", Effect.fn("ObservationTest.outer")(function* (ctx, captured) {
+      expect(captured).toEqual({ marker: { id: "original" } });
+      expect(Object.isFrozen(captured)).toBe(true);
+      supplied.marker.id = "caller-mutated"; executions++;
+      return yield* ctx.nested(inner, { marker: "nested-input" });
+    }));
+    const command = defineAtomicCommerceCommand("observeCurrency", Effect.fn("ObservationTest.root")(function* (ctx) {
+      const usd = yield* ctx.call(proof.currencyParticipant, outer, supplied);
+      yield* ctx.call(proof.currencyParticipant, currencyCommands.retrieve, { code: "gbp" });
+      return usd;
+    }));
+    const contract = defineCommerceEventContract({ name: "currency.observation", revision: "a".repeat(64), internal: false, decode: () => Effect.succeed(null) });
+    const participants = [{ participant: proof.currencyParticipant, profile: currency.prepared.profile, installation: currency.installation,
+      commands: [outer, inner, currencyCommands.retrieve] }];
+    const events = { producerRevision: "a".repeat(64), contracts: [contract], subscribers: [{ id: "observations", revision: "a".repeat(64) }],
+      validate: Effect.fn("ObservationTest.validate")((_events: Parameters<AtomicCommerceEvents["validate"]>[0], calls: Parameters<AtomicCommerceEvents["validate"]>[1]) => Effect.sync(() => {
+        validations++;
+        expect(calls).toHaveLength(2); expect(calls.map(call => call.command)).toEqual([outer, currencyCommands.retrieve]);
+        expect(calls[0]?.input).toEqual({ marker: { id: "original" } }); expect(calls[0]?.input).not.toBe(supplied);
+        expect(calls[0]?.result).toMatchObject({ code: "usd" });
+        expect(calls[1]?.input).toEqual({ code: "gbp" }); expect(calls[1]?.result).toMatchObject({ code: "gbp" });
+        expect(Object.isFrozen(calls[0])).toBe(true);
+        const first = calls[0]?.input;
+        expect(first !== undefined && isJsonObject(first) && Object.isFrozen(first.marker)).toBe(true);
+      })),
+    };
+    const selected = await runEffect(makeAtomicCommerceHost({ ...input, participants, commands: [command], events }));
+    const key = selected.newRequestKey(); const result = await runEffect(selected.run(key, command, null));
+    expect(result).toMatchObject({ code: "usd" }); expect(executions).toBe(1); expect(validations).toBe(1);
+    expect(await runEffect(selected.run(key, command, null))).toEqual(result); expect(executions).toBe(1); expect(validations).toBe(1);
+    const before = await inventory();
+    const rejected = defineCommerceCommand("rejectedObservation", "read", () => Effect.succeed(null));
+    const failingRoot = defineAtomicCommerceCommand("rejectObservation", ctx => ctx.call(proof.productParticipant, rejected, null));
+    // Only a local profile admits a module validator. Currency's catalog
+    // profile has no such adapter policy; use the authentic Product binding.
+    const refused = await runEffect(makeAtomicCommerceHost({ ...input, commands: [failingRoot], events,
+      participants: [{ ...required(input.participants.find(member => member.participant === proof.productParticipant)),
+        commands: [rejected], validate: () => Effect.fail(commerceError("receiptMismatch")) }],
+    }));
+    expect(await runEffectFailure(refused.run(refused.newRequestKey(), failingRoot, null))).toMatchObject({ reason: "receiptMismatch" });
+    expect(validations).toBe(1); expect(await inventory()).toEqual(before);
+  });
 
   it("reads pending relations across real services and publishes one ordered outcome", async () => {
     const before = await inventory();

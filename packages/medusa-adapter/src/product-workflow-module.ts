@@ -6,6 +6,7 @@ import { commerceDecoder } from "./commerce-decoder";
 import { defineWorkflowMethod, defineWorkflowModule } from "./workflow/module";
 import { ProductNamedFilters } from "./product-service-input";
 import { ProductTagUpdateData } from "./product-tag-update-input";
+import { ProductLifecycleIds } from "./product-lifecycle";
 
 export const ProductTagWorkflowInput = Schema.Array(Schema.Struct({ value: Schema.String,
   id: Schema.optionalKey(Schema.String), metadata: Schema.optionalKey(Schema.Json),
@@ -20,10 +21,12 @@ const decodeListArguments = commerceDecoder(Schema.Tuple([ProductNamedFilters,
 ]), "invalidInput");
 const decodeListResult = commerceDecoder(Schema.Array(Schema.JsonObject).check(Schema.isMaxLength(256)), "storedCorruption");
 const decodeUpdateArguments = commerceDecoder(Schema.Tuple([ProductNamedFilters, ProductTagUpdateData]), "invalidInput");
+const decodeDeleteArguments = commerceDecoder(Schema.Tuple([ProductLifecycleIds]), "invalidInput");
+const decodeDeleteResult = commerceDecoder(Schema.NullOr(Schema.Record(Schema.String, ProductLifecycleIds)), "storedCorruption");
 
 export function productWorkflowModule(source: CommerceModuleDescription,
-  commands: { readonly createTags: CommerceCommand; readonly listTags: CommerceCommand; readonly updateTagsBySelector: CommerceCommand },
-  graph: GraphModuleDefinition, events: { readonly created: string; readonly updated: string }) {
+  commands: { readonly createTags: CommerceCommand; readonly listTags: CommerceCommand; readonly updateTagsBySelector: CommerceCommand; readonly softDeleteTags: CommerceCommand },
+  graph: GraphModuleDefinition, events: { readonly created: string; readonly updated: string; readonly deleted: string }) {
   return Result.gen(function* () {
     const createProductTags = yield* defineWorkflowMethod({ command: commands.createTags, arguments: decodeArguments,
       encode: ([tags]) => tags, output: decodeProductTagWorkflowResult, moduleEvent: events.created });
@@ -31,8 +34,10 @@ export function productWorkflowModule(source: CommerceModuleDescription,
       encode: ([filters, config]) => ({ filters, config }), output: decodeListResult });
     const updateProductTags = yield* defineWorkflowMethod({ command: commands.updateTagsBySelector, arguments: decodeUpdateArguments,
       encode: ([selector, update]) => ({ selector, update }), output: decodeProductTagWorkflowResult, moduleEvent: events.updated });
-    return yield* defineWorkflowModule({ name: "product", source, methods: { createProductTags, listProductTags, updateProductTags }, graph,
-      refusedMethods: ["deleteProductTags", "upsertProductTags"] });
+    const softDeleteProductTags = yield* defineWorkflowMethod({ command: commands.softDeleteTags, arguments: decodeDeleteArguments,
+      encode: ([ids]) => ids, output: decodeDeleteResult, moduleEvent: events.deleted });
+    return yield* defineWorkflowModule({ name: "product", source, methods: { createProductTags, listProductTags, updateProductTags, softDeleteProductTags }, graph,
+      refusedMethods: ["deleteProductTags", "upsertProductTags", "restoreProductTags"] });
   });
 }
 export type ProductWorkflowModule = Result.Result.Success<ReturnType<typeof productWorkflowModule>>;

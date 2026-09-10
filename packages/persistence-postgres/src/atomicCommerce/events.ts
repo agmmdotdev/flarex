@@ -28,6 +28,7 @@ export function defineCommerceEventContract(definition: EventContract): Commerce
 export interface AtomicCommerceCallObservation {
   readonly participant: AtomicCommerceParticipant;
   readonly command: CommerceCommand;
+  readonly input: Json;
   readonly result: Json;
 }
 export interface AtomicCommerceEvents {

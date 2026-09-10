@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { isPreparedWorkflow, type PreparedWorkflow } from "@medusajs/workflows-sdk";
 import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, type AtomicCommerceHost, type AtomicCommerceHostInput,
-  type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
+  type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareLocalGraph } from "../local-graph/query";
@@ -27,7 +27,11 @@ export interface InstalledWorkflowModule<Module extends WorkflowModule = Workflo
   readonly installation: AtomicCommerceParticipantInput["installation"];
   readonly moduleEvents?: Pick<LocalCommerceEventPolicy, "capture" | "validate">;
 }
-export interface WorkflowCallResults { readonly results: (method: WorkflowMethod) => readonly Json[] }
+export interface WorkflowCallResults {
+  /** Native encoded inputs and outputs of successful, validated outer calls. */
+  readonly calls: (method: WorkflowMethod) => readonly Pick<AtomicCommerceCallObservation, "input" | "result">[];
+  readonly results: (method: WorkflowMethod) => readonly Json[];
+}
 export interface AtomicWorkflowDefinition<Resources, Input extends Json, Output extends Json, EncodedInput extends Json = Input> {
   readonly name: string;
   readonly resources: PreparedWorkflowResources<Resources>;
@@ -140,10 +144,16 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   }));
   const events: AtomicCommerceEvents | undefined = eventDefinition === undefined || options.subscribers === undefined ? undefined : {
     producerRevision: options.revision, contracts, subscribers: options.subscribers,
-    validate: (events, calls) => eventDefinition.validate(events, { results: method => {
-      const expected = observed.get(method);
-      return expected === undefined ? [] : calls.filter(call => call.participant === expected.participant && call.command === expected.command).map(call => call.result);
-    } }),
+    validate: (events, calls) => {
+      const selected = (method: WorkflowMethod) => {
+        const expected = observed.get(method);
+        return expected === undefined ? [] : calls.filter(call => call.participant === expected.participant && call.command === expected.command);
+      };
+      return eventDefinition.validate(events, {
+        calls: method => Object.freeze(selected(method).map(({ input, result }) => Object.freeze({ input, result }))),
+        results: method => selected(method).map(call => call.result),
+      });
+    },
   };
   const identity = yield* Effect.fromResult(captureCommerceInput({ policy, workflow: { revision: options.revision, resources: identities, events: [...names] } }));
   const host = yield* execution.prepare({ participants, commands: [command], identityAndAccessPolicy: identity, ...(events === undefined ? {} : { events }) });
