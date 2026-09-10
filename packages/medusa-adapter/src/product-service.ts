@@ -1,4 +1,6 @@
 import { productInternalInput } from "./product-internal-input";
+import { defineGraphReadCommand } from "./local-graph/commands";
+import { productGraphDefinition } from "./product-graph-query";
 import { validateCategoryCommand } from "./product-category-input";
 import { defineProductModule } from "./product-module";
 import type { CommerceModuleScope } from "./module-definition";
@@ -65,7 +67,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       ? service.createProducts(structuredClone(decoded) as ProductTypes.CreateProductDTO[], context)
       : service.createProducts(structuredClone(decoded) as ProductTypes.CreateProductDTO, context));
   }));
-  const read = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("product" + kind, "read", Effect.fn("ProductAdapter." + kind)(function* (ctx, input) {
+  const read = (kind: "list" | "retrieve" | "count") => defineGraphReadCommand("product" + kind, Effect.fn("ProductAdapter." + kind)(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const filtersInput = yield* Effect.fromResult(productReadFilters(decoded)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
@@ -78,7 +80,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       ? service.retrieveProduct(copied.id as string, find, context)
       : kind === "count" ? service.listAndCountProducts(filters, find, context) : service.listProducts(filters, find, context));
   }));
-  const readNamed = (entity: "type" | "tag", kind: "list" | "retrieve" | "count") => defineCommerceCommand("product" + (entity === "type" ? "Type" : "Tag") + kind, "read", Effect.fn("ProductAdapter." + entity + "." + kind)(function* (ctx, input) {
+  const readNamed = (entity: "type" | "tag", kind: "list" | "retrieve" | "count") => defineGraphReadCommand("product" + (entity === "type" ? "Type" : "Tag") + kind, Effect.fn("ProductAdapter." + entity + "." + kind)(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductNamedRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const copied = structuredClone(decoded);
@@ -98,7 +100,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       ? kind === "count" ? service.listAndCountProductTypes(filters, find, context) : service.listProductTypes(filters, find, context)
       : kind === "count" ? service.listAndCountProductTags(filters, tagFind, context) : service.listProductTags(filters, tagFind, context));
   }));
-  const readCollection = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("productCollection" + kind, "read", Effect.fn("ProductAdapter.collection." + kind)(function* (ctx, input) {
+  const readCollection = (kind: "list" | "retrieve" | "count") => defineGraphReadCommand("productCollection" + kind, Effect.fn("ProductAdapter.collection." + kind)(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductCollectionRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const copied = structuredClone(decoded);
@@ -115,7 +117,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     return yield* withService(ctx, ({ service, context }) => kind === "count"
       ? service.listAndCountProductCollections(filters, find, context) : service.listProductCollections(filters, find, context));
   }));
-  const readCategory = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("productCategory" + kind, "read", Effect.fn("ProductAdapter.category." + kind)(function* (ctx, input) {
+  const readCategory = (kind: "list" | "retrieve" | "count") => defineGraphReadCommand("productCategory" + kind, Effect.fn("ProductAdapter.category." + kind)(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductCategoryRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const copied = structuredClone(decoded);
@@ -167,7 +169,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       ? categoryService.create(structuredClone(input) as Parameters<ProductCategoryService["create"]>[0], context)
       : categoryService.update(structuredClone(input) as Parameters<ProductCategoryService["update"]>[0], context));
   }));
-  const readOption = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("productOption" + kind, "read", Effect.fn("ProductAdapter.option." + kind)(function* (ctx, input) {
+  const readOption = (kind: "list" | "retrieve" | "count") => defineGraphReadCommand("productOption" + kind, Effect.fn("ProductAdapter.option." + kind)(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductParentRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const copied = structuredClone(decoded);
@@ -184,7 +186,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     return yield* withService(ctx, ({ service, context }) => kind === "count"
       ? service.listAndCountProductOptions(filters, find, context) : service.listProductOptions(filters, find, context));
   }));
-  const readVariant = (kind: "list" | "retrieve" | "count") => defineCommerceCommand("productVariant" + kind, "read", Effect.fn("ProductAdapter.variant." + kind)(function* (ctx, input) {
+  const readVariant = (kind: "list" | "retrieve" | "count") => defineGraphReadCommand("productVariant" + kind, Effect.fn("ProductAdapter.variant." + kind)(function* (ctx, input) {
     const decoded = yield* Effect.fromResult(decodeProductParentRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     const copied = structuredClone(decoded);
@@ -323,7 +325,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     const ids = yield* Effect.fromResult(decodeProductLifecycleIds(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     return yield* withService(ctx, async ({ service, context }) => (await service.softDeleteProductVariants(ids, {}, context)) ?? null);
   }));
-  return { commands: Object.freeze({
+  const commands = Object.freeze({
     internalProductList: internalProductRead("list"), internalProductRetrieve: internalProductRead("retrieve"),
     internalProductCreate: internalProductChange("create"), internalProductUpdate: internalProductChange("update"),
     internalProductSoftDelete: internalProductChange("softDelete"), internalProductRestore: internalProductChange("restore"),
@@ -343,5 +345,6 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     update: productChange("update"), upsert: productChange("upsert"), createOptions: related("option"), createVariants: related("variant"), createCategories: related("category"), addImageToVariant: related("assignment"),
     updateOptions: changeRelated("option", "update"), updateVariants: changeRelated("variant", "update"), updateValues: changeRelated("value", "update"),
     updateCollections: changeRelated("collection", "update"), updateCategories: changeRelated("category", "update"),
-    upsertOptions: changeRelated("option", "upsert"), upsertVariants: changeRelated("variant", "upsert"), upsertCollections: changeRelated("collection", "upsert"), upsertCategories: changeRelated("category", "upsert") }), withService };
+    upsertOptions: changeRelated("option", "upsert"), upsertVariants: changeRelated("variant", "upsert"), upsertCollections: changeRelated("collection", "upsert"), upsertCategories: changeRelated("category", "upsert") });
+  return { commands, withService, graph: yield* Effect.fromResult(productGraphDefinition(metadata, commands)) };
 });

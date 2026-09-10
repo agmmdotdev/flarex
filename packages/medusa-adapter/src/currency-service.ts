@@ -10,6 +10,8 @@ import { currencyRepository } from "./currency-repository";
 import { captureCurrencyInput } from "./currency-values";
 import { currencyDto, currencyDtos, currencyCountResult } from "./currency-result";
 import { decodeCurrencyRead } from "./currency-input";
+import { defineGraphReadCommand } from "./local-graph/commands";
+import { currencyGraphDefinition } from "./currency-graph-query";
 
 const currencyModule = defineCommerceModule({
   name: "flarex-currency-local", models: [Currency],
@@ -29,7 +31,7 @@ export const withCurrencyService = Effect.fn("CurrencyAdapter.withService")(func
   return yield* module.use(ctx, work);
 });
 
-const read = (kind: "list" | "count" | "retrieve") => defineCommerceCommand(`currency${kind}`, "read", Effect.fn(`CurrencyAdapter.${kind}`)(function* (ctx, value) {
+const read = (kind: "list" | "count" | "retrieve") => defineGraphReadCommand(`currency${kind}`, Effect.fn(`CurrencyAdapter.${kind}`)(function* (ctx, value) {
   const decoded = yield* Effect.fromResult(decodeCurrencyRead(value)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
   // The captured plain JSON is copied because Medusa mutates query options. Its
   // broad framework types are checked at the selected DAL query boundary before SQL.
@@ -46,6 +48,7 @@ const read = (kind: "list" | "count" | "retrieve") => defineCommerceCommand(`cur
 }));
 
 export const currencyCommands = Object.freeze({ list: read("list"), count: read("count"), retrieve: read("retrieve") });
+export const currencyGraph = currencyGraphDefinition(currencyCommands);
 /** Private composite-command participant; uses the existing internal service/DAL owner. */
 export const currencyAnnouncementWrite = defineCommerceCommand("currencyAnnouncementWrite", "write", Effect.fn("CurrencyAdapter.announcementWrite")(function* (ctx, value) {
   if (!isNonArrayRecord(value) || typeof value.code !== "string") return yield* ctx.refuse(commerceError("invalidInput"));

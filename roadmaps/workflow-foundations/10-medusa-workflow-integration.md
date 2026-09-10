@@ -11,8 +11,9 @@ native contracts remain independent of those domains.
 
 The [atomic composition foundation](./09-atomic-composition.md) now supplies
 private multi-installation commands and transactional reads. The
-[Local Graph Query proposal](./06-local-graph-query.md) builds on that context
-and awaits implementation approval. An atomic workflow need not use a Task.
+[Local Graph Query capability](./06-local-graph-query.md) supplies checked
+module reads and native projection within that context. An atomic workflow
+need not use a Task.
 The first original Product-tag workflow still requires
 hook and grouped-event semantics; the current local Product event buffer is
 insufficient. Keep the event-free internal-service database proof distinct from

@@ -10,6 +10,7 @@ import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { productLocalEventPolicy } from "../src/product-local-events";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../../persistence-postgres/src/atomicCommerce/host";
+import { makeLocalCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { commerceHostFixture, type CommerceHostTestFixture } from "../../persistence-postgres/test/commerceHostFixture";
 import { commerceInventory, expireCommerceResult } from "../../persistence-postgres/test/commerceInventory";
 import { createRelationalPGliteFixture } from "../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
@@ -29,6 +30,7 @@ import { commerceBindings } from "../../persistence-postgres/src/frameworkSchema
 import { dataBindingActivationRequest, makeDataBindingHost } from "../../persistence-postgres/src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../../persistence-postgres/src/frameworkSchema/binding/selection";
 import { captureBindingValue, isDataBindingSetFrame } from "../../persistence-postgres/src/frameworkSchema/binding/canonical";
+import type { LocalGraphQuery } from "../src/local-graph/model";
 
 const cleanup: Array<() => Promise<void>> = [];
 const driver = process.env.MEDUSA_COMPARISON_DRIVER ?? process.env.FLAREX_TEST_DRIVER ?? "pglite";
@@ -122,6 +124,169 @@ describe("private atomic commerce command", () => {
       expect(await inventory()).toEqual(before);
     }
   }, 30_000);
+
+  it("queries pending Category trees and Currency with one publication and no reads on replay", async () => {
+    const before = await inventory();
+    let queries = 0;
+    let escaped: LocalGraphQuery | undefined;
+    const test = withCommand("pendingGraph", Effect.fn("AtomicTest.pendingGraph")(function* (ctx) {
+      yield* ctx.call(proof.productParticipant, required(proof.productCommands[0]), [
+        { id: "graph-parent", name: "Graph parent", handle: "graph-parent" },
+      ]);
+      yield* ctx.call(proof.currencyParticipant, required(proof.currencyCommands[0]), { ...args("graph").currency, code: "xgg", rounding: 0.05 });
+      yield* ctx.call(proof.productParticipant, required(proof.productCommands[0]), [
+        { id: "graph-child", name: "Graph child", handle: "graph-child", parent_category_id: "graph-parent" },
+      ]);
+      const query = proof.graph.bind({ ...ctx, call: (...call) => { queries++; return ctx.call(...call); } });
+      escaped = query;
+      const category = yield* query.graph({ entity: "product_category", fields: ["name", "category_children.*", "parent_category.id"],
+        filters: { id: "graph-parent" }, pagination: { take: 1 } });
+      const currency = yield* query.graph({ entity: "currency", fields: ["code", "name", "rounding"], filters: { code: "xgg" }, pagination: { take: 1 } });
+      return { category, currency };
+    }));
+    const selected = await runEffect(test.host);
+    const key = selected.newRequestKey();
+    const value = await runEffect(selected.run(key, test.command, null));
+    expect(value).toMatchObject({
+      category: { data: [{ name: "Graph parent", category_children: [{ id: "graph-child", name: "Graph child", parent_category_id: "graph-parent" }] }], metadata: { count: 1, skip: 0, take: 1 } },
+      currency: { data: [{ code: "xgg", name: "graph", rounding: 0.05, raw_rounding: { value: "0.050000000000000000000", precision: 20 } }], metadata: { count: 1, skip: 0, take: 1 } },
+    });
+    const committed = await inventory();
+    expect(committed.currency.commits).toHaveLength(before.currency.commits.length + 1);
+    expect(committed.currency.outcomes).toHaveLength(before.currency.outcomes.length + 1);
+    // Exactly the two Category inserts and Currency upsert; graph adds no facts.
+    expect(committed.currency.facts).toHaveLength(before.currency.facts.length + 3);
+    expect(queries).toBe(2);
+    expect(await runEffect(selected.run(key, test.command, null))).toEqual(value);
+    expect(queries).toBe(2);
+    expect(await inventory()).toEqual(committed);
+    expect(await runEffectFailure(required(escaped).graph({ entity: "currency", fields: ["code"], pagination: { take: 1 } })))
+      .toMatchObject({ reason: "invalidAuthority" });
+  }, 30_000);
+
+  it("orders equal Category ranks by identity before applying the page window", async () => {
+    const test = withCommand("graphPage", Effect.fn("AtomicTest.graphPage")(function* (ctx) {
+      // Separate parents give both children a real service-assigned rank of
+      // zero. Insert the later identity first so insertion order cannot pass.
+      yield* ctx.call(proof.productParticipant, required(proof.productCommands[0]), [
+        { id: "graph-page-parent-z", name: "Parent Z", handle: "graph-page-parent-z" },
+        { id: "graph-page-parent-a", name: "Parent A", handle: "graph-page-parent-a" },
+        { id: "graph-page-z", name: "Child Z", handle: "graph-page-z", parent_category_id: "graph-page-parent-z" },
+        { id: "graph-page-a", name: "Child A", handle: "graph-page-a", parent_category_id: "graph-page-parent-a" },
+      ]);
+      const query = proof.graph.bind(ctx);
+      const request = { entity: "product_category", fields: ["id", "rank"], filters: { id: ["graph-page-z", "graph-page-a"] } };
+      const ordered = yield* query.graph({ ...request, pagination: { take: 2, order: { rank: "ASC" } } });
+      const page = yield* query.graph({ ...request, pagination: { skip: 1, take: 1, order: { rank: "ASC" } } });
+      return { ordered, page };
+    }));
+    const selected = await runEffect(test.host);
+    expect(await runEffect(selected.run(selected.newRequestKey(), test.command, null))).toEqual({
+      ordered: { data: [{ id: "graph-page-a", rank: 0 }, { id: "graph-page-z", rank: 0 }], metadata: { count: 2, skip: 0, take: 2 } },
+      page: { data: [{ id: "graph-page-z", rank: 0 }], metadata: { count: 2, skip: 1, take: 1 } },
+    });
+  }, 30_000);
+
+  it("rolls back pending writes after caught graph rejection or shared query limits", async () => {
+    const before = await inventory();
+    for (const mode of ["unsupported", "result", "limit"] as const) {
+      const test = withCommand("graphRefusal", Effect.fn("AtomicTest.graphRefusal")(function* (ctx) {
+        yield* ctx.call(proof.productParticipant, required(proof.productCommands[0]), [{ id: "graph-rollback", name: "Rollback", handle: "graph-rollback" }]);
+        yield* ctx.call(proof.currencyParticipant, required(proof.currencyCommands[0]), { ...args("graph-rollback").currency, code: "xrr" });
+        // A corrupt adapter response after a real read is a boundary fault;
+        // its refusal must roll back the earlier writes just like bad input.
+        const query = proof.graph.bind(mode === "result" ? { ...ctx, call: (...call) => ctx.call(...call).pipe(Effect.as([[], 1])) } : ctx);
+        const read = Effect.gen(function* () {
+          if (mode !== "limit") return yield* query.graph({ entity: "currency", fields: [mode === "result" ? "code" : "secret"], pagination: { take: 1 } });
+          for (let index = 0; index < 65; index++) yield* query.graph({ entity: "currency", fields: ["code"], pagination: { take: 0 } });
+          return null;
+        });
+        yield* read.pipe(Effect.catchTag("CommerceTransactionError", () => Effect.void));
+        return { swallowed: true };
+      }));
+      const selected = await runEffect(test.host);
+      const exit = await runEffect(Effect.exit(selected.run(selected.newRequestKey(), test.command, null)));
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) expect(exit.cause.reasons.filter(Cause.isFailReason).map(reason => reason.error))
+        .toContainEqual(expect.objectContaining({ reason: mode === "limit" ? "limitExceeded" : mode === "result" ? "storedCorruption" : "unsupportedProfile" }));
+      expect(await inventory()).toEqual(before);
+    }
+  }, 30_000);
+
+  it("keeps graph cancellation and command admission with the existing owner", async () => {
+    const before = await inventory();
+    const reached = await runEffect(Deferred.make<void>());
+    const test = withCommand("graphCancel", Effect.fn("AtomicTest.graphCancel")(function* (ctx) {
+      yield* ctx.call(proof.productParticipant, required(proof.productCommands[0]), [{ id: "graph-cancel", name: "Cancel", handle: "graph-cancel" }]);
+      yield* ctx.call(proof.currencyParticipant, required(proof.currencyCommands[0]), { ...args("graph-cancel").currency, code: "xcc" });
+      const query = proof.graph.bind({ ...ctx, call: (...call) => ctx.call(...call).pipe(
+        Effect.tap(() => Deferred.succeed(reached, undefined)), Effect.andThen(Effect.never),
+      ) });
+      return yield* query.graph({ entity: "currency", fields: ["code"], pagination: { take: 1 } });
+    }));
+    const selected = await runEffect(test.host);
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const fiber = yield* Effect.forkScoped(selected.run(selected.newRequestKey(), test.command, null));
+      yield* Deferred.await(reached).pipe(Effect.timeout(5_000));
+      yield* Fiber.interrupt(fiber);
+      expect(Exit.isFailure(yield* Fiber.await(fiber))).toBe(true);
+    })));
+    const read = defineAtomicCommerceCommand("unregisteredGraphRead", ctx => proof.graph.bind(ctx)
+      .graph({ entity: "currency", fields: ["code"], pagination: { take: 1 } }));
+    const denied = await runEffect(makeAtomicCommerceHost({ ...input, commands: [read], participants: input.participants.map(member => ({ ...member,
+      commands: member.participant === proof.currencyParticipant ? member.commands.slice(0, 2) : member.commands,
+    })) }));
+    expect(await runEffectFailure(denied.run(denied.newRequestKey(), read, null))).toMatchObject({ reason: "invalidAuthority" });
+    expect(await inventory()).toEqual(before);
+  }, 30_000);
+
+  it("reads populated module roots and nested projections through actual services", async () => {
+    const fixtures: Array<readonly [typeof proof.graphFixtures.create, Json]> = [
+      [proof.graphFixtures.tags, { id: "graph-tag", value: "Graph tag" }],
+      [proof.graphFixtures.types, { id: "graph-type", value: "Graph type" }],
+      [proof.graphFixtures.collections, { id: "graph-collection", title: "Graph collection", handle: "graph-collection" }],
+      [proof.graphFixtures.create, { title: "Graph shirt", handle: "graph-shirt", type_id: "graph-type", collection_id: "graph-collection",
+        tags: [{ id: "graph-tag" }], images: [{ url: "graph.png" }], options: [{ title: "Size", values: ["S"] }],
+        variants: [{ title: "Graph small", options: { Size: "S" } }] }],
+    ];
+    // Fixture writes use the existing single-module local-event host. The
+    // atomic profile deliberately refuses events; graph does not change that.
+    const catalog = await runEffect(captureProductSchema("graph-fixture-policy").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
+    const setup = await runEffect(makeLocalCommerceHost({ ...product.hostInput, commands: fixtures.map(([command]) => command) },
+      productLocalEventPolicy(product.descriptor, catalog, () => Effect.void)));
+    for (const [fixture, args] of fixtures) await runEffect(setup.host.run(setup.host.newRequestKey(), fixture, args));
+    const graph = defineAtomicCommerceCommand("graphRead", (ctx, input) => proof.graph.bind(ctx).graph(input));
+    const selected = await runEffect(makeAtomicCommerceHost({ ...input, commands: [graph] }));
+    const before = await inventory();
+    const cases = [
+      { entity: "product", fields: ["title", "options.values.value", "variants.title", "tags.value", "type.value", "collection.title", "images.url"],
+        filters: { handle: "graph-shirt" }, expected: { title: "Graph shirt", options: [{ values: [{ value: "S" }] }], variants: [{ title: "Graph small" }],
+          tags: [{ value: "Graph tag" }], type: { value: "Graph type" }, collection: { title: "Graph collection" }, images: [{ url: "graph.png" }] } },
+      { entity: "product_type", fields: ["value"], filters: { id: "graph-type" }, expected: { value: "Graph type" } },
+      { entity: "product_tag", fields: ["value", "products.title"], filters: { id: "graph-tag" }, expected: { value: "Graph tag", products: [{ title: "Graph shirt" }] } },
+      { entity: "product_collection", fields: ["title", "products.title"], filters: { id: "graph-collection" }, expected: { title: "Graph collection", products: [{ title: "Graph shirt" }] } },
+      { entity: "product_option", fields: ["title", "values.value", "product.title"], filters: { title: "Size" }, expected: { title: "Size", values: [{ value: "S" }], product: { title: "Graph shirt" } } },
+      { entity: "variant", fields: ["title", "options.value", "product.images.url"], filters: { title: "Graph small" }, expected: { title: "Graph small", options: [{ value: "S" }], product: { images: [{ url: "graph.png" }] } } },
+    ];
+    for (const { entity, fields, filters, expected } of cases) {
+      const result = await runEffect(selected.run(selected.newRequestKey(), graph, { entity, fields, filters, pagination: { take: 2 } }));
+      expect(result).toEqual({ data: [expected], metadata: { count: 1, skip: 0, take: 2 } });
+      // Each wildcard must survive the graph decoder's complete scalar-field
+      // check against the actual service, without automatically loading edges.
+      const wildcard = await runEffect(selected.run(selected.newRequestKey(), graph, { entity, fields: ["*"], filters, pagination: { take: 2 } }));
+      expect(wildcard).toMatchObject({ data: [expect.any(Object)], metadata: { count: 1, skip: 0, take: 2 } });
+      if (!isJsonObject(wildcard) || !Array.isArray(wildcard.data) || !isJsonObject(wildcard.data[0])) throw new Error("Expected graph rows");
+      expect(Object.keys(wildcard.data[0]).length).toBeGreaterThan(1);
+      expect(wildcard.data[0]).not.toHaveProperty("products");
+    }
+    const emptyPage = await runEffect(selected.run(selected.newRequestKey(), graph, {
+      entity: "product", fields: ["title"], filters: { handle: "graph-shirt" }, pagination: { take: 0 },
+    }));
+    expect(emptyPage).toEqual({ data: [], metadata: { count: 1, skip: 0, take: 0 } });
+    const after = await inventory();
+    expect(after.currency.facts).toEqual(before.currency.facts);
+    expect(after.currency.commits.slice(before.currency.commits.length).every(commit => commit.relationalChangeCount === 0)).toBe(true);
+  }, 45_000);
 
   it("authenticates participant definitions, tables, binding sets and profile coverage", async () => {
     const before = await inventory();

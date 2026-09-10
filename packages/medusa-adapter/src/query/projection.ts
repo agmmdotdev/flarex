@@ -16,7 +16,10 @@ export interface ProjectionPolicy {
 }
 export interface ProjectionNode {
   readonly fields: ReadonlySet<string>;
-  readonly children: readonly { readonly name: string; readonly many: boolean; readonly node: ProjectionNode }[];
+  /** Native graph masks require every selected scalar; existing DAL projections
+   * keep their established optional-field behavior unless explicitly selected. */
+  readonly requireFields?: boolean;
+  readonly children: readonly { readonly name: string; readonly many: boolean; readonly optional?: boolean; readonly node: ProjectionNode }[];
   readonly nullRelations: readonly { readonly name: string; readonly keys: readonly string[] }[];
 }
 export interface ReadProjection {
@@ -89,9 +92,11 @@ export function projectRows(rows: readonly JsonObject[], node: ProjectionNode): 
   return Result.gen(function* () {
     const output: JsonObject[] = [];
     for (const row of rows) {
+      if (node.requireFields === true && [...node.fields].some(field => !Object.hasOwn(row, field))) return yield* Result.fail(commerceError("storedCorruption"));
       const projected = projectRowFields(row, node.fields);
       for (const child of node.children) {
         const value = row[child.name];
+        if (!child.many && child.optional === true && value === undefined) continue;
         if (child.many) {
           if (!Array.isArray(value) || !value.every(isJsonObject)) return yield* Result.fail(commerceError("storedCorruption"));
           projected[child.name] = yield* projectRows(value, child.node);

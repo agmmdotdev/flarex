@@ -1,8 +1,9 @@
 import { Effect, Schema } from "effect";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceDecoder } from "./commerce-decoder";
-import { currencyAnnouncementWrite, currencyCommands } from "./currency-service";
+import { currencyAnnouncementWrite, currencyCommands, currencyGraph } from "./currency-service";
 import { makeLocalProductCommands } from "./product-service";
+import { prepareLocalGraph } from "./local-graph/query";
 
 const decode = commerceDecoder(Schema.Struct({
   categoryPrefix: Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]{0,39}$/)),
@@ -16,6 +17,10 @@ export const makeCategoryCurrencyAtomicCommand = Effect.fn("CommerceAdapter.cate
   const product = yield* makeLocalProductCommands();
   const productParticipant = defineAtomicCommerceParticipant("product");
   const currencyParticipant = defineAtomicCommerceParticipant("currency");
+  const currencyQueries = yield* Effect.fromResult(currencyGraph);
+  const graph = yield* Effect.fromResult(prepareLocalGraph([
+    { participant: productParticipant, module: product.graph }, { participant: currencyParticipant, module: currencyQueries },
+  ]));
   const command = defineAtomicCommerceCommand("createCategoryWithCurrency", Effect.fn("CommerceAdapter.createCategoryWithCurrency")(function* (ctx, input) {
     const args = yield* Effect.fromResult(decode(input));
     const parentId = `${args.categoryPrefix}-parent`;
@@ -28,7 +33,13 @@ export const makeCategoryCurrencyAtomicCommand = Effect.fn("CommerceAdapter.cate
     const reread = yield* ctx.call(currencyParticipant, currencyCommands.retrieve, { code: args.currency.code });
     return { parent, child, currency, tree, counted, reread };
   }));
-  return { command, productParticipant, currencyParticipant,
-    productCommands: [product.commands.internalCategoryCreate, product.commands.internalCategoryRetrieve, product.commands.internalCategoryCount],
-    currencyCommands: [currencyAnnouncementWrite, currencyCommands.retrieve] };
+  return { command, productParticipant, currencyParticipant, graph,
+    productCommands: [product.commands.internalCategoryCreate, product.commands.internalCategoryRetrieve, product.commands.internalCategoryCount,
+      ...product.graph.reads.map(read => read.command)],
+    currencyCommands: [currencyAnnouncementWrite, currencyCommands.retrieve, ...currencyQueries.reads.map(read => read.command)],
+    // Additional fixture setup is admitted explicitly by its test host, not by
+    // the ordinary Category/Currency proof command's registration.
+    graphFixtures: { create: product.commands.create, tags: product.commands.createTags,
+      types: product.commands.createTypes, collections: product.commands.createCollections },
+  };
 });

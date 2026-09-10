@@ -2,15 +2,15 @@
 
 ## Status And Recommendation
 
-Status: source preflight complete; this capability is recommended and awaits
-implementation approval. It is not an implemented Query API. The
+Status: the approved source-private capability is implemented, validated on
+PGlite and ordinary-role PostgreSQL, and reviewed. The
 [folder index](./README.md) owns sequencing, and
 [atomic composition](./09-atomic-composition.md) owns execution authority.
 
-Add one source-private Graph Query facade in the Medusa adapter, bound to the
-existing atomic command context. Prepare checked entry points once; execute
-registered module reads with fresh scoped services. Reuse the current read
-executor, relation population, service semantics and transaction owner. This
+The source-private Graph Query facade in the Medusa adapter binds to the
+existing atomic command context. It prepares checked entry points once and
+executes registered module reads with fresh scoped services. It reuses the current
+read executor, relation population, service semantics and transaction owner. This
 capability needs no Task extension, database schema change, new lock owner, or
 relational OCC implementation.
 
@@ -46,7 +46,7 @@ behavior. Implementing remote joins or another relational reader adds owners
 without serving the first consumer. A checked facade over existing module
 reads is the recommended middle ground.
 
-## Proposed Contract
+## Supported Contract
 
 ### Preparation And Authority
 
@@ -70,7 +70,12 @@ set. A name cannot select another scope, installation, profile or operation.
 
 ### Input And Result
 
-These names illustrate the proposed surface; they are not existing exports:
+Prepare the registry with
+[prepareLocalGraph](../../packages/medusa-adapter/src/local-graph/query.ts).
+Product command preparation exposes its module-owned `graph` description;
+Currency exposes the checked `currencyGraph` definition. The composition root
+supplies participant tokens, and the host independently admits the read
+commands. These APIs remain source-private; no application ingress is added.
 
 ```ts
 const query = preparedGraph.bind(commandContext)
@@ -88,7 +93,7 @@ const result = yield* query.graph({
   legacy remote-query shapes and unsupported options rather than dropping them.
 - Require integer `pagination.take` within the selected profile's existing row
   bound; allow zero for an empty page with a count. Default `skip` to zero and
-  require a nonnegative safe integer. Reuse admitted ordering, with the root's
+  retain the existing zero-to-255 offset bound; take is zero-to-256. Reuse admitted ordering, with the root's
   stable identity as default and deterministic tie breaker before pagination.
   Refuse ordering that the read owner cannot express; never sort only an
   already paginated result.
@@ -128,6 +133,22 @@ the checked graph field mask. Reuse existing pure projection mechanics where
 their behavior matches. Do not pass unsupported dotted DAL selection through a
 fallback, reimplement tree hydration or add another relation loader.
 
+The connected reuse comparison includes `to-remote-query.ts` and
+`getAllRemoteFetchFieldsAndRelations`. The former constructs a RemoteJoiner
+object and also processes filters/context; the latter clones that expansion
+tree and returns dotted DAL selection plus remote arguments. Neither output is
+the admitted service projection contract here. The implementation instead
+reuses the already-promoted Medusa `toPopulateTree` algorithm and the existing
+shared `projectRows` executor. Adapter-owned work checks supported paths,
+expands node wildcards against checked columns and selects native output
+policy. No new source is promoted from the reference island.
+
+The shared projector has explicit native policies for required selected fields
+and an optional to-one relationship. Existing DAL plans omit those policies and
+retain their prior behavior. Graph preparation marks genuine read commands
+using their original core tokens; this adapter check neither issues installation
+authority nor replaces core command authentication.
+
 Expose selected fields and declared serialization companions. Identity or join
 keys needed only for hydration must not become output accidentally. Retain the
 existing validated `rounding`/`raw_rounding` representation when rounding is
@@ -153,9 +174,10 @@ result. Calls consume existing shared call, statement, time and byte limits.
 Capture caller input before yielding to foreign service code; retain no
 mutable caller configuration.
 
-Use the atomic refusal path for invalid input, unsupported capabilities and
-invalid service results, including failures before a child call or after
-result decoding. Catching a graph failure in business code must not clear
+Use the atomic refusal path once for graph-owned invalid input, unsupported
+capabilities and invalid service results, before a child call or after result
+decoding. Participant failures propagate their existing complete Cause without
+re-entering refusal. Catching a graph failure in business code must not clear
 rollback-only state. Cancellation and escaped or closed contexts remain with
 the existing lifetime owner.
 
@@ -177,19 +199,21 @@ dependencies or make a standalone query host transactional by wrapping it.
 | --- | --- |
 | Module definitions, checked DML and actual joiner aliases | Keep; extend preparation with an adapter-owned admitted graph description. Metadata stays separate from authority. |
 | Product/Currency services and registered read commands | Keep and invoke. Preserve supported standalone callers and specialized Category behavior. |
-| Shared reads, relation loader, projection and value codecs | Keep; reuse exact mechanics. Add a checked graph field plan and response adaptation without replacing storage semantics. |
+| Shared reads, Medusa path-tree helper, relation loader, projection and value codecs | Keep; reuse path normalization and recursive projection. Extend only explicit native response policies; existing DAL defaults and storage semantics remain unchanged. |
 | Pinned portable/full Query | Reference for syntax and characterization; do not promote either runtime wholesale. Exact pure extractions require existing provenance/promotion gates and retained tests. |
 | Atomic context, persistence, publisher and recovery | Keep unchanged. The facade belongs in `medusa-adapter`, not a new core query subsystem. |
 | Temporary probes or duplicated helpers introduced during implementation | Delete before completion. No stored schema or supported API is displaced by this capability. |
 
-## Completion Proof
+## Validation Contract
 
-Deliver one connected capability, including its consumer and failure cases;
+Maintain one connected capability, including its consumer and failure cases;
 registration, projection and integration are not separate approval gates.
 
 1. Characterize admitted pinned Query field, alias and pagination semantics.
    Cover every initial root, nested fields, wildcards, `code` keys, numeric
-   companions, Category trees, empty matches, counts and ordering. Refuse
+   companions, Category trees, empty matches, counts and ordering. Real-service
+   cases cover tied Category ranks before offset pagination and a populated
+   Product query with a zero-sized page. Refuse
    ambiguous aliases, invalid fields, unsupported options/filters, malformed
    input and invalid service responses. Prove input capture.
 2. Extend the real
@@ -222,5 +246,5 @@ it does not invent a relation between them.
 Defer `query.index`, GraphQL, remote transport, Query context, locale, cache,
 `throwIfKeyNotFound`, arbitrary operators, subscriptions, new modules, public
 ingress and production activation. No workflow SDK or native Task changes are
-part of this proposal. Events, hooks and workflow compatibility retain the
+part of this capability. Events, hooks and workflow compatibility retain the
 gates in [Medusa workflow integration](./10-medusa-workflow-integration.md).

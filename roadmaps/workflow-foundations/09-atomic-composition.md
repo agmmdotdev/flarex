@@ -326,7 +326,7 @@ Under SQL composition, Graph Query uses the command transaction. Under a future
 native profile it must use the attempt snapshot, overlay and dependencies.
 Neither path may cache results across attempts or independently acquire a
 transaction inside a graph traversal.
-[Topic 06](./06-local-graph-query.md) retains the exact API preflight.
+[Topic 06](./06-local-graph-query.md) owns the implemented private graph contract.
 
 ## Convex Compatibility And Flarex Divergences
 
@@ -396,7 +396,8 @@ the same logical workload and invariants. Establish performance budgets before
 interpreting results. Uncoordinated read-committed SQL is not an equivalent
 baseline for serializable native execution.
 
-The next workflow-foundation preflight is Local Graph Query over this context.
+The private [Local Graph Query capability](./06-local-graph-query.md) now binds
+checked module reads to this context and shares its existing limits and replay.
 The first original Medusa workflow also depends on the proven execution owner.
 Grouped durable events remain necessary for that workflow. Their dispatcher
 can reuse native delivery capabilities without making the atomic command a
