@@ -20,17 +20,21 @@ representations and convert only at the owning boundary.
 
 Use `Result<A, E>` when recoverable success or failure is deliberately a pure
 value. This is appropriate for synchronous validation, batch-item outcomes, or
-parsing that must accumulate failures without an Effect runtime.
+parsing without an Effect runtime. Result does not itself accumulate failures;
+choose an explicit collection or decoder error policy when accumulation is
+required.
 
 ```ts
-function decodeOperation(input: unknown): Result.Result<Operation, DecodeError> {
-  return isOperation(input)
-    ? Result.succeed(input)
-    : Result.fail(new DecodeError({ input }))
-}
+const parseOperation = Schema.decodeUnknownResult(OperationSchema)
+const decodeOperation = (input: unknown): Result.Result<Operation, DecodeError> =>
+  parseOperation(input).pipe(Result.mapError(cause => new DecodeError({ cause })))
 
 const operationEffect = Effect.fromResult(decodeOperation(input))
 ```
+
+Schema owns the data contract; Result carries the pure parse verdict. Reuse an
+existing authoritative validator such as ValidatorJson where its exact semantics
+are required, rather than adding a parallel Schema merely for consistency.
 
 Do not convert an Effect to Result just to branch and immediately rebuild the
 failure channel.
@@ -58,11 +62,14 @@ current Flarex candidates and version-correct rewrites.
 
 ## Schema Boundaries
 
+- Use Schema by default for runtime structure and intrinsic value invariants;
+  derive types from that owner where possible. Document concrete custom capture
+  or protocol reasons when retaining handwritten structural validation.
 - Prefer Effect-returning Schema decoders inside Effect-native flows.
 - Hoist stable decoders and encoders out of request loops.
 - Compile dynamic schemas once at their narrowest stable factory boundary.
-- Keep throwing synchronous decoders only as pure or compatibility boundaries,
-  not as the default internal API for Effect services.
+- Keep throwing synchronous decoders only at deliberate startup/framework or
+  compatibility boundaries, not as the default internal API for Effect services.
 - Preserve Flarex `ValidatorJson`, protocol-owned `{ ok }` unions, encoded wire
   shapes, and trusted corruption checks; library uniformity does not override
   those contracts.

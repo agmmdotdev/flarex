@@ -21,6 +21,11 @@ the check proves and which boundary owns that claim.
 | Process-local capability authenticity | Issuer-owned identity/WeakMap inspection | This exact handle was issued by this process and lifecycle owner |
 | Trusted invariant that cannot fail without a bug | Defect or startup failure | The program or accepted configuration is internally inconsistent |
 
+Schema and Result/Effect answer different questions: the schema owns the data
+contract, while Result or Effect carries its decode outcome. Pure structural
+validation can and normally should use Schema.decodeUnknownResult; returning
+Result alone does not justify hand-coding a second field validator.
+
 Schema is strongest at data boundaries. It is not a universal authorization
 engine, capability system, or replacement for explicit domain decisions.
 
@@ -50,6 +55,10 @@ Use a stable Schema for properties intrinsic to a value:
 - brands that mark successful structural or value-level decoding; and
 - stable cross-field invariants such as `expiresAt > issuedAt` when that rule
   is part of the value's definition.
+
+Establish primitive types before lexical refinements; a bare regex test can
+coerce undefined or a number into text. Preserve excess-key, optional/null,
+coercion, first-failure and safe-capture contracts when changing decoders.
 
 Inside Effect code, prefer a hoisted Effect-returning decoder:
 
@@ -207,6 +216,12 @@ transaction-grant slice. A behavior-changing port still requires its own
 preflight and focused verification.
 
 ## Review Checklist
+
+For each new or materially changed data boundary, name its Schema/authoritative
+decoder or concrete custom-boundary reason, including when the diff imports no
+Schema. A boolean return or static annotation alone is not an exemption. Keep
+no-getter capture and issuer identity checks when those stronger claims are
+required; do not add duplicate decoding to already-established values.
 
 For each touched validation flow, reviewers should ask:
 

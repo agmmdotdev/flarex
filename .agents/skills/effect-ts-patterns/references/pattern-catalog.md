@@ -14,7 +14,7 @@ construct. Confirm exact names against the installed Effect version.
 - Runtime and HTTP boundaries
 - Encoded data and database codecs
 - Runtime immutability and value ownership
-- Schema, Config, and tests
+- Schema, Config, and tests (data contracts and decoding API selection)
 - Active review checklist
 
 ## Function boundaries and composition
@@ -83,6 +83,10 @@ failure appears identical.
 
 ## Option, Result or Either, and Exit
 
+These are outcome representations, not substitutes for Schema. When a value
+comes from a runtime data boundary, identify its authoritative schema/decoder
+first; then choose the appropriate carrier for success, absence or failure.
+
 ### Option
 
 Use `Option<A>` for composable absence without an error reason. Convert nullable
@@ -134,11 +138,14 @@ Do not normalize defects or interruption into ordinary business failures.
 - Map throwing and rejecting foreign APIs once with the installed Effect
   constructor at the narrowest foreign boundary.
 - Emit tagged errors at their source and propagate them without repeated
-  downstream wrapping.
+  downstream wrapping. Translate once when a different domain/host contract
+  requires its own projection; preserve provenance and unexpected defects.
 - Recover by tag in domain flow. Use a broad typed catch only at a boundary
   intentionally converting the whole failure channel.
 - Retry only transient failures and only when repeating the operation is safe;
-  bound the schedule.
+  bound the schedule and recheck eligibility after every failure. A terminal
+  failure reached after a transient one must stop immediately. Durable retry
+  evidence remains with the durable owner.
 - Observe defects and full Causes at runtime or integration boundaries rather
   than treating them as normal domain control flow.
 
@@ -253,6 +260,20 @@ Do not normalize defects or interruption into ordinary business failures.
 
 ## Schema, Config, and tests
 
+Read [data-contracts.md](data-contracts.md) for data-boundary work. Use Schema
+by default for runtime field structure, primitive constraints, encoded forms and
+intrinsic cross-field invariants. Derive validated types from that owner where
+possible. A pure Result decoder may still be Schema-based; returning Result or
+boolean does not justify duplicating structural validation by hand.
+
+Use decodeUnknownEffect for direct Effect composition, decodeUnknownResult for
+a deliberately pure data contract, and Schema.is for membership alone. Keep
+throwing decoders at explicit startup/framework/compatibility boundaries.
+Record a concrete reason for custom validation/capture, such as canonical
+protocol behavior, getter avoidance or issuer identity. Current authorization,
+clock and transaction decisions remain contextual checks after structural decode.
+
+
 - Hoist stable Schema decoders and encoders out of per-request paths and loops.
   Compile dynamic schemas once at the narrowest stable factory boundary.
 - Prefer Effect-returning Schema operations inside Effect code so decoding
@@ -273,6 +294,10 @@ Do not normalize defects or interruption into ordinary business failures.
 
 Inspect the changed code plus its smallest connected flow and ask:
 
+- Which schema/authoritative decoder owns each changed data boundary? Is a
+  handwritten predicate duplicating it, or preserving a concrete custom contract?
+- Are types derived from the validation owner, with required/optional fields,
+  excess keys, coercion, transforms and malformed-data tests in agreement?
 - Is a reusable Effect operation hidden in a plain wrapper returning
   `Effect.gen`?
 - Would Option clarify intentional absence without erasing a needed reason?

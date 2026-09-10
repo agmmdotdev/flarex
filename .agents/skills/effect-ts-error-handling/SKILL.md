@@ -1,148 +1,153 @@
 ---
 name: effect-ts-error-handling
-description: Apply version-correct Effect TypeScript error-handling patterns for typed domain errors, recoverable versus non-recoverable failures, foreign error mapping, retries, and boundary-safe logging. Use when refactoring async or try/catch code into Effect pipelines, designing service errors, adding catch or retry logic, converting failures to Result, Option, or Exit, or reviewing Effect error code for anti-patterns.
+description: Design and review Effect failure semantics, including Schema parse failures, pure Result verdicts, ordinary Option absence, typed domain errors, foreign throws/rejections, retry, timeout, cancellation and full Exit/Cause outcomes. Use when adding or changing failure classification, recovery, boundary conversion or logging; preserve defects and lifecycle ownership instead of wrapping ordinary code in broad catches.
 ---
 
-# Effect-TS Error Handling
+# Effect TypeScript Error Handling
 
-Use this skill to make error handling explicit, typed, and composable in Effect-TS code.
+Classify each failure at its source before choosing its representation or
+recovery. Preserve the error's meaning across Schema, Result, Effect and the
+outer runtime. Follow repository contracts and the installed Effect version;
+examples in the linked reference target Effect v4.
 
-## Execute the workflow
+## Choose what the outcome means
 
-1. Classify failures before coding.
-2. Model domain failures as tagged errors at the first failing boundary.
-3. Keep one runtime boundary per handler.
-4. Inspect the installed Effect version and recover explicitly with its catch
-   operators.
-5. Retry only transient failures with a schedule.
-6. Observe defects at boundaries, not in domain flow.
-7. Verify type precision for `E` and dependency precision for `R`.
+| Situation | Use | Do not |
+| --- | --- | --- |
+| Unknown data violates a runtime contract | Schema decoder, with the owner's input/corruption error | Handwrite the same fields in a parallel interface/predicate, or catch all defects as invalid input |
+| Pure recoverable validation/policy verdict retained as data | Result<A, E> | Treat Result as an alternative to having a schema |
+| Expected failure while executing a domain/service operation | Effect failure channel E | Return Exit or an ad-hoc success/error union from every method |
+| Expected missing value with no error reason | Option<A> | Convert invalid data, permission denial, corruption or transport failure into None |
+| Full completion, including defect and interruption | Exit<A, E> and Cause at an owning boundary | Collapse a combined Cause into whichever error is easiest to extract |
+| In-process domain/integration error | Data.TaggedError or the established tagged contract | Introduce a broad Error or unknown channel to make types compile |
+| Error payload must itself be encoded/decoded | Schema-backed tagged error and an explicit wire projection | Serialize arbitrary exception causes or change an existing public error contract |
+| Unexpected bug/invariant failure | Defect | Normalize it as a retryable business failure |
+| Cancellation | Interruption with scoped cleanup | Convert it into ordinary success, absence, or retry eligibility |
 
-## Classify failures
+For data-contract and composition decisions, apply the sibling
+[effect-ts-patterns](../effect-ts-patterns/SKILL.md) skill and its
+[data-contract reference](../effect-ts-patterns/references/data-contracts.md).
+Read [effect-error-patterns.md](references/effect-error-patterns.md) for examples.
 
-Classify each failure as one of the following:
-- Domain error: expected business failure, recoverable (`Effect.fail`).
-- External transient error: network, timeout, rate limit, potentially retryable.
-- External terminal error: invalid credentials, invalid payload, non-retryable.
-- Defect: bug or impossible state (`Effect.die`), not regular control flow.
+## Decode and classify once at the right boundary
 
-Design recovery strategy from this classification before writing operators.
+Schema owns structure, encoded form and intrinsic value invariants. Compile its
+decoder once. Use decodeUnknownEffect when the boundary owns Effect failures;
+use decodeUnknownResult for a deliberately pure decoder shared by consumers,
+then enter Effect once with Effect.fromResult.
 
-## Preserve composition semantics
+A parsing failure and a current authorization/lease/epoch failure have different
+owners. Keep contextual checks after decoding; do not label all refusals
+invalidSchema. Preserve canonical codecs, no-getter capture and issuer identity
+where their contracts require special mechanics.
 
-Choose composition by dependency and evaluation behavior, not by a preference
-for pipelines. Use a short `map` / `flatMap` pipeline for one linear
-transformation or dependent step. Use the installed `Result.gen`, `Option.gen`,
-or `Effect.gen` when several values must be unwrapped in order or later work
-must not occur after an earlier failure or absence.
+Map each foreign throw/rejected Promise at its narrow adapter:
 
-Use `all` only for independent members whose ordering, accumulation,
-concurrency, interruption, allocation, and failure selection match the
-contract. Array and record expressions passed to `Result.all` or `Option.all`
-are evaluated before the combinator can short-circuit; `Effect` values are lazy,
-but ordinary JavaScript used to construct their collection is not. Keep `Exit`
-at the runtime or diagnostic boundary that owns its complete `Cause`; do not
-turn it into an ordinary sequencing abstraction. Refactor the whole flow rather
-than mechanically replacing every propagation guard, and preserve the original
-call order and first-failure behavior.
+- Expected driver/provider failures become a precise tagged failure.
+- Already-classified domain failures propagate without redundant wrapping.
+- Unexpected defects stay defects when the boundary can distinguish them.
+- A foreign library may intentionally report all failures through rejection;
+  classify that documented boundary rather than applying a universal
+  instanceof Error rule.
 
-## Model typed errors
+Effect.sync describes deferred synchronous work whose unexpected throw is a
+defect. Effect.try and Effect.tryPromise classify actual foreign throws or
+rejections. Do not wrap owned validation plus domain orchestration in one broad
+catch. Effect.promise is only for a boundary whose Promise cannot reject under
+its contract; otherwise use the typed adapter.
 
-Use tagged errors for every domain and integration boundary.
+A deliberate public/host/domain projection may translate tagged failures once
+and retain the original cause. "Never map an already-tagged error" is too broad:
+the real prohibition is redundant remapping within the same owning contract.
 
-```ts
-import { Data } from "effect"
+## Choose composition and recovery
 
-export class ConversationNotFoundError extends Data.TaggedError("ConversationNotFoundError")<{
-  conversationId: string
-}> {}
+| Intent | Construct |
+| --- | --- |
+| One success/failure transformation | map, flatMap or mapError in a focused pipeline |
+| Several dependent successes or validations | Effect.gen, Result.gen or Option.gen for the representation involved |
+| Recover one or several known domain variants | catchTag or catchTags |
+| Translate an error without recovery | mapError at the owner-changing boundary |
+| Both branches produce plain data | match/fold; Effect.match for Effects |
+| Both branches execute Effects | Effect.matchEffect or focused recovery |
+| Boundary deliberately owns every typed failure | v4 Effect.catch; v3 catchAll |
+| Boundary must handle the whole Cause | Installed catchCause/Exit facilities; preserve interruption and unrelated defects |
+| Observe without changing the outcome | Appropriate tap/logging operation at its diagnostic owner |
 
-export class FacebookSendError extends Data.TaggedError("FacebookSendError")<{
-  pageId: string
-  senderId: string
-  isRetryable: boolean
-  cause: unknown
-}> {}
-```
+Keep E intact through ordinary composition. Do not call Effect.result,
+Effect.option or Effect.exit merely to inspect an outcome and rebuild the same
+success/failure channel. Use these conversions only when their resulting data
+is the actual contract. Recover absence from the specific missing-value error,
+not from all failures.
 
-Prefer narrow, meaningful fields over generic `message: string` errors.
+Result and Option collections are eager when their array/record is constructed.
+Use gen or a lazy iterable when later validation calls must not run after the
+first rejection. Effect.all must preserve the operation's concurrency and
+cancellation contract; it does not make a database transaction parallel-safe.
+Do not mechanically replace every guard with a pipeline.
 
-## Emit tagged errors at source
+## Retry and timeout are behavioral contracts
 
-Create the tagged error where the failure first occurs (service boundary, API boundary, DB boundary, parser boundary).
-Do not re-wrap or re-map the same failure in downstream orchestration steps.
+Before retry, establish all of:
 
-Good pattern:
-- Source function maps unknown/foreign failures once into a domain tagged error.
-- Callers `yield*` that effect and optionally `tapError` for logs.
-- Recovery is done with `catchTag` or `catchTags` at intended boundaries.
+1. The exact retryable variants, checked on EVERY failed attempt.
+2. An attempt/deadline bound, appropriate delay and cancellation ownership.
+3. Idempotency or reconciliation for effects that may already have happened.
+4. The final error/outcome when the budget is exhausted.
 
-Avoid this anti-pattern:
-- Step A emits `GenerateAiResponseError`.
-- Step B catches and maps it again to another `GenerateAiResponseError` with duplicated context.
-- Result: noisy stack traces, duplicated mapping logic, and weaker error provenance.
+Do not check one initial error and then run an unrestricted retry policy: a
+later terminal failure must stop immediately. Use the installed retry predicate
+together with the bounded Schedule/options. Do not invent a fresh outer retry
+around an operation that already owns retry or uncertain-commit recovery.
 
-## Choose catch operators intentionally
+Effect Schedule handles an in-process policy. Persisted retries, wakeups, leases
+and fences remain with the durable owner; an in-memory retry loop cannot replace
+that evidence. Preserve database-authoritative time where required.
 
-Use the operator that matches intent. `Effect.catchTag` and
-`Effect.catchTags` are available across the relevant versions. For the broader
-operators, inspect the installed version:
+Timeout/interruption does not prove a foreign operation stopped or a commit did
+not happen. Signal cancellation and drain/join or quarantine according to its
+resource contract. Use recovery/reconciliation for uncertain settlement rather
+than executing a mutation again blindly.
 
-- Effect v4: `Effect.catch`, `Effect.catchCause`, `Effect.catchDefect`, and
-  `Effect.catchFilter`.
-- Effect v3: `Effect.catchAll`, `Effect.catchAllCause`, and the matching
-  `catchSome*` family.
+## Resource and authority failures stay sticky when the owner requires it
 
-Do not copy v3 operator names into a v4 workspace or vice versa. Use
-Cause-aware and defect recovery sparingly at diagnostics and integration
-boundaries.
+A callback may catch a rejected Promise. If an invalid operation must poison
+the root transaction/request, the resource adapter must register the refusal
+with that owner before exposing rejection. This includes validation that fails
+before a database call. Returning a typed error alone does not latch failure.
 
-Prefer `catchTag` or `catchTags` for domain logic because they preserve error intent.
+Preserve the first complete Cause where the owner promises it. Propagate
+already-latched participant failures; do not catch and rebuild them merely to
+re-register refusal. Revoked/foreign handles cannot inspect or change another
+request's failure state.
 
-## Apply retries safely
+Use Scope/acquire-release and owned fibers for cleanup. Keep runtime runners at
+actual executable/foreign callback edges. Compose services and Layers at the
+host/test boundary instead of provisioning dependencies repeatedly in business
+pipelines.
 
-Retry only when the error is transient and the side effect is safe to retry.
+## Observe at the diagnostic owner
 
-```ts
-import { Effect, Schedule } from "effect"
+Use Effect logging/tracing and failure/Cause taps at the boundary that owns
+reporting. Log useful operation and correlation fields with explicit redaction;
+do not dump raw inputs, secrets or arbitrary cause objects into public output.
+Avoid duplicate logs at every propagation step. Diagnostic effects must have a
+deliberate failure policy so a logging failure does not accidentally replace the
+original outcome. Defects and interruption remain distinct in full-Cause reports.
 
-const retryPolicy = Schedule.exponential("100 millis")
+## Review and verify
 
-const sendWithRetry = sendMessageEffect.pipe(
-  Effect.catchTag("FacebookSendError", (error) =>
-    error.isRetryable
-      ? sendMessageEffect.pipe(Effect.retry(retryPolicy))
-      : Effect.fail(error),
-  ),
-)
-```
+For each changed boundary, identify its input schema/decoder, expected E,
+ordinary absence, defects, interruption and any intentional conversion. Check
+missing abstractions as well as existing imports.
 
-Cap retries and route exhausted attempts to a typed terminal state.
+Verify relevant behavior with focused cases: malformed and omitted data;
+expected failure versus defect; a transient failure followed by a terminal one;
+retry exhaustion; cancellation and cleanup; caught callback rejection; and
+uncertain settlement/replay when the operation owns those semantics.
+Do not require every case for a small unrelated edit.
 
-## Keep runtime boundaries clean
-
-Use one runtime boundary at each public entrypoint (`runPromise` or project helper).
-Do not inject dependencies inside business pipelines with `Effect.provideService`.
-Compose layers once at module boundaries and keep domain code dependency-declared.
-
-## Observe defects and causes
-
-Inspect defects with the installed version's Cause operators, `sandbox`,
-`exit`, or defect-tap operators at boundaries.
-Log defects with Effect logging APIs and avoid `console.*` in production paths.
-Treat defects as signals to fix code paths, not as normal recoverable business outcomes.
-
-## Run review checklist
-
-Before finalizing changes, verify all items:
-- No `throw` for domain flow.
-- No broad `try/catch` around Effect pipelines.
-- No conversion to untyped `Error` where domain context is needed.
-- No retry loop for clearly terminal failures.
-- No nested runtime boundaries in one request path.
-- All recovery branches keep typed error semantics explicit.
-- No downstream `Effect.mapError` remapping of already-tagged domain errors.
-
-## Load detailed patterns
-
-Read `references/effect-error-patterns.md` for decision tables, templates, and anti-pattern rewrites.
+Tests should assert typed failures or full Causes at the appropriate level.
+Prefer Effect-aware tests and TestClock where available. Keep one explicit test
+runtime bridge where the package needs it. Report concrete bounded violations
+and justified exceptions; green typechecking/lint alone is not semantic review.

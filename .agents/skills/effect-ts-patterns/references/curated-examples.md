@@ -9,6 +9,7 @@ unchanged. Confirm exact APIs against the installed Effect version.
 - Source roles
 - Reusable Effect function instead of a wrapper
 - Choosing pipe, gen, and all by semantics
+- Schema for data, Result or Effect for the parse outcome
 - Result for pure validation data
 - Result at a deliberate Promise boundary
 - Option for intentional absence
@@ -19,16 +20,17 @@ unchanged. Confirm exact APIs against the installed Effect version.
 
 ## Source roles
 
-- Portable API authority: Effect-smol `LLMS.md`, `.patterns/effect.md`, and
-  `packages/effect/src/{Effect,Option,Result,Exit}.ts`.
+- API authority: installed Effect source/types and the canonical Effect
+  repository. Effect-smol snapshots are historical examples, not authority
+  for a later installed release.
 - Flarex contract evidence: `packages/flarex-protocol/src/validator-engine.ts`,
   `packages/flarex-protocol/src/live-query.ts`, and
   `apps/runtime-topology-probe/src/effectBoundary.ts`.
 - Application evidence: T3 Code `VcsProcess.ts`, `ApnsClient.ts`,
   `EnvironmentConnector.ts`, `DpopProofs.ts`, and relay `observability.ts`.
 
-Effect-smol defines the APIs. Flarex decides its public and trust-boundary
-contracts. T3 Code shows realistic composition, but its own
+The installed Effect version defines available APIs. Flarex decides its public
+and trust-boundary contracts. T3 Code shows realistic composition, but its own
 `docs/operations/effect-fn-checklist.md` records unfinished wrapper debt, so it
 must never be treated as uniformly correct precedent.
 
@@ -120,6 +122,19 @@ This follows Effect-smol's `Effect.fn` guidance and Flarex's committed
 internal stack boundary without a span, and use `fnUntraced` only with a
 concrete instrumentation or hot-path reason.
 
+## Schema for data, Result or Effect for the parse outcome
+
+Use the [data-contract guide](data-contracts.md) and the sibling error skill's
+[Schema example](../../effect-ts-error-handling/references/effect-error-patterns.md).
+That example declares one required-name/bounded-attempt schema, derives its
+TypeScript type, decodes to Result and enters Effect once. Schema and Result
+solve different parts of the same boundary.
+
+A stored-state union with intrinsic field relationships is another Schema
+candidate. Current lease validity and process-local handle authenticity remain
+explicit operations. Preserve no-getter capture and canonical codecs when their
+semantics exceed ordinary structural decoding.
+
 ## Result for pure validation data
 
 Flarex's validator engine is synchronous and pure. It returns a value-level
@@ -134,6 +149,10 @@ function validate(value: Value): Result.Result<void, ValidationError> {
   return Result.succeed(undefined)
 }
 ```
+
+Here the existing ValidatorJson engine owns validation semantics; Result is
+its outcome type. New ordinary structural contracts should use Schema rather
+than copying this manual guard as a universal decoder pattern.
 
 This is a strong `Result` use: no async work, cancellation, service
 requirements, or defects are being modeled. A throwing compatibility API may
@@ -169,11 +188,14 @@ usually need the typed `E` channel.
 
 ## Option for intentional absence
 
-T3 Code compiles an APNs error-body decoder once and uses `Option.match` to
-fold invalid or absent decoded data into a protocol fallback:
+An APNs-style adapter can compile a JSON-text error-body decoder once and use
+`Option.match` when its protocol deliberately treats malformed/absent details
+as a fallback. This is a lossy boundary choice, not general validation:
 
 ```ts
-const decodeErrorBody = Schema.decodeUnknownOption(ErrorBodySchema)
+const decodeErrorBody = Schema.decodeUnknownOption(
+  Schema.fromJsonString(ErrorBodySchema),
+)
 
 function reasonFromBody(body: string): string | undefined {
   if (body.trim() === "") return undefined

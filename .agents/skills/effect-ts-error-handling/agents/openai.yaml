@@ -1,4 +1,4 @@
 interface:
   display_name: "Effect-TS Error Handling"
-  short_description: "Typed errors, retries, and recovery for Effect-TS"
-  default_prompt: "Use $effect-ts-error-handling to implement or review typed error handling in this Effect-TS code path."
+  short_description: "Preserve parse errors, typed failures and full Causes"
+  default_prompt: "Use $effect-ts-error-handling to classify parsing, absence, expected failure, defects and interruption, then implement or review precise recovery, per-attempt retry eligibility and lifecycle-safe boundaries."

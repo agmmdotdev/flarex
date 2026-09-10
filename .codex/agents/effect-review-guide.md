@@ -29,6 +29,14 @@ same approved slice when focused validation exists. Do not expand into an
 unapproved package migration or change a public contract, trust boundary,
 transaction boundary, or lifecycle owner without a new preflight.
 
+For each new or materially changed data boundary, identify its named Schema or
+existing authoritative decoder, or state the concrete reason for custom capture
+or validation. Assess this even when no Schema is imported. A boolean return,
+handwritten interface, or Result/Effect wrapper is not evidence of a runtime
+data contract. Schema owns declared data shape and intrinsic invariants;
+Result/Effect owns how decoding failures are carried. Preserve existing
+ValidatorJson, canonical codecs, identity checks and safe-capture semantics.
+
 ## Authority And Evidence
 
 Apply these sources in order:
@@ -184,7 +192,10 @@ when the dependency changes.
   one linear transformation or dependent step, and the installed `gen` for
   several named or dependent successes whose order matters.
 - Map foreign throws and rejected promises once at their narrow source. Emit
-  tagged errors there and do not repeatedly rewrap them downstream.
+  tagged errors there; retain an explicit projection when a different domain
+  or host contract requires it, without repeatedly rewrapping the same error.
+- Check retry eligibility on every failed attempt, not only the initial error.
+  Preserve idempotency, uncertain outcomes and the durable retry owner.
 - For Drizzle work, read
   `roadmaps/effect-native-guidance/09-drizzle-effect-postgres.md`. Do not demand
   removal of the one necessary Promise adapter while Flarex remains on Drizzle
@@ -235,10 +246,11 @@ The TypeScript reviewer owns the Effect-applicability assessment for every
 materially changed TypeScript operation, including code initially written with
 plain Promise, async/try/catch, throws, nullability, ad-hoc outcomes, or manual
 dependency threading. It must recommend a bounded transformation when the
-operation's recoverable failure, async/cancellation, capability, lifecycle, or
-domain-service semantics call for Effect, Result, Option, a service, or a
-Layer. Existing Effect imports are not a prerequisite. Pure total helpers,
-simple guards, protocol-owned shapes, framework-required signatures, deliberate
+operation's data contract, recoverable failure, async/cancellation, capability,
+lifecycle, or domain-service semantics call for Schema, Effect, Result, Option,
+a service, or a Layer. Existing Effect imports are not a prerequisite. Pure
+total helpers, simple guards, protocol-owned shapes, framework-required
+signatures, deliberate
 compatibility wrappers, defects, and narrow foreign adapters remain plain when
 their contracts require it; this is not permission for a package-wide
 migration.
@@ -271,6 +283,18 @@ For every TypeScript diff, the reviewer reports its applicability pass:
 Effect applicability: 9 operations assessed; 2 transformations recommended; 1 deliberate Promise boundary inspected.
 ```
 
+Report data-contract applicability separately for changed validation and data
+boundaries. Name each Schema/decoder or the concrete custom-boundary reason;
+use "none in scope" when no data boundary changed. For example:
+
+```text
+Data-contract applicability: request -> RequestSchema; stored row -> DeliverySchema; opaque handle -> issuer identity check; one handwritten structural gap reported.
+```
+
+Also assess outcome, composition and service/lifetime choices from semantics.
+Do not demand Option or Exit when their absence/full-Cause semantics are absent.
+Green lint or a count of Schema imports does not prove this applicability pass.
+
 When Effect is used or should be used, the TypeScript reviewer also reports one
 compact line covering changed constructs and the directly connected touched
 flow:
@@ -287,8 +311,8 @@ Label pre-existing findings `Touched-flow debt (pre-existing)` and explain the
 connection plus the smallest safe correction.
 
 A changed plain TypeScript flow that semantically requires an Effect-native
-operation, Result, Option, service, or Layer is a reportable violation even if
-no changed file imports Effect. The finding must name the semantic reason and
+operation, Schema, Result, Option, service, or Layer is a reportable violation
+even if no changed file imports Effect. The finding must name the semantic reason and
 the smallest target transformation; a generic preference for Effect syntax is
 not sufficient.
 

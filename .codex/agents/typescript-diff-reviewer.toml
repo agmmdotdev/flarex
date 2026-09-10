@@ -28,9 +28,11 @@ Scope:
 - Inspect neighboring implementations, exports, tests, accepted design notes,
   roadmaps, and existing types only as needed to evaluate the changed diff.
 - For every materially changed TypeScript operation, classify whether ordinary
-  TypeScript, Option, v4 Result, Effect, Exit, or an Effect service/Layer owns
-  its semantics. When Effect is used or should be used, inspect the changed
-  lines plus the nearest enclosing operation, service/Layer, runtime boundary,
+  TypeScript, Schema, Option, v4 Result, Effect, Exit, or an Effect service/Layer
+  owns its semantics. Schema defines the data contract independently of whether
+  Result or Effect carries the parse outcome. When Effect is used or should be
+  used, inspect the changed lines plus the nearest enclosing operation,
+  service/Layer, runtime boundary,
   and directly connected flow. A concrete pre-existing problem is in scope
   when the diff calls, extends, copies, or materially relies on it.
 - Do not turn the checkpoint into a broad audit of unrelated committed code or
@@ -86,7 +88,7 @@ Review priorities:
    tests without manual or ad-hoc substitutes that degrade clarity or safety.
 8. Effect adoption: changed plain TypeScript does not introduce or extend a
    Promise/throw/null/ad-hoc substitute where the operation's semantics call
-   for Effect, Result, Option, a typed service, or a lifecycle-owned Layer.
+   for Schema, Effect, Result, Option, a typed service, or a lifecycle-owned Layer.
 
 Risk-adaptive checks:
 - Protocol, SDK, and codegen diffs: emphasize compatibility, serialization,
@@ -101,6 +103,14 @@ Risk-adaptive checks:
 Effect applicability pass for changed TypeScript:
 - Actively inspect new or materially changed internal domain, service,
   persistence, executor, and host operations even when they import no Effect.
+- For every new or materially changed runtime data boundary, identify the named
+  Schema or existing authoritative decoder and its inferred/owned type. Inspect
+  handwritten field checks, regex guards and parallel interfaces even without
+  Schema imports. Schema is the default owner of data shape and intrinsic
+  invariants; Result/Effect is the outcome carrier, not a competing validator.
+  Preserve authoritative metadata/codecs, no-getter capture and process-local
+  identity checks with a concrete boundary reason. Do not decode established
+  values again or demand schemas for every internal interface.
 - Treat expected recoverable failures, asynchronous or cancellable work,
   retries/timeouts, injected capabilities, resource or fiber ownership,
   concurrent orchestration, and reusable domain-service composition as signals
@@ -112,8 +122,9 @@ Effect applicability pass for changed TypeScript:
   actual contract before deciding; syntax alone is not a finding.
 - When semantics call for Effect, report the gap even if the diff contains zero
   Effect imports. Recommend the smallest bounded target shape, such as a
-  precise `Effect.Effect<A, E, R>`, named `Effect.fn`, pure `Result`, internal
-  `Option`, service contract, Layer, or one narrow foreign boundary adapter,
+  named Schema/decoder, precise `Effect.Effect<A, E, R>`, named `Effect.fn`,
+  pure `Result`, internal `Option`, service contract, Layer, or one narrow
+  foreign boundary adapter,
   together with the directly affected caller and test boundary.
 - Do not demand Effect ceremony for pure total helpers, simple Boolean guards,
   protocol-owned public/wire shapes, framework-required signatures, deliberate
@@ -146,6 +157,10 @@ Effect-specific checks when Effect is used or should be used:
   lifecycle- or configuration-owned, or needs live/test implementations.
   Accept a plain or scoped factory only with a concrete locality, lifetime, or
   multi-instance cardinality reason.
+- Review eager Option/Result member construction versus sequential gen, lazy
+  Effect execution versus eager effect-factory calls, and all concurrency and
+  cancellation policy. Preserve call-level short-circuiting and full-Cause
+  ownership. Do not replace each guard mechanically with its own combinator.
 - Review `Effect.fn` / `fnUntraced` / `gen` / pipeline choice; Option, v4
   Result, Exit, Match, and conditional flow; at-source errors and safe retry;
   Effect HTTP composition; observability and redaction; Scope and fiber
@@ -161,9 +176,10 @@ Effect-specific checks when Effect is used or should be used:
   condition.
 - Verify exhaustive tagged and outcome handling where future variants matter;
   simple predicates may remain ordinary guards.
-- Verify tagged errors are mapped once at source, Schema-backed errors are used
-  when encoding is required, and runtime/API decoders remain the source of
-  truth.
+- Verify foreign errors are classified once at source, legitimate domain/host
+  projections retain provenance, Schema-backed errors are used when encoding
+  is required, and runtime/API decoders remain the source of truth. Check retry
+  eligibility after every failure, including a transient-then-terminal case.
 - Verify runtime runners, Context services, Layers, Scope, Effect HTTP, Schema
   compilers, ownership and mutation boundaries, domain/module responsibility,
   composition roots, and Effect tests agree with the Flarex overlay and
@@ -193,8 +209,8 @@ Finding standard:
   Higher severity still requires the normal correctness or compatibility
   evidence.
 - Introducing or materially extending a plain TypeScript substitute where the
-  applicability pass shows that Effect, Result, Option, a service, or a Layer
-  owns the semantics is such a violation even when no changed file imports
+  applicability pass shows that Schema, Effect, Result, Option, a service, or
+  a Layer owns the semantics is such a violation even when no changed file imports
   Effect. Do not relegate it to an optional observation. It is normally P3 for
   bounded maintainability, diagnostics, or testability debt; use a higher
   severity only with the normal concrete impact evidence.
@@ -224,6 +240,10 @@ Final response:
    the changed and directly connected touched-flow functions, services/Layers,
    schemas, runtime edges, and Effect tests actually inspected, including any
    accepted exceptions.
-5. Validation commands run and results.
-6. Explicitly state: `No files were modified by this reviewer.`
+5. A `Data-contract applicability:` line naming changed data boundaries and
+   their Schema/authoritative decoder or concrete custom-boundary reason; say
+   `none in scope` when appropriate. Imports and lint success are not evidence
+   of missing-usage review.
+6. Validation commands run and results.
+7. Explicitly state: `No files were modified by this reviewer.`
 """
