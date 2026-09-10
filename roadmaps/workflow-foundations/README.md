@@ -20,9 +20,9 @@ and authenticated successful-command input evidence.
 The [conditional variant-image capability](./14-conditional-variant-image-workflow.md)
 adds reusable named conditions, stable step instances and the checked common
 graph step, with an explicitly ordered Product consumer.
-The [native workflow composition preflight](./15-native-workflow-composition.md)
-proposes reusable child calls and the finite participant-event admission needed
-for a mixed-operation parent. Implementation awaits approval.
+The [native workflow composition capability](./15-native-workflow-composition.md)
+adds reusable child calls and finite authenticated participant-event selection
+for a mixed-operation parent under the same atomic root.
 This folder does not select a universal workflow architecture.
 
 Prepare reusable native capabilities before full workflow integration. Native
@@ -71,7 +71,7 @@ implementation. Topic 11 implements shared workflow host composition; Topic 12
 adds selector updates and selected-participant admission. Topics 13 and 14 add
 tag deletion and conditional variant-image composition. The remaining topics
 retain their own preflights, with related findings linked where useful. Topic 15
-has a completed composition preflight awaiting implementation approval.
+implements reusable child composition with explicit root resources and event admission.
 Numbers provide a reading order, not fixed commit boundaries or a requirement
 to build every capability before the first useful integration.
 
@@ -91,7 +91,7 @@ to build every capability before the first useful integration.
 | [12 Product-tag updates](./12-product-tag-updates.md) | Private selector update workflow and authenticated selected-participant admission, including one-module execution. |
 | [13 Product-tag deletion](./13-product-tag-deletion.md) | Private soft-delete workflow, native void-to-null completion and successful-command input evidence. |
 | [14 Conditional variant-image workflow](./14-conditional-variant-image-workflow.md) | Private named conditions, checked common graph-step adaptation and an explicitly ordered Product variant-image workflow. |
-| [15 Native workflow composition](./15-native-workflow-composition.md) | Proposed reusable child workflows under one atomic root, with explicit finite module-event admission. |
+| [15 Native workflow composition](./15-native-workflow-composition.md) | Reusable child workflows under one atomic root, with explicit finite module-event admission. |
 
 The first foundation is a private Product/Currency command over the existing
 shared transaction owner, including multiple commerce installations, pending

@@ -236,6 +236,23 @@ specialized Category service and restricted image-product alias. Connection
 loaders and custom-repository discovery refuse; Flarex still owns installation.
 This is per-module request composition, not a combined module-set bootstrap.
 
+## Native workflow composition
+
+The private SDK supports `child.runAsStep({ input, hooks }).config({ name })`.
+Children return staged output references and have separate evaluation caches.
+They share the parent's selected resources, cancellation, limits, event group
+and one atomic transaction. Per-call hooks use the root resource selection.
+Only the root normalizes a void result to null; intermediate absence is retained.
+
+`src/product-tag-composition.ts` composes the promoted tag create/update workflows
+for one tag. The host admits each actual module event through a finite core
+participant policy and reuses Product's event/fact correlation. Captured child
+arrangements and participant/event associations affect replay; trusted revision
+still covers callback code and captured behavior. See
+[native workflow composition](../../roadmaps/workflow-foundations/15-native-workflow-composition.md)
+for the contract and limits. Durable suspension, parallel execution and public
+workflow APIs remain separate capabilities.
+
 ## Prepared module composition
 
 `src/module-definition.ts` provides the private `defineCommerceModule` factory.

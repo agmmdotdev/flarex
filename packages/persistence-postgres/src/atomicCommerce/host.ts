@@ -27,7 +27,7 @@ import { defaultCommerceResources } from "../commerceTransaction/resources";
 import { getAtomicCommerceCommand, type AtomicCommerceCommand, type AtomicCommerceHost, type AtomicCommerceContext } from "./commands";
 import { withAtomicCommerceAdmissions } from "./admission";
 import { prepareAtomicCommerceParticipants, isCommerceDefinitionName, type AtomicCommerceParticipantInput } from "./participants";
-import { makeAtomicEventCapture, prepareAtomicCommerceEvents, type AtomicCommerceEvents, type AtomicCommerceCallObservation } from "./events";
+import { admitParticipantEvents, makeAtomicEventCapture, prepareAtomicCommerceEvents, type AtomicCommerceEvents, type AtomicCommerceCallObservation } from "./events";
 
 export type AtomicCommerceHostInput<Failure> = Pick<CommerceHostInput<Failure>,
   "database" | "session" | "target" | "deploymentId" | "authority" | "application" | "identityAndAccessPolicy"> & {
@@ -58,8 +58,15 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
   const policy = yield* Effect.fromResult(capturePrivateJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes, commerceError));
   const members = yield* prepareAtomicCommerceParticipants(database, target, input.participants);
   const eventPolicy = input.events === undefined ? undefined : yield* prepareAtomicCommerceEvents(input.events);
-  if (members.some(member => member.eventContract !== undefined && (member.validate === undefined || !eventPolicy?.allowed.has(member.eventContract)))) return yield* Effect.fail(commerceError("invalidAuthority"));
-  const identity = yield* canonicalizeSuccessfulResultV1Effect(eventPolicy === undefined ? policy.value : { policy: policy.value, events: eventPolicy.identity }).pipe(Effect.mapError(projectCommerceRequestFailure));
+  const participantEvents = [];
+  for (const member of members) {
+    if (member.events !== undefined && member.validate === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+    const contracts = yield* Effect.fromResult(admitParticipantEvents(member.events, eventPolicy));
+    participantEvents.push({ participant: member.name, installation: member.reference.installation.installationSha256, contracts });
+  }
+  const identity = yield* canonicalizeSuccessfulResultV1Effect(eventPolicy === undefined ? policy.value : {
+    policy: policy.value, events: eventPolicy.identity, participantEvents,
+  }).pipe(Effect.mapError(projectCommerceRequestFailure));
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha(identity.canonicalBytes));
   const limits = { ...commerceLimits,
     calls: Math.min(commerceLimits.calls, ...members.map(member => member.descriptor.resources.calls)),
@@ -137,8 +144,8 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
                   const commandContext = makeCommerceCommandContext(lifetime, working, id, manager,
                     (current, nestedCommand, nestedInput) => invoke(current, nestedCommand, nestedInput).pipe(Effect.map(call => call.result)),
                     (current, event) => lifetime.operation(current, id, "write", Effect.gen(function* () {
-                      if (eventCapture === undefined || member.eventContract === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
-                      events.push(yield* eventCapture.capture(member.eventContract, event));
+                      if (eventCapture === undefined || member.events === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
+                      events.push(yield* eventCapture.captureSelected(member.events, event));
                     })));
                   const output = yield* operation.run(commandContext, value.value);
                   const result = yield* Effect.fromResult(capturePrivateJsonData(output, lifetime.remainingBytes(), commerceError));

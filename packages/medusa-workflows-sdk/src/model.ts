@@ -1,5 +1,6 @@
 import { Data } from "effect";
 import type { StepResponse } from "./responses";
+import type { PreparedWorkflow } from "./definition";
 
 /** Medusa's staged authoring type: values are references until runtime resolution. */
 export declare const dataBrand: unique symbol;
@@ -23,17 +24,23 @@ export class WorkflowDefinitionError extends Data.TaggedError("WorkflowDefinitio
   readonly detail: string;
 }> { override get message() { return this.detail; } }
 export const definitionError = (reason: WorkflowDefinitionError["reason"], detail: string) => new WorkflowDefinitionError({ reason, detail });
-export interface WorkflowNode {
+interface WorkflowNodeBase {
   readonly id: object;
-  readonly kind: "step" | "condition" | "branchResult";
   readonly guards: readonly object[];
   readonly name: string;
   readonly input: unknown;
+}
+export type WorkflowNode = WorkflowNodeBase & ({
+  readonly kind: "workflow";
+  readonly workflow: PreparedWorkflow;
+} | {
+  readonly kind: "step" | "condition" | "branchResult";
   readonly invoke: Invoke<unknown, unknown>;
   readonly compensate: Compensate<unknown> | undefined;
   readonly compensation: "transactionCovered" | undefined;
   readonly hook: boolean;
-}
+  readonly boundHook?: boolean;
+});
 export interface Reference {
   readonly kind: "input" | "step" | "transform" | "property";
   readonly owner: object;

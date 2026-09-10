@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-Status: preflight complete; the implementation below is proposed and awaits
-approval. Current nested-workflow refusal remains in force. This is one coherent
+Status: implemented, validated and reviewed as a private atomic capability.
+This is one coherent
 capability covering SDK composition, its native host integration, and the
 explicit participant-event admission extension described below.
 
@@ -37,30 +37,29 @@ The exact reference is fork commit
 [SOURCE.json](../../third_party/medusa/SOURCE.json). Current official
 [nested-workflow documentation](https://docs.medusajs.com/learn/fundamentals/workflows/execute-another-workflow)
 explains `runAsStep`, direct child outputs and conditional calls. Its compensation
-and long-running behavior is not the proposed native atomic contract. The pinned
-source governs executable comparison; this proposal upgrades no dependency.
+and long-running behavior is not the native atomic contract. The pinned
+source governs executable comparison; this capability upgrades no dependency.
 
 | Source | Finding and implication |
 | --- | --- |
 | [Pinned createWorkflow](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/create-workflow.ts) | `runAsStep` constructs a wrapper step that invokes another workflow runtime, derives transaction context, suppresses early event release and later cancels the child during compensation. Reusing the spelling does not require importing that execution owner. |
 | [Pinned composer tests](../../third_party/medusa/upstream/packages/core/workflows-sdk/src/utils/composer/__tests__/index.spec.ts) | Cover returned child data, parent failure, true/false branches, compensation and context propagation. Preserve applicable assertions; classify distributed/async and compensation behavior as explicit native differences. |
 | [Pinned batch variants](../../third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/batch-product-variants.ts) | Calls create/update/delete workflows through `runAsStep` and `parallelize`. This establishes a real composition need; its further module dependencies and parallel scheduling remain outside this capability. |
-| [SDK definition](../../packages/medusa-workflows-sdk/src/definition.ts), [model](../../packages/medusa-workflows-sdk/src/model.ts) and [runtime](../../packages/medusa-workflows-sdk/src/runtime.ts) | Definitions and references are authenticated and captured. The runner already owns ordered steps, guards and invocation-local output/transform caches. There is no admitted child-call surface. |
+| [SDK definition](../../packages/medusa-workflows-sdk/src/definition.ts), [model](../../packages/medusa-workflows-sdk/src/model.ts) and [runtime](../../packages/medusa-workflows-sdk/src/runtime.ts) | Authenticated prepared child nodes use separate evaluation frames in the one runner. Each call captures its input and completed output through the root port. |
 | [Native runner](../../packages/medusa-adapter/src/workflow-runtime.ts) and [Promise owner](../../packages/medusa-adapter/src/commerce-promise-owner.ts) | One outer boundary owns callback cancellation, pending work, closure and root void-to-null completion. A child must borrow this boundary. |
 | [Resource selections](../../packages/medusa-adapter/src/workflow/resources.ts) | Hook wrappers authenticate the exact prepared resource selection. A hook already bound to a separately prepared child host cannot silently borrow a different parent's selection. |
-| [Workflow host](../../packages/medusa-adapter/src/workflow/host.ts) | Explicitly refuses more than one internal module-event name in a participant's selected methods. Root external event contracts are already plural. |
-| [Atomic participants](../../packages/persistence-postgres/src/atomicCommerce/participants.ts) and [atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Each participant carries one `eventContract`; every module emission is captured under it. Duplicate installations are refused. The limitation cannot be removed only in the adapter or bypassed by representing Product as several participants. |
-| [Atomic event capture](../../packages/persistence-postgres/src/atomicCommerce/events.ts) and [stored envelope](../../packages/persistence-postgres/src/commitEvents/model.ts) | Already support multiple authenticated event contracts in one root and retain each envelope's actual contract, revision, routing, group and order. Participant admission needs extension; event storage and settlement do not. |
+| [Workflow host](../../packages/medusa-adapter/src/workflow/host.ts) | Derives actual internal event contracts from selected method metadata and supplies an explicit name-to-token selector. External workflow contracts retain their existing selection. |
+| [Atomic participants](../../packages/persistence-postgres/src/atomicCommerce/participants.ts) and [atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) | Capture a finite participant event policy, require local fact validation and bind authenticated participant/installation/contract associations into identity. Duplicate installations remain refused. |
+| [Atomic event capture](../../packages/persistence-postgres/src/atomicCommerce/events.ts) and [stored envelope](../../packages/persistence-postgres/src/commitEvents/model.ts) | Capture message data before selection, authenticate the selected internal token against participant and root admission, then use the same envelope validation, accounting and buffer. Storage and settlement are unchanged. |
 | [Product event policy](../../packages/medusa-adapter/src/product-local-events.ts) and [tag correlation](../../packages/medusa-adapter/src/product-tag-workflow-events.ts) | Module messages correlate with actual per-command facts/lifecycle. Workflow messages correlate with ordered successful command results, or requested IDs for deletion. These are reusable, distinct policies. |
 
-## Findings And Recommended Direction
+## Accepted Implementation
 
 ### One Interpreter, Separate Child Frames
 
 Add `runAsStep` to authentic workflow definitions. The normal authoring shape is:
 
 ```ts
-// Proposed API; not available in the current implementation.
 const created = createProductTagsWorkflow
   .runAsStep({ input: { product_tags: input.tags } })
   .config({ name: "create-tags" })
@@ -85,6 +84,10 @@ per call, and expose only its captured output through the parent's call node.
 Names identify instances locally; opaque identity keeps references attached to
 their original call after renaming. Diagnostics can retain a structured call
 path without making concatenated names or random strings an authority.
+The default instance label is the checked workflow name plus `-as-step`; an
+explicit configured name retains the existing step-name limit. Input inference
+preserves Boolean and union annotations. Staged property selection accepts
+string keys; symbol properties cannot define a portable JSON/replay identity.
 
 Validate and freeze the complete reachable child tree before execution. Count
 every invocation and its reachable nodes against the one existing definition
@@ -110,7 +113,7 @@ existing root checkpoint, pending-work and final-output checks.
 ### Explicit Hook Binding And Root Resources
 
 Keep root `prepare(hooks)` behavior. Add optional typed per-call hook bindings
-at composition time, proposed as `child.runAsStep({ input, hooks })`. This is a
+at composition time, as `child.runAsStep({ input, hooks })`. This is a
 small native extension to the pinned input-only argument, with the same hook
 names and handler types as the child's existing preparation contract. Missing
 handlers remain no-ops. Capture own data properties and callback identities
@@ -132,15 +135,13 @@ or automatic DI/container fallback is introduced.
 
 ### Multiple Authorized Module Events
 
-The diagnostic scenario is selecting Product's `createProductTags` and
-`updateProductTags` methods together. Expected behavior for the proposed mixed
-composition is two admitted internal event types with their actual names.
-Current behavior is preparation-time `unsupportedProfile` at the host's
-`moduleEventNames.size > 1` guard. Core participant capture independently has
-only one token slot. This is a verified source limitation, not a failing
-database simulation or an already approved core repair.
+The preflight diagnostic was selecting Product's `createProductTags` and
+`updateProductTags` methods together. Both the adapter's single-name guard and
+core's single-token slot prevented admitting their two actual event types.
+The approved correction replaces those boundaries together; Product is still
+one authentic participant and installation.
 
-Recommend extending the private participant contract to one finite event
+The private participant contract now has one finite event
 selection policy: an owned list of authentic contract tokens and an explicit
 adapter-owned selector over captured message data. Core must independently
 require that the selected token belongs to both that participant's set and the
@@ -241,7 +242,31 @@ sticky failure with no child savepoint. No Application journal/OCC contract or
 public `ctx.runMutation` implementation is changed. Medusa's compensating
 workflow tree likewise remains distinct from this one-commit private profile.
 
-## Next Correctness Gates
+## Implementation And Validation Owners
+
+[Product tag composition](../../packages/medusa-adapter/src/product-tag-composition.ts)
+is the private one-tag create/update consumer. It composes the promoted child
+workflows and reuses their native hook decoders. The general host and SDK do not
+contain Product logic. [Product event correlation](../../packages/medusa-adapter/src/product-tag-workflow-events.ts)
+combines the existing operation policies against the one ordered transcript.
+Repeated creation and create/delete are explicit test scenarios, not a general
+batch API or alternate CRUD implementation.
+
+[SDK composition tests](../../packages/medusa-adapter/test/workflow-composition.test.ts)
+cover reference/type/frame/guard/hook and preparation behavior.
+[Participant policy tests](../../packages/medusa-adapter/test/participant-event-selection.test.ts)
+pin configuration capture and association admission. The
+[connected composition tests](../../packages/medusa-adapter/test/product-tag-composition.test.ts)
+run against PGlite and ordinary-role PostgreSQL, including direct core token
+refusals, preserved selector defects, real workflow rollback, pending Product
+and Currency graphs, replay, cancellation and shared byte accounting. PostgreSQL
+adds outside-connection visibility and concurrent duplicate settlement evidence.
+
+The displaced singular participant slot is removed. No compatibility slot,
+event relabeling, second execution owner or new persistence format is retained.
+Source promotion and browser-bundle guards cover the new private parent.
+
+## Validation Contract
 
 1. Before changing the shared participant owner, run the existing committed
    atomic/event baseline and retain its assertions. Implement SDK composition,
@@ -290,8 +315,7 @@ Cloudflare deployment or public API compatibility.
 
 ## Approval Boundary
 
-Approval of this proposed capability includes the named private participant-event
+Approval of this capability includes the named private participant-event
 contract change and its core capture checks. It does not include unrelated core
 corrections exposed by future system tests. Such findings retain the repository's
-separate owner-diagnosis and approval rule. Until approval, this record changes
-no runtime admission or implemented status.
+separate owner-diagnosis and approval rule.

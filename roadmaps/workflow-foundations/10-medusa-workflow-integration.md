@@ -86,16 +86,17 @@ The selected surface admits up to 64 ordered nodes, including conditions and
 their guarded results, deferred property/nested
 references, one-to-seven-function transform chains, StepResponse, WorkflowResponse
 and named hooks. Unsupported step options are refused during construction:
-parallel, scheduled/durable async steps, retries, nested workflows, waits/signals
+parallel, scheduled/durable async steps, retries, waits/signals
 and post-completion cancellation. Do not silently serialize or fall back to the
 original scheduler. Named `when(...).then(...)` and name-only `.config(...)`
 are admitted; synchronous Boolean predicates run once per reached branch per
 invocation. Other reconfiguration and hook validators remain unadmitted.
 
-[Native child composition](./15-native-workflow-composition.md) is preflighted
-as a proposed extension of this same runner. Nested workflows remain unadmitted
-until that capability, including participant-event admission, is approved and
-passes its connected gates.
+[Native child composition](./15-native-workflow-composition.md) adds
+`runAsStep({ input, hooks? }).config({ name })` to this same runner. Child frames
+have local evaluation caches and borrow root resources, lifetime and budgets.
+All reachable calls count against the existing aggregate definition ceiling.
+Participant event admission supports the mixed create/update Product parent.
 
 ## Runtime And Failure Contract
 
@@ -161,10 +162,12 @@ no-input steps are explicit, and checked optional mock access preserves the same
 expected values. These are adapted cases, not an unchanged whole-SDK suite.
 Sequential cases exercise the extracted builder through actual composition.
 
-Original tests requiring parallel branches, durable/async retries, nested
-workflow execution, scheduler registration, wait/resume, remote effects,
-post-completion cancel, conditional/configured steps or global workflow state
-remain reference-only. No whole-SDK parity is claimed. The source did not contain
+Original whole-engine suites requiring parallel branches, durable/async retries,
+distributed nested execution, scheduler registration, wait/resume, remote
+effects, post-completion cancel or global workflow state remain reference-only.
+Selected child result/context and branch assertions are adapted in the native
+composition tests; inverse-compensation expectations become whole-root rollback
+proofs. No whole-SDK parity is claimed. The source did not contain
 a focused create-product-tags unit suite; its new proof runs the real workflow.
 
 ## Validation Boundary And Remaining Gates

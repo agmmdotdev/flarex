@@ -14,9 +14,15 @@ export interface WorkflowExecutionPort<Failure> {
 }
 /** Fork of reference/transform/response execution, with a caller-owned runtime.
  * There is no distributed transaction, scheduler, local registry or compensating commit. */
-export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function* <Failure>(
+export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function <Failure>(
   definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>,
 ) {
+  return executeFrame(definition, input, port, true);
+});
+/** Child frames borrow the root port; only their evaluation caches are local. */
+const executeFrame = Effect.fn("MedusaWorkflow.frame")(function* <Failure>(
+  definition: PreparedWorkflow, input: unknown, port: WorkflowExecutionPort<Failure>, root = false,
+): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
   const outputs = new Map<object, unknown>();
   const transforms = new Map<object, unknown>();
   const resolve = Effect.fn("MedusaWorkflow.resolve")(function* (value: unknown, depth = 0): Effect.fn.Return<unknown, Failure | ReturnType<typeof definitionError>> {
@@ -65,6 +71,11 @@ export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function* <Fa
     }
     if (node.kind === "branchResult") { outputs.set(node.id, yield* resolve(node.input)); continue; }
     const input = yield* port.capture(yield* resolve(node.input));
+    if (node.kind === "workflow") {
+      const output = yield* executeFrame(node.workflow, input, port);
+      outputs.set(node.id, yield* port.capture(output));
+      continue;
+    }
     const returned = yield* port.invoke(() => {
       const value = node.invoke(input, port.context);
       if (node.kind !== "condition" || typeof value === "boolean") return value;
@@ -84,6 +95,6 @@ export const executeWorkflow = Effect.fn("MedusaWorkflow.execute")(function* <Fa
       }
     } else outputs.set(node.id, yield* port.capture(returned));
   }
-  yield* port.checkpoint;
+  if (root) yield* port.checkpoint;
   return yield* resolve(definition.result);
 });

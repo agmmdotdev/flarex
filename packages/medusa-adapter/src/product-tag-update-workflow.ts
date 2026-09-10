@@ -14,6 +14,7 @@ import { captureCommerceInput } from "./commerce-input";
 const WorkflowInput = Schema.Struct({ ...ProductTagUpdateInput.fields, additional_data: Schema.optionalKey(Schema.JsonObject) });
 const HookInput = Schema.Struct({ product_tags: ProductTagWorkflowResult, additional_data: Schema.optionalKey(Schema.JsonObject) });
 const decodeHook = commerceDecoder(HookInput, "invalidInput");
+export const decodeUpdatedProductTagHook = (value: unknown) => captureCommerceInput(value).pipe(Result.flatMap(decodeHook));
 type ProductTagUpdateSelections = {
   readonly product: { readonly module: ProductWorkflowModule; readonly methods: readonly ["listProductTags", "updateProductTags"]; readonly graph: true };
 };
@@ -44,7 +45,7 @@ export const prepareProductTagUpdateWorkflow = Effect.fn("MedusaWorkflow.prepare
   }, true));
   const handler = registeredHooks.productTagsUpdated;
   const hooks: MedusaHooks = handler === undefined ? {} : { productTagsUpdated: resources.callback((value: unknown, context) =>
-    captureCommerceInput(value).pipe(Result.flatMap(decodeHook), Result.match({
+    decodeUpdatedProductTagHook(value).pipe(Result.match({
       onFailure: error => Promise.reject(error), onSuccess: decoded => handler(decoded, context),
     }))) };
   const prepared = yield* Effect.fromResult(updateProductTagsWorkflow.prepare(hooks)).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));

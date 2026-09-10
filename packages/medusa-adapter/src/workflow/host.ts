@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { isPreparedWorkflow, type PreparedWorkflow } from "@medusajs/workflows-sdk";
 import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, type AtomicCommerceHost, type AtomicCommerceHostInput,
-  type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
+  type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand, type CommerceEventContract } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareLocalGraph } from "../local-graph/query";
@@ -103,20 +103,19 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
       commands.add(method.command); observed.set(token, { participant: member.participant, command: method.command });
       if (method.moduleEvent !== undefined) moduleEventNames.add(method.moduleEvent);
     }
-    if (moduleEventNames.size > 1 || (moduleEventNames.size !== 0 && (eventDefinition === undefined || moduleEvents === undefined))) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    const moduleEventName = [...moduleEventNames][0];
+    if (moduleEventNames.size !== 0 && (eventDefinition === undefined || moduleEvents === undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const capture = moduleEvents?.capture;
-    const moduleContract = moduleEventName === undefined || capture === undefined ? undefined : defineCommerceEventContract({
-      name: moduleEventName, revision: options.revision, internal: true,
-      decode: Effect.fn("Workflow.moduleEvent")(function* (value) {
-        const message = yield* capture(value);
-        if (!isJsonObject(message) || message.name !== moduleEventName) return yield* Effect.fail(commerceError("unadmittedEvent"));
-        return message;
-      }),
-    });
-    if (moduleContract !== undefined) {
-      if (moduleEventName === undefined || names.has(moduleEventName)) return yield* Effect.fail(commerceError("unsupportedProfile"));
-      names.add(moduleEventName); contracts.push(moduleContract);
+    const moduleContracts = new Map<string, CommerceEventContract>();
+    for (const name of moduleEventNames) {
+      if (capture === undefined || names.has(name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      const contract = defineCommerceEventContract({ name, revision: options.revision, internal: true,
+        decode: Effect.fn("Workflow.moduleEvent")(function* (value) {
+          const message = yield* capture(value);
+          if (!isJsonObject(message) || message.name !== name) return yield* Effect.fail(commerceError("unadmittedEvent"));
+          return message;
+        }),
+      });
+      moduleContracts.set(name, contract); names.add(name); contracts.push(contract);
     }
     if (member.graph) {
       graphMembers.push({ participant: member.participant, module: definition.graph });
@@ -127,7 +126,14 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
       }
     }
     participants.push({ participant: member.participant, profile: binding.profile, installation: binding.installation, commands: [...commands],
-      ...(moduleEvents === undefined ? {} : { validate: moduleEvents.validate }), ...(moduleContract === undefined ? {} : { eventContract: moduleContract }),
+      ...(moduleEvents === undefined ? {} : { validate: moduleEvents.validate }), ...(moduleContracts.size === 0 ? {} : { events: {
+        contracts: [...moduleContracts.values()],
+        select: Effect.fn("Workflow.selectModuleEvent")(function* (message: Json) {
+          const token = isJsonObject(message) && typeof message.name === "string" ? moduleContracts.get(message.name) : undefined;
+          if (token === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
+          return token;
+        }),
+      } }),
     });
     identities.push({ name: member.name, module: member.module.name, profile: definition.source.profile, methods: methodIdentities,
       graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities } : null,
@@ -155,7 +161,9 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
       });
     },
   };
-  const identity = yield* Effect.fromResult(captureCommerceInput({ policy, workflow: { revision: options.revision, resources: identities, events: [...names] } }));
+  const identity = yield* Effect.fromResult(captureCommerceInput({ policy, workflow: {
+    revision: options.revision, definition: workflow.prepared.identity, resources: identities, events: [...names],
+  } }));
   const host = yield* execution.prepare({ participants, commands: [command], identityAndAccessPolicy: identity, ...(events === undefined ? {} : { events }) });
   return Object.freeze({ newRequestKey: host.newRequestKey,
     run: Effect.fn("Workflow.run")((key: string, value: EncodedInput) => Effect.fromResult(captureCommerceInput(value)).pipe(

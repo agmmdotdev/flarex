@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { Json } from "flarex-protocol/json";
 import type { CommerceCommand } from "../commerceTransaction/commands";
 import type { AtomicCommerceParticipant } from "./commands";
@@ -11,6 +12,31 @@ import { commitEventsDigest } from "../commitEvents/digest";
 
 declare const contractBrand: unique symbol;
 export interface CommerceEventContract { readonly [contractBrand]: true }
+export interface ParticipantEventSelection {
+  readonly contracts: readonly CommerceEventContract[];
+  readonly select: (message: Json) => Effect.Effect<CommerceEventContract, CommerceTransactionError>;
+}
+/** Capture before participant preparation can suspend. Tokens remain opaque;
+ * global admission authenticates them after the complete policy is prepared. */
+export function captureParticipantEvents(input: ParticipantEventSelection | undefined): Result.Result<ParticipantEventSelection | undefined, CommerceTransactionError> {
+  if (input === undefined) return Result.succeed(undefined);
+  if (input === null || typeof input !== "object") return Result.fail(commerceError("invalidAuthority"));
+  const list = Object.getOwnPropertyDescriptor(input, "contracts");
+  const selector = Object.getOwnPropertyDescriptor(input, "select");
+  if (list === undefined || !("value" in list) || !Array.isArray(list.value) || list.value.length > commitEventLimits.messages
+    || selector === undefined || !("value" in selector) || typeof selector.value !== "function") return Result.fail(commerceError("invalidAuthority"));
+  const captured: CommerceEventContract[] = [];
+  for (let index = 0; index < list.value.length; index++) {
+    const item = Object.getOwnPropertyDescriptor(list.value, index);
+    const token: unknown = item !== undefined && "value" in item ? item.value : undefined;
+    if (!isEventContract(token) || captured.includes(token)) return Result.fail(commerceError("invalidAuthority"));
+    captured.push(token);
+  }
+  // SAFETY: the callable boundary is supplied by a trusted adapter. Runtime
+  // selection still independently authenticates its returned token.
+  const select = selector.value as ParticipantEventSelection["select"];
+  return Result.succeed(Object.freeze({ contracts: Object.freeze(captured), select }));
+}
 interface EventContract {
   readonly name: string;
   readonly revision: string;
@@ -18,6 +44,7 @@ interface EventContract {
   readonly decode: (value: unknown) => Effect.Effect<Json, CommerceTransactionError>;
 }
 const contracts = new WeakMap<object, EventContract>();
+const isEventContract = (value: unknown): value is CommerceEventContract => typeof value === "object" && value !== null && contracts.has(value);
 /** Trusted definitions describe semantics; only explicit host admission authorizes capture. */
 export function defineCommerceEventContract(definition: EventContract): CommerceEventContract {
   // SAFETY: the registry, not the brand, authenticates a definition.
@@ -63,6 +90,18 @@ export const prepareAtomicCommerceEvents = Effect.fn("AtomicEvents.prepare")(fun
   return { allowed, identity, validate, producerRevision, subscribers };
 });
 
+export function admitParticipantEvents(selection: ParticipantEventSelection | undefined,
+  policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>> | undefined,
+): Result.Result<readonly { readonly name: string; readonly revision: string }[], CommerceTransactionError> {
+  const identities = [];
+  for (const token of selection?.contracts ?? []) {
+    const definition = policy?.allowed.get(token);
+    if (definition === undefined || !definition.internal) return Result.fail(commerceError("invalidAuthority"));
+    identities.push(Object.freeze({ name: definition.name, revision: definition.revision }));
+  }
+  return Result.succeed(Object.freeze(identities.toSorted((a, b) => compareUtf16Strings(a.name, b.name))));
+}
+
 declare const closureBrand: unique symbol;
 export interface CommerceEventClosure { readonly [closureBrand]: true }
 const closures = new WeakMap<object, { admission: CommerceAdmission; lifetime: BoundedRequestLifetime<CommerceTransactionError>; events: readonly CommittedEvent[] }>();
@@ -74,12 +113,11 @@ export function makeAtomicEventCapture(
 ) {
   const events: CommittedEvent[] = [];
   let sealed = false;
-  const capture = Effect.fn("AtomicEvents.capture")(function* (token: CommerceEventContract, input: unknown) {
+  const retain = Effect.fn("AtomicEvents.retain")(function* (token: CommerceEventContract, input: Json) {
     const definition = policy.allowed.get(token);
     if (sealed || definition === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
     if (events.length >= Math.min(maximum, commitEventLimits.messages)) return yield* Effect.fail(commerceError("limitExceeded"));
-    const copied = yield* Effect.fromResult(capturePrivateJsonData(input, Math.min(commitEventLimits.bytes, lifetime.remainingBytes()), commerceError));
-    const message = yield* definition.decode(copied.value);
+    const message = yield* definition.decode(input);
     const envelope = yield* decodeEnvelope({ contract: definition.name, contractRevision: definition.revision, internal: definition.internal,
       producerRevision: policy.producerRevision, group, message, subscribers: policy.subscribers,
     }).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
@@ -91,6 +129,20 @@ export function makeAtomicEventCapture(
     events.push(owned);
     return owned.message;
   });
+  const capture = Effect.fn("AtomicEvents.capture")(function* (token: CommerceEventContract, input: unknown) {
+    if (sealed || !policy.allowed.has(token)) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    if (events.length >= Math.min(maximum, commitEventLimits.messages)) return yield* Effect.fail(commerceError("limitExceeded"));
+    const copied = yield* Effect.fromResult(capturePrivateJsonData(input, Math.min(commitEventLimits.bytes, lifetime.remainingBytes()), commerceError));
+    return yield* retain(token, copied.value);
+  });
+  const captureSelected = Effect.fn("AtomicEvents.captureSelected")(function* (selection: ParticipantEventSelection, input: unknown) {
+    if (sealed || selection.contracts.length === 0) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    if (events.length >= Math.min(maximum, commitEventLimits.messages)) return yield* Effect.fail(commerceError("limitExceeded"));
+    const copied = yield* Effect.fromResult(capturePrivateJsonData(input, Math.min(commitEventLimits.bytes, lifetime.remainingBytes()), commerceError));
+    const token = yield* selection.select(copied.value);
+    if (!selection.contracts.includes(token) || policy.allowed.get(token)?.internal !== true) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    return yield* retain(token, copied.value);
+  });
   const close = Effect.fn("AtomicEvents.close")(function* (calls: readonly AtomicCommerceCallObservation[]) {
     if (sealed || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
     yield* requireCommerceAdmission(admission);
@@ -101,7 +153,7 @@ export function makeAtomicEventCapture(
     closures.set(token, { admission, lifetime, events: Object.freeze([...events]) });
     return token;
   });
-  return { capture, close };
+  return { capture, captureSelected, close };
 }
 export const consumeCommerceEvents = Effect.fn("AtomicEvents.consume")(function* (
   closure: CommerceEventClosure, admission: CommerceAdmission, lifetime: BoundedRequestLifetime<CommerceTransactionError>,

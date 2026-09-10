@@ -30,7 +30,7 @@ export interface ProductTagWorkflowHooks {
 const decodeHookInput = commerceDecoder(Schema.Struct({
   product_tags: Schema.Json, additional_data: Schema.optionalKey(Schema.JsonObject),
 }), "invalidInput");
-const decodeHook = (value: unknown) => captureCommerceInput(value).pipe(Result.flatMap(decodeHookInput), Result.flatMap(input => decodeProductTagWorkflowResult(input.product_tags).pipe(
+export const decodeCreatedProductTagHook = (value: unknown) => captureCommerceInput(value).pipe(Result.flatMap(decodeHookInput), Result.flatMap(input => decodeProductTagWorkflowResult(input.product_tags).pipe(
   Result.map(product_tags => ({ product_tags, additional_data: input.additional_data })),
 )));
 
@@ -61,7 +61,7 @@ export const prepareProductTagWorkflow = Effect.fn("MedusaWorkflow.prepareProduc
   // Decode the native hook view rather than inheriting Medusa's full DTO types
   // (whose date fields differ from the JSON command boundary).
   const hooks: MedusaHooks = handler === undefined ? {} : { productTagsCreated: resources.callback((value: unknown, context) =>
-    decodeHook(value).pipe(Result.match({ onFailure: error => Promise.reject(error), onSuccess: decoded => handler(decoded, context) }))),
+    decodeCreatedProductTagHook(value).pipe(Result.match({ onFailure: error => Promise.reject(error), onSuccess: decoded => handler(decoded, context) }))),
   };
   const prepared = yield* Effect.fromResult(createProductTagsWorkflow.prepare(hooks)).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const created = modules.product.module.methods.createProductTags;

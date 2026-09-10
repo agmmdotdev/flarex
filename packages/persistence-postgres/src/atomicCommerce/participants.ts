@@ -12,7 +12,7 @@ import { prepareInstallationRuntime } from "../frameworkSchema/installation/runt
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
 import { getAtomicCommerceParticipant, type AtomicCommerceParticipant } from "./commands";
-import type { CommerceEventContract } from "./events";
+import { captureParticipantEvents, type ParticipantEventSelection } from "./events";
 
 export interface AtomicCommerceParticipantInput {
   readonly participant: AtomicCommerceParticipant;
@@ -21,7 +21,7 @@ export interface AtomicCommerceParticipantInput {
   readonly commands: readonly CommerceCommand[];
   /** Required for local profiles; all captured messages must match real facts. */
   readonly validate?: LocalCommerceEventPolicy["validate"];
-  readonly eventContract?: CommerceEventContract;
+  readonly events?: ParticipantEventSelection;
 }
 export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name) && name !== "initialize";
 
@@ -29,7 +29,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
   database: FlarexMetadataDatabase, target: FrameworkMigrationTarget, input: readonly AtomicCommerceParticipantInput[],
 ) {
   // Capture all configuration before the first asynchronous suspension.
-  const captured = input.map(member => ({ ...member, commands: [...member.commands],
+  const captured = input.map(member => ({ ...member, commands: [...member.commands], events: captureParticipantEvents(member.events),
     reference: capturePrivateJsonData(member.installation, commerceLimits.rowBytes, commerceError) }));
   if (captured.length < 1 || captured.length > MAX_COMMERCE_BINDINGS) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const names = new Set<string>();
@@ -37,6 +37,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
   const members = [];
   let definitions = 0;
   for (const member of captured) {
+    const events = yield* Effect.fromResult(member.events);
     const name = getAtomicCommerceParticipant(member.participant);
     if (name === undefined || !isCommerceDefinitionName(name) || names.has(name)) return yield* Effect.fail(commerceError("invalidAuthority"));
     names.add(name);
@@ -58,7 +59,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     if (commands.size === 0 || definitions > commerceLimits.commandDefinitions) return yield* Effect.fail(commerceError("limitExceeded"));
     const prepared = yield* prepareInstallationRuntime(database, target, reference).pipe(Effect.mapError(projectCommerceRequestFailure));
     members.push({ participant: member.participant, name, profile: member.profile, reference, descriptor, commands,
-      commandNames: [...commandNames].toSorted(compareUtf16Strings), prepared, validate: member.validate, eventContract: member.eventContract });
+      commandNames: [...commandNames].toSorted(compareUtf16Strings), prepared, validate: member.validate, events });
   }
   // Admission proves one exact target namespace. Within that placement, this is
   // the same installation order as the binding owner's physical lane locks.

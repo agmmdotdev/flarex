@@ -27,11 +27,12 @@ and rejects extra graph arguments through sticky refusal. An empty external
 workflow-contract list coexists with its selected internal module event contract
 and subscribers; this consumer emits only the actual Variant update.
 
-The [native workflow composition preflight](./15-native-workflow-composition.md)
-proposes child definitions borrowing the root selection and separately bound
-hooks. Current preparation still refuses multiple internal module-event names
-per participant; the proposed finite event policy needs an explicit core
-participant-contract extension, not just removal of the adapter guard.
+The [native workflow composition capability](./15-native-workflow-composition.md)
+lets child definitions borrow the root selection with separately bound hooks.
+The host derives the finite internal contract set from selected method metadata;
+core independently authenticates each participant's event selection. The host
+also binds captured child arrangement and hook registration into replay identity.
+Trusted bundle revision still covers callback code and captured behavior.
 
 ## Authority And Sources
 

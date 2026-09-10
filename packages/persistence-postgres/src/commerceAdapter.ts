@@ -17,4 +17,4 @@ export type { AtomicCommerceCommand, AtomicCommerceContext, AtomicCommercePartic
 export type { AtomicCommerceHostInput } from "./atomicCommerce/host";
 export type { AtomicCommerceParticipantInput } from "./atomicCommerce/participants";
 export { defineCommerceEventContract } from "./atomicCommerce/events";
-export type { CommerceEventContract, AtomicCommerceEvents, AtomicCommerceCallObservation } from "./atomicCommerce/events";
+export type { CommerceEventContract, ParticipantEventSelection, AtomicCommerceEvents, AtomicCommerceCallObservation } from "./atomicCommerce/events";

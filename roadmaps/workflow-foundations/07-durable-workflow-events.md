@@ -6,11 +6,12 @@ Status: implemented for private atomic Product-tag creation, update and deletion
 [native Medusa integration](./10-medusa-workflow-integration.md).
 Groups spanning multiple committed steps remain deferred.
 
-The [native workflow composition preflight](./15-native-workflow-composition.md)
-records the current single-contract participant limitation and proposes finite
-authenticated internal event selection for mixed-operation parents. This needs
-an explicit private core admission change; event envelopes, storage, publication
-and delivery retain their existing owners. The proposal is not yet implemented.
+The [native workflow composition capability](./15-native-workflow-composition.md)
+replaces the private single-contract participant slot with finite authenticated
+internal event selection. Core checks the adapter-selected token against both
+the participant and root policies and binds that association into replay identity.
+Mixed-operation parents retain actual module event names. Event envelopes,
+storage, publication and delivery retain their existing owners.
 
 This adds durable intent and a private recoverable delivery pump to the first
 real workflow, using the existing commit owner. It does not activate a
