@@ -214,6 +214,14 @@ records delivery idempotently, so post-commit failure or restart resumes rather
 than loses the event. This intent is not an arbitrary event envelope or a
 second commit/feed/outbox authority.
 
+The [native workflow preflight](../workflow-foundations/10-medusa-workflow-integration.md)
+now proposes the first connected consumer, with its
+[typed event and delivery contract](../workflow-foundations/07-durable-workflow-events.md).
+That contribution and additive persistence migration remain pending approval;
+the current publisher and local Product callbacks do not already implement it.
+The proposed private delivery pump preserves the deployment-sync wake's existing
+acknowledgement semantics and discovers pending work after restart separately.
+
 ## Nested And Cross-Domain Behavior
 
 - Nested Payload calls reuse the request transaction when Payload semantics

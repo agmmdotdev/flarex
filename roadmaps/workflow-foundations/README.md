@@ -6,7 +6,11 @@ Status: the first [private atomic composition capability](./09-atomic-compositio
 is implemented, validated and reviewed. The
 [Local Graph Query capability](./06-local-graph-query.md) is also implemented,
 validated and reviewed as a private facade over existing module reads. Other
-topics retain their own proportional preflights. This folder
+topics retain their own proportional preflights. The connected
+[native workflow preflight](./10-medusa-workflow-integration.md), including
+[durable events](./07-durable-workflow-events.md), is ready for its execution
+and persistence decision. Fork-source adaptation is authorized; the proposed
+shared event contribution and migration are not yet implemented. This folder
 does not select a universal API, package layout, or complete workflow architecture.
 
 Prepare reusable native capabilities before full workflow integration. Native
@@ -50,7 +54,8 @@ instead of copying changing implementation inventories here.
 ## Topic Map
 
 Atomic composition and Local Graph Query have approved, validated source-private
-implementations. Other entries remain
+implementations. Topics 07 and 10 now have one connected implementation proposal;
+their event/execution contract is pending approval. Other entries remain
 **preflight pending**, with related findings linked where useful.
 Numbers provide a reading order, not fixed commit boundaries or a requirement
 to build every capability before the first useful integration.
@@ -100,8 +105,9 @@ For one coherent capability at a time:
    and cleanup obligations when anything is displaced; Git owns chronology and
    test receipts.
 
-The completed capability is
-[Local Graph Query](./06-local-graph-query.md): checked module entry
-points, explicit bounded pagination, native JSON projection and invocation
-through the current atomic context. It remains source-private. Durable events
-and original workflow compatibility keep their own gates.
+The next recommended capability is the private
+[Product-tag workflow integration](./10-medusa-workflow-integration.md), including
+the selected SDK fork changes, bounded hook execution and
+[durable event delivery](./07-durable-workflow-events.md). Local Graph Query
+already supplies its pending-read dependency. These related topics are one
+connected proof, not separate planner-only or event-mock completion gates.

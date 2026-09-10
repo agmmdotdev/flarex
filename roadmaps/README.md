@@ -122,7 +122,7 @@ consumers.
 
 | Decision record | Classification | Purpose |
 | --- | --- | --- |
-| [`workflow-foundations/`](./workflow-foundations/README.md) | Private atomic commerce and Local Graph Query implemented | Product and Currency share one bounded transaction, pending reads and publication. Checked Graph Query reuses existing module reads and projection; native relational OCC, Task extensions and full workflow integration remain separately gated. |
+| [`workflow-foundations/`](./workflow-foundations/README.md) | Private atomic commerce and Graph Query implemented; native workflow preflight ready | One connected proposal covers promoted Product-tag workflow logic, bounded hooks and durable events. Fork-source changes are authorized; shared event persistence/publication is the next decision. Native relational OCC, Tasks and production workflow activation remain separate. |
 | [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md) | Accepted direction; preflight required | Standard versioned contract chain between developer definitions, direct fixtures, artifact generation, analysis, verification, and runtime projection without making SDK objects downstream authority. |
 | [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md) | FAC01-FAC19 complete; FAC20 preflight required | Shared user-code execution semantics with Cloudflare Dynamic Worker and in-process adapters while preserving executor and FlarexDB authority and retaining platform evidence. |
 
