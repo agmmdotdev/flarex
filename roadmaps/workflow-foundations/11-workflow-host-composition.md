@@ -27,6 +27,12 @@ and rejects extra graph arguments through sticky refusal. An empty external
 workflow-contract list coexists with its selected internal module event contract
 and subscribers; this consumer emits only the actual Variant update.
 
+The [native workflow composition preflight](./15-native-workflow-composition.md)
+proposes child definitions borrowing the root selection and separately bound
+hooks. Current preparation still refuses multiple internal module-event names
+per participant; the proposed finite event policy needs an explicit core
+participant-contract extension, not just removal of the adapter guard.
+
 ## Authority And Sources
 
 The [accepted design](../../design-notes/flarex-db-accepted-design.md) and

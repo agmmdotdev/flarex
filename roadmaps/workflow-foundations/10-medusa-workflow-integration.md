@@ -92,6 +92,11 @@ original scheduler. Named `when(...).then(...)` and name-only `.config(...)`
 are admitted; synchronous Boolean predicates run once per reached branch per
 invocation. Other reconfiguration and hook validators remain unadmitted.
 
+[Native child composition](./15-native-workflow-composition.md) is preflighted
+as a proposed extension of this same runner. Nested workflows remain unadmitted
+until that capability, including participant-event admission, is approved and
+passes its connected gates.
+
 ## Runtime And Failure Contract
 
 Callback input/output capture consumes the SAME root call/byte/lifetime budget
