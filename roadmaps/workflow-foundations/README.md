@@ -3,8 +3,10 @@
 ## Status And Scope
 
 Status: the first [private atomic composition capability](./09-atomic-composition.md)
-is implemented, validated and reviewed. Other topics retain
-their own proportional preflights. This folder
+is implemented, validated and reviewed. The
+[Local Graph Query preflight](./06-local-graph-query.md) recommends a private
+facade over existing module reads and awaits implementation approval. Other
+topics retain their own proportional preflights. This folder
 does not select a universal API, package layout, or complete workflow architecture.
 
 Prepare reusable native capabilities before full workflow integration. Native
@@ -47,8 +49,9 @@ instead of copying changing implementation inventories here.
 
 ## Topic Map
 
-Atomic composition has an approved source-private implementation. Other
-entries remain **preflight pending**, with related findings linked where useful.
+Atomic composition has an approved source-private implementation. Local Graph
+Query has a concrete preflight proposal awaiting approval. Other entries remain
+**preflight pending**, with related findings linked where useful.
 Numbers provide a reading order, not fixed commit boundaries or a requirement
 to build every capability before the first useful integration.
 
@@ -68,8 +71,9 @@ to build every capability before the first useful integration.
 The first foundation is a private Product/Currency command over the existing
 shared transaction owner, including multiple commerce installations, pending
 relation reads and one complete publication. Product and Currency are proof
-consumers; core contracts contain no module-specific identities. Local Graph
-Query can now be preflighted against the established context.
+consumers; core contracts contain no module-specific identities. The Local
+Graph Query proposal binds checked reads to this established context without
+adding a Task, SQL transaction or query execution owner.
 
 Native Task extensions are conditional on durable execution needs. General
 relational OCC is conditional on a stronger mixed-mutation product promise or
@@ -96,6 +100,8 @@ For one coherent capability at a time:
    and cleanup obligations when anything is displaced; Git owns chronology and
    test receipts.
 
-The next foundation preflight is [Local Graph Query](./06-local-graph-query.md).
-Its supported API, metadata registration and transaction-bound invocation remain
-open. Durable events and original workflow compatibility keep their own gates.
+The next decision is approval of the
+[Local Graph Query capability](./06-local-graph-query.md): checked module entry
+points, explicit bounded pagination, native JSON projection and invocation
+through the current atomic context. These are proposed contracts, not current
+exports. Durable events and original workflow compatibility keep their own gates.
