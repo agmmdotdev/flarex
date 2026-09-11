@@ -2,7 +2,9 @@
 
 Status: B1 complete. This refines Gate B of
 [the Product workflow foundation](./50-product-workflow-sales-channel-foundation.md).
-Gate A is complete. B2, B3 and Gate C remain unapproved.
+Gate A is complete. B2 native reference characterization is recorded in
+[preflight 56](./56-native-link-storage-contract.md); its proposed core contract,
+B3 and Gate C remain unapproved.
 
 ## Outcome And Recommended Next Slice
 
@@ -164,9 +166,17 @@ Relevant source paths under `third_party/medusa/upstream/packages/`:
 | `modules/link-modules/src/services/link.ts` | Create forwards `transactionManager` in a narrowed context. Prove existing scoped manager propagation; do not patch lost authority with an adapter-local fallback. |
 | `core/modules-sdk/src/link.ts` | Native Link owns routing and cascade traversal. Explicit loaded modules avoid global fallback. `delete` invokes soft-delete traversal; it is not repository hard delete. Cascade errors are returned as data and need explicit boundary treatment before atomic success is admitted. |
 
-Characterize first attach, repeated attach, same-pair duplicates in one batch,
+The [native characterization and proposed contract](./56-native-link-storage-contract.md)
+records real ordinary-role PostgreSQL behavior, including ID replacement on
+reattach, duplicate-batch refusal, a no-write repeated restore that still emits
+an event, and ORM timestamp artifacts requiring an explicit compatibility
+decision. It also identifies the missing storage-owned non-key identity evidence
+needed for event validation. No shared-core change or Link admission follows
+from those observations without approval.
+
+The characterization scope covers first attach, repeated attach, same-pair duplicates in one batch,
 attach after dismiss, repeated dismiss/restore, missing endpoints and concurrent
-same-pair operations. Observe returned versus stored IDs, all managed timestamps,
+same-pair operations. Compare returned versus stored IDs, all managed timestamps,
 visible/deleted rows, event payloads/counts and lifecycle return maps. Preserve
 native routing tests, but do not claim their mocked services prove persistence.
 Native Link create neither declares physical endpoint FKs nor validates endpoint
