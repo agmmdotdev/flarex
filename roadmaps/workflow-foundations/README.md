@@ -25,10 +25,13 @@ adds reusable child calls and finite authenticated participant-event selection
 for a mixed-operation parent under the same atomic root.
 This folder does not select a universal workflow architecture.
 
-Prepare reusable native capabilities before full workflow integration. Native
-contracts should serve multiple workflow domains. Product and Currency are
-available consumers and validation examples; adding another commerce module is
-outside the current direction.
+Native contracts should serve multiple workflow domains. Product and Currency
+are existing consumers and validation examples. The user-selected next outcome
+is full Product workflow integration; the
+[Sales Channel foundation preflight](../flarexdb-framework-integration/preflight/50-product-workflow-sales-channel-foundation.md)
+proposes its first required new module and stored-Link branch. Exercise workflow
+integration as those dependencies land. This changes the proposed consumer
+direction, not existing capability approval or the core admission gates.
 
 ## Current Sources Of Truth
 

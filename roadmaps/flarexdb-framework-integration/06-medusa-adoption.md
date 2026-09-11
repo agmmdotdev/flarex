@@ -27,6 +27,14 @@ A complete configured module set and a separately admitted
 module proof remain subsequent capabilities. Medusa services remain above the
 existing Flarex transaction and publication owners.
 
+The user-selected next integration outcome is full Product workflow execution.
+The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
+traces `createProductsWorkflow` and proposes the connected Sales Channel endpoint,
+ProductSalesChannel Link and native association-step milestone. Customer is a
+deferred adapter-reuse candidate, not a Product-creation prerequisite. The new
+preflight is proposed, not implementation approval; configured-set composition,
+same-installation participants and commerce-link admission retain explicit gates.
+
 Complete integration-suite coverage does not establish arbitrary input parity
 or a complete module bootstrap/migration adapter. Stored Module Links,
 workflows, distributed locks, durable business-event delivery, general module

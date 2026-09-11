@@ -803,7 +803,10 @@ A complete configured module set remains a separate composition obligation;
 sharing a query engine does not automatically combine
 Currency and Product schema artifacts or grant cross-module transactions.
 
-Recommend Customer as the next module reuse proof. Its pinned
+Customer remains a possible later module reuse proof, not the next dependency
+for the user-selected Product workflow goal. The
+[Sales Channel foundation preflight](./50-product-workflow-sales-channel-foundation.md)
+now owns the proposed next connected proof. Customer's pinned
 [static manifest](../../../third_party/medusa/upstream/packages/modules/customer/src/static-manifest.ts)
 has four models and no custom repository registrations. Its
 [Customer model](../../../third_party/medusa/upstream/packages/modules/customer/src/models/customer.ts)
@@ -821,6 +824,7 @@ public serving, and production activation retain their independent gates.
 
 This Medusa repository work follows the accepted framework execution profile;
 it does not port commerce queries through Convex document APIs or change
-Application OCC. The nearest useful milestone is demonstrable cross-module
-adapter reuse with Currency and Product, followed by one independently admitted
-module that validates the abstraction.
+Application OCC. The next proposed milestone validates reuse through a required
+Product-workflow dependency and its actual stored Link, rather than adding a
+module solely to exercise the abstraction. Its core admission gates remain
+separate from this completed shared-adapter work.
