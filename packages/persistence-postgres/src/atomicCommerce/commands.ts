@@ -26,7 +26,7 @@ export interface AtomicCommerceContext {
   readonly call: (participant: AtomicCommerceParticipant, command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
   readonly refuse: (error: CommerceTransactionError) => Effect.Effect<never, CommerceTransactionError>;
 }
-interface AtomicCommandDefinition {
+export interface AtomicCommandDefinition {
   readonly name: string;
   readonly run: (context: AtomicCommerceContext, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
 }

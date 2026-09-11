@@ -263,6 +263,22 @@ Refuse excessive work rather than silently splitting it into commits.
 
 ### Private Definition And Execution Boundary
 
+The atomic host is the trusted composition root. Its private implementation
+separates host preparation (`atomicCommerce/configuration.ts`), captured requests
+and replay evidence (`atomicCommerce/request.ts`), and request-local participant
+execution and contribution closure (`atomicCommerce/execution.ts`). The host
+keeps scope resolution, the single relational session, admission and retained
+outcome recovery in execution order. The execution operation borrows those
+admissions and delegates publication to the existing commerce finalizer.
+
+Standalone and atomic hosts share `commerceTransaction/hostConfiguration.ts`
+as their trusted input contract; neither host derives that contract from the
+other host's implementation. The private `commerce-adapter` entry point remains
+the consumer definition/type surface, and the source-private atomic factory
+retains its existing input and `newRequestKey`/`run` API. Callers do not assemble
+stores, lifetimes, replay evidence or publication capabilities. No new package
+export, process-global service, transaction owner or persisted format is added.
+
 [Definitions](../../packages/persistence-postgres/src/atomicCommerce/commands.ts)
 hold opaque participant and command identities. The
 [host](../../packages/persistence-postgres/src/atomicCommerce/host.ts) registers

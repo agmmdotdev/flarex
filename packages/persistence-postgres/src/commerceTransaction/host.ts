@@ -14,13 +14,12 @@ import { isSyntheticBindingReference } from "../frameworkSchema/binding/canonica
 import type { InstallationBindingReference } from "../frameworkSchema/binding/model";
 import { capturePrivateJsonData } from "../privateJsonData";
 import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../boundedRequestLifetime";
-import { hasApplicationBindingComposition, prepareApplicationBindingSelection, type ApplicationBindingSelectionReader } from "../applicationActivation";
-import type { FlarexMetadataDatabase } from "../deployments";
-import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect, type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
-import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
-import { hasFrameworkMigrationTargetDatabase, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
+import { hasApplicationBindingComposition, prepareApplicationBindingSelection } from "../applicationActivation";
+import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
+import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
+import { hasFrameworkMigrationTargetDatabase } from "../migrationCoordination/targetSession";
 import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
-import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../relationalTransaction/session";
+import { hasRelationalSessionDatabase, runRelationalSession } from "../relationalTransaction/session";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { createCommittedPointOutcomeResolverV1 } from "../committedPointOutcome";
 import { finalizeCommerceCommit } from "./publication";
@@ -31,16 +30,11 @@ import { requireCommerceProfile, type CommerceProfile } from "./profile";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
 import { commerceRequestHash as hash, projectCommerceRequestFailure as projectFailure } from "./request";
 
-export interface CommerceHostInput<Failure> {
-  readonly database: FlarexMetadataDatabase;
-  readonly session: RelationalSession;
-  readonly target: FrameworkMigrationTarget;
-  readonly deploymentId: string;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
-  readonly application: ApplicationBindingSelectionReader<Failure>;
+import type { CommerceHostConfiguration } from "./hostConfiguration";
+
+export interface CommerceHostInput<Failure> extends CommerceHostConfiguration<Failure> {
   readonly profile: CommerceProfile;
   readonly installation: InstallationBindingReference;
-  readonly identityAndAccessPolicy: Json;
   readonly commands: readonly CommerceCommand[];
 }
 const decodeKey = Schema.decodeUnknownResult(TransactionRequestKeyV1Schema);
