@@ -30,7 +30,10 @@ export type PayloadProvenance = typeof PayloadProvenanceSchema.Type;
 const ScalarField = Schema.Struct({
   name: Identity,
   kind: Schema.Literals(["text", "number", "boolean", "date"]),
-}).annotate(StrictStructOptions);
+  unique: Schema.optionalKey(Schema.Literal(true)),
+}).annotate(StrictStructOptions).check(Schema.makeFilter(field =>
+  field.unique === undefined || field.kind === "text" ? undefined : "Only required text fields support uniqueness"
+));
 
 const OptionalPostRelationField = Schema.Struct({
   name: Schema.Literal("relatedPost"), kind: Schema.Literal("relationship"),
@@ -49,7 +52,7 @@ const ManyPostRelationField = Schema.Struct({
 /** A private declarative profile, never a serialized executable Payload config. */
 const ConfigurationFields = {
   format: Schema.Literal("flarex.payload-configuration"),
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
   provenanceSha256: Digest,
   tables: Schema.Array(Schema.Struct({
     logicalTableName: Identity,
@@ -70,6 +73,9 @@ export const PayloadConfigurationSchema = Schema.Union([
     joins: Schema.Tuple([Join("referencedBy", "relatedPost"), Join("referencedByMany", "relatedPosts")]),
   }).annotate(StrictStructOptions),
 ]).check(Schema.makeFilter(config => {
+  if (config.tables.some(table => table.fields.filter(field => field.kind !== "relationship" && field.unique === true).length > 1)) {
+    return "At most one unique text field is admitted per Payload table";
+  }
   const many = config.profile === "payload.content-many" || config.profile === "payload.content-joins";
   const relations = config.tables.flatMap(table => table.fields.filter(field => field.kind === "relationship"));
   return config.profile === "payload.scalar"

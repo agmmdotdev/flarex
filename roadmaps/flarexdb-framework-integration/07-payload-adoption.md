@@ -152,13 +152,19 @@ evidence. This structural cleanup does not broaden the admitted profiles or
 change transaction, public-serving, or production capability status.
 
 Ordinary construction still selects the fixed `posts` configuration; it is not
-yet an application-configurable collection adapter. The proposed
+yet an application-configurable collection adapter. The approved scalar-first
 [collection configuration preflight](./preflight/54-payload-collection-configuration.md)
 separates capability contracts from concrete collection definitions and traces
-the required analysis, binding, and deletion-owner corrections. Its proposed
+the required analysis, binding, and deletion-owner corrections. Its
 first new proof is two fresh Payload-owned scalar collections, not arbitrary
-configuration, relation expansion, migration, or serving support. Implementation
-awaits approval of that preflight.
+configuration, relation expansion, migration, or serving support. Its uniqueness
+prerequisite now authenticates single-text unique intent in descriptor revision
+2, prepares the definitions in trusted schema publication, and refuses mismatched
+sets during readiness and activation revalidation. Existing scalar conformance
+no longer seeds its own unique definition. The collection compiler, complete
+configurable-behavior descriptor, runtime routing, binding generalization, and
+collection-aware preference cleanup remain pending approved gates. Revision 2
+does not establish arbitrary native configuration support.
 
 ## Implementation Sequence
 

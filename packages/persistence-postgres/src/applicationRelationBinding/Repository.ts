@@ -18,6 +18,7 @@ import { isNonBlankString } from "@flarex/utils/strings";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { prepareApplicationWritePolicyBinding, verifyStoredApplicationWritePolicyBinding } from "../applicationWritePolicyBinding";
+import { applicationUniqueDeclarationsMatch, prepareApplicationUniqueDeclarationsInTransaction } from "../applicationWriteOwnership/UniqueDeclarations";
 import { AppSchemaCatalogCompilationErrorV1 } from
   "flarex-protocol/app-schema-catalog";
 import {
@@ -1758,6 +1759,9 @@ const publishExistingPlanInTransactionEffect = Effect.fn(
     );
   }
   yield* verifyExistingProjectionInTransactionEffect(tx, plan);
+  const uniqueMatches = yield* applicationUniqueDeclarationsMatch(tx, plan.source.manifest, plan.bound.binding).pipe(
+    Effect.mapError(cause => bindingFailureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", undefined, cause)));
+  if (!uniqueMatches) return yield* bindingFailure("storedState", "Payload unique declarations disagree with the retained set.");
   yield* ensureManifestBindingInTransactionEffect(
     tx,
     plan.source,
@@ -1830,6 +1834,8 @@ const publishCreatePlanInTransactionEffect = Effect.fn(
   const newRelations = plan.relations.filter(relation =>
     relation.insertRelation
   );
+  yield* prepareApplicationUniqueDeclarationsInTransaction(tx, plan.source.manifest, plan.bound.binding).pipe(
+    Effect.mapError(cause => bindingFailureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "bindingConflict", undefined, cause)));
   if (newRelations.length > 0) {
     yield* relationQueryEffect(() => tx.insert(fxControlRelations).values(
       newRelations.map(relation => ({

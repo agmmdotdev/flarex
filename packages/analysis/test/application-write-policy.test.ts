@@ -12,6 +12,24 @@ import { verifyApplicationWritePolicies } from "../src/applicationWritePolicy/ve
 import type { ApplicationWritePolicies } from "../src/applicationWritePolicy/model.ts";
 
 describe("Application write-policy evidence", () => {
+  it("authenticates one required text unique declaration without reinterpreting old descriptor bytes", async () => {
+    const fixture = policyFixture();
+    const configure = (fields: Json, version = 2) => ({ ...fixture, configuration: {
+      ...fixture.configuration, version, tables: [{ logicalTableName: "posts", fields }],
+    } });
+    const unique = configure([{ name: "title", kind: "text", unique: true }]);
+    expect(Result.isSuccess(decodeApplicationWritePolicies(unique, ["audit", "posts"]))).toBe(true);
+    expect(hash(unique.configuration)).not.toBe(hash(fixture.configuration));
+    for (const invalid of [
+      configure([{ name: "title", kind: "text" }], 1),
+      configure([{ name: "title", kind: "number", unique: true }]),
+      configure([{ name: "other", kind: "text", unique: true }, { name: "title", kind: "text", unique: true }]),
+      { ...unique, configuration: { ...unique.configuration, tables: [{ logicalTableName: "posts", fields: [{ name: "title", kind: "text", unique: undefined }] }] } },
+      configure([{ name: "title", kind: "text", unique: false }]),
+    ]) expect(Result.isFailure(decodeApplicationWritePolicies(invalid, ["audit", "posts"]))).toBe(true);
+    const result = await Effect.runPromise(Effect.result(verifyApplicationWritePolicies(unique, ["audit", "posts"])));
+    expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "digestMismatch" } });
+  });
   it("owns the evidence and verifies independent hashes for the complete set and each table", async () => {
     const input = policyFixture();
     const verified = await Effect.runPromise(verifyApplicationWritePolicies(input, ["posts", "audit"]));
@@ -173,7 +191,7 @@ function policyFixture() {
     gitTagObject: "c54dea8f4010d9cb194780f2ee1e4b3ec697f9be", gitCommit: "fea6f8a47a50ff1330d8a5071b43e7dcffb97b22",
   } satisfies ApplicationWritePolicies["provenance"];
   const configuration = {
-    format: "flarex.payload-configuration", version: 1, profile: "payload.scalar", provenanceSha256: hash(provenance),
+    format: "flarex.payload-configuration", version: 2, profile: "payload.scalar", provenanceSha256: hash(provenance),
     tables: [{ logicalTableName: "posts", fields: [{ name: "title", kind: "text" }] }],
   } satisfies ApplicationWritePolicies["configuration"];
   return {

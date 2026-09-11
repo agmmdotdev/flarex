@@ -1,6 +1,7 @@
 # Payload Collection Configuration And Admission
 
-Status: proposed implementation preflight; research and design only
+Status: scalar-first implementation approved; authenticated uniqueness
+prerequisite implemented; collection compiler/runtime gates remain pending
 
 ## Outcome And Explicit Limits
 
@@ -75,13 +76,13 @@ Paths below are relative to the repository root.
 | --- | --- | --- |
 | `packages/payload-adapter/src/profile.ts`, `composition.ts` | Four fixed content identities; ordinary construction always installs `posts` plus fixed internal/auth inventory. | Separate a capability contract, an application's collection definitions, and the compiled configuration identity. Keep one construction owner. |
 | `packages/payload-adapter/src/contract.ts`, `inputs.ts`, `operations.ts`, `query.ts`, `adapter.ts` | Field metadata, caller equality on `id`/`title`, Local API collection selection, date/relation projection, and unique errors assume the exercised collection. | Route through operation-local checked collection metadata. Do not introduce a mutable "current collection" variable or entity-name switch. |
-| `packages/analysis/src/applicationWritePolicy/model.ts` | Scalar descriptors already allow multiple named tables and scalar field names. Relation/join descriptors are exact `posts` shapes. Scalars record kind/name but not native required/default/unique policy. | Reuse the existing declarative analysis owner; a wider runtime contract must commit its newly configurable observable semantics, not merely reuse the old name/kind digest. |
+| `packages/analysis/src/applicationWritePolicy/model.ts` | Scalar descriptors allow multiple named tables and scalar field names. Relation/join descriptors remain exact `posts` shapes. Revision 2 adds authenticated unique intent; required/default/order/timestamp configuration is not yet generalized. | Reuse the existing declarative analysis owner; a wider runtime contract must commit all newly configurable observable semantics. |
 | `packages/analysis/src/applicationWritePolicy/schemaCompatibility.ts` | Requires exact flat stored fields and verifies current relation declarations. | Compiled schema and configuration must still agree; optional-field or relationship expansion is not implicit. |
 | `packages/analysis/src/index.ts`, `applicationAnalysisV2.ts`, `applicationAnalysisV3.ts` | Reads own-data `writePolicies`, verifies them against analyzed tables, then builds/verifies the existing policy-bearing manifest. | Reuse this path. A compiler-returned object/hash is not authenticated publication authority. |
 | `packages/persistence-postgres/src/payloadPreferences/binding.ts` | The opaque profile issuer requires exactly four identities with relation counts 0, 1, 2, 2. | Generalize the trusted issuer's admitted descriptor set; preserve copying, freezing, registry identity, and exact content/lifecycle verification. Do not replace the token with a caller-owned map. |
 | `packages/persistence-postgres/src/cmsTransaction/admission.ts` | Matches fixed profile names to relation counts before admitting the runtime. | Evaluate the admitted capability contract and exact compiled identity; preserve active selection, scope lock, binding, and readiness checks. |
 | `packages/persistence-postgres/src/cmsTransaction/documents.ts`, `payloadPreferences/cleanup.ts` | Pending deletion evidence requires table name `posts`; cleanup accepts only `collection-posts-...`. | This requires a narrow correction at those owners. An adapter string rewrite, SQL bypass, or successful no-op cleanup is forbidden. |
-| `packages/persistence-postgres/test/applicationWritePolicyFixture.ts`, `cmsHostFixture.ts` | Tests construct policy-bearing manifests and separately seed `posts.title` unique readiness. | New compiler tests must not call that fixture synthesis the real configuration pipeline. Integration proof must consume compiler output through shared analysis and existing readiness owners. |
+| `packages/persistence-postgres/test/applicationWritePolicyFixture.ts`, `cmsHostFixture.ts` | Tests construct policy-bearing manifests. Unique definitions now come from trusted publication, while fixtures orchestrate existing readiness owners. | New compiler tests must not call manual manifest synthesis the real configuration pipeline. Integration proof must consume compiler output through shared analysis. |
 
 The executing adapter dependency was checked at
 `packages/payload-adapter/node_modules/payload/package.json`: Payload 3.88.0,
@@ -128,13 +129,12 @@ or digest alongside each Payload collection. The generated declaration remains
 input to the authoritative analyzer, not a caller-authenticated manifest.
 
 Unique readiness is an explicit prerequisite, not an assumed compiler feature.
-The inspected fixture manually prepares `unique_title` using the existing
-unique-definition and set-build owners; the inspected native schema declaration
-path does not establish equivalent generated unique readiness. The contract gate
-must identify the authenticated uniqueness declaration and trusted composition
-that prepares those existing owners. If that seam is missing, approve the narrow
-analysis/readiness correction before the runtime slice. Do not copy fixture DML,
-seed uncommitted metadata, or omit uniqueness to make the new collection pass.
+The approved correction below replaced the fixture's manual `unique_title`
+preparation with authenticated unique intent lowered by trusted publication.
+The pending collection compiler must generate that same analysis input; it must
+not copy fixture DML, seed uncommitted metadata, or omit uniqueness to make a new
+collection pass. Closure, build eligibility, and activation remain separate
+existing owner decisions after definition publication.
 
 The capability contract describes supported semantics and limits independently
 of collection slugs: operation families, field kinds, query/population envelope,
@@ -262,6 +262,100 @@ successors. Existing-row conversion is not part of fresh installation.
    including uniqueness, cancellation, concurrency and lost-COMMIT recovery;
    keep driver evidence and production claims separate.
 
-Implementation is not approved merely by this document's existence. Review the
-fresh scalar-first scope, shared-owner corrections, and identity/compatibility
-gate with the user before changing those contracts.
+## Authenticated Uniqueness Prerequisite
+
+The separately approved owner correction closes the missing declaration-to-
+readiness contract described below. It does not complete collection compilation,
+runtime routing, binding generalization, or collection-aware preference cleanup.
+
+Reproducible scenario:
+
+1. Use the existing native scalar collection, whose `title` field is required
+   and unique, and its current matching policy-bearing manifest fixture.
+2. Prepare the normal candidate, index, and relation readiness evidence, but
+   omit the separately installed `unique_title` definition from
+   `cmsHostFixture.ts`.
+3. Verify that the closed unique set has zero definitions, then settle the
+   Application readiness fold.
+
+Expected integration invariant: content whose admitted Payload behavior requires
+uniqueness must not become ready without its exact declared unique constraints.
+Previous behavior: the fold returned `ready`. This witness exercises readiness,
+not a claim that duplicate Local API writes or activation were executed.
+
+The retained regression is
+`packages/persistence-postgres/test/payloadUniqueAdmissionGapScenario.ts`, with
+PGlite and ordinary-role PostgreSQL entry points named
+`payloadUniqueAdmissionGap.test.ts` and
+`payloadUniqueAdmissionGap.postgres.test.ts`. Publication now creates the declared
+constraint, so the missing-evidence case removes that binding before set closure
+and retains the original refusal assertion. Extra, wrong-field, stale, matching,
+and genuinely absent uniqueness have separate cases. Maximum-length field names
+and an unrelated Application-owned unique constraint also reach readiness and
+activation. The stale case refuses activation after previously successful
+readiness. No assertion is skipped or inverted. Ordinary scalar conformance no
+longer hand-installs `unique_title`.
+
+The correction stays with these existing owners:
+
+- Analysis `applicationWritePolicy/model.ts` uses configuration descriptor
+  revision 2. Optional `unique: true` is authenticated scalar metadata, restricted
+  to at most one text field per table; scalar storage fields remain required by
+  the existing schema-compatibility check. Explicit false/undefined and old
+  revision-1 descriptors are rejected rather than normalized into new bytes.
+- Persistence `appUniqueConstraintDefinitions.ts` prepares a supplied physical
+  spec after checking its schema/table parent. The new
+  `applicationWriteOwnership/UniqueDeclarations.ts` translates verified policy
+  intent through that owner inside the existing relation-binding publication
+  transaction. Publication replay checks agreement instead of repairing missing
+  or altered definitions. The policy-owned logical descriptor is `payload_unique`
+  per table; the physical spec authenticates the field. This avoids truncation
+  or a prefix overflowing the catalog's identifier limit.
+- `appUniqueConstraintSetClosureV1.ts` closes the installed member set.
+  `appUniqueConstraintSetBuildV1.ts` correctly classifies an empty set as
+  `not_required`. `applicationRelationReadinessFold.ts` now compares declared
+  uniqueness with the complete prepared set for Payload-owned tables before
+  readiness and again during final activation/readiness revalidation. Missing,
+  extra, or wrong physical specs return `uniqueDeclarationMismatch`. Unmanaged
+  Application tables retain their existing uniqueness contract.
+
+Compatibility inventory: executable descriptor literals occur in the analysis
+model/test, Payload contract/profile, persistence policy fixture, and Standard
+Application definition test. These private consumers now use revision 2; no
+SQL/JSON migration seed or supported deployed descriptor obligation was found in
+the package inventory. No old data is rewritten or discarded. Retained old
+artifacts fail decoding and require an explicitly approved migration if support
+is later requested. The fixed four-profile runtime remains unchanged in scope.
+
+Revision 2 authenticates unique intent, not every configurable native behavior.
+The pending compiler must still commit required/default/timestamp/order and
+capability semantics under an explicitly finalized descriptor before arbitrary
+collection runtime activation; it may not silently extend existing bytes.
+
+Owner correction and remaining handoff:
+
+1. Include the supported unique intent in the new authenticated configuration
+   descriptor and validate its table/field/kind agreement during analysis.
+   Do not add another author-written declaration or infer new semantics from
+   old descriptor bytes.
+2. Have the trusted schema-publication/readiness composition lower that verified
+   intent through the existing unique-definition, closure, and build owners.
+   Keep control/data preparation and final readiness correlation in persistence,
+   not in the Payload runtime or a test-only metadata-seeding path.
+3. Compare the exact declared and prepared unique sets for Payload-owned tables
+   before readiness and preserve the same commitment through activation. Reject
+   missing, extra, wrong-field, and stale definitions; leave unrelated
+   Application-owned table semantics unchanged. A genuine no-unique collection
+   must continue to admit an empty set.
+4. Retain the missing-evidence regression and mismatch cases, and prove that
+   the matching constraint enforces native unique behavior on both drivers.
+   The pending compiler must supply real generated analysis input to its new
+   collection proof; the existing manually assembled manifest fixture is not
+   a collection compiler. Then resume the approved compiler/runtime,
+   binding, deletion, compatibility, and removal gates above.
+
+This is an authenticated declaration-to-readiness contract correction, not a
+request for a new unique storage engine, universal schema DSL, physical
+migration, or adapter-side validation workaround. Test orchestration closes and
+builds the published set through existing owners; it does not reproduce physical
+spec generation or install separate fixture metadata.

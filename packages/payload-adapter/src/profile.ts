@@ -27,7 +27,7 @@ export function payloadPostsCollection(profile: PayloadContentProfile = "payload
 const digest = (value: Json) => createHash("sha256").update(encodeCanonicalJson(value, () => { throw new Error("Invalid fixed Payload profile"); })).digest("hex");
 const provenanceSha256 = digest(payloadScalarProvenance);
 export const payloadScalarConfiguration: PayloadConfiguration = {
-  format: "flarex.payload-configuration", version: 1, profile: "payload.scalar", provenanceSha256,
+  format: "flarex.payload-configuration", version: 2, profile: "payload.scalar", provenanceSha256,
   tables: [{ logicalTableName: "posts", fields: payloadScalarFields }],
 };
 export const payloadScalarContentIdentity = Object.freeze({ configSha256: digest(payloadScalarConfiguration), provenanceSha256 });

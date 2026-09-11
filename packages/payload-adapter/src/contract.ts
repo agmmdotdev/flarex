@@ -6,7 +6,7 @@ export const payloadScalarFields = Object.freeze(([
   { name: "enabled", kind: "boolean" },
   { name: "publishedAt", kind: "date" },
   { name: "score", kind: "number" },
-  { name: "title", kind: "text" },
+  { name: "title", kind: "text", unique: true },
   { name: "updatedAt", kind: "date" },
 ] as const).map(field => Object.freeze(field)));
 
@@ -29,8 +29,8 @@ export const payloadJoins = Object.freeze([
 ] as const);
 export function payloadContentConfiguration(profile: PayloadContentProfile, provenanceSha256: string): PayloadConfiguration {
   const tables = [{ logicalTableName: "posts", fields: payloadContentFields(profile) }];
-  if (profile === "payload.content-joins") return { format: "flarex.payload-configuration", version: 1, profile, provenanceSha256, tables, joins: payloadJoins };
-  return { format: "flarex.payload-configuration", version: 1, profile, provenanceSha256,
+  if (profile === "payload.content-joins") return { format: "flarex.payload-configuration", version: 2, profile, provenanceSha256, tables, joins: payloadJoins };
+  return { format: "flarex.payload-configuration", version: 2, profile, provenanceSha256,
     tables };
 }
 

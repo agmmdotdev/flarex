@@ -17,7 +17,8 @@ import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { advanceAppSchemaCandidateValidationEffect, createAppSchemaCandidateReadinessPort, createAppSchemaCandidateValidationPort, createLocatedAppSchemaCandidateValidationTarget, installAppSchemaCandidateValidationEffect, settleAppSchemaCandidateValidationEffect } from "../src/appSchemaCandidateValidation";
 import { locateAppIndexDefinitionByIdEffect } from "../src/appIndexDefinitions";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
-import { createAppUniqueConstraintSetEligibilityPortV1 } from "../src/appUniqueConstraintSetBuildV1";
+import { createAppUniqueConstraintSetEligibilityPortV1, reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstraintSetBackfillV1Effect } from "../src/appUniqueConstraintSetBuildV1";
+import { readAppUniqueConstraintSetClosureV1Effect } from "../src/appUniqueConstraintSetClosureV1";
 import { closeAppUniqueConstraintSetV1InTransactionEffect, prepareAppUniqueConstraintSetClosureV1Effect } from "../src/appUniqueConstraintSetClosureV1";
 import { makeApplicationActivationRepository } from "../src/applicationActivation";
 import { makeApplicationAnalysisRepository, type ApplicationAnalysisAuthority } from "../src/applicationAnalysisRegistration";
@@ -788,6 +789,18 @@ export async function prepareReadinessEvidence(
     fixture.deploymentId,
     fixture.relation.binding.schemaVersionId,
   );
+  const uniquePorts = { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts };
+  const uniqueInput = { deploymentId: fixture.deploymentId, schemaVersionId: fixture.relation.binding.schemaVersionId };
+  const closure = await runEffect(readAppUniqueConstraintSetClosureV1Effect(fixture.control.drizzle, uniqueInput.deploymentId, uniqueInput.schemaVersionId));
+  if (closure !== null && closure.members.length !== 0) {
+    await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, uniqueInput));
+    let enabled = false;
+    for (let step = 0; step < 8; step += 1) {
+      const advanced = await runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(uniquePorts, { ...uniqueInput, pageSize: 16 }));
+      if (advanced.lifecycle === "enabled") { enabled = true; break; }
+    }
+    expect(enabled).toBe(true);
+  }
   if (fixture.relation.binding.relationBindings.length === 0) return;
   if (fixture.semanticReuse) {
     await settleRelationSemanticReadiness(fixture);

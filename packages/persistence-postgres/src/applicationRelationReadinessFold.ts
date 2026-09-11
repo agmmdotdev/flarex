@@ -1,6 +1,7 @@
 import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
 import { readApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Repository";
 import type { ScopeId } from "flarex-protocol/storage-authority";
+import { applicationUniqueDeclarationsMatch } from "./applicationWriteOwnership/UniqueDeclarations";
 import {
   verifyApplicationManifestWithRelations,
   type ApplicationManifestWithRelations,
@@ -179,6 +180,7 @@ export type ApplicationRelationReadinessFoldNotReadyReason =
   | "physicalBuildNotEnabled"
   | "physicalDefinitionNotActive"
   | "uniqueConstraintSetMissing"
+  | "uniqueDeclarationMismatch"
   | "uniqueConstraintBuildMissing"
   | "uniqueConstraintBuildNotEnabled"
   | "uniqueConstraintBuildStale"
@@ -823,6 +825,9 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
       manifest: bundle.manifest,
     });
     yield* requireSchemaCorrelation(bundle, schema);
+    const uniqueDeclarationsMatch = yield* applicationUniqueDeclarationsMatch(context.controlDb, bundle.manifest, schema).pipe(
+      Effect.mapError(cause => failureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", false, cause)));
+    if (!uniqueDeclarationsMatch) return notReady(bundle.revision.revisionId, "uniqueDeclarationMismatch");
     const requirements = yield* loadPublishedPhysicalRequirementSnapshotV1(
       context.controlDb,
       Object.freeze({
@@ -1232,6 +1237,9 @@ const validatePreparedFoldInTransaction = Effect.fn(
     if (!storedBundlesEqual(prepared.bundle, current)) {
       return yield* failure("storedState");
     }
+    const uniqueDeclarationsMatch = yield* applicationUniqueDeclarationsMatch(context.controlDb, current.manifest, prepared.schema).pipe(
+      Effect.mapError(cause => failureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", false, cause)));
+    if (!uniqueDeclarationsMatch) return notReady(current.revision.revisionId, "uniqueDeclarationMismatch");
     if (relationMode === "current") {
       if (prepared.candidate.kind !== "current") {
         return yield* failure("invalidComposition");
