@@ -37,7 +37,10 @@ only one commerce profile contract per installation, so separate confined Produc
 and Sales Channel profiles cannot both execute on the configured installation.
 The preflight records the witness; the [core binding proposal](./preflight/51-commerce-installation-profile-bindings.md)
 separates physical readiness from authorized execution profiles and awaits
-implementation approval. Same-installation
+implementation approval. The proposed redesign uses one unversioned current API,
+retains explicitly named legacy compatibility only for a demonstrated obligation,
+and requires neutral core fixtures proving another supported module needs no new
+core branch. Same-installation
 atomic participants and commerce-link admission remain subsequent explicit gates;
 Sales Channel service compatibility is not complete.
 

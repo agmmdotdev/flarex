@@ -1,6 +1,7 @@
 # Commerce Installation And Profile Bindings
 
-Status: proposed core contract; research approved, implementation not approved.
+Status: proposed core contract; research and clean-current/explicit-legacy design
+direction approved, implementation not approved.
 
 ## Outcome And Owners
 
@@ -19,6 +20,40 @@ Non-goals: same-installation atomic participants, stored Links, cross-module
 graph queries, a workflow engine, multiple seeded modules on one installation,
 new public APIs, existing-row module-set migrations or production activation.
 The separately approved Sales Channel foundation resumes after this core gate.
+
+## Module-Neutral Design Requirement
+
+Sales Channel exposes the missing core capability; it does not define a special
+case in its implementation. The reusable outcome is authorization of independent
+execution profiles over one installed schema. This belongs to the existing
+framework-compatible commerce lane, not a new universal Application/Payload
+transaction API.
+
+Core must operate only on authenticated installation evidence, profile contracts,
+table/key identities and admitted capabilities. It must contain no Product or
+Sales Channel imports, hard-coded module/table names, per-module switches, special
+two-module branches, or exceptions in an adapter to bypass core admission.
+
+For another module within the supported capability contract, the expected change
+is its Medusa-owned checked schema, native service composition and profile
+declaration. The configured owner supplies that profile through the same binding
+constructor. No binding codec, admission algorithm, registry layer or core factory
+must change merely because a module is added. Callers must not rebuild readiness,
+hashing or authorization internals from multiple imports.
+
+This is not a promise that every future module's behavior is already supported.
+Multiple seeded profiles, shared-table permissions, cross-profile relationships
+and same-installation atomic execution remain distinct missing capabilities.
+Their limits must be expressed and tested by capability, not by module identity.
+If a later workflow requires one, correct its shared owner once under a focused
+contract and test independent consumers; do not add a Sales Channel, Inventory
+or other module exception. This binding correction must not need to be repeated
+for each module, and must not be presented as completion of those other gates.
+
+Make this an implementation acceptance gate: core conformance uses independently
+defined neutral schema/profile fixtures, not renamed copies of adapter logic.
+Exercise a third disjoint profile and different declaration order without core
+edits. Product + Sales Channel remains the separate connected consumer proof.
 
 ## Evidence And Correction To The Earlier Plan
 
@@ -69,9 +104,10 @@ the native Link branch. No fork business-contract change is proposed here.
 
 ## Recommended Stored Contract
 
-Use a new persisted data-binding-set codec version (V3), not a new runtime family
-or version-suffixed service API. Keep the Application/Payload slots unchanged.
-Each commerce entry contains:
+Redesign the current binding contract under plain semantic names such as
+`CommerceBinding` and `makeCommerceBinding`. Do not introduce V2/V3 API families
+or retain multiple execution designs. Keep the Application/Payload semantics
+unchanged. Each current commerce entry contains:
 
 ```text
 one existing InstallationBindingReference
@@ -128,10 +164,12 @@ const commerce = yield* makeCommerceBinding(readyAvailability, [
   product.profile,
   salesChannel.profile,
 ]);
-const candidate = yield* bindings.prepare({ ...base, version: 3, commerce: [commerce] });
+const candidate = yield* bindings.prepare({ ...currentBase, commerce: [commerce] });
 ```
 
 The example is inside an Effect generator; it is an API-shape proposal.
+`currentBase` belongs to the redesigned current contract, not a spread of an old
+stored frame with its discriminator retained. Callers do not select an API version.
 The constructor captures caller-owned values before suspension, consumes existing
 readiness evidence and authentic profile tokens, and produces immutable value
 data. It creates no registry, host, activation or transaction. `bindings.prepare`
@@ -163,16 +201,29 @@ scope-clock serialization contract, not a new cancellation promise.
 
 | Action | Decision and retirement gate |
 | --- | --- |
-| Retain | Exact V1/V2 decoding and immutable candidate/activation bytes. The model, repository and binding value tests explicitly support those persisted contracts. Keep legacy cardinality/coverage validation before projecting a singleton execution grant; do not reinterpret six old entries as valid. Retire readers only with a separate evidence-backed stored-data/support decision. |
-| Extend | Existing binding capture, membership verification and request admission for V3. Existing Product/Currency hosts and their single-profile behavior remain valid. New shared-candidate construction emits V3; no automatic rewrite of old candidates. |
-| Replace | Commerce's repeated triplet assembly in the new configured path with one readiness coverage set and direct profile references. Use one authorization algorithm after validated wire-version projection, not fallback execution paths. Payload/test-only profile policies are not generalized. |
-| Delete | Move the core admission assertions out of the temporary adapter diagnostic into core regressions; retain connected Product/Sales Channel assertions in the consumer. Remove duplicated setup and provisional exports once the supported constructor owns them. |
+| Retain | Only demonstrated compatibility obligations. If retained stored candidates, activation receipts or a supported external contract require old encodings, isolate their exact decoding/validation under explicit `Legacy...` names. Record the affected data/consumer and retirement gate. Existing code and fixtures alone do not establish that obligation. |
+| Extend | Existing binding capture, membership verification and request admission for the redesigned current contract. Preserve Product/Currency service behavior without preserving their old assembly machinery merely because it exists. |
+| Replace | Commerce's repeated triplet assembly with one readiness coverage set and direct profile references. Migrate active producers/consumers to the current semantic API. Any necessary legacy boundary validates the old contract before projecting to the one current authorization model; no fallback execution or dual writes. Payload/test-only policies are not generalized. |
+| Delete | Old codecs/assembly without a demonstrated obligation, after migrating callers and preserving meaningful safety assertions. Move core assertions from the temporary adapter diagnostic to core regressions; retain connected consumer assertions. Remove duplicated setup and provisional exports. |
 
-V3 is justified by a changed persisted grammar with retained exact-byte readers,
-not by the age of the implementation. Existing SQL tables store canonical bytes
-and installation sidecars rather than one row per profile; no SQL migration is
-proposed. If implementation finds an additional storage or public compatibility
-obligation, stop and revise this preflight.
+The earlier proposal to automatically add V3 and retain V1/V2 readers is withdrawn.
+Before changing codecs, inventory active producers/consumers, retained immutable
+candidates and receipts, deployed data and supported external readers. The current
+repository explicitly decodes older formats, but that fact alone does not prove
+they must coexist with the replacement. Unknown deployment state is not evidence
+that all data is disposable; record what is verified and ask about unresolved
+retention obligations rather than deleting or rewriting it.
+
+If compatibility is required, keep exact old bytes/digests at a narrow legacy
+boundary with an unambiguous decoder selection. Do not strip a persisted version
+field, reuse an old discriminator with changed meaning, or reinterpret old bytes
+under the current grammar. Exact stored encoding selection must be resolved from
+that inventory; this preflight no longer prescribes another numbered format.
+Normal runtime and caller names stay unversioned either way.
+
+Existing SQL tables store canonical bytes and installation sidecars rather than
+one row per profile; no SQL migration is currently proposed. Any required data
+migration or destructive retirement needs its explicit scope and approval.
 
 Rejected alternatives: widening one profile to every table hides module authority;
 multiple triplets duplicate readiness and preserve the wrong grouping; duplicate
@@ -183,15 +234,23 @@ the identity, coverage, activation or request-admission requirements.
 
 ## Validation And Completion
 
-- Canonical values: V1/V2 exact-byte/digest restoration; V3 deterministic ordering,
+- Canonical values: current-contract deterministic ordering,
   hostile inputs, duplicates, unknown members, empty/oversized lists, coverage
-  errors, profile conflicts and tampered bytes. Preserve old format refusals;
-  update the unsupported-version witness to an actually unsupported version.
+  errors, profile conflicts and tampered bytes. If a legacy reader is required,
+  prove exact-byte/digest restoration and old-format refusals separately. Otherwise
+  migrate fixture assertions to the current contract and delete obsolete codec
+  scaffolding; preserve corruption and unsupported-encoding coverage.
 - Real owner scenario on PGlite and ordinary-role PostgreSQL: one installation,
   one sidecar, two disjoint profiles, separate successful reads and writes. Assert
   each profile cannot access the other's tables, spoof a token/digest, or use an
   unbound profile. Cover schema-only token refusal, overlapping grants and
   cross-profile FK/cascade refusal before any binding activation.
+- Module independence: define neutral core fixtures without Medusa adapter
+  imports; add a third profile by declaration alone, vary names/order and exercise
+  the same constructor/admission path. Check changed core sources for module-name
+  branches and new reverse dependencies. Retain meaningful failure assertions in
+  core and real native-service behavior in the adapter rather than duplicating
+  business logic in a test harness.
 - Activation/lifetime: missing implementation, stale placement/availability,
   stale Application/head, withdrawal, profile revocation with a preconstructed
   host, restart/cold restoration, exact activation replay, request conflict and
@@ -209,5 +268,5 @@ the identity, coverage, activation or request-admission requirements.
   diagnostic coverage, reconcile owning roadmaps and create a scoped core commit
   before completing the remaining Sales Channel promotion/service work.
 
-This document is a source-backed proposal, not a claim that V3 or dual-profile
+This document is a source-backed proposal, not a claim that redesigned dual-profile
 admission exists. No runtime behavior changed during this preflight.
