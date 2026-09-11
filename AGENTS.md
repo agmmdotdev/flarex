@@ -149,7 +149,11 @@ not establish the root cause of an intermittent failure.
 - The main thread owns every file edit and Git operation. Reviewer agents are
   read-only.
 
-## Effect And Oxlint Routing
+## Integration, Effect, And Oxlint Routing
+
+For Payload integration planning, implementation, refactoring, or review, apply
+`.agents/skills/payload-flarex-integration/SKILL.md` for native reuse, typed
+operation boundaries, runtime/test separation, and cleanup evidence.
 
 Any agent implementing or refactoring a flow that uses or semantically requires
 Effect, Schema, Result, Option, Exit, Match, Config, Context, Layer, Scope,

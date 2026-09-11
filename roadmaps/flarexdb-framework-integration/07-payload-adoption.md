@@ -137,6 +137,15 @@ adapter supplies an opaque exact-profile token to binding admission, so
 persistence verifies combined lifecycle bindings without importing Payload
 release configuration.
 
+The package extraction corrected dependency ownership; the current runtime
+still mixes conformance hooks/observations with construction and dispatches
+operation-specific JSON through one string-based handler. The
+[runtime contracts and conformance preflight](./preflight/53-payload-runtime-contracts-and-conformance.md)
+proposes the next cleanup before broader capability work. Apply the repository's
+[Payload integration skill](../../.agents/skills/payload-flarex-integration/SKILL.md)
+for source reuse, typed contracts, boundary-specific validation, and removal
+evidence. This proposal does not change the implemented capability status.
+
 ## Implementation Sequence
 
 ### Exact Payload contract preflight
