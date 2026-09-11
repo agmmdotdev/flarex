@@ -135,3 +135,10 @@ captured command-input evidence. The
 [conditional variant-image workflow](./14-conditional-variant-image-workflow.md)
 uses explicit ordered composition for this atomic consumer and keeps general
 parallel execution deferred. Remaining outlines retain their own preflights.
+
+The approved [Product relationship workflow slice](./16-product-relationship-workflows.md)
+composes Collection assignment and Category membership with pending Local Graph
+Query reads. Its separately approved host budget extension preserves existing
+defaults and allows an explicitly admitted bounded root to share one larger
+call allowance. Topics 09 and 16 record the finding, correction and bounded
+capability.

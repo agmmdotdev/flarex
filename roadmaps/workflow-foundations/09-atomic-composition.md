@@ -422,3 +422,22 @@ by a selected workflow.
 - [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html): read-your-writes, snapshot distinctions and serialization retries.
 - [PostgreSQL snapshot synchronization](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-SNAPSHOT-SYNCHRONIZATION): snapshot export lifetime and pending-write isolation.
 - [Convex mutations](https://docs.convex.dev/functions/mutation-functions): atomic writes, deterministic execution and separate external-effect actions.
+
+## Relationship Composition Budget Finding
+
+The approved Product relationship consumer in
+[Topic 16](./16-product-relationship-workflows.md#connected-system-finding-request-call-budget)
+exceeds this profile's shared 64-call ceiling on both PGlite and ordinary-role
+PostgreSQL, although its two imported children pass independently. The mixed
+root fails at the 65th entry with rollbackOnly retaining limitExceeded; value
+captures, service nesting, table access, events and store operations share this
+counter. It has not reached the final pending graph reads. The original success
+assertions and limits remain unchanged.
+
+The user separately approved the atomic request-budget correction. Trusted host
+preparation now accepts an optional `requestCallLimit` (1..4096), intersected with
+all installed participant profiles. Omission preserves 64 and the original policy
+identity; an explicit selection is included in replay identity. Product's explicit
+workflow profile admits 256 calls. The shared lifetime, per-child accounting,
+64-statement SQL limit, other resource ceilings and settlement remain unchanged.
+Topic 16 retains the reproduction, measurement, preflight and validation.

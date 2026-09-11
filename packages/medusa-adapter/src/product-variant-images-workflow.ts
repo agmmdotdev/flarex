@@ -8,14 +8,8 @@ import { captureWorkflowRecord } from "./workflow/configuration";
 import { prepareWorkflowResources } from "./workflow/resources";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "./workflow/host";
 
-/** Only module events exist in this pinned workflow. The host validates their
- * actual Product facts; no caller can add an external workflow event family. */
-export const variantImagesWorkflowEvents = {
-  contracts: [],
-  validate: Effect.fn("VariantImagesWorkflow.validateEvents")(function* (events: Parameters<AtomicCommerceEvents["validate"]>[0]) {
-    if (events.some(event => !event.internal)) return yield* Effect.fail(commerceError("unadmittedEvent"));
-  }),
-};
+export { internalModuleWorkflowEvents as variantImagesWorkflowEvents } from "./workflow/events";
+import { internalModuleWorkflowEvents as variantImagesWorkflowEvents } from "./workflow/events";
 
 export const prepareVariantImagesWorkflow = Effect.fn("MedusaWorkflow.prepareVariantImages")(function* (input: {
   readonly execution: AtomicWorkflowExecution;

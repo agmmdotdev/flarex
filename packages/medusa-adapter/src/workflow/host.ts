@@ -99,9 +99,9 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
       if (token === undefined || method === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
       const identity = commerceCommandIdentity(method.command);
       if (identity === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-      methodIdentities.push({ name, command: identity, moduleEvent: method.moduleEvent ?? null });
+      methodIdentities.push({ name, command: identity, moduleEvents: method.moduleEvents });
       commands.add(method.command); observed.set(token, { participant: member.participant, command: method.command });
-      if (method.moduleEvent !== undefined) moduleEventNames.add(method.moduleEvent);
+      for (const name of method.moduleEvents) moduleEventNames.add(name);
     }
     if (moduleEventNames.size !== 0 && (eventDefinition === undefined || moduleEvents === undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const capture = moduleEvents?.capture;

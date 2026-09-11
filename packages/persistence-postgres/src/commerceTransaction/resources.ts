@@ -2,9 +2,10 @@ import { Result, Schema } from "effect";
 import { commerceError, commerceLimits } from "./model";
 
 const ceiling = (maximum: number) => Schema.Int.check(Schema.isBetween({ minimum: 1, maximum }));
+export const CommerceCallLimit = ceiling(4096);
 const Resources = Schema.Struct({
   catalogRows: ceiling(4096), queryRows: ceiling(4096), writeBatchRows: ceiling(256),
-  facts: ceiling(4096), calls: ceiling(4096), eventMessages: ceiling(2048), eventIds: ceiling(4096),
+  facts: ceiling(4096), calls: CommerceCallLimit, eventMessages: ceiling(2048), eventIds: ceiling(4096),
   commandBytes: ceiling(16_777_216), valueNodes: ceiling(131_072),
 });
 export type CommerceResources = typeof Resources.Type;

@@ -390,6 +390,44 @@ describe("private atomic commerce command", () => {
     expect(await inventory()).toEqual(before);
   }, 30_000);
 
+  it("captures an explicit root call limit, preserves defaults and intersects participant ceilings", async () => {
+    const probe = defineAtomicCommerceCommand("callLimitProbe", Effect.fn("AtomicTest.callLimitProbe")(function* (ctx, value) {
+      const count = value === "overflow" ? 64 : 4;
+      for (let index = 0; index < count; index++) yield* ctx.checkpoint;
+      return null;
+    }));
+    const legacy = await runEffect(makeAtomicCommerceHost({ ...input, commands: [probe] }));
+    const key = legacy.newRequestKey();
+    expect(await runEffect(legacy.run(key, probe, null))).toBeNull();
+    const exact = await runEffect(makeAtomicCommerceHost({ ...input, commands: [probe], requestCallLimit: 64 }));
+    expect(await runEffectFailure(exact.run(key, probe, null))).toMatchObject({ reason: "requestConflict" });
+    const selectedInput = { ...input, commands: [probe], requestCallLimit: 5 };
+    const selected = await runEffect(makeAtomicCommerceHost(selectedInput));
+    selectedInput.requestCallLimit = 1;
+    expect(await runEffect(selected.run(selected.newRequestKey(), probe, null))).toBeNull();
+    const smaller = await runEffect(makeAtomicCommerceHost({ ...input, commands: [probe], requestCallLimit: 4 }));
+    const larger = await runEffect(makeAtomicCommerceHost({ ...input, commands: [probe], requestCallLimit: 4096 }));
+    const shapedPolicy = await runEffect(makeAtomicCommerceHost({ ...input, commands: [probe],
+      identityAndAccessPolicy: { policy: input.identityAndAccessPolicy, requestCallLimit: 4 } }));
+    const shapedKey = shapedPolicy.newRequestKey();
+    expect(await runEffect(shapedPolicy.run(shapedKey, probe, null))).toBeNull();
+    const before = await inventory();
+    // Legacy arbitrary JSON must not masquerade as the explicit-budget policy.
+    expect(await runEffectFailure(smaller.run(shapedKey, probe, null))).toMatchObject({ reason: "requestConflict" });
+    expect(await runEffectFailure(smaller.run(smaller.newRequestKey(), probe, null))).toMatchObject({ reason: "limitExceeded" });
+    for (const host of [legacy, larger]) {
+      // One root charge plus 64 checkpoints exceeds each default participant's
+      // 64-call cap, even when the trusted root requests a larger allowance.
+      expect(await runEffectFailure(host.run(host.newRequestKey(), probe, "overflow"))).toMatchObject({ reason: "limitExceeded" });
+    }
+    for (const requestCallLimit of [null, "256", 0, -1, 1.5, NaN, Infinity, 4097]) {
+      // @ts-expect-error malformed trusted configuration still requires runtime validation
+      expect(await runEffectFailure(makeAtomicCommerceHost({ ...input, commands: [probe], requestCallLimit })))
+        .toMatchObject({ reason: "unsupportedProfile" });
+    }
+    expect(await inventory()).toEqual(before);
+  }, 30_000);
+
   it("shares the SQL statement budget across stores and rolls back a caught limit", async () => {
     const before = await inventory();
     const completed = { currency: 0, product: 0 };

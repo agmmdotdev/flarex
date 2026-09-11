@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { registerLocalCommerceProfile, type CommerceResources, type LocalCommerceTableAdmission } from "@flarex/persistence-postgres/internal/commerce-profile";
+import { defaultCommerceResources, registerLocalCommerceProfile, type CommerceResources, type LocalCommerceTableAdmission } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareProductSchemaProfile } from "./product-schema";
 import { productRuntimeMetadata } from "./product-runtime-metadata";
@@ -33,4 +33,7 @@ export const productScaleResources: CommerceResources = Object.freeze({
   calls: 2048, eventMessages: 1024, eventIds: 256, commandBytes: 4_194_304, valueNodes: 32_768,
 });
 export const prepareLocalProductProfile = (...args: Parameters<typeof prepareProductSchemaProfile>) => prepareProductProfile(undefined, ...args);
+/** Explicit private composition allowance; other resource dimensions keep the ordinary profile. */
+export const productWorkflowResources: CommerceResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
+export const prepareLocalProductWorkflowProfile = (...args: Parameters<typeof prepareProductSchemaProfile>) => prepareProductProfile(productWorkflowResources, ...args);
 export const prepareLocalProductScaleProfile = (...args: Parameters<typeof prepareProductSchemaProfile>) => prepareProductProfile(productScaleResources, ...args);

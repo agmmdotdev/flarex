@@ -381,6 +381,6 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     upsertOptions: changeRelated("option", "upsert"), upsertVariants: changeRelated("variant", "upsert"), upsertCollections: changeRelated("collection", "upsert"), upsertCategories: changeRelated("category", "upsert") });
   const graph = yield* Effect.fromResult(productGraphDefinition(metadata, commands));
   const workflow = yield* Effect.fromResult(productWorkflowModule(standard.description, commands, graph,
-    { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent, variantUpdated: metadata.variant.updatedEvent }));
+    { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent, variantUpdated: metadata.variant.updatedEvent, productUpdated: metadata.product.updatedEvent, collectionUpdated: metadata.collection.updatedEvent }));
   return { commands, withService, graph, workflow };
 });

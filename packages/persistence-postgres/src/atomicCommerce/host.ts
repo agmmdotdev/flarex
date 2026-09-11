@@ -23,7 +23,7 @@ import { makeCommerceStore } from "../commerceTransaction/store";
 import { makeCommerceCommandContext } from "../commerceTransaction/context";
 import { getCommerceCommand, type CommerceCommand } from "../commerceTransaction/commands";
 import { finalizeCommerceCommit } from "../commerceTransaction/publication";
-import { defaultCommerceResources } from "../commerceTransaction/resources";
+import { CommerceCallLimit, defaultCommerceResources } from "../commerceTransaction/resources";
 import { getAtomicCommerceCommand, type AtomicCommerceCommand, type AtomicCommerceHost, type AtomicCommerceContext } from "./commands";
 import { withAtomicCommerceAdmissions } from "./admission";
 import { prepareAtomicCommerceParticipants, isCommerceDefinitionName, type AtomicCommerceParticipantInput } from "./participants";
@@ -34,9 +34,16 @@ export type AtomicCommerceHostInput<Failure> = Pick<CommerceHostInput<Failure>,
   readonly participants: readonly AtomicCommerceParticipantInput[];
   readonly commands: readonly AtomicCommerceCommand[];
   readonly events?: AtomicCommerceEvents;
+  /** Trusted root selection, capped by every participant. Omission preserves 64
+   * calls and existing request identity; children never receive a fresh budget. */
+  readonly requestCallLimit?: number;
 };
 const decodeKey = Schema.decodeUnknownEffect(TransactionRequestKeyV1Schema);
+const decodeCallLimit = Schema.decodeUnknownEffect(CommerceCallLimit);
 const sha = (bytes: Uint8Array) => commerceRequestHash(bytes, { maximumInputBytes: commerceLimits.commandBytes });
+// A non-JSON preimage prefix cannot collide with an omitted host's arbitrary
+// canonical JSON policy, even if that policy resembles our explicit wrapper.
+const callPolicyDomain = new TextEncoder().encode("flarex.atomic-commerce.request-call-policy\0");
 
 /** A dynamic deployment/binding composition. Owns no pool, scheduler or singleton
  * service. Each invocation enters the existing bounded relational owner once. */
@@ -46,6 +53,9 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
   const { database, session, target, deploymentId, application } = input;
   if (!hasRelationalSessionDatabase(session, database) || !hasFrameworkMigrationTargetDatabase(target, database) ||
     !hasApplicationBindingComposition(application, input.authority)) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const selectedCallLimit = input.requestCallLimit;
+  const callLimit = yield* decodeCallLimit(selectedCallLimit === undefined ? commerceLimits.calls : selectedCallLimit)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const allowed = new Set(input.commands);
   const names = new Set<string>();
@@ -64,12 +74,21 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
     const contracts = yield* Effect.fromResult(admitParticipantEvents(member.events, eventPolicy));
     participantEvents.push({ participant: member.name, installation: member.reference.installation.installationSha256, contracts });
   }
-  const identity = yield* canonicalizeSuccessfulResultV1Effect(eventPolicy === undefined ? policy.value : {
+  const eventIdentity = eventPolicy === undefined ? policy.value : {
     policy: policy.value, events: eventPolicy.identity, participantEvents,
+  };
+  const identity = yield* canonicalizeSuccessfulResultV1Effect(selectedCallLimit === undefined ? eventIdentity : {
+    policy: eventIdentity, requestCallLimit: callLimit,
   }).pipe(Effect.mapError(projectCommerceRequestFailure));
-  const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha(identity.canonicalBytes));
+  let identityBytes: Uint8Array = identity.canonicalBytes;
+  if (selectedCallLimit !== undefined) {
+    const tagged = new Uint8Array(callPolicyDomain.byteLength + identityBytes.byteLength);
+    tagged.set(callPolicyDomain); tagged.set(identityBytes, callPolicyDomain.byteLength);
+    identityBytes = tagged;
+  }
+  const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha(identityBytes));
   const limits = { ...commerceLimits,
-    calls: Math.min(commerceLimits.calls, ...members.map(member => member.descriptor.resources.calls)),
+    calls: Math.min(callLimit, ...members.map(member => member.descriptor.resources.calls)),
     commandBytes: Math.min(commerceLimits.commandBytes, ...members.map(member => member.descriptor.resources.commandBytes)),
   };
   const factLimit = Math.min(defaultCommerceResources.facts, ...members.map(member => member.descriptor.resources.facts));

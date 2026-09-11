@@ -1,3 +1,4 @@
+import { productRelationshipWorkflowMethods } from "./product-relationship-workflow-input";
 import { Result, Schema } from "effect";
 import type { CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { CommerceModuleDescription } from "./module-definition";
@@ -33,18 +34,18 @@ const decodeVariantListArguments = commerceDecoder(Schema.Tuple([VariantSelector
 const decodeVariantUpdateArguments = commerceDecoder(Schema.Tuple([VariantSelector, VariantThumbnailUpdate]), "invalidInput");
 
 export function productWorkflowModule(source: CommerceModuleDescription,
-  commands: { readonly createTags: CommerceCommand; readonly listTags: CommerceCommand; readonly updateTagsBySelector: CommerceCommand; readonly softDeleteTags: CommerceCommand;
+  commands: { readonly list: CommerceCommand; readonly retrieveCollection: CommerceCommand; readonly upsert: CommerceCommand; readonly updateCollections: CommerceCommand; readonly createTags: CommerceCommand; readonly listTags: CommerceCommand; readonly updateTagsBySelector: CommerceCommand; readonly softDeleteTags: CommerceCommand;
     readonly listVariants: CommerceCommand; readonly updateVariantsBySelector: CommerceCommand; readonly addImageToVariant: CommerceCommand; readonly removeImageFromVariant: CommerceCommand },
-  graph: GraphModuleDefinition, events: { readonly created: string; readonly updated: string; readonly deleted: string; readonly variantUpdated: string }) {
+  graph: GraphModuleDefinition, events: { readonly created: string; readonly updated: string; readonly deleted: string; readonly productUpdated: string; readonly collectionUpdated: string; readonly variantUpdated: string }) {
   return Result.gen(function* () {
     const createProductTags = yield* defineWorkflowMethod({ command: commands.createTags, arguments: decodeArguments,
-      encode: ([tags]) => tags, output: decodeProductTagWorkflowResult, moduleEvent: events.created });
+      encode: ([tags]) => tags, output: decodeProductTagWorkflowResult, moduleEvents: [events.created] });
     const listProductTags = yield* defineWorkflowMethod({ command: commands.listTags, arguments: decodeListArguments,
       encode: ([filters, config]) => ({ filters, config }), output: decodeListResult });
     const updateProductTags = yield* defineWorkflowMethod({ command: commands.updateTagsBySelector, arguments: decodeUpdateArguments,
-      encode: ([selector, update]) => ({ selector, update }), output: decodeProductTagWorkflowResult, moduleEvent: events.updated });
+      encode: ([selector, update]) => ({ selector, update }), output: decodeProductTagWorkflowResult, moduleEvents: [events.updated] });
     const softDeleteProductTags = yield* defineWorkflowMethod({ command: commands.softDeleteTags, arguments: decodeDeleteArguments,
-      encode: ([ids]) => ids, output: decodeDeleteResult, moduleEvent: events.deleted });
+      encode: ([ids]) => ids, output: decodeDeleteResult, moduleEvents: [events.deleted] });
     const addImageToVariant = yield* defineWorkflowMethod({ command: commands.addImageToVariant, arguments: decodeImageArguments,
       encode: ([pairs]) => pairs, output: decodeAssignmentResult });
     const removeImageFromVariant = yield* defineWorkflowMethod({ command: commands.removeImageFromVariant, arguments: decodeImageArguments,
@@ -52,9 +53,10 @@ export function productWorkflowModule(source: CommerceModuleDescription,
     const listProductVariants = yield* defineWorkflowMethod({ command: commands.listVariants, arguments: decodeVariantListArguments,
       encode: ([filters, config]) => ({ filters, config }), output: decodeListResult });
     const updateProductVariants = yield* defineWorkflowMethod({ command: commands.updateVariantsBySelector, arguments: decodeVariantUpdateArguments,
-      encode: ([selector, update]) => ({ selector, update }), output: decodeListResult, moduleEvent: events.variantUpdated });
+      encode: ([selector, update]) => ({ selector, update }), output: decodeListResult, moduleEvents: [events.variantUpdated] });
+    const relationships = yield* productRelationshipWorkflowMethods(commands, events);
     return yield* defineWorkflowModule({ name: "product", source,
-      methods: { createProductTags, listProductTags, updateProductTags, softDeleteProductTags, addImageToVariant, removeImageFromVariant, listProductVariants, updateProductVariants }, graph,
+      methods: { ...relationships, createProductTags, listProductTags, updateProductTags, softDeleteProductTags, addImageToVariant, removeImageFromVariant, listProductVariants, updateProductVariants }, graph,
       refusedMethods: ["deleteProductTags", "upsertProductTags", "restoreProductTags", "upsertProductVariants"] });
   });
 }

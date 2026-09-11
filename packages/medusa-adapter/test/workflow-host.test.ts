@@ -6,7 +6,7 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import { defineGraphReadCommand } from "../src/local-graph/commands";
 import type { GraphModuleDefinition } from "../src/local-graph/model";
 import { commerceDecoder } from "../src/commerce-decoder";
-import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition } from "../src/workflow/module";
+import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition, workflowMethodDefinition } from "../src/workflow/module";
 import { prepareWorkflowResources, workflowResourceSelections } from "../src/workflow/resources";
 import { bindWorkflowResources } from "../src/workflow/binding";
 import { checkedCommerceValue } from "../src/commerce-checked-value";
@@ -35,6 +35,26 @@ const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint
 });
 
 describe("workflow registration and scoped resource composition", () => {
+  it("captures finite method event sets and rejects malformed or ambiguous declarations", () => {
+    const names = ["product.updated", "collection.updated"];
+    const registered = Result.getOrThrow(defineWorkflowMethod({ ...methodInput, moduleEvents: names }));
+    names[0] = "mutated";
+    expect(workflowMethodDefinition(registered)?.moduleEvents).toEqual(["collection.updated", "product.updated"]);
+    expect(Object.isFrozen(workflowMethodDefinition(registered)?.moduleEvents)).toBe(true);
+    expect(Object.isFrozen(names)).toBe(false);
+    for (const moduleEvents of [["duplicate", "duplicate"], [" "], Array.from({ length: 65 }, (_, i) => `event-${i}`)]) {
+      expect(Result.isFailure(defineWorkflowMethod({ ...methodInput, moduleEvents }))).toBe(true);
+    }
+    for (const value of [null, "single", [12], undefined]) {
+      const input = Object.defineProperty({ ...methodInput, moduleEvents: [] }, "moduleEvents", { value });
+      expect(Result.isSuccess(defineWorkflowMethod(input))).toBe(value === undefined);
+    }
+    const getter = vi.fn(() => "event");
+    const moduleEvents = Object.defineProperty(["event"], "0", { get: getter, enumerable: true });
+    expect(Result.isFailure(defineWorkflowMethod({ ...methodInput, moduleEvents }))).toBe(true);
+    expect(getter).not.toHaveBeenCalled();
+  });
+
   it("infers the selected methods and does not promise widened dynamic selections", () => {
     const callback = resources.callback(async (_input: undefined, { resources }) => {
       expectTypeOf(resources.sample.echo("typed")).toEqualTypeOf<Promise<string>>();

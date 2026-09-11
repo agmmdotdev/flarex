@@ -7,6 +7,8 @@
     "./product/create-product-tags": "./src/product/workflows/create-product-tags.ts",
     "./product/update-product-tags": "./src/product/workflows/update-product-tags.ts",
     "./product/delete-product-tags": "./src/product/workflows/delete-product-tags.ts",
+    "./product/batch-products-in-category": "./src/product/workflows/batch-products-in-category.ts",
+    "./product/batch-link-products-collection": "./src/product/workflows/batch-link-products-collection.ts",
     "./product/batch-variant-images": "./src/product/workflows/batch-variant-images.ts",
     "./common/use-query-graph": "./src/common/steps/use-query-graph.ts"
   },

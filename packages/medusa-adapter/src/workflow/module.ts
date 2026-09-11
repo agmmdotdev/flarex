@@ -17,9 +17,10 @@ interface MethodDefinition {
   readonly command: CommerceCommand;
   readonly input: (args: unknown) => Result.Result<Json, CommerceTransactionError>;
   readonly output: (value: Json) => Result.Result<unknown, CommerceTransactionError>;
-  readonly moduleEvent: string | undefined;
+  readonly moduleEvents: readonly string[];
 }
 const methods = new WeakMap<object, MethodDefinition>();
+const decodeModuleEvents = commerceDecoder(Schema.Array(Schema.String.check(Schema.isPattern(/\S/))).check(Schema.isMaxLength(64)), "unsupportedProfile");
 
 /** A typed adapter over an existing command, not another execution authority. */
 export function defineWorkflowMethod<Args extends readonly unknown[], Output>(input: {
@@ -27,16 +28,17 @@ export function defineWorkflowMethod<Args extends readonly unknown[], Output>(in
   readonly arguments: (value: unknown) => Result.Result<Args, CommerceTransactionError>;
   readonly encode: (args: Args) => Json;
   readonly output: (value: Json) => Result.Result<Output, CommerceTransactionError>;
-  readonly moduleEvent?: string;
+  readonly moduleEvents?: readonly string[];
 }): Result.Result<WorkflowMethod<Args, Output>, CommerceTransactionError> {
   return Result.gen(function* () {
     const definition = yield* captureWorkflowRecord(input);
-    if (typeof definition.arguments !== "function" || typeof definition.encode !== "function" || typeof definition.output !== "function"
-      || (definition.moduleEvent !== undefined && (typeof definition.moduleEvent !== "string" || !definition.moduleEvent.trim()))) return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (typeof definition.arguments !== "function" || typeof definition.encode !== "function" || typeof definition.output !== "function") return yield* Result.fail(commerceError("unsupportedProfile"));
+    const moduleEvents = yield* captureCommerceInput(definition.moduleEvents === undefined ? [] : definition.moduleEvents).pipe(Result.flatMap(decodeModuleEvents));
+    if (new Set(moduleEvents).size !== moduleEvents.length) return yield* Result.fail(commerceError("unsupportedProfile"));
     // SAFETY: only this registry associates typed argument/output decoders with
     // the erased method token. Native inference follows those same decoders.
     const token = Object.freeze({}) as WorkflowMethod<Args, Output>;
-    methods.set(token, Object.freeze({ command: definition.command, output: definition.output, moduleEvent: definition.moduleEvent,
+    methods.set(token, Object.freeze({ command: definition.command, output: definition.output, moduleEvents: Object.freeze([...moduleEvents].sort()),
       input: (args: unknown) => captureCommerceInput(args).pipe(Result.flatMap(definition.arguments), Result.map(definition.encode), Result.flatMap(captureCommerceInput)),
     }));
     return token;
