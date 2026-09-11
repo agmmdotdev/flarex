@@ -1103,7 +1103,7 @@ function observeApplicationMutationConfiguration(
 }
 
 export async function makeApplicationNativeMutationTestLayer(
-  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  fixture: ApplicationMutationTestLiveFixture,
   loader: WorkerLoader,
   options: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];

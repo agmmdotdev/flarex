@@ -14,7 +14,10 @@ import {
   hashCanonicalTaskCatalogV1,
   makeStandardApplicationTaskSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { prepareStandardApplicationDefinitionV1 } from
+import {
+  prepareStandardApplicationDefinitionV1,
+  type PreparedStandardApplicationDefinitionV1,
+} from
   "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import {
   copyBytesToArrayBuffer,
@@ -79,6 +82,8 @@ import { makeApplicationPublicationRepository } from
 import {
   makeApplicationActivationRepository,
   type ApplicationActiveSelection,
+  type CoherentActiveApplication,
+  type CoherentActiveRelationApplication,
   type ApplicationRelationActivationRepository,
 } from "../applicationActivation";
 import { fxSystemApplicationActiveHeads } from
@@ -273,10 +278,15 @@ export interface ApplicationRelationalCoreSystemTestFixture {
     readonly scopeClockTargets: Readonly<{
       readonly resolve: () => Promise<LocatedReadCommittedAttemptTargetV1>;
     }>;
+    readonly authority: ApplicationAnalysisAuthority;
   }>;
   readonly activation: ApplicationRelationActivationRepository<unknown, unknown>;
+  readonly active:
+    | CoherentActiveApplication
+    | CoherentActiveRelationApplication;
   readonly source: ApplicationRelationalCoreSourceBundle;
   readonly legacySchema: ReturnType<typeof makeApplicationSchemaAuthorityPublisher>;
+  readonly schema: ReturnType<typeof makeApplicationSchemaAuthorityPublisher>;
   readonly relationSchema: ReturnType<
     typeof createApplicationRelationSchemaAuthorityPort
   >;
@@ -317,8 +327,14 @@ export interface ApplicationRelationalCoreSystemTestFixture {
   >;
   readonly edgeDefinitionId: CatalogEdgeDefinitionId;
   readonly snapshot: ApplicationRelationQuerySnapshotContext;
+  readonly relationReads: NonNullable<
+    ApplicationRelationQuerySnapshotContext["relations"]
+  >;
   readonly relation: ApplicationRelationSourceReference;
 }
+
+export type ApplicationRelationalSimulationSystemTestFixture =
+  ApplicationRelationalCoreSystemTestFixture;
 
 export async function createApplicationRelationQueryPGliteSystemTestFixture(
   persistence: Readonly<{
@@ -455,6 +471,57 @@ export async function createApplicationRelationalCorePGliteSystemTestFixture(
   });
 }
 
+export async function createApplicationRelationalSimulationPGliteSystemTestFixture(
+  persistence: Readonly<{
+    readonly control: PGliteFlarexPersistence;
+    readonly target: PGliteFlarexPersistence;
+  }>,
+  analysis: ApplicationRelationalCoreAnalysis,
+  definition: PreparedStandardApplicationDefinitionV1,
+): Promise<ApplicationRelationalSimulationSystemTestFixture> {
+  ensureWebCrypto();
+  const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+    "deployment_application_relational_simulation_pglite",
+  );
+  const provisioned = await createPGliteSplitScopeAuthorityProvisioner(
+    persistence.control,
+    {
+      placementPlanner: { plan: () => LOCATOR },
+      targetResolver: {
+        resolve: async locator =>
+          createPGliteLocatedSplitScopeClockTarget(
+            persistence.target,
+            locator,
+          ),
+      },
+      randomUuid: uuidSequence(241, 242),
+    },
+  ).ensure({
+    deploymentId,
+    projectId: "project_application_relational_simulation_pglite",
+  });
+  return createRelationalCoreFixture({
+    control: persistence.control,
+    target: persistence.target,
+    deploymentId,
+    scopeId: provisioned.scope.scopeId,
+    locatedTarget: createPGliteLocatedIndexBuildReconciliationTargetV1(
+      persistence.target,
+      LOCATOR,
+    ),
+    pointTarget: createPGliteLocatedPointMutationSessionActivationTargetV1(
+      persistence.target,
+      LOCATOR,
+    ),
+    epochTarget: createPGliteLocatedScopeAuthorizationEpochTarget(
+      persistence.target,
+      LOCATOR,
+    ),
+    analysis,
+    definition,
+  });
+}
+
 export async function createApplicationRelationalCorePostgresSystemTestFixture(
   persistence: Readonly<{
     readonly control: PostgresFlarexPersistence;
@@ -504,6 +571,57 @@ export async function createApplicationRelationalCorePostgresSystemTestFixture(
   });
 }
 
+export async function createApplicationRelationalSimulationPostgresSystemTestFixture(
+  persistence: Readonly<{
+    readonly control: PostgresFlarexPersistence;
+    readonly target: PostgresFlarexPersistence;
+  }>,
+  analysis: ApplicationRelationalCoreAnalysis,
+  definition: PreparedStandardApplicationDefinitionV1,
+): Promise<ApplicationRelationalSimulationSystemTestFixture> {
+  ensureWebCrypto();
+  const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+    "deployment_application_relational_simulation_postgres",
+  );
+  const provisioned = await createPostgresSplitScopeAuthorityProvisioner(
+    persistence.control,
+    {
+      placementPlanner: { plan: () => LOCATOR },
+      targetResolver: {
+        resolve: async locator =>
+          createPostgresLocatedSplitScopeClockTarget(
+            persistence.target,
+            locator,
+          ),
+      },
+      randomUuid: uuidSequence(251, 252),
+    },
+  ).ensure({
+    deploymentId,
+    projectId: "project_application_relational_simulation_postgres",
+  });
+  return createRelationalCoreFixture({
+    control: persistence.control,
+    target: persistence.target,
+    deploymentId,
+    scopeId: provisioned.scope.scopeId,
+    locatedTarget: createPostgresLocatedIndexBuildReconciliationTargetV1(
+      persistence.target,
+      LOCATOR,
+    ),
+    pointTarget: createPostgresLocatedPointMutationSessionActivationTargetV1(
+      persistence.target,
+      LOCATOR,
+    ),
+    epochTarget: createPostgresLocatedScopeAuthorizationEpochTarget(
+      persistence.target,
+      LOCATOR,
+    ),
+    analysis,
+    definition,
+  });
+}
+
 interface CreateFixtureInput {
   readonly control: FixturePersistence;
   readonly target: FixturePersistence;
@@ -518,6 +636,7 @@ interface CreateFixtureInput {
 interface CreateRelationalCoreFixtureInput extends CreateFixtureInput {
   readonly analysis: ApplicationRelationalCoreAnalysis;
   readonly epochTarget: LocatedScopeClockReader;
+  readonly definition?: PreparedStandardApplicationDefinitionV1;
 }
 
 async function createRelationalCoreFixture(
@@ -599,6 +718,7 @@ async function createRelationalCoreFixture(
   await publishExecutionSchema(
     input,
     relationPublication.binding.schemaVersionId,
+    canonicalManifest.manifest.schema.tables.length,
   );
   const publication = await runEffect(
     makeApplicationRelationPublicationRepository(
@@ -622,7 +742,7 @@ async function createRelationalCoreFixture(
     tasks: [],
   }, taskSha256));
   const bindings = await runEffect(produceApplicationTaskBindingsV1({
-    definition: preparedDefinition(),
+    definition: input.definition ?? preparedDefinition(),
     catalog,
     authority: {
       scopeId: publication.scopeId,
@@ -689,6 +809,7 @@ async function createRelationalCoreFixture(
     relationBuild,
     input.deploymentId,
     relationPublication.binding.schemaVersionId,
+    canonicalManifest.manifest.schema.relations.length,
   );
   const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
     input.control.drizzle,
@@ -770,14 +891,18 @@ async function createRelationalCoreFixture(
     revisionId: ready.revisionId,
     expectedActiveHead: null,
   }));
-  await runEffect(activation.readActive());
+  const active = await runEffect(activation.readActive());
   const definitions = await runEffect(relationCommit.locate({
     deploymentId: input.deploymentId,
     schemaVersionId: relationPublication.binding.schemaVersionId,
   }));
   const definition = definitions?.definitions[0];
-  if (definition === undefined || definitions?.definitions.length !== 1) {
-    throw new Error("Expected one exact relational-core definition.");
+  if (
+    definition === undefined ||
+    definitions?.definitions.length !==
+      canonicalManifest.manifest.schema.relations.length
+  ) {
+    throw new Error("Expected every relational-core definition.");
   }
   const relation = Object.freeze({
     source: Object.freeze({
@@ -805,8 +930,10 @@ async function createRelationalCoreFixture(
     authority,
     authorityPorts,
     activation,
+    active,
     source: input.analysis.source,
     legacySchema,
+    schema: legacySchema,
     relationSchema,
     sessionAuthority,
     currentEpochAuthority,
@@ -827,6 +954,7 @@ async function createRelationalCoreFixture(
       authority: authorityPorts,
       relations: reads,
     }),
+    relationReads: reads,
     relation,
   });
 }
@@ -1491,6 +1619,7 @@ async function applySourceCommit(
 async function publishExecutionSchema(
   input: CreateFixtureInput,
   schemaVersionId: CatalogSchemaVersionId,
+  expectedTableCount = 2,
 ): Promise<void> {
   const [schemaRows, tableRows] = await Promise.all([
     input.control.drizzle.select().from(fxControlSchemaVersions).where(and(
@@ -1503,7 +1632,11 @@ async function publishExecutionSchema(
     )).orderBy(asc(fxControlTables.tableId)),
   ]);
   const schema = schemaRows[0];
-  if (schemaRows.length !== 1 || schema === undefined || tableRows.length !== 2) {
+  if (
+    schemaRows.length !== 1 ||
+    schema === undefined ||
+    tableRows.length !== expectedTableCount
+  ) {
     throw new Error("Expected one exact relation-query schema publication.");
   }
   await input.target.insertDeploymentMetadata({
@@ -1618,13 +1751,17 @@ async function enableRelationPhysicalBuilds(
   relationBuild: ReturnType<typeof createApplicationRelationBuildPort>,
   deploymentId: ReturnType<typeof TransactionGrantDeploymentIdV1Schema.make>,
   schemaVersionId: CatalogSchemaVersionId,
+  expectedRelationCount = 1,
 ): Promise<void> {
   const definitions = await runEffect(relationCommit.locate({
     deploymentId,
     schemaVersionId,
   }));
-  if (definitions === null || definitions.definitions.length !== 1) {
-    throw new Error("Expected one relation-query physical definition.");
+  if (
+    definitions === null ||
+    definitions.definitions.length !== expectedRelationCount
+  ) {
+    throw new Error("Expected every relation-query physical definition.");
   }
   for (const definition of definitions.definitions) {
     for (let step = 0; step < 128; step += 1) {
@@ -1731,10 +1868,12 @@ async function relationPublicationInput(
     deploymentId,
     manifest: canonical.manifest,
     manifestSha256: encodeBytesToLowercaseHex(digest),
-    decisions: Object.freeze([Object.freeze({
-      relationOrdinal: 1,
-      evolution: Object.freeze({ kind: "new" as const }),
-    })]),
+    decisions: Object.freeze(
+      canonical.manifest.schema.relations.map(relation => Object.freeze({
+        relationOrdinal: relation.relationOrdinal,
+        evolution: Object.freeze({ kind: "new" as const }),
+      })),
+    ),
   });
 }
 

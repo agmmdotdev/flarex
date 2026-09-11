@@ -5,6 +5,11 @@ import {
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
+  createApplicationRelationalSimulationPGliteSystemTestFixture,
+  createApplicationRelationalSimulationPostgresSystemTestFixture,
+} from
+  "@flarex/persistence-postgres/internal/system-test/application-relation-query-fixture";
+import {
   createLocatedTaskSystemRunAttemptTargetV1,
 } from
   "@flarex/persistence-postgres/internal/task-system-run-attempt-store-v1";
@@ -89,6 +94,15 @@ export function makePGliteDatabaseLane(
         options,
         persistence,
       ),
+    createRelationalFixture: (
+      analysis: Parameters<DatabaseLane["createRelationalFixture"]>[0],
+      definition: Parameters<DatabaseLane["createRelationalFixture"]>[1],
+    ) =>
+      createApplicationRelationalSimulationPGliteSystemTestFixture(
+        persistence,
+        analysis,
+        definition,
+      ),
     locateTaskRunTarget: (physicalLocator: ScopePhysicalLocator) =>
       createPGliteLocatedTaskSystemRunAttemptTargetV1(
         persistence.target,
@@ -145,6 +159,15 @@ export function makePostgresDatabaseLane(
     ...persistence,
     createFixture: (options: ApplicationNativeMutationFixtureOptions) =>
       createApplicationNativeMutationPostgresFixture(options, persistence),
+    createRelationalFixture: (
+      analysis: Parameters<DatabaseLane["createRelationalFixture"]>[0],
+      definition: Parameters<DatabaseLane["createRelationalFixture"]>[1],
+    ) =>
+      createApplicationRelationalSimulationPostgresSystemTestFixture(
+        persistence,
+        analysis,
+        definition,
+      ),
     locateTaskRunTarget: (physicalLocator: ScopePhysicalLocator) =>
       createPostgresLocatedTaskSystemRunAttemptTargetV1(
         persistence.target,

@@ -132,13 +132,15 @@
       "test/integration/applicationNativeMutation.test.ts",
       "test/integration/applicationNativeQuery.test.ts",
       "test/integration/applicationRelationalCore.test.ts",
-      "test/integration/applicationRelationQuery.pglite.test.ts"
+      "test/integration/applicationRelationQuery.pglite.test.ts",
+      "test/simulation/relations/relationalSimulation.pglite.test.ts"
     ],
     "framework-application-preservation-postgres": [
       "test/integration/applicationNativeMutation.postgres.test.ts",
       "test/integration/applicationNativeQuery.postgres.test.ts",
       "test/integration/applicationRelationalCore.postgres.test.ts",
-      "test/integration/applicationRelationQuery.postgres.test.ts"
+      "test/integration/applicationRelationQuery.postgres.test.ts",
+      "test/simulation/relations/relationalSimulation.postgres.test.ts"
     ]
   },
   "selectors": {

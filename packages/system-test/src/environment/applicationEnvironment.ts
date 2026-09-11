@@ -27,6 +27,7 @@ import {
 } from "@flarex/application-definition/internal/task-definition";
 import { inspectTaskRun } from "@flarex/application-invocation/internal/task-run";
 import {
+  inspectPreparedApplicationRelations,
   withLegacyPreparedApplication,
 } from "@flarex/application-definition/internal/preparation";
 import { copyBytes } from "@flarex/utils/bytes";
@@ -96,12 +97,24 @@ import type {
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import type {
+  ApplicationRelationalCoreAnalysis,
+  ApplicationRelationalSimulationSystemTestFixture,
+} from
+  "@flarex/persistence-postgres/internal/system-test/application-relation-query-fixture";
+import type {
+  PreparedStandardApplicationDefinitionV1,
+} from
+  "@flarex/standard-application-definition/internal/prepared-definition-v1";
+import type {
   LocatedTaskSystemRunAttemptTargetV1,
 } from
   "@flarex/persistence-postgres/internal/task-system-run-attempt-store-v1";
 import type {
   ScopePhysicalLocator,
 } from "@flarex/persistence-postgres";
+import {
+  ApplicationActivationError,
+} from "@flarex/persistence-postgres/internal/application-activation";
 import { APPLICATION_RUNTIME_HOST_IDENTITY } from
   "flarex-backend/artifact-runtime";
 import {
@@ -304,6 +317,10 @@ export interface DatabaseLane {
   ) => Promise<
     ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
   >;
+  readonly createRelationalFixture: (
+    analysis: ApplicationRelationalCoreAnalysis,
+    definition: PreparedStandardApplicationDefinitionV1,
+  ) => Promise<ApplicationRelationalSimulationSystemTestFixture>;
   readonly locateTaskRunTarget: (
     physicalLocator: ScopePhysicalLocator,
   ) => LocatedTaskSystemRunAttemptTargetV1;
@@ -319,7 +336,7 @@ export interface DatabaseLane {
 }
 
 /**
- * Private, test-owned composition root for one relation-free Standard
+ * Private, test-owned composition root for one Standard
  * application revision. Definitions and workload policy remain caller-owned;
  * the operation only composes the existing lifecycle and invocation owners.
  */
@@ -379,6 +396,7 @@ const runSimulationWithCurrentAuthority = Effect.fn(
       cause,
     })
   ));
+  const preparedRelations = inspectPreparedApplicationRelations(prepared);
   const preparedFixture = yield* Effect.uninterruptible(Effect.tryPromise({
     try: async () => {
       const source = await produceApplicationCurrentSourceBundle(
@@ -386,21 +404,35 @@ const runSimulationWithCurrentAuthority = Effect.fn(
       );
       return withLegacyPreparedApplication(
         prepared,
-        async definition => input.lane.createFixture({
-          runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
-          compatibilityDate: "2026-06-14",
-          taskPublication: Object.freeze({
-            definition,
-            manifests: Object.freeze(
-              taskDefinitions.map(task => task.manifest),
-            ),
-          }),
-          analysis: makeStandardApplicationCurrentAnalysisV1(
+        async definition => {
+          const analysis = makeStandardApplicationCurrentAnalysisV1(
             source,
             analysisLoader,
             simulation.application.applicationId,
-          ),
-        }),
+          );
+          return preparedRelations.declarations.length === 0
+            ? input.lane.createFixture({
+                runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+                compatibilityDate: "2026-06-14",
+                taskPublication: Object.freeze({
+                  definition,
+                  manifests: Object.freeze(
+                    taskDefinitions.map(task => task.manifest),
+                  ),
+                }),
+                analysis,
+              })
+            : input.lane.createRelationalFixture(
+                Object.freeze({
+                  ...analysis,
+                  runtimePolicy: Object.freeze({
+                    runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+                    compatibilityDate: "2026-06-14",
+                  }),
+                }),
+                definition,
+              );
+        },
       );
     },
     catch: cause => new SimulationIntegrationError({
@@ -410,6 +442,21 @@ const runSimulationWithCurrentAuthority = Effect.fn(
     }),
   }));
   const fixture = preparedFixture;
+  const legacyActivation = "relationReads" in fixture
+    ? Object.freeze({
+        readActive: () => Effect.fail(new ApplicationActivationError({
+          operation: "read",
+          reason: "invalidComposition",
+          retryable: false,
+        })),
+      })
+    : fixture.activation;
+  const legacyOnlyFixture = "relationReads" in fixture
+    ? Object.freeze({
+        ...fixture,
+        activation: legacyActivation,
+      })
+    : fixture;
 
   let mutationRuntimeExecutions = 0;
   let queryRuntimeExecutions = 0;
@@ -487,7 +534,7 @@ const runSimulationWithCurrentAuthority = Effect.fn(
   } satisfies ApplicationActionSystemLive["host"]["callbackSystem"]);
   const actionHost = simulation.application.actionHost;
   const actionLayer = makeApplicationNativeActionTestLayer(
-    fixture,
+    legacyOnlyFixture,
     runtimeLoader,
     {
       callbackSystem,
@@ -540,7 +587,7 @@ const runSimulationWithCurrentAuthority = Effect.fn(
     })
   ));
   const applicationTaskLayer = makeApplicationTaskSystemLayer({
-    activation: fixture.activation,
+    activation: legacyActivation,
     selection: {
       deploymentId: fixture.deploymentId,
       runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
@@ -557,7 +604,7 @@ const runSimulationWithCurrentAuthority = Effect.fn(
     inputStore,
   ).pipe(Layer.provide(applicationTaskLayer));
   const taskDelivery = makeStandardApplicationTaskDeliveryV1({
-    fixture,
+    fixture: legacyOnlyFixture,
     definitions: taskDefinitions,
     hostedKit: hostedTaskKit,
     inputs: inputStore,

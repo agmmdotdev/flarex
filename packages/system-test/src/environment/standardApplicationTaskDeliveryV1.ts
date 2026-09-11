@@ -444,10 +444,32 @@ export interface StandardApplicationTaskDeliveryV1 {
   >;
 }
 
-export interface MakeStandardApplicationTaskDeliveryV1Input {
-  readonly fixture: ApplicationNativeMutationFixture<
-    ApplicationNativeMutationPersistence
+type StandardApplicationTaskDeliveryFixture = Omit<Pick<
+  ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  | "active"
+  | "activation"
+  | "authorityPorts"
+  | "deploymentId"
+  | "source"
+  | "target"
+>, "active" | "activation"> & Readonly<{
+  readonly activation: Pick<
+    ApplicationNativeMutationFixture<
+      ApplicationNativeMutationPersistence
+    >["activation"],
+    "readActive"
   >;
+  readonly active: Readonly<{
+    readonly basis: Readonly<{
+      readonly authority: ApplicationNativeMutationFixture<
+        ApplicationNativeMutationPersistence
+      >["active"]["basis"]["authority"];
+    }>;
+  }>;
+}>;
+
+export interface MakeStandardApplicationTaskDeliveryV1Input {
+  readonly fixture: StandardApplicationTaskDeliveryFixture;
   readonly definitions: ReadonlyArray<
     StandardApplicationTaskDefinitionV1<unknown, unknown>
   >;

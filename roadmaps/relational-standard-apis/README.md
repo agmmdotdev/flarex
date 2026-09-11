@@ -59,7 +59,10 @@ Current implementation evidence includes:
   and [`../../packages/persistence-postgres/src/applicationRelationRead/`](../../packages/persistence-postgres/src/applicationRelationRead/)
   for authoritative commit and read mechanics; and
 - [`../../packages/system-test/test/integration/applicationRelationalCore.test.ts`](../../packages/system-test/test/integration/applicationRelationalCore.test.ts)
-  plus its PostgreSQL peer for the private end-to-end relation vertical.
+  plus its PostgreSQL peer for the private end-to-end relation vertical; and
+- [`../../packages/system-test/test/simulation/relations/relationalSimulation.pglite.test.ts`](../../packages/system-test/test/simulation/relations/relationalSimulation.pglite.test.ts)
+  plus its conditional PostgreSQL peer for the relation-capable Standard
+  simulation matrix.
 
 If this roadmap conflicts with the relation foundation about semantics or
 authority, the relation foundation wins. If it conflicts with the Standard API
@@ -85,10 +88,12 @@ exact internal relation declaration
   -> exact incoming reverse read through the active selection
 ```
 
-The private relational system proof assembles this path directly. The general
-`defineSimulation(...)` runner remains relation-free and does not compose the
-relation query system. Therefore the engine is implemented, but a reusable
-relational Standard or system-test authoring experience is not.
+The general `defineSimulation(...)` runner now accepts a relation-bearing clean
+definition, prepares it through the normal Standard path, provisions the
+existing relation owners, and composes the same private relation-aware query
+runtime used by application functions. Relation writes still use ordinary
+typed mutations, and the workload still enters through typed function
+references rather than a test-only relation client.
 
 ## Supported Native Relation Profile
 
@@ -170,22 +175,25 @@ or framework-parity claim.
 - [x] Keep the exported `flarex/server` query context unchanged; no public
   developer relation method or type is available in this slice.
 
-### Missing system-test surface
+### Relation-capable system-test surface
 
-- [ ] Make `defineSimulation(...)` accept a relation-bearing clean
+- [x] Make `defineSimulation(...)` accept a relation-bearing clean
   `ApplicationDefinition` through the normal preparation path rather than a
   separate raw relation fixture input.
-- [ ] Make the system-test environment compose the same Standard relation-aware
+- [x] Make the system-test environment compose the same Standard relation-aware
   query runtime used by application code.
-- [ ] Prove a realistic application query reads a relation through `ctx.db` and
+- [x] Prove a realistic application query reads a relation through `ctx.db` and
   is invoked through the existing typed `client.query(...)` surface.
-- [ ] Preserve existing `client.mutation(...)` for relation writes; relation
+- [x] Preserve existing `client.mutation(...)` for relation writes; relation
   maintenance remains an internal consequence of validated document writes.
-- [ ] Add a separately named test inspection surface only if tests need direct
-  edge, adjacency-version, or commit-fact assertions. Inspection must not be
-  presented as an application/client relation API.
-- [ ] Run the same relation-capable simulation and assertions in PGlite and
-  ordinary-role PostgreSQL.
+- [x] Keep direct edge, adjacency-version, and commit-fact assertions in the
+  database-lane test receipt; no application/client relation inspection API was
+  added.
+- [x] Run the relation-capable simulation and persisted-state assertions in
+  PGlite.
+- [ ] Run the same relation-capable simulation and assertions in ordinary-role
+  PostgreSQL. The conditional lane exists, but the 2026-09-11 checkout did not
+  provide `FLAREX_POSTGRES_DATABASE_URL`.
 
 The primary realistic system-test path is deliberately:
 
@@ -318,15 +326,26 @@ existing Convex APIs.
 
 ## Known Gaps And Limitations
 
-- The private relation declaration is raw protocol-shaped input rather than a
-  typed clean Application definition handle.
 - The private incoming operation now crosses the normal relation-aware function
   Worker, but its generated context capability is intentionally not exported as
   a public developer `flarex/server` API.
-- The general system simulation path is explicitly relation-free.
-- The full private system vertical proves one ordered-many relationship; other
-  admitted shapes have lower-level analysis, commit, and read evidence but need
-  representative Standard function/system-test coverage.
+- Relation-bearing simulations currently exercise Query and Mutation. Existing
+  Action and Task systems retain the Legacy activation contract and fail closed
+  for a relation-bearing activation rather than silently selecting the wrong
+  contract.
+- The representative Standard simulation covers required and optional one,
+  ordered and unordered many, association-table composition, same-commit graph
+  creation, update and no-op behavior, deletion behavior, invalid values,
+  cardinality boundaries, bounded pagination, and runtime budgets in PGlite.
+- The equivalent ordinary-role PostgreSQL test is present but lacks a current
+  run receipt because the required database URL was unavailable.
+- Private relation-read failures retain the generated Worker read-boundary
+  cause, but the clean application invocation currently projects invalid
+  relation inputs and runtime relation-budget exhaustion alike as
+  `QueryInvocationError` with reason `unavailable`. This is sufficient for the
+  private fail-closed slice, but a future public API preflight must decide a
+  stable, more useful error projection before exposing developer relation
+  methods.
 - The bounded incoming result cannot enumerate an arbitrarily large reverse set
   because it exposes no continuation cursor.
 - No live/reactive relation behavior may be claimed before `R03-B` and
@@ -398,7 +417,7 @@ logical result.
   limitation from the general simulation runner, compose the relation runtime,
   and prove a realistic typed query and mutation workload in both database
   lanes without importing private persistence fixtures into the simulation.
-- [ ] **RSA-D — Representative admitted-profile matrix.** Prove optional one,
+- [x] **RSA-D — Representative admitted-profile matrix.** Prove optional one,
   required one, unordered many, ordered many, association-table composition,
   target-delete restriction, source-delete cleanup, and over-limit incoming
   behavior through the Standard/system-test surface.

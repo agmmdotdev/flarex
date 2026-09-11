@@ -14,6 +14,7 @@ import {
 import { runQuery } from "@flarex/application-invocation";
 import {
   makeApplicationQuerySystemLayer,
+  type ApplicationQuerySystemLive,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
 import { Effect } from "effect";
@@ -85,8 +86,28 @@ export interface ApplicationNativeQueryProof {
   readonly headMovementSelectedNewRevision: true;
 }
 
+export interface ApplicationNativeQueryTestFixture {
+  readonly deploymentId: string;
+  readonly activation: ApplicationQuerySystemLive["activation"];
+  readonly control: Readonly<{
+    readonly drizzle: ApplicationQuerySystemLive["snapshot"]["controlDb"];
+  }>;
+  readonly authorityPorts: ApplicationQuerySystemLive["snapshot"]["authority"];
+  readonly schema: ApplicationQuerySystemLive["snapshot"]["schema"];
+  readonly relationSchema?: ApplicationQuerySystemLive["snapshot"][
+    "relationSchema"
+  ];
+  readonly relationReads?: ApplicationQuerySystemLive["snapshot"]["relations"];
+  readonly developerIndexes: ApplicationQuerySystemLive["snapshot"][
+    "developerIndexes"
+  ];
+  readonly source: ApplicationNativeMutationFixture<
+    ApplicationNativeMutationPersistence
+  >["source"];
+}
+
 export function makeApplicationNativeQueryTestLayer(
-  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  fixture: ApplicationNativeQueryTestFixture,
   loader: WorkerLoader,
   onExecution: () => void = () => undefined,
 ) {
@@ -98,6 +119,12 @@ export function makeApplicationNativeQueryTestLayer(
       controlDb: fixture.control.drizzle,
       authority: fixture.authorityPorts,
       schema: fixture.schema,
+      ...(fixture.relationSchema === undefined
+        ? {}
+        : { relationSchema: fixture.relationSchema }),
+      ...(fixture.relationReads === undefined
+        ? {}
+        : { relations: fixture.relationReads }),
       developerIndexes: fixture.developerIndexes,
     },
     snapshotBudget: Object.freeze({

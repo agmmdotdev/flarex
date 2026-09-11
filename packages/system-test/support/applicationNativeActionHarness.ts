@@ -100,6 +100,32 @@ export interface ApplicationNativeActionTestLayerOptions {
   readonly onExecution?: () => void;
 }
 
+type ApplicationNativeActionTestFixture = Omit<Pick<
+  ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  | "activation"
+  | "active"
+  | "authorityPorts"
+  | "control"
+  | "deploymentId"
+  | "schema"
+  | "source"
+  | "target"
+>, "active" | "activation"> & Readonly<{
+  readonly activation: Pick<
+    ApplicationNativeMutationFixture<
+      ApplicationNativeMutationPersistence
+    >["activation"],
+    "readActive"
+  >;
+  readonly active: Readonly<{
+    readonly basis: Readonly<{
+      readonly authority: ApplicationNativeMutationFixture<
+        ApplicationNativeMutationPersistence
+      >["active"]["basis"]["authority"];
+    }>;
+  }>;
+}>;
+
 /**
  * Test-owned composition for the current Application Action System. The
  * caller supplies only callback and controlled-outbound ports; admission,
@@ -107,7 +133,7 @@ export interface ApplicationNativeActionTestLayerOptions {
  * remain with their existing owners.
  */
 export function makeApplicationNativeActionTestLayer(
-  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  fixture: ApplicationNativeActionTestFixture,
   loader: WorkerLoader,
   options: ApplicationNativeActionTestLayerOptions,
 ) {
