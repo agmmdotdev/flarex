@@ -1,6 +1,7 @@
 # Product Workflow: Sales Channel And First Stored Link
 
-Status: source-backed preflight for discussion; implementation not approved.
+Status: Gate A approved and in progress, blocked at the shared installation-binding
+contract described below. Gates B and C remain unapproved.
 
 ## Outcome And Direction
 
@@ -163,7 +164,7 @@ or protocol version is also not justified merely by the name "Module Link".
 
 ### A. Sales Channel And Configured Endpoint Foundation
 
-Recommended first implementation approval:
+Approved foundation scope:
 
 1. Freeze a promotion map for native Sales Channel model/service/static metadata,
    its exact dependency closure and preserved original tests. Keep the island
@@ -183,6 +184,57 @@ Recommended first implementation approval:
 
 No core transaction change or Link write is authorized by A. If A itself exposes
 an insufficient shared contract, preserve the witness and pause at that owner.
+
+#### Gate A Blocker: One Installation, One Authorized Commerce Contract
+
+The initial preflight placed same-installation composition only in Gate B.
+Gate A already needs an additional core contract: separate confined Product and
+Sales Channel profiles must both be authorized against one configured installation,
+even when their commands run in separate transactions.
+
+The shared owner is `packages/persistence-postgres/src/frameworkSchema/binding`
+with commerce verification in `commerceTransaction/binding.ts` and admission in
+`commerceTransaction/admission.ts`. Current physical bindings encode one ordered
+adapter/query/store triplet. Commerce verification requires every entry to match
+the one requested profile ID and contract digest. Registering a second authentic
+profile does not add it to the installation's active authorization. This is a
+missing composition capability, not a defect in rejecting an unbound profile.
+
+The diagnostic in `packages/medusa-adapter/test/sales-channel-binding.test.ts`
+uses the real artifact, installation and binding pipeline. It installs all 14
+configured endpoint tables, grants only Sales Channel access, and reads through
+that admitted profile. A separately registered Product-only profile on the same
+installation is refused with `unsupportedProfile`. Explicitly registering both
+profiles and proposing both triplets in one binding is refused with `invalidInput`.
+The assertions characterize the existing safety boundary; successful dual-profile
+execution is the missing outcome, not a reason to weaken those refusals.
+
+Reproduce with `pnpm --filter @flarex/medusa-adapter exec vitest run --config
+vitest.sales-channel.config.ts`. Select `FLAREX_TEST_DRIVER=postgres` with an
+ordinary-role `FLAREX_POSTGRES_DATABASE_URL` for the real database lane.
+
+The [focused core binding preflight](./51-commerce-installation-profile-bindings.md)
+now proposes the representation, admission, compatibility and validation contract.
+Its implementation remains unapproved. Recommended correction:
+distinguish the shared physical installation from its explicitly authorized,
+module-confined execution contracts. Freeze canonical representation, activation,
+stale-binding behavior, profile membership and overlap rules before changing code.
+Keep existing supported Product/Currency bindings valid; do not infer a public
+migration/version obligation from private fixture encodings alone. Prove both
+profiles can execute independently on one active binding while cross-module and
+unregistered access still fail closed. Reuse the existing transaction owner and
+publication path; no new settlement or adapter-owned authority.
+
+Increasing an array limit alone, widening each module to the whole schema,
+swapping the active binding per command, or creating duplicate physical
+installations is not the proposed correction. Same-installation atomic
+participants and stored Link behavior still belong to Gate B. The diagnostic
+must move into the core owner's regression suite when that correction lands,
+with only the connected consumer assertions retained here.
+
+Sales Channel service/command compatibility, guarded source promotion and the
+original native integration cases remain incomplete. Partial foundation work
+must not be reported as an integrated module or a completed Gate A.
 
 ### B. First Stored Link And Shared-Core Admission
 
@@ -245,7 +297,7 @@ surface at the workflow boundary, not application construction authority.
 | Action | Scope and completion rule |
 | --- | --- |
 | Retain | Exact pinned island, original behavioral assertions, existing Product/Currency APIs and native module semantics. Their independent compatibility profiles remain supported internal proof consumers, not fallback runtimes. |
-| Extend | Existing checked schema/repository/command/query owners for the admitted configured set; existing core admission/store/publication only under B's explicit contract. |
+| Extend | Existing checked schema/repository/command/query owners for the admitted configured set; core binding admission only under preflight 51 approval, and same-installation atomic/store/publication changes only under B's explicit contract. |
 | Replace | Native Link global lookup and ORM infrastructure in the promoted closure with explicit scoped dependencies and existing Flarex persistence capabilities. Preserve source provenance and label infrastructure adaptations. |
 | Delete | Temporary duplicate assembly, copied algorithms, provisional exports and diagnostic fixtures displaced during implementation. Remove after equivalent assertions move to the real owner; no later unspecified cleanup phase. |
 
@@ -283,6 +335,6 @@ inventory before any destructive migration; private test recreation is not one.
 - Update owning roadmaps only with resulting durable capability truth. Complete
   each approved gate with scoped validation, cleanup and a coherent commit.
 
-This preflight is static source/contract research, not a runtime test receipt.
+This preflight owns capability decisions and blocker disposition, not test receipts.
 Public APIs, HTTP bootstrap, Store administration, general migrations, arbitrary
 modules/links, full Product workflows and production activation remain gated.

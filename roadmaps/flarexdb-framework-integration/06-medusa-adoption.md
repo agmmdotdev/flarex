@@ -32,8 +32,14 @@ The [Sales Channel and first stored Link preflight](./preflight/50-product-workf
 traces `createProductsWorkflow` and proposes the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
 deferred adapter-reuse candidate, not a Product-creation prerequisite. The new
-preflight is proposed, not implementation approval; configured-set composition,
-same-installation participants and commerce-link admission retain explicit gates.
+foundation gate is approved but blocked: the physical binding currently authorizes
+only one commerce profile contract per installation, so separate confined Product
+and Sales Channel profiles cannot both execute on the configured installation.
+The preflight records the witness; the [core binding proposal](./preflight/51-commerce-installation-profile-bindings.md)
+separates physical readiness from authorized execution profiles and awaits
+implementation approval. Same-installation
+atomic participants and commerce-link admission remain subsequent explicit gates;
+Sales Channel service compatibility is not complete.
 
 Complete integration-suite coverage does not establish arbitrary input parity
 or a complete module bootstrap/migration adapter. Stored Module Links,
