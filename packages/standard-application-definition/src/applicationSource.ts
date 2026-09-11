@@ -108,6 +108,21 @@ export function produceInternalStandardApplicationSourceWithRelations(
   );
 }
 
+/**
+ * Internal clean-definition bridge for callers that already own the exact
+ * prepared relation set. It does not decode, reinterpret, or version relation
+ * declarations a second time.
+ */
+export function producePreparedInternalStandardApplicationSourceWithRelations(
+  definition: PreparedStandardApplicationDefinitionV1,
+  relations: PreparedStandardApplicationRelations,
+): Result.Result<StandardApplicationSource, StandardApplicationSourceError> {
+  return producePreparedStandardApplicationSource(
+    definition,
+    relations.declarations.length === 0 ? undefined : relations,
+  );
+}
+
 /** Private policy-bearing schema source; trusted analysis authenticates references. */
 export function produceInternalStandardApplicationSourceWithWritePolicies(
   definition: PreparedStandardApplicationDefinitionV1,

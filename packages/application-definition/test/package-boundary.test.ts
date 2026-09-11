@@ -28,6 +28,7 @@ describe("Application definition package boundary", () => {
       "admitApplicationPreparationPolicy",
       "defineApplication",
       "defineModule",
+      "defineRelation",
       "defineSchema",
       "defineTable",
       "internalAction",

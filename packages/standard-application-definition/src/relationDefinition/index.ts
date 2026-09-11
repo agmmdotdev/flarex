@@ -1,7 +1,13 @@
 export {
+  producePreparedInternalStandardApplicationSourceWithRelations,
   produceInternalStandardApplicationSourceWithRelations,
   type ProduceInternalStandardApplicationRelationSourceError,
 } from "../applicationSource.js";
+export {
+  lowerStandardApplicationRelationIntent,
+  type StandardApplicationRelationDeclaration,
+  type StandardApplicationRelationIntent,
+} from "./Authoring.js";
 export {
   StandardApplicationRelationDefinitionError,
   type PrepareStandardApplicationRelationsError,

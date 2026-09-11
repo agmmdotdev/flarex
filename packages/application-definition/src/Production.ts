@@ -3,10 +3,14 @@ import {
   type StandardApplicationSource,
   type StandardApplicationSourceError,
 } from "@flarex/standard-application-definition/application-source";
+import {
+  producePreparedInternalStandardApplicationSourceWithRelations,
+} from "@flarex/standard-application-definition/internal/relation-definition";
 import { type Result } from "effect";
 
 import {
   inspectPreparedApplication,
+  inspectPreparedApplicationRelations,
   type PreparedApplication,
 } from "./Preparation.js";
 
@@ -20,7 +24,11 @@ export type ApplicationSourceError = StandardApplicationSourceError;
 export function produceApplicationSource(
   prepared: PreparedApplication,
 ): Result.Result<ApplicationSource, ApplicationSourceError> {
-  return produceStandardApplicationSource(
-    inspectPreparedApplication(prepared),
-  );
+  const relations = inspectPreparedApplicationRelations(prepared);
+  return relations.declarations.length === 0
+    ? produceStandardApplicationSource(inspectPreparedApplication(prepared))
+    : producePreparedInternalStandardApplicationSourceWithRelations(
+        inspectPreparedApplication(prepared),
+        relations,
+      );
 }

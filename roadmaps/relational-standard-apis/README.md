@@ -141,11 +141,11 @@ or framework-parity claim.
 
 ### Missing Standard API surface
 
-- [ ] Freeze an unversioned typed relation-definition handle owned by
+- [x] Freeze an unversioned typed relation-definition handle owned by
   `@flarex/application-definition`. It must bind source field, target table,
   cardinality, ordering, bounds, inverse name, and delete policy without
   exposing protocol envelopes or physical identities.
-- [ ] Integrate relation definitions into the clean `ApplicationDefinition`
+- [x] Integrate relation definitions into the clean `ApplicationDefinition`
   preparation path. The implementation must lower to the existing exact
   relation declaration and must not widen or reinterpret an existing persisted
   or wire V1 contract.
@@ -341,13 +341,41 @@ Only after that private Standard/system-test slice is complete should the SDK
 roadmap decide public relation syntax, generated references, packaging, and
 compatibility. Reactive APIs remain separately gated.
 
+## Accepted Private Standard API Preflight
+
+The clean definition API is `defineRelation(schema, input)`. It returns an
+opaque relation handle bound to that exact schema; `defineApplication(...)`
+owns a frozen `relations` collection beside its schema and modules. The input
+names one top-level source table and field, one target table, a `one` or `many`
+value shape, the inverse name, and `onTargetDelete: "restrict"`. Requiredness
+for `one` agrees with the source validator; `many` carries minimum, maximum,
+and ordering. Protocol format/version, localization, duplicate policy, stable
+catalog IDs, edge IDs, and physical storage are not exposed.
+
+The first runtime operation will be
+`ctx.db.takeIncomingRelationSources(input)`. Its input contains only the
+logical source table/field, target document ID, and a limit no greater than
+128. Its result contains source document IDs, positions, and exhaustion. It
+will execute on the ordinary query snapshot and RPC capability, use the
+existing relation read port, share the query read gate and lifecycle, and add
+the logical incoming relation dependency to evaluation capture. It will not
+open a second snapshot, populate documents, accept a cursor, mutate edges, or
+be available from mutation/action contexts in this slice.
+
+Definition/preparation errors remain owned by the clean definition package and
+the existing Standard relation preparation errors. Runtime boundary validation
+will reuse the existing strict incoming-operation decoder, while persistence
+and activation failures retain their current typed owners. Worker transport
+must not serialize or reveal those internal failures as part of a successful
+logical result.
+
 ## Next Correctness Gates
 
-- [ ] **RSA-P — Standard relation API preflight.** Freeze the relation handle,
+- [x] **RSA-P — Standard relation API preflight.** Freeze the relation handle,
   logical read operation, result, typed failures, function-runtime placement,
   package ownership, budgets, and explicit non-goals. Confirm that no existing
   wire or persisted contract changes meaning.
-- [ ] **RSA-A — Typed definition composition.** Add the clean relation handle
+- [x] **RSA-A — Typed definition composition.** Add the clean relation handle
   and integrate it with `ApplicationDefinition` preparation while lowering to
   the existing exact internal contract. Prove one, many, invalid-field,
   duplicate-definition, and unsupported-profile cases.

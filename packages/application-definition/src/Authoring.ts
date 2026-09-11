@@ -15,6 +15,10 @@ import type {
   CanonicalDeclarativeFunctionInputV1,
   CanonicalDeclarativeModuleInputV1,
 } from "@flarex/declarative-program/v1";
+import {
+  lowerStandardApplicationRelationIntent,
+  type StandardApplicationRelationDeclaration,
+} from "@flarex/standard-application-definition/internal/relation-definition";
 import { copyBytes } from "@flarex/utils/bytes";
 
 declare const IdTableHint: unique symbol;
@@ -28,6 +32,7 @@ export type ValidatorOptionality = "required" | "optional";
 declare const ValidatorType: unique symbol;
 declare const ValidatorFieldPathsType: unique symbol;
 declare const FunctionArgsType: unique symbol;
+declare const RelationValidatorType: unique symbol;
 
 export interface Validator<
   Value,
@@ -43,6 +48,16 @@ export interface Validator<
 
 interface FunctionArgsCapability {
   readonly [FunctionArgsType]: true;
+}
+
+interface RelationValidatorCapability<
+  TargetTable extends string,
+  Cardinality extends "one" | "many",
+> {
+  readonly [RelationValidatorType]: Readonly<{
+    readonly targetTable: TargetTable;
+    readonly cardinality: Cardinality;
+  }>;
 }
 
 type AnyValidator = Validator<unknown, ValidatorOptionality, string>;
@@ -196,6 +211,57 @@ function scalarValidator<Value>(
   return captureValidator<Value, "required", never>(authored);
 }
 
+function idValidator<TableName extends string>(
+  tableName: TableName,
+): Validator<Id<TableName>, "required"> &
+  RelationValidatorCapability<TableName, "one">;
+function idValidator<TableName extends string>(
+  tableName: TableName,
+): Validator<Id<TableName>, "required"> {
+  return scalarValidator<Id<TableName>>(standardV1.id(tableName));
+}
+
+function arrayValidator<
+  TargetTable extends string,
+  Value,
+  FieldPaths extends string,
+>(
+  value: Validator<Value, "required", FieldPaths> &
+    RelationValidatorCapability<TargetTable, "one">,
+): Validator<ReadonlyArray<Value>, "required"> &
+  RelationValidatorCapability<TargetTable, "many">;
+function arrayValidator<Value>(
+  value: Validator<Value, "required", string>,
+): Validator<ReadonlyArray<Value>, "required">;
+function arrayValidator<Value>(
+  value: Validator<Value, "required", string>,
+): Validator<ReadonlyArray<Value>, "required"> {
+  return scalarValidator<ReadonlyArray<Value>>(
+    standardV1.array(inspectValidator(value)),
+  );
+}
+
+function optionalValidator<
+  Value,
+  FieldPaths extends string,
+  TargetTable extends string,
+  Cardinality extends "one" | "many",
+>(
+  validator: Validator<Value, "required", FieldPaths> &
+    RelationValidatorCapability<TargetTable, Cardinality>,
+): Validator<Value, "optional", FieldPaths> &
+  RelationValidatorCapability<TargetTable, Cardinality>;
+function optionalValidator<Value, FieldPaths extends string>(
+  validator: Validator<Value, "required", FieldPaths>,
+): Validator<Value, "optional", FieldPaths>;
+function optionalValidator<Value, FieldPaths extends string>(
+  validator: Validator<Value, "required", FieldPaths>,
+): Validator<Value, "optional", FieldPaths> {
+  return captureValidator<Value, "optional", FieldPaths>(
+    standardV1.optional(inspectValidator(validator)),
+  );
+}
+
 function objectValidator<Fields extends ValidatorRecord>(
   fields: Fields,
 ): ObjectValidator<Fields> {
@@ -227,20 +293,12 @@ export const v = Object.freeze({
     scalarValidator<ArrayBuffer>(standardV1.bytes()),
   any: (): AnyFunctionArgsValidator =>
     captureFunctionArgsValidator<unknown, string>(standardV1.any()),
-  id: <TableName extends string>(
-    tableName: TableName,
-  ): Validator<Id<TableName>, "required"> =>
-    scalarValidator<Id<TableName>>(standardV1.id(tableName)),
+  id: idValidator,
   literal: <Literal extends string | number | boolean>(
     value: Literal,
   ): Validator<Literal, "required"> =>
     scalarValidator<Literal>(standardV1.literal(value)),
-  array: <Value>(
-    value: Validator<Value, "required", string>,
-  ): Validator<ReadonlyArray<Value>, "required"> =>
-    scalarValidator<ReadonlyArray<Value>>(
-      standardV1.array(inspectValidator(value)),
-    ),
+  array: arrayValidator,
   object: objectValidator,
   record: <Key, Value>(
     keys: Validator<Key, "required", string>,
@@ -270,12 +328,7 @@ export const v = Object.freeze({
       ...rest.map((member) => inspectValidator(member)),
     ));
   },
-  optional: <Value, FieldPaths extends string>(
-    validator: Validator<Value, "required", FieldPaths>,
-  ): Validator<Value, "optional", FieldPaths> =>
-    captureValidator<Value, "optional", FieldPaths>(
-      standardV1.optional(inspectValidator(validator)),
-    ),
+  optional: optionalValidator,
   nullable: <Value, FieldPaths extends string>(
     validator: Validator<Value, "required", FieldPaths>,
   ): Validator<Value | null, "required", FieldPaths> =>
@@ -382,6 +435,170 @@ export interface SchemaDefinition<
   Tables extends TableCatalog = TableCatalog,
 > {
   readonly [SchemaDefinitionType]: Tables;
+}
+
+type TablesOfSchema<Schema extends SchemaDefinition> =
+  Schema extends SchemaDefinition<infer Tables> ? Tables : never;
+
+type TableNamesOfSchema<Schema extends SchemaDefinition> =
+  keyof TablesOfSchema<Schema> & string;
+
+type FieldsOfTable<Table extends TableDefinition> =
+  Table extends TableDefinition<infer Fields, TableIndexCatalog>
+    ? Fields
+    : never;
+
+type RelationTargetForValidator<Definition> =
+  Definition extends RelationValidatorCapability<infer TableName, "one" | "many">
+    ? TableName
+    : never;
+
+type RelationValueForValidator<Definition> =
+  Definition extends RelationValidatorCapability<string, "many">
+    ? Definition extends Validator<unknown, "required", string>
+      ? Readonly<{
+          readonly cardinality: "many";
+          readonly minItems: number;
+          readonly maxItems: number;
+          readonly ordered: boolean;
+        }>
+      : never
+    : Definition extends RelationValidatorCapability<string, "one">
+      ? Definition extends Validator<unknown, infer Optionality, string>
+        ? Readonly<{
+            readonly cardinality: "one";
+            readonly required: Optionality extends "required" ? true : false;
+          }>
+        : never
+      : never;
+
+type RelationDefinitionInputForTable<
+  Schema extends SchemaDefinition,
+  SourceTable extends TableNamesOfSchema<Schema>,
+> = FieldsOfTable<TablesOfSchema<Schema>[SourceTable]> extends infer Fields extends
+  ValidatorRecord
+  ? {
+      readonly [SourceField in keyof Fields & string]: Readonly<{
+        readonly source: Readonly<{
+          readonly table: SourceTable;
+          readonly field: SourceField;
+        }>;
+        readonly target: Readonly<{
+          readonly table: Extract<
+            RelationTargetForValidator<Fields[SourceField]>,
+            TableNamesOfSchema<Schema>
+          >;
+        }>;
+        readonly value: RelationValueForValidator<Fields[SourceField]>;
+        readonly inverse: Readonly<{ readonly name: string | null }>;
+        readonly onTargetDelete: "restrict";
+      }>;
+    }[keyof Fields & string]
+  : never;
+
+export type RelationDefinitionInput<Schema extends SchemaDefinition> = {
+  readonly [SourceTable in TableNamesOfSchema<Schema>]:
+    RelationDefinitionInputForTable<Schema, SourceTable>;
+}[TableNamesOfSchema<Schema>];
+
+declare const RelationDefinitionType: unique symbol;
+
+/**
+ * Opaque Standard relation intent bound to one authored schema. The handle
+ * exposes no protocol envelope, catalog identity, or persistence capability.
+ */
+export interface RelationDefinition<
+  Schema extends SchemaDefinition = SchemaDefinition,
+> {
+  readonly [RelationDefinitionType]: Schema;
+}
+
+export interface RelationDefinitionState {
+  readonly schema: SchemaDefinition;
+  readonly declaration: StandardApplicationRelationDeclaration;
+}
+
+interface CapturedRelationDefinitionInput {
+  readonly source: Readonly<{
+    readonly table: string;
+    readonly field: string;
+  }>;
+  readonly target: Readonly<{ readonly table: string }>;
+  readonly value:
+    | Readonly<{ readonly cardinality: "one"; readonly required: boolean }>
+    | Readonly<{
+        readonly cardinality: "many";
+        readonly minItems: number;
+        readonly maxItems: number;
+        readonly ordered: boolean;
+      }>;
+  readonly inverse: Readonly<{ readonly name: string | null }>;
+  readonly onTargetDelete: "restrict";
+}
+
+const relationDefinitionStates = new WeakMap<
+  RelationDefinition,
+  RelationDefinitionState
+>();
+
+class RelationDefinitionHandle<Schema extends SchemaDefinition>
+  implements RelationDefinition<Schema> {
+  declare readonly [RelationDefinitionType]: Schema;
+
+  constructor(
+    schema: Schema,
+    declaration: StandardApplicationRelationDeclaration,
+  ) {
+    relationDefinitionStates.set(this, { schema, declaration });
+    Object.freeze(this);
+  }
+}
+
+export function defineRelation<Schema extends SchemaDefinition>(
+  schema: Schema,
+  input: RelationDefinitionInput<Schema>,
+): RelationDefinition<Schema>;
+export function defineRelation(
+  schema: SchemaDefinition,
+  input: CapturedRelationDefinitionInput,
+): RelationDefinition {
+  inspectSchemaDefinition(schema);
+  const source = input.source;
+  const target = input.target;
+  const inputValue = input.value;
+  const inverse = input.inverse;
+  const onTargetDelete = input.onTargetDelete;
+  const field = source.field;
+  const value = inputValue.cardinality === "one"
+    ? Object.freeze({
+        cardinality: "one" as const,
+        required: inputValue.required,
+      })
+    : Object.freeze({
+        cardinality: "many" as const,
+        minItems: inputValue.minItems,
+        maxItems: inputValue.maxItems,
+        ordered: inputValue.ordered,
+      });
+  const declaration = lowerStandardApplicationRelationIntent(Object.freeze({
+    sourceTable: source.table,
+    sourceField: field,
+    targetTable: target.table,
+    value,
+    inverseName: inverse.name,
+    onTargetDelete,
+  }));
+  return new RelationDefinitionHandle(schema, declaration);
+}
+
+export function inspectRelationDefinition(
+  relation: RelationDefinition,
+): RelationDefinitionState {
+  const state = relationDefinitionStates.get(relation);
+  if (state === undefined) {
+    throw new TypeError("Relation definition metadata is unavailable.");
+  }
+  return state;
 }
 
 const schemaDefinitionStates = new WeakMap<
@@ -979,26 +1196,34 @@ export interface ApplicationDefinition<
   Schema extends SchemaDefinition = SchemaDefinition,
   Modules extends ReadonlyArray<ApplicationModule> =
     ReadonlyArray<ApplicationModule>,
+  Relations extends ReadonlyArray<RelationDefinition<Schema>> =
+    ReadonlyArray<RelationDefinition<Schema>>,
 > {
   readonly [ApplicationDefinitionType]: Readonly<{
     readonly schema: Schema;
     readonly modules: Modules;
+    readonly relations: Relations;
   }>;
   readonly schema: Schema;
   readonly modules: Modules;
+  readonly relations: Relations;
 }
 
 export interface ApplicationDefinitionInput<
   Schema extends SchemaDefinition,
   Modules extends ReadonlyArray<ApplicationModule>,
+  Relations extends ReadonlyArray<RelationDefinition<Schema>> =
+    ReadonlyArray<RelationDefinition<Schema>>,
 > {
   readonly schema: Schema;
   readonly modules: Modules;
+  readonly relations?: Relations;
 }
 
 export interface ApplicationDefinitionState {
   readonly schema: SchemaDefinition;
   readonly modules: ReadonlyArray<ApplicationModule>;
+  readonly relations: ReadonlyArray<RelationDefinition>;
 }
 
 const applicationDefinitionStates = new WeakMap<
@@ -1009,17 +1234,20 @@ const applicationDefinitionStates = new WeakMap<
 class ApplicationDefinitionHandle<
   Schema extends SchemaDefinition,
   Modules extends ReadonlyArray<ApplicationModule>,
-> implements ApplicationDefinition<Schema, Modules> {
+  Relations extends ReadonlyArray<RelationDefinition<Schema>>,
+> implements ApplicationDefinition<Schema, Modules, Relations> {
   declare readonly [ApplicationDefinitionType]: Readonly<{
     readonly schema: Schema;
     readonly modules: Modules;
+    readonly relations: Relations;
   }>;
 
   constructor(
     readonly schema: Schema,
     readonly modules: Modules,
+    readonly relations: Relations,
   ) {
-    applicationDefinitionStates.set(this, { schema, modules });
+    applicationDefinitionStates.set(this, { schema, modules, relations });
     Object.freeze(this);
   }
 }
@@ -1027,13 +1255,25 @@ class ApplicationDefinitionHandle<
 export function defineApplication<
   Schema extends SchemaDefinition,
   const Modules extends ReadonlyArray<ApplicationModule>,
+  const Relations extends ReadonlyArray<RelationDefinition<Schema>> = readonly [],
 >(
-  input: ApplicationDefinitionInput<Schema, Modules>,
-): ApplicationDefinition<Schema, ReadonlyArray<Modules[number]>> {
+  input: ApplicationDefinitionInput<Schema, Modules, Relations>,
+): ApplicationDefinition<
+  Schema,
+  ReadonlyArray<Modules[number]>,
+  ReadonlyArray<Relations[number]>
+> {
   const schema = input.schema;
   const modules = Object.freeze([...input.modules]);
+  const relations = Object.freeze([...(input.relations ?? [])]) as
+    ReadonlyArray<Relations[number]>;
   for (const module of modules) inspectApplicationModule(module);
-  return new ApplicationDefinitionHandle(schema, modules);
+  for (const relation of relations) {
+    if (inspectRelationDefinition(relation).schema !== schema) {
+      throw new TypeError("Relation definition belongs to a different schema.");
+    }
+  }
+  return new ApplicationDefinitionHandle(schema, modules, relations);
 }
 
 export function inspectApplicationDefinition(

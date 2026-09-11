@@ -16,12 +16,18 @@ import {
   prepareStandardApplicationProgramV1,
   type PreparedStandardApplicationDefinitionV1,
 } from "@flarex/standard-application-definition/internal/prepared-definition-v1";
+import {
+  prepareStandardApplicationRelations,
+  type PreparedStandardApplicationRelations,
+  type PrepareStandardApplicationRelationsError,
+} from "@flarex/standard-application-definition/internal/relation-definition";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Result } from "effect";
 
 import {
   inspectApplicationDefinition,
   inspectApplicationModule,
+  inspectRelationDefinition,
   inspectSchemaDefinition,
   type ApplicationDefinition,
 } from "./Authoring.js";
@@ -43,7 +49,8 @@ export interface ApplicationPreparationPolicy {
 
 export type ApplicationPreparationError =
   | CanonicalDeclarativeProgramV1Error
-  | DeclarativeV2MaterializationV1Error;
+  | DeclarativeV2MaterializationV1Error
+  | PrepareStandardApplicationRelationsError;
 
 declare const AdmittedApplicationPreparationPolicyType: unique symbol;
 
@@ -81,7 +88,10 @@ export interface PreparedApplication<
 
 const preparedApplicationStates = new WeakMap<
   PreparedApplication,
-  PreparedStandardApplicationDefinitionV1
+  Readonly<{
+    readonly definition: PreparedStandardApplicationDefinitionV1;
+    readonly relations: PreparedStandardApplicationRelations;
+  }>
 >();
 
 class PreparedApplicationHandle<
@@ -118,6 +128,11 @@ export function prepareApplication<
       programInput,
       admitted.programBudget,
     );
+    const relations = yield* prepareStandardApplicationRelations(
+      application.relations.map(relation =>
+        inspectRelationDefinition(relation).declaration
+      ),
+    );
     const materializationBudget =
       yield* makeDeclarativeV2MaterializationBudgetV1({
         maximumModules: admitted.policy.maximumModules,
@@ -138,7 +153,10 @@ export function prepareApplication<
         materializationBudget,
       );
     const prepared = new PreparedApplicationHandle(definition);
-    preparedApplicationStates.set(prepared, { program, artifactIngressPlan });
+    preparedApplicationStates.set(prepared, Object.freeze({
+      definition: Object.freeze({ program, artifactIngressPlan }),
+      relations,
+    }));
     return prepared;
   });
 }
@@ -379,7 +397,17 @@ export function inspectPreparedApplication(
   if (state === undefined) {
     throw new TypeError("Prepared application metadata is unavailable.");
   }
-  return state;
+  return state.definition;
+}
+
+export function inspectPreparedApplicationRelations(
+  prepared: PreparedApplication,
+): PreparedStandardApplicationRelations {
+  const state = preparedApplicationStates.get(prepared);
+  if (state === undefined) {
+    throw new TypeError("Prepared application metadata is unavailable.");
+  }
+  return state.relations;
 }
 
 /**
