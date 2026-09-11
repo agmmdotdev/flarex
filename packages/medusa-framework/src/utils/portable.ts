@@ -17,6 +17,7 @@ export { MedusaContext } from "@medusajs/utils/modules-sdk/decorators/context-pa
 export { MedusaService } from "@medusajs/utils/modules-sdk/medusa-service";
 export { MessageAggregator } from "@medusajs/utils/event-bus/message-aggregator";
 export { partitionArray } from "@medusajs/utils/common/partition-array";
+export { promiseAll } from "@medusajs/utils/common/promise-all";
 export { ProductStatus } from "@medusajs/utils/product/enums";
 export { removeUndefined } from "@medusajs/utils/common/remove-undefined";
 export { toHandle } from "@medusajs/utils/common/to-handle";

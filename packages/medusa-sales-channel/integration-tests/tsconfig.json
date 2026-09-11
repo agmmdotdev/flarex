@@ -1,0 +1,12 @@
+{
+  "extends": "../../medusa-adapter/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "paths": {
+      "@services": ["../dist/services/index.d.ts"],
+      "@medusajs/test-utils": ["../../medusa-adapter/test/support/sales-channel-runner.ts"]
+    }
+  },
+  "include": ["__tests__/**/*.ts"]
+}

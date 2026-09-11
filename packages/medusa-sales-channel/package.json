@@ -1,0 +1,18 @@
+{
+  "name": "@medusajs/sales-channel",
+  "version": "2.13.4",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    "./models": { "types": "./dist/models/index.d.ts", "source": "./src/models/index.ts", "default": "./dist/models/index.js" },
+    "./services": { "types": "./dist/services/index.d.ts", "source": "./src/services/index.ts", "default": "./dist/services/index.js" },
+    "./static-manifest": { "types": "./dist/static-manifest.d.ts", "source": "./src/static-manifest.ts", "default": "./dist/static-manifest.js" }
+  },
+  "dependencies": {
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/modules-sdk": "workspace:*",
+    "@medusajs/types": "workspace:*",
+    "@medusajs/utils": "workspace:*"
+  },
+  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.json --noEmit" }
+}

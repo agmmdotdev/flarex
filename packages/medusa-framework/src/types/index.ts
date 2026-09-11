@@ -36,3 +36,4 @@ export { ProductCategoryDTO, ProductTagDTO } from "@medusajs/types/product/index
 export { Message, Subscriber } from "@medusajs/types";
 export { EventBusTypes } from "@medusajs/types";
 export { IProductModuleService } from "@medusajs/types/product/index";
+export { CreateSalesChannelDTO, FilterableSalesChannelProps, ISalesChannelModuleService, SalesChannelDTO, UpdateSalesChannelDTO, UpsertSalesChannelDTO } from "@medusajs/types";

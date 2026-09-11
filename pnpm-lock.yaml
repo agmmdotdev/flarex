@@ -837,6 +837,9 @@ importers:
       '@medusajs/product':
         specifier: workspace:*
         version: link:../medusa-product
+      '@medusajs/sales-channel':
+        specifier: workspace:*
+        version: link:../medusa-sales-channel
       '@medusajs/utils':
         specifier: workspace:*
         version: link:../medusa-utils
@@ -957,6 +960,21 @@ importers:
       faker:
         specifier: 5.5.3
         version: 5.5.3
+
+  packages/medusa-sales-channel:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
 
   packages/medusa-test-utils:
     dependencies:

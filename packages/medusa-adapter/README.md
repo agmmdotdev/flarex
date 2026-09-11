@@ -1,4 +1,4 @@
-# Private Currency compatibility
+# Private Medusa compatibility
 
 This private adapter translates the pinned fork's actual Currency DML and runs
 its unchanged service through Flarex-owned installation, initialization,
@@ -42,25 +42,25 @@ instance because control and target transactions require independent leases.
 
 The promotion manifest in `roadmaps/flarexdb-framework-integration/preflight/`
 enumerates source hashes, reviewed transformations, licenses, dependencies,
-exports, the exact legacy test alias, and generated JavaScript/declaration/map
+exports, explicit native-test harness aliases, and generated JavaScript/declaration/map
 hashes. A build uses deterministic LF output. Available outputs are verified;
 their absence is permitted for source-only admission. After changing an admitted
 input, review its transformation and update its exact target/build hashes. New
 paths or exports require explicit manifest admission; do not expand a wildcard
 or copy a new framework barrel to make a missing dependency resolve.
 
-All thirteen promoted Currency/Product test files now import Vitest explicitly.
+The promoted native test files import Vitest explicitly.
 Their package-local test configurations enable strict checking, checked indexing
 and exact optional properties, and include all six Product fixture files. The
 adapter compiler also includes the Product wrapper files. `build` and `typecheck`
-run the adapter, Currency compatibility, composite and Product test projects.
+run the adapter, Currency compatibility, composite, Product and Sales Channel test projects.
 The Currency/CMS/Application composite fixture retains its existing persistence
 test compiler settings in `tsconfig.composite.json`.
 
 The pinned source island remains unchanged. Runnable copies are maintained test
 ports: the promotion guard compares their executable structure after type
 erasure, preserving fixture calls, assertions, case names and skips. It permits
-explicit Vitest imports, the exact Currency timeout relocation to configuration,
+explicit Vitest imports, exact Currency/Sales Channel timeout relocations to configuration,
 the exact Currency static-export import relocations, and local unused-result
 markers. The Jest runtime shim and legacy ambient declarations are removed.
 [Record 48](../../roadmaps/flarexdb-framework-integration/preflight/48-medusa-test-promotion-cleanup.md)
@@ -72,6 +72,36 @@ The live profile is deliberately bounded: one table, one text primary key,
 contention uses distinct connections; the PGlite publication barrier is a
 separate cancellation proof. Product has its own profile below; stored Module
 Links, arbitrary module queries and public/production adapters remain gated.
+
+## Private Sales Channel foundation
+
+`makeLocalSalesChannelCommands()` owns checked native metadata, repository and
+service construction, six direct method bindings, registration and local event
+policy. Callers do not assemble internal services or repositories. The returned
+commands support create, ID-selected update, delete, retrieve, list and
+list-and-count. Native code owns normalization, scalar/array results, metadata
+merging and error messages; the adapter admits bounded inputs and authenticates
+native events against complete command row facts before local delivery.
+
+`prepareLocalSalesChannelProfile` prepares one configured Product + Sales Channel
+schema containing all fourteen endpoint tables, but grants only Sales Channel
+table access. Product's separately authorized profile can read its own endpoint
+through the same installation. The shared compiler decoder lives in
+`src/schema/compiled.ts`; no second schema grammar or core module branch exists.
+
+Run `pnpm --filter @flarex/medusa-adapter test:sales-channel:upstream` for all
+fourteen preserved native integration cases, with their original thirty-second
+case deadline. `test:sales-channel` covers the configured schema, confined
+bindings, defaults/metadata, replay, input refusal, event rollback, service
+lifetime and the two preserved static-manifest cases. Set
+`FLAREX_TEST_DRIVER=postgres` and `FLAREX_POSTGRES_DATABASE_URL` for the same
+ordinary-role PostgreSQL boundary suite and native service cases.
+
+This is private Gate A in
+[preflight 50](../../roadmaps/flarexdb-framework-integration/preflight/50-product-workflow-sales-channel-foundation.md).
+Upsert, selector updates, soft-delete/restore, stored ProductSalesChannel Links,
+same-installation atomic participants, association workflows, public serving and
+production activation remain unadmitted. There is no durable event destination.
 
 ## Private Product compatibility
 

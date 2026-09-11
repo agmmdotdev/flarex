@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-Status: accepted source-backed adoption sequence. The private Currency and
-Product integrations execute the promoted Medusa services through Flarex-owned
+Status: accepted source-backed adoption sequence. The private Currency, Product
+and Sales Channel integrations execute promoted Medusa services through Flarex-owned
 installation, scoped transactions, and relational publication. Currency proves
 its complete original integration file and seed-gated initialization. Product
 proves all ten inventoried integration files, including public and internal
@@ -16,30 +16,35 @@ historical checkpoints.
 The [shared persistence adapter](./preflight/47-medusa-shared-persistence-adapter.md)
 now centralizes checked runtime metadata, schema lowering, JSON-field decoding,
 repository reads/projections, keyed updates, graph writes, mutation dispatch and
-module-scoped repository/service construction for Currency and Product. Named
+module-scoped repository/service construction for Currency, Product and Sales Channel. Named
 domain policies retain query admission, Category tree/sort behavior, membership
 exclusions and distinct lifecycle contracts. Product command assembly separates
 profile preparation, reads, mutations and direct internal calls behind its
 existing entry point. Product public commands and Currency reads share scoped
 command construction with direct native-method bindings; domain-specific
 admission and native upsert/lifecycle semantics remain explicit.
-A complete configured module set and a separately admitted
-module proof remain subsequent capabilities. Medusa services remain above the
-existing Flarex transaction and publication owners.
+The exact Product + Sales Channel endpoint set shares one configured schema
+installation with separately confined profiles. Arbitrary configured module
+sets and same-installation atomic participants remain unadmitted. Medusa services
+remain above the existing Flarex transaction and publication owners.
 
 The user-selected next integration outcome is full Product workflow execution.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
 traces `createProductsWorkflow` and proposes the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
 deferred adapter-reuse candidate, not a Product-creation prerequisite. The new
-foundation gate is approved and in progress. Its [core binding correction](./preflight/51-commerce-installation-profile-bindings.md)
+foundation gate is complete. Its [core binding correction](./preflight/51-commerce-installation-profile-bindings.md)
 separates physical readiness from authorized execution profiles and is complete.
 One unversioned current binding API
 replaces the development-only encodings; the owner confirmed no production data
 or retained compatibility obligation. Neutral core fixtures exercise three
 disjoint profiles without module-specific branches. Same-installation
 atomic participants and commerce-link admission remain subsequent explicit gates;
-Sales Channel service compatibility is not complete.
+Sales Channel's six-command profile preserves the original service and static
+cases, native metadata merging, scalar/array results, pagination and errors.
+Boundary checks retain input refusal, identity protection, replay, service
+lifetime and complete event-evidence rollback. Upsert, selector updates and
+soft-delete/restore remain unadmitted rather than inferred from the native class.
 
 Gate A exposed a
 [shared module-construction defect](./preflight/47-medusa-shared-persistence-adapter.md#native-mutation-subscriber-construction-contract):
@@ -47,8 +52,8 @@ the native constructor lacked the prepared persistence dependency required to
 connect mutation subscribers. Its approved correction supplies one shared typed
 constructor dependency object, retaining the neutral module and Sales Channel
 write witnesses. Product/Currency regression coverage is preserved. This
-completed correction changes shared Medusa adapter composition, not Flarex core;
-the remaining Sales Channel integration obligations are still open.
+completed correction changes shared Medusa adapter composition, not Flarex core.
+The Sales Channel entry point reuses it without module-specific subscriber wiring.
 
 Complete integration-suite coverage does not establish arbitrary input parity
 or a complete module bootstrap/migration adapter. Stored Module Links,

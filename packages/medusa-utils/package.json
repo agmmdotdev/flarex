@@ -243,6 +243,11 @@
       "source": "./src/event-bus/message-aggregator.ts",
       "default": "./dist/event-bus/message-aggregator.js"
     },
+    "./common/promise-all": {
+      "types": "./dist/common/promise-all.d.ts",
+      "source": "./src/common/promise-all.ts",
+      "default": "./dist/common/promise-all.js"
+    },
     "./common/partition-array": {
       "types": "./dist/common/partition-array.d.ts",
       "source": "./src/common/partition-array.ts",

@@ -11,7 +11,7 @@ const source = "packages/medusa-currency/src/models/currency.ts";
 
 describe("exact Currency promotion", () => {
   it("authenticates source, transformed inputs, package exports, and available build outputs", () => {
-    expect(promotion.packages).toHaveLength(12);
+    expect(promotion.packages).toHaveLength(13);
     expect(promotion.files.some((file) => file.target === source && file.classification === "unchanged")).toBe(true);
   });
   it.each([
@@ -61,13 +61,14 @@ describe("exact Currency promotion", () => {
 
   it("retains the executable original compatibility scenarios and assertions", () => {
     const tests = promotion.files.filter((file) => file.classification === "testPort");
-    expect(tests).toHaveLength(14);
+    expect(tests).toHaveLength(16);
     for (const file of tests) {
       const original = file.source;
       if (!original) throw new Error("Missing original test source");
       expect(() => verifyTestPort(readFileSync(original, "utf8"), readFileSync(file.target, "utf8"), {
         currencyTimeout: file.target.endsWith("currency-module-service.spec.ts"),
-        currencyStaticImports: file.target.endsWith("static-manifest.spec.ts"),
+        salesChannelTimeout: file.target.endsWith("sales-channel-module.spec.ts"),
+        currencyStaticImports: file.target === "packages/medusa-currency/src/__tests__/static-manifest.spec.ts",
       })).not.toThrow();
     }
   });

@@ -24,10 +24,10 @@ function isUnusedResultMarker(node, name) {
 }
 
 /** Compare executable test structure after type erasure. Import changes are
- * limited to explicit Vitest globals; the Currency timeout moves to config.
+ * limited to explicit Vitest globals; the exact admitted suite timeout moves to config.
  * A void marker may retain an original intentionally unused local result.
  * @param {string} source
- * @param {{ currencyTimeout?: boolean, currencyStaticImports?: boolean }} options
+ * @param {{ currencyTimeout?: boolean, salesChannelTimeout?: boolean, currencyStaticImports?: boolean }} options
  */
 export function testPortProgram(source, options = {}) {
   const input = ts.createSourceFile("test.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
@@ -63,10 +63,12 @@ export function testPortProgram(source, options = {}) {
     if (ts.isExpressionStatement(node)) {
       const expression = node.expression;
       if (ts.isVoidExpression(expression) && ts.isIdentifier(expression.expression) && isUnusedResultMarker(node, expression.expression.text)) return undefined;
-      if (options.currencyTimeout && ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression)
+      if ((options.currencyTimeout || options.salesChannelTimeout) && ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression)
         && ts.isIdentifier(expression.expression.expression) && expression.expression.expression.text === "jest"
         && expression.expression.name.text === "setTimeout" && expression.arguments.length === 1
-        && ts.isNumericLiteral(expression.arguments[0]) && expression.arguments[0].text === "100000") return undefined;
+        && ts.isNumericLiteral(expression.arguments[0])
+        && ((options.currencyTimeout && expression.arguments[0].text === "100000")
+          || (options.salesChannelTimeout && expression.arguments[0].text === "30000"))) return undefined;
     }
     /** @type {unknown[]} */
     const children = [];
@@ -83,7 +85,7 @@ export function testPortProgram(source, options = {}) {
   return JSON.stringify(shape(file));
 }
 
-/** @param {string} source @param {string} target @param {{ currencyTimeout?: boolean, currencyStaticImports?: boolean }} options */
+/** @param {string} source @param {string} target @param {{ currencyTimeout?: boolean, salesChannelTimeout?: boolean, currencyStaticImports?: boolean }} options */
 export function verifyTestPort(source, target, options = {}) {
   if (testPortProgram(source, options) !== testPortProgram(target, options)) {
     throw new Error("Test port changed executable scenario, assertion, or runtime import");

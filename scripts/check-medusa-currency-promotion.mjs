@@ -11,6 +11,7 @@ const revision = "48d5cc675e4e8bc821e22c20c88a751acc66fb5f";
 const owners = new Map([
   ["packages/medusa-currency", "@medusajs/currency"],
   ["packages/medusa-product", "@medusajs/product"],
+  ["packages/medusa-sales-channel", "@medusajs/sales-channel"],
   ["packages/medusa-core-flows", "@medusajs/core-flows"],
   ["packages/medusa-workflows-sdk", "@medusajs/workflows-sdk"],
   ["packages/medusa-drizzle", "@medusajs/drizzle"],
@@ -82,10 +83,12 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     throw new Error("Currency promotion must enumerate exactly the approved private packages");
   }
   const files = new Set(promotion.files.map((file) => file.target));
+  /** @type {Array<{importer: string, configuration: string, target?: string}>} */
   const expectedAliases = [
     ...["vitest.product-upstream.config.ts", "vitest.product-internal.config.ts"].map(configuration => ({ importer: "packages/medusa-product/integration-tests/__tests__/product.spec.ts", configuration: "packages/medusa-adapter/" + configuration })),
     ...["vitest.product-upstream.config.ts", "vitest.product-internal-categories.config.ts"].map(configuration => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts", configuration: "packages/medusa-adapter/" + configuration })),
     { importer: "packages/medusa-currency/integration-tests/__tests__/currency-module-service.spec.ts", configuration: "packages/medusa-adapter/vitest.config.ts" },
+    { importer: "packages/medusa-sales-channel/integration-tests/__tests__/services/sales-channel-module.spec.ts", configuration: "packages/medusa-adapter/vitest.sales-channel-upstream.config.ts", target: "packages/medusa-adapter/test/support/sales-channel-runner.ts" },
     ...["events.spec.ts", "products.spec.ts", "product-types.spec.ts", "product-tags.spec.ts", "product-collections.spec.ts", "product-options.spec.ts", "product-variants.spec.ts", "product-categories.spec.ts"].map(name => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/" + name, configuration: "packages/medusa-adapter/vitest.product-upstream.config.ts" })),
     { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts", configuration: "packages/medusa-adapter/vitest.product-types.config.ts" },
     { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts", configuration: "packages/medusa-adapter/vitest.product-tags.config.ts" },
@@ -97,7 +100,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   if (promotion.testAliases.length !== expectedAliases.length || expectedAliases.some(expected =>
     promotion.testAliases.filter(alias => alias.importer === expected.importer
       && alias.configuration === expected.configuration && alias.specifier === "@medusajs/test-utils"
-      && alias.target === "packages/medusa-adapter/test/support/runner.ts"
+      && alias.target === (expected.target ?? "packages/medusa-adapter/test/support/runner.ts")
       && [alias.importer, alias.target, alias.configuration].every(file => files.has(file))).length !== 1)) {
     throw new Error("Unadmitted module test harness alias");
   }
@@ -126,6 +129,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
         if (!file.target.endsWith(".ts") || !(file.classification === "testPort" ? file.target.includes("/__tests__/") : file.target.includes("/integration-tests/__fixtures__/"))) throw new Error("Invalid test-port target");
         verifyTestPort(readFileSync(path.join(root, file.source), "utf8"), readFileSync(path.join(root, file.target), "utf8"), {
           currencyTimeout: file.target === "packages/medusa-currency/integration-tests/__tests__/currency-module-service.spec.ts",
+          salesChannelTimeout: file.target === "packages/medusa-sales-channel/integration-tests/__tests__/services/sales-channel-module.spec.ts",
           currencyStaticImports: file.target === "packages/medusa-currency/src/__tests__/static-manifest.spec.ts",
         });
       }

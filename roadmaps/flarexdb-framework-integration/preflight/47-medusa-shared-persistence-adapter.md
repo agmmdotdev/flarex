@@ -806,9 +806,10 @@ event-admission bypass, second persistence adapter or Flarex core change.
 The maintained regression boundary covers the neutral native constructor,
 Sales Channel create/update/delete events and event-refusal rollback, and the
 existing Product/Currency native cases on PGlite and ordinary-role PostgreSQL.
-Strict type, source and portability guards remain required. This shared
-construction correction does not complete Sales Channel source promotion,
-its preserved upstream suite or the remaining Gate A integration obligations.
+Strict type, source and portability guards remain required. Sales Channel's
+separate [Gate A](./50-product-workflow-sales-channel-foundation.md) owns its
+native promotion, six-method surface, configured endpoint schema and complete
+upstream suite; none is inferred merely from this constructor correction.
 
 PGlite fixture reliability remains a separate qualification. The connected
 Sales Channel setup has failed before test execution with a migration deadline
@@ -817,6 +818,15 @@ and, on another run, `DataCloneError: Data cannot be cloned, out of memory` at
 migration-plan metadata. The exact resource cause is not established. These
 setup failures do not justify changing adapter behavior, migration/statement
 limits or the shared worker owner; a passing rerun does not resolve their cause.
+
+The Windows validation host also terminated a native PostgreSQL autovacuum
+process with `0xC000012D` during configured-schema installation, causing connection
+loss and recovery-mode cleanup failures before service tests executed. Microsoft's
+[error contract](https://winprotocoldoc.z19.web.core.windows.net/MS-ERREF/%5BMS-ERREF%5D.pdf)
+identifies this as `STATUS_COMMITMENT_LIMIT`. This establishes the operating-system
+failure for that run, not the allocation source or the cause of earlier PGlite
+failures. Serialize database suites on this host; preserve existing limits and
+keep environment reliability distinct from module compatibility.
 
 Product command composition retains one source-private entry point,
 `makeLocalProductCommands`, returning the existing command set, service-use
@@ -849,14 +859,15 @@ extensions explicit. Currency/Product lifecycle policy differences require
 an explicit decision; shared algorithms alone do not authorize changing them.
 Delete each displaced path when both consumers and boundary tests pass.
 
-A complete configured module set remains a separate composition obligation;
-sharing a query engine does not automatically combine
-Currency and Product schema artifacts or grant cross-module transactions.
+Gate A composes the exact Product + Sales Channel endpoint set through checked
+native metadata and the existing artifact owner. Arbitrary configured module
+sets remain unadmitted; shared query mechanics do not automatically combine
+Currency's separately initialized artifact or grant cross-module transactions.
 
 Customer remains a possible later module reuse proof, not the next dependency
 for the user-selected Product workflow goal. The
 [Sales Channel foundation preflight](./50-product-workflow-sales-channel-foundation.md)
-now owns the proposed next connected proof. Customer's pinned
+owns the endpoint foundation and subsequent stored-Link/workflow gates. Customer's pinned
 [static manifest](../../../third_party/medusa/upstream/packages/modules/customer/src/static-manifest.ts)
 has four models and no custom repository registrations. Its
 [Customer model](../../../third_party/medusa/upstream/packages/modules/customer/src/models/customer.ts)

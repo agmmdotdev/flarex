@@ -52,6 +52,11 @@ describe("maintained Medusa test ports", () => {
     expect(() => verifyTestPort(before, after, { currencyStaticImports: true })).not.toThrow();
     expect(() => verifyTestPort(before, after)).toThrow();
   });
+  it("requires the exact explicitly selected Sales Channel timeout", () => {
+    expect(() => verifyTestPort("jest.setTimeout(30000);", "", { salesChannelTimeout: true })).not.toThrow();
+    expect(() => verifyTestPort("jest.setTimeout(30000);", "")).toThrow();
+    expect(() => verifyTestPort("jest.setTimeout(100000);", "", { salesChannelTimeout: true })).toThrow();
+  });
   it("refuses renamed Vitest bindings and syntax errors", () => {
     expect(() => verifyTestPort(source, 'import { expect as check } from "vitest";' + source)).toThrow("Unadmitted Vitest");
     expect(() => verifyTestPort(source, "const = ;")).toThrow("Invalid test-port syntax");

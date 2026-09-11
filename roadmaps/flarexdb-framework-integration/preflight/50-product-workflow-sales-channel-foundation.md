@@ -1,7 +1,7 @@
 # Product Workflow: Sales Channel And First Stored Link
 
-Status: Gate A approved and in progress; its shared installation-binding correction
-is complete under preflight 51. Gates B and C remain unapproved.
+Status: Gate A complete, including its shared installation-binding prerequisite
+under preflight 51. Gates B and C remain unapproved.
 
 ## Outcome And Direction
 
@@ -44,8 +44,9 @@ port alone must not be reported as completion of the connected milestone.
 The current root `packages/medusa-core-flows/package.json` exports selected
 Product workflows, not full Product creation or the Sales Channel association
 step. `packages/medusa-modules-sdk` does not contain the native Link runtime.
-There is no active Sales Channel package. These sources need explicit promotion;
-their presence under `third_party` does not establish runtime availability.
+The private Sales Channel model/service/static closure is promoted with exact
+source and test-port guards. Link and association sources still need explicit
+promotion; their presence under `third_party` does not establish runtime availability.
 
 ### Product Creation Dependency Trace
 
@@ -78,8 +79,9 @@ Medusa service behavior supplies the remaining admitted operations.
 The original `integration-tests/__tests__/services/sales-channel-module.spec.ts`
 contains 14 cases: linkable metadata, creation, retrieval/error, update/error,
 lists, list-and-count/filter/pagination/projection, disabled filtering and delete.
-The two static-manifest tests are additional source witnesses. Inventorying them
-does not mean they have been run against Flarex. Upsert and full soft-delete/
+The two static-manifest tests are additional maintained source witnesses. The
+private command surface preserves those fourteen cases without admitting the
+entire native service API. Upsert and full soft-delete/
 restore semantics need additional witnesses if exposed, not inferred coverage.
 
 Reuse actual service methods and the existing `defineCommerceModule` and
@@ -215,9 +217,22 @@ Old development encodings are removed, not preserved as a second execution desig
 Same-installation atomic participants and stored Link behavior still belong to
 Gate B. The existing transaction and publication owners remain unchanged.
 
-Sales Channel service/command compatibility, guarded source promotion and the
-original native integration cases remain incomplete. Partial foundation work
-must not be reported as an integrated module or a completed Gate A.
+`makeLocalSalesChannelCommands()` owns native metadata, repository/service
+construction, direct create/update/delete/retrieve/list/list-and-count bindings,
+registration and event policy. ID-selected updates are decoded before native
+normalization, excluding identity overrides and managed fields. Native code owns
+metadata merging and scalar/array results. Omitted limits remain omitted: bounded
+catalog ordering precedes skip-only slicing, with counts taken before slicing.
+
+The configured schema contains all fourteen endpoint tables and no stored Link.
+The Sales Channel profile grants only its table; separately admitted Product
+reads use the same installation. Compiler-shape decoding is shared with Product
+under the existing Medusa schema owner. The preserved native cases and authored
+boundary suite cover defaults/null/metadata, projections and pagination, empty
+batches, replay, input refusal, escaped services, and complete event-evidence
+rollback. The host remains the only settlement/publication owner; local delivery
+is not a durable event provider. Upsert, selector updates, lifecycle, stored Links
+and workflow integration remain outside Gate A.
 
 Native service wiring exposed a shared constructor contract defect: the first
 create refused an unadmitted event because the module factory omitted its
@@ -264,7 +279,7 @@ pending Pricing, Inventory/Stock Location, shipping-profile and transitive audit
 
 The existing Product caller imports `makeLocalProductCommands` and receives its
 commands, graph and workflow definitions. It does not assemble each repository
-or internal service. Sales Channel should have the equivalent cohesive owner,
+or internal service. Sales Channel has the equivalent cohesive owner and does
 not require the caller to import metadata decoders, repository factories and
 individual command generators.
 
@@ -273,12 +288,12 @@ Inside that owner, the established binding remains direct:
 ```ts
 const commands = commerceServiceCommands(module.use);
 const create = commands.write("salesChannelCreate", prepareCreate,
-  (service, data) => service.createSalesChannels(data));
+  ({ service, context }, data) => service.createSalesChannels(data, context));
 ```
 
-This illustrates an existing construction API, not an implemented Sales Channel
-command or final naming contract. The configured-candidate owner must return
-the prepared per-module views needed by the existing host; callers must not
+The implemented Sales Channel owner uses this direct binding shape, passing the
+native service and command-owned context explicitly. The configured-candidate
+owner returns prepared module metadata and schema/profile views; callers do not
 reconstruct its normalization/lowering pipeline. Named module extensions stay
 local. No entity switch, generic CRUD descriptor, nested registry or new service
 locator is proposed. Medusa's native container is only the finite compatibility
