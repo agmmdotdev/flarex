@@ -151,6 +151,15 @@ for source reuse, typed contracts, boundary-specific validation, and removal
 evidence. This structural cleanup does not broaden the admitted profiles or
 change transaction, public-serving, or production capability status.
 
+Ordinary construction still selects the fixed `posts` configuration; it is not
+yet an application-configurable collection adapter. The proposed
+[collection configuration preflight](./preflight/54-payload-collection-configuration.md)
+separates capability contracts from concrete collection definitions and traces
+the required analysis, binding, and deletion-owner corrections. Its proposed
+first new proof is two fresh Payload-owned scalar collections, not arbitrary
+configuration, relation expansion, migration, or serving support. Implementation
+awaits approval of that preflight.
+
 ## Implementation Sequence
 
 ### Exact Payload contract preflight
