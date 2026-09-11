@@ -1,4 +1,4 @@
-import { UnsupportedPayloadScalarCapability } from "../src/payloadScalar/adapter";
+import { UnsupportedPayloadCapability } from "../../payload-adapter/src/testing";
 import { expect } from "vitest";
 import { Effect } from "effect";
 import { ValidationError } from "payload";
@@ -9,8 +9,8 @@ import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperInde
 import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
 import { createAppSchemaCandidateWriteGuardPort } from "../src/appSchemaCandidateValidation";
 
-import { makePayloadScalarRuntime } from "../src/payloadScalar/runtime";
-import { payloadScalarFields, payloadScalarContentIdentity } from "../src/payloadScalar/profile";
+import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
+import { payloadScalarFields, payloadScalarContentIdentity } from "../../payload-adapter/src/profile";
 import type { RelationalSession } from "../src/relationalTransaction/session";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
@@ -19,10 +19,10 @@ import { cmsHostFixture } from "./cmsHostFixture";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 export function payloadScalarScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession,
-  native?: (context: { runtime: Effect.Success<ReturnType<typeof makePayloadScalarRuntime>>;
-    hostInput: Parameters<Effect.Success<ReturnType<typeof makePayloadScalarRuntime>>["bind"]>[0];
+  native?: (context: { runtime: Effect.Success<ReturnType<typeof makePayloadRuntime>>;
+    hostInput: Parameters<Effect.Success<ReturnType<typeof makePayloadRuntime>>["bind"]>[0];
     host: Effect.Success<ReturnType<typeof makeCmsHost>>; inventory: () => Promise<unknown> }) => Promise<void>) {
-  return runEffect(Effect.scoped(makePayloadScalarRuntime().pipe(Effect.flatMap(runtime => Effect.promise(async () => {
+  return runEffect(Effect.scoped(makePayloadRuntime().pipe(Effect.flatMap(runtime => Effect.promise(async () => {
     const { fixture } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields });
     const hostInput = { database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
       deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,

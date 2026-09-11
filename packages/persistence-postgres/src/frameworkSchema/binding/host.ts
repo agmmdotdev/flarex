@@ -56,6 +56,7 @@ import {
 import type { DataBindingTestProfiles } from "./profiles";
 import { scopePhysicalLocatorsEqual } from "../../scopePhysicalLocator";
 import type { ApplicationBindingReference, DataBindingSetFrame } from "./model";
+import type { PayloadContentProfiles } from "../../payloadPreferences/binding";
 
 export type DataBindingFailure<ApplicationFailure> =
   | ApplicationFailure
@@ -102,6 +103,7 @@ export interface DataBindingHost<ApplicationFailure> {
 
 export interface DataBindingHostInput<ApplicationFailure> {
   readonly commerceProfiles?: readonly import("../../commerceTransaction/profile").CommerceProfile[];
+  readonly payloadProfiles?: PayloadContentProfiles;
   readonly database: FlarexMetadataDatabase;
   readonly deploymentId: string;
   readonly target: FrameworkMigrationTarget;
@@ -134,6 +136,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
   const database = input.database;
   const target = input.target;
   const commerceProfiles = yield* captureCommerceBindingProfiles(input.commerceProfiles ?? []);
+  const payloadProfiles = input.payloadProfiles;
   const deploymentId = input.deploymentId;
   const authorityPorts = captureTrustedScopeAuthorityResolutionPorts(
     input.authority,
@@ -247,6 +250,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           snapshot,
           profiles,
           active.selection,
+          payloadProfiles,
           commerceProfiles,
         );
         return yield* storeBindingCandidate(tx, candidate, verified);
@@ -289,6 +293,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           snapshot,
           profiles,
           active.selection,
+          payloadProfiles,
           commerceProfiles,
         );
         const current = yield* readBindingHead(tx, authority, true);
@@ -388,6 +393,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           snapshot,
           profiles,
           active.selection,
+          payloadProfiles,
           commerceProfiles,
         );
         const current = yield* readBindingHead(tx, authority, true);

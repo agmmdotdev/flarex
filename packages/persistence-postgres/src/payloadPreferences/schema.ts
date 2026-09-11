@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 import { captureRelationalSchemaArtifact } from "../relationalSchema/artifact";
-import { payloadScalarProvenance } from "../payloadScalar/contract";
+
+/** Exact source revision for the currently admitted preference storage shape. */
+export const payloadPreferenceSourceRevision =
+  "fea6f8a47a50ff1330d8a5071b43e7dcffb97b22";
 
 const origin = (sourceId: string) => ({ kind: "authored", sourceId });
 
@@ -18,6 +21,6 @@ export function payloadPreferenceSchemaInput() {
 }
 export const capturePayloadPreferenceArtifact = Effect.fn("PayloadPreferences.captureArtifact")((deploymentId: string) =>
   captureRelationalSchemaArtifact({ deploymentId, schema: payloadPreferenceSchemaInput(), provenance: {
-    kind: "sourceSnapshot", repository: "https://github.com/payloadcms/payload", revision: payloadScalarProvenance.gitCommit,
+    kind: "sourceSnapshot", repository: "https://github.com/payloadcms/payload", revision: payloadPreferenceSourceRevision,
     paths: ["packages/payload/src/preferences/config.ts", "packages/payload/src/preferences/deleteUserPreferences.ts"],
   } }));

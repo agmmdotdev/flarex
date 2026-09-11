@@ -1,8 +1,12 @@
 import { payloadHasMany, payloadJoins } from "./contract";
 import { Result } from "effect";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
-import { cmsError, cmsLimits, type CmsTransactionError } from "../cmsTransaction/model";
-import { capturePrivateJsonData } from "../privateJsonData";
+import {
+  capturePrivateJsonData,
+  cmsError,
+  cmsLimits,
+  type CmsTransactionError,
+} from "@flarex/persistence-postgres/internal/cms-adapter";
 import { payloadRelatedPostsField, type PayloadContentProfile } from "./contract";
 
 export const maximumPayloadPopulationTargets = 32;

@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { Effect } from "effect";
-import { makePayloadScalarRuntime } from "../src/payloadScalar/runtime";
+import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
 import { isJsonObject } from "flarex-protocol/json";
 import { preparePayloadRelationSuccessor } from "./payloadRelationFixture";
 import { type payloadRelationScenario } from "./payloadRelationScenario";
@@ -9,7 +9,7 @@ import { runEffect } from "./effectTestRuntime";
 /** An emptied table still has its authenticated owner; it is never a fresh installation. */
 export async function payloadManyUpgradeScenario(input: Parameters<typeof payloadRelationScenario>[0]) {
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadScalarRuntime();
+    const runtime = yield* makePayloadRuntime();
     const host = yield* runtime.bind(input.hostInput);
     const row = yield* host.run(host.newRequestKey(), runtime.commands.create, { data: { title: "old-post", publishedAt: "2026-01-01" } });
     if (!isJsonObject(row) || typeof row.id !== "string") throw new Error("Missing old post");

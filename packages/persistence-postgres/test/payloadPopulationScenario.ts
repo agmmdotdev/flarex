@@ -7,8 +7,8 @@ import { canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { fxAppRowCurrent, fxAppRowRevisions } from "../src/schema";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
-import { makePayloadScalarRuntime } from "../src/payloadScalar/runtime";
-import { payloadRelationContentIdentity } from "../src/payloadScalar/profile";
+import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
+import { payloadRelationContentIdentity } from "../../payload-adapter/src/profile";
 import { makeCmsHost, defineCmsCommand, type CmsHostTestHooks } from "../src/cmsTransaction/host";
 import { cmsError } from "../src/cmsTransaction/model";
 import { dataBindingActivationRequest, makeDataBindingHost } from "../src/frameworkSchema/binding/host";
@@ -29,10 +29,10 @@ const id = (value: Json): string => {
 };
 
 export async function payloadPopulationScenario(input: Parameters<typeof payloadRelationScenario>[0]) {
-  const { fixture, bindings, hostInput } = input;
+  const { fixture, bindings, hostInput, payloadProfiles } = input;
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const scalar = yield* makePayloadScalarRuntime();
-    const relation = yield* makePayloadScalarRuntime("payload.content-relations");
+    const scalar = yield* makePayloadRuntime();
+    const relation = yield* makePayloadRuntime("payload.content-relations");
     yield* Effect.promise(async () => {
       const scalarHost = await runEffect(scalar.bind(hostInput));
       const target = id(await runEffect(scalarHost.run(scalarHost.newRequestKey(), scalar.commands.create,
@@ -197,7 +197,7 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
             if (hostInput.payloadPreferenceTarget === undefined) throw new Error("Missing preference target");
             const candidate = await runEffect(bindings.prepare(beforeBinding.frame));
             const rebinder = await runEffect(makeDataBindingHost({ database: persistence.drizzle, deploymentId: fixture.deploymentId,
-              target: hostInput.payloadPreferenceTarget, authority: fixture.authorityPorts, application: fixture.relationActivation,
+              target: hostInput.payloadPreferenceTarget, authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles,
               testOnly: { afterAcceptance: () => Effect.promise(holdChange) } }));
             changing = rebinder.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, `population-binding-${first}`, candidate.sha256, beforeBinding.head));
           }

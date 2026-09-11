@@ -5,8 +5,8 @@ import { isJsonObject } from "flarex-protocol/json";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 import { makeCmsHost, defineCmsCommand, type CmsHostInput } from "../src/cmsTransaction/host";
 import { cmsError } from "../src/cmsTransaction/model";
-import { makePayloadScalarRuntime } from "../src/payloadScalar/runtime";
-import { payloadScalarContentIdentity } from "../src/payloadScalar/profile";
+import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
+import { payloadScalarContentIdentity } from "../../payload-adapter/src/profile";
 import { fxSystemCommitPayloadPreferenceDeletions } from "../src/payloadPreferences/factsSchema";
 import { fxSystemCommits, fxSystemScopeClocks } from "../src/schema";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
@@ -25,7 +25,7 @@ export async function payloadPreferencePublicationScenario(input: {
   inventory: () => Promise<unknown>;
 }) {
   const { persistence, hostInput } = input;
-  await runEffect(Effect.scoped(makePayloadScalarRuntime().pipe(Effect.flatMap(runtime => Effect.promise(async () => {
+  await runEffect(Effect.scoped(makePayloadRuntime().pipe(Effect.flatMap(runtime => Effect.promise(async () => {
     let failedStep: string | undefined;
     let failFacts = false;
     const pair = defineCmsCommand({ name: "delete-pair", mode: "write", run: Effect.fn("PreferenceTest.deletePair")(function* (ctx, args) {

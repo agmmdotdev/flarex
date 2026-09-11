@@ -5,15 +5,19 @@ import { APIError, ValidationError, type BaseDatabaseAdapter, type DatabaseAdapt
   type PayloadRequest, type TypeWithID, type PaginatedDocs } from "payload";
 import { Clock, Effect, Result, Semaphore } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
-import { capturePrivateJsonData } from "../privateJsonData";
-import { cmsError, type CmsTransactionError, type CmsPresentedTransactionId } from "../cmsTransaction/model";
-import type { CmsCommandContext } from "../cmsTransaction/host";
+import {
+  capturePrivateJsonData,
+  cmsError,
+  type CmsCommandContext,
+  type CmsPresentedTransactionId,
+  type CmsTransactionError,
+} from "@flarex/persistence-postgres/internal/cms-adapter";
 import type { PayloadContentProfile } from "./contract";
 import { makePayloadPopulation, payloadPopulationIds } from "./population";
 import { payloadManyIds } from "./many";
 
-export class UnsupportedPayloadScalarCapability extends APIError {
-  constructor(readonly capability: string) { super(`Unsupported private Payload scalar capability: ${capability}`, 400); }
+export class UnsupportedPayloadCapability extends APIError {
+  constructor(readonly capability: string) { super(`Unsupported private Payload capability: ${capability}`, 400); }
 }
 interface RequestBridge {
   readonly context: CmsCommandContext;
@@ -27,10 +31,10 @@ interface RequestBridge {
 
 const transactionId = (state: RequestBridge): CmsPresentedTransactionId => {
   const id = state.request.transactionID;
-  if (typeof id === "number") throw new UnsupportedPayloadScalarCapability("numeric transaction ID");
+  if (typeof id === "number") throw new UnsupportedPayloadCapability("numeric transaction ID");
   // Payload declares Promise<number|string>; validate the resolved compatibility input.
   return id instanceof Promise ? id.then(value => {
-    if (typeof value !== "string") throw new UnsupportedPayloadScalarCapability("numeric transaction ID");
+    if (typeof value !== "string") throw new UnsupportedPayloadCapability("numeric transaction ID");
     return value;
   }) : id;
 };
@@ -46,11 +50,11 @@ const where = (input: unknown): ScalarPredicate => {
   let value = input === undefined ? {} : capture(input);
   // Pinned Payload combineQueries wraps its caller's admitted flat predicate once.
   if (isJsonObject(value) && Object.keys(value).join() === "and" && Array.isArray(value.and) && value.and.length <= 1) value = value.and[0] ?? {};
-  if (!isJsonObject(value)) throw new UnsupportedPayloadScalarCapability("where");
+  if (!isJsonObject(value)) throw new UnsupportedPayloadCapability("where");
   const fields: ScalarPredicate = {};
   for (const [field, operator] of Object.entries(value)) {
     if (!["id", "title"].includes(field) || !isJsonObject(operator) || Object.keys(operator).join() !== "equals" || typeof operator.equals !== "string") {
-      throw new UnsupportedPayloadScalarCapability("where operator");
+      throw new UnsupportedPayloadCapability("where operator");
     }
     fields[field === "id" ? "_id" : "title"] = operator.equals;
   }
@@ -73,12 +77,12 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
     // Payload may materialize absent virtual keys while traversing fields.
     if (profile === "payload.content-joins" && payloadJoins.some(join => join.name === key) && value === undefined) continue;
     if (key === "id") {
-      if (value !== undefined && value !== expectedId) throw new UnsupportedPayloadScalarCapability("caller-selected identity");
+      if (value !== undefined && value !== expectedId) throw new UnsupportedPayloadCapability("caller-selected identity");
       continue;
     }
     if (key === "relatedPost" && profile !== "payload.scalar") {
       if (value === null || value === undefined) continue;
-      if (typeof value !== "string") throw new UnsupportedPayloadScalarCapability("relation identity");
+      if (typeof value !== "string") throw new UnsupportedPayloadCapability("relation identity");
       normalized[key] = value;
       continue;
     }
@@ -87,10 +91,10 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
       normalized[key] = Result.getOrThrow(payloadManyIds(value));
       continue;
     }
-    if (!["title", "score", "enabled", "publishedAt", "createdAt", "updatedAt"].includes(key)) throw new UnsupportedPayloadScalarCapability(`document field: ${key} (${typeof value})`);
+    if (!["title", "score", "enabled", "publishedAt", "createdAt", "updatedAt"].includes(key)) throw new UnsupportedPayloadCapability(`document field: ${key} (${typeof value})`);
     if (value === undefined && ["createdAt", "updatedAt"].includes(key)) continue;
     if (["createdAt", "updatedAt", "publishedAt"].includes(key)) {
-      if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new UnsupportedPayloadScalarCapability("date");
+      if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new UnsupportedPayloadCapability("date");
       normalized[key] = new Date(value).toISOString();
     } else normalized[key] = value;
   }
@@ -105,7 +109,7 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
 };
 
 /** Node-only, per-Payload-instance foreign Promise boundary; it owns no database. */
-export function makePayloadScalarAdapter(profile: PayloadContentProfile = "payload.scalar") {
+export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "payload.scalar") {
   const document = (value: Json) => payloadDocument(value, profile);
   const fields = (input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => payloadFields(profile, input, expectedId, creationTimestamp);
   const current = new AsyncLocalStorage<RequestBridge>();
@@ -113,7 +117,7 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
   const unsupported = async (capability = "deferred adapter member"): Promise<never> => {
     const state = current.getStore();
     if (state?.live) await Effect.runPromise(state.context.rollback(state.context.transactionId).pipe(Effect.exit), { signal: state.signal });
-    throw new UnsupportedPayloadScalarCapability(capability);
+    throw new UnsupportedPayloadCapability(capability);
   };
   const deferred = () => unsupported();
   const stateFor = (request?: Partial<PayloadRequest>, projected = false): RequestBridge => {
@@ -121,7 +125,7 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
     const exactProjection = state !== undefined && projected && request !== undefined &&
       Object.keys(request).join() === "transactionID" && request.transactionID === state.request.transactionID;
     if (state === undefined || !state.live || state.signal.aborted || (request !== state.request && !exactProjection)) {
-      throw new UnsupportedPayloadScalarCapability("unadmitted request");
+      throw new UnsupportedPayloadCapability("unadmitted request");
     }
     return state;
   };
@@ -130,7 +134,7 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
     const state = stateFor(args.req, projected);
     if (args.collection !== "posts" || args.locale !== undefined || args.returning === false || args.draft || args.draftsEnabled ||
       [args.select, ...(profile === "payload.content-joins" ? [] : [args.joins])].some(value => value !== undefined && (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).length !== 0))) {
-      throw new UnsupportedPayloadScalarCapability("collection or projection");
+      throw new UnsupportedPayloadCapability("collection or projection");
     }
     if (profile === "payload.content-joins") {
       // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing adapter argument parser.
@@ -166,8 +170,8 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
     await roots(state, found === null ? [] : [found], args.joins);
     return found;
   };
-  const adapter: DatabaseAdapterObj = { name: "flarex-private-scalar", defaultIDType: "text", init: ({ payload }) => ({
-    name: "flarex-private-scalar", packageName: "flarex-private-scalar", defaultIDType: "text", payload, migrationDir: "",
+  const adapter: DatabaseAdapterObj = { name: "flarex-private-payload", defaultIDType: "text", init: ({ payload }) => ({
+    name: "flarex-private-payload", packageName: "flarex-private-payload", defaultIDType: "text", payload, migrationDir: "",
     beginTransaction: () => { const state = current.getStore();
       if (state === undefined || !state.live || state.request.transactionID == null) return unsupported("begin without admitted ID");
       return run(state, state.context.begin(transactionId(state))); },
@@ -242,7 +246,7 @@ export function makePayloadScalarAdapter(profile: PayloadContentProfile = "paylo
     updateGlobal: deferred, updateGlobalVersion: deferred, updateJobs: deferred, updateMany: deferred, updateVersion: deferred, upsert: deferred,
   } satisfies BaseDatabaseAdapter) };
   const within = async <Value>(context: CmsCommandContext, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }) => {
-    if (populate && (!context.standaloneRead || profile === "payload.scalar")) throw new UnsupportedPayloadScalarCapability("population request");
+    if (populate && (!context.standaloneRead || profile === "payload.scalar")) throw new UnsupportedPayloadCapability("population request");
     const state: RequestBridge = { context, request, signal, joins, live: !signal.aborted,
       population: populate ? makePayloadPopulation(profile) : null, semaphore: Semaphore.makeUnsafe(1) };
     const abort = () => { state.live = false; };

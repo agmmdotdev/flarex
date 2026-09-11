@@ -5,8 +5,10 @@ import { createHash } from "node:crypto";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 import type { PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
 import type { CollectionConfig } from "payload";
+import { Effect } from "effect";
+import { registerPayloadContentProfiles, type PayloadContentProfiles } from "@flarex/persistence-postgres/internal/cms-adapter";
 
-export function scalarPostsCollection(profile: PayloadContentProfile = "payload.scalar"): CollectionConfig {
+export function payloadPostsCollection(profile: PayloadContentProfile = "payload.scalar"): CollectionConfig {
   return { slug: "posts", lockDocuments: false, enableQueryPresets: false, timestamps: true, defaultSort: "id",
     // The private host authenticates the command; these fixed local policies
     // exercise Payload access execution without admitting dynamic user callbacks.
@@ -36,3 +38,14 @@ export const payloadManyContentIdentity = Object.freeze({ configSha256: digest(p
 
 export const payloadJoinConfiguration = payloadContentConfiguration("payload.content-joins", provenanceSha256);
 export const payloadJoinContentIdentity = Object.freeze({ configSha256: digest(payloadJoinConfiguration), provenanceSha256 });
+
+/** Opaque binding verifier for the exact closed profiles implemented by this package. */
+export const makePayloadContentProfiles: () => Effect.Effect<PayloadContentProfiles> =
+  Effect.fn("PayloadAdapter.makeContentProfiles")(function* () {
+    return yield* registerPayloadContentProfiles([
+      { relationCount: 0, identity: payloadScalarContentIdentity },
+      { relationCount: 1, identity: payloadRelationContentIdentity },
+      { relationCount: 2, identity: payloadManyContentIdentity },
+      { relationCount: 2, identity: payloadJoinContentIdentity },
+    ]).pipe(Effect.orDie);
+  });

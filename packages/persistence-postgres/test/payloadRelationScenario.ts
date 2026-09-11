@@ -19,8 +19,8 @@ import { fxControlSchemaVersionUniqueConstraintSets, fxControlSchemaVersionUniqu
 import { expect } from "vitest";
 import { Effect, Exit, Fiber, Result } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
-import { makePayloadScalarRuntime } from "../src/payloadScalar/runtime";
-import { payloadRelationContentIdentity } from "../src/payloadScalar/profile";
+import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
+import { payloadRelationContentIdentity } from "../../payload-adapter/src/profile";
 import { makeCmsHost, defineCmsCommand, type CmsHostInput } from "../src/cmsTransaction/host";
 import { cmsError } from "../src/cmsTransaction/model";
 import { dataBindingActivationRequest, makeDataBindingHost } from "../src/frameworkSchema/binding/host";
@@ -30,21 +30,23 @@ import { fxSystemCommitPayloadPreferenceDeletions } from "../src/payloadPreferen
 import { preparePayloadRelationSuccessor, preparePayloadRelationRevision } from "./payloadRelationFixture";
 import { type relationReadinessFixture } from "./applicationRelationReadinessFixture";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import type { PayloadContentProfiles } from "../src/payloadPreferences/binding";
 
 export async function payloadRelationScenario(input: {
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence;
   fixture: Awaited<ReturnType<typeof relationReadinessFixture>>;
   bindings: Effect.Success<ReturnType<typeof makeDataBindingHost>>;
+  payloadProfiles: PayloadContentProfiles;
   hostInput: Omit<CmsHostInput<unknown>, "commands">;
   seed: (id: string, preferences: readonly string[]) => Promise<void>;
   inventory: () => Promise<unknown>;
   reopen?: () => Promise<void>;
 }) {
-  const { fixture, bindings, hostInput } = input;
+  const { fixture, bindings, hostInput, payloadProfiles } = input;
   const db = fixture.persistence.drizzle;
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const scalar = yield* makePayloadScalarRuntime();
-    const relation = yield* makePayloadScalarRuntime("payload.content-relations");
+    const scalar = yield* makePayloadRuntime();
+    const relation = yield* makePayloadRuntime("payload.content-relations");
     yield* Effect.promise(async () => {
       const oldHost = await runEffect(scalar.bind(hostInput));
       const createOld = (title: string) => runEffect(oldHost.run(oldHost.newRequestKey(), scalar.commands.create, { data: { title, publishedAt: "2026-01-01" } }));
@@ -314,7 +316,8 @@ export async function payloadRelationScenario(input: {
           } else {
             const retainedCandidate = await runEffect(bindings.prepare(beforeBinding.frame));
             const rebinder = await runEffect(makeDataBindingHost({ database: db, deploymentId: fixture.deploymentId, target: preferenceTarget,
-              authority: fixture.authorityPorts, application: fixture.relationActivation, testOnly: { afterAcceptance: () => Effect.promise(holdChange) } }));
+              authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles,
+              testOnly: { afterAcceptance: () => Effect.promise(holdChange) } }));
             changing = rebinder.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, `race-binding-${first}`, retainedCandidate.sha256, beforeBinding.head));
           }
           const writer = first === "writer" ? heldWriter : host;

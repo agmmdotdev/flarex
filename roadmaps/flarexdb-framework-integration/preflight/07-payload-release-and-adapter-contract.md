@@ -355,7 +355,7 @@ they do not inherit the adapter factory's misleading defaults.
 
 ## Package And Host Direction
 
-The future adapter direction is:
+The implemented private adapter direction is:
 
 ```text
 @flarex/payload-adapter
@@ -392,10 +392,13 @@ gates.
 
 ## Current Private Conformance
 
-The closed Node composition lives under private `src/payloadScalar` in
-`@flarex/persistence-postgres`, with no package export or runtime route. It pins
-`payload@3.88.0` as a dev dependency and binds its exact content configuration
+The closed Node composition lives in private `@flarex/payload-adapter`, with
+explicit internal-only subpath exports and no public runtime route. It pins
+`payload@3.88.0` and binds its exact content configuration
 and provenance digests under the CMS scope lock, including before replay.
+The package uses only the narrow private CMS facade from
+`@flarex/persistence-postgres`; persistence retains SQL, transaction,
+preference-storage, materialization, commit, and publication authority.
 The fixed access callbacks run through Payload with `overrideAccess: false`;
 identity/access authority belongs to the outer host. Only deterministic
 conformance hooks are registered. Runtime closure revokes bound calls and

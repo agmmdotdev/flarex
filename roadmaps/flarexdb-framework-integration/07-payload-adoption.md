@@ -31,8 +31,11 @@ adapter work. Fenced relation-sync registration and `SV-R Live` are
 prerequisites only for subscriptions, live invalidation, reconnect, or
 resnapshot claims.
 
-Payload is an exact development dependency for the private Node proof. There
-is no public adapter package, `ctx.cms` runtime or production Payload path.
+Payload is pinned exactly for the private Node proof. Its implemented
+compatibility owner is the private `@flarex/payload-adapter` package. There is
+no public adapter export, `ctx.cms` runtime, or production Payload path. The
+[package extraction record](./preflight/52-payload-adapter-package-extraction.md)
+owns the current dependency and cleanup boundary.
 
 The exact Payload contract preflight is accepted in
 [`preflight/07-payload-release-and-adapter-contract.md`](./preflight/07-payload-release-and-adapter-contract.md).
@@ -114,18 +117,25 @@ change requires a separate preflight before the first collection proof.
 
 ## Adapter Package
 
-Use one implementation-bearing package with a plain name:
+The implementation-bearing package now uses the accepted plain name:
 
 ```text
 @flarex/payload-adapter
   normalized Payload operations
   pinned compatibility bindings
-  trusted Flarex storage capabilities
-  conformance fixtures
+  narrow private Flarex storage capabilities
+  Payload-facing conformance helpers
 ```
 
 Payload-release differences belong in package-local compatibility bindings and
 artifact provenance, not parallel version-named adapter packages.
+
+The package does not own SQL, transaction settlement, Application
+materialization, preference storage, commit facts, or publication. Those stay
+in `@flarex/persistence-postgres` behind its private CMS adapter facade. The
+adapter supplies an opaque exact-profile token to binding admission, so
+persistence verifies combined lifecycle bindings without importing Payload
+release configuration.
 
 ## Implementation Sequence
 

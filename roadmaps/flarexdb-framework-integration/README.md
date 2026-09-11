@@ -230,7 +230,7 @@ owner-change preflight replaces it.
 | --- | --- | --- |
 | Flarex application foundation | Standard/Application manifest, document rows, OCC, native document relations, current commit path | Payload lifecycle, Medusa modules, generic framework migration language |
 | Shared framework-storage mechanisms | artifact/install/binding lifecycle, relational schema representation, migration coordination, trusted scoped transactions, typed commit participation | framework schema interpretation or business behavior |
-| Payload adapter | CMS exposure, access, hooks, validation, drafts, versions, localization, request transaction, Payload errors | native relation identity, commit order, raw Postgres |
+| Payload adapter | CMS exposure, access, hooks, validation, drafts, versions, localization, request semantics, Payload errors | native relation identity, transaction settlement, commit order, raw Postgres |
 | Medusa adapter | DML normalization, module manifests, Joiner/Link mapping, repositories, Query compatibility, workflows, locks, commerce events and migrations | public application APIs, Flarex scope/commit authority |
 | Postgres persistence | physical tables, constraints, locks, transaction execution, receipts, feed/outbox persistence | public or framework semantics |
 
@@ -298,6 +298,7 @@ Preflight records:
 | [Internal Category](./preflight/44-medusa-internal-product-categories.md) | Internal Category implemented privately on both drivers | Complete 31-case file plus three direct-call boundary checks; final combined Product receipts are in Record 46 |
 | [Internal Product and command registration](./preflight/46-commerce-command-registration-bound.md) | Implemented privately on both drivers | Final 23 originals plus four direct-call boundary checks; all ten Product files yield 205 passes and one retained upstream skip per driver; 128 registered definitions with unchanged execution bounds |
 | [Shared Medusa persistence adapter](./preflight/47-medusa-shared-persistence-adapter.md) | Shared reads implemented and validated on PGlite and ordinary-role PostgreSQL | One metadata-driven read/projection engine for Currency and Product, preserving module policy and named extensions; later schema/write and module-factory capabilities remain distinct |
+| [Payload adapter package extraction](./preflight/52-payload-adapter-package-extraction.md) | Private ownership correction implemented | Pinned Payload profile, Local API runtime and compatibility bridge moved behind one package; persistence retains transaction, lifecycle storage, materialization and publication authority |
 
 ## Current Architecture
 
@@ -310,8 +311,9 @@ record 36; this does not imply a neutral execution host or universal mutation AP
 The repository contains a private fresh-install and bounded additive-upgrade
 lifecycle through artifact, physical plan, target/session, structural execution
 and readiness publication.
-It contains a private Payload scalar/optional-one data path with preference
-cleanup and publication. Broader framework serving remains gated:
+It contains a private `@flarex/payload-adapter` scalar/optional-one data path
+with preference cleanup and publication through the persistence-owned CMS
+facade. Broader framework serving remains gated:
 
 - scope resolution and physical placement are reusable authorities;
 - scoped execution is the best transaction-host seed but remains backed by
@@ -535,10 +537,12 @@ commitPublication/
 relationProjection/
 ```
 
-Portable packages are extracted only after at least two real owners prove the
-same contract. The framework adapters may later use the plain package names
-`@flarex/payload-adapter` and `@flarex/medusa-adapter`. Do not introduce a
-universal `@flarex/database` package.
+Portable shared packages are extracted only after at least two real owners
+prove the same contract. Framework-semantic packages do not require that
+cross-framework threshold: private `@flarex/payload-adapter` and
+`@flarex/medusa-adapter` now keep their distinct compatibility semantics over
+explicit persistence facades. Do not introduce a universal
+`@flarex/database` package.
 
 ## Current Correctness Gate
 

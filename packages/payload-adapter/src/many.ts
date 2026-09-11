@@ -1,7 +1,10 @@
 import { Result } from "effect";
 import { decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-id";
-import { cmsError, type CmsTransactionError } from "../cmsTransaction/model";
-import { capturePrivateJsonData } from "../privateJsonData";
+import {
+  capturePrivateJsonData,
+  cmsError,
+  type CmsTransactionError,
+} from "@flarex/persistence-postgres/internal/cms-adapter";
 import { payloadRelatedPostsField } from "./contract";
 
 /** Pure input capture; the request's posts capability subsequently checks table authority. */

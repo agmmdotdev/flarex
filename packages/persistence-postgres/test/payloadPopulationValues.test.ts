@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { Result } from "effect";
-import { makePayloadPopulation, payloadPopulationIds } from "../src/payloadScalar/population";
+import { makePayloadPopulation, payloadPopulationIds } from "../../payload-adapter/src/testing";
 
 it("admits only the pinned bounded batch grammar", () => {
   expect(Result.getOrThrow(payloadPopulationIds({ and: [{ id: { in: ["a", "b"] } }] }))).toEqual(["a", "b"]);

@@ -14,7 +14,7 @@ import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemOutbox,
   fxSystemCommitAppRowChanges, fxSystemScopeClocks, fxAppUniqueKeys, fxAppIndexEntryCurrent } from "../src/schema";
-import { capturePayloadPreferenceProfile } from "../src/payloadPreferences/binding";
+import { capturePayloadPreferenceProfile, type PayloadContentProfiles } from "../src/payloadPreferences/binding";
 import { capturePayloadPreferenceRecord } from "../src/payloadPreferences/value";
 import { payloadPreferenceSchemaInput } from "../src/payloadPreferences/schema";
 import { captureRelationalSchemaArtifact } from "../src/relationalSchema/artifact";
@@ -31,7 +31,8 @@ import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selectio
 import { captureFrameworkSchemaAvailabilityHistory, captureFrameworkSchemaAvailabilityHead } from "../src/frameworkSchema/installation/canonical";
 import { appendFrameworkSchemaAvailabilityHistoryInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHistoryRepository";
 import { compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHeadRepository";
-import { payloadScalarFields } from "../src/payloadScalar/contract";
+import { payloadScalarFields } from "../../payload-adapter/src/contract";
+import { payloadScalarContentIdentity } from "../../payload-adapter/src/profile";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
@@ -54,7 +55,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
   const many = (relationOnly === "many" || relationOnly === "joins") ? await payloadRelationManifest((await policyManifestFixture(undefined, true, payloadScalarFields)).manifest, true, relationOnly === "joins") : null;
-  const { fixture, target, bindings, reference, candidate: contentCandidate } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields,
+  const { fixture, target, bindings, reference, candidate: contentCandidate, payloadProfiles } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields,
     ...(many === null ? {} : { cmsManifest: { manifest: many.manifest, manifestSha256: createHash("sha256").update(many.canonicalBytes).digest("hex") } }),
     physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
   const profile = await runEffect(capturePayloadPreferenceProfile(fixture.deploymentId));
@@ -99,10 +100,20 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   const frame = { ...contentCandidate.frame, payloadLifecycle: lifecycle };
   const before = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
   const candidate = await runEffect(bindings.prepare(frame));
+  const unprofiled = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target, deploymentId: fixture.deploymentId,
+    authority: fixture.authorityPorts, application: fixture.relationActivation }));
+  expect(await runEffectFailure(unprofiled.prepare(frame))).toMatchObject({ reason: "unsupportedProfile" });
+  const forgedProfiles: PayloadContentProfiles = Object.freeze({ ...payloadProfiles });
+  const forged = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target, deploymentId: fixture.deploymentId,
+    authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles: forgedProfiles }));
+  expect(await runEffectFailure(forged.prepare(frame))).toMatchObject({ reason: "unsupportedProfile" });
   const request = dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "activate-preferences", candidate.sha256, before.head);
+  expect(await runEffectFailure(forged.activate(request))).toMatchObject({ reason: "unsupportedProfile" });
   await runEffect(bindings.activate(request));
   expect((await runEffect(bindings.withCurrent(readAdmittedDataBinding))).frame).toEqual(frame);
-  const cold = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target, deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, application: fixture.relationActivation }));
+  expect(await runEffectFailure(forged.withCurrent(readAdmittedDataBinding))).toMatchObject({ reason: "unsupportedProfile" });
+  const cold = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target, deploymentId: fixture.deploymentId,
+    authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles }));
   expect((await runEffect(cold.withCurrent(readAdmittedDataBinding))).frame).toEqual(frame);
   for (const changed of [{ ...frame, payloadContent: null }, { ...frame, payloadLifecycle: { ...lifecycle, profiles: [] } },
     { ...frame, payloadLifecycle: { ...lifecycle, profiles: [{ ...profile.profile, contractSha256: "0".repeat(64) }] } },
@@ -111,6 +122,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   const probe = defineCmsCommand({ name: "preference-binding-probe", mode: "read", run: () => Effect.sync(() => { calls += 1; return null; }) });
   const hostInput = { database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session, deploymentId: fixture.deploymentId,
     authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority, application: fixture.relationActivation, commands: [probe], identityAndAccessPolicy: { profile: "preference-binding-only" },
+    expectedContentIdentity: payloadScalarContentIdentity,
     materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle), developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
       uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle), candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }) } };
   const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent), revisions: await persistence.drizzle.select().from(fxAppRowRevisions),
@@ -120,7 +132,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
 
   if (relationOnly) {
     const scenario = relationOnly === "joins" ? payloadJoinScenario : relationOnly === "many-upgrade" ? payloadManyUpgradeScenario : relationOnly === "many" ? payloadManyScenario : relationOnly === "population" ? payloadPopulationScenario : payloadRelationScenario;
-    await scenario({ persistence, fixture, bindings, hostInput: { ...hostInput, payloadPreferenceTarget: target }, inventory, ...(reopen === undefined ? {} : { reopen }),
+    await scenario({ persistence, fixture, bindings, payloadProfiles, hostInput: { ...hostInput, payloadPreferenceTarget: target }, inventory, ...(reopen === undefined ? {} : { reopen }),
       seed: async (id, preferenceIds) => { await persistence.drizzle.insert(table).values(preferenceIds.map(preferenceId => ({
         scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration,
         id: preferenceId, key: `collection-posts-${id}`, userCollection: "users", userId: "user-a", value: { retained: true },
@@ -130,6 +142,12 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   }
   const disabled = await runEffect(makeCmsHost(hostInput));
   expect(await runEffectFailure(disabled.read(probe, {}))).toMatchObject({ reason: "unsupportedProfile" });
+  const { expectedContentIdentity: _expectedContentIdentity, ...hostWithoutContentIdentity } = hostInput;
+  expect(await runEffectFailure(makeCmsHost({ ...hostWithoutContentIdentity, payloadPreferenceTarget: target }))).toMatchObject({ reason: "invalidAuthority" });
+  const mismatched = await runEffect(makeCmsHost({ ...hostInput, expectedContentIdentity: {
+    ...payloadScalarContentIdentity, configSha256: "0".repeat(64),
+  }, payloadPreferenceTarget: target }));
+  expect(await runEffectFailure(mismatched.read(probe, {}))).toMatchObject({ reason: "invalidAuthority" });
   const host = await runEffect(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
   expect(await runEffect(host.read(probe, {}))).toBe(null);
   expect(calls).toBe(1);

@@ -3,8 +3,8 @@ import { Effect, Fiber, Exit, Result } from "effect";
 import { randomUUID } from "node:crypto";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { appDocumentIdV1FromRowIdentity, decodeAppDocumentIdentityV1Result, decodeAppDocumentIdV1, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
-import { makePayloadScalarRuntime } from "../src/payloadScalar/runtime";
-import { payloadManyContentIdentity } from "../src/payloadScalar/profile";
+import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
+import { payloadManyContentIdentity } from "../../payload-adapter/src/profile";
 import { makeCmsHost, defineCmsCommand } from "../src/cmsTransaction/host";
 import { cmsError } from "../src/cmsTransaction/model";
 import { makeApplicationActivationRepository } from "../src/applicationActivation";
@@ -34,7 +34,7 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
   let restoredSource = "";
   let restoredTargets: string[] = [];
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadScalarRuntime("payload.content-many");
+    const runtime = yield* makePayloadRuntime("payload.content-many");
     const nested = defineCmsCommand({ name: "many-nested", mode: "write", run: Effect.fn("ManyTest.nested")(function* (ctx, args) {
       if (!isJsonObject(args) || typeof args.source !== "string") return yield* Effect.fail(cmsError("invalidInput"));
       const target = yield* ctx.nested(runtime.commands.create, { data: { title: "many-nested-target", publishedAt: "2026-01-01" } });
@@ -200,7 +200,7 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
   const coldApplication = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, readiness: fixture.legacyReadiness,
     relationReadiness: fixture.fold, authority: fixture.authorityPorts });
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadScalarRuntime("payload.content-many");
+    const runtime = yield* makePayloadRuntime("payload.content-many");
     const host = yield* runtime.bind({ ...hostInput, application: coldApplication,
       materialization: { ...hostInput.materialization, applicationRelations: fixture.relationCommit } });
     expect(yield* host.read(runtime.commands.findByID, { id: restoredSource })).toMatchObject({ relatedPosts: restoredTargets });

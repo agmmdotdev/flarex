@@ -10,8 +10,8 @@ import { createFileScopedPostgresFixture } from "../../persistence-postgres/test
 import { makePostgresRelationalSession, issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
-import { makePayloadScalarRuntime } from "../../persistence-postgres/src/payloadScalar/runtime";
-import { payloadScalarFields, payloadScalarContentIdentity } from "../../persistence-postgres/src/payloadScalar/profile";
+import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
+import { payloadScalarFields, payloadScalarContentIdentity } from "../../payload-adapter/src/profile";
 import { makeCurrencyAnnouncementHost } from "../../persistence-postgres/src/crossDomainCommand/host";
 import { compositeError } from "../../persistence-postgres/src/crossDomainCommand/model";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../persistence-postgres/src/intrinsicCreationTimeIndexBuildV1";
@@ -42,7 +42,7 @@ it("settles real Currency, Payload and Application participants once, with compl
   const inventory = async () => ({ commerce: await commerceInventory(fixture), rows: await db.select().from(fxAppRowCurrent), revisions: await db.select().from(fxAppRowRevisions),
     indexes: await db.select().from(fxAppIndexEntryCurrent), unique: await db.select().from(fxAppUniqueKeys), facts: await db.select().from(fxSystemCommitAppRowChanges) });
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadScalarRuntime();
+    const runtime = yield* makePayloadRuntime();
     const input = { database: db, controlDatabase: control.drizzle, session: resource.session, deploymentId: native.deploymentId,
       authority: native.authorityPorts, application: native.relationActivation, pointCommitAuthority: native.pointCommitAuthority,
       identityAndAccessPolicy: { subject: "composite-conformance" }, expectedContentIdentity: payloadScalarContentIdentity,

@@ -1,12 +1,12 @@
 # FlarexDB Payload Relational Adapter
 
-Status: accepted adapter-boundary correction; exact `payload@3.88.0` source
-audit and native non-reactive relation prerequisites are complete, but no
-Payload adapter is implemented by this note
+Status: accepted adapter boundary; exact `payload@3.88.0` source audit, private
+adapter package, and bounded non-reactive scalar/relation conformance are
+implemented; public and production activation remain gated
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-11
 
-This note defines how a future Payload database adapter and Payload-backed CMS
+This note defines how the private Payload database adapter and a future Payload-backed CMS
 surface consume the native FlarexDB relational system. The native database
 model is owned by
 [`flarexdb-native-relational-system.md`](./flarexdb-native-relational-system.md).
@@ -444,7 +444,7 @@ plain current semantics:
   normalized Payload operations
   pinned compatibility bindings
   trusted FlarexDB storage capabilities
-  result/error mapping and conformance fixtures
+  result/error mapping and conformance helpers
 ```
 
 Payload types must not enter the canonical relation protocol, Standard
@@ -456,6 +456,11 @@ provenance rather than parallel version-named packages. Every supported binding
 runs the same normalized behavioral suite. A framework release change that only
 alters TypeScript or adapter interface shape must not create a new physical
 relation meaning.
+
+The implemented package consumes a narrow private CMS transaction facade from
+`@flarex/persistence-postgres`. Persistence retains SQL, authoritative
+transactions, lifecycle storage, materialization, commit facts, and
+publication; the adapter retains Payload configuration and request behavior.
 
 ### Separate Adapter-Core And Relation Gates
 

@@ -1,0 +1,31 @@
+{
+  "name": "@flarex/payload-adapter",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./internal/contract": "./src/contract.ts",
+    "./internal/profile": "./src/profile.ts",
+    "./internal/runtime": "./src/runtime.ts",
+    "./internal/testing": "./src/testing.ts"
+  },
+  "dependencies": {
+    "@flarex/analysis": "workspace:*",
+    "@flarex/persistence-postgres": "workspace:*",
+    "effect": "catalog:",
+    "flarex-protocol": "workspace:*"
+  },
+  "peerDependencies": {
+    "payload": "3.88.0"
+  },
+  "devDependencies": {
+    "payload": "3.88.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

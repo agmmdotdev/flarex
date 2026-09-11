@@ -1,7 +1,10 @@
 import { Result } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
-import { capturePrivateJsonData } from "../privateJsonData";
-import { cmsError, type CmsTransactionError } from "../cmsTransaction/model";
+import {
+  capturePrivateJsonData,
+  cmsError,
+  type CmsTransactionError,
+} from "@flarex/persistence-postgres/internal/cms-adapter";
 import { payloadJoins } from "./contract";
 
 export type PayloadJoinQuery = Readonly<Record<"referencedBy" | "referencedByMany", false | Readonly<{ limit: number }>>>;

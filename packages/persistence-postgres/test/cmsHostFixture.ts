@@ -13,6 +13,7 @@ import { reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstrain
 
 import { relationReadinessFixture, prepareReadinessEvidence } from "./applicationRelationReadinessFixture";
 import { runEffect } from "./effectTestRuntime";
+import { makePayloadContentProfiles } from "../../payload-adapter/src/profile";
 
 export async function cmsHostFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   options: Parameters<typeof relationReadinessFixture>[0] = {}) {
@@ -24,8 +25,9 @@ export async function cmsHostFixture(persistence: PGliteFlarexPersistence | Post
   const targetInput = { deploymentId: fixture.deploymentId, canonicalPhysicalDatabaseIdentity: "cms-host-fixture", physicalLocator: active.basis.authority.physicalLocator };
   const target = "pool" in persistence ? await runEffect(makePostgresFrameworkMigrationTargetEffect({ ...targetInput, persistence })) :
     await runEffect(makePGliteFrameworkMigrationTargetEffect({ ...targetInput, persistence }));
+  const payloadProfiles = await runEffect(makePayloadContentProfiles());
   const bindings = await runEffect(makeDataBindingHost({ database: persistence.drizzle, deploymentId: fixture.deploymentId, target,
-    authority: fixture.authorityPorts, application: fixture.relationActivation }));
+    authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles }));
   const reference = await runEffect(bindings.readApplicationReference());
   const policy = fixture.relation.binding;
   if (policy.version !== 3) throw new Error("Expected V3 write policy");
@@ -38,7 +40,7 @@ export async function cmsHostFixture(persistence: PGliteFlarexPersistence | Post
     payloadLifecycle: null, commerce: [], crossDomainReferences: [] }));
   await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "cms-host-activate", candidate.sha256, null)));
 
-  return { fixture, posts, bindings, reference, candidate, target };
+  return { fixture, posts, bindings, reference, candidate, target, payloadProfiles };
 }
 
 export async function prepareCmsFixtureReadiness(fixture: Awaited<ReturnType<typeof relationReadinessFixture>>) {

@@ -9,8 +9,8 @@ import type { AppRelationEdgeQueryObservation } from "../src/appRelationEdges";
 import { expect, vi } from "vitest";
 import { Effect, Fiber, Exit } from "effect";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
-import { makePayloadScalarRuntime } from "../src/payloadScalar/runtime";
-import { payloadJoinContentIdentity } from "../src/payloadScalar/profile";
+import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
+import { payloadJoinContentIdentity } from "../../payload-adapter/src/profile";
 import { createApplicationRelationReadPort } from "../src/applicationRelationRead";
 import { makeApplicationActivationRepository } from "../src/applicationActivation";
 import { makeCmsHost, defineCmsCommand, type CmsCommandContext } from "../src/cmsTransaction/host";
@@ -40,7 +40,7 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
   let retainedTarget = "";
   let retainedSource = "";
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadScalarRuntime("payload.content-joins");
+    const runtime = yield* makePayloadRuntime("payload.content-joins");
     let escaped: CmsCommandContext | undefined;
     const probe = defineCmsCommand({ name: "join-probe", mode: "read", run: Effect.fn("JoinTest.probe")(function* (ctx, args) {
       escaped = ctx;
@@ -200,7 +200,7 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
   await input.reopen?.();
   const application = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, readiness: fixture.legacyReadiness, relationReadiness: fixture.fold, authority: fixture.authorityPorts });
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadScalarRuntime("payload.content-joins");
+    const runtime = yield* makePayloadRuntime("payload.content-joins");
     const host = yield* runtime.bind({ ...hostInput, application });
     const result = object(yield* host.read(runtime.commands.findByID, { id: retainedTarget, depth: 1, joins: { referencedBy: { limit: 16 }, referencedByMany: false } }));
     expect(object(result.referencedBy).docs).toEqual(expect.arrayContaining([expect.objectContaining({ id: retainedSource, score: 7 })]));

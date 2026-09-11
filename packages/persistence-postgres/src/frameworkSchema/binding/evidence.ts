@@ -1,5 +1,5 @@
 import type { ApplicationActiveSelection } from "../../applicationActivation";
-import { verifyPayloadPreferenceBinding } from "../../payloadPreferences/binding";
+import { verifyPayloadPreferenceBinding, type PayloadContentProfiles } from "../../payloadPreferences/binding";
 import { Effect, Option } from "effect";
 import { withAdditiveMigrationGraphLimits } from "../../migrationCoordination/additiveLimits";
 import { withFrameworkMigrationPlanVerification } from "../../migrationCoordination/planVerificationScope";
@@ -93,6 +93,7 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
     snapshot: FrameworkMigrationTargetSnapshot,
     profiles: DataBindingTestProfiles | undefined,
     selection: ApplicationActiveSelection,
+    payloadProfiles: PayloadContentProfiles | undefined,
     commerceProfiles: CommerceBindingProfiles = [],
   ) {
     yield* verifyPayloadContentBinding(tx, frame, selection);
@@ -103,7 +104,7 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
         binding,
         snapshot,
       );
-      if (slot === "payloadLifecycle") yield* verifyPayloadPreferenceBinding(frame, availability);
+      if (slot === "payloadLifecycle") yield* verifyPayloadPreferenceBinding(frame, availability, payloadProfiles);
       else if (availability.installation.admission.admission.frame.admissionProfile === "registered-commerce-fresh") {
         const selected = [];
         for (const member of binding.profiles) {

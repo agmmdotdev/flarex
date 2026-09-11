@@ -242,6 +242,7 @@
   ],
   "packageDirection": {
     "adapter": "@flarex/payload-adapter",
+    "implementation": "privatePackage",
     "peer": "payload@3.88.0",
     "officialDrizzleDependency": false,
     "dashboardPackageDeferred": "@payloadcms/next@3.88.0"

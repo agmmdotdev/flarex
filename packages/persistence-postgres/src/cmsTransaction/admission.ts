@@ -1,7 +1,7 @@
 import { frameworkMigrationTargetSnapshot, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import { lockBindingInstallation } from "../frameworkSchema/binding/evidence";
-import { verifyPayloadPreferenceBinding } from "../payloadPreferences/binding";
+import { verifyPayloadPreferenceStorageBinding } from "../payloadPreferences/binding";
 import { Effect, Option } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import type { ApplicationActiveSelection, ApplicationBindingSelectionReader } from "../applicationActivation";
@@ -113,7 +113,7 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
     if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
       !scopePhysicalLocatorsEqual(snapshot.physicalLocator, authority.physicalLocator)) return yield* Effect.fail(cmsError("invalidAuthority"));
     const availability = yield* lockBindingInstallation(tx, frame.payloadLifecycle, snapshot);
-    yield* verifyPayloadPreferenceBinding(frame, availability);
+    yield* verifyPayloadPreferenceStorageBinding(frame, availability);
     preferenceAvailability = availability;
   }
   // SAFETY: authority resides exclusively in this live, transaction-bound registry.

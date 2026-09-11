@@ -3,7 +3,7 @@ import { it, expect } from "vitest";
 import { Effect } from "effect";
 import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { policyManifestFixture, hashPolicyFixture } from "./applicationWritePolicyFixture";
-import { payloadScalarFields } from "../src/payloadScalar/contract";
+import { payloadScalarFields } from "../../payload-adapter/src/contract";
 import { payloadRelationManifest } from "./payloadRelationFixture";
 import { isOptionalPostRelationSuccessor, admitsApplicationOwnershipSuccessor } from "../src/applicationWriteOwnership/Successor";
 

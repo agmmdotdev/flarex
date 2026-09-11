@@ -1,7 +1,7 @@
 import { verifyApplicationManifestV3, type ApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { createHash } from "node:crypto";
 import { publishApplicationRelationBindingEffect, type RelationEvolutionDecision } from "../src/applicationRelationBinding";
-import { payloadRelationConfiguration, payloadManyConfiguration, payloadJoinConfiguration } from "../src/payloadScalar/profile";
+import { payloadRelationConfiguration, payloadManyConfiguration, payloadJoinConfiguration } from "../../payload-adapter/src/profile";
 import { hashPolicyFixture } from "./applicationWritePolicyFixture";
 import { prepareAdditionalRelationRevision, relationBindingRepository, type relationReadinessFixture } from "./applicationRelationReadinessFixture";
 import { prepareCmsFixtureReadiness } from "./cmsHostFixture";

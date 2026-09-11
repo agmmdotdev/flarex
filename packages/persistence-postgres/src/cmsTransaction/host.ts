@@ -124,6 +124,9 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const expectedContentIdentity = input.expectedContentIdentity === undefined ? undefined :
     yield* decodeContentIdentity(input.expectedContentIdentity).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
+  if (preferenceTarget !== undefined && expectedContentIdentity === undefined) {
+    return yield* Effect.fail(cmsError("invalidAuthority"));
+  }
   const allowed = new Set(input.commands);
   const names = new Set<string>();
   if (!hasRelationalSessionDatabase(session, database) || allowed.size === 0 || allowed.size > cmsLimits.calls) {

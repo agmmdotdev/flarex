@@ -4,12 +4,11 @@ import { TrustedScopeAuthorityResolutionError, TrustedScopeAuthorityPortError } 
 import { expect, it } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import { PayloadConfigurationSchema } from "@flarex/analysis/internal/application-write-policy";
-import { payloadJoinQuery } from "../src/payloadScalar/joins";
-import { payloadJoinConfiguration, payloadManyConfiguration, payloadScalarConfiguration, payloadRelationConfiguration } from "../src/payloadScalar/profile";
-import { makePayloadPopulation } from "../src/payloadScalar/population";
-import { makePayloadScalarRuntime } from "../src/payloadScalar/runtime";
+import { payloadJoinQuery, makePayloadPopulation } from "../../payload-adapter/src/testing";
+import { payloadJoinConfiguration, payloadManyConfiguration, payloadScalarConfiguration, payloadRelationConfiguration } from "../../payload-adapter/src/profile";
+import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
 import { isOptionalPostRelationSuccessor } from "../src/applicationWriteOwnership/Successor";
-import { payloadScalarFields } from "../src/payloadScalar/contract";
+import { payloadScalarFields } from "../../payload-adapter/src/contract";
 import { payloadRelationManifest } from "./payloadRelationFixture";
 import { policyManifestFixture } from "./applicationWritePolicyFixture";
 import { runEffect } from "./effectTestRuntime";
@@ -31,7 +30,7 @@ it("keeps virtual metadata exact and old profiles unchanged", async () => {
   if (posts?.validator.type !== "object") throw new Error("Missing posts");
   expect(Object.keys(posts.validator.value)).not.toContain("referencedBy");
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadScalarRuntime("payload.content-joins");
+    const runtime = yield* makePayloadRuntime("payload.content-joins");
     const config = runtime.payload.collections.posts?.config;
     expect(config?.joins.posts?.map(join => [join.field.name, join.field.on])).toEqual([
       ["referencedBy", "relatedPost"], ["referencedByMany", "relatedPosts"],
