@@ -121,6 +121,58 @@ export interface FunctionRuntimeIndexRangeReaderV1<
   >;
 }
 
+export interface FunctionRuntimeIncomingRelationSourceV1<DocumentId> {
+  readonly sourceDocumentId: DocumentId;
+  readonly position: number | null;
+}
+
+export interface FunctionRuntimeIncomingRelationPageV1<DocumentId> {
+  readonly sources: ReadonlyArray<
+    FunctionRuntimeIncomingRelationSourceV1<DocumentId>
+  >;
+  readonly exhausted: boolean;
+}
+
+export interface FunctionRuntimeIncomingRelationReadInputV1<
+  TableName,
+  FieldName,
+  TargetDocumentId,
+> {
+  readonly source: Readonly<{
+    readonly table: TableName;
+    readonly field: FieldName;
+  }>;
+  readonly target: TargetDocumentId;
+  readonly limit: number;
+}
+
+export type FunctionRuntimeIncomingRelationReadV1<
+  TableName,
+  FieldName,
+  SourceDocumentId,
+  TargetDocumentId,
+> = (
+  input: FunctionRuntimeIncomingRelationReadInputV1<
+    TableName,
+    FieldName,
+    TargetDocumentId
+  >,
+) => Promise<FunctionRuntimeIncomingRelationPageV1<SourceDocumentId>>;
+
+export interface FunctionRuntimeIncomingRelationReaderV1<
+  TableName,
+  FieldName,
+  SourceDocumentId,
+  TargetDocumentId,
+> {
+  readonly takeIncomingRelationSources: FunctionRuntimeIncomingRelationReadV1<
+    TableName,
+    FieldName,
+    SourceDocumentId,
+    TargetDocumentId
+  >;
+}
+
 export type FunctionRuntimePointInsertV1<
   TableName,
   InsertValue,
@@ -241,6 +293,35 @@ export function createFunctionRuntimePointReaderV1<DocumentId, Document>(
   return freeze({
     get: (documentId: DocumentId): Promise<Document | null> =>
       readPointDocument(documentId),
+  });
+}
+
+export function createFunctionRuntimeIncomingRelationReaderV1<
+  TableName,
+  FieldName,
+  SourceDocumentId,
+  TargetDocumentId,
+>(
+  readIncomingRelation: FunctionRuntimeIncomingRelationReadV1<
+    TableName,
+    FieldName,
+    SourceDocumentId,
+    TargetDocumentId
+  >,
+): Readonly<FunctionRuntimeIncomingRelationReaderV1<
+  TableName,
+  FieldName,
+  SourceDocumentId,
+  TargetDocumentId
+>> {
+  return freeze({
+    takeIncomingRelationSources: (
+      input: FunctionRuntimeIncomingRelationReadInputV1<
+        TableName,
+        FieldName,
+        TargetDocumentId
+      >,
+    ) => readIncomingRelation(input),
   });
 }
 

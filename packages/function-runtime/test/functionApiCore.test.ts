@@ -6,10 +6,12 @@ import {
   createFunctionRuntimeApplicationErrorRegistryV1,
   createFunctionRuntimeAuthV1,
   createFunctionRuntimeDatabaseContextV1,
+  createFunctionRuntimeIncomingRelationReaderV1,
   createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
   createMutationFunctionRuntimeContextV1,
   createFunctionRuntimeRunQueryContextV1,
+  type FunctionRuntimeIncomingRelationReadInputV1,
 } from "../src/functionApiCore";
 
 const IDENTITY = Object.freeze({
@@ -59,6 +61,39 @@ describe("@flarex/function-runtime/function-api-core", () => {
     });
 
     expect(() => reader.get("orders:1")).toThrow(failure);
+  });
+
+  it("constructs an exact frozen incoming relation reader", async () => {
+    const input = Object.freeze({
+      source: Object.freeze({ table: "posts", field: "author" }),
+      target: "users:1",
+      limit: 16,
+    });
+    const page = Object.freeze({
+      sources: Object.freeze([
+        Object.freeze({ sourceDocumentId: "posts:1", position: null }),
+      ]),
+      exhausted: true,
+    });
+    const read = vi.fn((
+      _input: FunctionRuntimeIncomingRelationReadInputV1<
+        "posts",
+        "author",
+        "users:1"
+      >,
+    ) => Promise.resolve(page));
+    const reader = createFunctionRuntimeIncomingRelationReaderV1<
+      "posts",
+      "author",
+      "posts:1",
+      "users:1"
+    >(read);
+
+    await expect(reader.takeIncomingRelationSources(input)).resolves.toBe(page);
+    expect(read).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledWith(input);
+    expect(Object.keys(reader)).toEqual(["takeIncomingRelationSources"]);
+    expect(Object.isFrozen(reader)).toBe(true);
   });
 
   it("constructs an exact frozen point database writer with direct delegates", async () => {

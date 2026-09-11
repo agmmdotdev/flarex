@@ -79,6 +79,7 @@ import {
   openApplicationQuerySnapshot,
   finalizeApplicationQueryEvaluationSnapshot,
   readApplicationQueryIndex,
+  readApplicationQueryIncomingRelationSources,
   readApplicationQueryPoint,
   revalidateApplicationQuerySnapshot,
   type ApplicationQueryBudget,
@@ -90,9 +91,12 @@ import {
   type UseApplicationQuerySnapshotError,
 } from
   "@flarex/persistence-postgres/internal/application-query-snapshot";
+import { decodeTakeIncomingRelationSourcesInput } from
+  "./ApplicationRelationQueryInput";
 import type {
   ApplicationActiveSelection,
   ApplicationActivationRepository,
+  ApplicationRelationActivationRepository,
 } from "@flarex/persistence-postgres/internal/application-activation";
 import {
   ScopeExecution,
@@ -164,6 +168,9 @@ export interface ApplicationQueryExecutionContext {
 export interface ApplicationQuerySystemLive {
   readonly activation: Pick<
     ApplicationActivationRepository<unknown, unknown>,
+    "readActive"
+  > | Pick<
+    ApplicationRelationActivationRepository<unknown, unknown>,
     "readActive"
   >;
   readonly snapshot: ApplicationQuerySnapshotContext;
@@ -780,6 +787,26 @@ class ApplicationQueryRpcCapability extends RpcTarget {
       indexDescriptor,
       bounds,
       limit,
+    ));
+  }
+
+  takeIncomingRelationSources(input: unknown) {
+    return Effect.runPromise(Effect.fromResult(
+      decodeTakeIncomingRelationSourcesInput(input),
+    ).pipe(
+      Effect.flatMap(decoded => readApplicationQueryIncomingRelationSources(
+        this.snapshot,
+        decoded.relation,
+        decoded.target,
+        decoded.limit,
+      )),
+      Effect.map(page => Object.freeze({
+        sources: Object.freeze(page.sources.map(source => Object.freeze({
+          sourceDocumentId: source.sourceDocumentId,
+          position: source.position,
+        }))),
+        exhausted: page.exhausted,
+      })),
     ));
   }
 }

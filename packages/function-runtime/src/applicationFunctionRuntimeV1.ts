@@ -15,6 +15,7 @@ import {
   type EdgeActionRuntimeLimitsV1,
 } from "./edgeAction";
 import type {
+  FunctionRuntimeIncomingRelationReaderV1,
   FunctionRuntimeIndexRangeReaderV1,
   FunctionRuntimeMutationContextV1,
   FunctionRuntimePointDatabaseWriterV1,
@@ -100,6 +101,12 @@ export interface ApplicationFunctionRuntimeQueryDatabaseV1
       unknown,
       unknown,
       CanonicalFlarexRuntimeObjectV1
+    >,
+    FunctionRuntimeIncomingRelationReaderV1<
+      string,
+      string,
+      string,
+      string
     > {}
 
 export interface ApplicationFunctionRuntimeMutationDatabaseV1

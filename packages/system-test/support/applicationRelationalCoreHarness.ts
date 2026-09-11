@@ -9,10 +9,23 @@ import {
   createCommitFeedRepositoryV1,
 } from "@flarex/persistence-postgres/internal/commit-feed";
 import {
+  finalizeApplicationQueryEvaluationSnapshot,
+  openApplicationQuerySnapshot,
+  readApplicationQueryIncomingRelationSources,
+  type ApplicationQuerySnapshotContext,
+} from "@flarex/persistence-postgres/internal/application-query-snapshot";
+import { ScopeExecutionLive } from
+  "@flarex/persistence-postgres/internal/scope-execution";
+import {
   ApplicationRelationQuerySystem,
   makeApplicationRelationQuerySystemLayer,
 } from
   "@flarex/standard-application-invocation/internal/application-relation-query-system";
+import {
+  ApplicationQuerySystem,
+  makeApplicationQuerySystemLayer,
+} from
+  "@flarex/standard-application-invocation/internal/application-query-system";
 import {
   ApplicationMutationSystem,
   invokeApplicationMutation,
@@ -27,6 +40,10 @@ import {
   APPLICATION_RUNTIME_COMPATIBILITY_DATE,
   APPLICATION_RUNTIME_HOST_IDENTITY,
 } from "flarex-backend/artifact-runtime";
+import { makeApplicationExecutionHost } from
+  "flarex-backend/internal/application-execution-host";
+import { ApplicationAnalysisSourceReadError } from
+  "flarex-backend/internal/application-analysis-source-reader";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   APPLICATION_WORKER_RESULT_FORMAT_V1,
@@ -46,6 +63,8 @@ import {
 import {
   makeApplicationMutationTestLive,
 } from "./applicationNativeMutationHarness";
+import { MiniflareApplicationWorkerLoader } from
+  "./applicationNativeQueryHarness";
 import { createMigratedSplitPGlitePersistence } from
   "../test/support/databaseFixturesV1";
 import {
@@ -62,6 +81,9 @@ export interface ApplicationRelationalCoreProof {
   readonly missingRelationPortWorkerLoads: number;
   readonly missingRelationPortFailedClosed: boolean;
   readonly mutationWorkerLoads: number;
+  readonly standardQueryWorkerLoads: number;
+  readonly standardQuerySnapshotRevalidations: number;
+  readonly standardQueryIncomingRelationReads: number;
   readonly commits: ReadonlyArray<Readonly<{
     readonly commitSeq: bigint;
     readonly relationAdjacencyChanges: ReadonlyArray<Readonly<{
@@ -75,6 +97,22 @@ export interface ApplicationRelationalCoreProof {
   readonly postDocumentId: string;
   readonly targetDocumentIds: ReadonlyArray<string>;
   readonly incomingSourceDocumentIds: ReadonlyArray<string>;
+  readonly standardIncomingSourceDocumentIds: ReadonlyArray<string>;
+  readonly ordinaryDependency: Readonly<{
+    readonly kind: string;
+    readonly edgeDefinitionMatches: boolean;
+    readonly targetDocumentMatches: boolean;
+  }>;
+  readonly ordinarySnapshotConflict: Readonly<{
+    readonly tag: string;
+    readonly reason: string;
+    readonly retryable: boolean;
+  }>;
+  readonly ordinaryCumulativeBudget: Readonly<{
+    readonly successfulReads: number;
+    readonly tag: string;
+    readonly reason: string;
+  }>;
   readonly finalIncomingSourceDocumentIds: ReadonlyArray<string>;
   readonly edgePositions: ReadonlyArray<number | null>;
   readonly sourceRelationHistory: ReadonlyArray<Readonly<{
@@ -125,8 +163,9 @@ export function expectedApplicationRelationalCoreCommits(
     { commitSeq: 5n, relationAdjacencyChanges: changes(targetA, targetB) },
     { commitSeq: 6n, relationAdjacencyChanges: changes(targetA) },
     { commitSeq: 7n, relationAdjacencyChanges: changes(targetB, targetC) },
-    { commitSeq: 8n, relationAdjacencyChanges: changes(targetC) },
-    { commitSeq: 9n, relationAdjacencyChanges: Object.freeze([]) },
+    { commitSeq: 8n, relationAdjacencyChanges: changes(targetA) },
+    { commitSeq: 9n, relationAdjacencyChanges: changes(targetA, targetC) },
+    { commitSeq: 10n, relationAdjacencyChanges: Object.freeze([]) },
   ]);
 }
 
@@ -145,6 +184,7 @@ export async function proveApplicationRelationalCore(
     [relationDeclaration()],
   );
   const analysisLoader = new MiniflareApplicationAnalysisWorkerLoader();
+  const standardQueryLoader = new MiniflareApplicationWorkerLoader();
   try {
     const analysis = makeStandardApplicationCurrentAnalysisV1(
       source,
@@ -258,18 +298,39 @@ export async function proveApplicationRelationalCore(
       fixture,
       targetC,
     );
+    const standardIncoming = await queryIncomingRelationSourcesThroughWorker(
+      fixture,
+      standardQueryLoader,
+      targetC,
+    );
+    const ordinaryDependency = await proveOrdinaryRelationDependency(
+      fixture,
+      targetC,
+    );
+    const ordinaryCumulativeBudget = await proveOrdinaryRelationBudget(
+      fixture,
+      targetC,
+    );
+    const ordinarySnapshotConflict = await proveOrdinaryRelationSnapshotConflict(
+      fixture,
+      targetA,
+      () => invokeMutation(invoke, "replacePost", {
+        documentId: postDocumentId,
+        authors: [targetC, targetA],
+      }, 8),
+    );
     const targetDeleteWasRestricted = await invokeRestrictedTargetDelete(
       invoke,
       targetC,
-      8,
+      9,
     );
     await invokeMutation(invoke, "replacePost", {
       documentId: postDocumentId,
       authors: [],
-    }, 9);
+    }, 10);
     await invokeMutation(invoke, "deleteDocument", {
       documentId: targetC,
-    }, 10);
+    }, 11);
     const finalIncoming = await queryIncomingRelationSources(
       queryLayer,
       fixture,
@@ -308,6 +369,10 @@ export async function proveApplicationRelationalCore(
       missingRelationPortWorkerLoads: missingRelationPortLoader.loads,
       missingRelationPortFailedClosed,
       mutationWorkerLoads: mutationLoader.loads,
+      standardQueryWorkerLoads: standardQueryLoader.loads,
+      standardQuerySnapshotRevalidations: standardQueryLoader.revalidations,
+      standardQueryIncomingRelationReads:
+        standardQueryLoader.incomingRelationReads,
       commits: Object.freeze(feed.commits.map(commit => Object.freeze({
         commitSeq: commit.commitSeq,
         relationAdjacencyChanges: Object.freeze(
@@ -325,6 +390,12 @@ export async function proveApplicationRelationalCore(
       incomingSourceDocumentIds: Object.freeze(
         incoming.sources.map(source => source.sourceDocumentId),
       ),
+      standardIncomingSourceDocumentIds: Object.freeze(
+        standardIncoming.sources.map(source => source.sourceDocumentId),
+      ),
+      ordinaryDependency,
+      ordinarySnapshotConflict,
+      ordinaryCumulativeBudget,
       finalIncomingSourceDocumentIds: Object.freeze(
         finalIncoming.sources.map(source => source.sourceDocumentId),
       ),
@@ -345,8 +416,243 @@ export async function proveApplicationRelationalCore(
       targetDeleteWasRestricted,
     });
   } finally {
-    await analysisLoader.dispose();
+    await Promise.all([
+      analysisLoader.dispose(),
+      standardQueryLoader.dispose(),
+    ]);
   }
+}
+
+async function proveOrdinaryRelationDependency(
+  fixture: ApplicationRelationalCoreSystemTestFixture,
+  target: string,
+): Promise<ApplicationRelationalCoreProof["ordinaryDependency"]> {
+  const active = await runSystemTestEffectV1(fixture.activation.readActive());
+  const targetIdentity = decodeAppDocumentIdentityV1(target);
+  const receipt = await runSystemTestEffectV1(Effect.scoped(
+    Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "relations:incoming",
+        ordinaryQueryBudget(),
+        ordinaryQuerySnapshotContext(fixture),
+        Object.freeze({ dependencyCapture: "evaluation" as const }),
+      );
+      yield* readApplicationQueryIncomingRelationSources(
+        opened.snapshot,
+        fixture.relation,
+        targetIdentity.id,
+        16,
+      );
+      return yield* finalizeApplicationQueryEvaluationSnapshot(opened.snapshot);
+    }).pipe(Effect.provide(ScopeExecutionLive)),
+  ));
+  const dependency = receipt.dependencies[0];
+  if (
+    receipt.dependencies.length !== 1 || dependency === undefined ||
+    dependency.kind !== "appRelationIncoming"
+  ) throw new Error("Ordinary relation query did not capture one dependency.");
+  return Object.freeze({
+    kind: dependency.kind,
+    edgeDefinitionMatches:
+      dependency.edgeDefinitionId === fixture.edgeDefinitionId,
+    targetDocumentMatches:
+      dependency.targetRowId === targetIdentity.rowId,
+  });
+}
+
+async function proveOrdinaryRelationBudget(
+  fixture: ApplicationRelationalCoreSystemTestFixture,
+  target: string,
+): Promise<ApplicationRelationalCoreProof["ordinaryCumulativeBudget"]> {
+  const active = await runSystemTestEffectV1(fixture.activation.readActive());
+  const targetId = decodeAppDocumentIdentityV1(target).id;
+  return runSystemTestEffectV1(Effect.scoped(
+    Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "relations:incoming",
+        ordinaryQueryBudget(),
+        ordinaryQuerySnapshotContext(fixture),
+      );
+      for (let index = 0; index < 31; index += 1) {
+        yield* readApplicationQueryIncomingRelationSources(
+          opened.snapshot,
+          fixture.relation,
+          targetId,
+          128,
+        );
+      }
+      const outcome = yield* Effect.result(
+        readApplicationQueryIncomingRelationSources(
+          opened.snapshot,
+          fixture.relation,
+          targetId,
+          128,
+        ),
+      );
+      if (Result.isSuccess(outcome)) {
+        return yield* Effect.die(new Error(
+          "Ordinary relation query did not enforce its cumulative budget.",
+        ));
+      }
+      const failure = requireRecord(outcome.failure);
+      return Object.freeze({
+        successfulReads: 31,
+        tag: requireString(Reflect.get(failure, "_tag")),
+        reason: requireString(Reflect.get(failure, "reason")),
+      });
+    }).pipe(Effect.provide(ScopeExecutionLive)),
+  ));
+}
+
+async function proveOrdinaryRelationSnapshotConflict(
+  fixture: ApplicationRelationalCoreSystemTestFixture,
+  target: string,
+  changeRelation: () => Promise<unknown>,
+): Promise<ApplicationRelationalCoreProof["ordinarySnapshotConflict"]> {
+  const active = await runSystemTestEffectV1(fixture.activation.readActive());
+  const targetId = decodeAppDocumentIdentityV1(target).id;
+  return runSystemTestEffectV1(Effect.scoped(
+    Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "relations:incoming",
+        ordinaryQueryBudget(),
+        ordinaryQuerySnapshotContext(fixture),
+      );
+      yield* Effect.promise(changeRelation);
+      const outcome = yield* Effect.result(
+        readApplicationQueryIncomingRelationSources(
+          opened.snapshot,
+          fixture.relation,
+          targetId,
+          16,
+        ),
+      );
+      if (Result.isSuccess(outcome)) {
+        return yield* Effect.die(new Error(
+          "Ordinary relation query accepted a changed snapshot.",
+        ));
+      }
+      const failure = requireRecord(outcome.failure);
+      const retryable = Reflect.get(failure, "retryable");
+      if (typeof retryable !== "boolean") {
+        return yield* Effect.die(new Error(
+          "Ordinary relation conflict returned no retry disposition.",
+        ));
+      }
+      return Object.freeze({
+        tag: requireString(Reflect.get(failure, "_tag")),
+        reason: requireString(Reflect.get(failure, "reason")),
+        retryable,
+      });
+    }).pipe(Effect.provide(ScopeExecutionLive)),
+  ));
+}
+
+function ordinaryQuerySnapshotContext(
+  fixture: ApplicationRelationalCoreSystemTestFixture,
+): ApplicationQuerySnapshotContext {
+  return Object.freeze({
+    deploymentId: fixture.deploymentId,
+    controlDb: fixture.control.drizzle,
+    authority: fixture.authorityPorts,
+    schema: fixture.legacySchema,
+    relationSchema: fixture.relationSchema,
+    relations: fixture.snapshot.relations,
+    developerIndexes: fixture.developerIndexes,
+  });
+}
+
+function ordinaryQueryBudget() {
+  return Object.freeze({
+    maximumPointReads: 16,
+    maximumIndexReads: 16,
+    maximumDocuments: 64,
+    maximumSemanticBytes: 1_048_576,
+  });
+}
+
+async function queryIncomingRelationSourcesThroughWorker(
+  fixture: ApplicationRelationalCoreSystemTestFixture,
+  loader: MiniflareApplicationWorkerLoader,
+  target: string,
+) {
+  const layer = makeApplicationQuerySystemLayer({
+    activation: fixture.activation,
+    snapshot: {
+      deploymentId: fixture.deploymentId,
+      controlDb: fixture.control.drizzle,
+      authority: fixture.authorityPorts,
+      schema: fixture.legacySchema,
+      relationSchema: fixture.relationSchema,
+      relations: fixture.snapshot.relations,
+      developerIndexes: fixture.developerIndexes,
+    },
+    snapshotBudget: Object.freeze({
+      maximumPointReads: 16,
+      maximumIndexReads: 16,
+      maximumDocuments: 64,
+      maximumSemanticBytes: 1_048_576,
+    }),
+    source: Object.freeze({
+      read: (rootSha256: string) =>
+        rootSha256 === fixture.source.sourceArtifact.rootSha256
+          ? Effect.succeed(fixture.source)
+          : Effect.fail(new ApplicationAnalysisSourceReadError({
+              operation: "read",
+              reason: "invalidRoot",
+            })),
+    }),
+    host: makeApplicationExecutionHost(loader),
+    executionContextFactory: () => Object.freeze({
+      executionId: "application-relational-core-query",
+      randomSeed: new Uint8Array(32).fill(17),
+      executionTime: 1_800_000_000_017,
+    }),
+  });
+  const value = await runSystemTestEffectV1(Effect.scoped(
+    Effect.gen(function* () {
+      const system = yield* ApplicationQuerySystem;
+      return yield* system.invoke("relations:incoming", {
+        target,
+        limit: 16,
+      });
+    }).pipe(Effect.provide(layer)),
+  ));
+  return requireIncomingRelationResult(value);
+}
+
+function requireIncomingRelationResult(value: unknown): Readonly<{
+  readonly sources: ReadonlyArray<Readonly<{
+    readonly sourceDocumentId: string;
+    readonly position: number | null;
+  }>>;
+  readonly exhausted: boolean;
+}> {
+  const result = requireRecord(value);
+  const sources = Reflect.get(result, "sources");
+  const exhausted = Reflect.get(result, "exhausted");
+  if (!Array.isArray(sources) || typeof exhausted !== "boolean") {
+    throw new Error("Standard relation query returned an invalid result.");
+  }
+  const capturedSources = sources.map(source => {
+    const record = requireRecord(source);
+    const sourceDocumentId = Reflect.get(record, "sourceDocumentId");
+    const position = Reflect.get(record, "position");
+    if (
+      typeof sourceDocumentId !== "string" ||
+      (position !== null && typeof position !== "number")
+    ) {
+      throw new Error("Standard relation query returned an invalid source.");
+    }
+    return Object.freeze({ sourceDocumentId, position });
+  });
+  return Object.freeze({
+    sources: Object.freeze(capturedSources),
+    exhausted,
+  });
 }
 
 async function queryIncomingRelationSources(
@@ -570,12 +876,22 @@ function relationDeclaration() {
 
 function applicationDefinitionInput() {
   const handler = new TextEncoder().encode(
-    "export async function mutate() { return null; }\n",
+    [
+      "export async function incoming(context, args) {",
+      "  return context.db.takeIncomingRelationSources({",
+      '    source: { table: "posts", field: "authors" },',
+      "    target: args.target,",
+      "    limit: args.limit,",
+      "  });",
+      "}",
+      "export async function mutate() { return null; }",
+      "",
+    ].join("\n"),
   );
   return {
     programBudgetInput: {
       maximumModules: 1,
-      maximumFunctions: 1,
+      maximumFunctions: 2,
       maximumIdentifierUtf8Bytes: 1_024,
       maximumValidatorNodes: 64,
       maximumValidatorDepth: 8,
@@ -624,6 +940,57 @@ function applicationDefinitionInput() {
       modules: [{
         modulePath: "relations",
         functions: [{
+          exportName: "incoming",
+          kind: "query",
+          visibility: "public",
+          argsValidator: {
+            type: "object",
+            value: {
+              target: {
+                fieldType: { type: "string" },
+                optional: false,
+              },
+              limit: {
+                fieldType: { type: "number" },
+                optional: false,
+              },
+            },
+          },
+          returnsValidator: {
+            type: "object",
+            value: {
+              sources: {
+                fieldType: {
+                  type: "array",
+                  value: {
+                    type: "object",
+                    value: {
+                      sourceDocumentId: {
+                        fieldType: { type: "string" },
+                        optional: false,
+                      },
+                      position: {
+                        fieldType: {
+                          type: "union",
+                          value: [
+                            { type: "number" },
+                            { type: "null" },
+                          ],
+                        },
+                        optional: false,
+                      },
+                    },
+                  },
+                },
+                optional: false,
+              },
+              exhausted: {
+                fieldType: { type: "boolean" },
+                optional: false,
+              },
+            },
+          },
+        }, {
           exportName: "mutate",
           kind: "mutation",
           visibility: "public",
@@ -634,7 +1001,7 @@ function applicationDefinitionInput() {
     },
     materializationBudgetInput: {
       maximumModules: 1,
-      maximumEntryBindings: 1,
+      maximumEntryBindings: 2,
       maximumSourceBytes: 4_096,
       maximumSourceMapBytes: 0,
       maximumBytesMaterialized: 32_768,

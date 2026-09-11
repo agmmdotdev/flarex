@@ -15,6 +15,11 @@ the FlarexDB relation foundation. It also does not own Payload or Medusa
 adapters, general relational transactions, SQL/PGQ, query synchronization,
 public SDK distribution, or production routing.
 
+The current execution slice is private. It does not add a relation method to
+the exported `flarex/server` developer context or otherwise publish a relation
+API. Public developer syntax, types, compatibility, and distribution remain a
+separate SDK-roadmap gate.
+
 Checklist meanings:
 
 - `[x]` means current code and decisive tests implement the stated capability.
@@ -139,7 +144,7 @@ or framework-parity claim.
 - [x] The private relational core system test proves real runtime mutation and
   direct Standard incoming read without reproducing persistence logic.
 
-### Missing Standard API surface
+### Private Standard runtime surface
 
 - [x] Freeze an unversioned typed relation-definition handle owned by
   `@flarex/application-definition`. It must bind source field, target table,
@@ -149,18 +154,21 @@ or framework-parity claim.
   preparation path. The implementation must lower to the existing exact
   relation declaration and must not widen or reinterpret an existing persisted
   or wire V1 contract.
-- [ ] Freeze the first relation-aware function database operation. It should
+- [x] Freeze the first relation-aware function database operation. It
   expose logical references and document IDs only and delegate to the existing
   active-selection snapshot and relation-read owners.
-- [ ] Compose the operation into query function `ctx.db`. Mutation writes must
+- [x] Compose the operation into the private generated query function `ctx.db`.
+  Mutation writes must
   remain ordinary source-document writes; the API must not expose user-authored
   edge CRUD or a second relation transaction.
-- [ ] Define typed Standard errors and logical results without leaking relation
+- [x] Define internal typed Standard errors and logical results without leaking relation
   IDs, edge-definition IDs, SQL cursors, adjacency versions, repositories, or
   persistence handles.
-- [ ] Prove function-level authorization, validation, result validation,
+- [x] Prove function-level authorization, validation, result validation,
   snapshot closure, dependency behavior, and bounded work through the normal
   query runtime.
+- [x] Keep the exported `flarex/server` query context unchanged; no public
+  developer relation method or type is available in this slice.
 
 ### Missing system-test surface
 
@@ -312,8 +320,9 @@ existing Convex APIs.
 
 - The private relation declaration is raw protocol-shaped input rather than a
   typed clean Application definition handle.
-- The private incoming operation bypasses a relation-aware function Worker and
-  therefore is not yet a developer `ctx.db` capability.
+- The private incoming operation now crosses the normal relation-aware function
+  Worker, but its generated context capability is intentionally not exported as
+  a public developer `flarex/server` API.
 - The general system simulation path is explicitly relation-free.
 - The full private system vertical proves one ordered-many relationship; other
   admitted shapes have lower-level analysis, commit, and read evidence but need
@@ -330,8 +339,8 @@ Application API:
 
 1. Relation definition handles lower to the existing exact Standard relation
    contract.
-2. Query `ctx.db` receives one bounded logical incoming relation read backed by
-   the existing active-selection snapshot owner.
+2. The private generated query `ctx.db` receives one bounded logical incoming
+   relation read backed by the existing active-selection snapshot owner.
 3. Relation writes remain ordinary validated source-document mutations.
 4. `@flarex/system-test` prepares relation-bearing applications and proves the
    runtime API through ordinary typed function invocation.
@@ -352,8 +361,10 @@ for `one` agrees with the source validator; `many` carries minimum, maximum,
 and ordering. Protocol format/version, localization, duplicate policy, stable
 catalog IDs, edge IDs, and physical storage are not exposed.
 
-The first runtime operation will be
-`ctx.db.takeIncomingRelationSources(input)`. Its input contains only the
+The first private generated-runtime operation is
+`ctx.db.takeIncomingRelationSources(input)`. This spelling exists inside the
+generated Worker execution context only; it is not a method on the exported
+`flarex/server` `QueryCtx`. Its input contains only the
 logical source table/field, target document ID, and a limit no greater than
 128. Its result contains source document IDs, positions, and exhaustion. It
 will execute on the ordinary query snapshot and RPC capability, use the
@@ -379,7 +390,7 @@ logical result.
   and integrate it with `ApplicationDefinition` preparation while lowering to
   the existing exact internal contract. Prove one, many, invalid-field,
   duplicate-definition, and unsupported-profile cases.
-- [ ] **RSA-B — Function-runtime incoming read.** Compose the existing exact
+- [x] **RSA-B — Function-runtime incoming read.** Compose the existing exact
   incoming operation into query `ctx.db` with logical references only. Prove
   authorization, active-selection correlation, result validation, bounded
   reads, snapshot conflicts, and zero write-bearing state change.
@@ -397,3 +408,13 @@ logical result.
 
 Completion of these gates does not authorize Payload parity, reactive
 relations, public package publication, or production routing.
+
+## Public Developer API Gate
+
+Decision recorded 2026-09-11: do not expose relational developer APIs yet.
+The private runtime and system-test proofs may exercise the generated Worker
+capability, but `flarex/server`, published SDK types, generated public relation
+references, and production routing remain unchanged. A later public API change
+requires its own accepted preflight covering syntax, compatibility, packaging,
+authorization, bounded pagination, and the relationship between non-reactive
+and reactive surfaces.

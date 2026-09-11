@@ -233,6 +233,7 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   loads = 0;
   revalidations = 0;
   pointDocumentReads = 0;
+  incomingRelationReads = 0;
   readonly revisionIds: string[] = [];
   readonly documentIds: string[] = [];
   readonly #runtimes = new Set<Miniflare>();
@@ -269,6 +270,7 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
 
   observeCapability(method: string, argumentsValue: readonly unknown[]): void {
     if (method === "revalidate") this.revalidations += 1;
+    if (method === "takeIncomingRelationSources") this.incomingRelationReads += 1;
     if (method !== "readPointDocument") return;
     this.pointDocumentReads += 1;
     const documentId = argumentsValue[1];
@@ -472,6 +474,9 @@ class Capability extends RpcTarget {
   }
   queryIndexRange(tableName, indexDescriptor, bounds, limit) {
     return this.call("queryIndexRange", [tableName, indexDescriptor, bounds, limit]);
+  }
+  takeIncomingRelationSources(input) {
+    return this.call("takeIncomingRelationSources", [input]);
   }
   invoke(request) { return this.call("invoke", [request]); }
   insertPointDocument(tableName, value) {

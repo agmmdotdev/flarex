@@ -40,12 +40,33 @@ describePostgres("SV-R Core relational Application - PostgreSQL", () => {
       expect(proof.analysisWorkerLoads).toBe(2);
       expect(proof.missingRelationPortWorkerLoads).toBe(1);
       expect(proof.missingRelationPortFailedClosed).toBe(true);
-      expect(proof.mutationWorkerLoads).toBe(10);
+      expect(proof.mutationWorkerLoads).toBe(11);
+      expect(proof.standardQueryWorkerLoads).toBe(1);
+      expect(proof.standardQuerySnapshotRevalidations).toBe(1);
+      expect(proof.standardQueryIncomingRelationReads).toBe(1);
       expect(proof.targetDeleteWasRestricted).toBe(true);
       expect(proof.commits).toEqual(
         expectedApplicationRelationalCoreCommits(proof),
       );
       expect(proof.incomingSourceDocumentIds).toEqual([proof.postDocumentId]);
+      expect(proof.standardIncomingSourceDocumentIds).toEqual([
+        proof.postDocumentId,
+      ]);
+      expect(proof.ordinaryDependency).toEqual({
+        kind: "appRelationIncoming",
+        edgeDefinitionMatches: true,
+        targetDocumentMatches: true,
+      });
+      expect(proof.ordinarySnapshotConflict).toEqual({
+        tag: "ApplicationQuerySnapshotError",
+        reason: "snapshotChanged",
+        retryable: true,
+      });
+      expect(proof.ordinaryCumulativeBudget).toEqual({
+        successfulReads: 31,
+        tag: "ApplicationQuerySnapshotError",
+        reason: "budgetExceeded",
+      });
       expect(proof.finalIncomingSourceDocumentIds).toEqual([]);
       expect(proof.edgePositions).toEqual([]);
       expect(proof.sourceRelationHistory.map(row => row.authors)).toEqual([
@@ -53,16 +74,17 @@ describePostgres("SV-R Core relational Application - PostgreSQL", () => {
         [proof.targetDocumentIds[1], proof.targetDocumentIds[0]],
         [proof.targetDocumentIds[1]],
         [proof.targetDocumentIds[2]],
+        [proof.targetDocumentIds[2], proof.targetDocumentIds[0]],
         [],
       ]);
       expect(proof.adjacencyVersions.map(version => [
         version.direction,
         version.lastChangedCommitSeq,
       ])).toEqual([
-        ["incoming", 6n],
         ["incoming", 7n],
-        ["incoming", 8n],
-        ["outgoing", 8n],
+        ["incoming", 9n],
+        ["incoming", 9n],
+        ["outgoing", 9n],
       ]);
     });
   }, 480_000);

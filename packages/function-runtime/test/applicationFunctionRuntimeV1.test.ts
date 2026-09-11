@@ -901,6 +901,10 @@ function invocation(
           return { _id: DOCUMENT_ID };
         },
         queryIndexRange: async () => ({ documents: [], isDone: true }),
+        takeIncomingRelationSources: async () => ({
+          sources: [],
+          exhausted: true,
+        }),
       });
       const mutationDatabase = Object.freeze({
         ...queryDatabase,

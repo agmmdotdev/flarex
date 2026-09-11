@@ -12,6 +12,7 @@ import {
 } from "@flarex/function-runtime/internal/application-function-runtime-v1";
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimeIncomingRelationReaderV1,
   createFunctionRuntimeIndexedPointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
   createFunctionRuntimeRunQueryContextV1,
@@ -76,6 +77,8 @@ import { decodeAppDocumentIdentityV1Result } from
   "flarex-protocol/app-document-id";
 import { MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 } from
   "flarex-protocol/commit-protocol";
+import { RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 } from
+  "flarex-protocol/internal/application-schema-binding";
 import {
   APPLICATION_WORKER_RESULT_FORMAT_V1,
   APPLICATION_WORKER_RESULT_VERSION_V1,
@@ -279,6 +282,9 @@ interface TransactionCapability {
     bounds: unknown,
     limit: number,
   ) => unknown | PromiseLike<unknown>;
+  readonly takeIncomingRelationSources: ((
+    input: unknown,
+  ) => unknown | PromiseLike<unknown>) | undefined;
   readonly insertPointDocument: ((
     tableName: string,
     value: unknown,
@@ -1201,6 +1207,31 @@ function transactionInvocations(
           ).then(decodeIndexPage),
         ),
       });
+      const relationReader = createFunctionRuntimeIncomingRelationReaderV1(
+        (input: unknown) => trackBoundaryOperation(
+          state,
+          boundaryKind,
+          () => {
+            const captured = captureIncomingRelationInput(input);
+            const sourceTableId = tableIdForLogicalName(
+              request.tables,
+              captured.relation.source.table,
+            );
+            if (sourceTableId === undefined) {
+              throw new ERROR("Invalid incoming relation source table.");
+            }
+            return invokeRequiredCapability(
+              capability.takeIncomingRelationSources,
+              capability.receiver,
+              [captured] as const,
+            ).then(page => decodeIncomingRelationPage(
+              page,
+              sourceTableId,
+              captured.limit,
+            ));
+          },
+        ),
+      );
       const database = createFunctionRuntimeIndexedPointDatabaseWriterV1(
         reader,
         OBJECT_FREEZE({
@@ -1235,6 +1266,12 @@ function transactionInvocations(
         }),
         indexReader,
       );
+      const queryDatabase = OBJECT_FREEZE({
+        get: reader.get,
+        queryIndexRange: indexReader.queryIndexRange,
+        takeIncomingRelationSources:
+          relationReader.takeIncomingRelationSources,
+      });
       const invocation: ApplicationFunctionRuntimeInvocationV1 = OBJECT_FREEZE({
         boundary: OBJECT_FREEZE({
           close: () => { state.open = false; },
@@ -1244,7 +1281,7 @@ function transactionInvocations(
           },
         }),
         createQueryContext: (runQuery: ApplicationFunctionRuntimeRunQueryV1) =>
-          createFunctionRuntimeRunQueryContextV1(auth, database, runQuery),
+          createFunctionRuntimeRunQueryContextV1(auth, queryDatabase, runQuery),
         createMutationContext: (
           runQuery: ApplicationFunctionRuntimeRunQueryV1,
           runMutation: ApplicationFunctionRuntimeRunMutationV1,
@@ -1474,6 +1511,10 @@ function transactionCapability(
     const revalidate = method(record, "revalidate");
     const readPointDocument = method(record, "readPointDocument");
     const queryIndexRange = method(record, "queryIndexRange");
+    const takeIncomingRelationSources = method(
+      record,
+      "takeIncomingRelationSources",
+    );
     const insertPointDocument = mode === "write"
       ? method(record, "insertPointDocument")
       : undefined;
@@ -1499,6 +1540,7 @@ function transactionCapability(
       revalidate,
       readPointDocument,
       queryIndexRange,
+      takeIncomingRelationSources,
       insertPointDocument,
       patchPointDocument,
       replacePointDocument,
@@ -1507,6 +1549,103 @@ function transactionCapability(
   } catch (cause) {
     throw namedUnlessNamed(boundary, cause);
   }
+}
+
+function decodeIncomingRelationPage(
+  input: unknown,
+  sourceTableId: number,
+  requestedLimit: number,
+) {
+  const page = asRecord(input);
+  if (page === undefined) throw new ERROR("Invalid incoming relation page.");
+  const sources = ownDataValue(page, "sources");
+  const exhausted = ownDataValue(page, "exhausted");
+  if (
+    sources.kind !== "value" || !ARRAY_IS_ARRAY(sources.value) ||
+    sources.value.length > requestedLimit ||
+    sources.value.length > RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 ||
+    exhausted.kind !== "value" || typeof exhausted.value !== "boolean"
+  ) throw new ERROR("Invalid incoming relation page.");
+  const captured = sources.value.map((source: unknown) => {
+    const item = asRecord(source);
+    if (item === undefined) throw new ERROR("Invalid incoming relation source.");
+    const sourceDocumentId = ownDataValue(item, "sourceDocumentId");
+    const position = ownDataValue(item, "position");
+    const positionValue = position.kind === "value"
+      ? position.value
+      : undefined;
+    const identity = sourceDocumentId.kind === "value"
+      ? decodeAppDocumentIdentityV1Result(sourceDocumentId.value)
+      : undefined;
+    if (
+      sourceDocumentId.kind !== "value" ||
+      typeof sourceDocumentId.value !== "string" ||
+      identity === undefined || Result.isFailure(identity) ||
+      identity.success.tableId !== sourceTableId ||
+      (positionValue !== null &&
+        (typeof positionValue !== "number" ||
+          !NUMBER_IS_SAFE_INTEGER(positionValue) || positionValue < 0))
+    ) throw new ERROR("Invalid incoming relation source.");
+    return OBJECT_FREEZE({
+      sourceDocumentId: sourceDocumentId.value,
+      position: positionValue,
+    });
+  });
+  return OBJECT_FREEZE({
+    sources: OBJECT_FREEZE(captured),
+    exhausted: exhausted.value,
+  });
+}
+
+function captureIncomingRelationInput(input: unknown) {
+  const root = requireExactRecord(input, ["source", "target", "limit"]);
+  const sourceValue = ownDataValue(root, "source");
+  if (sourceValue.kind !== "value") {
+    throw new ERROR("Invalid incoming relation input.");
+  }
+  const source = requireExactRecord(sourceValue.value, ["table", "field"]);
+  const table = ownDataValue(source, "table");
+  const field = ownDataValue(source, "field");
+  const target = ownDataValue(root, "target");
+  const limit = ownDataValue(root, "limit");
+  const tableValue = table.kind === "value" ? table.value : undefined;
+  const fieldValue = field.kind === "value" ? field.value : undefined;
+  const targetValue = target.kind === "value" ? target.value : undefined;
+  const limitValue = limit.kind === "value" ? limit.value : undefined;
+  if (
+    table.kind !== "value" || field.kind !== "value" ||
+    target.kind !== "value" || limit.kind !== "value" ||
+    typeof tableValue !== "string" || typeof fieldValue !== "string" ||
+    typeof targetValue !== "string" || typeof limitValue !== "number" ||
+    !NUMBER_IS_SAFE_INTEGER(limitValue) || limitValue <= 0 ||
+    limitValue > RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1
+  ) throw new ERROR("Invalid incoming relation input.");
+  return OBJECT_FREEZE({
+    relation: OBJECT_FREEZE({
+      source: OBJECT_FREEZE({
+        table: tableValue,
+        path: OBJECT_FREEZE([
+          OBJECT_FREEZE({ kind: "field", name: fieldValue }),
+        ]),
+      }),
+    }),
+    target: targetValue,
+    limit: limitValue,
+  });
+}
+
+function requireExactRecord(
+  input: unknown,
+  keys: ReadonlyArray<string>,
+): Readonly<Record<PropertyKey, unknown>> {
+  const record = asRecord(input);
+  if (record === undefined) throw new ERROR("Invalid incoming relation input.");
+  const actual = REFLECT_OWN_KEYS(record);
+  if (
+    actual.length !== keys.length ||
+    actual.some(key => typeof key !== "string" || !keys.includes(key))
+  ) throw new ERROR("Invalid incoming relation input.");
+  return record;
 }
 
 function callbackCapability(input: unknown): CallbackCapability {
@@ -1902,6 +2041,14 @@ function tableNameForDocument(
   const tableId = NUMBER(documentId.slice(0, separator));
   const table = tables.find(candidate => candidate.tableId === tableId);
   return separator > 0 && table !== undefined ? table.logicalName : "";
+}
+
+function tableIdForLogicalName(
+  tables: ReadonlyArray<ApplicationFunctionRuntimeTableV1>,
+  logicalName: unknown,
+): number | undefined {
+  if (typeof logicalName !== "string") return undefined;
+  return tables.find(table => table.logicalName === logicalName)?.tableId;
 }
 
 function requireTarget(

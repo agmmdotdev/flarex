@@ -106,6 +106,44 @@ class TaskCatalogFailure extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
+class CandidateReadinessFailure extends Data.TaggedError(
+  "AppSchemaCandidateReadinessError",
+)<{
+  readonly reason:
+    | "invalidPort"
+    | "scopeMismatch"
+    | "concurrentStateChange"
+    | "corruption";
+}> {}
+
+class CandidateValidationOperationFailure extends Data.TaggedError(
+  "AppSchemaCandidateValidationOperationV1Error",
+)<{
+  readonly operation: "load";
+  readonly reason:
+    | "corruption"
+    | "superseded"
+    | "interrupted"
+    | "rollbackConfirmed"
+    | "decisionUncertain";
+}> {}
+
+class RelationReadinessFoldFailure extends Data.TaggedError(
+  "ApplicationRelationReadinessFoldError",
+)<{
+  readonly operation: "readReady";
+  readonly reason:
+    | "invalidInput"
+    | "invalidComposition"
+    | "authorityChanged"
+    | "storedState"
+    | "schemaBinding"
+    | "conflictingReplay"
+    | "decisionUncertain"
+    | "resourceFailure";
+  readonly retryable: boolean;
+}> {}
+
 class PhysicalDefinitionConflictFailure extends Data.TaggedError(
   "PhysicalDefinitionLifecycleConflictError",
 )<{
@@ -209,8 +247,22 @@ const DIRECT_QUERY_OWNER_REASON = Object.freeze({
   InvalidPhysicalDefinitionLifecyclePortError: "invalidConfiguration",
   PointCommitUniqueConstraintEligibilityUnavailableV1Error:
     "invalidConfiguration",
+  InvalidApplicationRelationReadinessInputError: "invalidConfiguration",
+  ApplicationRelationBuildUnavailableError: "applicationUnavailable",
+  ApplicationRelationReadinessUnavailableError: "applicationUnavailable",
+  ApplicationRelationBuildStaleAuthorityError: "staleScopeAuthority",
+  ApplicationRelationReadinessStaleAuthorityError: "staleScopeAuthority",
+  AppSchemaCandidateValidationPersistenceError: "unavailable",
+  ApplicationRelationBuildPersistenceError: "unavailable",
+  ApplicationRelationReadinessPersistenceError: "unavailable",
+  ApplicationRelationBuildCorruptionError: "corruptData",
+  ApplicationRelationCommitCorruptionError: "corruptData",
+  ApplicationRelationReadinessCorruptionError: "corruptData",
+  ApplicationRelationSchemaAuthorityError: "corruptData",
+  ApplicationSchemaBindingError: "corruptData",
+  ReadApplicationRelationBindingError: "corruptData",
 } as const satisfies Readonly<
-  Record<DirectQueryOwnerTag, QueryInvocationErrorReason>
+  Partial<Record<DirectQueryOwnerTag, QueryInvocationErrorReason>>
 >);
 
 function directQueryOwnerFailure<Tag extends DirectQueryOwnerTag>(
@@ -326,6 +378,59 @@ describe("clean Query invocation-error projection", () => {
     });
     expect(projected.cause).toBe(source);
   });
+
+  it.each([
+    ["invalidPort", "invalidConfiguration"],
+    ["scopeMismatch", "staleScopeAuthority"],
+    ["concurrentStateChange", "transient"],
+    ["corruption", "corruptData"],
+  ] as const)("maps candidate readiness reason %s", (sourceReason, reason) => {
+    const source: InvokeApplicationQueryError = new CandidateReadinessFailure({
+      reason: sourceReason,
+    });
+    expect(projectQueryInvocationError(source).reason).toBe(reason);
+  });
+
+  it.each([
+    ["corruption", "corruptData"],
+    ["superseded", "applicationUnavailable"],
+    ["interrupted", "transient"],
+    ["rollbackConfirmed", "transient"],
+    ["decisionUncertain", "settlementUncertain"],
+  ] as const)(
+    "maps candidate validation operation reason %s",
+    (sourceReason, reason) => {
+      const source: InvokeApplicationQueryError =
+        new CandidateValidationOperationFailure({
+          operation: "load",
+          reason: sourceReason,
+        });
+      expect(projectQueryInvocationError(source).reason).toBe(reason);
+    },
+  );
+
+  it.each([
+    ["invalidInput", false, "corruptData"],
+    ["invalidComposition", false, "invalidConfiguration"],
+    ["authorityChanged", false, "staleScopeAuthority"],
+    ["storedState", false, "corruptData"],
+    ["schemaBinding", false, "corruptData"],
+    ["conflictingReplay", false, "transient"],
+    ["decisionUncertain", false, "settlementUncertain"],
+    ["resourceFailure", true, "transient"],
+    ["resourceFailure", false, "unavailable"],
+  ] as const)(
+    "maps relation readiness fold reason %s with retryable=%s",
+    (sourceReason, retryable, reason) => {
+      const source: InvokeApplicationQueryError =
+        new RelationReadinessFoldFailure({
+          operation: "readReady",
+          reason: sourceReason,
+          retryable,
+        });
+      expect(projectQueryInvocationError(source).reason).toBe(reason);
+    },
+  );
 
   it.each([
     ["invalidFunction", "invalidInput"],

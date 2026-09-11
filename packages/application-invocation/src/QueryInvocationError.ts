@@ -53,6 +53,40 @@ export function projectQueryInvocationError(
       return queryInvocationError(projectReadinessReason(error), error);
     case "ApplicationSchemaAuthorityError":
       return queryInvocationError(projectSchemaAuthorityReason(error), error);
+    case "InvalidApplicationRelationReadinessInputError":
+      return queryInvocationError("invalidConfiguration", error);
+    case "ApplicationRelationBuildUnavailableError":
+    case "ApplicationRelationReadinessUnavailableError":
+      return queryInvocationError("applicationUnavailable", error);
+    case "ApplicationRelationBuildStaleAuthorityError":
+    case "ApplicationRelationReadinessStaleAuthorityError":
+      return queryInvocationError("staleScopeAuthority", error);
+    case "AppSchemaCandidateValidationPersistenceError":
+    case "ApplicationRelationBuildPersistenceError":
+    case "ApplicationRelationReadinessPersistenceError":
+      return queryInvocationError("unavailable", error);
+    case "AppSchemaCandidateReadinessError":
+      return queryInvocationError(
+        projectCandidateReadinessReason(error),
+        error,
+      );
+    case "AppSchemaCandidateValidationOperationV1Error":
+      return queryInvocationError(
+        projectCandidateValidationOperationReason(error),
+        error,
+      );
+    case "ApplicationRelationBuildCorruptionError":
+    case "ApplicationRelationCommitCorruptionError":
+    case "ApplicationRelationReadinessCorruptionError":
+    case "ApplicationRelationSchemaAuthorityError":
+    case "ApplicationSchemaBindingError":
+    case "ReadApplicationRelationBindingError":
+      return queryInvocationError("corruptData", error);
+    case "ApplicationRelationReadinessFoldError":
+      return queryInvocationError(
+        projectRelationReadinessFoldReason(error),
+        error,
+      );
     case "ApplicationTaskCatalogSnapshotError":
       return queryInvocationError(projectTaskCatalogReason(error), error);
     case "TrustedScopeAuthorityResolutionError":
@@ -142,6 +176,8 @@ function projectCompositionReason(
     case "invalidExecutionContext":
     case "invalidTarget":
       return "invalidConfiguration";
+    case "invalidSourceIdentity":
+      return "corruptData";
     case "sourceReadFailed":
     case "workerDefinitionFailed":
       return "unavailable";
@@ -172,6 +208,8 @@ function projectSnapshotReason(
       return "indexUnavailable";
     case "historyUnavailable":
       return "historyUnavailable";
+    case "snapshotChanged":
+      return "transient";
     case "budgetExceeded":
       return "budgetExceeded";
     case "resourceFailure":
@@ -263,6 +301,67 @@ function projectTaskCatalogReason(
       return "corruptData";
     case "authorityChanged":
       return "staleScopeAuthority";
+    case "resourceFailure":
+      return error.retryable ? "transient" : "unavailable";
+  }
+}
+
+function projectCandidateReadinessReason(
+  error: Extract<
+    InvokeApplicationQueryError,
+    { readonly _tag: "AppSchemaCandidateReadinessError" }
+  >,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "invalidPort":
+      return "invalidConfiguration";
+    case "scopeMismatch":
+      return "staleScopeAuthority";
+    case "concurrentStateChange":
+      return "transient";
+    case "corruption":
+      return "corruptData";
+  }
+}
+
+function projectCandidateValidationOperationReason(
+  error: Extract<
+    InvokeApplicationQueryError,
+    { readonly _tag: "AppSchemaCandidateValidationOperationV1Error" }
+  >,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "corruption":
+      return "corruptData";
+    case "superseded":
+      return "applicationUnavailable";
+    case "interrupted":
+    case "rollbackConfirmed":
+      return "transient";
+    case "decisionUncertain":
+      return "settlementUncertain";
+  }
+}
+
+function projectRelationReadinessFoldReason(
+  error: Extract<
+    InvokeApplicationQueryError,
+    { readonly _tag: "ApplicationRelationReadinessFoldError" }
+  >,
+): QueryInvocationErrorReason {
+  switch (error.reason) {
+    case "invalidInput":
+    case "storedState":
+    case "schemaBinding":
+      return "corruptData";
+    case "invalidComposition":
+      return "invalidConfiguration";
+    case "authorityChanged":
+      return "staleScopeAuthority";
+    case "conflictingReplay":
+      return "transient";
+    case "decisionUncertain":
+      return "settlementUncertain";
     case "resourceFailure":
       return error.retryable ? "transient" : "unavailable";
   }

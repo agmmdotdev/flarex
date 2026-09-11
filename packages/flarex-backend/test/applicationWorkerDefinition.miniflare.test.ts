@@ -58,7 +58,10 @@ describe("Application Worker definition", () => {
     const response = await executeDefinition(
       definition,
       definition.transactionEntrypoint,
-      transactionRequest(fixture.target, { name: "Ada" }, "write", 9, 2),
+      transactionRequest(fixture.target, { name: "Ada" }, "write", 9, [{
+        tableId: 2,
+        logicalName: "users",
+      }]),
       "mutation",
     );
 
@@ -237,6 +240,100 @@ describe("Application Worker definition", () => {
       version: 1,
       value: "Ada",
     });
+  });
+
+  it("executes and validates the logical incoming relation query boundary", async () => {
+    const fixture = applicationFixture("query", "relationRead");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+    const id = "2:00000000-0000-0000-0000-000000000001";
+    const tables = Object.freeze([
+      Object.freeze({ tableId: 1, logicalName: "posts" }),
+      Object.freeze({ tableId: 2, logicalName: "users" }),
+    ]);
+    const response = await executeDefinition(
+      definition,
+      definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { id }, "query", 7, tables),
+      "query",
+      {
+        capabilityMembers: `
+          takeIncomingRelationSources(input) {
+            const source = input.relation.source;
+            if (
+              source.table !== "posts" || source.path.length !== 1 ||
+              source.path[0].kind !== "field" ||
+              source.path[0].name !== "authors" || input.target !== ${JSON.stringify(id)} ||
+              input.limit !== 16
+            ) throw new Error("unexpected relation input");
+            return {
+              sources: [{
+                sourceDocumentId: "1:00000000-0000-0000-0000-000000000002",
+                duplicateOrdinal: 0,
+                position: 3,
+              }],
+              exhausted: true,
+            };
+          }
+        `,
+      },
+    );
+
+    expect(response).toEqual({
+      format: "flarex.application-worker-result",
+      version: 1,
+      value: {
+        sources: [{
+          sourceDocumentId: "1:00000000-0000-0000-0000-000000000002",
+          position: 3,
+        }],
+        exhausted: true,
+      },
+    });
+
+    const malformedPages = [
+      `{
+        sources: [{ sourceDocumentId: "bad", position: null }],
+        exhausted: true,
+      }`,
+      `{
+        sources: [{
+          sourceDocumentId: "2:00000000-0000-0000-0000-000000000003",
+          position: null,
+        }],
+        exhausted: true,
+      }`,
+      `{
+        sources: Array.from({ length: 17 }, (_, index) => ({
+          sourceDocumentId: "1:00000000-0000-0000-0000-000000000002",
+          position: index,
+        })),
+        exhausted: true,
+      }`,
+      `{
+        sources: Array.from({ length: 129 }, (_, index) => ({
+          sourceDocumentId: "1:00000000-0000-0000-0000-000000000002",
+          position: index,
+        })),
+        exhausted: true,
+      }`,
+    ];
+    for (const malformedPage of malformedPages) {
+      await expect(executeDefinition(
+        definition,
+        definition.transactionEntrypoint,
+        transactionRequest(fixture.target, { id }, "query", 7, tables),
+        "query",
+        {
+          capabilityMembers: `
+            takeIncomingRelationSources() { return ${malformedPage}; }
+          `,
+        },
+      )).rejects.toThrow("ApplicationWorkerReadBoundaryV1Error");
+    }
   });
 
   it("fails closed when an application module tampers with runtime intrinsics", async () => {
@@ -636,6 +733,7 @@ type ApplicationSourceScenario =
   | "caughtTamper"
   | "determinism"
   | "largeResult"
+  | "relationRead"
   | "closedRead"
   | "applicationError"
   | "catchValidation"
@@ -859,7 +957,19 @@ function applicationSources(
       "} };",
       "",
     ].join("\n"),
-    handlers: scenario === "determinism"
+    handlers: scenario === "relationRead"
+      ? [
+          "export function get(context, args) {",
+          "  return context.db.takeIncomingRelationSources({",
+          '    source: { table: "posts", field: "authors" },',
+          "    target: args.id,",
+          "    limit: 16,",
+          "  });",
+          "}",
+          "export function lookup() { return null; }",
+          "",
+        ].join("\n")
+      : scenario === "determinism"
       ? [
           "const capturedNow = Date.now();",
           "const capturedRandom = Math.random();",
@@ -1033,6 +1143,9 @@ class Capability extends RpcTarget {
     return { kind: "present", document: { name: "Ada" } };
   }
   queryIndexRange() { return { documents: [], isDone: true }; }
+  takeIncomingRelationSources(input) {
+    return { sources: [], exhausted: true };
+  }
   insertPointDocument() {
     return "1:00000000-0000-0000-0000-000000000002";
   }
@@ -1082,7 +1195,12 @@ function transactionRequest(
   argumentsValue: unknown,
   mode: "query" | "write",
   seedByte: number,
-  usersTableId = 1,
+  tables: ReadonlyArray<Readonly<{
+    readonly tableId: number;
+    readonly logicalName: string;
+  }>> = Object.freeze([
+    Object.freeze({ tableId: 1, logicalName: "users" }),
+  ]),
 ): unknown {
   return {
     format: APPLICATION_TRANSACTION_WORKER_REQUEST_FORMAT_V1,
@@ -1092,7 +1210,7 @@ function transactionRequest(
     arguments: argumentsValue,
     argumentSemanticBytes: normalizeFlarexValueV1(argumentsValue)
       .semanticSizeBytes,
-    tables: [{ tableId: usersTableId, logicalName: "users" }],
+    tables,
     context: mode === "query"
       ? {
           mode,
