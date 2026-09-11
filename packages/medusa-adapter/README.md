@@ -266,7 +266,10 @@ Preparation constructs no repository or live service.
 The integration supplies one profile that binds its existing admitted repository
 implementation to a command. Default internal services are derived from the DML
 model names using the pinned Medusa naming convention. The main service factory
-receives their inferred types and supplies the existing Medusa business service.
+receives one typed `dependencies` object containing those services, the base
+repository and the same request-owned `modulePersistenceAdapter`. Pass that
+object to the native constructor so Medusa connects its mutation subscribers;
+add only genuine module dependencies such as an event bus.
 Applications do not assemble repositories or select internal profiles from input.
 Literal model tuples infer required service keys. Dynamic arrays and
 union-selected entries expose potentially absent services as optional.
@@ -277,8 +280,8 @@ const prepared = defineCommerceModule({
   models: [Volume],
   profile: libraryProfile,
   extensions: {},
-  service: ({ baseRepository, services, context }) => ({
-    service: new LibraryService({ baseRepository, ...services }),
+  service: ({ dependencies, context }) => ({
+    service: new LibraryService(dependencies),
     context,
   }),
 });
@@ -290,6 +293,8 @@ const prepared = defineCommerceModule({
 Named extensions explicitly `add` a service or `replace` one generated service.
 Their record accepts only own enumerable string data properties; symbol,
 non-enumerable, accessor and inherited declarations refuse during preparation.
+The `baseRepository` and `modulePersistenceAdapter` dependency names are reserved;
+extensions cannot add or replace either construction owner.
 Preparation rejects accidental collisions, missing replacement targets, duplicate
 models/naming collisions, and missing declared profile capabilities. Extensions
 are independent constructors: they receive the command's binding, persistence

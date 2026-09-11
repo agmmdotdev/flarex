@@ -23,9 +23,9 @@ const currencyModule = defineCommerceModule({
     return { baseRepository: repository, repository: () => repository };
   } },
   extensions: {},
-  service: ({ binding, baseRepository, services, context }) => ({
-    repository: binding.baseRepository, internal: services.currencyService,
-    service: new CurrencyModuleService({ baseRepository, ...services }, { scope: "internal" }), context,
+  service: ({ binding, dependencies, context }) => ({
+    repository: binding.baseRepository, internal: dependencies.currencyService,
+    service: new CurrencyModuleService(dependencies, { scope: "internal" }), context,
   }),
 });
 type CurrencyScope = CommerceModuleScope<Result.Result.Success<typeof currencyModule>>;

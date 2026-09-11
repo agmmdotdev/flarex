@@ -102,16 +102,16 @@ export function defineProductModule(metadata: ProductRuntimeMetadata, profile: P
         bind: (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => bindProduct(ctx, owner, metadata, entities, profile),
       },
       extensions: productExtensions,
-      service: ({ binding, baseRepository, services, context }) => {
+      service: ({ binding, dependencies, context }) => {
         const service = new ProductModuleService({
-          ...services, baseRepository,
+          ...dependencies,
           // SAFETY: the pinned type requires MikroORM deepUpdate; its runtime
           // guard selects portable internal services when that method is absent.
           productRepository: binding.baseRepository as ConstructorParameters<typeof ProductModuleService>[0]["productRepository"],
           [Modules.EVENT_BUS]: binding.eventBus,
         }, { scope: "internal" });
         binding.connect(service);
-        return { service, productService: services.productService, categoryService: services.productCategoryService,
+        return { service, productService: dependencies.productService, categoryService: dependencies.productCategoryService,
           repository: binding.baseRepository, eventBus: binding.eventBus, context, capture: binding.capture };
       },
     });

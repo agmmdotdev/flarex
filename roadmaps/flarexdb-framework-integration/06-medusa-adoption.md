@@ -41,6 +41,15 @@ disjoint profiles without module-specific branches. Same-installation
 atomic participants and commerce-link admission remain subsequent explicit gates;
 Sales Channel service compatibility is not complete.
 
+Gate A exposed a
+[shared module-construction defect](./preflight/47-medusa-shared-persistence-adapter.md#native-mutation-subscriber-construction-contract):
+the native constructor lacked the prepared persistence dependency required to
+connect mutation subscribers. Its approved correction supplies one shared typed
+constructor dependency object, retaining the neutral module and Sales Channel
+write witnesses. Product/Currency regression coverage is preserved. This
+completed correction changes shared Medusa adapter composition, not Flarex core;
+the remaining Sales Channel integration obligations are still open.
+
 Complete integration-suite coverage does not establish arbitrary input parity
 or a complete module bootstrap/migration adapter. Stored Module Links,
 workflows, distributed locks, durable business-event delivery, general module

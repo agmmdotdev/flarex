@@ -219,6 +219,15 @@ Sales Channel service/command compatibility, guarded source promotion and the
 original native integration cases remain incomplete. Partial foundation work
 must not be reported as an integrated module or a completed Gate A.
 
+Native service wiring exposed a shared constructor contract defect: the first
+create refused an unadmitted event because the module factory omitted its
+prepared persistence adapter from native constructor dependencies. The
+[shared adapter owner](./47-medusa-shared-persistence-adapter.md#native-mutation-subscriber-construction-contract)
+owns the completed shared correction and its maintained regression boundary. The neutral
+native `MedusaService` witness remains independent of Sales Channel or a database;
+the connected witness covers native mutations and event-refusal rollback. No
+Sales Channel-local subscriber workaround or core persistence change is involved.
+
 ### B. First Stored Link And Shared-Core Admission
 
 Before implementation, complete and approve the focused core contract described

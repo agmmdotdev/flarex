@@ -768,6 +768,56 @@ core and diff lint pass. Receipts are `work/module-assembly-*.log`.
 
 ## Following capabilities and module proof
 
+### Native mutation subscriber construction contract
+
+Sales Channel's connected service witness exposed an insufficient contract in
+`medusa-adapter/src/module-definition.ts`. `prepareCommerceModule` creates the
+request-owned `ModulePersistenceAdapter` and supplies it to generated internal
+services, but the former `defineCommerceModule` callback did not make that dependency available
+to the native module-service constructor. The pinned `MedusaService` constructor
+reads `ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER` from its own
+container before creating and connecting mutation subscribers. Internal-service
+injection alone does not perform that connection.
+
+The neutral `Volume`/`LibraryService` witness in `test/module-definition.test.ts`
+constructs an actual native `MedusaService` through the shared factory with an
+event-capable profile. Expected: one request-owned native subscriber is created.
+Before correction: no subscriber was created. The connected Sales Channel witness in
+`test/sales-channel-binding.test.ts` reached the first native create operation,
+then correctly refused `unadmittedEvent` and rolled back. This is a shared Medusa
+composition defect, not a Sales Channel storage limitation or evidence requiring
+a change to Flarex core. Native Product already installs its specialized subscriber
+after the base constructor; its single-slot internal-service setters replace, not
+accumulate, subscribers. Product's additional image alias still requires regression
+coverage when the base constructor receives the missing dependency.
+
+Disposition: the approved shared correction is implemented. The factory supplies
+one frozen, typed `dependencies`
+object carrying the same base repository, generated services and request-owned
+persistence adapter. Product and Currency pass it to their native constructors.
+Module constructors add only genuine dependencies such as the event bus.
+`baseRepository` and `modulePersistenceAdapter` are reserved names that extensions
+cannot add or replace. Named extensions retain their existing request lifetime
+and explicit replacement rules. The neutral witness checks actual native
+subscriber creation, dependency identity and isolation across uses. There is no
+parallel/versioned construction path, manual Sales Channel subscriber wiring,
+event-admission bypass, second persistence adapter or Flarex core change.
+
+The maintained regression boundary covers the neutral native constructor,
+Sales Channel create/update/delete events and event-refusal rollback, and the
+existing Product/Currency native cases on PGlite and ordinary-role PostgreSQL.
+Strict type, source and portability guards remain required. This shared
+construction correction does not complete Sales Channel source promotion,
+its preserved upstream suite or the remaining Gate A integration obligations.
+
+PGlite fixture reliability remains a separate qualification. The connected
+Sales Channel setup has failed before test execution with a migration deadline
+and, on another run, `DataCloneError: Data cannot be cloned, out of memory` at
+`relationalPGliteWorkerTestSupport.ts`'s query-message boundary while reading
+migration-plan metadata. The exact resource cause is not established. These
+setup failures do not justify changing adapter behavior, migration/statement
+limits or the shared worker owner; a passing rerun does not resolve their cause.
+
 Product command composition retains one source-private entry point,
 `makeLocalProductCommands`, returning the existing command set, service-use
 operation, graph and workflow definitions. Its `product-commands` owners prepare

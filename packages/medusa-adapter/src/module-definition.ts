@@ -1,6 +1,7 @@
 import { Data, Effect, Result } from "effect";
 import type { DAL, ModulePersistenceAdapter, ModulePersistenceModel } from "@medusajs/framework/types";
 import { lowerCaseFirst } from "@medusajs/utils/common/lower-case-first";
+import { ContainerRegistrationKeys } from "@medusajs/utils/common/container";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceInternalService, prepareCommerceModule, type CommerceModuleEvents } from "./commerce-module";
@@ -87,8 +88,10 @@ export function defineCommerceModule<
   readonly extensions: Extensions;
   readonly service: (input: {
     readonly binding: Binding;
-    readonly baseRepository: DAL.RepositoryService;
-    readonly services: ModuleServices<Models, Extensions>;
+    readonly dependencies: ModuleServices<Models, Extensions> & {
+      readonly baseRepository: DAL.RepositoryService;
+      readonly [ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER]: ModulePersistenceAdapter;
+    };
     readonly context: { readonly manager: CommerceCommandContext["manager"]; readonly transactionManager: CommerceCommandContext["manager"] };
   }) => Service;
 }): Result.Result<PreparedCommerceModule<Service>, CommerceModuleDefinitionError> {
@@ -122,6 +125,7 @@ export function defineCommerceModule<
     }));
     for (const extension of extensions) {
       if (!extension.key.trim()) return yield* fail("invalidName", "Extension names must be nonblank");
+      if (extension.key === "baseRepository" || extension.key === ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER) return yield* fail("serviceConflict", extension.key);
       if (extension.mode === "add" && generated.has(extension.key)) return yield* fail("serviceConflict", extension.key);
       if (extension.mode === "replace" && !generated.has(extension.key)) return yield* fail("unknownReplacement", extension.key);
       for (const requirement of extension.requires) {
@@ -154,7 +158,13 @@ export function defineCommerceModule<
         // checked explicit replacements/additions are each installed once.
         // Object.fromEntries defines own data properties, including __proto__.
         const services = Object.freeze(Object.fromEntries(entries)) as ModuleServices<Models, Extensions>;
-        return createService({ binding, baseRepository: module.baseRepository, services,
+        // Native MedusaService connects subscribers from its own container.
+        // Supply the exact adapter already borrowed by all internal services;
+        // callers add only module-specific dependencies, never reconstruct it.
+        const dependencies = { ...services, baseRepository: module.baseRepository,
+          [ContainerRegistrationKeys.MODULE_PERSISTENCE_ADAPTER]: module.persistence };
+        Object.freeze(dependencies);
+        return createService({ binding, dependencies,
           context: { manager: ctx.manager, transactionManager: ctx.manager },
         });
       }, work));

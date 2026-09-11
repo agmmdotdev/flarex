@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { Effect, Result } from "effect";
-import type { DAL } from "@medusajs/framework/types";
+import type { DAL, ModulePersistenceAdapter } from "@medusajs/framework/types";
 import { model } from "@medusajs/utils/dml/model";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, commerceLimits, defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -11,6 +11,8 @@ import { commerceRepositoryContext } from "../src/commerce-repository-context";
 import { makeCommercePromiseOwner, type CommercePromiseOwner } from "../src/commerce-promise-owner";
 import { commerceInternalService } from "../src/commerce-module";
 import { productImageAliasRepository } from "../src/product-module";
+import { MedusaService } from "@medusajs/utils/modules-sdk/medusa-service";
+import { commerceMutationEvents } from "../src/commerce-mutation-events";
 
 const Volume = model.define("Volume", { isbn: model.text().primaryKey(), title: model.text() });
 const Edition = model.define("Edition", { serial: model.text().primaryKey() });
@@ -48,6 +50,45 @@ function libraryProfile() {
 }
 
 describe("prepared commerce module definitions", () => {
+  it("connects native module mutation subscribers during shared composition", async () => {
+    const source = libraryProfile();
+    let subscribers = 0;
+    const adapters: ModulePersistenceAdapter[] = [];
+    class LibraryService extends MedusaService({ Volume }) {}
+    const module = Result.getOrThrow(defineCommerceModule({ name: "library", models: [Volume],
+      profile: { ...source.profile, bind: (ctx, owner) => {
+        const binding = source.profile.bind(ctx, owner);
+        const events = commerceMutationEvents(owner);
+        return { ...binding, events: {
+          createEventSubscriber: (...args: Parameters<typeof events.createSubscriber>) => {
+            subscribers++;
+            return events.createSubscriber(...args);
+          },
+          registerEventSubscriber: events.registerSubscriber,
+        } };
+      } },
+      extensions: {}, service: ({ dependencies }) => {
+        const internalAdapter: unknown = Object.getOwnPropertyDescriptor(dependencies.volumeService.__container__, "modulePersistenceAdapter")?.value;
+        expect(internalAdapter).toBe(dependencies.modulePersistenceAdapter);
+        expect(Object.isFrozen(dependencies)).toBe(true);
+        adapters.push(dependencies.modulePersistenceAdapter);
+        return new LibraryService(dependencies);
+      },
+    }));
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      yield* module.use(yield* fixture, async () => null);
+    })));
+    // A neutral native MedusaService needs the same prepared persistence adapter
+    // as its internal services. Missing constructor wiring must not be patched
+    // by a module-specific subscriber or event path.
+    expect(subscribers).toBe(1);
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      yield* module.use(yield* fixture, async () => null);
+    })));
+    expect(subscribers).toBe(2);
+    expect(adapters[0]).not.toBe(adapters[1]);
+  });
+
   it("derives typed services once per use and retains a natural primary key", async () => {
     const source = libraryProfile();
     const module = Result.getOrThrow(defineCommerceModule({ name: "library", models: [Volume, Edition], profile: source.profile,
@@ -60,7 +101,7 @@ describe("prepared commerce module definitions", () => {
     ]);
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const root = yield* fixture;
-      const rows = yield* module.use(root, ({ services, context }) => {
+      const rows = yield* module.use(root, ({ dependencies: services, context }) => {
         expectTypeOf(services.volumeService).toEqualTypeOf<ReturnType<typeof commerceInternalService<typeof Volume>>>();
         expectTypeOf(services.editionService).toEqualTypeOf<ReturnType<typeof commerceInternalService<typeof Edition>>>();
         // @ts-expect-error No service exists for an unregistered model.
@@ -79,6 +120,8 @@ describe("prepared commerce module definitions", () => {
     { models: [Volume], extensions: { volumeService: { mode: "add", create: () => ({}) } }, reason: "serviceConflict" },
     { models: [Volume], extensions: { otherService: { mode: "replace", create: () => ({}) } }, reason: "unknownReplacement" },
     { models: [Volume], extensions: { tree: { mode: "add", requires: ["tree"], create: () => ({}) } }, reason: "missingCapability" },
+    { models: [Volume], extensions: { baseRepository: { mode: "add", create: () => ({}) } }, reason: "serviceConflict" },
+    { models: [Volume], extensions: { modulePersistenceAdapter: { mode: "add", create: () => ({}) } }, reason: "serviceConflict" },
   ] satisfies { models: { name: string }[]; extensions: Record<string, CommerceModuleExtension<unknown>>; reason: string }[])("refuses $reason before binding", input => {
     const source = libraryProfile();
     const result = defineCommerceModule({ name: "library", models: input.models, profile: source.profile, extensions: input.extensions, service: value => value });
@@ -93,9 +136,9 @@ describe("prepared commerce module definitions", () => {
       volumeService: { mode: "replace", requires: ["lookup"], create: () => ({ label: () => "special" }) },
       editionLookup: { mode: "add", create: () => ({ count: () => 7 }) },
     } satisfies Record<string, CommerceModuleExtension<unknown>>;
-    const definition = { name: "library", models, profile: source.profile, extensions, service: (value: { services: {
+    const definition = { name: "library", models, profile: source.profile, extensions, service: (value: { dependencies: {
       volumeService: { label: () => string }; editionLookup: { count: () => number };
-    } }) => value.services };
+    } }) => value.dependencies };
     const module = Result.getOrThrow(defineCommerceModule(definition));
     models.length = 0;
     source.profile.capabilities.length = 0;
@@ -123,7 +166,7 @@ describe("prepared commerce module definitions", () => {
     const lateCalls: (() => Promise<unknown>)[] = [];
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const first = yield* fixture, second = yield* fixture;
-      yield* Effect.all([first, second].map(root => module.use(root, async ({ services, context }) => {
+      yield* Effect.all([first, second].map(root => module.use(root, async ({ dependencies: services, context }) => {
         lateCalls.push(() => services.volumeService.list({}, {}, context));
         return services.volumeService.list({}, {}, context);
       })), { concurrency: 2 });
@@ -137,10 +180,10 @@ describe("prepared commerce module definitions", () => {
     const source = libraryProfile();
     const prepareArray = (models: readonly (typeof Volume | typeof Edition)[]) => defineCommerceModule({
       name: "dynamic", models, profile: source.profile, extensions: {}, service: input => {
-        expectTypeOf(input.services.editionService).toEqualTypeOf<ReturnType<typeof commerceInternalService<typeof Edition>> | undefined>();
+        expectTypeOf(input.dependencies.editionService).toEqualTypeOf<ReturnType<typeof commerceInternalService<typeof Edition>> | undefined>();
         const typeProof = () => {
           // @ts-expect-error A dynamic array does not guarantee this registration.
-          void input.services.editionService.list;
+          void input.dependencies.editionService.list;
         };
         void typeProof;
         return input;
@@ -148,10 +191,10 @@ describe("prepared commerce module definitions", () => {
     });
     const prepareUnion = (selected: typeof Volume | typeof Edition) => defineCommerceModule({
       name: "union", models: [selected], profile: source.profile, extensions: {}, service: input => {
-        expectTypeOf(input.services.volumeService).toEqualTypeOf<ReturnType<typeof commerceInternalService<typeof Volume>> | undefined>();
+        expectTypeOf(input.dependencies.volumeService).toEqualTypeOf<ReturnType<typeof commerceInternalService<typeof Volume>> | undefined>();
         const typeProof = () => {
           // @ts-expect-error A union-selected tuple entry does not guarantee both models.
-          void input.services.volumeService.list;
+          void input.dependencies.volumeService.list;
         };
         void typeProof;
         return input;
@@ -161,8 +204,8 @@ describe("prepared commerce module definitions", () => {
     const tuple = Result.getOrThrow(prepareUnion(Edition));
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const root = yield* fixture;
-      yield* array.use(root, async input => { expect(Object.keys(input.services)).toEqual(["volumeService"]); return null; });
-      yield* tuple.use(root, async input => { expect(Object.keys(input.services)).toEqual(["editionService"]); return null; });
+      yield* array.use(root, async input => { expect(Object.keys(input.dependencies)).toEqual(["volumeService", "baseRepository", "modulePersistenceAdapter"]); return null; });
+      yield* tuple.use(root, async input => { expect(Object.keys(input.dependencies)).toEqual(["editionService", "baseRepository", "modulePersistenceAdapter"]); return null; });
     })));
   });
 
@@ -175,7 +218,7 @@ describe("prepared commerce module definitions", () => {
     const extension = { mode: "add", label: "extension", create() { return { label: this.label }; } } satisfies
       CommerceModuleExtension<unknown> & { label: string };
     const definition = { name: "methods", models: [Volume], profile, extensions: { custom: extension },
-      service(input: { services: { custom: { label: string } } }) { return { name: this.name, label: input.services.custom.label }; },
+      service(input: { dependencies: { custom: { label: string } } }) { return { name: this.name, label: input.dependencies.custom.label }; },
     };
     const module = Result.getOrThrow(defineCommerceModule(definition));
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
