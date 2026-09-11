@@ -10,6 +10,31 @@
   ],
   "files": [
     {
+      "target": "packages/medusa-adapter/src/product-commands/services.ts",
+      "classification": "authored",
+      "targetSha256": "0f9a56139b324cf85a1353aa048453ee0f0b1296d3125cd70acf5c7a4e8effea"
+    },
+    {
+      "target": "packages/medusa-adapter/src/product-commands/reads.ts",
+      "classification": "authored",
+      "targetSha256": "80afdc4f062c5880b6d8648aa267084691bd4eb7e88fe0789349b82fe2fee5ba"
+    },
+    {
+      "target": "packages/medusa-adapter/src/product-commands/internal.ts",
+      "classification": "authored",
+      "targetSha256": "a0fd910ad43d6be344dd0dbad038746fac1cc628c4d1e73beb5e609ef5e1d8ae"
+    },
+    {
+      "target": "packages/medusa-adapter/src/product-commands/mutations.ts",
+      "classification": "authored",
+      "targetSha256": "a2122ae3f02278510ec18af3cd4f67ffcccd765842ed74e5b1416827526b5f0a"
+    },
+    {
+      "target": "packages/medusa-adapter/test/product-command-assembly.test.ts",
+      "classification": "authored",
+      "targetSha256": "1142fa8467494ab0cefdc8b75a4a2d3493b72431a5aff5df1491243cf3c9ebb8"
+    },
+    {
       "target": "packages/medusa-adapter/README.md",
       "classification": "authored",
       "targetSha256": "90baef65f2a9df286cdc3dc1cf8df3ca4fff6177ed5e4cd896c2d6436739ee40"
@@ -282,7 +307,7 @@
     {
       "target": "packages/medusa-adapter/src/product-service.ts",
       "classification": "authored",
-      "targetSha256": "6f40d4322625b43681b3645643021d01bf4a12599e200caa4096ab7ec9d2e471"
+      "targetSha256": "1e90189a73c65296b7187dd47f314d65b9fe708352e1e4d8b71c103f09f718ca"
     },
     {
       "target": "packages/medusa-adapter/src/product-tag-composition.ts",
@@ -584,7 +609,7 @@
     {
       "target": "packages/medusa-adapter/test/product-tag-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "4df316bc3c6dd5fc1a4347fd2ade94c5095cf89dca1a7001471f0481f5fbf48b"
+      "targetSha256": "f8cc08d3073516325cc37387a5945b9d0c5c105791c7672060432b0e47674582"
     },
     {
       "target": "packages/medusa-adapter/test/product-tags-upstream.test.ts",

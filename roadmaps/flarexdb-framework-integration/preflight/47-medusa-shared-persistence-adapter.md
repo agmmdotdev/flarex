@@ -768,6 +768,18 @@ core and diff lint pass. Receipts are `work/module-assembly-*.log`.
 
 ## Following capabilities and module proof
 
+Product command composition retains one source-private entry point,
+`makeLocalProductCommands`, returning the existing command set, service-use
+operation, graph and workflow definitions. Its `product-commands` owners prepare
+the four named profiles and define read, mutation and direct internal-service
+command families. The entry point owns the exact command registration and binds
+graph/workflow metadata to those same tokens. Preparation has no live manager;
+services and repositories still belong to each command's existing lifetime.
+Category projection, Collection membership, pre-normalization parent checks and
+internal serialization/event differences remain explicit adapter policy. No new
+package export, module bootstrap, storage capability or transaction owner is
+introduced.
+
 Shared reads, checked DML lowering, JSON-field decoders, keyed updates and graph
 creation/replacement, mutation dispatch and module repository construction now
 have common owners. Preserve

@@ -14,12 +14,15 @@ current suite boundary and retained skips; earlier partial-suite counts are
 historical checkpoints.
 
 The [shared persistence adapter](./preflight/47-medusa-shared-persistence-adapter.md)
-now centralizes checked runtime metadata, predicate/projection compilation and
-scoped repository reads for Currency and Product. Named domain policies retain
-query admission, Category tree/sort behavior and membership exclusions. The next
-capability is shared schema/value and write mechanics, followed by module-scoped
-preparation and a separately admitted module proof. Medusa services remain above
-the existing Flarex transaction and publication owners.
+now centralizes checked runtime metadata, schema lowering, JSON-field decoding,
+repository reads/projections, keyed updates, graph writes, mutation dispatch and
+module-scoped repository/service construction for Currency and Product. Named
+domain policies retain query admission, Category tree/sort behavior, membership
+exclusions and distinct lifecycle contracts. Product command assembly separates
+profile preparation, reads, mutations and direct internal calls behind its
+existing entry point. A complete configured module set and a separately admitted
+module proof remain subsequent capabilities. Medusa services remain above the
+existing Flarex transaction and publication owners.
 
 Complete integration-suite coverage does not establish arbitrary input parity
 or a complete module bootstrap/migration adapter. Stored Module Links,
