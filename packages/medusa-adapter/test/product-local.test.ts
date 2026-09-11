@@ -827,11 +827,16 @@ describe("local Product service through shared Flarex core", () => {
     expect(restored.deleted_at).toBeNull();
     expect(array(restored.images).map(image => object(image).id)).toEqual(array(product.images).map(image => object(image).id));
     // The pinned restore selection includes active roots and dispatches restored
-    // events again; this is authenticated operation behavior, not a no-op claim.
+    // events again without a physical update. Core observations authenticate
+    // those intents without fabricating facts or changing managed timestamps.
     const activeStart = received.length;
+    const activeBefore = await commerceInventory(fixture);
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.restore, [product.id]));
     expect(received.slice(activeStart)).toHaveLength(7);
     expect(received.slice(activeStart).every(event => object(object(event).metadata).action === "restored")).toBe(true);
+    const activeAfter = await commerceInventory(fixture);
+    expect(activeAfter.facts).toEqual(activeBefore.facts);
+    expect(activeAfter.tables).toEqual(activeBefore.tables);
   });
 
   it("rolls back the complete restore on an active uniqueness conflict and rejects foreign or arbitrary lifecycle authority", async () => {

@@ -162,7 +162,7 @@ function makeAtomicCommerceExecution(
             facts += rows.length;
             if (facts > factLimit) return yield* Effect.fail(commerceError("limitExceeded"));
             if (member.validate !== undefined)
-              yield* member.validate(events, rows, root.name, working.lifecycleSnapshot());
+              yield* member.validate(events, rows, root.name, working.lifecycleSnapshot(), working.observationSnapshot());
             // Inputs/results are the already charged, recursively frozen
             // captures. Only the validated outer call becomes evidence.
             if (eventCapture !== undefined)

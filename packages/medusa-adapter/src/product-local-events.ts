@@ -38,7 +38,7 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
       const internalProduct = ["productInternalProductcreate", "productInternalProductupdate", "productInternalProductsoftDelete", "productInternalProductrestore"].includes(commandName);
       if (internalProduct && events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
       const expected = new Set<string>();
-      const observations = new Map<string, typeof lifecycle[number]>();
+      const observations = new Map<string, { readonly id: string; readonly observation: typeof lifecycle[number] }>();
       for (const observation of lifecycle) {
         const key = yield* decodeRelationalRowKey(descriptor.layout, observation.tableId, observation.keyBytes, 1)
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
@@ -50,7 +50,7 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
           (observation.operation === "restore" ? observation.afterDeletedAt !== null : observation.afterDeletedAt === null)) return yield* Effect.fail(commerceError("receiptMismatch"));
         const identity = observation.tableId + ":" + id;
         if (observations.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
-        observations.set(identity, observation);
+        observations.set(identity, { id, observation });
       }
       for (const row of rows) {
         const key = yield* decodeRelationalRowKey(descriptor.layout, row.tableId, row.keyBytes, row.codecVersion)
@@ -69,12 +69,12 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
         }
         if (internalProduct) {
           const identity = row.tableId + ":" + key.components[0]?.value;
-          const observation = observations.get(identity);
+          const observation = observations.get(identity)?.observation;
           const productRow = row.tableId === catalog.product.table.name && key.components.length === 1 && key.components[0]?.columnId === "id" && typeof key.components[0].value === "string";
           const scalarWrite = productRow && observation === undefined && (
             commandName === "productInternalProductcreate" && row.operation === "insert" ||
             commandName === "productInternalProductupdate" && row.operation === "update");
-          const lifecycleWrite = observation !== undefined && row.operation === "update" &&
+          const lifecycleWrite = observation !== undefined && !(observation.operation === "restore" && observation.beforeDeletedAt === null) && row.operation === "update" &&
             [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image].some(entity => entity.table.name === row.tableId);
           if (!scalarWrite && !lifecycleWrite) return yield* Effect.fail(commerceError("receiptMismatch"));
           observations.delete(identity);
@@ -95,8 +95,8 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
         // Pinned reference detachment emits no Product mutation callback.
         if (row.operation === "update" && object === catalog.product && ["productDeletetype", "productDeletecollection"].includes(commandName)) continue;
         const observationKey = row.tableId + ":" + id.value;
-        const observation = observations.get(observationKey);
-        if (observation !== undefined && row.operation !== "update") return yield* Effect.fail(commerceError("receiptMismatch"));
+        const observation = observations.get(observationKey)?.observation;
+        if (observation !== undefined && (row.operation !== "update" || (observation.operation === "restore" && observation.beforeDeletedAt === null))) return yield* Effect.fail(commerceError("receiptMismatch"));
         observations.delete(observationKey);
         const action = observation !== undefined ? (observation.operation === "restore" ? CommonEvents.RESTORED : CommonEvents.DELETED)
           : row.operation === "insert" ? CommonEvents.CREATED : row.operation === "update" ? CommonEvents.UPDATED : CommonEvents.DELETED;
@@ -109,6 +109,17 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
           ["productCreatecategory", "productupdatecategory", "productupsertcategory", "productDeletecategory"].includes(commandName);
         if (expected.has(identity) && !categoryMaintenance) return yield* Effect.fail(commerceError("receiptMismatch"));
         expected.add(identity);
+      }
+      // Native restore selects active rows and emits restored events even when
+      // storage made no transition. Only the core's unchanged observation can
+      // authorize these messages; a fabricated update fact is not a substitute.
+      for (const [identity, { id, observation }] of observations) {
+        const entity = catalog.entities.find(value => value.table.name === observation.tableId);
+        if (observation.operation !== "restore" || observation.beforeDeletedAt !== null || observation.afterDeletedAt !== null ||
+          entity === undefined || ![catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image].includes(entity))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (!internalProduct) expected.add(CommonEvents.RESTORED + ":" + entity.eventObject + ":" + id);
+        observations.delete(identity);
       }
       for (const event of events) {
         const message = yield* capture(event);

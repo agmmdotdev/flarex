@@ -424,7 +424,7 @@
     {
       "target": "packages/medusa-adapter/src/product-local-events.ts",
       "classification": "authored",
-      "targetSha256": "399a14163a4b8b80970dfb66a20349d9f7b0b0ca9c234a16e2a6423a8fa873bb"
+      "targetSha256": "ec5b099d54f6eab42e2945c63b3a178a3118d7b79c76e93d158e5ec2a3b7f214"
     },
     {
       "target": "packages/medusa-adapter/src/product-module.ts",
@@ -744,7 +744,7 @@
     {
       "target": "packages/medusa-adapter/test/product-local.test.ts",
       "classification": "testHarnessPort",
-      "targetSha256": "b65802ca20583c29edc343bc8eaacadfced16961f32b365c3630af89db138916",
+      "targetSha256": "152b821cd5d69b3104b3fb462a3125bac14897288e3b77f51142d45d43b3e236",
       "source": "third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/events.spec.ts",
       "sourceSha256": "3ddc010ae9fe9b397f436a200f28822cb69ae23b019d1141cb0047e93ebc0258"
     },

@@ -25,6 +25,7 @@ const insert = defineCommerceCommand("plainInsert", "write", (context, rows) => 
 const find = defineCommerceCommand("plainFind", "read", (context, input) => context.store.find(context.manager, input));
 const count = defineCommerceCommand("plainCount", "read", (context, input) => context.store.count(context.manager, input));
 const update = defineCommerceCommand("plainUpdate", "write", (context, rows) => context.store.write(context.manager, "update", rows));
+const upsert = defineCommerceCommand("plainUpsert", "write", (context, rows) => context.store.write(context.manager, "upsert", rows));
 beforeAll(async () => {
   const native = process.env.FLAREX_TEST_DRIVER === "postgres";
   const registerCleanup = (close: () => Promise<void>) => cleanup.push(close);
@@ -47,13 +48,19 @@ beforeAll(async () => {
     const layout = yield* captureRelationalPhysicalLayout({ artifact: artifact.artifact, ...target });
     const profile = yield* registerLocalCommerceProfile(artifact.artifact, layout, "test.plain", [{ tableId: "plain", keyId: "plain.primary", update: "existingPrimaryKey" }]);
     return { profile, initialization: { rows: undefined } };
-  }), [insert, update, find, count], control, () => ({
+  }), [insert, update, upsert, find, count], control, () => ({
     capture: () => Effect.fail(commerceError("unsupportedProfile")),
     validate: events => events.length === 0 ? Effect.void : Effect.fail(commerceError("adapterFailure")),
     deliver: () => Effect.void,
   }));
 }, 120000);
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
+
+it("does not grant upsert to an existing update-only profile", async () => {
+  const before = await commerceInventory(fixture);
+  expect(await runEffectFailure(fixture.host.run(fixture.host.newRequestKey(), upsert, [{ id: "not-admitted", value: "forbidden" }]))).toMatchObject({ reason: "unsupportedProfile" });
+  expect(await commerceInventory(fixture)).toEqual(before);
+});
 
 it("preserves ordered exact rows across column groups and distinguishes key-only updates from mutations", async () => {
   const inserted = await runEffect(fixture.host.run(fixture.host.newRequestKey(), insert,

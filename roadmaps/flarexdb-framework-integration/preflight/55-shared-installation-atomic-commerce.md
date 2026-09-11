@@ -1,10 +1,10 @@
 # Shared-Installation Atomic Commerce And Stored Link Gates
 
-Status: B1 complete. This refines Gate B of
+Status: B1 and the shared-core B2 contract complete. This refines Gate B of
 [the Product workflow foundation](./50-product-workflow-sales-channel-foundation.md).
-Gate A is complete. B2 native reference characterization is recorded in
-[preflight 56](./56-native-link-storage-contract.md); its proposed core contract,
-B3 and Gate C remain unapproved.
+Gate A is complete. B2 native reference characterization and the approved shared
+core contract are recorded in [preflight 56](./56-native-link-storage-contract.md).
+B3 stored Link admission and Gate C remain unapproved.
 
 ## Outcome And Recommended Next Slice
 
@@ -152,7 +152,7 @@ preflight rather than hiding it in this slice.
   Run both required project reviewers on the exact final code checkpoint, then
   staged lint and one scoped commit. Neither database lane proves hosted scale.
 
-## B2: Native Characterization Before Key And Publication Approval
+## B2: Native Characterization And Approved Shared Contract
 
 Native Link needs a distinct, source-backed contract; B1 does not authorize it.
 Relevant source paths under `third_party/medusa/upstream/packages/`:
@@ -166,13 +166,12 @@ Relevant source paths under `third_party/medusa/upstream/packages/`:
 | `modules/link-modules/src/services/link.ts` | Create forwards `transactionManager` in a narrowed context. Prove existing scoped manager propagation; do not patch lost authority with an adapter-local fallback. |
 | `core/modules-sdk/src/link.ts` | Native Link owns routing and cascade traversal. Explicit loaded modules avoid global fallback. `delete` invokes soft-delete traversal; it is not repository hard delete. Cascade errors are returned as data and need explicit boundary treatment before atomic success is admitted. |
 
-The [native characterization and proposed contract](./56-native-link-storage-contract.md)
+The [native characterization and shared contract](./56-native-link-storage-contract.md)
 records real ordinary-role PostgreSQL behavior, including ID replacement on
 reattach, duplicate-batch refusal, a no-write repeated restore that still emits
-an event, and ORM timestamp artifacts requiring an explicit compatibility
-decision. It also identifies the missing storage-owned non-key identity evidence
-needed for event validation. No shared-core change or Link admission follows
-from those observations without approval.
+an event, and ORM timestamp artifacts. The approved core correction returns
+authoritative timestamps and provides storage-owned non-key evidence to trusted
+event validation. This does not admit a native Link profile or service.
 
 The characterization scope covers first attach, repeated attach, same-pair duplicates in one batch,
 attach after dismiss, repeated dismiss/restore, missing endpoints and concurrent
@@ -183,20 +182,18 @@ Native Link create neither declares physical endpoint FKs nor validates endpoint
 existence; adding liveness checks is a compatibility decision, not an automatic
 core safety fix. Scope isolation remains mandatory.
 
-Then freeze the narrow shared declared-key mutation/conflict/lifecycle contract.
-`commerceTransaction/profile.ts` currently restricts update/lifecycle to scope
-plus one primary-key component; the Link needs scope plus two. The existing
-relational key codec supports multiple ordered components, but that alone does
-not admit upsert or lifecycle behavior. No surrogate-key rewrite, adapter SQL,
-local limit bypass or borrowed Product-pivot semantics is acceptable.
+The shared store now uses the full bounded declared primary key for update,
+removal and lifecycle. Local profiles explicitly select `upsert: "activeRow"`
+and `observeRows: true` where needed; existing update-only profiles do not acquire
+upsert. Unchanged restore retains an observed result and native event intent
+without a physical mutation fact. No surrogate-key rewrite, adapter SQL,
+local limit bypass or borrowed Product-pivot semantics is introduced.
 
-The adoption roadmap still requires transaction-bound commerce-link receipts,
-typed facts and exact event admission before the first stored Link write. B2 must
-explicitly decide whether existing authenticated relational closures and fact
-encoding can fulfill that contract with checked Link evidence, or which minimal
-shared extension is actually necessary. This preflight does not waive that gate,
-authorize a new feed family, or add a second finalizer. Resolve the representation
-and reconcile its owning design before implementation approval.
+The accepted receipt representation is the existing authenticated
+`CommerceRowClosure` and full-key `RelationalRowFact`, consumed by the common
+finalizer. B3 must admit checked Link metadata/profile and exact native event
+contracts against storage-owned operation-local evidence before the first stored
+Link write. There is no new feed family, receipt brand or second finalizer.
 
 ## B3 And Gate C: Connected Proofs After Their Prerequisites
 
@@ -223,5 +220,6 @@ transitive dependency work identified in preflight 50; Customer is not required.
 | Retain | Native pinned source and original assertions; existing standalone and multi-installation atomic consumers; confined profiles and trusted settlement. These are active proof consumers, not parallel legacy engines. |
 | Extend in B1 | Existing physical installation/admission owners and logical participant preparation, with neutral and connected tests. No schema or native Link promotion. |
 | Replace in B1 | The one-installation-per-participant assumption and repeated physical preparation/acceptance with shared physical grouping inside the same owner. |
-| Defer to B2/B3 | Composite-key mutation/lifecycle, Link receipt/event admission, portable native Link storage and query translation. Each needs its frozen semantic contract before code. |
+| Extend in B2 | Full declared-key mutation/lifecycle, explicit active-row upsert and storage-owned event evidence; reuse existing receipt/fact/finalizer owners. |
+| Defer to B3 | Checked Link profile/event admission, portable native Link storage and query translation. No stored Link is admitted by neutral core mechanics alone. |
 | Delete in the owning slice | Temporary duplicated admission helpers, diagnostic scaffolding and displaced assembly once decisive assertions live at the real owner. Keep no dual path without a demonstrated compatibility obligation. |

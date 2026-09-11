@@ -1,9 +1,10 @@
-# Native Link Characterization And Proposed Storage Contract
+# Native Link Characterization And Shared Storage Contract
 
-Status: native reference characterization complete for the bounded cases below;
-shared-core correction, stored Link promotion and workflow activation unapproved.
-This is the B2 design input to [preflight 55](./55-shared-installation-atomic-commerce.md),
-not completion of its implementation/publication gates.
+Status: native reference characterization and the approved shared-core B2
+correction are complete for the bounded contract below. Stored Link B3
+promotion and workflow Gate C remain unapproved. This is the shared storage
+contract for [preflight 55](./55-shared-installation-atomic-commerce.md), not
+admission of the native Link adapter.
 
 ## Outcome And Scope
 
@@ -15,7 +16,7 @@ framework, new coordinator, new workflow engine or version-suffixed API.
 
 The accepted [Medusa boundary](../../../design-notes/flarex-db-accepted-design.md#medusa-boundary)
 and [Link design](../../../design-notes/flarexdb-medusa-commerce-adapter.md#2-commerce-owned-link-entity)
-remain authoritative. The proposal below does not amend them or waive the
+remain authoritative. The contract below does not waive the
 [commerce-link commit gate](../06-medusa-adoption.md#commerce-link-commit-admission).
 
 ## Reference Boundary
@@ -87,11 +88,11 @@ stored timestamp precision to JavaScript milliseconds. Dismiss serializes before
 the later update hook. These ORM timing/precision artifacts are observed, not a
 reason to reproduce an identity map or deferred flush engine in Flarex.
 
-## Shared-Owner Gaps And Recommended Correction
+## Accepted Shared-Owner Correction
 
 Current owners are `packages/persistence-postgres/src/commerceTransaction/`
 and `commitPublication/relationalRowKey.ts`, with invocation/event validation in
-`atomicCommerce/`. No implementation change is authorized by this report.
+`atomicCommerce/`. The approved correction stays within these owners.
 
 ### Declared Keys And Mutation
 
@@ -101,16 +102,16 @@ and `commitPublication/relationalRowKey.ts`, with invocation/event validation in
    Do not invent a Link ID key or another key codec. Test two rows sharing the
    first component so first-component-only matching cannot pass.
 2. Correct connected lookup logic, not only the admission length check.
-   `store.ts` lifecycle currently matches a prior row using only the first key
-   component; that is safe only under its present single-component gate.
-   Match the full canonical declared key before admitting composite lifecycle.
+   `store.ts` lifecycle now matches the full canonical declared key, and update
+   predicates compare every key component. The displaced first-component-only
+   assumptions have no retained compatibility path.
 3. Extend the existing local store's admitted upsert capability. Its public
    `write(..., "upsert", ...)` spelling already exists, but local row profiles
-   currently refuse it; the scalar path is not a composite-key implementation.
-   The approved profile must fix conflict behavior and managed-field authority
-   at construction, not accept arbitrary SQL, mutable key definitions or
+   refuse it unless their table admission selects `upsert: "activeRow"`; the
+   scalar path is unchanged. The profile fixes conflict and managed-field authority
+   at construction; commands cannot supply arbitrary SQL, mutable key definitions or
    per-call timestamp-policy flags from commands.
-4. For the proposed first active-row upsert contract, insert uses managed defaults;
+4. For the active-row upsert contract, insert uses managed defaults;
    conflict replaces admitted business fields, clears managed deletion and
    preserves managed creation/update timestamps. Keep caller timestamps and
    arbitrary deletion values refused. This is an explicit reusable storage
@@ -132,38 +133,37 @@ Medusa-owned. Core takes exact admitted row keys and owns their atomic transitio
 authoritative returned rows and evidence. Preserve missing-exact-key refusal in
 core; native no-match selectors can supply an empty selected set.
 
-Recommend a state-transition lifecycle capability: restoring an already active
+Under the accepted lifecycle contract, restoring an already active
 row returns an observed row but does not touch its timestamps or invent a row
 mutation fact. A native repeated-restore event can still be admitted from that
-observation. Current core lifecycle always writes `updated_at` and an update
-fact, even for active-to-active restore. Do not work around this in a Link
-adapter by filtering away the event or manufacturing a write. Any correction
-to existing Product lifecycle semantics must be included explicitly in the
-approved owner slice and proven against its native regression contract, not
-silently changed while widening key admission.
+observation. The old unconditional update is replaced, including the existing
+Product lifecycle consumer. Product's native restored event intents remain
+admitted from storage-owned lifecycle observations, without manufacturing facts.
+The profile's canonical contract records `observe-unchanged-restore` when lifecycle
+is selected, so a retained old binding cannot silently acquire new semantics.
 
-**Recommended explicit divergence:** return authoritative post-write timestamps
+**Accepted explicit divergence:** return authoritative post-write timestamps
 and preserve stored precision rather than reproducing native stale dismiss
 responses or manager-dependent precision loss. Continue using the existing
 database-owned lifecycle clock, not a new adapter clock. Preserve ID replacement,
-batch refusal, selector/map behavior and event semantics. This divergence needs
-user approval and separately labeled assertions; it is not unchanged native
-compatibility. Keeping native timestamp artifacts instead would require a
+batch refusal, selector/map behavior and event semantics. This approved divergence
+has separately labeled assertions; it is not unchanged native compatibility.
+Keeping native timestamp artifacts instead would require a
 separately justified Medusa-owned result contract, never arbitrary core clocks
 or a second flush/settlement engine.
 
 ### Receipt, Event And Fact Representation
 
-Recommend reusing `CommerceRowClosure` as the transaction-bound receipt and the
+Reuse `CommerceRowClosure` as the transaction-bound receipt and the
 existing relational fact as the physical Link-row fact. Its installation,
 artifact, table and encoded full primary key identify the authoritative row;
 the common finalizer already authenticates admission/lifetime and consumes the
 closure once. Add no `commerceLink` feed family, second finalizer, independently
 writable edge projection or Link-specific core receipt brand merely for naming.
-This is a proposed resolution of the adoption roadmap's receipt/fact requirement,
-not a waiver: reconcile that wording after approval and prove the admitted profile.
+This resolves the adoption roadmap's receipt/fact representation requirement,
+not its Link admission gate: B3 must still prove the checked native Link profile.
 
-The existing evidence is **not yet sufficient for complete event admission**:
+Key-only evidence is insufficient for complete native Link event admission:
 
 - `RelationalRowFact` contains key and operation, not the non-key generated ID.
 - `CommerceLifecycleObservation` contains deletion state but not that ID.
@@ -172,11 +172,14 @@ The existing evidence is **not yet sufficient for complete event admission**:
 - Earlier attached IDs in a multi-call transaction may no longer appear in the
   final row; a final-state-only comparison would reject valid native intents.
 
-Extend the existing store observation boundary with bounded, immutable,
+The existing store observation boundary now supplies bounded, immutable,
 operation-local row evidence produced by the actual mutation/lifecycle owner,
-including unchanged lifecycle outcomes. Reuse already validated/hydrated rows;
-charge retained evidence to the existing request budget. Expose evidence only to
-trusted validation, never mintable by command code. The Medusa validator checks
+including unchanged lifecycle outcomes when `observeRows: true` is selected at
+profile construction. It reuses validated/hydrated rows and charges retained
+evidence to the existing request byte and fact-count ceilings. The fifth
+trusted event-validator argument receives this snapshot; commands cannot supply
+or mint it. Existing profiles do not retain full row evidence unless opted in.
+The future Medusa Link validator must check
 the selected pair, observed ID, lifecycle outcome and actual event aggregation.
 Physical mutation facts still describe only actual writes and retain normal
 ordering; event-only accepted work uses the existing commit/outbox authority.
@@ -188,11 +191,11 @@ latch/refuse a nonempty error result; it must not acknowledge partial work as
 success. This remains a native portability/event-validation obligation, not a
 new core cascade algorithm.
 
-## Next Approved Slice And Completion Gates
+## B2 Completion And Remaining B3 Gates
 
-Proposed next approval covers the shared declared-key/mutation/observation
-correction above, including the named timestamp divergence and any explicitly
-characterized Product lifecycle impact. The following B3 promotion supplies the
+The approved B2 slice covers the shared declared-key/mutation/observation
+correction above, including the named timestamp divergence and Product lifecycle
+impact. The following B3 promotion supplies the
 checked Link schema/metadata and native service closure, then Gate C supplies
 the actual association step. Neither follows automatically from this document.
 
@@ -221,8 +224,8 @@ the actual association step. Neither follows automatically from this document.
 | Action | Ownership and gate |
 | --- | --- |
 | Retain | Pinned native sources and original assertions; existing profile/store/finalizer/key owners and supported consumer contracts. |
-| Extend after approval | Declared-key local mutation/lifecycle and bounded storage-owned observations; native Link adapter uses those capabilities. |
-| Replace after approval | Single-component assumptions in the admitted composite path; any explicitly approved no-op lifecycle mismatch and ORM timestamp artifacts. |
+| Extend in B2 | Declared-key local mutation/lifecycle and bounded storage-owned observations. B3 must explicitly admit the native Link consumer. |
+| Replace in B2 | Single-component assumptions and the no-op restore mismatch; authoritative timestamps supersede ORM timing/precision artifacts. No legacy branch is retained. |
 | Delete | Temporary executable diagnostics after preserving the reproducer below; no surrogate-key, adapter-SQL, duplicate finalizer or identity-map emulation scaffolding. |
 
 ## Isolated Reproduction

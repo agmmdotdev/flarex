@@ -448,13 +448,17 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
   characterization and explicit key/publication contract approval. No stored
   Link capability is admitted by the shared-installation correction alone.
 - [Native Link characterization](./preflight/56-native-link-storage-contract.md)
-  establishes the bounded native storage outcomes and proposes shared declared-key,
-  lifecycle and storage-owned event evidence corrections. Its existing-closure/
-  relational-fact representation and timestamp compatibility decisions remain
-  unapproved; they do not silently replace the commit-admission requirements below.
-- Complete the separate commit-owner preflight for the commerce-link family.
-- Add a transaction-bound commerce-link receipt and typed fact to the common
-  finalizer before the first stored Module Link can write.
+  establishes the bounded native storage outcomes and approved shared declared-key,
+  lifecycle and storage-owned event evidence correction. Authoritative post-write
+  timestamps deliberately replace ORM stale-response/precision artifacts.
+- The accepted transaction-bound Link receipt representation is the existing
+  authenticated `CommerceRowClosure` and full-key `RelationalRowFact`, consumed
+  once by the common finalizer. No separate `commerceLink` feed family or receipt
+  brand is required solely because the row is a Module Link.
+- Before the first stored Module Link writes, admit its checked schema/key/profile
+  and validate native event identity/lifecycle against the actual operation-local
+  storage evidence, including unchanged restores and IDs replaced by later calls.
+  Neutral core tests do not admit this native Link consumer.
 - Admit the exact typed event-intent contracts emitted by both endpoint modules
   and the Link behavior before executing them.
 - Preserve the existing commit order and common outbox authority.

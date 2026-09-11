@@ -25,7 +25,7 @@ import { createCommittedPointOutcomeResolverV1 } from "../committedPointOutcome"
 import { finalizeCommerceCommit } from "./publication";
 import { withCommerceAdmission, requireCommerceAdmission } from "./admission";
 import { prepareInstallationRuntime } from "../frameworkSchema/installation/runtime";
-import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObservation } from "./store";
+import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObservation, type CommerceRowObservation } from "./store";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
 import { commerceRequestHash as hash, projectCommerceRequestFailure as projectFailure } from "./request";
@@ -44,7 +44,7 @@ export const makeCommerceHost = Effect.fn("CommerceHost.make")(<Failure>(input: 
 /** Source-private conformance composition; never exported by the commerce facade. */
 export interface LocalCommerceEventPolicy {
   readonly capture: (event: unknown) => Effect.Effect<Json, CommerceTransactionError>;
-  readonly validate: (events: readonly Json[], rows: readonly RelationalRowFact[], commandName: string, lifecycle?: readonly CommerceLifecycleObservation[]) => Effect.Effect<void, CommerceTransactionError>;
+  readonly validate: (events: readonly Json[], rows: readonly RelationalRowFact[], commandName: string, lifecycle?: readonly CommerceLifecycleObservation[], observations?: readonly CommerceRowObservation[]) => Effect.Effect<void, CommerceTransactionError>;
   readonly deliver: (events: readonly Json[]) => Effect.Effect<void, CommerceTransactionError>;
 }
 export interface LocalCommerceDelivery {
@@ -167,7 +167,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
             const result = yield* canonicalizeSuccessfulResultV1Effect(value);
             yield* Effect.fromResult(lifetime.charge(bootstrap ? result.canonicalBytes.byteLength : 0));
             yield* lifetime.seal;
-            if (local !== undefined) yield* local.validate(Object.freeze(events.slice()), working.snapshot(), root?.name ?? "initialize", working.lifecycleSnapshot());
+            if (local !== undefined) yield* local.validate(Object.freeze(events.slice()), working.snapshot(), root?.name ?? "initialize", working.lifecycleSnapshot(), working.observationSnapshot());
             if (lookup !== null) yield* finalizeCommerceCommit(admission, lifetime, yield* working.close(), lookup, result, yield* sha(result.canonicalBytes));
             pendingEvents = Object.freeze(events.slice());
             return result.valueJson;

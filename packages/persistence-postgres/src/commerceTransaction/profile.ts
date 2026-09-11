@@ -1,5 +1,5 @@
 import { captureCommerceResources, defaultCommerceResources, type CommerceResources } from "./resources";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { FrameworkSchemaArtifact, FrameworkSchemaArtifactIdentity } from "../frameworkSchema/artifact/model";
 import { copyCapturedFrameworkSchemaArtifactEvidence } from "../frameworkSchema/artifact/canonical";
@@ -53,15 +53,20 @@ export interface CommerceTableCapability {
   readonly referenceColumns?: readonly string[];
   readonly remove?: "declaredKey";
   readonly lifecycle?: "managedSoftDelete";
+  readonly upsert?: "activeRow";
+  readonly observeRows?: true;
 }
-export interface LocalCommerceTableAdmission {
-  readonly tableId: string;
-  readonly keyId: string;
-  readonly update?: "existingPrimaryKey";
-  readonly referenceColumns?: readonly string[];
-  readonly remove?: "declaredKey";
-  readonly lifecycle?: "managedSoftDelete";
-}
+const LocalTableAdmission = Schema.Struct({
+  tableId: Schema.String, keyId: Schema.String,
+  update: Schema.optional(Schema.Literal("existingPrimaryKey")),
+  referenceColumns: Schema.optional(Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(16))),
+  remove: Schema.optional(Schema.Literal("declaredKey")),
+  lifecycle: Schema.optional(Schema.Literal("managedSoftDelete")),
+  upsert: Schema.optional(Schema.Literal("activeRow")),
+  observeRows: Schema.optional(Schema.Literal(true)),
+});
+export type LocalCommerceTableAdmission = typeof LocalTableAdmission.Type;
+const decodeLocalTables = Schema.decodeUnknownEffect(Schema.Array(LocalTableAdmission).check(Schema.isMinLength(1), Schema.isMaxLength(16)), { onExcessProperty: "error" });
 const profiles = new WeakMap<object, CommerceProfileState>();
 const sameArtifactIdentity = (left: FrameworkSchemaArtifactIdentity, right: FrameworkSchemaArtifactIdentity): boolean =>
   left.deploymentId === right.deploymentId && left.owner === right.owner &&
@@ -114,26 +119,20 @@ export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerL
   yield* registerCommerceSchemaProfile(artifact, layout);
   const resources = resourceContract === undefined ? defaultCommerceResources : yield* Effect.fromResult(captureCommerceResources(resourceContract));
   const captured = yield* Effect.fromResult(capturePrivateJsonData(capabilities, 16_384, commerceError));
-  if (!/^[a-z][a-z0-9_.-]{0,127}$/.test(profileId) || !Array.isArray(captured.value) ||
-    captured.value.length === 0 || captured.value.length > 16) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  if (!/^[a-z][a-z0-9_.-]{0,127}$/.test(profileId)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const entries = yield* decodeLocalTables(captured.value).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const tables: CommerceTableCapability[] = [];
-  for (const entry of captured.value) {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry) ||
-      Object.keys(entry).some(name => !["tableId", "keyId", "update", "referenceColumns", "remove", "lifecycle"].includes(name)) ||
-      typeof entry.tableId !== "string" || typeof entry.keyId !== "string" ||
-      (entry.update !== undefined && entry.update !== "existingPrimaryKey") ||
-      (entry.remove !== undefined && entry.remove !== "declaredKey") ||
-      (entry.lifecycle !== undefined && entry.lifecycle !== "managedSoftDelete") ||
-      tables.some(table => table.tableId === entry.tableId)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  for (const entry of entries) {
+    if (tables.some(table => table.tableId === entry.tableId)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const key = yield* Effect.fromResult(selectRelationalRowKey(layout, entry.tableId, entry.keyId)).pipe(Effect.mapError(() => commerceError("unsupportedProfile")));
-    if (entry.update !== undefined && (key.kind !== "primary" || key.columns.length !== 2)) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    if (entry.lifecycle !== undefined) {
+    if (entry.update !== undefined && key.kind !== "primary") return yield* Effect.fail(commerceError("unsupportedProfile"));
+    if (entry.lifecycle !== undefined || entry.upsert !== undefined) {
       const deletion = layout.frame.requiredPhysicalCapabilities.filter(item => item.kind === "softDelete" && item.deletedAtColumn.identity.tableId === entry.tableId);
       const timestamps = layout.frame.requiredPhysicalCapabilities.filter(item => item.kind === "managedTimestamps" && item.updatedAtColumn.identity.tableId === entry.tableId);
-      if (key.kind !== "primary" || key.columns.length !== 2 || deletion.length !== 1 || timestamps.length !== 1)
+      if (key.kind !== "primary" || deletion.length !== 1 || timestamps.length !== 1)
         return yield* Effect.fail(commerceError("unsupportedProfile"));
     }
-    if (entry.remove !== undefined && !((key.kind === "primary" && key.columns.length === 2) || (key.kind === "unique" && key.columns.length === 3)))
+    if (entry.remove !== undefined && !(key.kind === "primary" || (key.kind === "unique" && key.columns.length === 3)))
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     const referenceColumns: string[] = [];
     if (entry.referenceColumns !== undefined) {
@@ -158,6 +157,8 @@ export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerL
       ...(entry.referenceColumns === undefined ? {} : { referenceColumns: Object.freeze(referenceColumns) }),
       ...(entry.remove === undefined ? {} : { remove: "declaredKey" as const }),
       ...(entry.lifecycle === undefined ? {} : { lifecycle: "managedSoftDelete" as const }),
+      ...(entry.upsert === undefined ? {} : { upsert: entry.upsert }),
+      ...(entry.observeRows === undefined ? {} : { observeRows: true as const }),
     }));
   }
   tables.sort((left, right) => compareUtf16Strings(left.tableId, right.tableId));
@@ -165,6 +166,7 @@ export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerL
     version: resourceContract !== undefined ? 6 : tables.some(table => table.lifecycle !== undefined) ? 5 : tables.some(table => table.referenceColumns !== undefined || table.remove !== undefined) ? 4 : tables.some(table => table.mode === "readInsertUpdate") ? 3 : 2,
     artifact: { ...artifact.identity }, layoutSha256: layout.layoutSha256, profileId, initialization: null,
     localEventPolicy: "buffer-until-confirmed-commit",
+    ...(tables.some(table => table.lifecycle !== undefined) ? { lifecycleBehavior: "observe-unchanged-restore" } : {}),
     ...(resourceContract === undefined ? {} : { resources }), tables: tables.map(table => ({ ...table })) }, 16_384,
     { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });
   // SAFETY: only this registry issues the exact opaque local profile.
