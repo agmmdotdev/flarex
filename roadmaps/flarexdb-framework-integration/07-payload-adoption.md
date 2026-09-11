@@ -137,14 +137,19 @@ adapter supplies an opaque exact-profile token to binding admission, so
 persistence verifies combined lifecycle bindings without importing Payload
 release configuration.
 
-The package extraction corrected dependency ownership; the current runtime
-still mixes conformance hooks/observations with construction and dispatches
-operation-specific JSON through one string-based handler. The
+The ordinary runtime owns scoped construction, commands, and binding without
+scenario hooks, counters, or raw-instance inspection. The testing subpath's
+conformance factory supplies those fixed witnesses through the same internal
+construction owner. Operation-specific decoders and directly bound Local API
+handlers preserve typed inputs/results inside the unchanged JSON host boundary.
+Shared field and query constraints retain separate caller, sanitized-filter,
+and authenticated-loader admission. The
 [runtime contracts and conformance preflight](./preflight/53-payload-runtime-contracts-and-conformance.md)
-proposes the next cleanup before broader capability work. Apply the repository's
+owns this cleanup's scope and removal decisions. Apply the repository's
 [Payload integration skill](../../.agents/skills/payload-flarex-integration/SKILL.md)
 for source reuse, typed contracts, boundary-specific validation, and removal
-evidence. This proposal does not change the implemented capability status.
+evidence. This structural cleanup does not broaden the admitted profiles or
+change transaction, public-serving, or production capability status.
 
 ## Implementation Sequence
 

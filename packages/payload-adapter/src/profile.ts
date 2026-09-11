@@ -1,4 +1,4 @@
-import { payloadHasMany, payloadJoins } from "./contract";
+import { payloadHasMany, payloadJoins, payloadRelatedPostField, payloadRelatedPostsField } from "./contract";
 import { payloadScalarFields, payloadScalarProvenance, payloadContentConfiguration, type PayloadContentProfile } from "./contract";
 export { payloadScalarFields } from "./contract";
 import { createHash } from "node:crypto";
@@ -18,8 +18,8 @@ export function payloadPostsCollection(profile: PayloadContentProfile = "payload
       { name: "score", type: "number", required: true, defaultValue: 0 },
       { name: "enabled", type: "checkbox", required: true, defaultValue: false },
       { name: "publishedAt", type: "date", required: true },
-      ...(profile !== "payload.scalar" ? [{ name: "relatedPost", type: "relationship", relationTo: "posts", hasMany: false, required: false } as const] : []),
-      ...(payloadHasMany(profile) ? [{ name: "relatedPosts", type: "relationship", relationTo: "posts", hasMany: true, required: false, maxRows: 32, defaultValue: [] } as const] : []),
+      ...(profile !== "payload.scalar" ? [{ name: payloadRelatedPostField.name, type: "relationship", relationTo: payloadRelatedPostField.target, hasMany: false, required: payloadRelatedPostField.required } as const] : []),
+      ...(payloadHasMany(profile) ? [{ name: payloadRelatedPostsField.name, type: "relationship", relationTo: payloadRelatedPostsField.target, hasMany: true, required: false, maxRows: payloadRelatedPostsField.maxItems, defaultValue: [] } as const] : []),
       ...(profile === "payload.content-joins" ? payloadJoins.map(({ maximumLimit: _maximum, ...join }) => ({ ...join, type: "join" as const })) : []),
     ] };
 }
@@ -38,6 +38,15 @@ export const payloadManyContentIdentity = Object.freeze({ configSha256: digest(p
 
 export const payloadJoinConfiguration = payloadContentConfiguration("payload.content-joins", provenanceSha256);
 export const payloadJoinContentIdentity = Object.freeze({ configSha256: digest(payloadJoinConfiguration), provenanceSha256 });
+
+export function payloadContentIdentity(profile: PayloadContentProfile) {
+  switch (profile) {
+    case "payload.scalar": return payloadScalarContentIdentity;
+    case "payload.content-relations": return payloadRelationContentIdentity;
+    case "payload.content-many": return payloadManyContentIdentity;
+    case "payload.content-joins": return payloadJoinContentIdentity;
+  }
+}
 
 /** Opaque binding verifier for the exact closed profiles implemented by this package. */
 export const makePayloadContentProfiles: () => Effect.Effect<PayloadContentProfiles> =

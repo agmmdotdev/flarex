@@ -10,6 +10,12 @@ Its pure decoders and conversions are subject to the same zero-debt and
 changed-lines gates as the other configured kernel sources; package tests
 remain outside the production-source lint scope.
 
+`packages/payload-adapter/src` participates in all three gates. Its existing
+Payload Promise/throw and generic adapter boundaries retain their reviewed
+line-scoped exceptions; no generated files, vendored framework code, or package
+tests enter the source scope. The source-root agreement test prevents core,
+audit, and changed-lines coverage from drifting after package extraction.
+
 ## Commands
 
 - `pnpm lint` and `pnpm lint:core` run the blocking zero-debt rules and hide

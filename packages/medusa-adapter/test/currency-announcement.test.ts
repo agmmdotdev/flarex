@@ -10,7 +10,7 @@ import { createFileScopedPostgresFixture } from "../../persistence-postgres/test
 import { makePostgresRelationalSession, issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
-import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
+import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
 import { payloadScalarFields, payloadScalarContentIdentity } from "../../payload-adapter/src/profile";
 import { makeCurrencyAnnouncementHost } from "../../persistence-postgres/src/crossDomainCommand/host";
 import { compositeError } from "../../persistence-postgres/src/crossDomainCommand/model";
@@ -42,14 +42,14 @@ it("settles real Currency, Payload and Application participants once, with compl
   const inventory = async () => ({ commerce: await commerceInventory(fixture), rows: await db.select().from(fxAppRowCurrent), revisions: await db.select().from(fxAppRowRevisions),
     indexes: await db.select().from(fxAppIndexEntryCurrent), unique: await db.select().from(fxAppUniqueKeys), facts: await db.select().from(fxSystemCommitAppRowChanges) });
   await runEffect(Effect.scoped(Effect.gen(function* () {
-    const runtime = yield* makePayloadRuntime();
+    const conformance = yield* makePayloadConformanceRuntime();
     const input = { database: db, controlDatabase: control.drizzle, session: resource.session, deploymentId: native.deploymentId,
       authority: native.authorityPorts, application: native.relationActivation, pointCommitAuthority: native.pointCommitAuthority,
       identityAndAccessPolicy: { subject: "composite-conformance" }, expectedContentIdentity: payloadScalarContentIdentity,
       materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(control.drizzle), developerIndexes: createAppDeveloperIndexDefinitionPortV1(control.drizzle),
         uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(control.drizzle), candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: native.candidateValidation, pointCommitAuthority: native.pointCommitAuthority }) },
       commerce: { target: fixture.hostInput.target, profile: fixture.hostInput.profile, installation: fixture.installation },
-      currencyCommand: currencyAnnouncementWrite, cmsCommand: runtime.commands.create, applicationTable: "audit" };
+      currencyCommand: currencyAnnouncementWrite, cmsCommand: conformance.runtime.commands.create, applicationTable: "audit" };
     const host = yield* makeCurrencyAnnouncementHost(input);
     const args = (title: string, applicationTitle: string | number = title) => ({ currency: { code: "zzz", name: title, symbol: "T", symbol_native: "T", decimal_digits: 2, rounding: 0 },
       cms: { data: { title, publishedAt: "2026-01-01" } }, application: { title: applicationTitle } });
@@ -70,9 +70,9 @@ it("settles real Currency, Payload and Application participants once, with compl
       expect(commit).toMatchObject({ changeCount: 2, relationalChangeCount: 1 });
       expect(after.facts.every(fact => fact.commitSeq === commit?.commitSeq)).toBe(true);
       expect(after.commerce.facts.at(-1)?.commitSeq).toBe(commit?.commitSeq);
-      const executions = runtime.executions();
+      const executions = conformance.observations.executions();
       expect((yield* host.run(key, args("composite-success")))).toEqual(value);
-      expect(runtime.executions()).toBe(executions);
+      expect(conformance.observations.executions()).toBe(executions);
       expect((yield* Effect.promise(inventory))).toEqual(after);
       expect((yield* Effect.flip(host.run(key, args("changed"))))).toMatchObject({ reason: "requestConflict" });
       expect((yield* Effect.flip(host.run(host.newRequestKey(), args("late-failure", 42))))).toMatchObject({ reason: "documentInvalid" });
@@ -121,21 +121,21 @@ it("settles real Currency, Payload and Application participants once, with compl
         Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
         Effect.flatMap(value => { if (!lost) return Effect.succeed(value); lost = false; return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost composite COMMIT reply") })); })));
       const recovering = (yield* makeCurrencyAnnouncementHost({ ...input, session }));
-      const recoveryExecutions = runtime.executions();
+      const recoveryExecutions = conformance.observations.executions();
       const recoveryKey = recovering.newRequestKey();
       const recovered = (yield* recovering.run(recoveryKey, args("recovery")));
-      expect(runtime.executions()).toBe(recoveryExecutions + 1);
+      expect(conformance.observations.executions()).toBe(recoveryExecutions + 1);
       expect((yield* recovering.run(recoveryKey, args("recovery")))).toEqual(recovered);
-      expect(runtime.executions()).toBe(recoveryExecutions + 1);
+      expect(conformance.observations.executions()).toBe(recoveryExecutions + 1);
       yield* assertNativeCommandPublication(fixture, host.run(host.newRequestKey(), args("native-overlap")), "overlap");
       if ("pool" in resource.persistence) {
         const postgres = resource.persistence;
         const duplicatesBefore = (yield* Effect.promise(inventory));
-        const duplicateCalls = runtime.executions();
+        const duplicateCalls = conformance.observations.executions();
         const duplicateKey = host.newRequestKey();
         const duplicates = yield* Effect.all([host.run(duplicateKey, args("concurrent-replay")), host.run(duplicateKey, args("concurrent-replay"))], { concurrency: 2 });
         expect(duplicates[0]).toEqual(duplicates[1]);
-        expect(runtime.executions()).toBe(duplicateCalls + 1);
+        expect(conformance.observations.executions()).toBe(duplicateCalls + 1);
         expect(((yield* Effect.promise(inventory))).commerce.commits).toHaveLength(duplicatesBefore.commerce.commits.length + 1);
 
         const lockStable = (yield* Effect.promise(inventory));
@@ -156,12 +156,12 @@ it("settles real Currency, Payload and Application participants once, with compl
         }));
         expect((yield* Effect.promise(inventory))).toEqual(lockStable);
 
-        const pendingBefore = runtime.pendingReads();
+        const pendingBefore = conformance.observations.pendingReads();
         const fiber = yield* Effect.forkScoped(host.run(host.newRequestKey(), args("id-unresolved")));
         try {
           const deadline = performance.now() + 5000;
-          while (runtime.pendingReads() === pendingBefore && performance.now() < deadline) yield* Effect.sleep(10);
-          expect(runtime.pendingReads()).toBe(pendingBefore + 1);
+          while (conformance.observations.pendingReads() === pendingBefore && performance.now() < deadline) yield* Effect.sleep(10);
+          expect(conformance.observations.pendingReads()).toBe(pendingBefore + 1);
           (yield* Fiber.interrupt(fiber));
           expect(Exit.isFailure((yield* Fiber.await(fiber)))).toBe(true);
         } finally { (yield* Fiber.interrupt(fiber)); }
@@ -175,10 +175,10 @@ it("settles real Currency, Payload and Application participants once, with compl
           if (event.phase === "begin" && event.edge === "after") pids.push(pid);
           if (event.phase === "commit" && event.edge === "after" && failedPid === 0) { failedPid = pid; throw new Error("Lost real composite COMMIT acknowledgement"); }
         } }) }));
-        const calls = runtime.executions();
+        const calls = conformance.observations.executions();
         const physicalKey = physical.newRequestKey();
         const physicalResult = (yield* physical.run(physicalKey, args("physical-recovery")));
-        expect(runtime.executions()).toBe(calls + 1);
+        expect(conformance.observations.executions()).toBe(calls + 1);
         expect(pids.length).toBeGreaterThanOrEqual(2);
         expect(pids[1]).not.toBe(failedPid);
         expect((yield* physical.run(physicalKey, args("physical-recovery")))).toEqual(physicalResult);

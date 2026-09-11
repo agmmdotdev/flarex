@@ -6,7 +6,7 @@ import {
   payloadPostsCollection,
 } from "@flarex/payload-adapter/internal/profile";
 import { makePayloadRuntime } from "@flarex/payload-adapter/internal/runtime";
-import { UnsupportedPayloadCapability } from "@flarex/payload-adapter/internal/testing";
+import { makePayloadConformanceRuntime, UnsupportedPayloadCapability } from "@flarex/payload-adapter/internal/testing";
 
 it("resolves every declared private package subpath", () =>
   Effect.runPromise(makePayloadContentProfiles()).then((profiles) => {
@@ -14,5 +14,6 @@ it("resolves every declared private package subpath", () =>
     expect(payloadPostsCollection().slug).toBe("posts");
     expect(payloadScalarFields).toHaveLength(6);
     expect(makePayloadRuntime).toBeTypeOf("function");
+    expect(makePayloadConformanceRuntime).toBeTypeOf("function");
     expect(new UnsupportedPayloadCapability("probe")).toBeInstanceOf(Error);
   }));

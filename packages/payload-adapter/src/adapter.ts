@@ -1,7 +1,7 @@
 import { payloadJoinQuery, type PayloadJoinQuery } from "./joins";
-import { payloadHasMany, payloadJoins } from "./contract";
+import { payloadHasMany, payloadJoins, payloadIsManagedField, payloadScalarFields } from "./contract";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { APIError, ValidationError, type BaseDatabaseAdapter, type DatabaseAdapterObj,
+import { ValidationError, type BaseDatabaseAdapter, type DatabaseAdapterObj,
   type PayloadRequest, type TypeWithID, type PaginatedDocs } from "payload";
 import { Clock, Effect, Result, Semaphore } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
@@ -15,10 +15,8 @@ import {
 import type { PayloadContentProfile } from "./contract";
 import { makePayloadPopulation, payloadPopulationIds } from "./population";
 import { payloadManyIds } from "./many";
-
-export class UnsupportedPayloadCapability extends APIError {
-  constructor(readonly capability: string) { super(`Unsupported private Payload capability: ${capability}`, 400); }
-}
+import { UnsupportedPayloadCapability } from "./errors";
+import { isPayloadLimit, isPayloadPage, payloadAdapterWhere } from "./query";
 interface RequestBridge {
   readonly context: CmsCommandContext;
   readonly request: Partial<PayloadRequest>;
@@ -45,21 +43,8 @@ const run = <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransa
     : error)), { signal: state.signal });
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over the owned Result decoder.
 const capture = (value: unknown): Json => Result.getOrThrow(capturePrivateJsonData(value, 65_536, cmsError)).value;
-type ScalarPredicate = { _id?: string; title?: string };
-const where = (input: unknown): ScalarPredicate => {
-  let value = input === undefined ? {} : capture(input);
-  // Pinned Payload combineQueries wraps its caller's admitted flat predicate once.
-  if (isJsonObject(value) && Object.keys(value).join() === "and" && Array.isArray(value.and) && value.and.length <= 1) value = value.and[0] ?? {};
-  if (!isJsonObject(value)) throw new UnsupportedPayloadCapability("where");
-  const fields: ScalarPredicate = {};
-  for (const [field, operator] of Object.entries(value)) {
-    if (!["id", "title"].includes(field) || !isJsonObject(operator) || Object.keys(operator).join() !== "equals" || typeof operator.equals !== "string") {
-      throw new UnsupportedPayloadCapability("where operator");
-    }
-    fields[field === "id" ? "_id" : "title"] = operator.equals;
-  }
-  return fields;
-};
+// oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over its sanitized query decoder.
+const where = (input: unknown) => Result.getOrThrow(payloadAdapterWhere(input));
 const payloadDocument = (value: Json, profile: PayloadContentProfile): Record<string, Json> & { id: string } => {
   if (!isJsonObject(value) || typeof value._id !== "string") throw new Error("Invalid admitted CMS document");
   const { _id, _creationTime, ...fields } = value;
@@ -91,9 +76,10 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
       normalized[key] = Result.getOrThrow(payloadManyIds(value));
       continue;
     }
-    if (!["title", "score", "enabled", "publishedAt", "createdAt", "updatedAt"].includes(key)) throw new UnsupportedPayloadCapability(`document field: ${key} (${typeof value})`);
-    if (value === undefined && ["createdAt", "updatedAt"].includes(key)) continue;
-    if (["createdAt", "updatedAt", "publishedAt"].includes(key)) {
+    const scalar = payloadScalarFields.find(field => field.name === key);
+    if (scalar === undefined) throw new UnsupportedPayloadCapability(`document field: ${key} (${typeof value})`);
+    if (value === undefined && payloadIsManagedField(key)) continue;
+    if (scalar.kind === "date") {
       if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new UnsupportedPayloadCapability("date");
       normalized[key] = new Date(value).toISOString();
     } else normalized[key] = value;
@@ -109,11 +95,10 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
 };
 
 /** Node-only, per-Payload-instance foreign Promise boundary; it owns no database. */
-export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "payload.scalar") {
+export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "payload.scalar", onCollection?: (collection: string) => void) {
   const document = (value: Json) => payloadDocument(value, profile);
   const fields = (input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => payloadFields(profile, input, expectedId, creationTimestamp);
   const current = new AsyncLocalStorage<RequestBridge>();
-  const touched = new Set<string>();
   const unsupported = async (capability = "deferred adapter member"): Promise<never> => {
     const state = current.getStore();
     if (state?.live) await Effect.runPromise(state.context.rollback(state.context.transactionId).pipe(Effect.exit), { signal: state.signal });
@@ -140,7 +125,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "pay
       // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing adapter argument parser.
       Result.getOrThrow(payloadJoinQuery(args.joins, true));
     }
-    touched.add(args.collection);
+    onCollection?.(args.collection);
     return state;
   };
   const roots = async (state: RequestBridge, values: ReturnType<typeof document>[], queryInput: unknown) => {
@@ -207,7 +192,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "pay
           hasPrevPage: false, hasNextPage: false, prevPage: null, nextPage: null };
       }
       const limit = args.limit ?? 10; const page = args.page ?? 1;
-      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32 || !Number.isSafeInteger(page) || page < 1 || page > 257 ||
+      if (!isPayloadLimit(limit) || !isPayloadPage(page) ||
         args.skip !== undefined || args.projection !== undefined || args.versions || (args.sort !== undefined && args.sort !== "id" && !(Array.isArray(args.sort) && args.sort.length === 1 && args.sort[0] === "id"))) {
         return unsupported("pagination or sort");
       }
@@ -239,7 +224,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "pay
       const state = stateFor(args.req);
       if (args.collection !== "payload-preferences" || Object.keys(args).some(key => !["collection", "req", "where"].includes(key))) return unsupported(`deleteMany:${args.collection}`);
       await run(state, state.context.preferences.deleteForPendingPost(state.context.context, transactionId(state), args.where));
-      touched.add(args.collection);
+      onCollection?.(args.collection);
     }, deleteVersions: deferred, findDistinct: deferred, findGlobal: deferred,
     findGlobalVersions: deferred, findVersions: deferred, generateSchema: deferred, migrate: deferred, migrateDown: deferred,
     migrateFresh: deferred, migrateRefresh: deferred, migrateReset: deferred, migrateStatus: deferred, queryDrafts: deferred,
@@ -253,5 +238,5 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "pay
     signal.addEventListener("abort", abort, { once: true });
     try { return await current.run(state, work); } finally { state.live = false; signal.removeEventListener("abort", abort); }
   };
-  return { adapter, within, touched: () => [...touched], unsupported };
+  return { adapter, within, unsupported };
 }

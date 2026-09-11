@@ -1,6 +1,6 @@
 # Payload Runtime Contracts And Conformance Ownership
 
-Status: proposed implementation preflight; skill and design preparation only
+Status: implemented private runtime cleanup; broader capabilities remain gated
 
 ## Outcome And Scope
 
@@ -31,9 +31,9 @@ Governing sources are the accepted Payload adapter design, the
 [package extraction boundary](./52-payload-adapter-package-extraction.md).
 Apply `.agents/skills/payload-flarex-integration/SKILL.md` from the repository root.
 
-Current implementation evidence:
+Pre-cleanup evidence and implemented ownership corrections:
 
-| Current owner | Observed issue | Proposed correction |
+| Previous owner | Observed issue | Implemented correction |
 | --- | --- | --- |
 | `packages/payload-adapter/src/runtime.ts`, `makePayloadRuntime` | Construction installs title-triggered nested/failure hooks and returns test counters and raw instance inspection together with commands/binding. | Move scenario definitions and observations to test support, sharing one internal runtime constructor. Ordinary construction does not install conformance behavior. |
 | `runtime.ts`, `invoke(context, operation: string, args: Json)` | Operation-specific key lists, guards, dispatch, and result capture are interleaved; typed distinctions disappear into a string and JSON. | Decode the admitted argument shape at each command boundary and call a directly bound handler. Preserve internal argument/result types until the existing JSON host boundary. |
@@ -61,11 +61,11 @@ The same installed package provides decisive implementation evidence:
 
 These installed files are inspection evidence, not new production deep imports.
 The package manifest, lockfile, and release contract remain the pin/provenance
-owners. Recheck the executing source when implementing this proposal.
+owners. Recheck the executing source when changing these contracts.
 
 ## Target Construction And Operation Shape
 
-The representative conformance caller currently looks like:
+The representative conformance caller before cleanup:
 
 ```ts
 const runtime = yield* makePayloadRuntime(profile)
@@ -74,7 +74,7 @@ const before = runtime.executions()
 yield* host.run(key, runtime.commands.create, input)
 ```
 
-Proposed conformance caller (illustrative API, not implemented):
+The migrated conformance caller:
 
 ```ts
 const fixture = yield* makePayloadConformanceRuntime(profile)
@@ -157,4 +157,25 @@ this slice. Keep the immutable profile token's issuer checks in persistence.
   the concrete organization/type/reuse problems above, not only regressions.
 - Preserve concurrent Medusa work. Only its Payload conformance consumer changes
   belong to this slice. Complete removal and roadmap reconciliation before the
-  implementation commit; this document does not claim that cleanup is complete.
+  implementation commit. No compatibility alias or displaced runtime path is
+  retained.
+
+## Current Implementation Owners
+
+`composition.ts` is the shared source-private construction/lifetime owner.
+`runtime.ts` exposes only commands and binding; `conformance.ts`, exported by
+the testing subpath, owns fixed hooks and observations. The migrated persistence
+and Currency/Payload scenarios consume that deliberate conformance type.
+
+`inputs.ts` preserves ordered per-operation admission, `operations.ts` binds
+each decoded input to its native Local API call, and `results.ts` captures JSON
+ownership while checking document/page/count envelopes. `query.ts` shares
+equality and paging constraints without admitting sanitized `and` or internal
+loader `id.in` forms at the caller boundary. Collection policy reuses existing
+field metadata; Payload retains native defaults and field validation.
+
+The string dispatcher, ordinary-runtime scenario hooks/counters, duplicate
+field allowlists, and duplicate paging/equality rules have been removed. The
+CMS JSON boundary, authenticated configuration identities, transaction bridge,
+storage and publication owners remain unchanged. Ordinary construction and
+conformance share one implementation; neither is a production-serving claim.

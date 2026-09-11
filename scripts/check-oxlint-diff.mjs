@@ -42,6 +42,7 @@ export const OXLINT_SOURCE_ROOTS = Object.freeze([
   "packages/executor-http/src",
   "packages/executor-nitro/src",
   "packages/persistence-postgres/src",
+  "packages/payload-adapter/src",
 ]);
 
 const SOURCE_EXTENSIONS = new Set([".cjs", ".js", ".jsx", ".mjs", ".ts", ".tsx"]);
