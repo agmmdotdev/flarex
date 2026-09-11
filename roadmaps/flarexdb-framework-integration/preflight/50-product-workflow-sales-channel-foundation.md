@@ -127,7 +127,7 @@ Nonempty input invokes native `Link.create`; its compensator invokes
 
 | Gap | Current evidence | Required direction |
 | --- | --- | --- |
-| Configured schema composition | Product and Currency schema capture construct separate artifacts; shared DML lowering is not a module-set coordinator. | Medusa adapter owns deterministic configured-set collection and endpoint resolution; the existing artifact/install owner remains authoritative. |
+| Configured schema composition | Gate A compiles Product + Sales Channel as one fourteen-table endpoint candidate. Stored Link metadata is not included. | Extend the existing configured-set owner for a fresh endpoint-plus-Link candidate after Link contract approval; do not add another coordinator or imply arbitrary module-set support. |
 | Several logical modules in one installation | `packages/persistence-postgres/src/atomicCommerce/participants.ts` rejects a repeated installation digest, even for different participants. | Separate logical participant/profile identity from physical installation admission in the existing core owner. Do not merely remove the duplicate check. |
 | Link key mutation/lifecycle | `commerceTransaction/profile.ts` admits update/managed lifecycle only for scope plus one primary-key component; the native Link has scope plus two endpoint components. | A separately approved core contract must support the actual declared-key mutation, conflict and lifecycle behavior. No raw SQL or surrogate-key workaround in the adapter. |
 | Link publication admission | `commerceTransaction/publication.ts` consumes authenticated relational row closures. No separately admitted commerce-link contract exists; the adoption roadmap explicitly requires one. | Complete the commit-owner preflight before Link writes. Reuse existing receipt/key-codec/publication machinery where sufficient; decide the endpoint evidence and fact representation explicitly rather than inventing a parallel finalizer. |
@@ -245,7 +245,12 @@ Sales Channel-local subscriber workaround or core persistence change is involved
 
 ### B. First Stored Link And Shared-Core Admission
 
-Before implementation, complete and approve the focused core contract described
+The [focused Gate B preflight](./55-shared-installation-atomic-commerce.md)
+separates B1 shared-installation atomic admission from B2 native characterization
+and key/publication contract approval, then B3 stored Link integration. These
+subgates remain proposed; approval of B1 alone does not authorize Link writes.
+
+Before stored Link implementation, complete and approve the focused core contract described
 above, including characterization of native duplicate/reactivation outcomes.
 Then add one fresh Product + Sales Channel + ProductSalesChannel candidate,
 admit storage constraints and link receipts/events, and promote the portable

@@ -441,6 +441,10 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
 
 ### Commerce-link commit admission
 
+- The [focused Gate B proposal](./preflight/55-shared-installation-atomic-commerce.md)
+  places shared-installation atomic admission first, followed by native Link
+  characterization and explicit key/publication contract approval. No stored
+  Link capability is admitted by the shared-installation correction alone.
 - Complete the separate commit-owner preflight for the commerce-link family.
 - Add a transaction-bound commerce-link receipt and typed fact to the common
   finalizer before the first stored Module Link can write.
