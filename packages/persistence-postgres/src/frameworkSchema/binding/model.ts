@@ -35,6 +35,8 @@ export type InstallationBindingReference = Readonly<{
   JsonObject;
 export type PhysicalDataBinding = InstallationBindingReference &
   Readonly<{ profiles: readonly BindingProfileReference[] }>;
+export type { CommerceBinding } from "./commerceBindingSchema";
+import type { CommerceBinding } from "./commerceBindingSchema";
 
 export type PayloadContentBinding = Readonly<{
   configSha256: string;
@@ -53,15 +55,18 @@ type DataBindingSetBase = Readonly<{
 }> &
   JsonObject;
 
-/** V1 remains decodable because immutable candidates and activation receipts
- * retain its exact bytes and digest. New multi-installation candidates use V2. */
-export type DataBindingSetFrame = DataBindingSetBase & (
-  | Readonly<{ version: 1; commerce: PhysicalDataBinding | null }>
-  | Readonly<{ version: 2; commerce: readonly PhysicalDataBinding[] }>
-);
+/** Development-only predecessor encodings are deliberately not retained. */
+export type DataBindingSetFrame = DataBindingSetBase & Readonly<{ commerce: readonly CommerceBinding[] }>;
 
-export function commerceBindings(frame: DataBindingSetFrame): readonly PhysicalDataBinding[] {
-  return frame.version === 2 ? frame.commerce : frame.commerce === null ? [] : [frame.commerce];
+export function commerceBindings(frame: DataBindingSetFrame): readonly CommerceBinding[] {
+  return frame.commerce;
+}
+
+/** Select only installation evidence, never execution grants or coverage. */
+export function bindingInstallationReference(binding: InstallationBindingReference): InstallationBindingReference {
+  return { installation: binding.installation, installationReceiptSha256: binding.installationReceiptSha256,
+    readinessSha256: binding.readinessSha256, availabilitySequence: binding.availabilitySequence,
+    availabilityHistorySha256: binding.availabilityHistorySha256, status: binding.status };
 }
 
 export type DataBindingHeadToken = Readonly<{
@@ -103,10 +108,8 @@ export type PhysicalBindingSlot = "payloadLifecycle" | "commerce";
 
 export function physicalBindings(
   frame: DataBindingSetFrame,
-): readonly Readonly<{
-  slot: PhysicalBindingSlot;
-  binding: PhysicalDataBinding;
-}>[] {
+): readonly (Readonly<{ slot: "payloadLifecycle"; binding: PhysicalDataBinding }> |
+  Readonly<{ slot: "commerce"; binding: CommerceBinding }>)[] {
   return [
     ...(frame.payloadLifecycle === null
       ? []

@@ -2,7 +2,7 @@ import { Cause, Effect, Option } from "effect";
 import { withCommerceAdmission, type CommerceAdmission } from "../commerceTransaction/admission";
 import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
 import { projectCommerceRequestFailure } from "../commerceTransaction/request";
-import { commerceBindings, type InstallationBindingReference } from "../frameworkSchema/binding/model";
+import { commerceBindings, bindingInstallationReference, type InstallationBindingReference } from "../frameworkSchema/binding/model";
 import { readBindingCandidate, readBindingHead } from "../frameworkSchema/binding/repository";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import type { PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
@@ -35,7 +35,7 @@ export const withAtomicCommerceAdmissions = Effect.fn("AtomicCommerce.withAdmiss
   // Only explicitly selected installations gain authority. Per-member admission
   // below retains full active-head evidence and checks profiles and placement.
   if (members.some(member => !bindings.some(binding => {
-    const { profiles: _profiles, ...reference } = binding;
+    const reference = bindingInstallationReference(binding);
     return sameBindingValue(reference, member.reference);
   }))) return yield* Effect.fail(commerceError("bindingChanged"));
   const visit = Effect.fn("AtomicCommerce.admitNext")(function* (

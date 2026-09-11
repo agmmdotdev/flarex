@@ -18,7 +18,9 @@ import type { CommerceCommand, CommerceHost } from "../src/commerceTransaction/c
 import { requireCommerceProfile, type CommerceProfile, type CommerceProfileState } from "../src/commerceTransaction/profile";
 import { cmsHostFixture } from "./cmsHostFixture";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "./frameworkSchemaArtifactAdmissionTestSupport";
-import { installationBindingReference, bindingProfiles } from "./frameworkDataBindingPhysicalTestSupport";
+import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
+import { makeCommerceBinding } from "../src/commerce";
+import type { RestoredFrameworkSchemaAvailabilityHead } from "../src/frameworkSchema/installation/storedMetadataRestoration";
 import { commerceBindings } from "../src/frameworkSchema/binding/model";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -34,6 +36,7 @@ export interface CommerceHostTestFixture {
   readonly prepared: { readonly profile: CommerceProfile; readonly initialization: { readonly rows: Json | undefined } };
   readonly descriptor: CommerceProfileState;
   readonly installation: ReturnType<typeof installationBindingReference>;
+  readonly availability: RestoredFrameworkSchemaAvailabilityHead;
   readonly candidate: Effect.Success<ReturnType<DataBindingHost<unknown>["prepare"]>>;
   readonly takeDeliveries: () => readonly LocalCommerceDelivery[];
 }
@@ -87,10 +90,9 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
   const bindingsInput = { database: persistence.drizzle, target: base.target, deploymentId: base.fixture.deploymentId,
     authority: base.fixture.authorityPorts, application: base.fixture.relationActivation, commerceProfiles: [...existing?.bindingsInput.commerceProfiles ?? [], prepared.profile] };
   const bindings = await runEffect(makeDataBindingHost(bindingsInput));
-  const commerce = { ...installation, profiles: bindingProfiles(ready.availability).map(profile => ({ ...profile,
-    profileId: `${descriptor.profileId}.${profile.kind}`, contractSha256: descriptor.contractSha256 })) };
-  const frame = existing === undefined ? { ...base.candidate.frame, version: 1 as const, commerce } :
-    { ...existing.candidate.frame, version: 2 as const, commerce: [...commerceBindings(existing.candidate.frame), commerce]
+  const commerce = await runEffect(makeCommerceBinding(ready.availability, [prepared.profile]));
+  const frame = existing === undefined ? { ...base.candidate.frame, commerce: [commerce] } :
+    { ...existing.candidate.frame, commerce: [...commerceBindings(existing.candidate.frame), commerce]
       .sort((a, b) => compareUtf16Strings(a.installation.installationSha256, b.installation.installationSha256)) };
   if (descriptor.initialization !== null) {
     await runEffectFailure(bindings.prepare(frame));
@@ -103,6 +105,6 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
   const candidate = await runEffect(bindings.prepare(frame));
   await runEffect(bindings.activate(dataBindingActivationRequest(base.reference.scopeId, base.reference.storageGeneration,
     existing === undefined ? "commerce-activate" : `commerce-activate-${descriptor.profileId}`, candidate.sha256, prior.head)));
-  return { cms: base, persistence, session, bindings, bindingsInput, host, hostInput, prepared, descriptor, installation, candidate,
+  return { cms: base, persistence, session, bindings, bindingsInput, host, hostInput, prepared, descriptor, installation, availability: ready.availability, candidate,
     takeDeliveries: local?.takeDeliveries ?? (() => []) };
 }

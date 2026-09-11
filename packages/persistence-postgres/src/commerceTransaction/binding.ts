@@ -3,9 +3,9 @@ import { Effect } from "effect";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import type { InstallationBindingReference, PhysicalDataBinding } from "../frameworkSchema/binding/model";
+import type { InstallationBindingReference, CommerceBinding } from "../frameworkSchema/binding/model";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
-import { validateReadinessBindingCoverage } from "../frameworkSchema/binding/profiles";
+import { validateReadinessCoverage } from "../frameworkSchema/binding/profiles";
 import type { InstallationRuntimeData } from "../frameworkSchema/installation/runtimeData";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
 import { commerceError } from "./model";
@@ -25,14 +25,13 @@ export const verifyCommerceInstallation = Effect.fn("CommerceBinding.verifyInsta
 
 export const verifyCommerceBinding = Effect.fn("CommerceBinding.verify")(function* (
   tx: FlarexMetadataTransaction, scopeId: string, profile: CommerceProfile,
-  binding: PhysicalDataBinding, availability: InstallationRuntimeData,
+  binding: CommerceBinding, availability: InstallationRuntimeData,
 ) {
   const descriptor = yield* verifyCommerceInstallation(profile, binding, availability);
-  if (binding.profiles.length !== 3 || binding.profiles.some((item, index) =>
-    item.kind !== ["adapter", "query", "store"][index] || item.profileId !== `${descriptor.profileId}.${item.kind}` || item.contractSha256 !== descriptor.contractSha256)) {
+  if (!binding.profiles.some(item => item.profileId === descriptor.profileId && item.contractSha256 === descriptor.contractSha256)) {
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   }
-  yield* validateReadinessBindingCoverage(binding, availability.readiness);
+  yield* validateReadinessCoverage(binding.coverage, availability.readiness);
   if (descriptor.initialization === null) return;
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   const rows = yield* runDrizzleStatementEffect(tx.select().from(fxSystemFrameworkInitializations).where(and(

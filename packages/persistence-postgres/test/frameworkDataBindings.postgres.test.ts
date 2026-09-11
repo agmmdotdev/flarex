@@ -89,11 +89,10 @@ describe.skipIf(postgresUrl === null)(
         if (commerce === undefined) throw new Error("Commerce fixture missing");
         const restartFrame = {
           ...raced.frame,
-          version: 1 as const,
-          commerce: {
+          commerce: [{
+            ...commerce,
             ...installationBindingReference(raced.restored),
-            profiles: commerce.profiles,
-          },
+          }],
         };
         const candidate = await runEffect(raced.host.prepare(restartFrame));
         const request = dataBindingActivationRequest(

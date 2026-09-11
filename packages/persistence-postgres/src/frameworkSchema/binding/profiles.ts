@@ -10,9 +10,11 @@ import {
   sameBindingValue,
 } from "./canonical";
 import { bindingError } from "./errors";
-import type { BindingProfileReference, PhysicalDataBinding } from "./model";
+import type { BindingProfileReference, CommerceBinding } from "./model";
+import { compareBindingCoverage } from "./commerceBindingSchema";
 import type { RestoredFrameworkSchemaAvailabilityHead } from "../installation/storedMetadataRestoration";
 import type { FrameworkSchemaReadinessFrame } from "../installation/model";
+import type { BindingCoverage } from "./commerceBindingSchema";
 
 declare const profileRegistryBrand: unique symbol;
 export interface DataBindingTestProfiles {
@@ -79,7 +81,7 @@ export const validateBindingProfiles = Effect.fn(
   registry: DataBindingTestProfiles | undefined,
   database: FlarexMetadataDatabase,
   target: FrameworkMigrationTarget,
-  binding: PhysicalDataBinding,
+  binding: CommerceBinding,
   availability: RestoredFrameworkSchemaAvailabilityHead,
 ) {
   const state = registry === undefined ? undefined : registries.get(registry);
@@ -89,29 +91,23 @@ export const validateBindingProfiles = Effect.fn(
     state.target !== target
   )
     return yield* Effect.fail(bindingError("unsupportedProfile"));
+  const selected = [];
   for (const profile of binding.profiles) {
-    if (
-      !state.profiles.some((registered) =>
-        sameBindingValue(registered, profile),
-      )
-    )
-      return yield* Effect.fail(bindingError("unsupportedProfile"));
+    const registered = state.profiles.find(value => value.profileId === profile.profileId && value.contractSha256 === profile.contractSha256);
+    if (registered === undefined) return yield* Effect.fail(bindingError("unsupportedProfile"));
+    selected.push(registered);
   }
-  yield* validatePhysicalBindingCoverage(binding, availability);
-});
-
-export const validatePhysicalBindingCoverage = Effect.fn("DataBindingProfiles.validateCoverage")(function* (
-  binding: PhysicalDataBinding, availability: RestoredFrameworkSchemaAvailabilityHead,
-) {
-  return yield* validateReadinessBindingCoverage(binding, availability.readiness.readiness.frame);
+  if (!sameBindingValue({ coverage: selected.flatMap(value => value.coverage).toSorted(compareBindingCoverage) }, { coverage: binding.coverage })) {
+    return yield* Effect.fail(bindingError("unsupportedProfile"));
+  }
+  yield* validateReadinessCoverage(binding.coverage, availability.readiness.readiness.frame);
 });
 
 /** Coverage policy consumes validated data; transaction acceptance remains with
  * its caller and cannot be manufactured by passing a structurally valid frame. */
-export const validateReadinessBindingCoverage = Effect.fn("DataBindingProfiles.validateReadinessCoverage")(function* (
-  binding: PhysicalDataBinding, readiness: FrameworkSchemaReadinessFrame,
+export const validateReadinessCoverage = Effect.fn("DataBindingProfiles.validateCoverageEvidence")(function* (
+  coverage: BindingCoverage, readiness: FrameworkSchemaReadinessFrame,
 ) {
-  const coverage = binding.profiles.flatMap((profile) => profile.coverage);
   for (const required of readiness.residualRequirements) {
     const physical = readiness.validatedPhysicalCapabilities.find((value) =>
       sameBindingValue(value.identity, required.capability),

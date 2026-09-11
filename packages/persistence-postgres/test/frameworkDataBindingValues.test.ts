@@ -17,7 +17,6 @@ import { runEffect, runEffectFailure } from "./effectTestRuntime";
 function frame(): DataBindingSetFrame {
   return {
     format: "flarex.data-binding-set",
-    version: 1,
     application: {
       deploymentId: "test-deployment",
       scopeId: "scope_34000000-0000-4000-8000-000000000001",
@@ -42,19 +41,19 @@ function frame(): DataBindingSetFrame {
     },
     payloadContent: null,
     payloadLifecycle: null,
-    commerce: null,
+    commerce: [],
     crossDomainReferences: [],
   };
 }
 
 describe("data binding value boundaries", () => {
-  it("preserves stored V1 bytes and admits V2 only with the array contract", async () => {
-    for (const input of [frame(), { ...frame(), version: 2, commerce: [] }]) {
+  it("round-trips the current contract and rejects development-only predecessor formats", async () => {
+    for (const input of [frame()]) {
       const captured = await runEffect(captureBindingValue(input, isDataBindingSetFrame));
       expect(await runEffect(restoreBindingValue(captured.copyCanonicalBytes(), captured.sha256Hex,
         captured.frame.format, isDataBindingSetFrame))).toEqual(input);
     }
-    for (const input of [{ ...frame(), version: 2 }, { ...frame(), commerce: [] }, { ...frame(), version: 3, commerce: [] }]) {
+    for (const input of [{ ...frame(), version: 1, commerce: null }, { ...frame(), version: 2 }, { ...frame(), commerce: null }, { ...frame(), version: 3 }]) {
       expect(await runEffectFailure(captureBindingValue(input, isDataBindingSetFrame))).toMatchObject({ reason: "invalidInput" });
     }
   });

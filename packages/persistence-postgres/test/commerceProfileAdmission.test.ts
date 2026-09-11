@@ -7,8 +7,42 @@ import { captureRelationalPhysicalLayout } from "../src/relationalSchema/physica
 import { captureFreshRelationalMigrationPlan, captureFrameworkMigrationPlanAdmission } from "../src/migrationCoordination/canonical";
 import { currencySchemaInput, syntheticSchemaInput, frameworkTargetNamespace, FRAMEWORK_VALUE_LOCATOR } from "./frameworkMigrationValueFixtures";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { validateCommerceProfileSet } from "../src/frameworkSchema/binding/commerceBinding";
 
 describe("private commerce profile admission", () => {
+  it("requires relational closure inside each shared-installation profile, including ungranted targets", async () => {
+    const schema = syntheticSchemaInput();
+    const parent = schema.tables.find(table => table.tableId === "parent");
+    if (parent === undefined) throw new Error("Missing neutral parent fixture");
+    const artifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
+      provenance: { kind: "sourceSnapshot", repository: "https://example.com/profile-closure", revision: "e".repeat(40), paths: ["model.ts"] },
+      schema: { ...schema, owner: "medusa", tables: [...schema.tables, { ...parent, tableId: "independent",
+        keys: [{ ...parent.keys[0], keyId: "independent.primary", kind: "primary", columns: ["id"] }] }] },
+    }));
+    const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: artifact.artifact, physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }));
+    const descriptor = (id: string, tables: readonly string[]) => runEffect(registerLocalCommerceProfile(artifact.artifact, layout, id,
+      tables.map(tableId => ({ tableId, keyId: `${tableId}.primary` }))).pipe(Effect.flatMap(requireCommerceProfile)));
+    const child = await descriptor("test.child", ["child"]);
+    const parentOnly = await descriptor("test.parent", ["parent"]);
+    const independent = await descriptor("test.independent", ["independent"]);
+    for (const selected of [[child, parentOnly], [child, independent], [parentOnly, independent]]) {
+      expect(await runEffectFailure(validateCommerceProfileSet(selected))).toMatchObject({ reason: "unsupportedProfile" });
+    }
+    const closed = await descriptor("test.closed", ["child", "parent"]);
+    expect(await runEffect(validateCommerceProfileSet([closed, independent]))).toBeUndefined();
+  });
+
+  it("keeps seeded singleton profiles supported but refuses a multi-profile seeded installation", async () => {
+    const artifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
+      provenance: { kind: "sourceSnapshot", repository: "https://example.com/seed", revision: "e".repeat(40), paths: ["model.ts"] },
+      schema: { ...currencySchemaInput(), owner: "medusa" },
+    }));
+    const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: artifact.artifact, physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace() }));
+    const seeded = await runEffect(registerCommerceProfile(artifact.artifact, layout, "test.seed", { stepId: "seed", datasetSha256: "a".repeat(64), expectedRowCount: 1 }).pipe(Effect.flatMap(requireCommerceProfile)));
+    const local = await runEffect(registerLocalCommerceProfile(artifact.artifact, layout, "test.local", [{ tableId: "currency", keyId: "currency.primary" }]).pipe(Effect.flatMap(requireCommerceProfile)));
+    expect(await runEffect(validateCommerceProfileSet([seeded]))).toBeUndefined();
+    expect(await runEffectFailure(validateCommerceProfileSet([seeded, local]))).toMatchObject({ reason: "unsupportedProfile" });
+  });
   it("hashes managed lifecycle permission separately and refuses tables without declared lifecycle columns", async () => {
     const artifact = await runEffect(captureRelationalSchemaArtifact({ deploymentId: "deployment-a",
       provenance: { kind: "sourceSnapshot", repository: "https://example.com/lifecycle", revision: "f".repeat(40), paths: ["model.ts"] },

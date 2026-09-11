@@ -28,6 +28,7 @@ import { verifyCommerceBinding } from "../../commerceTransaction/binding";
 import { requireCommerceProfile, type CommerceProfile, type CommerceProfileState } from "../../commerceTransaction/profile";
 import { MAX_COMMERCE_BINDINGS } from "./model";
 import { installationRuntimeData } from "../installation/runtimeData";
+import { validateCommerceProfileSet } from "./commerceBinding";
 
 type CommerceBindingProfiles = readonly Readonly<{ profile: CommerceProfile; descriptor: CommerceProfileState }>[];
 export const captureCommerceBindingProfiles = Effect.fn("DataBindingEvidence.captureCommerceProfiles")(function* (
@@ -102,14 +103,21 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
         binding,
         snapshot,
       );
-      const selected = commerceProfiles.find(value =>
-        sameBindingValue({ ...value.descriptor.artifact.identity }, binding.installation.artifact) &&
-        value.descriptor.contractSha256 === binding.profiles[0]?.contractSha256);
       if (slot === "payloadLifecycle") yield* verifyPayloadPreferenceBinding(frame, availability);
-      else if (selected !== undefined) yield* verifyCommerceBinding(tx, frame.application.scopeId, selected.profile, binding, installationRuntimeData(availability))
-        .pipe(Effect.mapError(cause => bindingError("unsupportedProfile", cause)));
       else if (availability.installation.admission.admission.frame.admissionProfile === "registered-commerce-fresh") {
-        return yield* Effect.fail(bindingError("unsupportedProfile"));
+        const selected = [];
+        for (const member of binding.profiles) {
+          const loaded = commerceProfiles.find(value =>
+            sameBindingValue({ ...value.descriptor.artifact.identity }, binding.installation.artifact) &&
+            value.descriptor.profileId === member.profileId && value.descriptor.contractSha256 === member.contractSha256);
+          if (loaded === undefined) return yield* Effect.fail(bindingError("unsupportedProfile"));
+          selected.push(loaded);
+        }
+        yield* validateCommerceProfileSet(selected.map(value => value.descriptor));
+        for (const member of selected) {
+          yield* verifyCommerceBinding(tx, frame.application.scopeId, member.profile, binding, installationRuntimeData(availability))
+            .pipe(Effect.mapError(cause => bindingError("unsupportedProfile", cause)));
+        }
       }
       else yield* validateBindingProfiles(
         profiles,

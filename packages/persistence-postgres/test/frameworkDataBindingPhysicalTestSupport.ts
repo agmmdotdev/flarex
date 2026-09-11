@@ -32,7 +32,7 @@ import {
 import type {
   DataBindingSetFrame,
   DataBindingHeadToken,
-  PhysicalDataBinding,
+  CommerceBinding,
   BindingProfileReference,
   InstallationBindingReference,
 } from "../src/frameworkSchema/binding/model";
@@ -46,11 +46,11 @@ import type { RestoredFrameworkSchemaAvailabilityHead } from "../src/frameworkSc
 import { bindingInput } from "./frameworkDataBindingTestSupport";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
-  isPhysicalDataBinding,
   isDataBindingSetFrame,
 } from "../src/frameworkSchema/binding/canonical";
 import { isStoredInstallationIdentity } from "../src/frameworkSchema/installation/storedValidation";
 import { bindingError } from "../src/frameworkSchema/binding/errors";
+import { compareBindingCoverage, isCommerceBinding, type BindingCoverage } from "../src/frameworkSchema/binding/commerceBindingSchema";
 
 export async function installBindingFixture<
   P extends ApplicationNativeMutationPersistence,
@@ -124,6 +124,9 @@ export function bindingProfiles(
         return { requirement, physical };
       },
     );
+  return testBindingProfiles(coverage);
+}
+export function testBindingProfiles(coverage: BindingCoverage): readonly BindingProfileReference[] {
   return [
     {
       kind: "adapter",
@@ -251,16 +254,17 @@ export async function exercisePhysicalBindings<
       testOnly: { profiles: registry, syntheticSelection: true },
     }),
   );
-  const commerce: PhysicalDataBinding = {
+  const commerce: CommerceBinding = {
     ...installationBindingReference(availability),
-    profiles,
+    coverage: profiles.flatMap(value => value.coverage).sort(compareBindingCoverage),
+    profiles: profiles.map(({ profileId, contractSha256 }) => ({ profileId, contractSha256 })),
   };
-  const frame: DataBindingSetFrame = { ...baseFrame, version: 1, commerce };
+  const frame: DataBindingSetFrame = { ...baseFrame, commerce: [commerce] };
   expect(
     isStoredInstallationIdentity(commerce.installation),
     JSON.stringify(commerce.installation),
   ).toBe(true);
-  expect(isPhysicalDataBinding(commerce), JSON.stringify(commerce)).toBe(true);
+  expect(isCommerceBinding(commerce), JSON.stringify(commerce)).toBe(true);
   expect(isDataBindingSetFrame(frame)).toBe(true);
   expect(await runEffectFailure(disabled.prepare(frame))).toMatchObject({
     reason: "unsupportedProfile",
@@ -269,10 +273,10 @@ export async function exercisePhysicalBindings<
     await runEffectFailure(
       host.prepare({
         ...frame,
-        commerce: {
+        commerce: [{
           ...commerce,
-          profiles: profiles.map((value) => ({ ...value, coverage: [] })),
-        },
+          coverage: [],
+        }],
       }),
     ),
   ).toMatchObject({ reason: "unsupportedProfile" });
@@ -298,7 +302,7 @@ export async function exercisePhysicalBindings<
     await runEffectFailure(
       uncoveredHost.prepare({
         ...frame,
-        commerce: { ...commerce, profiles: uncoveredProfiles },
+        commerce: [{ ...commerce, coverage: [] }],
       }),
     ),
   ).toMatchObject({ reason: "unsupportedProfile" });
@@ -329,8 +333,7 @@ export async function exercisePhysicalBindings<
   ).toMatchObject({ reason: "unavailableInstallation" });
   const nextFrame: DataBindingSetFrame = {
     ...frame,
-    version: 1,
-    commerce: { ...installationBindingReference(restored), profiles },
+    commerce: [{ ...commerce, ...installationBindingReference(restored) }],
   };
   const next = await runEffect(host.prepare(nextFrame));
   const nextRequest = dataBindingActivationRequest(
@@ -374,7 +377,7 @@ export async function exercisePhysicalBindings<
 
   expect(
     await runEffectFailure(
-      host.prepare({ ...nextFrame, commerce: { ...reference, profiles } }),
+      host.prepare({ ...nextFrame, commerce: [{ ...commerce, ...reference }] }),
     ),
   ).toMatchObject({ reason: "invalidInput" });
   const laneCondition = eq(
@@ -425,7 +428,6 @@ export async function exerciseBindingAvailabilityLimit<
 ) {
   const commerce = commerceBindings(frame)[0];
   if (commerce === undefined) throw new Error("Missing bounded commerce fixture");
-  const profiles = commerce.profiles;
   let history = initial;
   while (BigInt(history.head.frame.availabilitySequence) < 8n) {
     const nextSequence = BigInt(history.head.frame.availabilitySequence) + 1n;
@@ -442,7 +444,7 @@ export async function exerciseBindingAvailabilityLimit<
   expect(history.head.frame.availabilitySequence).toBe("8");
   const atLimitFrame = {
     ...frame,
-    commerce: { ...installationBindingReference(history), profiles },
+    commerce: [{ ...commerce, ...installationBindingReference(history) }],
   };
   const candidate = await runEffect(host.prepare(atLimitFrame));
   const request = dataBindingActivationRequest(
@@ -466,7 +468,7 @@ export async function exerciseBindingAvailabilityLimit<
     await runEffectFailure(
       host.prepare({
         ...frame,
-        commerce: { ...installationBindingReference(tenth), profiles },
+        commerce: [{ ...commerce, ...installationBindingReference(tenth) }],
       }),
     ),
   ).toMatchObject({ reason: "referenceRefusal" });

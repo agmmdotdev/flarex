@@ -14,7 +14,8 @@ import {
 } from "../privateStoredValueShape";
 import { isStoredPhysicalLocator, isStoredArtifactIdentity } from "../../migrationCoordination/storedValidation";
 import { isStoredInstallationIdentity } from "../installation/storedValidation";
-import { isStoredRelationalPhysicalCapability } from "../../relationalSchema/physical/storedValidation";
+import { capturePrivateJsonData } from "../../privateJsonData";
+import { isBindingCoverage as isCoverage, isCommerceBinding } from "./commerceBindingSchema";
 import {
   capturePrivateCanonicalValue,
   verifyStoredPrivateCanonicalValue,
@@ -158,29 +159,6 @@ export function isBindingProfileReference(
     arrayOf(input.coverage, MAX_BINDING_REQUIREMENTS, isCoverage)
   );
 }
-function isCoverage(
-  input: unknown,
-): input is BindingProfileReference["coverage"][number] {
-  if (
-    !record(input, ["requirement", "physical"]) ||
-    !isStoredRelationalPhysicalCapability(input.physical) ||
-    !record(input.requirement, ["capability", "requirement"])
-  )
-    return false;
-  return (
-    input.requirement.requirement === input.physical.residualRequirement &&
-    record(input.requirement.capability, [
-      "owner",
-      "lineageId",
-      "capabilityId",
-    ]) &&
-    input.requirement.capability.owner === input.physical.identity.owner &&
-    input.requirement.capability.lineageId ===
-      input.physical.identity.lineageId &&
-    input.requirement.capability.capabilityId ===
-      input.physical.identity.capabilityId
-  );
-}
 export function isPhysicalDataBinding(
   input: unknown,
 ): input is PhysicalDataBinding {
@@ -267,7 +245,6 @@ export function isDataBindingSetFrame(
   if (
     !record(input, [
       "format",
-      "version",
       "application",
       "payloadContent",
       "payloadLifecycle",
@@ -275,7 +252,6 @@ export function isDataBindingSetFrame(
       "crossDomainReferences",
     ]) ||
     input.format !== "flarex.data-binding-set" ||
-    (input.version !== 1 && input.version !== 2) ||
     !isApplicationBindingReference(input.application) ||
     !arrayOf(input.crossDomainReferences, 0, (_value): _value is never => false)
   )
@@ -292,18 +268,15 @@ export function isDataBindingSetFrame(
       input.payloadLifecycle.installation.artifact.owner !== "payload")
   )
     return false;
-  if (input.version === 1) {
-    if (input.commerce !== null && (!isPhysicalDataBinding(input.commerce) ||
-      input.commerce.installation.artifact.owner !== "medusa")) return false;
-  } else {
-    if (!arrayOf(input.commerce, MAX_COMMERCE_BINDINGS, isPhysicalDataBinding)) return false;
-    let previous = "";
-    for (const binding of input.commerce) {
-      if (binding.installation.artifact.owner !== "medusa" || binding.installation.installationSha256 <= previous) return false;
-      previous = binding.installation.installationSha256;
-    }
+  if (!arrayOf(input.commerce, MAX_COMMERCE_BINDINGS, isCommerceBinding)) return false;
+  let previous = "";
+  let profileCount = 0;
+  for (const binding of input.commerce) {
+    if (binding.installation.artifact.owner !== "medusa" || binding.installation.installationSha256 <= previous) return false;
+    previous = binding.installation.installationSha256;
+    profileCount += binding.profiles.length;
   }
-  return true;
+  return profileCount <= MAX_COMMERCE_BINDINGS;
 }
 export function isDataBindingHeadToken(
   input: unknown,
@@ -387,7 +360,8 @@ export const captureBindingValue = Effect.fn("DataBinding.captureValue")(
     input: unknown,
     guard: (value: unknown) => value is Frame,
   ): Effect.fn.Return<PrivateCanonicalValueSnapshot<Frame>, DataBindingError> {
-    const decoded = yield* Effect.fromResult(decodeBindingFrame(input, guard));
+    const owned = yield* Effect.fromResult(capturePrivateJsonData(input, MAX_BINDING_BYTES, () => bindingError("invalidInput")));
+    const decoded = yield* Effect.fromResult(decodeBindingFrame(owned.value, guard));
     const format = decoded.format;
     const captured = yield* capturePrivateCanonicalValue(
       decoded,
@@ -433,7 +407,7 @@ export const restoreBindingValue = Effect.fn("DataBinding.restoreValue")(
         canonicalBytes: bytes,
         sha256Hex: digest,
         expectedFormat: format,
-        expectedVersion: format === "flarex.data-binding-set" ? [1, 2] : 1,
+        expectedVersion: format === "flarex.data-binding-set" ? null : 1,
         maximumCanonicalBytes: MAX_BINDING_BYTES,
         expectedKeys: undefined,
         validateFrame: guard,

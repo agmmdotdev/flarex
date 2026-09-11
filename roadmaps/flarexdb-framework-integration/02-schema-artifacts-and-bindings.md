@@ -256,6 +256,17 @@ execute migrations, or reinterpret a lane's artifact.
 Optional lanes remain truly optional. A scope without Medusa has no commerce
 artifact or readiness dependency.
 
+The current binding frame is unversioned and uses a commerce array. Each commerce
+entry identifies one physical installation, exact readiness coverage once, and a
+sorted list of direct profile ID/contract-digest references. At most eight profiles
+are authorized across the candidate. Shared-installation profiles must be local,
+unseeded, table-disjoint and relationally closed; seeded singleton behavior is
+unchanged. Activation authenticates every member and request admission retains
+only the selected profile's permissions. See the
+[binding contract](./preflight/51-commerce-installation-profile-bindings.md).
+Development-only predecessor encodings are rejected; no legacy reader or automatic
+database rewrite is retained. This does not admit shared-installation atomic work.
+
 ## Identity And Immutability
 
 - Stable logical catalog identity is separate from immutable artifact identity.

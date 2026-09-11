@@ -1,7 +1,7 @@
 # Product Workflow: Sales Channel And First Stored Link
 
-Status: Gate A approved and in progress, blocked at the shared installation-binding
-contract described below. Gates B and C remain unapproved.
+Status: Gate A approved and in progress; its shared installation-binding correction
+is complete under preflight 51. Gates B and C remain unapproved.
 
 ## Outcome And Direction
 
@@ -185,52 +185,35 @@ Approved foundation scope:
 No core transaction change or Link write is authorized by A. If A itself exposes
 an insufficient shared contract, preserve the witness and pause at that owner.
 
-#### Gate A Blocker: One Installation, One Authorized Commerce Contract
+#### Shared Installation Binding Prerequisite
 
 The initial preflight placed same-installation composition only in Gate B.
 Gate A already needs an additional core contract: separate confined Product and
 Sales Channel profiles must both be authorized against one configured installation,
 even when their commands run in separate transactions.
 
-The shared owner is `packages/persistence-postgres/src/frameworkSchema/binding`
-with commerce verification in `commerceTransaction/binding.ts` and admission in
-`commerceTransaction/admission.ts`. Current physical bindings encode one ordered
-adapter/query/store triplet. Commerce verification requires every entry to match
-the one requested profile ID and contract digest. Registering a second authentic
-profile does not add it to the installation's active authorization. This is a
-missing composition capability, not a defect in rejecting an unbound profile.
+The shared owner is `packages/persistence-postgres/src/frameworkSchema/binding`,
+with profile authentication and per-request confinement in `commerceTransaction`.
+The [approved core correction](./51-commerce-installation-profile-bindings.md)
+replaces repeated commerce role triplets with one installation coverage set and
+direct profile membership. Loaded profiles alone still grant no execution access.
+Preparation/activation validate every selected member; requests receive only the
+requested profile's own table capabilities. No Sales Channel branch exists in core.
 
-The diagnostic in `packages/medusa-adapter/test/sales-channel-binding.test.ts`
-uses the real artifact, installation and binding pipeline. It installs all 14
-configured endpoint tables, grants only Sales Channel access, and reads through
-that admitted profile. A separately registered Product-only profile on the same
-installation is refused with `unsupportedProfile`. Explicitly registering both
-profiles and proposing both triplets in one binding is refused with `invalidInput`.
-The assertions characterize the existing safety boundary; successful dual-profile
-execution is the missing outcome, not a reason to weaken those refusals.
+The connected `packages/medusa-adapter/test/sales-channel-binding.test.ts` witness
+installs all 14 endpoint tables, refuses unbound Product access, then authorizes
+both disjoint profiles through the same constructor and reads both endpoints.
+Core regressions independently exercise three neutral profiles, isolated writes,
+relational closure, revocation and canonical format refusals.
 
 Reproduce with `pnpm --filter @flarex/medusa-adapter exec vitest run --config
 vitest.sales-channel.config.ts`. Select `FLAREX_TEST_DRIVER=postgres` with an
 ordinary-role `FLAREX_POSTGRES_DATABASE_URL` for the real database lane.
 
-The [focused core binding preflight](./51-commerce-installation-profile-bindings.md)
-now proposes the representation, admission, compatibility and validation contract.
-Its implementation remains unapproved. Recommended correction:
-distinguish the shared physical installation from its explicitly authorized,
-module-confined execution contracts. Freeze canonical representation, activation,
-stale-binding behavior, profile membership and overlap rules before changing code.
-Keep existing supported Product/Currency bindings valid; do not infer a public
-migration/version obligation from private fixture encodings alone. Prove both
-profiles can execute independently on one active binding while cross-module and
-unregistered access still fail closed. Reuse the existing transaction owner and
-publication path; no new settlement or adapter-owned authority.
-
-Increasing an array limit alone, widening each module to the whole schema,
-swapping the active binding per command, or creating duplicate physical
-installations is not the proposed correction. Same-installation atomic
-participants and stored Link behavior still belong to Gate B. The diagnostic
-must move into the core owner's regression suite when that correction lands,
-with only the connected consumer assertions retained here.
+The owner confirmed no production data or retained binding compatibility obligation.
+Old development encodings are removed, not preserved as a second execution design.
+Same-installation atomic participants and stored Link behavior still belong to
+Gate B. The existing transaction and publication owners remain unchanged.
 
 Sales Channel service/command compatibility, guarded source promotion and the
 original native integration cases remain incomplete. Partial foundation work

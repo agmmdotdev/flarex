@@ -7,7 +7,7 @@ import { installationRuntimeData } from "../frameworkSchema/installation/runtime
 import { acceptPreparedInstallation, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import type { InstallationBindingReference, DataBindingHeadToken } from "../frameworkSchema/binding/model";
-import { commerceBindings } from "../frameworkSchema/binding/model";
+import { commerceBindings, bindingInstallationReference } from "../frameworkSchema/binding/model";
 import { frameworkMigrationTargetSnapshot, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
@@ -58,7 +58,7 @@ export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransactio
     if (Option.isNone(candidate)) return yield* Effect.fail(commerceError("storedCorruption"));
     const binding = commerceBindings(candidate.value.frame).find(value => value.installation.installationSha256 === reference.installation.installationSha256);
     if (binding === undefined || !sameBindingValue(candidate.value.frame.application, application)) return yield* Effect.fail(commerceError("bindingChanged"));
-    const { profiles: _profiles, ...selected } = binding;
+    const selected = bindingInstallationReference(binding);
     if (!sameBindingValue(reference, selected)) return yield* Effect.fail(commerceError("bindingChanged"));
     yield* verifyCommerceBinding(tx, authority.scopeId, profile, binding, availability);
     head = Object.freeze({ sequence: current.value.frame.sequence, sha256: current.value.sha256 });

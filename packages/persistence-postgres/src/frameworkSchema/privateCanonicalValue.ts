@@ -53,7 +53,8 @@ export interface VerifyStoredPrivateCanonicalValueInput {
   readonly canonicalBytes: unknown;
   readonly sha256Hex: unknown;
   readonly expectedFormat: string;
-  readonly expectedVersion: number | readonly number[];
+  /** null requires an unversioned frame; it never skips version validation. */
+  readonly expectedVersion: number | readonly number[] | null;
   readonly maximumCanonicalBytes: number;
   readonly expectedKeys: readonly string[] | undefined;
   readonly validateFrame?: (frame: JsonObject) => boolean;
@@ -157,10 +158,9 @@ export const verifyStoredPrivateCanonicalValue = Effect.fn(
     (input.expectedKeys !== undefined &&
       !hasExactOwnDataKeys(decoded.parsed, input.expectedKeys)) ||
     decoded.parsed.format !== input.expectedFormat ||
-    !(typeof input.expectedVersion === "number"
+    !(input.expectedVersion === null ? !Object.hasOwn(decoded.parsed, "version") : typeof input.expectedVersion === "number"
       ? decoded.parsed.version === input.expectedVersion
-      : typeof decoded.parsed.version === "number" &&
-        input.expectedVersion.includes(decoded.parsed.version)) ||
+      : typeof decoded.parsed.version === "number" && input.expectedVersion.includes(decoded.parsed.version)) ||
     !validateStoredFrame(decoded.parsed, input.validateFrame)
   ) {
     return yield* Effect.fail(errors.storedCorruption());

@@ -31,6 +31,7 @@ import {
   dataBindingActivationRequest,
 } from "../src/frameworkSchema/binding/host";
 import { makeDataBindingTestProfiles } from "../src/frameworkSchema/binding/profiles";
+import { testBindingProfiles } from "./frameworkDataBindingPhysicalTestSupport";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import type { DataBindingSetFrame } from "../src/frameworkSchema/binding/model";
 import { fxSystemScopeClocks } from "../src/schema";
@@ -105,7 +106,7 @@ export async function reopenBindingHost(
     makeDataBindingTestProfiles(
       target.drizzle,
       migrationTarget,
-      commerceBindings(frame).flatMap(binding => binding.profiles),
+      commerceBindings(frame).flatMap(binding => testBindingProfiles(binding.coverage)),
     ),
   );
   return runEffect(

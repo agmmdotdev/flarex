@@ -32,10 +32,10 @@ export async function cmsHostFixture(persistence: PGliteFlarexPersistence | Post
   const claims = policy.writePolicies.filter(policy => policy.owner === "payload");
   const first = claims[0];
   if (first?.owner !== "payload") throw new Error("Expected CMS ownership");
-  const candidate = await runEffect(bindings.prepare({ format: "flarex.data-binding-set", version: 1, application: reference,
+  const candidate = await runEffect(bindings.prepare({ format: "flarex.data-binding-set", application: reference,
     payloadContent: { application: reference, configSha256: first.configSha256, provenanceSha256: first.provenanceSha256,
       tables: claims.map(claim => ({ tableId: claim.tableId.toString(), writePolicySha256: claim.writePolicySha256 })) },
-    payloadLifecycle: null, commerce: null, crossDomainReferences: [] }));
+    payloadLifecycle: null, commerce: [], crossDomainReferences: [] }));
   await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "cms-host-activate", candidate.sha256, null)));
 
   return { fixture, posts, bindings, reference, candidate, target };

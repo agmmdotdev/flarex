@@ -28,6 +28,21 @@ const ERRORS: PrivateCanonicalStoredValueErrorPolicy<TestStoredError> =
   });
 
 describe("private stored canonical value boundary", () => {
+  it("requires version absence for an unversioned contract without bypassing byte authentication", async () => {
+    const input = { format: "flarex.test-private-canonical-value", payload: { value: 1 } };
+    const verifyUnversioned = (value: JsonObject) => {
+      const stored = storedFrame(value);
+      return verifyStoredPrivateCanonicalValue({ canonicalBytes: stored.bytes, sha256Hex: stored.sha256Hex,
+        expectedFormat: input.format, expectedVersion: null, maximumCanonicalBytes: MAXIMUM_BYTES, expectedKeys: undefined }, ERRORS);
+    };
+    expect(await runEffect(verifyUnversioned(input))).toEqual(input);
+    for (const version of [1, 2, 3, null, "current"]) {
+      expect(await runEffectFailure(verifyUnversioned({ ...input, version }))).toEqual({ kind: "storedCorruption" });
+    }
+    const stored = storedFrame(input);
+    expect(await runEffectFailure(verifyStoredPrivateCanonicalValue({ canonicalBytes: stored.bytes, sha256Hex: "a".repeat(64),
+      expectedFormat: input.format, expectedVersion: null, maximumCanonicalBytes: MAXIMUM_BYTES, expectedKeys: undefined }, ERRORS))).toEqual({ kind: "storedCorruption" });
+  });
   it("uses intrinsic byte inspection without running caller byteLength accessors", async () => {
     const stored = storedFrame(frameAtDepth(1));
     let getterRan = false;

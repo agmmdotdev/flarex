@@ -1,7 +1,8 @@
 # Commerce Installation And Profile Bindings
 
-Status: proposed core contract; research and clean-current/explicit-legacy design
-direction approved, implementation not approved.
+Status: approved private core contract complete.
+The owner confirmed development-only use with no production data or retained
+compatibility obligation, and approved clean replacement of the old encodings.
 
 ## Outcome And Owners
 
@@ -66,7 +67,7 @@ persistence, not in adapter glue. The existing
 authenticated loaded implementations, exact residual coverage, immutable
 candidates and fenced activation. Those requirements remain.
 
-Current source shows the narrower limitation:
+The displaced implementation had the following limitation:
 
 - `frameworkSchema/binding/canonical.ts` permits one adapter/query/store triplet
   per commerce physical binding. Its V2 array also requires unique installation
@@ -87,12 +88,11 @@ Current source shows the narrower limitation:
 - `atomicCommerce/participants.ts` independently refuses duplicate installations.
   Removing that refusal is not part of this correction.
 
-The retained `packages/medusa-adapter/test/sales-channel-binding.test.ts` witness
-installs the 14-table candidate and reads the admitted Sales Channel table. It
-characterizes `unsupportedProfile` for unbound Product access and `invalidInput`
-for a proposed six-entry profile array. These are correct current refusals, not
-authorization bugs. The missing outcome is explicitly authorized dual-profile
-execution. The owning Gate A preflight records reproduction commands.
+The connected `packages/medusa-adapter/test/sales-channel-binding.test.ts` witness
+installs the 14-table candidate, preserves `unsupportedProfile` for unbound
+Product access, then explicitly authorizes both confined profiles through
+`makeCommerceBinding`. Core-neutral conformance owns the three-profile,
+cross-table refusal, revocation and old-triplet rejection assertions.
 
 The pinned fork remains `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`.
 `core/core-flows/src/product/workflows/create-products.ts` invokes the native
@@ -102,7 +102,7 @@ resolves Link and calls `create`/compensating `dismiss` for nonempty inputs.
 Binding two endpoint services advances that dependency but does not implement
 the native Link branch. No fork business-contract change is proposed here.
 
-## Recommended Stored Contract
+## Current Stored Contract
 
 Redesign the current binding contract under plain semantic names such as
 `CommerceBinding` and `makeCommerceBinding`. Do not introduce V2/V3 API families
@@ -201,25 +201,18 @@ scope-clock serialization contract, not a new cancellation promise.
 
 | Action | Decision and retirement gate |
 | --- | --- |
-| Retain | Only demonstrated compatibility obligations. If retained stored candidates, activation receipts or a supported external contract require old encodings, isolate their exact decoding/validation under explicit `Legacy...` names. Record the affected data/consumer and retirement gate. Existing code and fixtures alone do not establish that obligation. |
+| Retain | Application/Payload behavior, seeded singleton behavior, transaction and publication ownership. No old commerce binding reader is retained: the owner confirmed no production data or supported external compatibility obligation. |
 | Extend | Existing binding capture, membership verification and request admission for the redesigned current contract. Preserve Product/Currency service behavior without preserving their old assembly machinery merely because it exists. |
-| Replace | Commerce's repeated triplet assembly with one readiness coverage set and direct profile references. Migrate active producers/consumers to the current semantic API. Any necessary legacy boundary validates the old contract before projecting to the one current authorization model; no fallback execution or dual writes. Payload/test-only policies are not generalized. |
+| Replace | Commerce's repeated triplet assembly with one readiness coverage set and direct profile references. All active producers/consumers use the current semantic API. Payload/test-only policies are not generalized. |
 | Delete | Old codecs/assembly without a demonstrated obligation, after migrating callers and preserving meaningful safety assertions. Move core assertions from the temporary adapter diagnostic to core regressions; retain connected consumer assertions. Remove duplicated setup and provisional exports. |
 
-The earlier proposal to automatically add V3 and retain V1/V2 readers is withdrawn.
-Before changing codecs, inventory active producers/consumers, retained immutable
-candidates and receipts, deployed data and supported external readers. The current
-repository explicitly decodes older formats, but that fact alone does not prove
-they must coexist with the replacement. Unknown deployment state is not evidence
-that all data is disposable; record what is verified and ask about unresolved
-retention obligations rather than deleting or rewriting it.
-
-If compatibility is required, keep exact old bytes/digests at a narrow legacy
-boundary with an unambiguous decoder selection. Do not strip a persisted version
-field, reuse an old discriminator with changed meaning, or reinterpret old bytes
-under the current grammar. Exact stored encoding selection must be resolved from
-that inventory; this preflight no longer prescribes another numbered format.
-Normal runtime and caller names stay unversioned either way.
+The current `flarex.data-binding-set` frame has no version property and always
+uses a commerce array. Earlier versioned frames are rejected, never stripped or
+reinterpreted. The codec rejects a version property even when its other fields
+match the new contract. No Legacy reader, fallback execution or dual write exists.
+Repository producers and restart fixtures are migrated together. Existing private
+development databases containing old candidates must be recreated before reuse;
+this implementation does not delete or rewrite a user's database automatically.
 
 Existing SQL tables store canonical bytes and installation sidecars rather than
 one row per profile; no SQL migration is currently proposed. Any required data
@@ -268,5 +261,11 @@ the identity, coverage, activation or request-admission requirements.
   diagnostic coverage, reconcile owning roadmaps and create a scoped core commit
   before completing the remaining Sales Channel promotion/service work.
 
-This document is a source-backed proposal, not a claim that redesigned dual-profile
-admission exists. No runtime behavior changed during this preflight.
+Retain the existing cold-installation deadline and the open reliability limitation
+in [the timeout investigation](./49-medusa-postgres-timeout-investigation.md).
+Run constrained serial database validation on Windows. A setup timeout before
+binding construction is not a passing consumer proof; a subsequent passing run
+does not establish its cause or resolve the broader storage-stall investigation.
+
+This core capability does not complete Sales Channel native service compatibility,
+stored Links, shared-installation atomic execution or Product workflow integration.

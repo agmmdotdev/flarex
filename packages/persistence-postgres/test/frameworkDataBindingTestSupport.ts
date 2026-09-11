@@ -78,11 +78,10 @@ export async function exerciseBindingLifecycle<
   });
   const frame: DataBindingSetFrame = {
     format: "flarex.data-binding-set",
-    version: 1,
     application: reference,
     payloadContent: null,
     payloadLifecycle: null,
-    commerce: null,
+    commerce: [],
     crossDomainReferences: [],
   };
   expect(
