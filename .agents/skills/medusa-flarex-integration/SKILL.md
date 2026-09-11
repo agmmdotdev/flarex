@@ -85,6 +85,35 @@ make parity pass. Retain original compatibility witnesses; separately test and
 label any approved divergence. Never claim unchanged upstream compatibility for
 behavior deliberately changed in the fork.
 
+## Core special cases are a last resort
+
+A module exposing a core limitation is evidence of a missing capability, not a
+reason to design core around that module. Prefer a module-neutral correction in
+the existing owner, expressed through actual contracts and capabilities. Another
+module within that supported contract should need declarations and its genuine
+adapter extensions, not another core branch, factory or binding redesign.
+
+Introduce module-specific core behavior only when absolutely necessary. Before
+proposing an exception, demonstrate all of the following in the preflight:
+
+- The exact required behavior and a reproducible witness, grounded in the native
+  contract or an explicitly approved divergence.
+- Why existing composition, a module-owned extension, a scoped fork adaptation,
+  and a reusable correction at the shared owner cannot correctly satisfy it.
+- Why core is the necessary owner, the narrow scope and affected consumers,
+  preserved authority/compatibility invariants, and removal or reassessment gate.
+
+Obtain explicit approval for that exception. Convenience, a passing module test,
+an existing special case, or avoiding work in the correct owner is not evidence
+of necessity. Do not disguise an exception as a generic registry or weaken core
+validation to accommodate it. Genuine business-specific behavior normally stays
+in its module; do not invent a universal abstraction merely to eliminate it.
+
+For a reusable core claim, test independent neutral fixtures and another supported
+profile through the same path, with no module-name branches or adapter imports in
+core. Keep the native module/workflow proof separate. Future unsupported semantics
+may require new shared capabilities; they do not justify per-module glue fixes.
+
 ## Small shared mechanics and clean construction APIs
 
 Prefer one cohesive construction entry point per responsibility. A consumer
