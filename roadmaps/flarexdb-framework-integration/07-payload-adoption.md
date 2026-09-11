@@ -158,13 +158,38 @@ separates capability contracts from concrete collection definitions and traces
 the required analysis, binding, and deletion-owner corrections. Its
 first new proof is two fresh Payload-owned scalar collections, not arbitrary
 configuration, relation expansion, migration, or serving support. Its uniqueness
-prerequisite now authenticates single-text unique intent in descriptor revision
-2, prepares the definitions in trusted schema publication, and refuses mismatched
+prerequisite authenticates single-text unique intent, prepares the definitions
+in trusted schema publication, and refuses mismatched
 sets during readiness and activation revalidation. Existing scalar conformance
-no longer seeds its own unique definition. The collection compiler, complete
-configurable-behavior descriptor, runtime routing, binding generalization, and
-collection-aware preference cleanup remain pending approved gates. Revision 2
-does not establish arbitrary native configuration support.
+no longer seeds its own unique definition. The private collection compiler now
+captures a closed native scalar definition set, sanitizes owned copies, and
+lowers through shared schema authoring into the existing loaded-source analysis
+input. Descriptor revision 3 records native field order, literal defaults,
+collection-to-table mapping, and managed timestamp mode as well as uniqueness.
+The fixed private consumers use that revision; old bytes fail decoding rather
+than acquiring new semantics. No stored data is rewritten.
+
+Compiler tests reach shared analysis and manifest verification, not new-collection
+Local API CRUD or deployed source-artifact admission. Runtime routing, checked
+binding generalization, collection-aware preference cleanup, and migration of
+ordinary construction/conformance through compiled metadata remain pending.
+This compiler does not initialize Payload, install schema state, or issue runtime
+authority. Native configuration and field validation stay Payload-owned.
+
+### Runtime Lifetime And Latency Follow-Up
+
+Current composition initializes one scoped Payload instance and reuses it for
+its commands; it does not install schemas or bootstrap Payload on each command.
+Each root request still performs live authority, active-schema, binding, and
+transaction preparation. No measured dominant latency cost is established.
+After configuration routing is proven, preflight cold initialization, binding,
+warm admission/preparation, SQL counts, lock waits, Local API work, and commit
+separately, with ordinary-role PostgreSQL cold/warm p50 and p95 evidence.
+Reusable immutable metadata must not become a cache of request authority.
+Principals, mutable requests/loaders, cancellation, and transactions stay
+request-owned; a bound host's access policy is not automatically shareable
+across users. Initialization caching/eviction and any lock-duration or authority
+change require their own approved design, not an adapter optimization here.
 
 ## Implementation Sequence
 

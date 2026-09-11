@@ -27,13 +27,25 @@ export const PayloadProvenanceSchema = Schema.Struct({
 }).annotate(StrictStructOptions);
 export type PayloadProvenance = typeof PayloadProvenanceSchema.Type;
 
+/** Native collection identity and its deterministic storage projection. */
+export const PayloadCollectionSlugSchema = Schema.String.check(
+  Schema.isPattern(/^[a-z][a-z0-9_-]{0,63}$/),
+  Schema.makeFilter(slug => slug === "users" || slug.startsWith("payload-") ||
+    ["constructor", "prototype"].includes(slug) ? "Reserved Payload collection" : undefined),
+);
+export const payloadCollectionLogicalName = (slug: string): string => slug.replaceAll("-", "_");
+
 const ScalarField = Schema.Struct({
   name: Identity,
   kind: Schema.Literals(["text", "number", "boolean", "date"]),
   unique: Schema.optionalKey(Schema.Literal(true)),
-}).annotate(StrictStructOptions).check(Schema.makeFilter(field =>
-  field.unique === undefined || field.kind === "text" ? undefined : "Only required text fields support uniqueness"
-));
+  defaultValue: Schema.optionalKey(Schema.Union([Schema.String,
+    Schema.Finite.check(Schema.makeFilter(value => Object.is(value, -0) ? "Negative zero is not canonical" : undefined)), Schema.Boolean])),
+}).annotate(StrictStructOptions).check(Schema.makeFilter(field => {
+  if (field.unique !== undefined && field.kind !== "text") return "Only required text fields support uniqueness";
+  const defaultType = field.kind === "text" || field.kind === "date" ? "string" : field.kind;
+  return field.defaultValue === undefined || typeof field.defaultValue === defaultType ? undefined : "Default must match the scalar kind";
+}));
 
 const OptionalPostRelationField = Schema.Struct({
   name: Schema.Literal("relatedPost"), kind: Schema.Literal("relationship"),
@@ -52,10 +64,12 @@ const ManyPostRelationField = Schema.Struct({
 /** A private declarative profile, never a serialized executable Payload config. */
 const ConfigurationFields = {
   format: Schema.Literal("flarex.payload-configuration"),
-  version: Schema.Literal(2),
+  version: Schema.Literal(3),
   provenanceSha256: Digest,
   tables: Schema.Array(Schema.Struct({
     logicalTableName: Identity,
+    collectionSlug: PayloadCollectionSlugSchema,
+    timestamps: Schema.Boolean,
     fields: Schema.Array(Schema.Union([ScalarField, OptionalPostRelationField, ManyPostRelationField])).check(Schema.isMaxLength(64)),
   }).annotate(StrictStructOptions)).check(
     Schema.isMinLength(1),
@@ -73,6 +87,15 @@ export const PayloadConfigurationSchema = Schema.Union([
     joins: Schema.Tuple([Join("referencedBy", "relatedPost"), Join("referencedByMany", "relatedPosts")]),
   }).annotate(StrictStructOptions),
 ]).check(Schema.makeFilter(config => {
+  if (new Set(config.tables.map(table => table.collectionSlug)).size !== config.tables.length) return "Duplicate collection slug";
+  for (const table of config.tables) {
+    if (table.logicalTableName !== payloadCollectionLogicalName(table.collectionSlug)) return "Collection-to-table mapping mismatch";
+    if (new Set(table.fields.map(field => field.name)).size !== table.fields.length) return "Duplicate field name";
+    const managed = table.fields.filter(field => field.name === "createdAt" || field.name === "updatedAt");
+    if (table.timestamps ? managed.length !== 2 || managed.some(field => field.kind !== "date" || field.defaultValue !== undefined || field.unique !== undefined) : managed.length !== 0) {
+      return "Managed timestamps must agree with the declared date fields";
+    }
+  }
   if (config.tables.some(table => table.fields.filter(field => field.kind !== "relationship" && field.unique === true).length > 1)) {
     return "At most one unique text field is admitted per Payload table";
   }

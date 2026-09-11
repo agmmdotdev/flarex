@@ -1,4 +1,4 @@
-import { BasePayload, buildConfig, type CollectionConfig } from "payload";
+import { BasePayload, type CollectionConfig } from "payload";
 import { Effect } from "effect";
 import { cmsError, makeCmsHost, type CmsHost, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { makePayloadDatabaseAdapter } from "./adapter";
@@ -6,6 +6,7 @@ import { type PayloadContentProfile } from "./contract";
 import { makePayloadOperations } from "./operations";
 import { payloadContentIdentity, payloadPostsCollection } from "./profile";
 import type { PayloadHostInput, PayloadRuntime } from "./runtime";
+import { buildPayloadConfiguration } from "./configuration";
 
 /** Source-private test seam. Neither ordinary runtime arguments nor package exports expose it. */
 interface ConformanceHooks {
@@ -22,19 +23,7 @@ export const makePayloadComposition = Effect.fn("PayloadAdapter.compose")(functi
   let live = true;
   const posts = payloadPostsCollection(profile);
   if (conformance !== undefined) posts.hooks = conformance.hooks;
-  const config = yield* Effect.tryPromise({
-    try: () => buildConfig({
-      secret: "private-payload-conformance-only-not-a-deployment-secret", db: bridge.adapter,
-      collections: [posts, { slug: "users", auth: true, lockDocuments: false, fields: [] }],
-      admin: { user: "users", disable: true }, globals: [], folders: false,
-      jobs: { tasks: [], workflows: [] }, telemetry: false, typescript: { autoGenerate: false },
-      kv: { init: () => ({ clear: bridge.unsupported, delete: bridge.unsupported, get: bridge.unsupported,
-        has: bridge.unsupported, keys: bridge.unsupported, set: bridge.unsupported }) },
-      email: () => ({ name: "disabled", defaultFromAddress: "disabled@example.invalid", defaultFromName: "Disabled",
-        sendEmail: () => bridge.unsupported("email") }),
-    }),
-    catch: cause => cmsError("unsupportedProfile", cause),
-  });
+  const config = yield* buildPayloadConfiguration([posts], bridge);
   const slugs = config.collections.map(collection => collection.slug).toSorted();
   if (slugs.join() !== "payload-migrations,payload-preferences,posts,users" || config.globals.length !== 0 ||
     config.collections.some(collection => collection.lockDocuments !== false)) {

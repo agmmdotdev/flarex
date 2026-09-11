@@ -1,7 +1,7 @@
 # Payload Collection Configuration And Admission
 
-Status: scalar-first implementation approved; authenticated uniqueness
-prerequisite implemented; collection compiler/runtime gates remain pending
+Status: scalar-first implementation approved; authenticated uniqueness and
+inert compiler/descriptor gates implemented; runtime/admission integration pending
 
 ## Outcome And Explicit Limits
 
@@ -76,7 +76,7 @@ Paths below are relative to the repository root.
 | --- | --- | --- |
 | `packages/payload-adapter/src/profile.ts`, `composition.ts` | Four fixed content identities; ordinary construction always installs `posts` plus fixed internal/auth inventory. | Separate a capability contract, an application's collection definitions, and the compiled configuration identity. Keep one construction owner. |
 | `packages/payload-adapter/src/contract.ts`, `inputs.ts`, `operations.ts`, `query.ts`, `adapter.ts` | Field metadata, caller equality on `id`/`title`, Local API collection selection, date/relation projection, and unique errors assume the exercised collection. | Route through operation-local checked collection metadata. Do not introduce a mutable "current collection" variable or entity-name switch. |
-| `packages/analysis/src/applicationWritePolicy/model.ts` | Scalar descriptors allow multiple named tables and scalar field names. Relation/join descriptors remain exact `posts` shapes. Revision 2 adds authenticated unique intent; required/default/order/timestamp configuration is not yet generalized. | Reuse the existing declarative analysis owner; a wider runtime contract must commit all newly configurable observable semantics. |
+| `packages/analysis/src/applicationWritePolicy/model.ts` | Revision 3 commits scalar defaults, native field order, collection slug mapping, timestamp mode, and unique intent. Scalar fields remain required. Relation/join descriptors remain exact `posts` shapes. | Reuse the existing declarative analysis owner; runtime/binding activation remains gated. |
 | `packages/analysis/src/applicationWritePolicy/schemaCompatibility.ts` | Requires exact flat stored fields and verifies current relation declarations. | Compiled schema and configuration must still agree; optional-field or relationship expansion is not implicit. |
 | `packages/analysis/src/index.ts`, `applicationAnalysisV2.ts`, `applicationAnalysisV3.ts` | Reads own-data `writePolicies`, verifies them against analyzed tables, then builds/verifies the existing policy-bearing manifest. | Reuse this path. A compiler-returned object/hash is not authenticated publication authority. |
 | `packages/persistence-postgres/src/payloadPreferences/binding.ts` | The opaque profile issuer requires exactly four identities with relation counts 0, 1, 2, 2. | Generalize the trusted issuer's admitted descriptor set; preserve copying, freezing, registry identity, and exact content/lifecycle verification. Do not replace the token with a caller-owned map. |
@@ -131,7 +131,7 @@ input to the authoritative analyzer, not a caller-authenticated manifest.
 Unique readiness is an explicit prerequisite, not an assumed compiler feature.
 The approved correction below replaced the fixture's manual `unique_title`
 preparation with authenticated unique intent lowered by trusted publication.
-The pending collection compiler must generate that same analysis input; it must
+The collection compiler generates that same analysis input; its runtime consumer must
 not copy fixture DML, seed uncommitted metadata, or omit uniqueness to make a new
 collection pass. Closure, build eligibility, and activation remain separate
 existing owner decisions after definition publication.
@@ -299,10 +299,10 @@ longer hand-installs `unique_title`.
 The correction stays with these existing owners:
 
 - Analysis `applicationWritePolicy/model.ts` uses configuration descriptor
-  revision 2. Optional `unique: true` is authenticated scalar metadata, restricted
+  revision 3 (replacing the initial unique-only revision 2). Optional `unique: true` is authenticated scalar metadata, restricted
   to at most one text field per table; scalar storage fields remain required by
   the existing schema-compatibility check. Explicit false/undefined and old
-  revision-1 descriptors are rejected rather than normalized into new bytes.
+  revision-1/2 descriptors are rejected rather than normalized into new bytes.
 - Persistence `appUniqueConstraintDefinitions.ts` prepares a supplied physical
   spec after checking its schema/table parent. The new
   `applicationWriteOwnership/UniqueDeclarations.ts` translates verified policy
@@ -321,16 +321,14 @@ The correction stays with these existing owners:
 
 Compatibility inventory: executable descriptor literals occur in the analysis
 model/test, Payload contract/profile, persistence policy fixture, and Standard
-Application definition test. These private consumers now use revision 2; no
+Application definition test. These private consumers now use revision 3; no
 SQL/JSON migration seed or supported deployed descriptor obligation was found in
 the package inventory. No old data is rewritten or discarded. Retained old
 artifacts fail decoding and require an explicitly approved migration if support
 is later requested. The fixed four-profile runtime remains unchanged in scope.
 
-Revision 2 authenticates unique intent, not every configurable native behavior.
-The pending compiler must still commit required/default/timestamp/order and
-capability semantics under an explicitly finalized descriptor before arbitrary
-collection runtime activation; it may not silently extend existing bytes.
+Revision 3 replaces the unique-only revision, rather than extending its bytes.
+Its compiler and remaining integration boundary are specified below.
 
 Owner correction and remaining handoff:
 
@@ -349,9 +347,9 @@ Owner correction and remaining handoff:
    must continue to admit an empty set.
 4. Retain the missing-evidence regression and mismatch cases, and prove that
    the matching constraint enforces native unique behavior on both drivers.
-   The pending compiler must supply real generated analysis input to its new
-   collection proof; the existing manually assembled manifest fixture is not
-   a collection compiler. Then resume the approved compiler/runtime,
+   The compiler supplies generated loaded-source analysis input; the next
+   collection runtime proof must consume that output. The existing manually
+   assembled manifest fixture is not a collection compiler. Continue the approved runtime,
    binding, deletion, compatibility, and removal gates above.
 
 This is an authenticated declaration-to-readiness contract correction, not a
@@ -359,3 +357,64 @@ request for a new unique storage engine, universal schema DSL, physical
 migration, or adapter-side validation workaround. Test orchestration closes and
 builds the published set through existing owners; it does not reproduce physical
 spec generation or install separate fixture metadata.
+
+## Implemented Compiler Contract And Remaining Runtime Gate
+
+`@flarex/payload-adapter/internal/collections` exposes construction-time
+`compilePayloadCollections`. It accepts the closed subset of native
+`CollectionConfig` data: a slug, 1-62 flat required text/number/checkbox/date
+fields, kind-correct literal defaults, and at most one `unique: true` text field.
+Optional collection flags may only confirm managed timestamps, disabled locks
+and query presets, and `id` sort. Executable, cosmetic, unsupported, inherited,
+accessor, sparse, cyclic, and excess data fail before native sanitation. Explicit
+field indexes remain unsupported; managed timestamp index hints are not a
+promise of a new indexed query family. Existing bounded query capabilities and
+the existing unique-definition owner remain unchanged.
+
+The capture owner is reused from Application write-policy data capture (1 MiB,
+depth/node bounds, and maximum 64 entries per array). The compiler admits at most
+64 collections and 62 author fields per collection, leaving two stored timestamp
+fields within the 64-field descriptor bound. These count ceilings do not waive
+the combined node/byte limits. Schema owns the supported input shape; native
+sanitation owns checkbox defaults and timestamp field insertion. The four
+pinned public native scalar validators check literal defaults. Owned-data
+comparisons reject sanitation drift in field kind, order, defaults, uniqueness,
+requiredness, timestamp mode, and collection inventory.
+
+The descriptor's profile commits the existing trusted Local API capability
+contract: required scalar storage, fixed access strategy behind authenticated
+commands, bounded id/one-unique-text equality and paging, and no executable
+author options. Revision 3 additionally records each native collection slug,
+its logical table name, timestamp mode, field traversal order, literal defaults,
+and unique intent. Tables remain canonically ordered; fields deliberately retain
+native order and reject duplicates. Logical names replace slug hyphens with
+underscores; collisions (including `news-items` versus `news_items`) fail closed.
+Native internal/auth registry names and reserved stored fields cannot be supplied.
+Lifecycle preferences remain in their separate relational artifact; internal slugs
+never pass through the Application-table projection. False
+timestamp mode remains representable for existing analysis-only policy fixtures;
+the new native collection compiler admits only managed timestamps.
+
+The compiler uses `@flarex/application-schema-definition` for object/scalar/table
+construction, reuses analysis capture/hash verification, and returns the generated
+loaded-source schema declaration plus immutable configuration identity. The
+existing analyzer still verifies schema/policy agreement and produces the manifest;
+the compiler does not manufacture an authenticated manifest or allocate table IDs.
+Fresh native collection copies can be created without mutating compiled evidence.
+It invokes configuration sanitation, not `BasePayload.init`, Local API CRUD,
+DDL, publication, activation, or transaction preparation. Its resource-free native
+validation context is discarded after compilation, not retained as a runtime.
+
+Existing scalar/relation/many/join descriptor consumers were replaced in place;
+there is no old decoder or second execution pipeline. The scalar fixture has a
+native-authoring-to-fixed-identity drift witness. Old retained bytes fail decoding;
+no database was rewritten, discarded, or automatically migrated. A supported old
+artifact would still require explicit migration approval.
+
+This is the compiler/descriptor checkpoint, not the complete integration. The
+new two-collection proof reaches shared loaded-source analysis and manifest
+verification; its manifest source references are test fixtures, not uploaded or
+deployed artifact evidence. The next gate must pass compiler output through
+publication/readiness/binding into the same Local API runtime, generalize checked
+binding and deletion evidence, retain replay/scope/refusal witnesses, and remove
+fixed ordinary construction only after its existing consumers have migrated.

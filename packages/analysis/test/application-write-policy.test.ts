@@ -12,23 +12,57 @@ import { verifyApplicationWritePolicies } from "../src/applicationWritePolicy/ve
 import type { ApplicationWritePolicies } from "../src/applicationWritePolicy/model.ts";
 
 describe("Application write-policy evidence", () => {
+  it("authenticates revision-3 defaults/order and enforces timestamp and collection agreement", () => {
+    const fixture = policyFixture();
+    const table = fixture.configuration.tables[0]!;
+    const accepts = (tables: Json) => Result.isSuccess(decodeApplicationWritePolicies({ ...fixture,
+      configuration: { ...fixture.configuration, tables } }, ["audit", "posts"]));
+    const fields = [{ name: "z", kind: "text", defaultValue: "first" }, { name: "a", kind: "number", defaultValue: 0 }];
+    expect(accepts([{ ...table, fields }])).toBe(true);
+    expect(accepts([{ ...table, fields: [...fields].reverse() }])).toBe(true);
+    expect(hash(fields)).not.toBe(hash([...fields].reverse()));
+    for (const invalid of [
+      { ...table, fields: [fields[0]!, fields[0]!] },
+      { ...table, fields: [{ name: "title", kind: "number", defaultValue: "wrong" }] },
+      { ...table, fields: [{ name: "title", kind: "number", defaultValue: -0 }] },
+      { ...table, timestamps: true },
+      { ...table, timestamps: false, fields: [{ name: "createdAt", kind: "date" }] },
+      { ...table, timestamps: true, fields: [{ name: "createdAt", kind: "date", defaultValue: "2026-01-01" }, { name: "updatedAt", kind: "date" }] },
+      { ...table, timestamps: true, fields: [{ name: "createdAt", kind: "date" }, { name: "updatedAt", kind: "text" }] },
+    ]) expect(accepts([invalid])).toBe(false);
+    expect(accepts([{ ...table, timestamps: true, fields: [{ name: "updatedAt", kind: "date" }, { name: "createdAt", kind: "date" }] }])).toBe(true);
+    expect(accepts([table, { ...table, logicalTableName: "other" }])).toBe(false);
+  });
   it("authenticates one required text unique declaration without reinterpreting old descriptor bytes", async () => {
     const fixture = policyFixture();
-    const configure = (fields: Json, version = 2) => ({ ...fixture, configuration: {
-      ...fixture.configuration, version, tables: [{ logicalTableName: "posts", fields }],
+    const configure = (fields: Json, version = 3) => ({ ...fixture, configuration: {
+      ...fixture.configuration, version, tables: [{ logicalTableName: "posts", collectionSlug: "posts", timestamps: false, fields }],
     } });
     const unique = configure([{ name: "title", kind: "text", unique: true }]);
     expect(Result.isSuccess(decodeApplicationWritePolicies(unique, ["audit", "posts"]))).toBe(true);
     expect(hash(unique.configuration)).not.toBe(hash(fixture.configuration));
     for (const invalid of [
       configure([{ name: "title", kind: "text" }], 1),
+      configure([{ name: "title", kind: "text" }], 2),
       configure([{ name: "title", kind: "number", unique: true }]),
       configure([{ name: "other", kind: "text", unique: true }, { name: "title", kind: "text", unique: true }]),
-      { ...unique, configuration: { ...unique.configuration, tables: [{ logicalTableName: "posts", fields: [{ name: "title", kind: "text", unique: undefined }] }] } },
+      { ...unique, configuration: { ...unique.configuration, tables: [{ ...unique.configuration.tables[0], fields: [{ name: "title", kind: "text", unique: undefined }] }] } },
       configure([{ name: "title", kind: "text", unique: false }]),
     ]) expect(Result.isFailure(decodeApplicationWritePolicies(invalid, ["audit", "posts"]))).toBe(true);
     const result = await Effect.runPromise(Effect.result(verifyApplicationWritePolicies(unique, ["audit", "posts"])));
     expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "digestMismatch" } });
+  });
+  it("refuses rehashed reserved slugs and forged logical mappings at authoritative analysis", async () => {
+    for (const collectionSlug of ["users", "payload-preferences", "constructor", "wrong-collection", "_hidden"]) {
+      const original = policyFixture();
+      const configuration = { ...original.configuration, tables: [{ ...original.configuration.tables[0]!, collectionSlug }] };
+      const writePolicies = { ...original, configuration, tables: original.tables.map(table => table.owner === "payload"
+        ? { ...table, configSha256: hash(configuration) } : table) };
+      expect(Result.isFailure(decodeApplicationWritePolicies(writePolicies, ["audit", "posts"]))).toBe(true);
+      expect(await Effect.runPromise(Effect.result(analyzeLoadedApplicationSourcePackageEffect({
+        executionModules: {}, sourceMaps: {}, schemaDefinition: { tables: { audit: schemaTable(), posts: schemaTable() }, relations: [], writePolicies },
+      })))).toMatchObject({ _tag: "Failure", failure: { _tag: "AnalyzerSchemaError" } });
+    }
   });
   it("owns the evidence and verifies independent hashes for the complete set and each table", async () => {
     const input = policyFixture();
@@ -89,7 +123,7 @@ describe("Application write-policy evidence", () => {
       { name: "constructor", kind: "text" }, { name: "__proto__", kind: "text" },
     ]) {
       const original = policyFixture();
-      const configuration = { ...original.configuration, tables: [{ logicalTableName: "posts", fields: [field] }] };
+      const configuration = { ...original.configuration, tables: [{ ...original.configuration.tables[0], fields: [field] }] };
       const writePolicies = { ...original, configuration, tables: [original.tables[0], {
         ...original.tables[1], configSha256: hash(configuration),
       }] };
@@ -191,8 +225,8 @@ function policyFixture() {
     gitTagObject: "c54dea8f4010d9cb194780f2ee1e4b3ec697f9be", gitCommit: "fea6f8a47a50ff1330d8a5071b43e7dcffb97b22",
   } satisfies ApplicationWritePolicies["provenance"];
   const configuration = {
-    format: "flarex.payload-configuration", version: 2, profile: "payload.scalar", provenanceSha256: hash(provenance),
-    tables: [{ logicalTableName: "posts", fields: [{ name: "title", kind: "text" }] }],
+    format: "flarex.payload-configuration", version: 3, profile: "payload.scalar", provenanceSha256: hash(provenance),
+    tables: [{ logicalTableName: "posts", collectionSlug: "posts", timestamps: false, fields: [{ name: "title", kind: "text" }] }],
   } satisfies ApplicationWritePolicies["configuration"];
   return {
     format: "flarex.application-table-write-policies", version: 1, provenance, configuration,

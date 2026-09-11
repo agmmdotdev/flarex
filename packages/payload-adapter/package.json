@@ -5,12 +5,14 @@
   "type": "module",
   "exports": {
     "./internal/contract": "./src/contract.ts",
+    "./internal/collections": "./src/collections.ts",
     "./internal/profile": "./src/profile.ts",
     "./internal/runtime": "./src/runtime.ts",
     "./internal/testing": "./src/testing.ts"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
+    "@flarex/application-schema-definition": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
     "effect": "catalog:",
     "flarex-protocol": "workspace:*"

@@ -118,9 +118,7 @@ export function decodeApplicationWritePolicies(
     );
     yield* validateOrder(policies.tables.map(table => table.logicalTableName), "tables");
     yield* validateOrder(policies.configuration.tables.map(table => table.logicalTableName), "configuration.tables");
-    for (const table of policies.configuration.tables) {
-      yield* validateOrder(table.fields.map(field => field.name), `configuration.${table.logicalTableName}.fields`);
-    }
+    // Revision 3 preserves native field traversal order; the schema rejects duplicates.
     const expected = [...logicalTableNames].sort(compareUtf16Strings);
     if (expected.length !== policies.tables.length || expected.some((name, index) =>
       name !== policies.tables[index]?.logicalTableName

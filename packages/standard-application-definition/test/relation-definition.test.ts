@@ -43,8 +43,8 @@ describe("Standard Application relation definitions", () => {
         gitTagObject: "c54dea8f4010d9cb194780f2ee1e4b3ec697f9be", gitCommit: "fea6f8a47a50ff1330d8a5071b43e7dcffb97b22",
       },
       configuration: {
-        format: "flarex.payload-configuration", version: 2, profile: "payload.scalar", provenanceSha256: "0".repeat(64),
-        tables: [{ logicalTableName: "posts", fields: [] }],
+        format: "flarex.payload-configuration", version: 3, profile: "payload.scalar", provenanceSha256: "0".repeat(64),
+        tables: [{ logicalTableName: "posts", collectionSlug: "posts", timestamps: false, fields: [] }],
       },
       tables: [
         { logicalTableName: "posts", owner: "payload", policyId: "payload.scalar", configSha256: "0".repeat(64), provenanceSha256: "0".repeat(64) },

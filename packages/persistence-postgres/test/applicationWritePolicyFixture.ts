@@ -11,8 +11,8 @@ export function policyFixture(fields: ApplicationWritePolicies["configuration"][
     gitTagObject: "c54dea8f4010d9cb194780f2ee1e4b3ec697f9be", gitCommit: "fea6f8a47a50ff1330d8a5071b43e7dcffb97b22",
   } satisfies ApplicationWritePolicies["provenance"];
   const configuration = {
-    format: "flarex.payload-configuration", version: 2, profile: "payload.scalar", provenanceSha256: hashPolicyFixture(provenance),
-    tables: [{ logicalTableName: "posts", fields }],
+    format: "flarex.payload-configuration", version: 3, profile: "payload.scalar", provenanceSha256: hashPolicyFixture(provenance),
+    tables: [{ logicalTableName: "posts", collectionSlug: "posts", timestamps: fields.some(field => field.name === "createdAt"), fields }],
   } satisfies ApplicationWritePolicies["configuration"];
   return {
     format: "flarex.application-table-write-policies", version: 1, provenance, configuration,

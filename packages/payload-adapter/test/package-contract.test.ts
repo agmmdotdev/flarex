@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { expect, it } from "vitest";
 import { payloadScalarFields } from "@flarex/payload-adapter/internal/contract";
+import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
 import {
   makePayloadContentProfiles,
   payloadPostsCollection,
@@ -14,6 +15,7 @@ it("resolves every declared private package subpath", () =>
     expect(payloadPostsCollection().slug).toBe("posts");
     expect(payloadScalarFields).toHaveLength(6);
     expect(makePayloadRuntime).toBeTypeOf("function");
+    expect(compilePayloadCollections).toBeTypeOf("function");
     expect(makePayloadConformanceRuntime).toBeTypeOf("function");
     expect(new UnsupportedPayloadCapability("probe")).toBeInstanceOf(Error);
   }));
