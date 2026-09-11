@@ -182,14 +182,23 @@ refactor, or material test-coverage/expectation change. Docs-only, planning,
 formatting, generated refreshes, and minor mechanical changes do not require
 them; ordinary investigation and test-fix loops use main-thread self-review.
 
-The TypeScript reviewer owns type soundness, API/runtime contract agreement,
-typed errors, reusable types, Effect applicability, and Effect implementation
-quality. The code-quality reviewer owns behavioral/data correctness, trust,
-transactions/concurrency, reliability, performance, operability,
+The TypeScript reviewer owns TypeScript design, responsibility and utility
+placement, reuse of existing owners and types, API/runtime contract agreement,
+type soundness, typed errors, Effect applicability, and Effect composition and
+implementation quality. The code-quality reviewer owns behavioral/data
+correctness, trust, transactions/concurrency, reliability, performance, operability,
 maintainability degradation, failure modes, and test adequacy. Their source of
 truth is `.codex/agents/`. If substantive code changes after review, rerun both
 reviewers against the final diff. The main thread triages findings, makes all
 fixes, and reruns validation.
+
+Give both reviewers the exact base/checkpoint, owned paths or hunks (including
+untracked files), approved contract, and validation evidence. Keep that scope
+stable during review; unrelated dirty work is not part of the checkpoint.
+Reviewers must investigate connected contracts and existing owners or concrete
+failure scenarios, and report evidence and gaps alongside findings. Passing
+checks, coverage counts, and no findings do not establish review depth. The
+reviewer prompts own the investigation and reporting details.
 
 Validate proportionally with affected typechecks, focused tests, builds, source
 or compatibility guards, and lint. Schema, transaction, isolation, locking,

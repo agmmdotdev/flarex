@@ -57,7 +57,8 @@ The TypeScript reviewer owns the Effect-applicability assessment for all
 materially changed TypeScript operations, static/runtime contract agreement,
 public API compatibility, exact success/failure/requirement channels, Schema
 and encoded shape agreement, service and Layer dependency types, tagged errors,
-type soundness, reuse of stable repo-owned types, and all Effect
+type soundness, TypeScript design, responsibility and utility placement, reuse
+of existing owners and stable repo-owned types, and all Effect
 implementation-quality review, including composition, services/Layers,
 lifecycles, errors, HTTP, state ownership, and tests.
 
@@ -66,6 +67,30 @@ transaction boundaries, reliability, lifecycle and concurrency, performance,
 operability, general maintainability degradation, obvious defects, plausible
 failure modes, and test quality. It reports concrete system consequences in
 Effect code without duplicating Effect idiom, API-selection, or pattern review.
+
+The main thread supplies an exact base/checkpoint, owned paths or hunks,
+included untracked files, approved contract, and validation evidence. Reviewers
+inspect that scope and its connected dependencies without absorbing unrelated
+dirty work. A changing checkpoint requires a fresh pass on affected conclusions.
+
+The TypeScript reviewer traces producers, decoders, operations, dependencies,
+and consumers; searches existing owners before accepting new machinery; and
+compares semantics before recommending reuse. It evaluates the connected API
+and Effect composition, including caller burden and unnecessary abstractions.
+Utility placement follows `16-package-boundaries.md`; repeated domain logic
+does not automatically belong in generic utils.
+
+The systems reviewer selects high-risk invariants, traces concrete failure and
+recovery scenarios through their enforcing owners, and checks whether test
+assertions would detect broken behavior. It challenges competing authority,
+consumer workarounds, hidden ordering, and unsupported performance claims.
+
+Both report concise investigation evidence and unresolved gaps as well as
+findings. Static traces, executed checks, and supplied validation remain
+distinct. Concrete design and maintainability defects are reportable without
+a runtime failure; generic preferences and hypothetical reuse are not. Green
+lint, applicability counts, and no findings do not establish review depth or
+measured reviewer effectiveness. The prompts own the detailed methods.
 
 Both reviewers remain risk-adaptive. The TypeScript reviewer reports an explicit
 Effect guide violation introduced by the diff or pre-existing in its materially

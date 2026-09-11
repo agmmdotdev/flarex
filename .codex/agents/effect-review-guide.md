@@ -255,8 +255,11 @@ compatibility wrappers, defects, and narrow foreign adapters remain plain when
 their contracts require it; this is not permission for a package-wide
 migration.
 
-The TypeScript reviewer also owns all Effect implementation-quality review
-alongside its general TypeScript responsibilities: precise `A`, `E`, and `R`;
+The TypeScript reviewer also owns TypeScript design, responsibility and utility
+placement, reuse of existing owners, and all Effect implementation-quality
+review. Its prompt requires existing-owner searches and connected design traces;
+apply this overlay to the whole composition, not isolated syntax. Responsibilities
+include precise `A`, `E`, and `R`;
 public and service contract agreement; return-type stabilization; `fn` / `fnUntraced` /
 `gen` / pipeline choice; Option, Result, Exit, Match, and conditional flow;
 error provenance and retry; Schema decoded/encoded agreement and compiler
@@ -276,6 +279,11 @@ a concrete systems consequence, that reviewer reports the consequence without
 duplicating Effect-pattern analysis.
 
 ## Coverage And Finding Calibration
+
+The reviewer prompt's design/reuse evidence and scope/gap report accompany the
+applicability lines below. Identify significant candidate owners and connected
+contracts with paths or symbols and semantic reasons; counts do not establish
+that reuse, service placement, or composition quality was investigated.
 
 For every TypeScript diff, the reviewer reports its applicability pass:
 
