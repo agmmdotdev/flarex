@@ -1,8 +1,8 @@
 # Shared-Installation Atomic Commerce And Stored Link Gates
 
-Status: proposed; implementation is not approved. This refines Gate B of
+Status: B1 complete. This refines Gate B of
 [the Product workflow foundation](./50-product-workflow-sales-channel-foundation.md).
-Gate A is complete. Approving B1 below does not approve B2, B3 or Gate C.
+Gate A is complete. B2, B3 and Gate C remain unapproved.
 
 ## Outcome And Recommended Next Slice
 
@@ -11,7 +11,7 @@ atomic request against the same physical installation. Keep the existing host
 construction API, command tokens and single outer transaction/publication owner.
 This is a shared persistence correction, not a Sales Channel or Link branch.
 
-Implement B1 first. It removes an independently demonstrable core limitation and
+B1 removes an independently demonstrable core limitation and
 advances the Product + Sales Channel + Link transaction without guessing Link
 upsert semantics. Characterize those native semantics before approving the
 subsequent key/lifecycle/publication contract. Do not build a new workflow engine.
@@ -30,32 +30,54 @@ subsequent key/lifecycle/publication contract. Do not build a new workflow engin
   is not an executed ORM compatibility result; the island stays outside root
   runtime imports.
 
-## Confirmed Core Limitation And Witness
+## Resolved Core Limitation And Retained Witness
 
-`packages/persistence-postgres/src/atomicCommerce/participants.ts` rejects any
+Before B1, `packages/persistence-postgres/src/atomicCommerce/participants.ts` rejected any
 second participant with the same `installationSha256`, before authenticating its
 profile. Distinct Product and Sales Channel tokens with disjoint, bound profiles
-on the completed fourteen-table candidate therefore cannot compose atomically.
+on the completed fourteen-table candidate therefore could not compose atomically.
 Separate transactions are already admitted by Gate A.
 
-The existing adapter test `test/atomic-commerce.test.ts` rejects `[first, first]`,
-but that also repeats the participant name. It does not isolate the physical
-installation restriction. B1 must first retain a focused witness with distinct
-authentic participant names and disjoint profiles sharing one exact reference;
-the current implementation refuses it with `invalidAuthority`.
+The adapter test `test/atomic-commerce.test.ts` rejects `[first, first]`, which
+also repeats the participant name. The neutral owner test
+`test/commerceProfileBindings.test.ts` independently used distinct authentic
+names and disjoint profiles on one reference; B1 changes that refusal witness
+into a successful shared-preparation assertion. The dedicated
+`test/atomicCommerceSharedInstallation.test.ts` retains the full execution,
+confinement, revocation, stale-evidence and recovery proof.
 
 Removing the digest check is insufficient:
 
-- Preparation currently calls `prepareInstallationRuntime` for every member.
-- `atomicCommerce/admission.ts` calls `withCommerceAdmission` for every member;
-  that owner repeats installation acceptance and active binding verification.
-- Member ordering currently uses only the installation digest. Replay evidence
+- Preparation previously called `prepareInstallationRuntime` for every member.
+- Atomic admission previously called `withCommerceAdmission` for every member;
+  that repeated installation acceptance and active binding verification.
+- Member ordering previously used only the installation digest. Replay evidence
   includes the ordered participant names, exact references, profile contract
   digests and allowed command names in `atomicCommerce/request.ts`.
 - Execution creates per-call stores and authenticated contributions. Publication
   accepts additional contributions from the same transaction, authority, clock
   and binding head; it must not collapse them merely because their installation
   digest matches. Facts retain table/key identity and global change ordinals.
+
+The implemented owner now authenticates and captures all member definitions
+before physical preparation, prepares in canonical installation/name order and
+shares one prepared token per installation. `validateCommerceProfileSet` remains
+the existing owner of disjoint tables, compatible profiles and relation closure;
+B1 does not duplicate those policies. Multiple profiles in one installation
+retain the binding owner's local-only, unseeded profile restriction and must
+keep physical foreign-key effects within their own table grants. Seeded
+standalone consumers remain supported on their existing separate installations;
+this slice does not widen initialization or cross-profile FK authority.
+`withCommerceInstallationAdmissions`
+accepts physical evidence once and issues distinct revocable profile admissions.
+Standalone admission delegates through that same owner with one profile. Stores,
+event validation, budgets, finalization and request recovery retain their owners.
+
+The connected native proof uses Product and Sales Channel commands on the
+fourteen-table candidate, with distinct native event contracts and complete
+row/event rollback. No stored Link is installed. The setup reliability
+[qualification](./47-medusa-shared-persistence-adapter.md) remains open; serial
+validation does not establish the cause of intermittent PGlite allocation errors.
 
 ## B1: Shared Physical Admission, Separate Logical Authority
 

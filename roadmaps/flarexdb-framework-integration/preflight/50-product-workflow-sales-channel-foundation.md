@@ -1,7 +1,8 @@
 # Product Workflow: Sales Channel And First Stored Link
 
 Status: Gate A complete, including its shared installation-binding prerequisite
-under preflight 51. Gates B and C remain unapproved.
+under preflight 51. B1 shared-installation atomic admission is complete;
+stored Link gates B2/B3 and workflow gate C remain unapproved.
 
 ## Outcome And Direction
 
@@ -128,7 +129,7 @@ Nonempty input invokes native `Link.create`; its compensator invokes
 | Gap | Current evidence | Required direction |
 | --- | --- | --- |
 | Configured schema composition | Gate A compiles Product + Sales Channel as one fourteen-table endpoint candidate. Stored Link metadata is not included. | Extend the existing configured-set owner for a fresh endpoint-plus-Link candidate after Link contract approval; do not add another coordinator or imply arbitrary module-set support. |
-| Several logical modules in one installation | `packages/persistence-postgres/src/atomicCommerce/participants.ts` rejects a repeated installation digest, even for different participants. | Separate logical participant/profile identity from physical installation admission in the existing core owner. Do not merely remove the duplicate check. |
+| Several logical modules in one installation | B1 separates confined logical participants from shared physical preparation/admission in the existing core owner. | Preserve canonical order, per-profile authority and one transaction/publication; preflight 55 owns the boundary and verification gates. |
 | Link key mutation/lifecycle | `commerceTransaction/profile.ts` admits update/managed lifecycle only for scope plus one primary-key component; the native Link has scope plus two endpoint components. | A separately approved core contract must support the actual declared-key mutation, conflict and lifecycle behavior. No raw SQL or surrogate-key workaround in the adapter. |
 | Link publication admission | `commerceTransaction/publication.ts` consumes authenticated relational row closures. No separately admitted commerce-link contract exists; the adoption roadmap explicitly requires one. | Complete the commit-owner preflight before Link writes. Reuse existing receipt/key-codec/publication machinery where sufficient; decide the endpoint evidence and fact representation explicitly rather than inventing a parallel finalizer. |
 | Portable native Link | Native `Link` imports global `MedusaModule`; native Link repository/entity construction imports MikroORM. | Promote a bounded portable seam, retaining native normalization/routing/lifecycle algorithms. Explicit loaded modules replace global fallback; a DAL-backed repository replaces ORM mechanics. |
@@ -140,7 +141,7 @@ That is reusable groundwork, not proof of admitted composite-key upsert/lifecycl
 Likewise multi-installation atomic execution does not prove multiple module
 profiles sharing one installation.
 
-### Recommended Core Contract Direction, Not Yet Approval
+### Core Contract And Remaining Link Approval
 
 Prepare each authentic installation once and preserve separate logical module
 participants with explicitly confined table/command/event capabilities. Group
@@ -156,8 +157,8 @@ Native Link construction does not declare physical endpoint FKs or validate
 endpoint existence in `Link.create`. Adding such validation is a compatibility
 decision, not a harmless schema improvement; scope isolation is still mandatory.
 
-The focused core preflight must decide exact same-installation admission and
-Link mutation/publication contracts before those core changes start. Existing
+Preflight 55 owns the completed same-installation admission contract. The Link
+mutation/publication contract still requires approval before those changes start. Existing
 generic row facts may be reusable, but silently treating them as satisfaction of
 the roadmap's commerce-link admission gate is not permitted. A new feed family
 or protocol version is also not justified merely by the name "Module Link".
@@ -214,8 +215,8 @@ ordinary-role `FLAREX_POSTGRES_DATABASE_URL` for the real database lane.
 
 The owner confirmed no production data or retained binding compatibility obligation.
 Old development encodings are removed, not preserved as a second execution design.
-Same-installation atomic participants and stored Link behavior still belong to
-Gate B. The existing transaction and publication owners remain unchanged.
+Same-installation atomic participants belong to B1 in Gate B; stored Link
+behavior remains separately gated. Transaction and publication owners remain unchanged.
 
 `makeLocalSalesChannelCommands()` owns native metadata, repository/service
 construction, direct create/update/delete/retrieve/list/list-and-count bindings,
@@ -247,11 +248,11 @@ Sales Channel-local subscriber workaround or core persistence change is involved
 
 The [focused Gate B preflight](./55-shared-installation-atomic-commerce.md)
 separates B1 shared-installation atomic admission from B2 native characterization
-and key/publication contract approval, then B3 stored Link integration. These
-subgates remain proposed; approval of B1 alone does not authorize Link writes.
+and key/publication contract approval, then B3 stored Link integration.
+B1 is complete; the later subgates remain proposed. B1 does not authorize Link writes.
 
-Before stored Link implementation, complete and approve the focused core contract described
-above, including characterization of native duplicate/reactivation outcomes.
+Before stored Link implementation, complete and approve the focused core
+contract above, including characterization of native duplicate/reactivation outcomes.
 Then add one fresh Product + Sales Channel + ProductSalesChannel candidate,
 admit storage constraints and link receipts/events, and promote the portable
 native Link closure. Fresh private fixtures are recreated; this is not an

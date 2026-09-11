@@ -1,5 +1,5 @@
 import { Cause, Effect, Option } from "effect";
-import { withCommerceAdmission, type CommerceAdmission } from "../commerceTransaction/admission";
+import { withCommerceInstallationAdmissions, type CommerceAdmission } from "../commerceTransaction/admission";
 import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
 import { projectCommerceRequestFailure } from "../commerceTransaction/request";
 import { commerceBindings, bindingInstallationReference, type InstallationBindingReference } from "../frameworkSchema/binding/model";
@@ -43,8 +43,17 @@ export const withAtomicCommerceAdmissions = Effect.fn("AtomicCommerce.withAdmiss
   ): Effect.fn.Return<Value, CommerceTransactionError> {
     const member = members[index];
     if (member === undefined) return yield* work(admitted);
-    return yield* withCommerceAdmission(member.profile, target, member.reference, selection, tx, authority, clock, false, member.prepared,
-      admission => visit(index + 1, [...admitted, admission])).pipe(
+    const group = [member];
+    let next = index + 1;
+    while (members[next]?.reference.installation.installationSha256 === member.reference.installation.installationSha256) {
+      const following = members[next];
+      if (following === undefined || !sameBindingValue(following.reference, member.reference) || following.prepared !== member.prepared)
+        return yield* Effect.fail(commerceError("invalidAuthority"));
+      group.push(following);
+      next++;
+    }
+    return yield* withCommerceInstallationAdmissions(group.map(value => value.profile), target, member.reference, selection, tx, authority, clock, false, member.prepared,
+      admissions => visit(next, [...admitted, ...admissions])).pipe(
         Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
   });
   return yield* visit(0, []);

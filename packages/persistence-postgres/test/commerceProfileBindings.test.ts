@@ -6,8 +6,7 @@ import { createRelationalPGliteFixture } from "./relationalPGliteWorkerTestSuppo
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { createFileScopedPostgresFixture } from "./postgresHelpers";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
-import { captureRelationalSchemaArtifact } from "../src/relationalSchema/artifact";
-import { captureRelationalPhysicalLayout } from "../src/relationalSchema/physical/canonical";
+import { prepareNeutralCommerceProfile } from "./neutralCommerceProfile";
 import { registerLocalCommerceProfile, requireCommerceProfile, registerCommerceSchemaProfile, type CommerceProfile } from "../src/commerceTransaction/profile";
 import { defineCommerceCommand, makeLocalCommerceHost, type LocalCommerceEventPolicy } from "../src/commerceTransaction/host";
 import { commerceError } from "../src/commerceTransaction/model";
@@ -51,19 +50,7 @@ beforeAll(async () => {
     return { persistence: database.persistence, session: makePostgresRelationalSession(database.persistence) };
   })();
   const control = driver === "pglite" ? await createMigratedPGlitePersistence(registerCleanup) : resource.persistence;
-  fixture = await commerceHostFixture(resource.persistence, resource.session, Effect.fn(function* (deploymentId, target) {
-    const origin = { kind: "authored", sourceId: "test.independent-profiles" };
-    const captured = yield* captureRelationalSchemaArtifact({ deploymentId,
-      provenance: { kind: "sourceSnapshot", repository: "https://example.com/independent-profiles", revision: "d".repeat(40), paths: ["model.ts"] },
-      schema: { owner: "medusa", lineageId: "independent-profiles", tables: names.map(tableId => ({ tableId, origin,
-        columns: [{ columnId: "id", type: "text", nullable: false, default: { kind: "none" }, origin },
-          { columnId: "value", type: "integer", nullable: false, default: { kind: "none" }, origin }],
-        keys: [{ keyId: `${tableId}.primary`, kind: "primary", columns: ["id"], origin }], indexes: [], constraints: [], relationships: [] })), capabilities: [] },
-    });
-    const layout = yield* captureRelationalPhysicalLayout({ artifact: captured.artifact, ...target });
-    const profile = yield* registerLocalCommerceProfile(captured.artifact, layout, "test.alpha", [{ tableId: "alpha", keyId: "alpha.primary" }]);
-    return { profile, initialization: { rows: undefined } };
-  }), registeredCommands, control, () => events);
+  fixture = await commerceHostFixture(resource.persistence, resource.session, prepareNeutralCommerceProfile(names), registeredCommands, control, () => events);
 }, 120000);
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120000);
 
@@ -73,9 +60,11 @@ describe("module-neutral installation profile membership", () => {
     const profiles = await Promise.all(names.map(name => runEffect(registerLocalCommerceProfile(artifact, layout, `test.${name}`,
       [{ tableId: name, keyId: `${name}.primary` }]))));
     const hosts = await Promise.all(profiles.map(profile => runEffect(makeLocalCommerceHost({ ...fixture.hostInput, profile, commands: registeredCommands }, events))));
-    expect(await runEffectFailure(prepareAtomicCommerceParticipants(fixture.persistence.drizzle, fixture.cms.target,
+    const members = await runEffect(prepareAtomicCommerceParticipants(fixture.persistence.drizzle, fixture.cms.target,
       profiles.slice(0, 2).map((profile, index) => ({ participant: defineAtomicCommerceParticipant(`independent${index}`),
-        profile, installation: fixture.installation, commands: registeredCommands, validate: events.validate }))))).toMatchObject({ reason: "invalidAuthority" });
+        profile, installation: fixture.installation, commands: registeredCommands, validate: events.validate }))));
+    expect(members).toHaveLength(2);
+    expect(members[0]?.prepared).toBe(members[1]?.prepared);
     const beta = hosts[1]; const betaCommand = commands[1];
     if (beta === undefined || betaCommand === undefined) throw new Error("Missing beta fixture");
     expect(await runEffectFailure(beta.host.read(betaCommand.read, {}))).toMatchObject({ reason: "unsupportedProfile" });

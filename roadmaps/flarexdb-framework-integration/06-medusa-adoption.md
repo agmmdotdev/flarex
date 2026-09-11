@@ -24,8 +24,10 @@ existing entry point. Product public commands and Currency reads share scoped
 command construction with direct native-method bindings; domain-specific
 admission and native upsert/lifecycle semantics remain explicit.
 The exact Product + Sales Channel endpoint set shares one configured schema
-installation with separately confined profiles. Arbitrary configured module
-sets and same-installation atomic participants remain unadmitted. Medusa services
+installation with separately confined profiles. The approved
+[B1 correction](./preflight/55-shared-installation-atomic-commerce.md) adds
+same-installation atomic participants and is complete. Arbitrary configured
+module sets remain unadmitted. Medusa services
 remain above the existing Flarex transaction and publication owners.
 
 The user-selected next integration outcome is full Product workflow execution.
@@ -38,8 +40,8 @@ separates physical readiness from authorized execution profiles and is complete.
 One unversioned current binding API
 replaces the development-only encodings; the owner confirmed no production data
 or retained compatibility obligation. Neutral core fixtures exercise three
-disjoint profiles without module-specific branches. Same-installation
-atomic participants and commerce-link admission remain subsequent explicit gates;
+disjoint profiles without module-specific branches. Same-installation atomic
+participants retain those confined profiles; commerce-link admission remains a separate gate.
 Sales Channel's six-command profile preserves the original service and static
 cases, native metadata merging, scalar/array results, pagination and errors.
 Boundary checks retain input refusal, identity protection, replay, service
@@ -441,8 +443,8 @@ later Medusa transaction-propagation and typed commerce receipt adaptations.
 
 ### Commerce-link commit admission
 
-- The [focused Gate B proposal](./preflight/55-shared-installation-atomic-commerce.md)
-  places shared-installation atomic admission first, followed by native Link
+- The [focused Gate B preflight](./preflight/55-shared-installation-atomic-commerce.md)
+  records completed shared-installation atomic admission, followed by native Link
   characterization and explicit key/publication contract approval. No stored
   Link capability is admitted by the shared-installation correction alone.
 - Complete the separate commit-owner preflight for the commerce-link family.

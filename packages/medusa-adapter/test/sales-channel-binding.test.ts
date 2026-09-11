@@ -12,18 +12,27 @@ import { createRelationalPGliteFixture } from "../../persistence-postgres/test/r
 import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/pgliteTestFixture";
 import { createFileScopedPostgresFixture } from "../../persistence-postgres/test/postgresHelpers";
 import { makePostgresRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
-import { registerLocalCommerceProfile } from "../../persistence-postgres/src/commerceTransaction/profile";
+import { registerLocalCommerceProfile, requireCommerceProfile, type CommerceProfile } from "../../persistence-postgres/src/commerceTransaction/profile";
 import { makeLocalCommerceHost, type LocalCommerceEventPolicy } from "../../persistence-postgres/src/commerceTransaction/host";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
 import { makeCommerceBinding } from "@flarex/persistence-postgres/internal/commerce";
 import { readAdmittedDataBinding } from "../../persistence-postgres/src/frameworkSchema/binding/selection";
 import { runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+import { commerceInventory } from "../../persistence-postgres/test/commerceInventory";
+import { captureProductSchema } from "../src/product-schema";
+import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { productModuleEventPolicy } from "../src/product-local-events";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Sales Channel test driver");
 const cleanup: Array<() => Promise<void>> = [];
 let fixture: CommerceHostTestFixture;
 let sales: Effect.Success<ReturnType<typeof makeLocalSalesChannelCommands>>;
+let productFoundation: { profile: CommerceProfile; native: Effect.Success<ReturnType<typeof makeLocalProductCommands>> };
 const salesRead = defineCommerceCommand("salesChannelFoundationRead", "read", Effect.fn(function* (ctx) {
   const store = yield* ctx.table("sales_channel");
   return [...yield* store.find(ctx.manager, { fields: ["id"], take: 1, order: { column: "id", direction: "asc" } })];
@@ -88,6 +97,7 @@ describe("configured endpoint binding", () => {
     expect(await Effect.runPromise(product.host.read(productRead, {}))).toEqual([]);
     expect(await Effect.runPromise(product.host.read(nativeProduct.commands.list, {}))).toEqual([]);
     expect(await Effect.runPromise(fixture.host.read(salesRead, {}))).toEqual([]);
+    productFoundation = { profile, native: nativeProduct };
   });
 
   it("runs native Sales Channel writes and reads through the confined profile", async () => {
@@ -220,5 +230,69 @@ describe("configured endpoint binding", () => {
       { filters: { name: "Window" }, config: { select: ["id"], skip: 1, order: { id: "DESC" } } }))).toEqual([...expected].reverse().slice(1));
     await Effect.runPromise(fixture.host.run(fixture.host.newRequestKey(), sales.delete, rows.map(row => row.id)));
     expect(fixture.takeDeliveries()).toHaveLength(2);
+  });
+
+  it("commits native Product and Sales Channel writes and separate events through one installation", async () => {
+    const { profile, native: nativeProduct } = productFoundation;
+    const descriptor = fixture.descriptor;
+
+    const productMetadata = await Effect.runPromise(captureProductSchema("shared-endpoints").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
+    const productPolicy = productModuleEventPolicy(await Effect.runPromise(requireCommerceProfile(profile)), productMetadata);
+    const salesPolicy = sales.eventPolicy(descriptor, () => Effect.void);
+    const eventContract = (name: string, policy: Pick<LocalCommerceEventPolicy, "capture">) => defineCommerceEventContract({
+      name, internal: true, revision: "a".repeat(64), decode: Effect.fn(function* (value) {
+        const message = yield* policy.capture(value);
+        if (!isJsonObject(message) || message.name !== name) return yield* Effect.fail(commerceError("unadmittedEvent"));
+        return message;
+      }),
+    });
+    const productCreatedName = productMetadata.product.createdEvent;
+    const channelCreatedName = buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL, objectName: "sales_channel", action: "created" });
+    const productCreated = eventContract(productCreatedName, productPolicy);
+    const channelCreated = eventContract(channelCreatedName, salesPolicy);
+    const productParticipant = defineAtomicCommerceParticipant("product");
+    const channelParticipant = defineAtomicCommerceParticipant("salesChannel");
+    const createEndpoints = defineAtomicCommerceCommand("createSharedEndpoints", Effect.fn(function* (ctx, id) {
+      if (typeof id !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
+      yield* ctx.call(productParticipant, nativeProduct.commands.create, { id: `prod-${id}`, title: "Shared Product", handle: id });
+      yield* ctx.call(channelParticipant, sales.create, { id: `sc-${id}`, name: "Shared Channel" });
+      return { products: yield* ctx.call(productParticipant, nativeProduct.commands.list, { filters: { id: `prod-${id}` }, config: { select: ["id"] } }),
+        channels: yield* ctx.call(channelParticipant, sales.list, { filters: { id: `sc-${id}` }, config: { select: ["id"] } }) };
+    }));
+    const participants = [
+      { participant: productParticipant, profile, installation: fixture.installation,
+        commands: [nativeProduct.commands.create, nativeProduct.commands.list], validate: productPolicy.validate,
+        events: { contracts: [productCreated], select: () => Effect.succeed(productCreated) } },
+      { participant: channelParticipant, profile: fixture.prepared.profile, installation: fixture.installation,
+        commands: [sales.create, sales.list], validate: salesPolicy.validate,
+        events: { contracts: [channelCreated], select: () => Effect.succeed(channelCreated) } },
+    ];
+    const atomicInput = { ...fixture.hostInput, participants, commands: [createEndpoints], events: {
+      producerRevision: "a".repeat(64), contracts: [productCreated, channelCreated], subscribers: [{ id: "endpoint-proof", revision: "a".repeat(64) }],
+      validate: () => Effect.void,
+    } };
+    const atomic = await Effect.runPromise(makeAtomicCommerceHost(atomicInput));
+    const before = await commerceInventory(fixture);
+    const key = atomic.newRequestKey();
+    const value = await Effect.runPromise(atomic.run(key, createEndpoints, "atomic-endpoints"));
+    expect(value).toEqual({ products: [{ id: "prod-atomic-endpoints" }], channels: [{ id: "sc-atomic-endpoints" }] });
+    const after = await commerceInventory(fixture);
+    expect(after.commits.length - before.commits.length).toBe(1);
+    const facts = after.facts.slice(before.facts.length);
+    expect(facts.map(fact => fact.tableId).sort()).toEqual(["product", "sales_channel"]);
+    expect(new Set(facts.map(fact => fact.installationSha256)).size).toBe(1);
+    const committedEvents = await fixture.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.eventOrdinal);
+    expect(committedEvents.map(row => row.envelope.contract)).toEqual([productCreatedName, channelCreatedName]);
+    expect(committedEvents.map(row => row.envelope.message)).toMatchObject([
+      { data: { id: "prod-atomic-endpoints" } }, { data: { id: "sc-atomic-endpoints" } },
+    ]);
+    expect(await Effect.runPromise(atomic.run(key, createEndpoints, "atomic-endpoints"))).toEqual(value);
+    expect(await commerceInventory(fixture)).toEqual(after);
+    expect(fixture.takeDeliveries()).toEqual([]);
+    const refused = await Effect.runPromise(makeAtomicCommerceHost({ ...atomicInput, participants: participants.map(member =>
+      member.participant === productParticipant ? { ...member, events: { contracts: [channelCreated], select: () => Effect.succeed(channelCreated) } } : member) }));
+    expect(await runEffectFailure(refused.run(refused.newRequestKey(), createEndpoints, "wrong-event-owner"))).toBeDefined();
+    expect(await commerceInventory(fixture)).toEqual(after);
+    expect(await fixture.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.eventOrdinal)).toEqual(committedEvents);
   });
 });

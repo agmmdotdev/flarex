@@ -164,7 +164,7 @@
     {
       "target": "packages/medusa-adapter/test/sales-channel-binding.test.ts",
       "classification": "authored",
-      "targetSha256": "df5de5328c720fb86e5eefcb5108ffba939ae87471eacbeb3a2c4f985f24c2ff"
+      "targetSha256": "f2d00c0690b68edf2b0264d8d9b1f7fb37b05edfef215e40151e9916c8f3fbe7"
     },
     {
       "target": "packages/medusa-adapter/test/sales-channel-schema.test.ts",

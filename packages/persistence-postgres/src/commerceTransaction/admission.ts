@@ -6,6 +6,7 @@ import { lockBindingInstallation } from "../frameworkSchema/binding/evidence";
 import { installationRuntimeData } from "../frameworkSchema/installation/runtimeData";
 import { acceptPreparedInstallation, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
+import { validateCommerceProfileSet } from "../frameworkSchema/binding/commerceBinding";
 import type { InstallationBindingReference, DataBindingHeadToken } from "../frameworkSchema/binding/model";
 import { commerceBindings, bindingInstallationReference } from "../frameworkSchema/binding/model";
 import { frameworkMigrationTargetSnapshot, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
@@ -36,6 +37,21 @@ export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransactio
   clock: ScopeClockRecord, bootstrap: boolean, prepared: PreparedInstallationRuntime | undefined,
   work: (admission: CommerceAdmission) => Effect.Effect<Value, Failure, Requirements>,
 ) {
+  return yield* withCommerceInstallationAdmissions([profile], target, reference, selection, tx, authority, clock, bootstrap, prepared,
+    (admitted): Effect.Effect<Value, Failure | ReturnType<typeof commerceError>, Requirements> => {
+      const admission = admitted[0];
+      return admission === undefined ? Effect.fail(commerceError("invalidAuthority")) : work(admission);
+    });
+});
+
+/** Several confined profiles may borrow one physical installation. This is an
+ * owner-local transaction scope, not an exported physical authority token. */
+export const withCommerceInstallationAdmissions = Effect.fn("CommerceAdmission.withInstallation")(function* <Value, Failure, Requirements>(
+  profiles: readonly CommerceProfile[], target: FrameworkMigrationTarget, reference: InstallationBindingReference,
+  selection: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord, bootstrap: boolean, prepared: PreparedInstallationRuntime | undefined,
+  work: (admissions: readonly CommerceAdmission[]) => Effect.Effect<Value, Failure, Requirements>,
+) {
   const snapshot = frameworkMigrationTargetSnapshot(target);
   if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
     !scopePhysicalLocatorsEqual(snapshot.physicalLocator, authority.physicalLocator) ||
@@ -48,7 +64,9 @@ export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransactio
   const availability = prepared === undefined
     ? installationRuntimeData(yield* lockBindingInstallation(tx, reference, snapshot))
     : yield* acceptPreparedInstallation(prepared, target, reference, tx);
-  const descriptor = yield* verifyCommerceInstallation(profile, reference, availability);
+  if (profiles.length === 0) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const descriptors = yield* Effect.forEach(profiles, profile => verifyCommerceInstallation(profile, reference, availability));
+  yield* validateCommerceProfileSet(descriptors);
   const application = yield* readApplicationBindingProjectionInTransaction(selection, tx, clock);
   let head: DataBindingHeadToken | null = null;
   if (!bootstrap) {
@@ -60,13 +78,18 @@ export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransactio
     if (binding === undefined || !sameBindingValue(candidate.value.frame.application, application)) return yield* Effect.fail(commerceError("bindingChanged"));
     const selected = bindingInstallationReference(binding);
     if (!sameBindingValue(reference, selected)) return yield* Effect.fail(commerceError("bindingChanged"));
-    yield* verifyCommerceBinding(tx, authority.scopeId, profile, binding, availability);
+    for (const profile of profiles) yield* verifyCommerceBinding(tx, authority.scopeId, profile, binding, availability);
     head = Object.freeze({ sequence: current.value.frame.sequence, sha256: current.value.sha256 });
   }
-  // SAFETY: the registry alone grants authority and revokes it with the physical transaction.
-  const token = Object.freeze({}) as CommerceAdmission;
-  admissions.set(token, Object.freeze({ tx, authority, clock, reference, descriptor, head, bootstrap }));
-  return yield* Effect.suspend(() => work(token)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(token))));
+  const tokens = descriptors.map(descriptor => {
+    // SAFETY: the registry alone grants authority and revokes it with the physical transaction.
+    const token = Object.freeze({}) as CommerceAdmission;
+    admissions.set(token, Object.freeze({ tx, authority, clock, reference, descriptor, head, bootstrap }));
+    return token;
+  });
+  return yield* Effect.suspend(() => work(tokens)).pipe(Effect.ensuring(Effect.sync(() => {
+    for (const token of tokens) admissions.delete(token);
+  })));
 });
 
 export const requireCommerceAdmission = Effect.fn("CommerceAdmission.require")(function* (admission: CommerceAdmission) {

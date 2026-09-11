@@ -23,6 +23,13 @@ admission to one through eight explicitly selected participants as an authentica
 subset of the active commerce binding. Individual authority checks, whole-binding
 replay evidence and the existing settlement owner remain unchanged.
 
+The approved [shared-installation correction](../flarexdb-framework-integration/preflight/55-shared-installation-atomic-commerce.md)
+separates physical installation preparation/acceptance from logical participant
+authority. It is complete: disjoint profiles may
+share one installation while retaining distinct command/event grants and
+revocable admissions. One aggregate lifetime and finalizer remain authoritative.
+Stored Module Link and workflow expansion are not implied.
+
 The [Product-tag deletion capability](./13-product-tag-deletion.md) extends
 successful outer-call observations with their already-captured native inputs.
 Inputs and results are recursively frozen, charged by existing capture, and
@@ -106,7 +113,7 @@ The source island remains reference-only until promotion gates pass.
 | [Commerce host](../../packages/persistence-postgres/src/commerceTransaction/host.ts) | Executes SQL in a bounded relational session, takes the scope clock lock before services run, and recovers retained outcomes. This is not native journal execution. |
 | [Commerce publication](../../packages/persistence-postgres/src/commerceTransaction/publication.ts) | Authenticated contribution consumption is already separate from finalization. Reuse it instead of adding another publisher. |
 | [Composite host](../../packages/persistence-postgres/src/crossDomainCommand/host.ts) and [actual assertions](../../packages/medusa-adapter/test/currency-announcement.test.ts) | A fixed Currency/CMS/Application command has one physical owner, pending reads, combined facts, retained replay, late-failure rollback and physical-failure assertions. This does not establish a generic two-commerce-module host or application API. |
-| [Binding model](../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/atomicCommerce/admission.ts) | Format 2 admits an ordered set of at most eight commerce installations; the atomic host authenticates its nonempty selected subset. Existing standalone hosts select their own authenticated installation. |
+| [Binding model](../../packages/persistence-postgres/src/frameworkSchema/binding/model.ts) and [atomic admission](../../packages/persistence-postgres/src/atomicCommerce/admission.ts) | The current unversioned binding model admits bounded installation coverage and direct profile membership. The atomic host selects at most eight logical participants, sharing physical admission only for exact installation references and disjoint profiles. Standalone hosts retain their own profile selection. |
 | [Relational fact reader](../../packages/persistence-postgres/src/commitPublication/relationalFacts.ts) | Validates every fact against a caller-supplied directory of original captured installation layouts before returning a participant projection. Active bindings do not reinterpret old commits. |
 | [Module definition](../../packages/medusa-adapter/src/module-definition.ts) | Checked definitions and fresh scoped services already exist. Preparation stays separate from request authority. |
 | [Read execution](../../packages/medusa-adapter/src/query/read.ts) and [catalog](../../packages/medusa-adapter/src/query/catalog.ts) | Relation filtering, root selection, population, count and projection are reusable semantics; they do not produce native relational OCC dependencies. |
@@ -240,10 +247,10 @@ at each participant's closure.
 
 - Framework binding/admission: authenticate an explicitly selected bounded installation set,
   profiles and active frame/head. Keep deterministic installation lock order,
-  scope/placement checks and table authority. The current persisted binding
-  contract now has format 2: a bounded commerce array ordered strictly by
-  installation digest. Format 1 remains decodable for immutable stored
-  candidate and activation evidence; no bytes or digests are rewritten.
+  scope/placement checks and table authority. The current binding contract is
+  owned by [preflight 51](../flarexdb-framework-integration/preflight/51-commerce-installation-profile-bindings.md):
+  installation coverage and direct authenticated profile membership replace the
+  development-only encodings. No legacy decoding obligation remains.
   [Migration 0090](../../packages/persistence-postgres/drizzle/0090_atomic-commerce-bindings.sql)
   adds installation identity to the physical-lane primary key, retaining rows.
 - Commerce composition: issue borrowed participant contexts under one root
@@ -376,7 +383,7 @@ and does not extend native mutation context or sandbox guarantees.
 | Queries | Parent/child changes, filters, count and bounded ordering agree with admitted existing service behavior before commit |
 | Publication | Complete facts from both installations; one sequence/header, retained result and wake; no child outcome |
 | Failure | Late validation/SQL/publication failure, caught participant failure, cancellation and limits leave no partial business/publication state |
-| Authority | Refuse wrong/missing/duplicate installation, scope, placement, head, profile, copied context and detached work; decode old commits using original binding evidence |
+| Authority | Refuse wrong/missing/conflicting installation references, duplicate participants, overlapping profiles, wrong scope/placement/head, copied contexts and detached work; decode retained commits using original binding evidence |
 | Concurrency/recovery | Real PostgreSQL connections cover duplicate keys, same-scope contention, native overlap, binding/availability changes and lost commit acknowledgement without callback replay |
 | Compatibility | Retain original Product/Currency and existing composite/native assertions; keep public events distinct from the internal event-free fixture |
 | Bounded contention | An ordinary-role PostgreSQL command blocked on the scope clock fails within its configured lock bound without entering business code; duplicate requests execute the callback once |
