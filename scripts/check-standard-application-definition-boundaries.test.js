@@ -384,6 +384,7 @@ describe("Application definition boundary checker", () => {
           import { materialize } from "@flarex/declarative-materializer/v1";
           import { standardV1 } from "@flarex/standard-application-definition/internal/legacy-authoring";
           import { prepareStandardApplicationDefinitionV1 } from "@flarex/standard-application-definition/internal/prepared-definition-v1";
+          import { prepareStandardApplicationRelations } from "@flarex/standard-application-definition/internal/relation-definition";
           import { local } from "./Authoring.js";
           void import("effect");
         `,
@@ -402,6 +403,7 @@ describe("Application definition boundary checker", () => {
           /// <reference types="@flarex/backend" />
           import type { Runtime } from "@flarex/executor";
           import { persistence } from "../../persistence-postgres/src/index";
+          import { privateRelation } from "@flarex/standard-application-definition/internal/relation-definition/private";
           /** @type {import("@flarex/system-test").Simulation} */
           export const simulation = undefined;
           const packageName = "@flarex/analysis";
@@ -414,8 +416,27 @@ describe("Application definition boundary checker", () => {
       `${cleanSourcePath}:2 imports forbidden module "@flarex/backend".`,
       `${cleanSourcePath}:3 imports forbidden module "@flarex/executor".`,
       `${cleanSourcePath}:4 imports forbidden module "../../persistence-postgres/src/index".`,
-      `${cleanSourcePath}:5 imports forbidden module "@flarex/system-test".`,
-      `${cleanSourcePath}:8 uses a non-literal dynamic import.`,
+      `${cleanSourcePath}:5 imports forbidden module "@flarex/standard-application-definition/internal/relation-definition/private".`,
+      `${cleanSourcePath}:6 imports forbidden module "@flarex/system-test".`,
+      `${cleanSourcePath}:9 uses a non-literal dynamic import.`,
+    ]);
+  });
+
+  it("confines the relation bridge to its three clean composition owners", () => {
+    const privatePath =
+      "packages/application-definition/src/internal/function-reference.ts";
+    const report = analyzeApplicationDefinitionBoundary(
+      validApplicationDefinitionManifest(),
+      [{
+        relativePath: privatePath,
+        text: `
+          import { relation } from "@flarex/standard-application-definition/internal/relation-definition";
+        `,
+      }],
+    );
+
+    expect(report.errors).toEqual([
+      `${privatePath}:2 imports forbidden module "@flarex/standard-application-definition/internal/relation-definition".`,
     ]);
   });
 });

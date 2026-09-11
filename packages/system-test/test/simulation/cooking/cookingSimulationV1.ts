@@ -2751,19 +2751,23 @@ function requireNoRejectedMutationSideEffects(
   }
 }
 
-function requireQueryApplicationFailure<Success, Failure>(
-  result: Result.Result<Success, Failure>,
+function requireQueryApplicationFailure<Success>(
+  result: Result.Result<Success, RunQueryError>,
   recipeId: string,
 ): void {
   const observation = Result.match(result, {
     onFailure: failure => ({
       rejectedAsExpected:
-        failure instanceof ApplicationExecutionHostError &&
-        failure.operation === "transaction" &&
+        failure._tag === "QueryInvocationError" &&
+        failure.operation === "runQuery" &&
         failure.reason === "applicationError" &&
-        failure.applicationError?.code === "RECIPE_NOT_PUBLISHED" &&
-        failure.applicationError.message === "Recipe is not published." &&
-        sameJsonValue(failure.applicationError.data, {
+        failure.cause instanceof ApplicationExecutionHostError &&
+        failure.cause.operation === "transaction" &&
+        failure.cause.reason === "applicationError" &&
+        failure.cause.applicationError?.code === "RECIPE_NOT_PUBLISHED" &&
+        failure.cause.applicationError.message ===
+          "Recipe is not published." &&
+        sameJsonValue(failure.cause.applicationError.data, {
           recipeId,
           published: false,
         }),

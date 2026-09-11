@@ -97,6 +97,13 @@ const applicationDefinitionAllowedProductionImports = new Set([
   "@flarex/utils/strings",
   "effect",
 ]);
+const applicationDefinitionRelationBridgeImport =
+  "@flarex/standard-application-definition/internal/relation-definition";
+const applicationDefinitionRelationBridgeSources = new Set([
+  "packages/application-definition/src/Authoring.ts",
+  "packages/application-definition/src/Preparation.ts",
+  "packages/application-definition/src/Production.ts",
+]);
 const applicationInvocationAllowedProductionImports = new Set([
   "@flarex/application-definition",
   "@flarex/application-definition/internal/function-reference",
@@ -924,11 +931,17 @@ function isAllowedApplicationDefinitionProductionImport(
   relativePath,
 ) {
   if (specifier.includes("\\")) return false;
+  const normalizedSourcePath = relativePath.replaceAll("\\", "/");
+  if (
+    specifier === applicationDefinitionRelationBridgeImport &&
+    applicationDefinitionRelationBridgeSources.has(normalizedSourcePath)
+  ) {
+    return true;
+  }
   if (applicationDefinitionAllowedProductionImports.has(specifier)) {
     return true;
   }
   if (!specifier.startsWith(".")) return false;
-  const normalizedSourcePath = relativePath.replaceAll("\\", "/");
   const resolvedImportPath = path.posix.normalize(path.posix.join(
     path.posix.dirname(normalizedSourcePath),
     specifier,
