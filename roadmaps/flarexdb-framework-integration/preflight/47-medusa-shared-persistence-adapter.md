@@ -775,6 +775,15 @@ the four named profiles and define read, mutation and direct internal-service
 command families. The entry point owns the exact command registration and binds
 graph/workflow metadata to those same tokens. Preparation has no live manager;
 services and repositories still belong to each command's existing lifetime.
+Product public commands and Currency reads use the same small service-command
+factory for preparation followed by scoped invocation. Bindings call the actual
+Medusa methods on their live receiver; no entity-name dispatcher, inferred CRUD
+exposure, secondary service registry or replacement upsert algorithm is involved.
+Related Product reads share admission mechanics while retaining their original
+decoders. Related writes share DML admission and shape handling, with explicit
+Category, Tag and Variant checks and the Collection membership profile.
+The existing count tokens still mean native `listAndCount`, not a scalar count.
+Command names, modes and graph/workflow token identity remain unchanged.
 Category projection, Collection membership, pre-normalization parent checks and
 internal serialization/event differences remain explicit adapter policy. No new
 package export, module bootstrap, storage capability or transaction owner is

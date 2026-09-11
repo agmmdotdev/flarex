@@ -5,12 +5,12 @@ import { CurrencyModuleService } from "@medusajs/currency/services";
 import { defineCommerceModule, type CommerceModuleScope } from "./module-definition";
 import type { ICurrencyModuleService, CurrencyTypes, FindConfig, FilterableCurrencyProps } from "@medusajs/framework/types";
 import { defineCommerceCommand, type CommerceCommandContext, type CommerceHost } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { currencyRepository } from "./currency-repository";
 import { captureCurrencyInput } from "./currency-values";
 import { currencyDto, currencyDtos, currencyCountResult } from "./currency-result";
 import { decodeCurrencyRead } from "./currency-input";
-import { defineGraphReadCommand } from "./local-graph/commands";
+import { commerceServiceCommands } from "./service-commands";
 import { currencyGraphDefinition } from "./currency-graph-query";
 import { defineWorkflowMethod, defineWorkflowModule } from "./workflow/module";
 import { commerceDecoder } from "./commerce-decoder";
@@ -34,23 +34,23 @@ export const withCurrencyService = Effect.fn("CurrencyAdapter.withService")(func
   return yield* module.use(ctx, work);
 });
 
-const read = (kind: "list" | "count" | "retrieve") => defineGraphReadCommand(`currency${kind}`, Effect.fn(`CurrencyAdapter.${kind}`)(function* (ctx, value) {
+const readInput = Effect.fn("CurrencyAdapter.readInput")(function* (ctx: CommerceCommandContext, value: Json) {
   const decoded = yield* Effect.fromResult(decodeCurrencyRead(value)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
   // The captured plain JSON is copied because Medusa mutates query options. Its
   // broad framework types are checked at the selected DAL query boundary before SQL.
   const args = structuredClone(decoded);
   const config = args.config as FindConfig<CurrencyTypes.CurrencyDTO> | undefined;
   const filters = args.filters as FilterableCurrencyProps | undefined;
-  return yield* withCurrencyService(ctx, ({ service, context }) => {
-    // SAFETY: undefined intentionally reaches the original service's missing-key
-    // check, preserving its established error rather than inventing a replacement.
-    if (kind === "retrieve") return service.retrieveCurrency(args.code as string, config, context);
-    if (kind === "count") return service.listAndCountCurrencies(filters, config, context);
-    return service.listCurrencies(filters, config, context);
-  });
-}));
+  return { code: args.code, config, filters };
+});
 
-export const currencyCommands = Object.freeze({ list: read("list"), count: read("count"), retrieve: read("retrieve") });
+const commands = commerceServiceCommands(withCurrencyService);
+export const currencyCommands = Object.freeze({
+  list: commands.read("currencylist", readInput, ({ service, context }, args) => service.listCurrencies(args.filters, args.config, context)),
+  count: commands.read("currencycount", readInput, ({ service, context }, args) => service.listAndCountCurrencies(args.filters, args.config, context)),
+  // SAFETY: undefined deliberately reaches Medusa's original missing-key check.
+  retrieve: commands.read("currencyretrieve", readInput, ({ service, context }, args) => service.retrieveCurrency(args.code as string, args.config, context)),
+});
 export const currencyGraph = currencyGraphDefinition(currencyCommands);
 const decodeWorkflowArguments = commerceDecoder(Schema.Tuple([Schema.String]), "invalidInput");
 const decodeWorkflowCurrency = commerceDecoder(Schema.StructWithRest(Schema.Struct({ code: Schema.String, name: Schema.String }),

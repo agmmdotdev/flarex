@@ -1,125 +1,86 @@
-import { Effect } from "effect";
+import { Effect, type Result } from "effect";
 import type { ProductCommandServices } from "./services";
 import type { FindConfig, ProductTypes } from "@medusajs/framework/types";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { defineGraphReadCommand } from "../local-graph/commands";
+import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceServiceCommands } from "../service-commands";
 import { decodeProductRead, decodeProductNamedRead, decodeProductCollectionRead, decodeProductCategoryRead,
   decodeProductParentRead, decodeProductFindConfig, productReadFilters } from "../product-service-input";
 
-/** Read admission belongs here; Category keeps its distinct projection profile. */
+type Context = Parameters<ProductCommandServices["withService"]>[0];
+type NamedRead = Result.Result.Success<ReturnType<typeof decodeProductNamedRead>>;
+
+/** Related reads share admission, not an entity-name dispatcher. Each decoder
+ * still owns its exact fields; root Product and Image have different policies. */
+function relatedReadInput<Read extends NamedRead>(decode: (input: unknown) => Result.Result<Read, ReturnType<typeof commerceError>>) {
+  const read = Effect.fn("ProductAdapter.relatedReadInput")(function* (ctx: Context, input: Json) {
+    const decoded = yield* Effect.fromResult(decode(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    return structuredClone(decoded);
+  });
+  return {
+    list: Effect.fn("ProductAdapter.relatedListInput")(function* (ctx: Context, input: Json) {
+      const copied = yield* read(ctx, input);
+      if (copied.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+      const { id, ...scalars } = copied.filters ?? {};
+      return { config: copied.config, filters: { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) } };
+    }),
+    retrieve: Effect.fn("ProductAdapter.relatedRetrieveInput")(function* (ctx: Context, input: Json) {
+      const copied = yield* read(ctx, input);
+      if (copied.id === undefined || copied.filters !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+      return { id: copied.id, config: copied.config };
+    }),
+  };
+}
+
+/** All bindings invoke the actual Medusa method on the command-owned receiver.
+ * SAFETY: FindConfig and root filters are framework-boundary assertions only;
+ * the existing selected DAL validates the normalized query before storage. */
 export function productReadCommands({ withService, withCategoryReadService }:
   Pick<ProductCommandServices, "withService" | "withCategoryReadService">) {
-  const read = (kind: "list" | "retrieve" | "count") => defineGraphReadCommand("product" + kind, Effect.fn("ProductAdapter." + kind)(function* (ctx, input) {
+  const commands = commerceServiceCommands(withService);
+  const categories = commerceServiceCommands(withCategoryReadService);
+  const rootInput = Effect.fn("ProductAdapter.readInput")(function* (ctx: Context, input: Json) {
     const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    const filtersInput = yield* Effect.fromResult(productReadFilters(decoded)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    const copied = structuredClone({ ...decoded, filters: filtersInput });
-    // SAFETY: the selected DAL decoder validates all filters, projections,
-    // pagination and relations after Medusa builds its query and before SQL.
-    const find = copied.config as FindConfig<ProductTypes.ProductDTO> | undefined;
-    const filters = copied.filters as ProductTypes.FilterableProductProps | undefined;
-    return yield* withService(ctx, ({ service, context }) => kind === "retrieve"
-      ? service.retrieveProduct(copied.id as string, find, context)
-      : kind === "count" ? service.listAndCountProducts(filters, find, context) : service.listProducts(filters, find, context));
-  }));
-  const readNamed = (entity: "type" | "tag", kind: "list" | "retrieve" | "count") => defineGraphReadCommand("product" + (entity === "type" ? "Type" : "Tag") + kind, Effect.fn("ProductAdapter." + entity + "." + kind)(function* (ctx, input) {
-    const decoded = yield* Effect.fromResult(decodeProductNamedRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    const copied = structuredClone(decoded);
-    // SAFETY: Medusa owns query normalization; the table-bound related reader
-    // validates filters, fields, paging and relations before calling the store.
-    const find = copied.config as FindConfig<ProductTypes.ProductTypeDTO> | undefined;
-    const tagFind = copied.config as FindConfig<ProductTypes.ProductTagDTO> | undefined;
-    if (kind === "retrieve") {
-      if (copied.id === undefined || copied.filters !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
-      const id = copied.id;
-      return yield* withService(ctx, ({ service, context }) => entity === "type" ? service.retrieveProductType(id, find, context) : service.retrieveProductTag(id, tagFind, context));
-    }
-    if (copied.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
-    const { id, ...scalars } = copied.filters ?? {};
-    const filters = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
-    return yield* withService(ctx, ({ service, context }) => entity === "type"
-      ? kind === "count" ? service.listAndCountProductTypes(filters, find, context) : service.listProductTypes(filters, find, context)
-      : kind === "count" ? service.listAndCountProductTags(filters, tagFind, context) : service.listProductTags(filters, tagFind, context));
-  }));
-  const readCollection = (kind: "list" | "retrieve" | "count") => defineGraphReadCommand("productCollection" + kind, Effect.fn("ProductAdapter.collection." + kind)(function* (ctx, input) {
-    const decoded = yield* Effect.fromResult(decodeProductCollectionRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    const copied = structuredClone(decoded);
-    // SAFETY: the DML-bound reader validates normalized fields and relations.
-    const find = copied.config as FindConfig<ProductTypes.ProductCollectionDTO> | undefined;
-    if (kind === "retrieve") {
-      if (copied.id === undefined || copied.filters !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
-      const id = copied.id;
-      return yield* withService(ctx, ({ service, context }) => service.retrieveProductCollection(id, find, context));
-    }
-    if (copied.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
-    const { id, ...scalars } = copied.filters ?? {};
-    const filters = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
-    return yield* withService(ctx, ({ service, context }) => kind === "count"
-      ? service.listAndCountProductCollections(filters, find, context) : service.listProductCollections(filters, find, context));
-  }));
-  const readCategory = (kind: "list" | "retrieve" | "count") => defineGraphReadCommand("productCategory" + kind, Effect.fn("ProductAdapter.category." + kind)(function* (ctx, input) {
-    const decoded = yield* Effect.fromResult(decodeProductCategoryRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    const copied = structuredClone(decoded);
-    // SAFETY: the DML-bound reader validates normalized fields and relations.
-    const find = copied.config as FindConfig<ProductTypes.ProductCategoryDTO> | undefined;
-    if (kind === "retrieve") {
-      if (copied.id === undefined || copied.filters !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
-      const id = copied.id;
-      return yield* withCategoryReadService(ctx, ({ service, context }) => service.retrieveProductCategory(id, find, context));
-    }
-    if (copied.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
-    const { id, ...scalars } = copied.filters ?? {};
-    const filters = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
-    return yield* withCategoryReadService(ctx, ({ service, context }) => kind === "count"
-      ? service.listAndCountProductCategories(filters, find, context) : service.listProductCategories(filters, find, context));
-  }));
-  const readOption = (kind: "list" | "retrieve" | "count") => defineGraphReadCommand("productOption" + kind, Effect.fn("ProductAdapter.option." + kind)(function* (ctx, input) {
-    const decoded = yield* Effect.fromResult(decodeProductParentRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    const copied = structuredClone(decoded);
-    // SAFETY: the DML-bound reader validates normalized fields and relations.
-    const find = copied.config as FindConfig<ProductTypes.ProductOptionDTO> | undefined;
-    if (kind === "retrieve") {
-      if (copied.id === undefined || copied.filters !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
-      const id = copied.id;
-      return yield* withService(ctx, ({ service, context }) => service.retrieveProductOption(id, find, context));
-    }
-    if (copied.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
-    const { id, ...scalars } = copied.filters ?? {};
-    const filters = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
-    return yield* withService(ctx, ({ service, context }) => kind === "count"
-      ? service.listAndCountProductOptions(filters, find, context) : service.listProductOptions(filters, find, context));
-  }));
-  const readVariant = (kind: "list" | "retrieve" | "count") => defineGraphReadCommand("productVariant" + kind, Effect.fn("ProductAdapter.variant." + kind)(function* (ctx, input) {
-    const decoded = yield* Effect.fromResult(decodeProductParentRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-    const copied = structuredClone(decoded);
-    // SAFETY: the DML-bound reader validates normalized fields and relations.
-    const find = copied.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined;
-    if (kind === "retrieve") {
-      if (copied.id === undefined || copied.filters !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
-      const id = copied.id;
-      return yield* withService(ctx, ({ service, context }) => service.retrieveProductVariant(id, find, context));
-    }
-    if (copied.id !== undefined) return yield* ctx.refuse(commerceError("invalidInput"));
-    const { id, ...scalars } = copied.filters ?? {};
-    const filters = { ...scalars, ...(id === undefined ? {} : { id: typeof id === "string" ? id : [...id] }) };
-    return yield* withService(ctx, ({ service, context }) => kind === "count"
-      ? service.listAndCountProductVariants(filters, find, context) : service.listProductVariants(filters, find, context));
-  }));
-  const countImages = defineGraphReadCommand("productImagecount", Effect.fn("ProductAdapter.image.count")(function* (ctx, input) {
+    const filters = yield* Effect.fromResult(productReadFilters(decoded)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+    const copied = structuredClone({ ...decoded, filters });
+    return { ...copied, config: copied.config as FindConfig<ProductTypes.ProductDTO> | undefined,
+      filters: copied.filters as ProductTypes.FilterableProductProps | undefined };
+  });
+  const named = relatedReadInput(decodeProductNamedRead);
+  const collection = relatedReadInput(decodeProductCollectionRead);
+  const category = relatedReadInput(decodeProductCategoryRead);
+  const parent = relatedReadInput(decodeProductParentRead);
+  const imageInput = Effect.fn("ProductAdapter.imageReadInput")(function* (ctx: Context, input: Json) {
     const decoded = yield* Effect.fromResult(decodeProductRead(input)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     yield* Effect.fromResult(decodeProductFindConfig(decoded.config ?? {})).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     if (decoded.id !== undefined || decoded.deletedAfter !== undefined) return yield* ctx.refuse(commerceError("unsupportedProfile"));
-    const copied = structuredClone(decoded);
-    // SAFETY: the existing Image DML read profile validates the actual generated
-    // service query, including projection, filters, ordering and row bounds.
-    return yield* withService(ctx, ({ service, context }) => service.listAndCountProductImages(
-      copied.filters as Parameters<typeof service.listAndCountProductImages>[0],
-      copied.config as Parameters<typeof service.listAndCountProductImages>[1], context));
-  }));
-  return { read, readNamed, readCollection, readCategory, readOption, readVariant, countImages };
+    return structuredClone(decoded);
+  });
+  return {
+    list: commands.read("productlist", rootInput, ({ service, context }, args) => service.listProducts(args.filters, args.config, context)),
+    // Missing ID deliberately reaches Medusa's original missing-key error.
+    retrieve: commands.read("productretrieve", rootInput, ({ service, context }, args) => service.retrieveProduct(args.id as string, args.config, context)),
+    count: commands.read("productcount", rootInput, ({ service, context }, args) => service.listAndCountProducts(args.filters, args.config, context)),
+    listTypes: commands.read("productTypelist", named.list, ({ service, context }, args) => service.listProductTypes(args.filters, args.config as FindConfig<ProductTypes.ProductTypeDTO> | undefined, context)),
+    retrieveType: commands.read("productTyperetrieve", named.retrieve, ({ service, context }, args) => service.retrieveProductType(args.id, args.config as FindConfig<ProductTypes.ProductTypeDTO> | undefined, context)),
+    countTypes: commands.read("productTypecount", named.list, ({ service, context }, args) => service.listAndCountProductTypes(args.filters, args.config as FindConfig<ProductTypes.ProductTypeDTO> | undefined, context)),
+    listTags: commands.read("productTaglist", named.list, ({ service, context }, args) => service.listProductTags(args.filters, args.config as FindConfig<ProductTypes.ProductTagDTO> | undefined, context)),
+    retrieveTag: commands.read("productTagretrieve", named.retrieve, ({ service, context }, args) => service.retrieveProductTag(args.id, args.config as FindConfig<ProductTypes.ProductTagDTO> | undefined, context)),
+    countTags: commands.read("productTagcount", named.list, ({ service, context }, args) => service.listAndCountProductTags(args.filters, args.config as FindConfig<ProductTypes.ProductTagDTO> | undefined, context)),
+    listCollections: commands.read("productCollectionlist", collection.list, ({ service, context }, args) => service.listProductCollections(args.filters, args.config as FindConfig<ProductTypes.ProductCollectionDTO> | undefined, context)),
+    retrieveCollection: commands.read("productCollectionretrieve", collection.retrieve, ({ service, context }, args) => service.retrieveProductCollection(args.id, args.config as FindConfig<ProductTypes.ProductCollectionDTO> | undefined, context)),
+    countCollections: commands.read("productCollectioncount", collection.list, ({ service, context }, args) => service.listAndCountProductCollections(args.filters, args.config as FindConfig<ProductTypes.ProductCollectionDTO> | undefined, context)),
+    listCategories: categories.read("productCategorylist", category.list, ({ service, context }, args) => service.listProductCategories(args.filters, args.config as FindConfig<ProductTypes.ProductCategoryDTO> | undefined, context)),
+    retrieveCategory: categories.read("productCategoryretrieve", category.retrieve, ({ service, context }, args) => service.retrieveProductCategory(args.id, args.config as FindConfig<ProductTypes.ProductCategoryDTO> | undefined, context)),
+    countCategories: categories.read("productCategorycount", category.list, ({ service, context }, args) => service.listAndCountProductCategories(args.filters, args.config as FindConfig<ProductTypes.ProductCategoryDTO> | undefined, context)),
+    listOptions: commands.read("productOptionlist", parent.list, ({ service, context }, args) => service.listProductOptions(args.filters, args.config as FindConfig<ProductTypes.ProductOptionDTO> | undefined, context)),
+    retrieveOption: commands.read("productOptionretrieve", parent.retrieve, ({ service, context }, args) => service.retrieveProductOption(args.id, args.config as FindConfig<ProductTypes.ProductOptionDTO> | undefined, context)),
+    countOptions: commands.read("productOptioncount", parent.list, ({ service, context }, args) => service.listAndCountProductOptions(args.filters, args.config as FindConfig<ProductTypes.ProductOptionDTO> | undefined, context)),
+    listVariants: commands.read("productVariantlist", parent.list, ({ service, context }, args) => service.listProductVariants(args.filters, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
+    retrieveVariant: commands.read("productVariantretrieve", parent.retrieve, ({ service, context }, args) => service.retrieveProductVariant(args.id, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
+    countVariants: commands.read("productVariantcount", parent.list, ({ service, context }, args) => service.listAndCountProductVariants(args.filters, args.config as FindConfig<ProductTypes.ProductVariantDTO> | undefined, context)),
+    countImages: commands.read("productImagecount", imageInput, ({ service, context }, args) => service.listAndCountProductImages(
+      args.filters as Parameters<typeof service.listAndCountProductImages>[0], args.config as Parameters<typeof service.listAndCountProductImages>[1], context)),
+  };
 }

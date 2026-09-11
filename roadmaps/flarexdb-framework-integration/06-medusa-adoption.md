@@ -20,7 +20,10 @@ module-scoped repository/service construction for Currency and Product. Named
 domain policies retain query admission, Category tree/sort behavior, membership
 exclusions and distinct lifecycle contracts. Product command assembly separates
 profile preparation, reads, mutations and direct internal calls behind its
-existing entry point. A complete configured module set and a separately admitted
+existing entry point. Product public commands and Currency reads share scoped
+command construction with direct native-method bindings; domain-specific
+admission and native upsert/lifecycle semantics remain explicit.
+A complete configured module set and a separately admitted
 module proof remain subsequent capabilities. Medusa services remain above the
 existing Flarex transaction and publication owners.
 

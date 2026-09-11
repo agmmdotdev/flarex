@@ -65,7 +65,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   beforeAll(async () => {
     // A trusted test bundle hashes its actual authoring and execution sources,
     // including this file's hook bodies; names and Function.toString are not revisions.
-    const paths = ["product-tag-workflow.ts", "product-tag-workflow-events.ts", "workflow-runtime.ts", "workflow-value.ts", "product-workflow-module.ts", "product-service.ts", "currency-service.ts", "product-local-events.ts", "commerce-checked-value.ts", "local-graph/query.ts"];
+    const paths = ["product-tag-workflow.ts", "product-tag-workflow-events.ts", "workflow-runtime.ts", "workflow-value.ts", "product-workflow-module.ts", "product-service.ts", "service-commands.ts", "currency-service.ts", "product-local-events.ts", "commerce-checked-value.ts", "local-graph/query.ts"];
     for (const name of (await readdir(new URL("../src/workflow/", import.meta.url))).sort()) if (name.endsWith(".ts")) paths.push("workflow/" + name);
     for (const name of (await readdir(new URL("../src/product-commands/", import.meta.url))).sort()) if (name.endsWith(".ts")) paths.push("product-commands/" + name);
     const sources = await Promise.all(paths.map(path => readFile(new URL(`../src/${path}`, import.meta.url))));
