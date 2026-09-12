@@ -1,6 +1,7 @@
 # Located Transaction Static Drizzle Metadata
 
-Status: proposed shared-owner performance correction; implementation awaits approval.
+Status: implemented private static-metadata reuse; transaction authority and
+live accepting checks are unchanged.
 
 ## Outcome And Evidence
 
@@ -26,8 +27,8 @@ The repository already owns a matching resource-free factory in
 `src/physicalSession/drizzle.ts`: `makePhysicalSessionAccess` extracts static
 metadata once and constructs fresh client-bound database/transaction views.
 Relational sessions and artifact-control sessions use it today. The located
-runner still calls the full Drizzle constructor on pool checkout; its connected
-Client variant constructs once per runner rather than once per operation.
+runner previously called the full Drizzle constructor on pool checkout; its
+connected Client variant constructed once per runner rather than once per operation.
 
 The diagnostic used the real fixture and Local API, ten warmup reads and eighty
 reads of a fixed document, with preferences enabled. One run sampled the Node
@@ -43,16 +44,19 @@ outside queries is not a pure CPU measurement. Sampling has overhead and its
 inclusive ancestors overlap. This fixed-read diagnostic is not the original
 tombstone-growing operation matrix and is not a before/after speedup result.
 
-## Proposed Scope And Owners
+## Implementation And Owners
 
-Reuse the existing static-metadata construction owner, rather than introducing
-a second cache or modifying Payload. The candidate source scope is
+The located runner reuses the existing static-metadata construction owner,
+without introducing a second cache or modifying Payload. The source scope is
 `src/physicalSession/drizzle.ts` and `src/postgresLocatedReadCommitted.ts`, with
-their connected tests. Accommodate a borrowed `Client` as well as `PoolClient`
-only through the actual common node-postgres contract; neither view factory
-acquires, releases, quarantines or settles a client.
+their connected tests. The factory accepts the actual node-postgres
+`Client | PoolClient` union; the installed types do not make `PoolClient` a
+subtype of `Client`. Neither view factory acquires, releases, quarantines or
+settles a client. A module-owned factory compiles the code-defined schema once;
+pool checkouts retain fresh views, and connected Clients retain one view per
+runner. The two redundant full-constructor wrappers were removed.
 
-Retain the located runner's existing `database.transaction(...)` boundary and
+The located runner retains its existing `database.transaction(...)` boundary and
 READ COMMITTED configuration. Do not substitute the factory's bare transaction
 view for Drizzle's transaction callback, create another transaction, or migrate
 the runner to the physical-session lifecycle driver as part of this slice.
@@ -73,8 +77,21 @@ the runner to the physical-session lifecycle driver as part of this slice.
 
 Only immutable code-defined ORM metadata is shared. No client, database view,
 transaction, authorization verdict or restored catalog becomes cross-request
-state. Check which public constructor conveniences the actual caller consumes;
-do not assume the internal database constructor has every property of `drizzle`.
+state. The private caller consumes `database.transaction`, not the public
+`drizzle` constructor's `$client` convenience property. Logger, casing and cache
+options were not configured in the replaced calls; their defaults and native
+transaction behavior remain with the existing Drizzle session implementation.
+
+The construction witness counts the table metadata builder at factory creation
+and verifies it is not invoked by later client views or typed query construction.
+The real-PostgreSQL witness creates same-named temporary tables on separate
+pooled and connected Clients, proves independent typed and relational-query
+results, and checks rollback, commit and pool release. Existing located-runner
+fault tests continue to own exact failure provenance and quarantine behavior.
+
+Repeated complete-request comparisons support a modest `findByID` median
+improvement with unchanged SQL counts. Other operation and tail results are
+mixed; this is not a general latency solution or a deployed performance claim.
 
 ## Validation And Completion Gates
 

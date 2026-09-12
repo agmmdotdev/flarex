@@ -1,13 +1,15 @@
-import { drizzle } from "drizzle-orm/node-postgres";
 import type { Client, PoolClient } from "pg";
 
 import type { AppRowTransaction } from "./appRows";
 import { flarexSchema } from "./schema";
+import { makePhysicalSessionAccess } from "./physicalSession/drizzle";
 import {
   LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedTransactionFailureIssueV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "./transactionSessionAttemptKernel";
+
+const access = makePhysicalSessionAccess(flarexSchema);
 
 export type PostgresLocatedReadCommittedPhaseV1 =
   | "beforeCallback"
@@ -108,14 +110,14 @@ async function runLocatedReadCommittedWithPoolClient<Result>(
     let databaseResult:
       | Readonly<{
           readonly kind: "succeeded";
-          readonly database: ReturnType<typeof createConnectedDatabase>;
+          readonly database: ReturnType<typeof access>["database"];
         }>
       | Readonly<{ readonly kind: "failed"; readonly cause: unknown }>;
     try {
       await options.afterAcquire?.(client);
       databaseResult = Object.freeze({
         kind: "succeeded",
-        database: createConnectedDatabase(client),
+        database: access(client).database,
       });
     } catch (cause) {
       databaseResult = Object.freeze({ kind: "failed", cause });
@@ -184,7 +186,7 @@ export function createPostgresClientLocatedReadCommittedTransactionRunnerV1(
   client: Client,
   options: PostgresClientLocatedReadCommittedRunnerOptionsV1,
 ): RunLocatedReadCommittedTransactionV1 {
-  const database = createConnectedClientDatabase(client);
+  const database = access(client).database;
   let tail: Promise<void> = Promise.resolve();
   let unusable:
     | Readonly<{ readonly cause: unknown }>
@@ -325,14 +327,6 @@ export function classifyPostgresLocatedReadCommittedSettlementV1<Result>(
         }
       : {}),
   });
-}
-
-function createConnectedDatabase(client: PoolClient) {
-  return drizzle(client, { schema: flarexSchema });
-}
-
-function createConnectedClientDatabase(client: Client) {
-  return drizzle(client, { schema: flarexSchema });
 }
 
 interface CheckedOutClientErrorObservationV1 {

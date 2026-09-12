@@ -10,8 +10,9 @@ import {
   NodePgSession,
   NodePgTransaction,
 } from "drizzle-orm/node-postgres/session";
-import type { PoolClient } from "pg";
-/** This constructs a typed view of an already-owned client; it acquires no resource. */
+import type { Client, PoolClient } from "pg";
+/** Compile code-defined metadata once; each call binds fresh views to an
+ * already-owned Client or PoolClient without acquiring any resource. */
 export function makePhysicalSessionAccess<
   FullSchema extends Record<string, unknown>,
 >(fullSchema: FullSchema) {
@@ -26,7 +27,7 @@ export function makePhysicalSessionAccess<
     tableNamesMap: extracted.tableNamesMap,
   } satisfies RelationalSchemaConfig<Tables>;
   const dialect = new PgDialect();
-  return (client: PoolClient) => {
+  return (client: Client | PoolClient) => {
     const session = new NodePgSession<FullSchema, Tables>(
       client,
       dialect,

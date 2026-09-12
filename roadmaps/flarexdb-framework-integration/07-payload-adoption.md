@@ -223,10 +223,11 @@ manifest-binding data is reused only for request-local relation preparation;
 unique-closure preparation reuse is deferred by attribution. Standalone paths,
 live target admission and lock ownership are retained. Cross-request Application
 caching and auxiliary-transaction consolidation remain out of scope.
-The next [proposed located-transaction optimization](./preflight/69-located-transaction-static-drizzle-metadata.md)
-targets repeated compilation of code-defined Drizzle metadata, identified by a
-warmed CPU/query diagnostic. It awaits shared-owner approval and does not remove
-fresh catalog reads or accepting checks; no further speedup is established.
+The implemented [located-transaction optimization](./preflight/69-located-transaction-static-drizzle-metadata.md)
+reuses the existing static Drizzle metadata factory, retaining fresh client views
+and native transaction settlement. Repeated local comparisons support a modest
+read-median improvement with unchanged SQL counts; other timings remain mixed.
+No fresh catalog reads or accepting checks were removed.
 Inclusive spans are not additive; cold processes, isolated lock waits,
 contention and deployed latency remain unmeasured.
 Reusable immutable metadata must not become a cache of request authority.
