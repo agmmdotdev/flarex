@@ -7,11 +7,13 @@ CMS/Payload and commerce/Medusa paths. R1 physical ownership and R2 CMS
 participant/Application materialization are implemented. Overall status lives in the
 [domain index](./README.md#next-correctness-gates).
 
-The accepted design remains sound: shared core guarantees with distinct
-execution profiles. Remaining work is the CMS participant/materialization split
-and representative measured validation. Replacing
-framework execution with native logical OCC is unnecessary for this default
-design. Neither ownership replacement supersedes persisted state.
+The accepted design retains shared core guarantees with distinct execution
+profiles. The CMS participant/materialization split is implemented;
+representative measured validation remains open. The separate
+[storage redesign proposal](./07-transactional-storage-redesign.md) evaluates
+persisted state and per-operation costs. Replacing framework execution with
+native logical OCC is unnecessary for the default ownership design. Neither
+R1 nor R2 superseded persisted state.
 
 This assessment covers source callers, authority registries, settlement,
 recovery, schema declarations, package surfaces and relevant test assertions.

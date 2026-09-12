@@ -37,6 +37,10 @@ public APIs and production activation retain separate decisions and gates.
 - The [ownership audit](./01-ownership-audit.md) links current code and decisive
   tests. Code, schemas and tests establish exact behavior; this index tracks
   redesign status. Git owns chronological implementation and verification records.
+- The [transactional storage redesign](./07-transactional-storage-redesign.md)
+  proposes clean replacement of redundant storage and per-operation work,
+  with a physical inventory, source-derived costs, and Payload/Medusa API impact.
+  Its implementation slices remain proposed; it does not reopen completed R1/R2.
 
 ## Current Architecture
 
@@ -116,8 +120,19 @@ remain outstanding. Existing test deadlines must be evaluated with setup and
 environment contention distinguished from command cost. No throughput or
 production-readiness claim follows from identical SQL or passing unit tests.
 
-No schema was superseded by record 36. A deployed-catalog and durable-data
-inventory is required before any future physical deletion is selected.
+No schema was superseded by record 36. Deleting existing durable or deployed
+data requires an inventory of the actual obligations. Disposable development
+state follows the selected clean-schema/checkpoint-reset contract; it does not
+create a backward-compatibility requirement by itself.
+
+The owner has requested a clean transactional-core design without an assumed
+backward-compatibility obligation. The
+[storage proposal](./07-transactional-storage-redesign.md) distinguishes necessary
+history/authority from duplicated fields, body representations and per-row SQL.
+It also identifies terminal-session payload retention and expired-lease backlog
+as separate storage/progress obligations. Installation and app schema validation
+remain outside that investigation. Its proposed DDL and protocol changes do not
+describe implemented behavior or measured performance.
 
 ## Target Direction
 
@@ -137,6 +152,7 @@ include their consumer switches and logic cleanup; neither requires DDL.
 | [R2 CMS participant/materialization](./04-implementation-proposal.md#r2-cms-participant-and-application-materialization) | Implemented | CMS orchestration leaves native OCC; both participants use one shared materializer; displaced paths removed |
 | [Replacement and cleanup](./02-migration-and-cleanup.md) | R1/R2 logic cleanup complete; no DDL | Each approved replacement completes its consumer switch and logic cleanup; retained state justified |
 | [Performance and conformance](./03-validation-and-completion.md) | Focused extraction proof exists; broader measurement pending | Representative costs and concurrency meet explicit criteria; affected semantics preserved |
+| [Transactional storage redesign](./07-transactional-storage-redesign.md) | Source audit and replacement proposal complete; implementation not selected | Selected redundant state/work removed, core and integration consumers switched, retention/correctness proven and costs measured |
 | [Named cross-domain command](./05-named-command-preflight.md) | Private Currency + scalar CMS + Application profile implemented | Actual domain paths, complete atomic publication, rollback and retained recovery proven |
 | [Atomic commerce composition](../workflow-foundations/09-atomic-composition.md) | Private Product/Currency profile implemented and validated | Exact installation-set admission, aggregate lifetime and complete relational publication through the existing owner |
 | [Application command invocation](./06-application-command-invocation-preflight.md) | Preflight complete; Action-first implementation proposed | Authenticated real Action callback, frozen-intent recovery and explicit shared effect contract; Task invocation separately gated |
