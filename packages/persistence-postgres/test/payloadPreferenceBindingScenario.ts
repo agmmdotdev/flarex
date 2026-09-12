@@ -97,7 +97,10 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
     expectedContentIdentity: payloadScalarContentIdentity,
     materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle), developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
       uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle), candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }) } };
-  const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent), revisions: await persistence.drizzle.select().from(fxAppRowRevisions),
+  const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent),
+    // Corruption fixtures restore row bodies; physical heap order is not observable history.
+    revisions: await persistence.drizzle.select().from(fxAppRowRevisions).orderBy(
+      fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
     commits: await persistence.drizzle.select().from(fxSystemCommits), outcomes: await persistence.drizzle.select().from(fxSystemIdempotency),
     wakes: await persistence.drizzle.select().from(fxSystemCommitWakes), facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges),
     clocks: await persistence.drizzle.select().from(fxSystemScopeClocks), unique: await persistence.drizzle.select().from(fxAppUniqueKeys), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent) });

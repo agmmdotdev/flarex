@@ -193,10 +193,15 @@ configuration, serving, and existing-row migration remain outside this gate.
 Current composition initializes one scoped Payload instance and reuses it for
 its commands; it does not install schemas or bootstrap Payload on each command.
 Each root request still performs live authority, active-schema, binding, and
-transaction preparation. No measured dominant latency cost is established.
-After configuration routing is proven, preflight cold initialization, binding,
-warm admission/preparation, SQL counts, lock waits, Local API work, and commit
-separately, with ordinary-role PostgreSQL cold/warm p50 and p95 evidence.
+transaction preparation. The [measurement-only baseline](./preflight/62-payload-latency-baseline.md)
+now separates first/fresh same-process initialization, binding and warm requests,
+using ordinary-role PostgreSQL statement counts and inclusive owner spans. It
+identifies admission/active-relation readiness preparation and statement
+amplification as the next shared-owner investigation target, not initialization
+caching in the Payload adapter. Preflight repeated evidence loads and validation
+at those owners before approving any consolidation. Inclusive spans are not
+additive; cold processes, isolated lock waits, contention and deployed latency
+remain unmeasured.
 Reusable immutable metadata must not become a cache of request authority.
 Principals, mutable requests/loaders, cancellation, and transactions stay
 request-owned; a bound host's access policy is not automatically shareable

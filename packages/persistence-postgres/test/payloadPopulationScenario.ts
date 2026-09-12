@@ -142,11 +142,24 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
         eq(fxAppRowCurrent.tableId, targetIdentity.tableId), eq(fxAppRowCurrent.rowId, appRowIdHexV1ToBytes(targetIdentity.rowId)));
       const retainedPointer = (await input.persistence.drizzle.select().from(fxAppRowCurrent).where(targetPredicate))[0];
       if (retainedPointer === undefined) throw new Error("Missing target pointer");
-      // Deliberate storage-corruption fixture: bypass normal restrict only to prove fail-closed population.
-      await input.persistence.drizzle.delete(fxAppRowCurrent).where(targetPredicate);
+      const beforeCorruption = await input.inventory();
+      // Stable unique/index identities now forbid removing this pointer, even in a fixture.
+      await expect(input.persistence.drizzle.delete(fxAppRowCurrent).where(targetPredicate))
+        .rejects.toMatchObject({ cause: { message: expect.stringMatching(/fx_app_(unique_key|index_entry_rev)_row_identity_fk/) } });
+      expect(await input.inventory()).toEqual(beforeCorruption);
+      const revisionPredicate = and(eq(fxAppRowRevisions.scopeUuid, retainedPointer.scopeUuid),
+        eq(fxAppRowRevisions.tableId, retainedPointer.tableId), eq(fxAppRowRevisions.rowId, retainedPointer.rowId),
+        eq(fxAppRowRevisions.commitSeq, retainedPointer.commitSeq));
+      const retainedBody = (await input.persistence.drizzle.select().from(fxAppRowRevisions).where(revisionPredicate))[0];
+      if (retainedBody === undefined || retainedBody.isTombstone) throw new Error("Missing live target body");
+      // Deliberate corruption: a tombstone behind live incoming edges, without disabling any FK.
+      // This retains the exact missing-target loader witness under the current physical schema.
+      await input.persistence.drizzle.update(fxAppRowRevisions).set({ isTombstone: true, valueBytes: null, valueSha256: null }).where(revisionPredicate);
       try {
         expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: second, depth: 1 }))).toMatchObject({ reason: "storedCorruption", cause: { reason: "relationTargetMissing", documentId: target } });
-      } finally { await input.persistence.drizzle.insert(fxAppRowCurrent).values(retainedPointer); }
+      } finally { await input.persistence.drizzle.update(fxAppRowRevisions).set({ isTombstone: retainedBody.isTombstone,
+        valueBytes: retainedBody.valueBytes, valueSha256: retainedBody.valueSha256 }).where(revisionPredicate); }
+      expect(await input.inventory()).toEqual(beforeCorruption);
       expect(await runEffectFailure(host.read(batchProbe, [target, target]))).toMatchObject({ reason: "invalidInput" });
       expect(await runEffectFailure(host.read(batchProbe, Array.from({ length: 33 }, () => target)))).toMatchObject({ reason: "limitExceeded" });
       if ("pool" in input.persistence) {
