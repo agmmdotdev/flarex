@@ -59,11 +59,20 @@ through the existing atomic workflow host. Module-owned registrations hide
 method/repository assembly; root rollback restores pre-existing Link state rather
 than executing inverse callbacks. This gate adds no core/schema/engine changes.
 Cross-module graph hydration and full `createProductsWorkflow` remain unadmitted.
-The proposed [shipping-profile foundation](./preflight/59-product-shipping-profile-foundation.md)
-identifies the next shared text-inequality prerequisite and native cardinality
-characterization before Fulfillment/ProductShippingProfile activation. Its model
-source closure is broader than its proposed create/scalar-read table grants;
-neither full Fulfillment nor the new core predicate is approved by that preflight.
+The [shipping-profile foundation](./preflight/59-product-shipping-profile-foundation.md)
+has approval for its shared text-inequality prerequisite and native cardinality
+characterization, not Fulfillment/ProductShippingProfile activation. A remains
+incomplete: connected `$ne` reads expose Application-value encoding in the shared
+commerce command identity path, which refuses reserved `$` field names before
+native dispatch. Correction requires an explicit identity/replay decision; no
+adapter rewrite or Application codec relaxation is approved. Native Link also
+delegates contradictory same-batch profiles, characterized at its router boundary
+but not corrected. The proposed module source closure remains broader than its
+create/scalar-read table grants; full Fulfillment remains unadmitted.
+The proposed [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
+extends the shared outcome owner with an explicit JSON encoding while retaining
+Application evidence unchanged. It requires a schema and identity/replay approval;
+it is not an approved migration or a JSON-inside-Application wrapper.
 Sales Channel's six-command profile preserves the original service and static
 cases, native metadata merging, scalar/array results, pagination and errors.
 Boundary checks retain input refusal, identity protection, replay, service

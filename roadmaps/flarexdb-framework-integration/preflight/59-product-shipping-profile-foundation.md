@@ -1,8 +1,8 @@
 # Product Shipping Profile Foundation: Preflight
 
-Status: proposed; implementation approval pending. Gate C in preflight 58 is
-complete. This note authorizes neither new core predicates nor Fulfillment/Link
-activation. It separates the next shared prerequisite from the connected target.
+Status: A approved, implementation incomplete and paused at the commerce command
+identity boundary described below. Gate C in preflight 58 is complete. B and
+native cardinality correction remain unapproved; no Fulfillment/Link activation.
 
 ## Outcome And Recommendation
 
@@ -11,7 +11,7 @@ ProductShippingProfile Link. The intended connected proof creates one profile,
 one Sales Channel and a bounded simple Product batch, associates returned IDs
 through both native Link steps, reads pending roots, and commits once.
 
-The next approval should cover **A: the bounded shared inequality prerequisite
+The approved scope is **A: the bounded shared inequality prerequisite
 and native cardinality characterization** below. Do not start broad Fulfillment
 promotion or declare the new Link supported before those results. B describes
 the intended module/workflow scope, but its activation depends on A and any
@@ -38,9 +38,9 @@ its transitive execution audit remain separate work. Customer is not required.
   Fulfillment and the ProductShippingProfile definition remain comparison-only
   under `third_party/medusa/upstream/`; they are not runtime dependencies.
 
-No database or workflow tests were executed for this preflight. Findings below
-are current-source traces and explicitly labelled source-level counterexamples.
-Prior Gate C test results do not prove the new model, operator or cardinality.
+The original preflight was source-only. A now has executable neutral reader,
+native router and connected consumer witnesses. Its unresolved boundaries are
+recorded below. Prior Gate C results do not prove the new model or cardinality.
 
 ## Exact Native Trace
 
@@ -119,7 +119,7 @@ The source-level reproduction is to submit that native predicate through the
 existing Link policy: it is refused rather than finding a conflicting row.
 No new stored ShippingProfile run has been used to establish this finding.
 
-Proposed A scope:
+Approved A scope:
 
 1. Preserve failing adapter/core witnesses before changing either owner.
 2. Add one explicit module-neutral non-null text inequality operation through
@@ -135,7 +135,7 @@ Proposed A scope:
    module profile, plus the real native cardinality query shape. Run both
    PGlite and ordinary-role PostgreSQL owner/consumer lanes.
 
-This is a core query-capability extension and needs explicit approval. It is
+This is the approved core query-capability extension. It is
 not a shipping-profile branch. Rejected alternatives: adapter post-filtering
 breaks bounded existence/count/pagination semantics; local SQL bypasses the
 existing authority; a second transaction changes the atomicity contract;
@@ -153,9 +153,15 @@ endpoint columns as the physical primary key; it does not derive a unique
 Source-derived counterexample to test: on empty storage, create
 `(product-1, profile-A)` and `(product-1, profile-B)` in one batch. Both
 pre-insert existence checks can be empty, and the composite keys differ.
-This is a suspected native batch-cardinality gap, not an executed result here.
-The A characterization must cover exact duplicate pairs, different profiles for
-one Product, multiple Products sharing a profile, and repeated same-pair attach.
+The authored `packages/medusa-adapter/test/native-link-cardinality.test.ts`
+now confirms that the actual native router delegates both conflicting tuples
+after one existing-row query. The actual structural generator declares composite
+endpoint identity and no endpoint-only unique index. The test also characterizes
+exact duplicate delegation, multiple Products sharing a profile, repeated
+same-pair checks and refusal when the service reports an existing conflict.
+An explicitly expected-failing test preserves the desired pre-delegation
+refusal. The service boundary is a recording stub, not a stored Fulfillment
+implementation; this does not claim persisted ShippingProfile conformance.
 
 If confirmed, record expected/actual behavior at the Medusa Link owner and
 return for an explicit correction decision before B activation. Do not silently
@@ -163,6 +169,51 @@ deduplicate, select the last profile, serialize a bad batch into changed busines
 semantics, or add an adapter-only unique index that hides the native contract.
 Same-scope root serialization addresses competing requests; it does not repair
 two contradictory rows submitted in one batch.
+
+### Additional shared-owner boundary: commerce JSON command identity
+
+The connected inequality witnesses in `product-sales-channel-link.test.ts` and
+`sales-channel-binding.test.ts` submit a text-ID `$ne` filter through their
+normal root read commands. They expect the admitted native read to reach the
+shared predicate/compiler and return the filtered rows/count. Instead the host
+fails before dispatch with `CommerceTransactionError(reason: invalidAuthority)`
+and `CommitProtocolV1Error(issue: invalidValue, component: successfulResult,
+path: $)`.
+
+`packages/persistence-postgres/src/commerceTransaction/host.ts` fingerprints the
+commerce command envelope, including captured JSON arguments, through
+`canonicalizeSuccessfulResultV1Effect`. That API canonicalizes Application runtime
+values. `packages/flarex-protocol/src/value.ts` deliberately rejects object fields
+beginning with `$` in that value domain. Thus valid Medusa operator objects are
+not representable in the selected command identity path. The same host also
+uses that Application result encoding after native execution; the correction
+must audit both sides and retained replay rather than patch only this filter.
+The atomic path has the same source-level coupling in `atomicCommerce/request.ts`
+and `atomicCommerce/execution.ts`; its independent failing witness remains to be
+added in the correction slice.
+
+The bounded SQL `textNotEqual` reader and shared adapter compiler are implemented
+in the uncommitted slice. Core neutral reader behavior passes independently, but
+connected consumer validation remains failing, so A is not complete. The
+adapter grants inequality only to the selected Link IDs and Sales Channel ID;
+other field grammars remain closed. Do not infer public operator support from
+the adapter decoders or make the witness pass by constructing a different root
+input, stringifying filters locally, moving the filter into test-only execution,
+or changing the Application value codec's reserved-key rules.
+
+The proposed [commerce JSON identity/outcome correction](./60-commerce-json-identity-and-outcomes.md)
+now defines the next approval: correct the shared commerce request/result
+identity owner to carry bounded ordinary JSON through the existing canonical
+JSON, commit and retained-outcome owners, preserving exact request identity,
+conflict detection, result bytes, replay and uncertain-settlement recovery.
+Audit the atomic commerce path too. The accepted Application value domain must
+remain unchanged. Establish the development-only compatibility/retirement
+decision before changing persisted identity/result encoding; no dual path,
+version-suffixed public API or schema migration is implicitly authorized.
+Required correction witnesses include neutral `$`/Unicode object keys, actual
+Medusa filters, different arguments under a reused key, exact result replay,
+malformed/bounded input and both database lanes. Native Link's separate
+in-batch cardinality correction still needs its own decision before B activation.
 
 ## B. Connected Module And Workflow Direction
 
