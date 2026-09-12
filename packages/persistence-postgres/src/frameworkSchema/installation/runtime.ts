@@ -54,8 +54,7 @@ export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare
       const evidence = yield* readInstallationEvidence(tx, coordinates);
       const headFingerprint = yield* lockHeadFingerprint(tx, restored.installation.storageId);
       const data = installationRuntimeData(restored);
-      if (measureCanonicalJsonUtf8Bytes({ admissionProfile: data.admissionProfile, physicalLayoutCanonicalJson: data.physicalLayoutCanonicalJson,
-        readiness: data.readiness }, MAX_RETAINED_DATA_BYTES).kind !== "success") return yield* Effect.fail(bindingError("resourceFailure"));
+      if (measureCanonicalJsonUtf8Bytes(data, MAX_RETAINED_DATA_BYTES).kind !== "success") return yield* Effect.fail(bindingError("resourceFailure"));
       return Object.freeze({ target, reference, installationStorageId: restored.installation.storageId, headFingerprint, coordinates, evidence, data });
     }).pipe(withAdditiveMigrationGraphLimits, withFrameworkMigrationPlanVerification,
       Effect.timeoutOrElse({ duration: 15_000, orElse: () => Effect.fail(bindingError("resourceFailure")) })),

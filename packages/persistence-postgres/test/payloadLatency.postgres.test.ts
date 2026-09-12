@@ -72,7 +72,12 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
       const value = yield* (collected ? effect.pipe(Effect.provideService(Tracer.Tracer, tracer)) : effect);
       const ms = Number((yield* Clock.monotonicTimeNanos) - start) / 1e6;
       const after = yield* stats;
-      if (collected) expect(spans.filter(span => span.name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
+      if (collected) {
+        expect(spans.filter(span => span.name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
+        expect(spans.filter(span => span.name === "InstallationRuntime.accept")).toHaveLength(1);
+        expect(spans.filter(span => span.name === "InstallationRuntime.readEvidence")).toHaveLength(1);
+        expect(spans.some(span => span.name === "DataBindingEvidence.lockInstallation")).toBe(false);
+      }
       const durations: Record<string, number> = {};
       for (const span of spans) {
         if (span.status._tag !== "Ended") throw new Error(`Unclosed measurement span: ${span.name}`);
@@ -140,9 +145,10 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
         expect(group).toHaveLength(20);
         expect(group.every(sample => sample.calls > 0)).toBe(true);
         if (group[0]?.collected) expect(group.every(sample => sample.spans["CmsHost.execute"] !== undefined)).toBe(true);
-      } else expect(group.every(sample => sample.calls === 0)).toBe(true);
+      } else if (group[0]?.operation === "bind") expect(group.every(sample => sample.calls > 0)).toBe(true);
+      else expect(group.every(sample => sample.calls === 0)).toBe(true);
       const names = [...new Set(group.flatMap(sample => Object.keys(sample.spans)))].filter(name =>
-        /^(CmsAdmission\.|CmsCommit\.|ScopeClock\.lock|PayloadAdapter\.call|ApplicationRelationReadinessFold\.)/.test(name));
+        /^(CmsAdmission\.|CmsCommit\.|ScopeClock\.lock|PayloadAdapter\.call|ApplicationRelationReadinessFold\.|InstallationRuntime\.|DataBindingEvidence\.|PayloadPreferences\.)/.test(name));
       return { key, ms: summary(group.map(sample => sample.ms)), calls: summary(group.map(sample => sample.calls)),
         serverMs: summary(group.map(sample => sample.serverMs)), inclusiveSpans: Object.fromEntries(names.map(name =>
           [name, summary(group.map(sample => sample.spans[name] ?? 0))])) };

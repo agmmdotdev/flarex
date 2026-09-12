@@ -1,6 +1,12 @@
 import { frameworkMigrationTargetSnapshot, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
-import { lockBindingInstallation } from "../frameworkSchema/binding/evidence";
+import { prepareInstallationRuntime, acceptPreparedInstallation, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
+import type { InstallationRuntimeData } from "../frameworkSchema/installation/runtimeData";
+import { bindingInstallationReference } from "../frameworkSchema/binding/model";
+import { runRelationalSession, type RelationalSession } from "../relationalTransaction/session";
+import { lockScopeClockForShareInTransactionEffect } from "../scopeClock";
+import { resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
+import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { verifyPayloadPreferenceStorageBinding } from "../payloadPreferences/binding";
 import { Effect, Option, Schema } from "effect";
 import { captureApplicationWritePolicyData, PayloadConfigurationSchema, type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
@@ -18,7 +24,6 @@ import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority, TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import { cmsError } from "./model";
-import type { RestoredFrameworkSchemaAvailabilityHead } from "../frameworkSchema/installation/storedMetadataRestoration";
 import { requireCompositeBinding, type CompositeBinding } from "../crossDomainCommand/binding";
 
 declare const admissionBrand: unique symbol;
@@ -37,11 +42,43 @@ export interface CmsAdmissionState {
   readonly schema: ApplicationRelationSchemaAuthority;
   readonly frame: DataBindingSetFrame;
   readonly head: DataBindingHeadToken;
-  readonly preferenceAvailability: RestoredFrameworkSchemaAvailabilityHead | null;
+  readonly preferenceAvailability: InstallationRuntimeData | null;
+}
+export interface PreparedCmsPreferences {
+  readonly target: FrameworkMigrationTarget;
+  readonly installation: PreparedInstallationRuntime;
 }
 const admissions = new WeakMap<object, CmsAdmissionState>();
 const prepared = new WeakSet<object>();
 const isPayloadConfiguration = Schema.is(PayloadConfigurationSchema);
+
+function cmsClockMatches(authority: TrustedScopeAuthority, clock: ScopeClockRecord): boolean {
+  return clock.scopeId === authority.scopeId && clock.storageGeneration === authority.storageGeneration &&
+    clock.storageGenerationFence === authority.storageGenerationFence && clock.epoch === authority.epoch;
+}
+
+/** Host-owned immutable installation inputs, never request authority. Selection
+ * releases its scope lock before the installation owner's snapshot preparation. */
+export const prepareCmsPreferences = Effect.fn("CmsAdmission.preparePreferences")(function* (
+  database: FlarexMetadataDatabase, session: RelationalSession,
+  authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
+  deploymentId: string, target: FrameworkMigrationTarget,
+) {
+  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
+  if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
+  const reference = yield* runRelationalSession(session, tx => Effect.gen(function* () {
+    const clock = yield* lockScopeClockForShareInTransactionEffect(tx, located.authority.scopeId);
+    if (!cmsClockMatches(located.authority, clock)) return yield* Effect.fail(cmsError("invalidAuthority"));
+    const head = yield* readBindingHead(tx, located.authority, false);
+    if (Option.isNone(head)) return yield* Effect.fail(cmsError("bindingChanged"));
+    const candidate = yield* readBindingCandidate(tx, located.authority, head.value.frame.candidateSha256);
+    if (Option.isNone(candidate)) return yield* Effect.fail(cmsError("storedCorruption"));
+    if (candidate.value.frame.payloadLifecycle === null) return yield* Effect.fail(cmsError("unsupportedProfile"));
+    return bindingInstallationReference(candidate.value.frame.payloadLifecycle);
+  }));
+  const installation = yield* prepareInstallationRuntime(database, target, reference);
+  return Object.freeze({ target, installation }) satisfies PreparedCmsPreferences;
+});
 
 /** Control evidence is captured before opening the target data transaction. */
 export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function* <Failure>(
@@ -74,13 +111,11 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
   authority: TrustedScopeAuthority,
   clock: ScopeClockRecord,
   work: (admission: CmsAdmission) => Effect.Effect<Value, Failure, Requirements>,
-  preferenceTarget?: FrameworkMigrationTarget,
+  preferences?: PreparedCmsPreferences,
   composite?: CompositeBinding,
   accepted?: AcceptedApplicationBinding,
 ) {
-  if (!prepared.has(application) || clock.scopeId !== authority.scopeId ||
-    clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence ||
-    clock.epoch !== authority.epoch) return yield* Effect.fail(cmsError("invalidAuthority"));
+  if (!prepared.has(application) || !cmsClockMatches(authority, clock)) return yield* Effect.fail(cmsError("invalidAuthority"));
   return yield* withAcceptedApplicationBinding(application.selection, tx, clock, binding => Effect.gen(function* () {
     const projection = yield* readAcceptedApplicationBindingProjection(binding, tx, clock);
     const head = yield* readBindingHead(tx, authority, false);
@@ -89,8 +124,8 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
     if (Option.isNone(candidate)) return yield* Effect.fail(cmsError("storedCorruption"));
     const frame = candidate.value.frame;
     if (!sameBindingValue(projection, frame.application)) return yield* Effect.fail(cmsError("bindingChanged"));
-    if (frame.payloadContent === null || (frame.payloadLifecycle !== null && preferenceTarget === undefined) ||
-      (frame.payloadLifecycle === null && preferenceTarget !== undefined) || (commerceBindings(frame).length !== 0 && composite === undefined) ||
+    if (frame.payloadContent === null || (frame.payloadLifecycle !== null && preferences === undefined) ||
+      (frame.payloadLifecycle === null && preferences !== undefined) || (commerceBindings(frame).length !== 0 && composite === undefined) ||
       projection.readiness.kind !== "policy" || projection.readiness.relationCount > 2) {
       return yield* Effect.fail(cmsError("unsupportedProfile"));
     }
@@ -108,12 +143,13 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
       return yield* Effect.fail(cmsError("invalidAuthority"));
     }
     yield* verifyAcceptedPayloadContentBinding(tx, clock, frame, binding);
-    let preferenceAvailability: RestoredFrameworkSchemaAvailabilityHead | null = null;
-    if (preferenceTarget !== undefined && frame.payloadLifecycle !== null) {
-      const snapshot = frameworkMigrationTargetSnapshot(preferenceTarget);
+    let preferenceAvailability: InstallationRuntimeData | null = null;
+    if (preferences !== undefined && frame.payloadLifecycle !== null) {
+      const snapshot = frameworkMigrationTargetSnapshot(preferences.target);
       if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
         !scopePhysicalLocatorsEqual(snapshot.physicalLocator, authority.physicalLocator)) return yield* Effect.fail(cmsError("invalidAuthority"));
-      const availability = yield* lockBindingInstallation(tx, frame.payloadLifecycle, snapshot);
+      const availability = yield* acceptPreparedInstallation(preferences.installation, preferences.target,
+        bindingInstallationReference(frame.payloadLifecycle), tx);
       yield* verifyPayloadPreferenceStorageBinding(frame, availability);
       preferenceAvailability = availability;
     }

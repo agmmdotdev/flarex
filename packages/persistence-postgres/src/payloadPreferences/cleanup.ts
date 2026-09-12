@@ -74,7 +74,7 @@ export const makePayloadPreferenceCleanup = Effect.fn("PayloadPreferences.makeCl
       const documentId = pending.documentId;
       const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)
         .pipe(Result.mapError(cause => cmsError("invalidAuthority", cause))));
-      const layout = availability.installation.plan.plan.physicalLayout.frame;
+      const layout = availability.physicalLayout;
       const physical = layout.tables[0];
       if (physical === undefined) return yield* Effect.fail(cmsError("storedCorruption"));
       const generation = physical.columns.find(column => column.identity.columnId === "storage_generation");

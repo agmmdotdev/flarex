@@ -161,9 +161,12 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
           await update(source, { relatedPosts: [a, b] });
         }
         let lost = false;
+        let bound = false;
         const recovering = await runEffect(makeCmsHost({ ...composition, session: makePostgresRelationalSession(persistence, { lifecycleFault: event => {
+          if (!bound) return;
           if (event.phase === "commit" && event.edge === "after" && !lost) { lost = true; throw new Error("Lost many COMMIT acknowledgement"); }
         } }) }));
+        bound = true;
         const recoverKey = recovering.newRequestKey();
         const recoverArgs = { collection: "posts", id: source, data: { relatedPosts: [b, a] } };
         const recovered = await runEffect(recovering.run(recoverKey, conformance.runtime.commands.update, recoverArgs));

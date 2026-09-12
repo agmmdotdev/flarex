@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import type { DataBindingSetFrame } from "../frameworkSchema/binding/model";
 import type { RestoredFrameworkSchemaAvailabilityHead } from "../frameworkSchema/installation/storedMetadataRestoration";
+import { installationRuntimeData, type InstallationRuntimeData } from "../frameworkSchema/installation/runtimeData";
 import { bindingError } from "../frameworkSchema/binding/errors";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import { commerceBindings } from "../frameworkSchema/binding/model";
@@ -54,7 +55,7 @@ export const capturePayloadPreferenceProfile = Effect.fn("PayloadPreferences.cap
 /** Validates lifecycle storage only; no content profile or cleanup capability is issued. */
 export const verifyPayloadPreferenceStorageBinding = Effect.fn("PayloadPreferences.verifyStorageBinding")(function* (
   frame: DataBindingSetFrame,
-  availability: RestoredFrameworkSchemaAvailabilityHead,
+  availability: InstallationRuntimeData,
 ) {
   const binding = frame.payloadLifecycle;
   const content = frame.payloadContent;
@@ -62,9 +63,9 @@ export const verifyPayloadPreferenceStorageBinding = Effect.fn("PayloadPreferenc
   const expected = yield* capturePayloadPreferenceProfile(binding.installation.artifact.deploymentId);
   if (!sameBindingValue(binding.installation.artifact, { ...expected.artifact.identity }) ||
     binding.profiles.length !== 1 || binding.profiles[0] === undefined || !sameBindingValue(binding.profiles[0], expected.profile) ||
-    availability.installation.plan.plan.frame.version !== 1 ||
-    availability.installation.admission.admission.frame.admissionProfile !== "payload-preferences-fresh" ||
-    availability.readiness.readiness.frame.residualRequirements.length !== 0) {
+    availability.planVersion !== 1 ||
+    availability.admissionProfile !== "payload-preferences-fresh" ||
+    availability.readiness.residualRequirements.length !== 0) {
     return yield* Effect.fail(bindingError("unsupportedProfile"));
   }
 });
@@ -75,7 +76,7 @@ export const verifyPayloadPreferenceBinding = Effect.fn("PayloadPreferences.veri
   availability: RestoredFrameworkSchemaAvailabilityHead,
   profiles: PayloadContentProfiles | undefined,
 ) {
-  yield* verifyPayloadPreferenceStorageBinding(frame, availability);
+  yield* verifyPayloadPreferenceStorageBinding(frame, installationRuntimeData(availability));
   const content = frame.payloadContent;
   const count = frame.application.readiness.kind === "policy" ? frame.application.readiness.relationCount : -1;
   const selected = profiles === undefined ? undefined : contentProfiles.get(profiles);

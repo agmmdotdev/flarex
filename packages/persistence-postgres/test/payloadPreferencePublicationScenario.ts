@@ -115,11 +115,14 @@ export async function payloadPreferencePublicationScenario(input: {
       const recoveringId = await create("delete-native-recovery");
       await input.seed(recoveringId, ["native-recovery"]);
       let lost = false;
+      let bound = false;
       const pids: unknown[] = [];
       const recovering = await runEffect(conformance.runtime.bind({ ...hostInput, session: makePostgresRelationalSession(persistence, { lifecycleFault: event => {
+        if (!bound) return;
         if (event.phase === "begin" && event.edge === "after") pids.push(Reflect.get(event.client, "processID"));
         if (event.phase === "commit" && event.edge === "after" && !lost) { lost = true; throw new Error("Lost delete COMMIT acknowledgement"); }
       } }) }));
+      bound = true;
       const recoveryCalls = conformance.observations.executions();
       const recovered = await runEffect(recovering.run(recovering.newRequestKey(), conformance.runtime.commands.delete, { collection: "posts", id: recoveringId }));
       expect(recovered).toMatchObject({ id: recoveringId });

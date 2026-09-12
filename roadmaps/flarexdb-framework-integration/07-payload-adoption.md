@@ -205,6 +205,16 @@ the combined Commerce/CMS command borrows the same acceptance without changing
 installation-before-Application lock order. Current authority, revocation,
 readiness and binding validation remain mandatory on every request and replay.
 No request-authority cache or scalar-only alternate path was introduced.
+The [prepared preference installation](./preflight/65-payload-prepared-preference-installation.md)
+extends the existing shared installation runtime to preference-enabled CMS hosts.
+Their `bind` performs bounded metadata preparation, not DDL, and retains one
+immutable installation description. Every request and replay still locks and
+checks current installation evidence. Preference cleanup consumes the validated
+physical-layout data without restoring or retaining a repository authority graph.
+Availability or installation-reference replacement requires explicit rebinding;
+there is no automatic refresh or cold fallback. Construction cost is measured
+separately from reused-host requests. Hosts without preferences retain their
+existing construction behavior and refuse later unprepared preference activation.
 Inclusive spans are not additive; cold processes, isolated lock waits,
 contention and deployed latency remain unmeasured.
 Reusable immutable metadata must not become a cache of request authority.

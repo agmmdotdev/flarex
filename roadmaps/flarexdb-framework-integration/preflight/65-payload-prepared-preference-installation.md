@@ -1,6 +1,6 @@
 # Payload Prepared Preference Installation
 
-Status: proposed; host-lifetime and rebinding decision requires owner approval.
+Status: implemented for the approved private preference-enabled CMS host contract.
 
 ## Outcome And Evidence
 
@@ -10,23 +10,23 @@ from each ready-host request without caching request authority or weakening
 fresh evidence comparison. This follows [prepared Application admission](./64-payload-prepared-admission.md),
 not a second implementation of it.
 
-Current `cmsTransaction/admission.ts` calls `lockBindingInstallation` and retains
-a `RestoredFrameworkSchemaAvailabilityHead` for every preference-enabled root
-request. `payloadPreferences/binding.ts` uses that graph to check the admitted
-fresh profile; `payloadPreferences/cleanup.ts` walks its physical layout for
-deletion. Conversely, `commerceTransaction/host.ts` already prepares an immutable
+Before this change, `cmsTransaction/admission.ts` called `lockBindingInstallation`
+and retained a `RestoredFrameworkSchemaAvailabilityHead` for every
+preference-enabled root request. `payloadPreferences/binding.ts` used that graph
+to check the admitted fresh profile; `payloadPreferences/cleanup.ts` walked its
+physical layout for deletion. `commerceTransaction/host.ts` already prepares an immutable
 installation description once and `commerceTransaction/admission.ts` invokes
 `acceptPreparedInstallation` with fresh head/evidence checks per transaction.
 The shared contract and integrity inventory are in
 [installation runtime redesign](../installation-runtime-redesign.md).
 
 The existing Payload latency workload includes preference storage, so it is the
-nearest connected measurement and delete-cleanup proof. Its current span filter
-does not isolate installation acceptance. Add that attribution before claiming
-its contribution or predicting a reduction. The remaining Application input
-preparation is a separate cost and is not removed by this proposal.
+nearest connected measurement and delete-cleanup proof. Its span filter now
+isolates installation preparation and acceptance, with bind cost measured
+separately from reused-host requests. The remaining Application input
+preparation is a separate cost and is not removed by this change.
 
-## Recommended Contract
+## Approved Contract
 
 1. A preference-enabled CMS host resolves its selected lifecycle binding through
    trusted binding/authority owners during construction. Reuse
@@ -53,10 +53,10 @@ preparation is a separate cost and is not removed by this proposal.
    may bless changed evidence. Hosts without preferences retain their current
    behavior and must refuse later unprepared preference activation.
 
-The deliberate behavior change is that preference-enabled `bind` now performs
+The approved behavior change is that preference-enabled `bind` now performs
 database preparation and can reject unavailable installation state early;
-installation replacement requires rebinding. This is why implementation waits
-for an explicit decision rather than treating the change as helper cleanup.
+installation replacement requires rebinding. Non-preference construction stays
+free of installation preparation; it cannot silently adopt preference storage.
 
 ## Owners, Alternatives And Cleanup
 

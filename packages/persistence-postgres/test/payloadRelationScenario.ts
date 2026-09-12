@@ -228,11 +228,14 @@ export async function payloadRelationScenario(input: {
         expect(duplicate[0]).toEqual(duplicate[1]);
         expect(relation.observations.executions()).toBe(duplicateCalls + 1);
         let lost = false;
+        let bound = false;
         const pids: unknown[] = [];
         const recovering = await runEffect(makeCmsHost({ ...composition, session: makePostgresRelationalSession(persistence, { lifecycleFault: event => {
+          if (!bound) return;
           if (event.phase === "begin" && event.edge === "after") pids.push(Reflect.get(event.client, "processID"));
           if (event.phase === "commit" && event.edge === "after" && !lost) { lost = true; throw new Error("Lost relation COMMIT acknowledgement"); }
         } }) }));
+        bound = true;
         const recoveryCalls = relation.observations.executions();
         expect(await runEffect(recovering.run(recovering.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: source } }))).toMatchObject({ relatedPost: source });
         expect(relation.observations.executions()).toBe(recoveryCalls + 1);

@@ -26,7 +26,7 @@ import { RelationalSessionError } from "../relationalTransaction/model";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { createCommittedPointOutcomeResolverV1, CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../committedPointOutcome";
 import { prepareCmsApplicationCommit, enterCmsApplicationCommit, type CmsMaterializationOptions } from "./publication";
-import { prepareCmsApplication, withCmsAdmission, requireCmsAdmission } from "./admission";
+import { prepareCmsApplication, prepareCmsPreferences, withCmsAdmission, requireCmsAdmission } from "./admission";
 import { makeCmsRequestLifetime } from "./lifetime";
 import { makeCmsDocuments, type CmsDocuments, type CmsDocumentReadTestHooks } from "./documents";
 import { makePayloadPreferenceCleanup, type PayloadPreferenceCleanup } from "../payloadPreferences/cleanup";
@@ -142,6 +142,8 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
   const identity = yield* Effect.fromResult(capturePrivateJsonData(input.identityAndAccessPolicy, cmsLimits.documentBytes, cmsError));
   const canonicalIdentity = yield* canonicalizeSuccessfulResultV1Effect(identity.value).pipe(Effect.mapError(projectFailure));
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha256(canonicalIdentity.canonicalBytes));
+  const preparedPreferences = preferenceTarget === undefined ? undefined : yield* prepareCmsPreferences(database, session, authority,
+    deploymentId, preferenceTarget).pipe(Effect.mapError(projectFailure));
   const owner = Object.freeze({ hostId: Symbol("cms.host") });
   const materialization = Object.freeze({ ...input.materialization });
   const testHooks = hooks === undefined ? undefined : Object.freeze({ ...hooks });
@@ -215,7 +217,7 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
             if (participant !== null && lookup !== null) yield* participant.finalize(yield* working.close(), yield* preferences.close(), lookup, result, digest, testHooks);
             return result.valueJson;
           }).pipe(Effect.ensuring(lifetime.close));
-        }), preferenceTarget);
+        }), preparedPreferences);
       })));
     });
     return yield* runWithRequestRecovery(attempt, {

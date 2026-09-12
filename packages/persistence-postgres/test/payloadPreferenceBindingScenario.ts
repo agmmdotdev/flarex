@@ -2,9 +2,9 @@ import { installPayloadPreferenceFixture } from "./payloadPreferenceFixture";
 import { payloadJoinScenario } from "./payloadJoinScenario";
 import { projectScopeIdUuidV1Result, ScopeIdSchema, ScopeEpochSchema, StorageGenerationSchema } from "flarex-protocol/storage-authority";
 import { isJsonObject } from "flarex-protocol/json";
-import { ne } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import { expect } from "vitest";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Option, Result, Schema, Tracer } from "effect";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
@@ -25,7 +25,8 @@ import { makeDataBindingHost, dataBindingActivationRequest } from "../src/framew
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import { captureFrameworkSchemaAvailabilityHistory, captureFrameworkSchemaAvailabilityHead } from "../src/frameworkSchema/installation/canonical";
 import { appendFrameworkSchemaAvailabilityHistoryInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHistoryRepository";
-import { compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHeadRepository";
+import { compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect, lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHeadRepository";
+import { fxSystemFrameworkSchemaInstallations } from "../src/frameworkSchema/installation/schema";
 import { payloadScalarFields } from "../../payload-adapter/src/conformanceProfile";
 import { payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
@@ -124,7 +125,23 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   }, payloadPreferenceTarget: target }));
   expect(await runEffectFailure(mismatched.read(probe, {}))).toMatchObject({ reason: "invalidAuthority" });
   const host = await runEffect(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
-  expect(await runEffect(host.read(probe, {}))).toBe(null);
+  const installationWhere = eq(fxSystemFrameworkSchemaInstallations.installationStorageId, availability.installation.storageId);
+  const originalBytes = new TextEncoder().encode(availability.installation.installation.canonicalJson);
+  const changedBytes = originalBytes.slice(); changedBytes[0] = 32;
+  await persistence.drizzle.update(fxSystemFrameworkSchemaInstallations).set({ canonicalBytes: changedBytes }).where(installationWhere);
+  try {
+    await runEffectFailure(host.read(probe, {}));
+    await runEffectFailure(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
+    expect(calls).toBe(0);
+  } finally {
+    await persistence.drizzle.update(fxSystemFrameworkSchemaInstallations).set({ canonicalBytes: originalBytes }).where(installationWhere);
+  }
+  const spans: string[] = [];
+  const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+  expect(await runEffect(host.read(probe, {}).pipe(Effect.provideService(Tracer.Tracer, tracer)))).toBe(null);
+  expect(spans.filter(name => name === "InstallationRuntime.readEvidence")).toHaveLength(1);
+  expect(spans).not.toContain("DataBindingEvidence.lockInstallation");
+  expect(spans).not.toContain("FrameworkMigrationPlanRepository.loadSidecars");
   expect(calls).toBe(1);
   // Reuse this installed fixture for the transaction/receipt slice on both drivers.
   let activeTx: FlarexMetadataTransaction | undefined;
@@ -214,6 +231,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   if (snapshot === undefined) throw new Error("Missing target snapshot");
   const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: malformed.artifact, targetNamespace: snapshot.namespace, physicalLocator: snapshot.physicalLocator }));
   await runEffectFailure(captureFreshRelationalMigrationPlan({ artifact: malformed.artifact, physicalLayout: layout }));
+  const beforeWithdrawal = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
   await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
     const history = yield* captureFrameworkSchemaAvailabilityHistory({ readiness: availability.readiness.readiness, previous: availability.history.history,
       status: "withdrawn", reasonSha256: "f".repeat(64), recordedAt: "2026-09-06T00:00:00.000Z" });
@@ -226,5 +244,30 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   expect(cleanupCompletions).toBe(completedBeforeWithdrawal);
   await runEffectFailure(cold.withCurrent(readAdmittedDataBinding));
   expect(calls).toBe(1);
+  expect(await persistence.drizzle.select().from(table)).toEqual(retained);
+  // Unavailable construction cannot publish a host. Returning to ready changes
+  // the installation reference and requires an explicit new bind.
+  await runEffectFailure(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
+  const replacement = await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+    const current = yield* lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect(tx, availability.installation.installation.frame.identity);
+    if (Option.isNone(current)) throw new Error("Missing withdrawn availability");
+    const history = yield* captureFrameworkSchemaAvailabilityHistory({ readiness: current.value.readiness.readiness,
+      previous: current.value.history.history, status: "ready", reasonSha256: null, recordedAt: "2026-09-07T00:00:00.000Z" });
+    const stored = yield* appendFrameworkSchemaAvailabilityHistoryInTransactionEffect(tx, current.value.readiness, current.value.history, history);
+    yield* compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect(tx, current.value, stored, yield* captureFrameworkSchemaAvailabilityHead(stored.history));
+    const ready = yield* lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect(tx, availability.installation.installation.frame.identity);
+    if (Option.isNone(ready)) throw new Error("Missing replacement availability");
+    return ready.value;
+  })));
+  const reboundCandidate = await runEffect(bindings.prepare({ ...frame,
+    payloadLifecycle: { ...installationBindingReference(replacement), profiles: [profile.profile] } }));
+  await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration,
+    "rebind-preferences", reboundCandidate.sha256, beforeWithdrawal.head)));
+  await runEffectFailure(host.read(probe, {}));
+  await runEffectFailure(disabled.read(probe, {}));
+  expect(calls).toBe(1);
+  const rebound = await runEffect(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
+  expect(await runEffect(rebound.read(probe, {}))).toBe(null);
+  expect(calls).toBe(2);
   expect(await persistence.drizzle.select().from(table)).toEqual(retained);
 }

@@ -37,7 +37,10 @@ export async function exerciseInstallationRuntime(database: FlarexMetadataDataba
   const accepted = await database.transaction(tx => runEffect(acceptPreparedInstallation(fixture.prepared, fixture.target, fixture.reference, tx)
     .pipe(Effect.provideService(Tracer.Tracer, tracer))));
   expect(accepted.readiness).toEqual(fixture.stored.readiness.readiness.frame);
-  expect(Object.keys(accepted).sort()).toEqual(["admissionProfile", "physicalLayoutCanonicalJson", "readiness"]);
+  expect(Object.keys(accepted).sort()).toEqual(["admissionProfile", "physicalLayout", "physicalLayoutCanonicalJson", "planVersion", "readiness"]);
+  expect(accepted.physicalLayout).toEqual(fixture.stored.installation.plan.plan.physicalLayout.frame);
+  expect(accepted.planVersion).toBe(1);
+  expect(Object.isFrozen(accepted.physicalLayout.tables)).toBe(true);
   expect(spans.filter(name => name === "InstallationRuntime.readEvidence")).toHaveLength(1);
   expect(spans).not.toContain("DataBindingEvidence.lockInstallation");
   expect(spans).not.toContain("FrameworkMigrationPlanRepository.loadSidecars");
