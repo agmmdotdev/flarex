@@ -270,6 +270,10 @@ not substitutes for real stored-link conformance.
 
 ### C. Connected Native Association Workflow
 
+The [focused Gate C preflight](./58-native-product-sales-channel-workflow.md)
+records the native dependency/compensation trace and the proposed bounded
+composition. Implementation approval is pending; B3 does not implicitly admit it.
+
 Promote the actual association step and, where useful, the native Sales Channel
 creation step. Compose a private bounded workflow using existing Product service
 commands, the real Sales Channel service and native association behavior. Prove

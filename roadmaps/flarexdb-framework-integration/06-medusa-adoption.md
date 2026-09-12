@@ -52,6 +52,9 @@ batching replaces repeated installer SQL without changing its deadline or adding
 a Medusa-specific core branch. The construction entry
 point owns native wiring without exposing repository/manager assembly to callers.
 Cross-module graph hydration and the native association step remain unadmitted.
+The [Gate C preflight](./preflight/58-native-product-sales-channel-workflow.md)
+proposes the next connected native creation/association proof using the existing
+atomic workflow host; it does not propose a core or execution-engine redesign.
 Sales Channel's six-command profile preserves the original service and static
 cases, native metadata merging, scalar/array results, pagination and errors.
 Boundary checks retain input refusal, identity protection, replay, service
