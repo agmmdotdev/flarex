@@ -34,6 +34,7 @@ import { createPointMutationSessionActivationPersistenceV1 } from
 import type { RunLocatedReadCommittedTransactionV1 } from
   "../src/transactionSessionAttemptKernel";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { retainedHistoryFloorLeaseScenario, seedRetainedFloorLeaseCommit } from "./retainedHistoryFloorLeaseScenario";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -54,6 +55,64 @@ const retentionPolicy = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
 }));
 
 describePostgres("real PostgreSQL O11-B/C retained-history floor", () => {
+  it("advances past an expired lease backlog with indexed expiry filtering", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const physicalLocator = sharedLocator("floor-lease-backlog");
+      const ids = uuidFactory();
+      const deploymentId = TransactionGrantDeploymentIdV1Schema.make("deployment_floor_lease_backlog");
+      const provisioned = await createPostgresSharedScopeAuthorityProvisioner(persistence, {
+        physicalLocator, randomUuid: ids,
+      }).ensure({ deploymentId, projectId: "project_floor_lease_backlog" });
+      const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
+      await setFlarexActivationClock(persistence, scopeId);
+      await seedRetainedFloorLeaseCommit(persistence.drizzle, scopeId);
+      const activation = createPointMutationSessionActivationPersistenceV1({
+        scopeMetadata: persistence,
+        provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => { throw new Error("Shared scope must not read split receipts."); },
+        },
+        scopeSessionTargets: {
+          resolve: async locator => createPostgresLocatedPointMutationSessionActivationTargetV1(persistence, locator),
+        },
+      }, { leaseDurationMilliseconds: 60_000, randomUuid: ids });
+      const activated = await activatePointMutationSession(activation,
+        pointMutationSessionActivationFixture(deploymentId, scopeId));
+      const observation = createRetainedHistoryFloorObservationPort({
+        authority: {
+          scopeMetadata: persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => { throw new Error("Shared scope must not read split receipts."); },
+          },
+          scopeClockTargets: {
+            resolve: async locator => createPostgresLocatedRetainedHistoryFloorTarget(persistence, locator),
+          },
+        },
+        grantRetentionPolicy: retentionPolicy,
+        pinFacets: [createRetainedHistoryFloorPinFacet("test", { kind: "absent" })],
+      });
+      await retainedHistoryFloorLeaseScenario({
+        database: persistence.drizzle, sessionId: activated.anchor.sessionId,
+        deploymentId, observation, publication: publicationPort(persistence, physicalLocator),
+      });
+      await persistence.query("analyze fx_system_snapshot_lease");
+      const scopeUuid = scopeId.slice("scope_".length);
+      const [time] = (await persistence.query<{ now: Date }>("select clock_timestamp() as now")).rows;
+      if (time === undefined) throw new Error("Expected database time.");
+      const plan = await persistence.query(`
+        explain (analyze, buffers, format json)
+        select snapshot_epoch_uuid, snapshot_commit_seq, lease_expires_at
+        from fx_system_snapshot_lease
+        where scope_uuid = $1::uuid and lease_expires_at > $2::timestamptz
+        order by lease_expires_at, session_id limit 4097
+      `, [scopeUuid, time.now.toISOString()]);
+      const planText = JSON.stringify(plan.rows);
+      expect(planText).toMatch(/"Index Name":"fx_system_snapshot_lease_(retirement_pin|expiry)_idx"/);
+      expect(planText).toMatch(/"Index Cond":"[^"\n]*lease_expires_at > /);
+      expect(planText).not.toContain('"Node Type":"Seq Scan"');
+      expect(planText).toContain('"Actual Rows":0');
+    });
+  }, 120_000);
+
   it("shares the scope-clock lane and observes without publishing", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();

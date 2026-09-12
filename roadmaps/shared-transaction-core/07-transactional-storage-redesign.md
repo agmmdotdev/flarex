@@ -5,7 +5,9 @@
 Status: replacement implementation authorized. Slice 1 is implemented: shared
 Application facts use bounded inserts and native latest receipts use an upsert.
 Slice 2 is implemented: a dedicated wake uses commit identity and one claim fence.
-The remaining storage replacements below are pending. Row-body DDL still needs
+Expired-lease floor progress is also implemented: only live pins count toward
+the bounded lease directory. The remaining storage replacements below are pending.
+Row-body DDL still needs
 paired measurements, and the coalesced-journal contract remains a separate
 selection. Payload and Medusa operation APIs remain unchanged by both slices;
 exported core clock/counter types lose their obsolete wake-sequence fields.
@@ -334,14 +336,20 @@ the commit feed was compacted. The
 [journal domain](../35-commit-compiler-and-session-intent.md) separately records
 the hosted bounded-reclamation requirement.
 
-There is also a concrete floor-progress scenario to prove:
-[floor observation](../../packages/persistence-postgres/src/retainedHistoryFloorObservation.ts)
-loads up to 4,097 scope leases and returns `leaseDirectoryLimit` before excluding
-expired entries. A backlog above 4,096 can hold the floor even if every lease is
-expired. This is source-established conservative behavior, not an observed
-production incident. Preserve fail-closed safety while proving bounded live-pin
-observation or sufficient authoritative expiry reclamation. Include malformed
-lease evidence, clock movement, and concurrent seal/renewal in that proof.
+[Floor observation](../../packages/persistence-postgres/src/retainedHistoryFloorObservation.ts)
+filters `lease_expires_at > captured_database_time` before its bounded directory
+read. Existing expiry indexes support this filtered read, including the
+`(scope, expiry, session)` index matching its scoped order.
+More than 4,096 live leases still conservatively hold the floor; expired rows no
+longer consume that live-pin budget. Invalid live epoch/sequence authority still
+holds, while expired authority is no pin. Both observation and publication use
+the same calculation under their existing scope-clock locks. Neither deletes
+leases or relaxes renewal/terminalization ownership.
+
+This replaces the former limit-before-expiry scan, which could hold the floor
+behind an expired backlog. The retained regression covers a backlog above the
+bound, the 4,096/4,097 live boundary, invalid live/expired authority, and actual
+floor publication without deleting session or lease evidence.
 
 The larger journal alternative should use the existing trusted syscall owner:
 base dependencies, final overlays, cumulative resource/attempted-write facts,

@@ -1919,8 +1919,9 @@ authority to exceed the other ceilings. Optional future pin facets use their
 explicitly authenticated absent semantics, while an unavailable required facet
 holds.
 
-Candidate observation is also bounded in physical work. The lease directory is
-read in stable session order with a 4,096-row ceiling plus one overflow row.
+Candidate observation is also bounded in physical work. The lease directory
+filters expiry against captured database time, then reads in expiry/session order
+with a 4,096-live-row ceiling plus one overflow row.
 The commit directory is read backward from `last_commit_seq` toward the current
 floor with the same ceiling plus one overflow row. Observation may return an
 old-enough commit found inside that authenticated contiguous window; otherwise
@@ -2068,6 +2069,11 @@ or a conservative hold. Focused PGlite evidence covers time, live/expired
 leases, pins, structural-copy rejection, bounded overflow, and corrupt time
 evidence. Genuine PostgreSQL evidence proves the share-lock relationship to the
 existing update lane and that observation leaves the persisted clock unchanged.
+The lease directory filters expiry against that captured database time before
+applying its 4,096-live-row bound. Its existing scope/expiry/session index avoids
+loading an expired backlog into the bound. Live authority remains validated;
+overflow still holds conservatively. Expired evidence stays stored for the
+attempt terminalization owner. This changes no renewal or floor-lock contract.
 The persisted production floor remains zero because no production owner can
 construct the `O11-C` publication policy.
 

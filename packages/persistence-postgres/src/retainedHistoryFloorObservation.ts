@@ -1,5 +1,5 @@
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, sql } from "drizzle-orm";
 import { Data, Effect, Result } from "effect";
 import type { GrantRetentionPolicyV1 } from
   "flarex-protocol/grant-retention-policy";
@@ -568,8 +568,14 @@ const calculateCandidateInTransaction = Effect.fn(
       leaseExpiresAt: fxSystemSnapshotLeases.leaseExpiresAt,
     })
       .from(fxSystemSnapshotLeases)
-      .where(eq(fxSystemSnapshotLeases.scopeUuid, scopeUuid.scopeUuid))
-      .orderBy(asc(fxSystemSnapshotLeases.sessionId))
+      .where(and(
+        eq(fxSystemSnapshotLeases.scopeUuid, scopeUuid.scopeUuid),
+        gt(fxSystemSnapshotLeases.leaseExpiresAt, databaseNow),
+      ))
+      .orderBy(
+        asc(fxSystemSnapshotLeases.leaseExpiresAt),
+        asc(fxSystemSnapshotLeases.sessionId),
+      )
       .limit(MAX_RETAINED_FLOOR_LEASE_ROWS + 1),
   );
   const leaseObservation = yield* Effect.fromResult(observeLeasesResult(

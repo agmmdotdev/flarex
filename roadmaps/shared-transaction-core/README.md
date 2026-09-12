@@ -14,7 +14,8 @@ The authorized [transactional storage redesign](./07-transactional-storage-redes
 starts with shared Application fact batching and native latest-receipt upserts.
 Those statement reductions and the dedicated commit-keyed wake are implemented
 without changing framework APIs. Obsolete core wake counter/clock projections
-are removed; index/unique and evidence storage replacements remain open.
+are removed. Floor observation now bounds live leases independently of expired
+backlog. Index/unique and remaining execution-evidence replacements remain open.
 
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;

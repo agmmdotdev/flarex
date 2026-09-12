@@ -53,6 +53,7 @@ import {
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { retainedHistoryFloorLeaseScenario, seedRetainedFloorLeaseCommit } from "./retainedHistoryFloorLeaseScenario";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -308,6 +309,29 @@ describe("O11-B/C retained-history floor", () => {
       timeWindowCeiling: 2n,
     });
   });
+
+  it("advances past an expired lease backlog while bounding live pins", async () => {
+    const context = await provision("lease_backlog");
+    await seedRetainedFloorLeaseCommit(persistence.drizzle, context.scopeId);
+    const activation = createPointMutationSessionActivationPersistenceV1({
+      scopeMetadata: persistence,
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => { throw new Error("Shared scope must not read split receipts."); },
+      },
+      scopeSessionTargets: {
+        resolve: async locator => createPGliteLocatedPointMutationSessionActivationTargetV1(persistence, locator),
+      },
+    }, { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid });
+    const activated = await activatePointMutationSession(activation,
+      pointMutationSessionActivationFixture(context.deploymentId, context.scopeId));
+    await retainedHistoryFloorLeaseScenario({
+      database: persistence.drizzle,
+      sessionId: activated.anchor.sessionId,
+      deploymentId: context.deploymentId,
+      observation: observationPort(),
+      publication: publicationPort(),
+    });
+  }, 120_000);
 
   it("holds for unavailable pins and rejects copied ports or targets", async () => {
     const context = await provision("composition");
