@@ -489,6 +489,30 @@ export class Link {
     for (const [serviceName, data] of serviceLinks) {
       if (data.linksToValidateForUniqueness.filters.length) {
         const service = this.modulesMap.get(serviceName)!
+        const [primary, foreign] = service.__joinerConfig.relationships!
+        const primaryPartners = new Map<string, string>()
+        const foreignPartners = new Map<string, string>()
+
+        // Stored-row checks cannot see conflicting partners in this batch.
+        // JSON preserves the boundaries of native string/string[] primary keys.
+        // Exact duplicate tuples still reach the service unchanged.
+        for (const [primaryKey, foreignKey] of data.linksToCreate) {
+          const primaryIdentity = JSON.stringify(primaryKey)
+          if (
+            (!foreign.hasMany && primaryPartners.has(primaryIdentity) &&
+              primaryPartners.get(primaryIdentity) !== foreignKey) ||
+            (!primary.hasMany && foreignPartners.has(foreignKey) &&
+              foreignPartners.get(foreignKey) !== primaryIdentity)
+          ) {
+            throw new MedusaError(
+              MedusaError.Types.INVALID_DATA,
+              `Cannot create multiple links between '${primary.serviceName}' and '${foreign.serviceName}'`
+            )
+          }
+          if (!foreign.hasMany) primaryPartners.set(primaryIdentity, foreignKey)
+          if (!primary.hasMany) foreignPartners.set(foreignKey, primaryIdentity)
+        }
+
         const existingLinks = await service.list(
           {
             $or: data.linksToValidateForUniqueness.filters,

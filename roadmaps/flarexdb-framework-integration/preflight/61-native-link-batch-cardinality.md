@@ -1,6 +1,6 @@
 # Native Link Batch Cardinality: Preflight
 
-Status: proposed; implementation approval pending. Preflight 59 A and the
+Status: approved and implemented. Preflight 59 A and the
 preflight 60 shared-owner correction are implemented. ShippingProfile activation
 and singular Link storage support remain unapproved.
 
@@ -28,17 +28,18 @@ existing stored ProductSalesChannel behavior retained.
   snapshot remains untouched; executable code is in the promoted packages.
 - `packages/medusa-modules-sdk/src/link.ts` groups incoming tuples by resolved
   Link service, checks stored rows using native relationship metadata, then
-  delegates creates. It never compares incoming pairs against each other.
+  delegates creates. The approved correction now compares incoming partners
+  within each service batch before any create delegation.
 - `packages/medusa-adapter/test/native-link-cardinality.test.ts` executes that
-  router against a recording service. It confirms delegation of `(p, a)` and
-  `(p, b)` for ProductShippingProfile-shaped metadata and retains an
-  expected-failing pre-delegation refusal witness. This is not stored
+  router against a recording service. Its former expected-failing witness now
+  asserts native refusal of `(p, a)` and `(p, b)` for ProductShippingProfile-shaped
+  metadata, with zero creates. This is not stored
   ShippingProfile conformance.
 - The native ProductShippingProfile definition sets Product `hasMany: true`
   and omits ShippingProfile `hasMany`. Its exposed Product profile is singular;
   a profile may serve multiple Products.
 
-## Recommended Contract
+## Implemented Contract
 
 Use the resolved service's existing ordered relationship metadata and the
 native endpoint tuples. Before any service create, reject a batch containing
@@ -52,11 +53,12 @@ as in the current native existing-row checks.
 | false or absent | `hasMany: true` | Each second endpoint selects one first endpoint |
 | false or absent | false or absent | Each endpoint selects one partner |
 
-Keep this a small operation-local check in the native router. Scope comparison
-state to the resolved service and this invocation. Use structural endpoint
-identity for the existing primary-key tuple contract; do not concatenate opaque
-IDs with an ambiguous delimiter or compare freshly allocated arrays by identity.
-Avoid quadratic pairwise scans. No module-name dispatcher, generic CRUD factory,
+The native router uses operation-local partner maps per resolved service, with
+JSON-encoded native string/string-array primary keys to preserve structural
+identity and component boundaries. It neither concatenates opaque IDs with an
+ambiguous delimiter nor compares fresh arrays by identity. Work is linear in
+incoming key material, rather than a quadratic pairwise scan.
+No module-name dispatcher, generic CRUD factory,
 exported validation framework, registry or persistent state is needed.
 
 Preserve these native boundaries:
@@ -92,6 +94,13 @@ concurrency evidence. Any required generator/schema change needs that explicit
 approval. An adapter-only unique index is not a substitute for deciding the
 native contract.
 
+Native `LinkModuleService.buildData` also spreads extra fields after endpoint
+keys. Arbitrary native `data` can therefore replace endpoints downstream of the
+router's checks. The current ProductSalesChannel input decoder admits only
+`data.id`; keep future extra-field admission explicit and prevent endpoint
+replacement before claiming stored singular-Link cardinality. This slice does
+not broaden input admission or rewrite native `data` semantics.
+
 Rejected alternatives: ShippingProfile-specific checks would repeat the fix for
 future modules; adapter SQL or a second transaction would cross authority;
 silently deduplicating or serializing a contradictory batch changes business
@@ -104,9 +113,9 @@ and lifecycle decision before its semantics have been approved.
   Promise/service boundary and existing stored-row behavior.
 - **Retain:** original native router tests, checked-in comparison sources,
   existing many-to-many service/schema behavior and connected workflow proofs.
-- **Replace:** contradictory-delegation characterization with ordinary rejection
-  and zero-create assertions; convert the expected-failing witness to passing.
-  Keep the generator's missing-uniqueness characterization separate and honest.
+- **Replace:** contradictory-delegation characterization is replaced with
+  ordinary rejection and zero-create assertions; no expected-failing cardinality
+  witness remains. The generator's missing-uniqueness characterization is separate.
 - **Extend:** focused authored native tests and source-promotion receipts in
   `medusa-currency-promotion.json`, preserving upstream source hashes and the
   explicit `linkFork` adaptation classification.

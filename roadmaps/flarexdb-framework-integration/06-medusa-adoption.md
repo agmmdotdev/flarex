@@ -63,11 +63,11 @@ The [shipping-profile foundation](./preflight/59-product-shipping-profile-founda
 implements its shared text-inequality prerequisite and native cardinality
 characterization, not Fulfillment/ProductShippingProfile activation. Inequality
 is explicitly admitted for Link IDs and the Sales Channel ID, with shared
-scope, null, pagination/count and resource limits. Native Link still
-delegates contradictory same-batch profiles, characterized at its router boundary
-but not corrected. The proposed [native batch correction](./preflight/61-native-link-batch-cardinality.md)
-keeps validation in the native router without a Flarex core change. Approval is
-pending; cardinality-derived storage constraints and singular-Link lifecycle
+scope, null, pagination/count and resource limits. The approved
+[native batch correction](./preflight/61-native-link-batch-cardinality.md)
+rejects contradictory incoming partners from relationship metadata before any
+service create. Many-to-many behavior and exact duplicate delegation are retained,
+without a Flarex core change. Cardinality-derived storage constraints and singular-Link lifecycle
 proofs remain separate prerequisites for ShippingProfile activation.
 The proposed module source closure remains broader than its
 create/scalar-read table grants; full Fulfillment remains unadmitted.

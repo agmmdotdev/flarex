@@ -1,10 +1,9 @@
 # Product Shipping Profile Foundation: Preflight
 
 Status: A implemented, including the approved preflight 60 shared-owner correction.
-Gate C in preflight 58 is complete. B and
-native cardinality correction remain unapproved; no Fulfillment/Link activation.
-[Preflight 61](./61-native-link-batch-cardinality.md) proposes the native router
-correction; singular-Link storage constraints remain a separate B entry gate.
+Gate C in preflight 58 is complete. B remains unapproved; no Fulfillment/Link
+activation. [Preflight 61](./61-native-link-batch-cardinality.md) implements the
+native router correction; singular-Link storage constraints remain a B entry gate.
 
 ## Outcome And Recommendation
 
@@ -145,26 +144,28 @@ new execution profile or budget increase is proposed.
 
 ### Native same-batch risk must be characterized
 
-The native router accumulates all uniqueness filters, reads existing rows, then
-passes the whole batch to the service. Its generator still declares the two
+Before preflight 61, the native router accumulated all uniqueness filters, read
+existing rows, then passed the whole batch to the service without comparing
+incoming partners. Its generator still declares the two
 endpoint columns as the physical primary key; it does not derive a unique
 `product_id` constraint from `hasMany`.
 
-Source-derived counterexample to test: on empty storage, create
+The original source-derived counterexample was: on empty storage, create
 `(product-1, profile-A)` and `(product-1, profile-B)` in one batch. Both
 pre-insert existence checks can be empty, and the composite keys differ.
 The authored `packages/medusa-adapter/test/native-link-cardinality.test.ts`
-now confirms that the actual native router delegates both conflicting tuples
-after one existing-row query. The actual structural generator declares composite
+initially confirmed that the actual native router delegated both conflicting
+tuples after one existing-row query. The actual structural generator declares composite
 endpoint identity and no endpoint-only unique index. The test also characterizes
 exact duplicate delegation, multiple Products sharing a profile, repeated
 same-pair checks and refusal when the service reports an existing conflict.
-An explicitly expected-failing test preserves the desired pre-delegation
-refusal. The service boundary is a recording stub, not a stored Fulfillment
+Preflight 61 converts the expected-failing witness to ordinary pre-delegation
+refusal, using native metadata for all four cardinalities without changing
+duplicate-tuple delegation. The service boundary is a recording stub, not a stored Fulfillment
 implementation; this does not claim persisted ShippingProfile conformance.
 
-This confirmed gap requires an explicit Medusa Link owner correction decision
-before B activation. Do not silently
+The native router correction is implemented. The generator's storage constraint
+gap still requires an explicit native-owner decision before B activation. Do not silently
 deduplicate, select the last profile, serialize a bad batch into changed business
 semantics, or add an adapter-only unique index that hides the native contract.
 Same-scope root serialization addresses competing requests; it does not repair
@@ -187,7 +188,7 @@ scope isolation, pre-pagination count and existing resource limits.
 Malformed caller Unicode remains refused as `invalidInput`, without retaining
 the old codec's misleading `invalidAuthority` classification.
 
-Native Link's separate in-batch cardinality correction is proposed in
+Native Link's separate in-batch cardinality correction is implemented in
 [preflight 61](./61-native-link-batch-cardinality.md). That router-only correction
 does not close the generator's missing cardinality-derived uniqueness or prove
 direct-service/concurrent/restore behavior. Resolve that native storage contract

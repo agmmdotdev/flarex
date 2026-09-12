@@ -53,7 +53,7 @@
     {
       "target": "packages/medusa-modules-sdk/src/link.ts",
       "classification": "linkFork",
-      "targetSha256": "d4529d9cba7e0c5377ab46a90dda3d72384b60343e6cb0d1475db19a90031ec4",
+      "targetSha256": "bbeaee2ac8ed9d6b8190619c211517b841da3e24ec51278c5914321677284da5",
       "source": "third_party/medusa/upstream/packages/core/modules-sdk/src/link.ts",
       "sourceSha256": "8f3417f6e63a674b5fbd096c0dea013ddb0177a9ebab58204d8625ed3ad4e380"
     },
@@ -171,7 +171,7 @@
     {
       "target": "packages/medusa-adapter/test/native-link-cardinality.test.ts",
       "classification": "authored",
-      "targetSha256": "f62ee47a4dee2833548b5a116270bb7e0cd0fedcdf66b3628d540c13c3da9364"
+      "targetSha256": "90fafba0a316683d543f8e5b26ea8713d861e2e5e4a125554d06ea9c8e4a65b7"
     },
     {
       "target": "packages/medusa-adapter/test/text-inequality.test.ts",
@@ -3733,17 +3733,17 @@
     },
     {
       "target": "packages/medusa-modules-sdk/dist/link.d.ts.map",
-      "targetSha256": "3ab5c9b86dbf2813d25dc0ec382f86901019104b7a12309e8b7d1fd07a0e932e",
+      "targetSha256": "fd9f1b230da20bbd8522727878e999e49da7aafaffe8e560e30e446ff7bb2624",
       "input": "packages/medusa-modules-sdk/src/link.ts"
     },
     {
       "target": "packages/medusa-modules-sdk/dist/link.js",
-      "targetSha256": "e86c3719f36dab5836ada5aadd16effe3e9d703fdb0c0dfaf71db44054c4bdad",
+      "targetSha256": "304de5739038697938a9f9956c3fe3e0a8b2d8dec1a9706901eb8a0015c51e9e",
       "input": "packages/medusa-modules-sdk/src/link.ts"
     },
     {
       "target": "packages/medusa-modules-sdk/dist/link.js.map",
-      "targetSha256": "cb0b2c5bd6d779bbdbe6c8f5468d1acbfe3cea764063d1bbaec33722b2bf5cf4",
+      "targetSha256": "ee2f28d6f09848dfbdb1ee258da78464e9159f0a16b1d7edc1c66246447c5060",
       "input": "packages/medusa-modules-sdk/src/link.ts"
     },
     {
