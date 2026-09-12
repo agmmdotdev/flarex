@@ -215,6 +215,10 @@ Availability or installation-reference replacement requires explicit rebinding;
 there is no automatic refresh or cold fallback. Construction cost is measured
 separately from reused-host requests. Hosts without preferences retain their
 existing construction behavior and refuse later unprepared preference activation.
+The proposed [Application preparation input reuse](./preflight/67-application-preparation-input-reuse.md)
+targets repeated manifest-binding and unique-closure acquisition within one
+request at their shared owners. It awaits approval; cross-request Application
+caching and auxiliary-transaction consolidation are not part of that proposal.
 Inclusive spans are not additive; cold processes, isolated lock waits,
 contention and deployed latency remain unmeasured.
 Reusable immutable metadata must not become a cache of request authority.
