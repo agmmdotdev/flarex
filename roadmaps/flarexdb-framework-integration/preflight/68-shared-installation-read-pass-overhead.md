@@ -1,12 +1,13 @@
 # Shared Installation Read-Pass Overhead
 
-Status: investigation complete; proposed correction awaits owner approval.
+Status: investigation complete; approved candidate withdrawn after failing the
+reproducible-improvement gate. Shared installation performance remains unresolved.
 ShippingProfile capability completion remains paused in [record 66](./66-connected-product-shipping-profile.md).
 
 ## Outcome And Ownership
 
-Reduce redundant nested read-pass instrumentation in the shared migration
-restoration path without changing what it authenticates or when it may reuse
+Evaluate reducing redundant nested read-pass instrumentation in the shared
+migration restoration path without changing what it authenticates or when it may reuse
 evidence. The first implementation owner is
 `packages/persistence-postgres/src/migrationCoordination/graphReadPass.ts`.
 Its existing graph-pass tests own lifetime/capacity preservation; the unchanged
@@ -78,14 +79,15 @@ instrumentation cost. It does **not** establish that all those restorations are
 redundant, that a cache bound was exceeded, or how much time this candidate will
 save. Full stored-evidence checking remains intentional.
 
-## Recommended Correction And Challenged Alternatives
+## Evaluated Correction And Challenged Alternatives
 
-Use an untraced transparent entry for the existing read-pass helper. When it
-actually creates and owns a new pass, retain the named pass span around that
-lifetime. Joining an already active exact-transaction pass should not create
-another helper span/stack wrapper. Keep repository, restoration and coordinator
-operation tracing. This changes diagnostic granularity intentionally, not
-failure classification or resource ownership.
+The approved candidate used an untraced transparent entry for the existing
+read-pass helper. It retained the named span around a newly owned pass, but
+omitted the helper span/stack wrapper when joining an already active
+exact-transaction pass. Repository, restoration and coordinator operation
+tracing remained intact. The intended change was diagnostic granularity, not
+failure classification or resource ownership. This candidate is not retained
+runtime behavior.
 
 Retain the existing function contract, evaluation order, inherited-context
 check, exact transaction identity, validation-policy keys, success-only memo
@@ -105,7 +107,35 @@ candidates. A larger correction must identify genuinely duplicate work under
 the existing integrity contract or explicitly preflight a changed contract;
 this record does not authorize a new cache or evidence API.
 
+## Disposition And Remaining Boundary
+
+Uninstrumented measurements used the unchanged inventory-only fixture and
+deadline, with heavy validation serialized. Two candidate installation and cold
+reopen runs completed per driver. The first pair suggested improvement, but the
+second PGlite pass left little deadline margin and the second PostgreSQL pass
+was slower than baseline. These small, variable samples do not establish a
+reproducible meaningful benefit, nor do they establish that the candidate caused
+the PostgreSQL slowdown or diagnose the earlier timeouts.
+
+The candidate and its candidate-specific span tests were removed. The read-pass
+implementation and existing tests are unchanged from the accepted baseline;
+there is no retained tracing, cache, authority, schema or deadline change.
+Passing lifetime and span assertions for the experiment was insufficient to
+override its performance acceptance gate. Broader candidate regression and
+staged-code validation were not pursued after withdrawal.
+
+The larger fixture remains the failing or marginal installation witness, not
+completed ShippingProfile integration. Repeated reconstruction is still an
+investigation lead, not permission to reuse authoritative evidence more broadly.
+A next correction must establish avoidable work in its shared owner and receive
+a new focused preflight before implementation. Do not retry measurements until
+a favorable sample appears or describe this experiment as a timeout fix.
+
 ## Validation, Compatibility And Completion Gates
+
+These were the approved candidate's acceptance gates. The reproducible-benefit
+gate was not met, so the withdrawal branch applies rather than implementation
+completion.
 
 - Retain: all coordinator/repository reads, validation, schemas, identities,
   locks, fencing, rollback, uncertainty recovery, deadlines and consumer inputs.
