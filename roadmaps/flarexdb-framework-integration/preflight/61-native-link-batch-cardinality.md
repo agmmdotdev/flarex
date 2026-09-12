@@ -149,3 +149,5 @@ Completion means the native batch defect is corrected, regressions pass,
 provenance and roadmaps agree, and one coherent implementation commit exists.
 The next decision remains singular-Link storage semantics and the bounded
 ShippingProfile foundation, not automatic B activation.
+[Preflight 63](./63-native-singular-link-storage.md) now owns the proposed storage
+and endpoint-protection correction; its implementation is not yet approved.

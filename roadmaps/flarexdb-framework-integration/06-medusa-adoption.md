@@ -69,6 +69,10 @@ rejects contradictory incoming partners from relationship metadata before any
 service create. Many-to-many behavior and exact duplicate delegation are retained,
 without a Flarex core change. Cardinality-derived storage constraints and singular-Link lifecycle
 proofs remain separate prerequisites for ShippingProfile activation.
+The proposed [singular-Link storage foundation](./preflight/63-native-singular-link-storage.md)
+derives active uniqueness from native metadata and protects tuple endpoints
+from extra-data replacement, reusing existing Flarex partial-index machinery.
+Implementation approval is pending; no singular Link is activated.
 The proposed module source closure remains broader than its
 create/scalar-read table grants; full Fulfillment remains unadmitted.
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)

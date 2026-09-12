@@ -4,6 +4,8 @@ Status: A implemented, including the approved preflight 60 shared-owner correcti
 Gate C in preflight 58 is complete. B remains unapproved; no Fulfillment/Link
 activation. [Preflight 61](./61-native-link-batch-cardinality.md) implements the
 native router correction; singular-Link storage constraints remain a B entry gate.
+[Preflight 63](./63-native-singular-link-storage.md) proposes that storage
+foundation and native endpoint protection; it is not B activation approval.
 
 ## Outcome And Recommendation
 
