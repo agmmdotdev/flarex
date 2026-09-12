@@ -2,16 +2,15 @@ import { frameworkMigrationTargetSnapshot, type FrameworkMigrationTarget } from 
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import { lockBindingInstallation } from "../frameworkSchema/binding/evidence";
 import { verifyPayloadPreferenceStorageBinding } from "../payloadPreferences/binding";
-import { Effect, Option } from "effect";
-import type { PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import type { ApplicationActiveSelection, ApplicationBindingSelectionReader } from "../applicationActivation";
-import { claimApplicationExecutableActiveSelection, hasApplicationBindingComposition } from "../applicationActivation";
-import { createApplicationRelationSchemaAuthorityPort, type ApplicationRelationSchemaAuthority } from "../applicationRelationSchemaAuthority";
-import { readApplicationBindingProjectionInTransaction } from "../applicationBindingProjection";
+import { Effect, Option, Schema } from "effect";
+import { captureApplicationWritePolicyData, PayloadConfigurationSchema, type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
+import type { ApplicationBindingInput, ApplicationBindingSelectionReader, AcceptedApplicationBinding } from "../applicationActivation";
+import { prepareApplicationBindingSelection, readApplicationBindingPreparationInputs, withAcceptedApplicationBinding, hasApplicationBindingComposition } from "../applicationActivation";
+import { type ApplicationRelationSchemaAuthority } from "../applicationRelationSchemaAuthority";
+import { readAcceptedApplicationBindingProjection } from "../applicationBindingProjection";
 import { readBindingCandidate, readBindingHead } from "../frameworkSchema/binding/repository";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
-import { verifyPayloadContentBinding } from "../frameworkSchema/binding/content";
+import { verifyAcceptedPayloadContentBinding } from "../frameworkSchema/binding/content";
 import type { DataBindingSetFrame, DataBindingHeadToken } from "../frameworkSchema/binding/model";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
@@ -26,10 +25,11 @@ declare const admissionBrand: unique symbol;
 export interface CmsAdmission { readonly [admissionBrand]: true }
 export interface PreparedCmsApplication {
   readonly configuration: PayloadConfiguration;
-  readonly selection: ApplicationActiveSelection;
+  readonly selection: ApplicationBindingInput;
   readonly schema: ApplicationRelationSchemaAuthority;
 }
 export interface CmsAdmissionState {
+  readonly binding: AcceptedApplicationBinding;
   readonly configuration: PayloadConfiguration;
   readonly tx: FlarexMetadataTransaction;
   readonly authority: TrustedScopeAuthority;
@@ -41,6 +41,7 @@ export interface CmsAdmissionState {
 }
 const admissions = new WeakMap<object, CmsAdmissionState>();
 const prepared = new WeakSet<object>();
+const isPayloadConfiguration = Schema.is(PayloadConfigurationSchema);
 
 /** Control evidence is captured before opening the target data transaction. */
 export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function* <Failure>(
@@ -50,23 +51,18 @@ export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function*
   deploymentId: string,
 ) {
   if (!hasApplicationBindingComposition(application, authority)) return yield* Effect.fail(cmsError("invalidAuthority"));
-  const active = yield* application.readActive();
-  const selection = yield* Effect.fromResult(claimApplicationExecutableActiveSelection(active.selection));
-  if (selection.kind !== "relation" || selection.basis.deploymentId !== deploymentId ||
-    selection.basis.writeOwnership === null || selection.basis.relationCount > 2) {
+  const selection = yield* prepareApplicationBindingSelection(application);
+  const { schema, manifest } = yield* readApplicationBindingPreparationInputs(selection, controlDb);
+  if (schema.deploymentId !== deploymentId || schema.writePolicy === null || schema.relations.length > 2) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   }
-  const manifest = selection.basis.manifest;
-  if (manifest.version !== 3 || selection.basis.relationCount !==
+  if (manifest.version !== 3 || schema.relations.length !==
     ({ "payload.scalar": 0, "payload.content-relations": 1, "payload.content-many": 2, "payload.content-joins": 2 }[manifest.schema.writePolicies.configuration.profile])) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   }
-  const schema = yield* createApplicationRelationSchemaAuthorityPort(controlDb).resolve({
-    deploymentId,
-    applicationManifestSha256: encodeBytesToLowercaseHex(selection.basis.manifestSha256),
-    manifest: selection.basis.manifest,
-  });
-  const value: PreparedCmsApplication = Object.freeze({ selection: active.selection, schema, configuration: manifest.schema.writePolicies.configuration });
+  const configuration = yield* Effect.fromResult(captureApplicationWritePolicyData(manifest.schema.writePolicies.configuration));
+  if (!isPayloadConfiguration(configuration)) return yield* Effect.fail(cmsError("invalidAuthority"));
+  const value: PreparedCmsApplication = Object.freeze({ selection, schema, configuration });
   prepared.add(value);
   return value;
 });
@@ -80,50 +76,53 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
   work: (admission: CmsAdmission) => Effect.Effect<Value, Failure, Requirements>,
   preferenceTarget?: FrameworkMigrationTarget,
   composite?: CompositeBinding,
+  accepted?: AcceptedApplicationBinding,
 ) {
   if (!prepared.has(application) || clock.scopeId !== authority.scopeId ||
     clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence ||
     clock.epoch !== authority.epoch) return yield* Effect.fail(cmsError("invalidAuthority"));
-  const projection = yield* readApplicationBindingProjectionInTransaction(application.selection, tx, clock);
-  const head = yield* readBindingHead(tx, authority, false);
-  if (Option.isNone(head)) return yield* Effect.fail(cmsError("bindingChanged"));
-  const candidate = yield* readBindingCandidate(tx, authority, head.value.frame.candidateSha256);
-  if (Option.isNone(candidate)) return yield* Effect.fail(cmsError("storedCorruption"));
-  const frame = candidate.value.frame;
-  if (!sameBindingValue(projection, frame.application)) return yield* Effect.fail(cmsError("bindingChanged"));
-  if (frame.payloadContent === null || (frame.payloadLifecycle !== null && preferenceTarget === undefined) ||
-    (frame.payloadLifecycle === null && preferenceTarget !== undefined) || (commerceBindings(frame).length !== 0 && composite === undefined) ||
-    projection.readiness.kind !== "policy" || projection.readiness.relationCount > 2) {
-    return yield* Effect.fail(cmsError("unsupportedProfile"));
-  }
-  if (composite !== undefined) {
-    if (frame.payloadLifecycle !== null || projection.readiness.relationCount !== 0) return yield* Effect.fail(cmsError("unsupportedProfile"));
-    yield* requireCompositeBinding(composite, tx, clock, frame, { sequence: head.value.frame.sequence, sha256: head.value.sha256 })
-      .pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
-  }
-  const schema = application.schema;
-  if (schema.schemaVersionId !== projection.schemaVersionId || schema.applicationSchemaSha256 !== projection.applicationSchemaSha256 ||
-    schema.schemaManifestSha256 !== projection.schemaManifestSha256 ||
-    schema.manifestSchemaBindingSha256 !== projection.readiness.manifestSchemaBindingSha256 ||
-    schema.boundPublicationSha256 !== projection.readiness.boundPublicationSha256 ||
-    schema.writePolicy?.writePolicySetSha256 !== projection.readiness.writePolicySetSha256) {
-    return yield* Effect.fail(cmsError("invalidAuthority"));
-  }
-  yield* verifyPayloadContentBinding(tx, frame, application.selection);
-  let preferenceAvailability: RestoredFrameworkSchemaAvailabilityHead | null = null;
-  if (preferenceTarget !== undefined && frame.payloadLifecycle !== null) {
-    const snapshot = frameworkMigrationTargetSnapshot(preferenceTarget);
-    if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
-      !scopePhysicalLocatorsEqual(snapshot.physicalLocator, authority.physicalLocator)) return yield* Effect.fail(cmsError("invalidAuthority"));
-    const availability = yield* lockBindingInstallation(tx, frame.payloadLifecycle, snapshot);
-    yield* verifyPayloadPreferenceStorageBinding(frame, availability);
-    preferenceAvailability = availability;
-  }
-  // SAFETY: authority resides exclusively in this live, transaction-bound registry.
-  const token = Object.freeze({}) as CmsAdmission;
-  admissions.set(token, Object.freeze({ tx, authority, clock, schema, frame, preferenceAvailability, configuration: application.configuration,
-    head: Object.freeze({ sequence: head.value.frame.sequence, sha256: head.value.sha256 }) }));
-  return yield* Effect.suspend(() => work(token)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(token))));
+  return yield* withAcceptedApplicationBinding(application.selection, tx, clock, binding => Effect.gen(function* () {
+    const projection = yield* readAcceptedApplicationBindingProjection(binding, tx, clock);
+    const head = yield* readBindingHead(tx, authority, false);
+    if (Option.isNone(head)) return yield* Effect.fail(cmsError("bindingChanged"));
+    const candidate = yield* readBindingCandidate(tx, authority, head.value.frame.candidateSha256);
+    if (Option.isNone(candidate)) return yield* Effect.fail(cmsError("storedCorruption"));
+    const frame = candidate.value.frame;
+    if (!sameBindingValue(projection, frame.application)) return yield* Effect.fail(cmsError("bindingChanged"));
+    if (frame.payloadContent === null || (frame.payloadLifecycle !== null && preferenceTarget === undefined) ||
+      (frame.payloadLifecycle === null && preferenceTarget !== undefined) || (commerceBindings(frame).length !== 0 && composite === undefined) ||
+      projection.readiness.kind !== "policy" || projection.readiness.relationCount > 2) {
+      return yield* Effect.fail(cmsError("unsupportedProfile"));
+    }
+    if (composite !== undefined) {
+      if (frame.payloadLifecycle !== null || projection.readiness.relationCount !== 0) return yield* Effect.fail(cmsError("unsupportedProfile"));
+      yield* requireCompositeBinding(composite, tx, clock, frame, { sequence: head.value.frame.sequence, sha256: head.value.sha256 })
+        .pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
+    }
+    const schema = application.schema;
+    if (schema.schemaVersionId !== projection.schemaVersionId || schema.applicationSchemaSha256 !== projection.applicationSchemaSha256 ||
+      schema.schemaManifestSha256 !== projection.schemaManifestSha256 ||
+      schema.manifestSchemaBindingSha256 !== projection.readiness.manifestSchemaBindingSha256 ||
+      schema.boundPublicationSha256 !== projection.readiness.boundPublicationSha256 ||
+      schema.writePolicy?.writePolicySetSha256 !== projection.readiness.writePolicySetSha256) {
+      return yield* Effect.fail(cmsError("invalidAuthority"));
+    }
+    yield* verifyAcceptedPayloadContentBinding(tx, clock, frame, binding);
+    let preferenceAvailability: RestoredFrameworkSchemaAvailabilityHead | null = null;
+    if (preferenceTarget !== undefined && frame.payloadLifecycle !== null) {
+      const snapshot = frameworkMigrationTargetSnapshot(preferenceTarget);
+      if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
+        !scopePhysicalLocatorsEqual(snapshot.physicalLocator, authority.physicalLocator)) return yield* Effect.fail(cmsError("invalidAuthority"));
+      const availability = yield* lockBindingInstallation(tx, frame.payloadLifecycle, snapshot);
+      yield* verifyPayloadPreferenceStorageBinding(frame, availability);
+      preferenceAvailability = availability;
+    }
+    // SAFETY: authority resides exclusively in this live, transaction-bound registry.
+    const token = Object.freeze({}) as CmsAdmission;
+    admissions.set(token, Object.freeze({ binding, tx, authority, clock, schema, frame, preferenceAvailability, configuration: application.configuration,
+      head: Object.freeze({ sequence: head.value.frame.sequence, sha256: head.value.sha256 }) }));
+    return yield* Effect.suspend(() => work(token)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(token))));
+  }), accepted);
 });
 
 export const requireCmsAdmission = Effect.fn("CmsAdmission.require")(function* (

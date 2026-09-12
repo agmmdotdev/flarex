@@ -39,6 +39,8 @@ import {
 import {
   hasApplicationRelationReadinessFoldComposition,
   prepareApplicationRelationActiveRead,
+  readPreparedApplicationRelationInputs,
+  hasPreparedApplicationRelationReadRepository,
   acceptPreparedApplicationRelationActiveRead,
   type PreparedApplicationRelationActiveRead,
   validateActiveApplicationRelationReadinessInTransaction,
@@ -308,6 +310,10 @@ const bindingPreparations = new WeakMap<object, Readonly<{
 }>>();
 const bindingPreparationReaders = new WeakMap<object, () => Effect.Effect<ApplicationBindingInput, BindingPreparationError>>();
 
+export function isApplicationBindingPreparation(input: ApplicationBindingInput): input is ApplicationBindingPreparation {
+  return bindingPreparations.has(input);
+}
+
 /** Existing standalone readers remain unchanged; registered composite repositories
  * can prepare inputs whose only acceptance happens in the business transaction. */
 export const prepareApplicationBindingSelection = Effect.fn("ApplicationActivation.prepareBindingSelection")(
@@ -316,6 +322,55 @@ export const prepareApplicationBindingSelection = Effect.fn("ApplicationActivati
     return prepare === undefined ? (yield* repository.readActive()).selection : yield* prepare();
   },
 );
+
+export const readApplicationBindingPreparationInputs = Effect.fn("ApplicationActivation.readBindingPreparationInputs")(
+  function* (input: ApplicationBindingInput, controlDb: FlarexMetadataDatabase) {
+    const state = bindingPreparations.get(input);
+    if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+    return yield* readPreparedApplicationRelationInputs(state.readiness, controlDb);
+  },
+);
+
+declare const acceptedBindingBrand: unique symbol;
+/** Only valid inside the accepting callback; deliberately not an executable selection. */
+export interface AcceptedApplicationBinding { readonly [acceptedBindingBrand]: true }
+const acceptedBindings = new WeakMap<object, Readonly<{
+  tx: AppRowTransaction; clock: ScopeClockRecord; basis: ApplicationRelationActiveSelectionBasis;
+  readiness: PreparedApplicationRelationActiveRead;
+}>>();
+
+export const withAcceptedApplicationBinding = Effect.fn("ApplicationActivation.withAcceptedBinding")(
+  function* <A, E, R>(input: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord,
+    work: (binding: AcceptedApplicationBinding) => Effect.Effect<A, E, R>, borrowed?: AcceptedApplicationBinding) {
+    const prepared = bindingPreparations.get(input);
+    if (prepared === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+    if (borrowed !== undefined) {
+      yield* Effect.fromResult(readAcceptedApplicationBinding(borrowed, tx, clock));
+      if (acceptedBindings.get(borrowed)?.readiness !== prepared.readiness) return yield* activationFailure("validateSelection", "invalidComposition");
+      return yield* Effect.suspend(() => work(borrowed));
+    }
+    const validated = yield* validateApplicationBindingBasisInTransaction(input, tx, clock);
+    if (validated.kind !== "relation") return yield* activationFailure("validateSelection", "invalidComposition");
+    return yield* Effect.acquireUseRelease(Effect.sync(() => {
+      // SAFETY: an inert handle; the callback-local registry owns transaction authority.
+      const binding = Object.freeze({}) as AcceptedApplicationBinding;
+      acceptedBindings.set(binding, { tx, clock: { ...clock }, basis: validated.basis, readiness: prepared.readiness });
+      return binding;
+    }), binding => Effect.suspend(() => work(binding)), binding => Effect.sync(() => { acceptedBindings.delete(binding); }));
+  },
+);
+
+export function readAcceptedApplicationBinding(binding: AcceptedApplicationBinding, tx: AppRowTransaction,
+  clock: ScopeClockRecord, repository?: ApplicationRelationReadinessFoldRepository): Result.Result<
+    ApplicationRelationActiveSelectionBasis, ApplicationActivationError> {
+  const state = acceptedBindings.get(binding);
+  if (state === undefined || state.tx !== tx || !clockMatches(state.basis.authority, clock) ||
+    state.clock.lastCommitSeq !== clock.lastCommitSeq ||
+    (repository !== undefined && !hasPreparedApplicationRelationReadRepository(state.readiness, repository))) {
+    return Result.fail(new ApplicationActivationError({ operation: "validateSelection", reason: "invalidComposition", retryable: false }));
+  }
+  return Result.succeed(copyRelationSelectionBasis(state.basis));
+}
 
 /** Private identity check for read-only binding composition, including both readiness contracts. */
 export interface ApplicationBindingSelectionReader<Failure> {

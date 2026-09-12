@@ -143,20 +143,22 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
   await persistence.migrate();
   const run: RunRelationalSession = Effect.fn(
     "RelationalPGliteTestSession.run",
-  )(<Value, Failure>(
+  )(function* <Value, Failure>(
     work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
-  ) => {
+  ) {
+    // Preserve caller services (including its tracer) across the owned Promise bridge.
+    const context = yield* Effect.context();
     // Runtime bridge owns the controller and waits for the whole transaction on interruption.
     let settled: Promise<Value> | undefined;
     const controller = new AbortController();
     let callbackCause: Cause.Cause<Failure> | undefined;
     const rollback = new Error("Relational callback rollback");
-    return Effect.callback<Value, Failure | RelationalSessionError>(
+    return yield* Effect.callback<Value, Failure | RelationalSessionError>(
       (resume) => {
         settled = persistence.drizzle.transaction(async (transaction) => {
           // Set the budget only after obtaining this instance's transaction lease.
           timeoutMs = relationalLimits.statementMs;
-          const exit = await Effect.runPromiseExit(work(transaction), {
+          const exit = await Effect.runPromiseExit(work(transaction).pipe(Effect.provideContext(context)), {
             signal: controller.signal,
           });
           if (Exit.isFailure(exit)) {

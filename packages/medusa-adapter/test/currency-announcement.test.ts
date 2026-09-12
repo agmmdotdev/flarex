@@ -1,5 +1,5 @@
 import { afterAll, expect, it } from "vitest";
-import { Effect, Exit, Fiber } from "effect";
+import { Effect, Exit, Fiber, Tracer } from "effect";
 import { currencyAnnouncementWrite } from "../src/currency-service";
 import { prepareCurrencyProfile } from "../src/currency-contract";
 import { commerceHostFixture } from "../../persistence-postgres/test/commerceHostFixture";
@@ -51,12 +51,19 @@ it("settles real Currency, Payload and Application participants once, with compl
       commerce: { target: fixture.hostInput.target, profile: fixture.hostInput.profile, installation: fixture.installation },
       currencyCommand: currencyAnnouncementWrite, cmsCommand: conformance.runtime.commands.create, applicationTable: "audit" };
     const host = yield* makeCurrencyAnnouncementHost(input);
+    const runAcceptedOnce = <Value, Failure, Requirements>(effect: Effect.Effect<Value, Failure, Requirements>) => Effect.gen(function* () {
+      const spans: string[] = [];
+      const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+      const value = yield* effect.pipe(Effect.provideService(Tracer.Tracer, tracer));
+      expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
+      return value;
+    });
     const args = (title: string, applicationTitle: string | number = title) => ({ currency: { code: "zzz", name: title, symbol: "T", symbol_native: "T", decimal_digits: 2, rounding: 0 },
       cms: { collection: "posts", data: { title, publishedAt: "2026-01-01" } }, application: { title: applicationTitle } });
     yield* Effect.gen(function* () {
       const before = (yield* Effect.promise(inventory));
       const key = host.newRequestKey();
-      const value = (yield* host.run(key, args("composite-success")));
+      const value = (yield* runAcceptedOnce(host.run(key, args("composite-success"))));
       expect(value).toMatchObject({ currency: { code: "zzz" }, cms: { title: "composite-success" }, applicationId: expect.any(String) });
       const after = (yield* Effect.promise(inventory));
       expect(after.rows).toHaveLength(before.rows.length + 2);
@@ -71,7 +78,7 @@ it("settles real Currency, Payload and Application participants once, with compl
       expect(after.facts.every(fact => fact.commitSeq === commit?.commitSeq)).toBe(true);
       expect(after.commerce.facts.at(-1)?.commitSeq).toBe(commit?.commitSeq);
       const executions = conformance.observations.executions();
-      expect((yield* host.run(key, args("composite-success")))).toEqual(value);
+      expect((yield* runAcceptedOnce(host.run(key, args("composite-success"))))).toEqual(value);
       expect(conformance.observations.executions()).toBe(executions);
       expect((yield* Effect.promise(inventory))).toEqual(after);
       expect((yield* Effect.flip(host.run(key, args("changed"))))).toMatchObject({ reason: "requestConflict" });

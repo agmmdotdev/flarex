@@ -1,6 +1,8 @@
 import { Effect, Option } from "effect";
 import type { ApplicationBindingInput } from "../applicationActivation";
+import { isApplicationBindingPreparation, withAcceptedApplicationBinding, type AcceptedApplicationBinding } from "../applicationActivation";
 import { readApplicationBindingProjectionInTransaction } from "../applicationBindingProjection";
+import { readAcceptedApplicationBindingProjection, type ApplicationBindingReference } from "../applicationBindingProjection";
 import { readBindingCandidate, readBindingHead } from "../frameworkSchema/binding/repository";
 import { lockBindingInstallation } from "../frameworkSchema/binding/evidence";
 import { installationRuntimeData } from "../frameworkSchema/installation/runtimeData";
@@ -35,12 +37,12 @@ export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransactio
   profile: CommerceProfile, target: FrameworkMigrationTarget, reference: InstallationBindingReference,
   selection: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
   clock: ScopeClockRecord, bootstrap: boolean, prepared: PreparedInstallationRuntime | undefined,
-  work: (admission: CommerceAdmission) => Effect.Effect<Value, Failure, Requirements>,
+  work: (admission: CommerceAdmission, binding?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
 ) {
   return yield* withCommerceInstallationAdmissions([profile], target, reference, selection, tx, authority, clock, bootstrap, prepared,
-    (admitted): Effect.Effect<Value, Failure | ReturnType<typeof commerceError>, Requirements> => {
+    (admitted, binding): Effect.Effect<Value, Failure | ReturnType<typeof commerceError>, Requirements> => {
       const admission = admitted[0];
-      return admission === undefined ? Effect.fail(commerceError("invalidAuthority")) : work(admission);
+      return admission === undefined ? Effect.fail(commerceError("invalidAuthority")) : work(admission, binding);
     });
 });
 
@@ -50,7 +52,7 @@ export const withCommerceInstallationAdmissions = Effect.fn("CommerceAdmission.w
   profiles: readonly CommerceProfile[], target: FrameworkMigrationTarget, reference: InstallationBindingReference,
   selection: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
   clock: ScopeClockRecord, bootstrap: boolean, prepared: PreparedInstallationRuntime | undefined,
-  work: (admissions: readonly CommerceAdmission[]) => Effect.Effect<Value, Failure, Requirements>,
+  work: (admissions: readonly CommerceAdmission[], binding?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
 ) {
   const snapshot = frameworkMigrationTargetSnapshot(target);
   if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
@@ -67,29 +69,35 @@ export const withCommerceInstallationAdmissions = Effect.fn("CommerceAdmission.w
   if (profiles.length === 0) return yield* Effect.fail(commerceError("invalidAuthority"));
   const descriptors = yield* Effect.forEach(profiles, profile => verifyCommerceInstallation(profile, reference, availability));
   yield* validateCommerceProfileSet(descriptors);
-  const application = yield* readApplicationBindingProjectionInTransaction(selection, tx, clock);
-  let head: DataBindingHeadToken | null = null;
-  if (!bootstrap) {
-    const current = yield* readBindingHead(tx, authority, false);
-    if (Option.isNone(current)) return yield* Effect.fail(commerceError("bindingChanged"));
-    const candidate = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256);
-    if (Option.isNone(candidate)) return yield* Effect.fail(commerceError("storedCorruption"));
-    const binding = commerceBindings(candidate.value.frame).find(value => value.installation.installationSha256 === reference.installation.installationSha256);
-    if (binding === undefined || !sameBindingValue(candidate.value.frame.application, application)) return yield* Effect.fail(commerceError("bindingChanged"));
-    const selected = bindingInstallationReference(binding);
-    if (!sameBindingValue(reference, selected)) return yield* Effect.fail(commerceError("bindingChanged"));
-    for (const profile of profiles) yield* verifyCommerceBinding(tx, authority.scopeId, profile, binding, availability);
-    head = Object.freeze({ sequence: current.value.frame.sequence, sha256: current.value.sha256 });
-  }
-  const tokens = descriptors.map(descriptor => {
-    // SAFETY: the registry alone grants authority and revokes it with the physical transaction.
-    const token = Object.freeze({}) as CommerceAdmission;
-    admissions.set(token, Object.freeze({ tx, authority, clock, reference, descriptor, head, bootstrap }));
-    return token;
+  const admit = Effect.fn("CommerceAdmission.admitBinding")(function* (application: ApplicationBindingReference, accepted?: AcceptedApplicationBinding) {
+    let head: DataBindingHeadToken | null = null;
+    if (!bootstrap) {
+      const current = yield* readBindingHead(tx, authority, false);
+      if (Option.isNone(current)) return yield* Effect.fail(commerceError("bindingChanged"));
+      const candidate = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256);
+      if (Option.isNone(candidate)) return yield* Effect.fail(commerceError("storedCorruption"));
+      const binding = commerceBindings(candidate.value.frame).find(value => value.installation.installationSha256 === reference.installation.installationSha256);
+      if (binding === undefined || !sameBindingValue(candidate.value.frame.application, application)) return yield* Effect.fail(commerceError("bindingChanged"));
+      const selected = bindingInstallationReference(binding);
+      if (!sameBindingValue(reference, selected)) return yield* Effect.fail(commerceError("bindingChanged"));
+      for (const profile of profiles) yield* verifyCommerceBinding(tx, authority.scopeId, profile, binding, availability);
+      head = Object.freeze({ sequence: current.value.frame.sequence, sha256: current.value.sha256 });
+    }
+    const tokens = descriptors.map(descriptor => {
+      // SAFETY: the registry alone grants authority and revokes it with the physical transaction.
+      const token = Object.freeze({}) as CommerceAdmission;
+      admissions.set(token, Object.freeze({ tx, authority, clock, reference, descriptor, head, bootstrap }));
+      return token;
+    });
+    return yield* Effect.suspend(() => work(tokens, accepted)).pipe(Effect.ensuring(Effect.sync(() => {
+      for (const token of tokens) admissions.delete(token);
+    })));
   });
-  return yield* Effect.suspend(() => work(tokens)).pipe(Effect.ensuring(Effect.sync(() => {
-    for (const token of tokens) admissions.delete(token);
-  })));
+  // Keep installation locks before Application acceptance. Standalone selections
+  // retain their existing independent validation contract.
+  if (isApplicationBindingPreparation(selection)) return yield* withAcceptedApplicationBinding(selection, tx, clock,
+    accepted => readAcceptedApplicationBindingProjection(accepted, tx, clock).pipe(Effect.flatMap(application => admit(application, accepted))));
+  return yield* readApplicationBindingProjectionInTransaction(selection, tx, clock).pipe(Effect.flatMap(application => admit(application)));
 });
 
 export const requireCommerceAdmission = Effect.fn("CommerceAdmission.require")(function* (admission: CommerceAdmission) {

@@ -1,10 +1,10 @@
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { Effect, Option, Schema } from "effect";
 import { appDocumentIdV1FromRowIdentity, decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-id";
-import { claimApplicationRelationActiveSelection, claimApplicationExecutableActiveSelection } from "../applicationActivation";
+import { readAcceptedApplicationBinding } from "../applicationActivation";
 import type { ApplicationRelationReadPort, ApplicationRelationReadCapability } from "../applicationRelationRead";
 import { readIncomingAppRelationEdgePageInTransactionEffect, type ReadIncomingAppRelationEdgePageInput } from "../appRelationEdges";
-import { requireCmsAdmission, type CmsAdmission, type PreparedCmsApplication } from "./admission";
+import { requireCmsAdmission, type CmsAdmission } from "./admission";
 import type { CmsRequestLifetime } from "./lifetime";
 import type { CmsDocuments } from "./documents";
 import { cmsError, type CmsRequestContext, type CmsPresentedTransactionId, type CmsTransactionError } from "./model";
@@ -30,14 +30,13 @@ const decodeDeployment = Schema.decodeUnknownEffect(TransactionGrantDeploymentId
 
 /** Preparation reuses the native owner; no relation authority comes from command arguments. */
 export const prepareCmsRelations = Effect.fn("CmsRelations.prepare")(function* (
-  application: PreparedCmsApplication, port: ApplicationRelationReadPort | undefined,
+  admission: CmsAdmission, port: ApplicationRelationReadPort | undefined,
 ) {
-  const basis = yield* Effect.fromResult(claimApplicationRelationActiveSelection(application.selection))
+  const state = yield* requireCmsAdmission(admission);
+  if (state.configuration.profile !== "payload.content-joins") return Option.none();
+  const basis = yield* Effect.fromResult(readAcceptedApplicationBinding(state.binding, state.tx, state.clock))
     .pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
-  const selected = yield* Effect.fromResult(claimApplicationExecutableActiveSelection(application.selection))
-    .pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
-  if (selected.kind !== "relation" || selected.basis.manifest.version !== 3 || selected.basis.manifest.schema.writePolicies.configuration.profile !== "payload.content-joins") return Option.none();
-  const manifest = selected.basis.manifest;
+  const manifest = basis.manifest;
   const deploymentId = yield* decodeDeployment(basis.deploymentId).pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
   if (port === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
   const input = { deploymentId, scopeId: basis.authority.scopeId, schemaVersionId: basis.schemaVersionId };
@@ -45,7 +44,7 @@ export const prepareCmsRelations = Effect.fn("CmsRelations.prepare")(function* (
   for (const relation of manifest.schema.relations) {
     const name = relation.declaration.source.forwardName;
     if (name !== "relatedPost" && name !== "relatedPosts") return yield* Effect.fail(cmsError("unsupportedProfile"));
-    const capability = yield* port.prepareBySource({ deploymentId, selection: application.selection,
+    const capability = yield* port.prepareAcceptedBySource({ deploymentId, binding: state.binding, tx: state.tx, clock: state.clock,
       relation: { source: relation.declaration.source } }).pipe(Effect.mapError(cause => cmsRelationReadFailure(cause, "invalidAuthority")));
     capabilities.set(name === "relatedPost" ? "relatedPost" : "relatedPosts", capability);
   }

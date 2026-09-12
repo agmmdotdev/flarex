@@ -24,6 +24,7 @@ import type {
 } from "../applicationRelationCommit";
 import type {
   ApplicationActiveSelection,
+  AcceptedApplicationBinding,
   ValidateApplicationRelationActiveSelectionInTransactionError,
   ValidateApplicationRelationActiveSelectionError,
 } from "../applicationActivation";
@@ -112,6 +113,11 @@ export type ValidateApplicationRelationReadCapabilityError =
   | ValidateApplicationRelationActiveSelectionInTransactionError;
 
 export interface ApplicationRelationReadPort {
+  /** Consumes the existing transaction-local acceptance, never a prepared hint. */
+  readonly prepareAcceptedBySource: (
+    input: Readonly<{ deploymentId: TransactionGrantDeploymentIdV1; binding: AcceptedApplicationBinding;
+      tx: AppRowTransaction; clock: ScopeClockRecord; relation: ApplicationRelationSourceReference }>,
+  ) => Effect.Effect<ApplicationRelationReadCapability, PrepareApplicationRelationReadCapabilityError>;
   readonly readiness: ApplicationRelationReadinessFoldRepository;
   readonly prepare: (
     input: PrepareApplicationRelationReadCapabilityInput,

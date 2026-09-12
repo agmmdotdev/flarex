@@ -72,6 +72,7 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
       const value = yield* (collected ? effect.pipe(Effect.provideService(Tracer.Tracer, tracer)) : effect);
       const ms = Number((yield* Clock.monotonicTimeNanos) - start) / 1e6;
       const after = yield* stats;
+      if (collected) expect(spans.filter(span => span.name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
       const durations: Record<string, number> = {};
       for (const span of spans) {
         if (span.status._tag !== "Ended") throw new Error(`Unclosed measurement span: ${span.name}`);

@@ -196,12 +196,17 @@ Each root request still performs live authority, active-schema, binding, and
 transaction preparation. The [measurement-only baseline](./preflight/62-payload-latency-baseline.md)
 now separates first/fresh same-process initialization, binding and warm requests,
 using ordinary-role PostgreSQL statement counts and inclusive owner spans. It
-identifies admission/active-relation readiness preparation and statement
-amplification as the next shared-owner investigation target, not initialization
-caching in the Payload adapter. Preflight repeated evidence loads and validation
-at those owners before approving any consolidation. Inclusive spans are not
-additive; cold processes, isolated lock waits, contention and deployed latency
-remain unmeasured.
+identified repeated admission/readiness work. The
+[prepared-admission implementation](./preflight/64-payload-prepared-admission.md)
+now captures non-executable planning inputs before transaction entry and accepts
+them once under the existing scope-clock and active-head locks. Binding,
+content ownership and native join reads share that transaction-local acceptance;
+the combined Commerce/CMS command borrows the same acceptance without changing
+installation-before-Application lock order. Current authority, revocation,
+readiness and binding validation remain mandatory on every request and replay.
+No request-authority cache or scalar-only alternate path was introduced.
+Inclusive spans are not additive; cold processes, isolated lock waits,
+contention and deployed latency remain unmeasured.
 Reusable immutable metadata must not become a cache of request authority.
 Principals, mutable requests/loaders, cancellation, and transactions stay
 request-owned; a bound host's access policy is not automatically shareable

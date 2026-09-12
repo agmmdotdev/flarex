@@ -8,12 +8,15 @@ import { fxAppRowCurrent, fxAppRowRevisions } from "../src/schema";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import type { AppRelationEdgeQueryObservation } from "../src/appRelationEdges";
 import { expect, vi } from "vitest";
-import { Effect, Fiber, Exit } from "effect";
+import { Effect, Fiber, Exit, Tracer } from "effect";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
 import { payloadJoinContentIdentity } from "../../payload-adapter/src/conformanceProfile";
 import { createApplicationRelationReadPort } from "../src/applicationRelationRead";
 import { makeApplicationActivationRepository } from "../src/applicationActivation";
+import { prepareApplicationBindingSelection, withAcceptedApplicationBinding, readAcceptedApplicationBinding } from "../src/applicationActivation";
+import { lockScopeClockForShareInTransactionEffect } from "../src/scopeClock";
+import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { makeCmsHost, defineCmsCommand, type CmsCommandContext } from "../src/cmsTransaction/host";
 import { cmsError } from "../src/cmsTransaction/model";
 import { decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-id";
@@ -67,9 +70,37 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
       const write = (command: typeof conformance.runtime.commands.create, args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
       const create = (title: string, data: JsonObject = {}) => write(conformance.runtime.commands.create, { collection: "posts", data: { title, publishedAt: "2026-01-01", ...data } });
       const update = (target: string, data: JsonObject) => write(conformance.runtime.commands.update, { collection: "posts", id: target, data });
-      const read = (target: string, depth = 0, joins?: Json) => runEffect(host.read(conformance.runtime.commands.findByID, { collection: "posts", id: target, depth, ...(joins === undefined ? {} : { joins }) }));
+      const read = async (target: string, depth = 0, joins?: Json) => {
+        const spans: string[] = [];
+        const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
+        const result = await runEffect(host.read(conformance.runtime.commands.findByID,
+          { collection: "posts", id: target, depth, ...(joins === undefined ? {} : { joins }) })
+          .pipe(Effect.provideService(Tracer.Tracer, tracer)));
+        expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
+        return result;
+      };
       const target = id(await create("join-target"));
       const other = id(await create("join-other"));
+      const prepared = await runEffect(prepareApplicationBindingSelection(fixture.relationActivation));
+      const escapedNative = await input.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForShareInTransactionEffect(tx, fixture.authority.scopeId);
+        return yield* withAcceptedApplicationBinding(prepared, tx, clock, binding => Effect.gen(function* () {
+          const basis = yield* Effect.fromResult(readAcceptedApplicationBinding(binding, tx, clock));
+          const relation = basis.manifest.schema.relations[0];
+          if (relation === undefined) throw new Error("Missing native join fixture");
+          const deploymentId = TransactionGrantDeploymentIdV1Schema.make(fixture.deploymentId);
+          const capability = yield* relationReads.prepareAcceptedBySource({ deploymentId, binding, tx, clock,
+            relation: { source: relation.declaration.source } });
+          const query = { deploymentId, scopeId: basis.authority.scopeId, schemaVersionId: basis.schemaVersionId };
+          expect(Result.isSuccess(relationReads.resolve(capability, query))).toBe(true);
+          yield* relationReads.validateInTransaction(capability, query, tx, clock);
+          // SAFETY: deliberately foreign transaction identity must not borrow this admission.
+          expect(yield* Effect.flip(relationReads.validateInTransaction(capability, query, { ...tx } as typeof tx, clock)))
+            .toMatchObject({ reason: "invalidComposition" });
+          return { capability, query };
+        }));
+      })));
+      expect(Result.isFailure(relationReads.resolve(escapedNative.capability, escapedNative.query))).toBe(true);
       expect(await read(target)).toMatchObject({ referencedBy: { docs: [], hasNextPage: false }, referencedByMany: { docs: [], hasNextPage: false } });
       const sources: string[] = [];
       for (let index = 0; index < 9; index++) {

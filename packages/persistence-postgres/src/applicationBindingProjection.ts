@@ -5,6 +5,8 @@ import { Effect } from "effect";
 import {
   validateApplicationBindingBasisInTransaction,
   type ApplicationBindingInput,
+  type AcceptedApplicationBinding,
+  readAcceptedApplicationBinding,
 } from "./applicationActivation";
 import type { AppRowTransaction } from "./appRows";
 import type { ScopeClockRecord } from "./scopeClock";
@@ -61,6 +63,19 @@ export const readApplicationBindingProjectionInTransaction = Effect.fn(
     tx,
     clock,
   );
+  return yield* projectApplicationBindingInTransaction(validated, tx, clock);
+});
+
+export const readAcceptedApplicationBindingProjection = Effect.fn("ApplicationBindingProjection.readAccepted")(
+  function* (binding: AcceptedApplicationBinding, tx: AppRowTransaction, clock: ScopeClockRecord) {
+    const basis = yield* Effect.fromResult(readAcceptedApplicationBinding(binding, tx, clock));
+    return yield* projectApplicationBindingInTransaction({ kind: "relation", basis }, tx, clock);
+  },
+);
+
+const projectApplicationBindingInTransaction = Effect.fn("ApplicationBindingProjection.project")(
+  function* (validated: Effect.Success<ReturnType<typeof validateApplicationBindingBasisInTransaction>>,
+    tx: AppRowTransaction, clock: ScopeClockRecord) {
   const basis = validated.basis;
   const authorizationRevocationEpoch =
     yield* requireScopeAuthorizationRevocationEpochInTransactionEffect(

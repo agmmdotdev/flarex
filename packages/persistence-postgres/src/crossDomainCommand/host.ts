@@ -384,8 +384,8 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
               clock,
               false,
               undefined,
-              (commerceAdmission) =>
-                withCompositeBinding(commerceAdmission, (binding) =>
+              (commerceAdmission, accepted) =>
+                accepted === undefined ? Effect.fail(compositeError("invalidAuthority")) : withCompositeBinding(commerceAdmission, (binding) =>
                   withCmsAdmission(
                     prepared,
                     tx,
@@ -395,6 +395,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
                       runAdmitted(cmsAdmission, commerceAdmission, clock),
                     undefined,
                     hooks?.bindingProof?.(binding) ?? binding,
+                    accepted,
                   ),
                 ),
             );

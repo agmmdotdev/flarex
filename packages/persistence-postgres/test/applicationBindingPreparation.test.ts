@@ -3,6 +3,9 @@ import { Effect, Result, Tracer } from "effect";
 import { expect, it } from "vitest";
 import { StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
 import { prepareApplicationBindingSelection, claimApplicationExecutableActiveSelection, type ApplicationBindingPreparation } from "../src/applicationActivation";
+import { readApplicationBindingPreparationInputs, readAcceptedApplicationBinding, withAcceptedApplicationBinding,
+  type AcceptedApplicationBinding } from "../src/applicationActivation";
+import { readAcceptedApplicationBindingProjection } from "../src/applicationBindingProjection";
 import { readApplicationBindingProjectionInTransaction } from "../src/applicationBindingProjection";
 import { fxSystemApplicationReadiness } from "../src/applicationRelationSchema";
 import { fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
@@ -14,6 +17,7 @@ import { prepareAdditionalRelationRevision } from "./applicationRelationReadines
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { createFileScopedPostgresFixture, postgresUrl } from "./postgresHelpers";
 import { runEffect } from "./effectTestRuntime";
+import { prepareCmsApplication } from "../src/cmsTransaction/admission";
 
 async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence) {
   const schema = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
@@ -35,6 +39,50 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   }).pipe(Effect.provideService(Tracer.Tracer, tracer))));
   expect(await accept()).toEqual(base.reference);
   expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
+  const planning = await runEffect(readApplicationBindingPreparationInputs(prepared, base.fixture.control.drizzle));
+  expect(planning.schema.schemaVersionId).toBe(base.reference.schemaVersionId);
+  // A detached manifest cannot rewrite the prepared authority's input snapshot.
+  const manifestVersion = planning.manifest.version;
+  Object.assign(planning.manifest, { version: 0 });
+  expect((await runEffect(readApplicationBindingPreparationInputs(prepared, base.fixture.control.drizzle))).manifest.version).toBe(manifestVersion);
+  const cms = await runEffect(prepareCmsApplication(base.fixture.relationActivation, base.fixture.authorityPorts,
+    base.fixture.control.drizzle, base.fixture.deploymentId));
+  const assertFrozen = (value: unknown): void => {
+    if (typeof value !== "object" || value === null) return;
+    expect(Object.isFrozen(value)).toBe(true);
+    for (const nested of Object.values(value)) assertFrozen(nested);
+  };
+  assertFrozen(cms.configuration);
+  expect(() => Object.assign(cms.configuration, { profile: "changed" })).toThrow(TypeError);
+  const otherPreparation = await prepare();
+  let escaped: AcceptedApplicationBinding | undefined;
+  await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+    const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
+    for (const ending of ["success", "failure", "interruption"] as const) {
+      const before = spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction").length;
+      const result = yield* Effect.exit(withAcceptedApplicationBinding(prepared, tx, clock, binding => Effect.gen(function* () {
+        escaped = binding;
+        expect(Result.isFailure(claimApplicationExecutableActiveSelection(binding))).toBe(true);
+        expect(yield* readAcceptedApplicationBindingProjection(binding, tx, clock)).toEqual(base.reference);
+        expect(yield* readAcceptedApplicationBindingProjection(binding, tx, clock)).toEqual(base.reference);
+        expect(yield* withAcceptedApplicationBinding(prepared, tx, clock,
+          borrowed => readAcceptedApplicationBindingProjection(borrowed, tx, clock), binding)).toEqual(base.reference);
+        expect(yield* Effect.flip(withAcceptedApplicationBinding(otherPreparation, tx, clock,
+          () => Effect.void, binding))).toMatchObject({ reason: "invalidComposition" });
+        expect(Result.isSuccess(readAcceptedApplicationBinding(binding, tx, clock))).toBe(true);
+        // SAFETY: a lookalike transaction must not satisfy exact accepting identity.
+        expect(Result.isFailure(readAcceptedApplicationBinding(binding, { ...tx } as typeof tx, clock))).toBe(true);
+        expect(Result.isFailure(readAcceptedApplicationBinding(binding, tx, { ...clock,
+          storageGenerationFence: StorageGenerationFenceSchema.make(clock.storageGenerationFence + 1n) }))).toBe(true);
+        if (ending === "failure") return yield* Effect.fail("expected refusal");
+        if (ending === "interruption") return yield* Effect.interrupt;
+      })));
+      expect(result._tag).toBe(ending === "success" ? "Success" : "Failure");
+      if (escaped === undefined) throw new Error("Missing accepted fixture");
+      expect(Result.isFailure(readAcceptedApplicationBinding(escaped, tx, clock))).toBe(true);
+      expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction").length - before).toBe(1);
+    }
+  }).pipe(Effect.provideService(Tracer.Tracer, tracer))));
   // SAFETY: intentionally forged nominal input tests the registry refusal boundary.
   await expect(accept({} as ApplicationBindingPreparation)).rejects.toMatchObject({ reason: "invalidComposition" });
   await expect(persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {

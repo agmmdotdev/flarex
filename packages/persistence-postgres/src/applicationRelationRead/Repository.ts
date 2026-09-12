@@ -8,6 +8,8 @@ import {
   validateApplicationRelationActiveSelectionInTransaction,
   type ApplicationActiveSelection,
   type ApplicationRelationActiveSelectionSnapshot,
+  type AcceptedApplicationBinding,
+  readAcceptedApplicationBinding,
 } from "../applicationActivation";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from
   "../transactionSessionActivation";
@@ -22,7 +24,10 @@ import {
 } from "../applicationRelationCommit";
 import {
   type ApplicationRelationReadinessFoldRepository,
+  type ApplicationRelationReadinessActivationBasis,
 } from "../applicationRelationReadinessFold";
+import type { AppRowTransaction } from "../appRows";
+import type { ScopeClockRecord } from "../scopeClock";
 import {
   type ApplicationRelationSourceReference,
   type ApplicationRelationReadCapability,
@@ -43,8 +48,9 @@ interface ApplicationRelationReadPortState {
 
 interface ApplicationRelationReadCapabilityState {
   readonly port: ApplicationRelationReadPortState;
-  readonly selection: ApplicationActiveSelection;
-  readonly selectionSnapshot: ApplicationRelationActiveSelectionSnapshot;
+  readonly acceptance: Readonly<{ kind: "standalone"; selection: ApplicationActiveSelection;
+    selectionSnapshot: ApplicationRelationActiveSelectionSnapshot }> | Readonly<{
+      kind: "transaction"; binding: AcceptedApplicationBinding; tx: AppRowTransaction; clock: ScopeClockRecord }>;
   readonly deploymentId: ResolveApplicationRelationReadCapabilityInput[
     "deploymentId"
   ];
@@ -105,6 +111,17 @@ export function createApplicationRelationReadPort(
     Result.map(resolvedCapabilityFromState),
   );
 
+  const prepareAcceptedBySource: ApplicationRelationReadPort["prepareAcceptedBySource"] = Effect.fn(
+    "ApplicationRelationRead.prepareAcceptedBySource",
+  )(function* (input) {
+    if (!compositionIsExact()) return yield* unavailable("invalidComposition");
+    const active = yield* Effect.fromResult(readAcceptedApplicationBinding(input.binding, input.tx, input.clock, readiness));
+    if (active.deploymentId !== input.deploymentId) return yield* unavailable("capabilityMismatch");
+    return yield* issueCapability(state, input.deploymentId, active,
+      { kind: "transaction", binding: input.binding, tx: input.tx, clock: { ...input.clock } },
+      definition => relationSourceMatches(definition, input.relation));
+  });
+
   const validateInTransaction: ApplicationRelationReadPort[
     "validateInTransaction"
   ] = Effect.fn(
@@ -113,14 +130,12 @@ export function createApplicationRelationReadPort(
     const capabilityState = yield* Effect.fromResult(
       resolveCapabilityStateResult(state, capability, input),
     );
-    const active = yield* validateApplicationRelationActiveSelectionInTransaction(
-      capabilityState.selection,
-      tx,
-      currentClock,
-    );
-    if (!applicationRelationActiveSelectionMatchesSnapshot(
-      active,
-      capabilityState.selectionSnapshot,
+    const acceptance = capabilityState.acceptance;
+    const active = acceptance.kind === "transaction"
+      ? yield* Effect.fromResult(readAcceptedApplicationBinding(acceptance.binding, tx, currentClock, readiness))
+      : yield* validateApplicationRelationActiveSelectionInTransaction(acceptance.selection, tx, currentClock);
+    if (acceptance.kind === "standalone" && !applicationRelationActiveSelectionMatchesSnapshot(
+      active, acceptance.selectionSnapshot,
     )) {
       return yield* unavailable("capabilityMismatch");
     }
@@ -151,6 +166,7 @@ export function createApplicationRelationReadPort(
     readiness,
     prepare,
     prepareBySource,
+    prepareAcceptedBySource,
     resolve,
     validateInTransaction,
     lowerOverlay,
@@ -175,7 +191,7 @@ const prepareCapability = Effect.fn(
   if (!compositionIsExact()) {
     return yield* unavailable("invalidComposition");
   }
-  const { readiness, authority, definitions } = state;
+  const { readiness, authority } = state;
   const active = yield* validateApplicationRelationActiveSelectionForReadiness(
     readiness,
     input.selection,
@@ -189,6 +205,16 @@ const prepareCapability = Effect.fn(
   const selectionSnapshot = yield* Effect.fromResult(
     claimApplicationRelationActiveSelection(input.selection),
   );
+  return yield* issueCapability(state, input.deploymentId, active,
+    { kind: "standalone", selection: input.selection, selectionSnapshot }, matchesDefinition);
+});
+
+const issueCapability = Effect.fn("ApplicationRelationRead.issueCapability")(function* (
+  state: ApplicationRelationReadPortState, deploymentId: ApplicationRelationReadCapabilityState["deploymentId"],
+  active: ApplicationRelationReadinessActivationBasis, acceptance: ApplicationRelationReadCapabilityState["acceptance"],
+  matchesDefinition: (definition: LocatedApplicationRelationDefinition) => boolean,
+) {
+  const { definitions } = state;
   const located = active.definitions;
   if (
     !hasLocatedApplicationRelationDefinitionSetAuthority(
@@ -214,9 +240,8 @@ const prepareCapability = Effect.fn(
   const capability = makeApplicationRelationReadCapability();
   capabilityStates.set(capability, Object.freeze({
     port: state,
-    selection: input.selection,
-    selectionSnapshot,
-    deploymentId: input.deploymentId,
+    acceptance,
+    deploymentId,
     scopeId: active.authority.scopeId,
     schemaVersionId: active.schemaVersionId,
     definitions: located,
@@ -274,6 +299,11 @@ function resolveCapabilityStateResult(
     state.schemaVersionId !== input.schemaVersionId
   ) {
     return Result.fail(unavailableValue("capabilityMismatch"));
+  }
+  if (state.acceptance.kind === "transaction") {
+    const { binding, tx, clock } = state.acceptance;
+    return readAcceptedApplicationBinding(binding, tx, clock, expectedPort.readiness).pipe(
+      Result.mapError(() => unavailableValue("capabilityMismatch")), Result.map(() => state));
   }
   return Result.succeed(state);
 }

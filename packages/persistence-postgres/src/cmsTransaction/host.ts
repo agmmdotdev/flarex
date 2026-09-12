@@ -159,8 +159,6 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
       const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
       const prepared = yield* prepareCmsApplication(application, compositionAuthority, controlDatabase, deploymentId);
-      // Reverse reads are standalone-only; writes and retained replay need no read-capability preparation.
-      const relations = requestKey === null ? yield* prepareCmsRelations(prepared, relationReads) : Option.none();
       const commit = requestKey === null ? null : yield* prepareCmsApplicationCommit(prepared, located.authority, pointCommitAuthority, materialization);
       return yield* runRelationalSession(session, tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`),
@@ -169,6 +167,8 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
           lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId));
         return yield* withCmsAdmission(prepared, tx, located.authority, clock, admission => Effect.gen(function* () {
           const state = yield* requireCmsAdmission(admission);
+          // Native join capabilities borrow this acceptance; no extra readiness transaction.
+          const relations = requestKey === null ? yield* prepareCmsRelations(admission, relationReads) : Option.none();
           if (expectedContentIdentity !== undefined && (state.frame.payloadContent?.configSha256 !== expectedContentIdentity.configSha256 ||
             state.frame.payloadContent.provenanceSha256 !== expectedContentIdentity.provenanceSha256)) return yield* Effect.fail(cmsError("invalidAuthority"));
           if (testHooks?.afterAdmission !== undefined) yield* testHooks.afterAdmission(tx);

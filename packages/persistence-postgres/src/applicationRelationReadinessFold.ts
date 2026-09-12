@@ -348,6 +348,21 @@ const preparedActiveReadBrand: unique symbol = Symbol("PreparedApplicationRelati
 export interface PreparedApplicationRelationActiveRead { readonly [preparedActiveReadBrand]: true }
 const preparedActiveReads = new WeakMap<object, Readonly<{ repository: FoldRepositoryState; prepared: PreparedFold }>>();
 
+/** Captured planning data only. This does not issue readiness or execution authority. */
+export const readPreparedApplicationRelationInputs = Effect.fn("ApplicationRelationReadinessFold.readPreparedInputs")(
+  function* (input: PreparedApplicationRelationActiveRead, controlDb: FlarexMetadataDatabase) {
+    const state = preparedActiveReads.get(input);
+    if (state === undefined || state.repository.context.controlDb !== controlDb) return yield* failureForOperation("validate", "invalidComposition");
+    return { schema: state.prepared.schema, manifest: structuredClone(state.prepared.bundle.manifest) };
+  },
+);
+
+export function hasPreparedApplicationRelationReadRepository(input: PreparedApplicationRelationActiveRead,
+  repository: ApplicationRelationReadinessFoldRepository): boolean {
+  const state = preparedActiveReads.get(input);
+  return state !== undefined && state.repository === repositoryStates.get(repository);
+}
+
 /** Request-owned inputs only; this does not issue a ready result or active selection. */
 export const prepareApplicationRelationActiveRead = Effect.fn("ApplicationRelationReadinessFold.prepareActiveRead")(
   (repository: ApplicationRelationReadinessFoldRepository, input: { readonly deploymentId: string; readonly revisionId: string }) => {
