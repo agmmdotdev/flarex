@@ -1,3 +1,4 @@
+import { isRetainedTransactionSessionIdentityV1, isTerminalTransactionSessionLifecycleV1 } from "./transactionSessionAttemptFacet";
 import {
   copyBytes,
   bytesEqualFullScan as bytesEqual,
@@ -418,8 +419,10 @@ type StoredAttemptSessionProjectionV1 = Readonly<
     | "createdAt"
     | "updatedAt"
   > & {
-    readonly validatedArgsCanonicalByteLength: number;
-    readonly authorizationGrantCanonicalByteLength: number;
+    readonly validatedArgsJsonPresent: boolean;
+    readonly authorizationGrantJsonPresent: boolean;
+    readonly validatedArgsCanonicalByteLength: number | null;
+    readonly authorizationGrantCanonicalByteLength: number | null;
   }
 >;
 
@@ -727,7 +730,9 @@ async function selectStoredAttemptSessionRows(
         fxSystemTransactionSessions.identityAccessPolicySha256,
       validatedArgsValueCodecVersion:
         fxSystemTransactionSessions.validatedArgsValueCodecVersion,
-      validatedArgsCanonicalByteLength: sql<number>`
+      validatedArgsJsonPresent: sql<boolean>`${fxSystemTransactionSessions.validatedArgsJson} is not null`,
+      authorizationGrantJsonPresent: sql<boolean>`${fxSystemTransactionSessions.authorizationGrantJson} is not null`,
+      validatedArgsCanonicalByteLength: sql<number | null>`
         octet_length(${fxSystemTransactionSessions.validatedArgsCanonicalBytes})
       `,
       validatedArgsSha256: fxSystemTransactionSessions.validatedArgsSha256,
@@ -735,7 +740,7 @@ async function selectStoredAttemptSessionRows(
         fxSystemTransactionSessions.authorizationGrantId,
       authorizationGrantValueCodecVersion:
         fxSystemTransactionSessions.authorizationGrantValueCodecVersion,
-      authorizationGrantCanonicalByteLength: sql<number>`
+      authorizationGrantCanonicalByteLength: sql<number | null>`
         octet_length(${fxSystemTransactionSessions.authorizationGrantCanonicalBytes})
       `,
       authorizationGrantSha256:
@@ -942,19 +947,28 @@ const materializeStoredAttemptEvidence = Effect.fn(
     !isUint8ArrayWithByteLength(session.identityAccessPolicySha256, 32) ||
     !isUint8ArrayWithByteLength(session.validatedArgsSha256, 32) ||
     !isUint8ArrayWithByteLength(session.authorizationGrantSha256, 32) ||
-    !isUint8ArrayWithByteLength(session.requestSha256, 32) ||
-    !isPositiveSafeInteger(session.validatedArgsCanonicalByteLength) ||
-    !isPositiveSafeInteger(session.authorizationGrantCanonicalByteLength)
+    !isUint8ArrayWithByteLength(session.requestSha256, 32)
   ) {
     return corrupt("sessionRecordInvalid");
   }
-  const executionAuthority = yield* captureSessionExecutionAuthority(session);
-  if (session.lifecycle === "committed") {
-    return Object.freeze({
-      kind: "alreadyCommitted",
-      updatedAtMilliseconds,
-    });
+  if (isTerminalTransactionSessionLifecycleV1(session.lifecycle)) {
+    if (
+      !isRetainedTransactionSessionIdentityV1(session) ||
+      session.validatedArgsJsonPresent !== false || session.authorizationGrantJsonPresent !== false ||
+      session.validatedArgsCanonicalByteLength !== null ||
+      session.authorizationGrantCanonicalByteLength !== null ||
+      session.applicationExecutionAuthorityJson !== null ||
+      session.applicationExecutionAuthorityCanonicalBytes !== null
+    ) return corrupt("sessionRecordInvalid");
+    return session.lifecycle === "committed"
+      ? Object.freeze({ kind: "alreadyCommitted", updatedAtMilliseconds })
+      : Object.freeze({ kind: "notPlannable", reason: "lifecycle", lifecycle: session.lifecycle });
   }
+  if (
+    !isPositiveSafeInteger(session.validatedArgsCanonicalByteLength) ||
+    !isPositiveSafeInteger(session.authorizationGrantCanonicalByteLength)
+  ) return corrupt("sessionRecordInvalid");
+  const executionAuthority = yield* captureSessionExecutionAuthority(session);
   if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
     return Object.freeze({
       kind: "notPlannable",
@@ -1202,7 +1216,9 @@ function captureSessionScalars(
     updatedAtMilliseconds: number;
   }>,
 ): StoredAttemptSessionScalarsV1 {
-  if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
+  if ((session.lifecycle !== "running" && session.lifecycle !== "finishing") ||
+    session.validatedArgsCanonicalByteLength === null ||
+    session.authorizationGrantCanonicalByteLength === null) {
     throw new Error("Stored attempt session is not active.");
   }
   return Object.freeze({

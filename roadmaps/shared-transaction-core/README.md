@@ -16,8 +16,10 @@ Those statement reductions and the dedicated commit-keyed wake are implemented
 without changing framework APIs. Obsolete core wake counter/clock projections
 are removed. Floor observation now bounds live leases independently of expired
 backlog. Journal roots retain one final syscall counter, and write events retain
-canonical bytes/digest without a JSON mirror. Index/unique, terminal payload and
-remaining execution-evidence replacements remain open.
+canonical bytes/digest without a JSON mirror. Terminal sessions retain request
+identity and fencing while clearing argument/grant/Application authority bodies
+in the same transaction. Index/unique, row representation and remaining
+execution-evidence replacements remain open.
 
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;

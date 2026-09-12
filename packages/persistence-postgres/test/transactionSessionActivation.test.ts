@@ -1,3 +1,5 @@
+import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
+import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { Effect, Exit, Fiber } from "effect";
 import {
   ReplacementScopeIdV1Schema,
@@ -8,6 +10,8 @@ import {
   TransactionGrantDeploymentIdV1Schema,
 } from "flarex-protocol/transaction-grant";
 import {
+  CanonicalTransactionArgumentsBytesV1Schema,
+  TransactionArgumentsSha256V1Schema,
   TransactionAttemptFenceSchema,
   TransactionAuthorizationRevocationEpochSchema,
   TransactionPackageIdV1Schema,
@@ -46,6 +50,7 @@ import {
   createPointMutationExecutionClaimAcquisitionV1,
   PointMutationSessionAuthorityCorruptionV1Error,
   createPointMutationSessionActivationPersistenceV1,
+  createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionActivationResolutionPortsV1,
   type PointMutationSessionAnchorV1,
@@ -57,6 +62,8 @@ import {
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
+  abortPointMutationSessionAttempt,
+  executionClaimForAnchor,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -1198,22 +1205,36 @@ describe("O03-B1 point-mutation session activation", () => {
       terminalContext.deploymentId,
       terminalContext.scopeId,
     );
-    await activatePointMutationSession(terminalActivation, terminalInput);
-    await persistence.query(
-      `
-        update fx_system_tx_session
-        set lifecycle = 'aborted'
-        where scope_uuid = (
-          select scope_uuid from fx_system_scope_clock where scope_id = $1
-        )
-      `,
-      [terminalContext.scopeId],
+    const { anchor } = await activatePointMutationSession(terminalActivation, terminalInput);
+    const payloadBefore = await captureSessionStorage(persistence, anchor);
+    await abortPointMutationSessionAttempt(
+      createPointMutationSessionAttemptTerminalizationPersistenceV1(resolutionPorts(persistence)),
+      {
+        selector: { deploymentId: anchor.deploymentId, scopeId: anchor.scopeId,
+          sessionId: anchor.sessionId, attemptFence: anchor.attemptFence },
+        executionClaim: executionClaimForAnchor(anchor),
+        expectedSnapshotToken: anchor.snapshotToken,
+      },
     );
+    const terminalStorage = await captureSessionStorage(persistence, anchor);
+    expectSessionPayloadScrubbed(payloadBefore, terminalStorage);
     await expect(
       activatePointMutationSession(terminalActivation, terminalInput),
     ).rejects.toMatchObject({
       issue: { reason: "terminalRequest", lifecycle: "aborted" },
     } satisfies Partial<PointMutationSessionActivationV1Error>);
+
+    const changedArgs = await canonicalizeFlarexValueV1({ changed: true });
+    await expect(activatePointMutationSession(terminalActivation,
+      pointMutationSessionActivationFixture(terminalContext.deploymentId, terminalContext.scopeId, {
+        evidence: {
+          validatedArgsJson: { changed: true },
+          validatedArgsCanonicalBytes: CanonicalTransactionArgumentsBytesV1Schema.make(changedArgs.canonicalBytes),
+          validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(changedArgs.sha256),
+        },
+      }),
+    )).rejects.toMatchObject({ issue: { reason: "requestKeyConflict" } });
+    expect(await captureSessionStorage(persistence, anchor)).toEqual(terminalStorage);
 
     const missingLeaseContext = await provisionContext("missing_lease");
     const missingLeaseActivation = activationPersistence();

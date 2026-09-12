@@ -263,7 +263,7 @@ describe("M05-B3 physical-definition retirement pins - PGlite", {
       pin: { owner: "mutation_session", identity: sessionId },
     });
     await fixture.target.query(
-      `update fx_system_tx_session set lifecycle = 'committed'
+      `update fx_system_tx_session set lifecycle = 'committed', validated_args_json = null, validated_args_canonical_bytes = null, authorization_grant_json = null, authorization_grant_canonical_bytes = null, application_execution_authority_json = null, application_execution_authority_canonical_bytes = null
         where scope_uuid = $1 and session_id = $2`,
       [scopeUuid, sessionId],
     );
@@ -480,9 +480,11 @@ describe("M05-B3 physical-definition retirement pins - PGlite", {
         leaseExpiresAt: "2030-01-01T12:00:00.000Z",
       }),
     );
-    await expect(inspect()).resolves.toMatchObject({
-      status: "pinned",
-      pin: { owner: "snapshot_lease", identity: sessionId },
+    // A terminal marker cannot own resumable Application authority. Real terminal
+    // transitions delete its lease atomically; this injected orphan fails closed.
+    await expect(inspect()).rejects.toMatchObject({
+      _tag: "PhysicalDefinitionRetirementPinCorruptionError",
+      owner: "snapshot_lease", identity: sessionId,
     });
     await fixture.target.query(
       `delete from fx_system_snapshot_lease

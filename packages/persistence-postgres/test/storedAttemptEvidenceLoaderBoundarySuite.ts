@@ -61,9 +61,10 @@ export interface StoredAttemptEvidenceLoaderBoundaryHarness<
   readonly createForeignAuthorityFailureLoader: (
     cause: Error,
   ) => StoredAttemptEvidenceLoaderV1;
-  readonly replaceWithInvalidApplicationAuthority: (
+  readonly withInvalidApplicationAuthority: (
     current: Scenario,
     lifecycle: TransactionSessionLifecycleV1,
+    work: () => Promise<void>,
   ) => Promise<void>;
   readonly installExactApplicationAuthority: (
     current: Scenario,
@@ -141,12 +142,10 @@ export function registerStoredAttemptEvidenceLoaderBoundaryTests<
         `application_authority_${lifecycle}`,
       );
       if (lifecycle === "running") await harness.seal(current);
-      await harness.replaceWithInvalidApplicationAuthority(current, lifecycle);
-      await expect(runEffect(current.loader.loadEffect(current.authority)))
-        .resolves.toMatchObject({
-          kind: "corrupt",
-          reason: "sessionRecordInvalid",
-        });
+      await harness.withInvalidApplicationAuthority(current, lifecycle, async () => {
+        await expect(runEffect(current.loader.loadEffect(current.authority)))
+          .resolves.toMatchObject({ kind: "corrupt", reason: "sessionRecordInvalid" });
+      });
     },
   );
 

@@ -490,7 +490,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
       await persistence.query(
         `
           update fx_system_tx_session
-          set lifecycle = 'expired', updated_at = clock_timestamp()
+          set lifecycle = 'expired', validated_args_json = null, validated_args_canonical_bytes = null, authorization_grant_json = null, authorization_grant_canonical_bytes = null, application_execution_authority_json = null, application_execution_authority_canonical_bytes = null, updated_at = clock_timestamp()
           where session_id = $1
         `,
         [racing.anchor.sessionId],

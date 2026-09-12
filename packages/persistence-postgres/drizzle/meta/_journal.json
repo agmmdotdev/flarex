@@ -659,6 +659,13 @@
       "when": 1789197601786,
       "tag": "0093_journal-evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1789199069727,
+      "tag": "0094_terminal-session-payload",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
+
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Random, Result, Schema } from "effect";
@@ -284,6 +286,7 @@ import {
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
   fxSystemTransactionJournals,
+  fxSystemTransactionSessions,
 } from "../src/schema";
 import {
   PointMutationExecutionClaimAcquisitionStaleV1Error,
@@ -405,7 +408,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       });
     },
-    replaceWithInvalidApplicationAuthority,
+    withInvalidApplicationAuthority,
     installExactApplicationAuthority,
     createFinishingTransitionPort: (options) =>
       createPointCommitFinishingTransitionPortV1(
@@ -911,9 +914,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     expect(promotedRow.authorization_grant_expires_at.getTime())
       .toBeGreaterThan(promotedRow.hard_expires_at.getTime());
+    const payloadBefore = await captureSessionStorage(persistence, prepared.current.anchor);
     const published = await runEffect(
       prepared.authentication.publishPointCommit(prepared.plan),
     );
+    const terminalStorage = await captureSessionStorage(persistence, prepared.current.anchor);
+    expectSessionPayloadScrubbed(payloadBefore, terminalStorage);
     expect(published).toMatchObject({
       kind: "published",
       token: { scopeUuid: prepared.scopeUuid, commitSeq: 1n },
@@ -949,6 +955,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const replayed = await runEffect(
       prepared.authentication.publishPointCommit(prepared.plan),
     );
+    expect(await captureSessionStorage(persistence, prepared.current.anchor)).toEqual(terminalStorage);
     expect(replayed).toMatchObject({
       kind: "replayed",
       token: published.token,
@@ -4163,9 +4170,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(parameters).toEqual([768]);
   }, 120_000);
 
-  it("rolls back every publication atom when a late invariant fails", async () => {
+  it.each(["wakeWritten", "sessionCommitted"] as const)("rolls back every publication atom after %s", async (failureStep) => {
     const prepared = await prepareO07BScenario(
-      "o07b_late_rollback",
+      `o07b_late_rollback_${failureStep}`,
       async (current, table) => {
         await runPointOperation(current.store, table, {
           kind: "insert",
@@ -4175,7 +4182,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
       {
         afterTransactionStep: (event) => {
-          if (event.step === "wakeWritten") {
+          if (event.step === failureStep) {
             throw new PointCommitCorruptionV1Error({
               reason: "publicationInvariantInvalid",
             });
@@ -4184,10 +4191,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       },
     );
+    const payloadBefore = await captureSessionStorage(persistence, prepared.current.anchor);
     const failure = await runFailure(
       prepared.authentication.publishPointCommit(prepared.plan),
     );
     expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(await captureSessionStorage(persistence, prepared.current.anchor)).toEqual(payloadBefore);
     expect(await o06DurableState(prepared.scopeUuid)).toEqual({
       revisions: "0",
       current_rows: "0",
@@ -4213,6 +4222,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       sessionId: prepared.current.anchor.sessionId,
       attemptFence: prepared.current.anchor.attemptFence.toString(),
     }));
+    expectSessionPayloadScrubbed(payloadBefore, await captureSessionStorage(persistence, prepared.current.anchor));
     expect(published).toMatchObject({
       kind: "published",
       token: { scopeUuid: prepared.scopeUuid, commitSeq: 1n },
@@ -6603,30 +6613,39 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(overflowQueries).not.toContain("stableBindings");
   }, 120_000);
 
-  async function replaceWithInvalidApplicationAuthority(
+  async function withInvalidApplicationAuthority(
     current: Scenario,
     lifecycle: TransactionSessionLifecycleV1,
+    work: () => Promise<void>,
   ): Promise<void> {
-    await persistence.query(
-      `update fx_system_tx_session
-          set execution_authority_generation = 'application_v1',
-              lifecycle = $1,
-              package_id = null,
-              artifact_runtime = null,
-              artifact_id = null,
-              source_package_hash = null,
-              execution_module = null,
-              application_execution_authority_json = '{}'::jsonb,
-              application_execution_authority_canonical_bytes = $2,
-              application_execution_authority_sha256 = $3
-        where session_id = $4`,
-      [
-        lifecycle,
-        new Uint8Array([1]),
-        new Uint8Array(32),
-        current.anchor.sessionId,
-      ],
-    );
+    const before = await captureSessionStorage(persistence, current.anchor);
+    const definition = (await persistence.query<{ definition: string }>(
+      "select pg_get_constraintdef(oid) as definition from pg_constraint where conrelid = 'fx_system_tx_session'::regclass and conname = 'fx_system_tx_session_execution_authority_check'",
+    )).rows[0]?.definition;
+    if (definition === undefined) throw new Error("Missing session authority constraint.");
+    await persistence.exec("alter table fx_system_tx_session drop constraint fx_system_tx_session_execution_authority_check");
+    try {
+      const terminal = lifecycle === "committed" || lifecycle === "aborted" || lifecycle === "expired";
+      await persistence.query(
+        `update fx_system_tx_session set execution_authority_generation = 'application_v1',
+          lifecycle = $1, package_id = null, artifact_runtime = null, artifact_id = null,
+          source_package_hash = null, execution_module = null,
+          validated_args_json = case when $5 then null else validated_args_json end,
+          validated_args_canonical_bytes = case when $5 then null else validated_args_canonical_bytes end,
+          authorization_grant_json = case when $5 then null else authorization_grant_json end,
+          authorization_grant_canonical_bytes = case when $5 then null else authorization_grant_canonical_bytes end,
+          application_execution_authority_json = case when $5 then null else '{}'::jsonb end,
+          application_execution_authority_canonical_bytes = case when $5 then null else $2::bytea end,
+          application_execution_authority_sha256 = case when $5 then null else $3::bytea end
+          where session_id = $4`,
+        [lifecycle, new Uint8Array([1]), new Uint8Array(32), current.anchor.sessionId, terminal],
+      );
+      await work();
+    } finally {
+      await persistence.drizzle.update(fxSystemTransactionSessions).set(before)
+        .where(eq(fxSystemTransactionSessions.sessionId, current.anchor.sessionId));
+      await persistence.exec(`alter table fx_system_tx_session add constraint fx_system_tx_session_execution_authority_check ${definition}`);
+    }
   }
 
   async function installExactApplicationAuthority(
@@ -8931,7 +8950,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await persistence.query(
       `
         update fx_system_tx_session
-        set lifecycle = $2, updated_at = clock_timestamp()
+        set lifecycle = $2, updated_at = clock_timestamp(),
+          validated_args_json = case when $2 in ('committed','aborted','expired') then null else validated_args_json end,
+          validated_args_canonical_bytes = case when $2 in ('committed','aborted','expired') then null else validated_args_canonical_bytes end,
+          authorization_grant_json = case when $2 in ('committed','aborted','expired') then null else authorization_grant_json end,
+          authorization_grant_canonical_bytes = case when $2 in ('committed','aborted','expired') then null else authorization_grant_canonical_bytes end,
+          application_execution_authority_json = case when $2 in ('committed','aborted','expired') then null else application_execution_authority_json end,
+          application_execution_authority_canonical_bytes = case when $2 in ('committed','aborted','expired') then null else application_execution_authority_canonical_bytes end
         where session_id = $1
       `,
       [sessionId, lifecycle],

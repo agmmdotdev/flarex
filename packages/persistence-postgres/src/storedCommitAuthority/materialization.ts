@@ -1,3 +1,4 @@
+import { isRetainedTransactionSessionIdentityV1, isTerminalTransactionSessionLifecycleV1 } from "../transactionSessionAttemptFacet";
 import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
@@ -190,10 +191,10 @@ export interface SessionSizeRow extends Omit<
   | "applicationExecutionAuthorityJson"
   | "applicationExecutionAuthorityCanonicalBytes"
 > {
-  readonly validatedArgsJsonByteLengthText: string;
-  readonly validatedArgsCanonicalByteLengthText: string;
-  readonly authorizationGrantJsonByteLengthText: string;
-  readonly authorizationGrantCanonicalByteLengthText: string;
+  readonly validatedArgsJsonByteLengthText: string | null;
+  readonly validatedArgsCanonicalByteLengthText: string | null;
+  readonly authorizationGrantJsonByteLengthText: string | null;
+  readonly authorizationGrantCanonicalByteLengthText: string | null;
   readonly applicationExecutionAuthorityFormat: string | null;
   readonly applicationExecutionAuthorityVersionText: string | null;
   readonly applicationExecutionAuthorityActivationSequence: string | null;
@@ -208,10 +209,10 @@ export interface SessionPayloadRow {
   readonly scopeUuid: ScopeUuidV1;
   readonly sessionId: TransactionSessionIdV1;
   readonly attemptFence: TransactionAttemptFence;
-  readonly validatedArgsJsonText: string;
-  readonly validatedArgsCanonicalBytes: Uint8Array;
-  readonly authorizationGrantJsonText: string;
-  readonly authorizationGrantCanonicalBytes: Uint8Array;
+  readonly validatedArgsJsonText: string | null;
+  readonly validatedArgsCanonicalBytes: Uint8Array | null;
+  readonly authorizationGrantJsonText: string | null;
+  readonly authorizationGrantCanonicalBytes: Uint8Array | null;
   readonly applicationExecutionAuthorityJsonText: string | null;
   readonly applicationExecutionAuthorityCanonicalBytes: Uint8Array | null;
 }
@@ -540,6 +541,15 @@ function materializeStoredAuthorityEffect(
     if (session.authorizationRevocationEpoch !== revocationEpoch) {
       return materializationAuthorityMismatch(mode, "revocationEpochChanged");
     }
+    if (isTerminalTransactionSessionLifecycleV1(session.lifecycle) && (
+      !isRetainedTransactionSessionIdentityV1(session) || !validSessionScalars(session) ||
+      session.validatedArgsJsonByteLengthText !== null ||
+      session.validatedArgsCanonicalByteLengthText !== null ||
+      session.authorizationGrantJsonByteLengthText !== null ||
+      session.authorizationGrantCanonicalByteLengthText !== null ||
+      session.applicationExecutionAuthorityJsonByteLengthText !== null ||
+      session.applicationExecutionAuthorityCanonicalByteLengthText !== null
+    )) return materializationCorrupt(mode, "sessionEvidenceInvalid");
     if (mode.kind === "sealed") {
       if (
         session.lifecycle !== "running" &&
@@ -814,7 +824,9 @@ function materializeStoredAuthorityEffect(
       payload.sessionId !== expected.sessionId ||
       payload.attemptFence !== expected.attemptFence ||
       typeof payload.validatedArgsJsonText !== "string" ||
-      typeof payload.authorizationGrantJsonText !== "string"
+      typeof payload.authorizationGrantJsonText !== "string" ||
+      payload.validatedArgsCanonicalBytes === null ||
+      payload.authorizationGrantCanonicalBytes === null
     ) {
       return materializationCorrupt(mode, "sessionEvidenceInvalid");
     }
@@ -2017,12 +2029,10 @@ function validSessionScalars(session: SessionSizeRow): boolean {
     isUint8ArrayWithByteLength(session.validatedArgsSha256, 32) &&
     isUint8ArrayWithByteLength(session.authorizationGrantSha256, 32) &&
     isUint8ArrayWithByteLength(session.requestSha256, 32) &&
-    isPositiveSafeInteger(
-      parseLength(session.validatedArgsCanonicalByteLengthText),
-    ) &&
-    isPositiveSafeInteger(
-      parseLength(session.authorizationGrantCanonicalByteLengthText),
-    );
+    (isTerminalTransactionSessionLifecycleV1(session.lifecycle) || (
+      isPositiveSafeInteger(parseLength(session.validatedArgsCanonicalByteLengthText)) &&
+      isPositiveSafeInteger(parseLength(session.authorizationGrantCanonicalByteLengthText))
+    ));
 }
 
 function captureSessionTiming(session: SessionSizeRow): Readonly<{

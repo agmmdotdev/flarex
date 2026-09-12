@@ -1,3 +1,4 @@
+import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { eq } from "drizzle-orm";
 import {
   ReplacementScopeIdV1Schema,
@@ -618,7 +619,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       [terminalAnchor.sessionId],
     );
     await persistence.query(
-      `update fx_system_tx_session set lifecycle = 'aborted' where session_id = $1`,
+      `update fx_system_tx_session set lifecycle = 'aborted', validated_args_json = null, validated_args_canonical_bytes = null, authorization_grant_json = null, authorization_grant_canonical_bytes = null, application_execution_authority_json = null, application_execution_authority_canonical_bytes = null where session_id = $1`,
       [terminalAnchor.sessionId],
     );
     await expect(loadPointMutationSessionAttempt(
@@ -720,6 +721,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     expectTypeOf<RootAttemptTerminalizationExport>().toEqualTypeOf<never>();
     const context = await provisionContext("terminal_abort");
     const anchor = (await activate(context)).anchor;
+    const payloadBefore = await captureSessionStorage(persistence, anchor);
     const selector = selectorFromAnchor(anchor);
     const events: string[] = [];
     const terminalization = terminalizationPersistence({
@@ -733,6 +735,8 @@ describe("O03-B exact point-mutation attempt authority", () => {
       executionClaim: executionClaimForAnchor(anchor),
       expectedSnapshotToken: anchor.snapshotToken,
     });
+    const terminalStorage = await captureSessionStorage(persistence, anchor);
+    expectSessionPayloadScrubbed(payloadBefore, terminalStorage);
     const firstTerminalizedAt = aborted.terminal.terminalizedAt;
 
     expect(aborted).toMatchObject({
@@ -792,6 +796,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       "lock:sessionLocked",
     ]);
     expect(await rowState(persistence, context.scopeId)).toEqual(stored);
+    expect(await captureSessionStorage(persistence, anchor)).toEqual(terminalStorage);
 
     const finishing = await provisionContext("terminal_finishing");
     const finishingAnchor = (await activate(finishing)).anchor;
@@ -820,7 +825,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       [committedAnchor.sessionId],
     );
     await persistence.query(
-      `update fx_system_tx_session set lifecycle = 'committed' where session_id = $1`,
+      `update fx_system_tx_session set lifecycle = 'committed', validated_args_json = null, validated_args_canonical_bytes = null, authorization_grant_json = null, authorization_grant_canonical_bytes = null, application_execution_authority_json = null, application_execution_authority_canonical_bytes = null where session_id = $1`,
       [committedAnchor.sessionId],
     );
     await expect(
@@ -1087,7 +1092,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const terminalLease = await provisionContext("terminal_lease_present");
     const terminalLeaseAnchor = (await activate(terminalLease)).anchor;
     await persistence.query(
-      `update fx_system_tx_session set lifecycle = 'aborted' where session_id = $1`,
+      `update fx_system_tx_session set lifecycle = 'aborted', validated_args_json = null, validated_args_canonical_bytes = null, authorization_grant_json = null, authorization_grant_canonical_bytes = null, application_execution_authority_json = null, application_execution_authority_canonical_bytes = null where session_id = $1`,
       [terminalLeaseAnchor.sessionId],
     );
     await expect(expirePointMutationSessionAttempt(
@@ -1318,6 +1323,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     ] as const) {
       const context = await provisionContext(`terminal_rollback_${failureStep}`);
       const anchor = (await activate(context)).anchor;
+      const payloadBefore = await captureSessionStorage(persistence, anchor);
       const before = await rowState(persistence, context.scopeId);
       const cause = new Error(`fail:${failureStep}`);
       const terminalization = terminalizationPersistence({
@@ -1343,6 +1349,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
         cause,
       });
       expect(await rowState(persistence, context.scopeId)).toEqual(before);
+      expect(await captureSessionStorage(persistence, anchor)).toEqual(payloadBefore);
     }
   });
 });

@@ -2398,16 +2398,14 @@ export const fxSystemTransactionSessions = pgTable(
       .$type<TransactionIdentityAccessPolicySha256V1>()
       .notNull(),
     validatedArgsJson: jsonb("validated_args_json")
-      .$type<JsonObject>()
-      .notNull(),
+      .$type<JsonObject>(),
     validatedArgsValueCodecVersion: integer(
       "validated_args_value_codec_version",
     )
       .$type<FlarexValueCodecVersion>()
       .notNull(),
     validatedArgsCanonicalBytes: bytea("validated_args_canonical_bytes")
-      .$type<CanonicalTransactionArgumentsBytesV1>()
-      .notNull(),
+      .$type<CanonicalTransactionArgumentsBytesV1>(),
     validatedArgsSha256: bytea("validated_args_sha256")
       .$type<TransactionArgumentsSha256V1>()
       .notNull(),
@@ -2415,8 +2413,7 @@ export const fxSystemTransactionSessions = pgTable(
       .$type<TransactionAuthorizationGrantIdV1>()
       .notNull(),
     authorizationGrantJson: jsonb("authorization_grant_json")
-      .$type<JsonObject>()
-      .notNull(),
+      .$type<JsonObject>(),
     authorizationGrantValueCodecVersion: integer(
       "authorization_grant_value_codec_version",
     )
@@ -2425,8 +2422,7 @@ export const fxSystemTransactionSessions = pgTable(
     authorizationGrantCanonicalBytes: bytea(
       "authorization_grant_canonical_bytes",
     )
-      .$type<CanonicalTransactionAuthorizationGrantBytesV1>()
-      .notNull(),
+      .$type<CanonicalTransactionAuthorizationGrantBytesV1>(),
     authorizationGrantSha256: bytea("authorization_grant_sha256")
       .$type<TransactionAuthorizationGrantSha256V1>()
       .notNull(),
@@ -2505,7 +2501,7 @@ export const fxSystemTransactionSessions = pgTable(
     ),
     check(
       "fx_system_tx_session_execution_authority_check",
-      sql`
+      sql`(
         (${table.executionAuthorityGeneration} = 'legacy_dynamic_worker_v1'
           and ${table.packageId} is not null
           and ${nonBlankText(table.packageId)}
@@ -2528,13 +2524,19 @@ export const fxSystemTransactionSessions = pgTable(
           and ${table.artifactId} is null
           and ${table.sourcePackageHash} is null
           and ${table.executionModule} is null
-          and ${table.applicationExecutionAuthorityJson} is not null
-          and jsonb_typeof(${table.applicationExecutionAuthorityJson}) = 'object'
-          and ${table.applicationExecutionAuthorityCanonicalBytes} is not null
-          and octet_length(${table.applicationExecutionAuthorityCanonicalBytes}) between 1 and 131072
+          and (
+            (${table.lifecycle} in ('committed', 'aborted', 'expired')
+              and ${table.applicationExecutionAuthorityJson} is null
+              and ${table.applicationExecutionAuthorityCanonicalBytes} is null)
+            or (${table.lifecycle} not in ('committed', 'aborted', 'expired')
+              and ${table.applicationExecutionAuthorityJson} is not null
+              and jsonb_typeof(${table.applicationExecutionAuthorityJson}) = 'object'
+              and ${table.applicationExecutionAuthorityCanonicalBytes} is not null
+              and octet_length(${table.applicationExecutionAuthorityCanonicalBytes}) between 1 and 131072)
+          )
           and ${table.applicationExecutionAuthoritySha256} is not null
           and octet_length(${table.applicationExecutionAuthoritySha256}) = 32)
-      `,
+      ) is true`,
     ),
     check(
       "fx_system_tx_session_function_path_check",
@@ -2558,12 +2560,20 @@ export const fxSystemTransactionSessions = pgTable(
     ),
     check(
       "fx_system_tx_session_args_evidence_check",
-      sql`
-        jsonb_typeof(${table.validatedArgsJson}) = 'object'
-        and ${table.validatedArgsValueCodecVersion} = 1
-        and octet_length(${table.validatedArgsCanonicalBytes}) > 0
+      sql`(
+        ${table.validatedArgsValueCodecVersion} = 1
         and octet_length(${table.validatedArgsSha256}) = 32
-      `,
+        and (
+          (${table.lifecycle} in ('committed', 'aborted', 'expired')
+            and ${table.validatedArgsJson} is null
+            and ${table.validatedArgsCanonicalBytes} is null)
+          or (${table.lifecycle} not in ('committed', 'aborted', 'expired')
+            and ${table.validatedArgsJson} is not null
+            and jsonb_typeof(${table.validatedArgsJson}) = 'object'
+            and ${table.validatedArgsCanonicalBytes} is not null
+            and octet_length(${table.validatedArgsCanonicalBytes}) > 0)
+        )
+      ) is true`,
     ),
     check(
       "fx_system_tx_session_grant_id_check",
@@ -2571,12 +2581,20 @@ export const fxSystemTransactionSessions = pgTable(
     ),
     check(
       "fx_system_tx_session_grant_evidence_check",
-      sql`
-        jsonb_typeof(${table.authorizationGrantJson}) = 'object'
-        and ${table.authorizationGrantValueCodecVersion} = 1
-        and octet_length(${table.authorizationGrantCanonicalBytes}) > 0
+      sql`(
+        ${table.authorizationGrantValueCodecVersion} = 1
         and octet_length(${table.authorizationGrantSha256}) = 32
-      `,
+        and (
+          (${table.lifecycle} in ('committed', 'aborted', 'expired')
+            and ${table.authorizationGrantJson} is null
+            and ${table.authorizationGrantCanonicalBytes} is null)
+          or (${table.lifecycle} not in ('committed', 'aborted', 'expired')
+            and ${table.authorizationGrantJson} is not null
+            and jsonb_typeof(${table.authorizationGrantJson}) = 'object'
+            and ${table.authorizationGrantCanonicalBytes} is not null
+            and octet_length(${table.authorizationGrantCanonicalBytes}) > 0)
+        )
+      ) is true`,
     ),
     check(
       "fx_system_tx_session_revocation_epoch_check",

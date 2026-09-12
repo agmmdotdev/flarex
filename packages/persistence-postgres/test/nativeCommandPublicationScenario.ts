@@ -1,3 +1,4 @@
+import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { Effect } from "effect";
 import { expect } from "vitest";
 import { eq } from "drizzle-orm";
@@ -62,15 +63,18 @@ export const assertNativeCommandPublication = Effect.fn("NativeCommand.testPubli
   const finishing = (yield* loader.loadFinishingEffect(selectorFromRelationAnchor(activation.anchor)));
   if (finishing.kind !== "loaded") throw new Error("Expected native finishing evidence");
   const command = (yield* Effect.promise(() => pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(authority, finishing.evidence)));
+  const payloadBefore = yield* Effect.promise(() => captureSessionStorage(native.persistence, activation.anchor));
   yield* write;
   const publication = createPointCommitPublisherPortV1(native.pointCommitAuthority, { developerIndexes, uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(native.control.drizzle) }).publish({ ...command,
     journalBytes: journal.canonicalBytes, successfulResult: { valueCodecVersion: result.evidence.valueCodecVersion, value: { observed: true }, canonicalBytes: result.canonicalBytes,
       semanticSizeBytes: result.semanticSizeBytes, sha256Hex: result.evidence.sha256Hex } });
   if (expected === "overlap") {
     const failure = yield* Effect.flip(publication);
+    expect(yield* Effect.promise(() => captureSessionStorage(native.persistence, activation.anchor))).toEqual(payloadBefore);
     expect(failure).toBeInstanceOf(PointCommitConflictV1Error);
     expect(failure).toMatchObject({ conflict: { kind: "appIndexRange", reason: "overlap" } });
   } else {
     expect((yield* publication).kind).toBe("published");
+    expectSessionPayloadScrubbed(payloadBefore, yield* Effect.promise(() => captureSessionStorage(native.persistence, activation.anchor)));
   }
 });

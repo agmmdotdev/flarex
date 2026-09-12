@@ -178,6 +178,7 @@ import {
 import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,
+  isTerminalTransactionSessionLifecycleV1,
 } from "./transactionSessionAttemptFacet";
 import {
   DISCOVER_LOCATED_POINT_MUTATION_ATTEMPTS_V1,
@@ -295,7 +296,15 @@ export type PreparedPointMutationSessionEvidenceV1 = Readonly<
     | "requestKey"
     | "requestSha256"
   >, "packageId" | "artifactRuntime" | "artifactId" |
-    "sourcePackageHash" | "executionModule"> & {
+    "sourcePackageHash" | "executionModule" | "validatedArgsJson" |
+    "validatedArgsCanonicalBytes" | "authorizationGrantJson" |
+    "authorizationGrantCanonicalBytes"> & {
+      readonly validatedArgsJson: NonNullable<TransactionSessionInsert["validatedArgsJson"]>;
+      readonly validatedArgsCanonicalBytes:
+        NonNullable<TransactionSessionInsert["validatedArgsCanonicalBytes"]>;
+      readonly authorizationGrantJson: NonNullable<TransactionSessionInsert["authorizationGrantJson"]>;
+      readonly authorizationGrantCanonicalBytes:
+        NonNullable<TransactionSessionInsert["authorizationGrantCanonicalBytes"]>;
       readonly packageId: NonNullable<TransactionSessionInsert["packageId"]>;
       readonly artifactRuntime:
         NonNullable<TransactionSessionInsert["artifactRuntime"]>;
@@ -3612,6 +3621,12 @@ async function terminalizeAttemptInTransaction(
   const updated = await tx
     .update(fxSystemTransactionSessions)
     .set({
+      validatedArgsJson: null,
+      validatedArgsCanonicalBytes: null,
+      authorizationGrantJson: null,
+      authorizationGrantCanonicalBytes: null,
+      applicationExecutionAuthorityJson: null,
+      applicationExecutionAuthorityCanonicalBytes: null,
       lifecycle,
       updatedAt: databaseNow,
     })
@@ -3960,16 +3975,16 @@ function sessionEvidenceMatches(
   session: typeof fxSystemTransactionSessions.$inferSelect,
   expected: PreparedStoredMutationSessionEvidenceV1,
 ): boolean {
+  const terminal = isTerminalTransactionSessionLifecycleV1(session.lifecycle);
   const logicalEvidenceMatches = session.executionAuthorityGeneration ===
       expected.executionAuthorityGeneration &&
-    nullableJsonEqual(
+    (terminal || (nullableJsonEqual(
       session.applicationExecutionAuthorityJson,
       expected.applicationExecutionAuthorityJson,
-    ) &&
-    nullableBytesEqual(
+    ) && nullableBytesEqual(
       session.applicationExecutionAuthorityCanonicalBytes,
       expected.applicationExecutionAuthorityCanonicalBytes,
-    ) &&
+    ))) &&
     nullableBytesEqual(
       session.applicationExecutionAuthoritySha256,
       expected.applicationExecutionAuthoritySha256,
@@ -3987,13 +4002,13 @@ function sessionEvidenceMatches(
       session.identityAccessPolicySha256,
       expected.identityAccessPolicySha256,
     ) &&
-    jsonEqual(session.validatedArgsJson, expected.validatedArgsJson) &&
+    (terminal || nullableJsonEqual(session.validatedArgsJson, expected.validatedArgsJson)) &&
     session.validatedArgsValueCodecVersion ===
       expected.validatedArgsValueCodecVersion &&
-    bytesEqual(
+    (terminal || nullableBytesEqual(
       session.validatedArgsCanonicalBytes,
       expected.validatedArgsCanonicalBytes,
-    ) &&
+    )) &&
     bytesEqual(session.validatedArgsSha256, expected.validatedArgsSha256) &&
     session.authorizationRevocationEpoch ===
       expected.authorizationRevocationEpoch &&
@@ -4014,16 +4029,16 @@ function sessionEvidenceMatches(
   );
   return (
     session.authorizationGrantId === expected.authorizationGrantId &&
-    jsonEqual(
+    (terminal || nullableJsonEqual(
       session.authorizationGrantJson,
       expected.authorizationGrantJson,
-    ) &&
+    )) &&
     session.authorizationGrantValueCodecVersion ===
       expected.authorizationGrantValueCodecVersion &&
-    bytesEqual(
+    (terminal || nullableBytesEqual(
       session.authorizationGrantCanonicalBytes,
       expected.authorizationGrantCanonicalBytes,
-    ) &&
+    )) &&
     bytesEqual(
       session.authorizationGrantSha256,
       expected.authorizationGrantSha256,

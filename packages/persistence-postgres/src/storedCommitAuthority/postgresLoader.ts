@@ -1,3 +1,4 @@
+import { isTerminalTransactionSessionLifecycleV1 } from "../transactionSessionAttemptFacet";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -416,6 +417,18 @@ async function captureRows(
         options,
       )
     : Object.freeze([]);
+  if (sessionSizeRows.length === 1 &&
+    isTerminalTransactionSessionLifecycleV1(sessionSizeRows[0]?.lifecycle)) {
+    await options.afterSizeProjection?.();
+    return Object.freeze({
+      ...emptyCapture(clockRows, nowRows[0]?.milliseconds),
+      sessionSizeRows: detachDriverRows(sessionSizeRows),
+      leaseRows: detachDriverRows(leaseRows),
+      rootRows: detachDriverRows(rootRows),
+      executionClaimRows: detachDriverRows(executionClaimRows),
+      attemptChildRows: detachDriverRows(attemptChildRows),
+    });
+  }
   const applicationSelector = captureApplicationGraphSelector(
     sessionSizeRows[0],
   );
@@ -498,12 +511,12 @@ async function captureRows(
       scopeUuid: fxSystemTransactionSessions.scopeUuid,
       sessionId: fxSystemTransactionSessions.sessionId,
       attemptFence: fxSystemTransactionSessions.attemptFence,
-      validatedArgsJsonText: sql<string>`
+      validatedArgsJsonText: sql<string | null>`
         ${fxSystemTransactionSessions.validatedArgsJson}::text
       `,
       validatedArgsCanonicalBytes:
         fxSystemTransactionSessions.validatedArgsCanonicalBytes,
-      authorizationGrantJsonText: sql<string>`
+      authorizationGrantJsonText: sql<string | null>`
         ${fxSystemTransactionSessions.authorizationGrantJson}::text
       `,
       authorizationGrantCanonicalBytes:
@@ -828,16 +841,16 @@ function selectSessionSizeRows(
     hardExpiresAt: fxSystemTransactionSessions.hardExpiresAt,
     createdAt: fxSystemTransactionSessions.createdAt,
     updatedAt: fxSystemTransactionSessions.updatedAt,
-    validatedArgsJsonByteLengthText: sql<string>`
+    validatedArgsJsonByteLengthText: sql<string | null>`
       octet_length(${fxSystemTransactionSessions.validatedArgsJson}::text)::bigint::text
     `,
-    validatedArgsCanonicalByteLengthText: sql<string>`
+    validatedArgsCanonicalByteLengthText: sql<string | null>`
       octet_length(${fxSystemTransactionSessions.validatedArgsCanonicalBytes})::bigint::text
     `,
-    authorizationGrantJsonByteLengthText: sql<string>`
+    authorizationGrantJsonByteLengthText: sql<string | null>`
       octet_length(${fxSystemTransactionSessions.authorizationGrantJson}::text)::bigint::text
     `,
-    authorizationGrantCanonicalByteLengthText: sql<string>`
+    authorizationGrantCanonicalByteLengthText: sql<string | null>`
       octet_length(${fxSystemTransactionSessions.authorizationGrantCanonicalBytes})::bigint::text
     `,
   }).from(fxSystemTransactionSessions).where(and(
@@ -1444,9 +1457,9 @@ function detachSessionPayloadRows(
   return Object.freeze(rows.map((row) => Object.freeze({
     ...row,
     validatedArgsCanonicalBytes:
-      new Uint8Array(row.validatedArgsCanonicalBytes),
+      row.validatedArgsCanonicalBytes === null ? null : new Uint8Array(row.validatedArgsCanonicalBytes),
     authorizationGrantCanonicalBytes:
-      new Uint8Array(row.authorizationGrantCanonicalBytes),
+      row.authorizationGrantCanonicalBytes === null ? null : new Uint8Array(row.authorizationGrantCanonicalBytes),
     applicationExecutionAuthorityCanonicalBytes:
       row.applicationExecutionAuthorityCanonicalBytes === null
         ? null

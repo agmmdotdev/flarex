@@ -12,10 +12,26 @@ import type {
   ScopeEpochUuidV1,
   ScopeUuidV1,
 } from "flarex-protocol/storage-authority";
-import type {
-  TransactionAttemptFence,
-  TransactionSessionIdV1,
+import {
+  TransactionArgumentsSha256V1Schema,
+  TransactionArtifactIdV1Schema,
+  TransactionArtifactRuntimeV1Schema,
+  TransactionAuthorizationGrantIdV1Schema,
+  TransactionAuthorizationGrantSha256V1Schema,
+  TransactionExecutionModuleV1Schema,
+  TransactionFunctionKindV1Schema,
+  TransactionFunctionPathV1Schema,
+  TransactionIdentityAccessPolicySha256V1Schema,
+  TransactionPackageIdV1Schema,
+  TransactionPolicyVersionV1Schema,
+  TransactionRequestKeyV1Schema,
+  TransactionRequestSha256V1Schema,
+  TransactionSourcePackageSha256HexV1Schema,
+  type TransactionAttemptFence,
+  type TransactionSessionIdV1,
 } from "flarex-protocol/transaction-session";
+import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
+import { FlarexValueCodecVersionSchema, FlarexValueSha256V1Schema } from "flarex-protocol/value";
 
 import type {
   fxSystemSnapshotLeases,
@@ -29,6 +45,50 @@ type JournalRootRowV1 = typeof fxSystemTransactionJournals.$inferSelect;
 const decodeAppCreationTimeV1Result = Schema.decodeUnknownResult(
   Schema.toType(AppCreationTimeV1Schema),
 );
+
+export const isTerminalTransactionSessionLifecycleV1 = Schema.is(
+  Schema.Literals(["committed", "aborted", "expired"]),
+);
+
+const retainedSessionIdentityFields = {
+  functionPath: TransactionFunctionPathV1Schema,
+  functionKind: TransactionFunctionKindV1Schema,
+  schemaVersionId: CatalogSchemaVersionIdSchema,
+  policyVersion: TransactionPolicyVersionV1Schema,
+  identityAccessPolicySha256: TransactionIdentityAccessPolicySha256V1Schema,
+  validatedArgsValueCodecVersion: FlarexValueCodecVersionSchema,
+  validatedArgsSha256: TransactionArgumentsSha256V1Schema,
+  authorizationGrantId: TransactionAuthorizationGrantIdV1Schema,
+  authorizationGrantValueCodecVersion: FlarexValueCodecVersionSchema,
+  authorizationGrantSha256: TransactionAuthorizationGrantSha256V1Schema,
+  requestKey: TransactionRequestKeyV1Schema,
+  requestSha256: TransactionRequestSha256V1Schema,
+};
+
+/** Retained identity only; callers separately verify lifecycle and body absence. */
+export const isRetainedTransactionSessionIdentityV1 = Schema.is(Schema.Union([
+  Schema.Struct({
+    ...retainedSessionIdentityFields,
+    executionAuthorityGeneration: Schema.Literal("legacy_dynamic_worker_v1"),
+    packageId: TransactionPackageIdV1Schema,
+    artifactRuntime: TransactionArtifactRuntimeV1Schema,
+    artifactId: TransactionArtifactIdV1Schema,
+    sourcePackageHash: TransactionSourcePackageSha256HexV1Schema,
+    executionModule: TransactionExecutionModuleV1Schema,
+    applicationExecutionAuthoritySha256: Schema.Null,
+  }).check(Schema.makeFilter(identity =>
+    identity.artifactId === `artifact_${identity.sourcePackageHash.slice(0, 32)}`)),
+  Schema.Struct({
+    ...retainedSessionIdentityFields,
+    executionAuthorityGeneration: Schema.Literal("application_v1"),
+    packageId: Schema.Null,
+    artifactRuntime: Schema.Null,
+    artifactId: Schema.Null,
+    sourcePackageHash: Schema.Null,
+    executionModule: Schema.Null,
+    applicationExecutionAuthoritySha256: FlarexValueSha256V1Schema,
+  }),
+]));
 
 export type FreshTransactionAttemptFacetIssueV1 =
   | "databaseTimeInvalid"

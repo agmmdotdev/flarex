@@ -5352,7 +5352,7 @@ async function lockPointCommitSession(
         fxSystemTransactionSessions.identityAccessPolicySha256,
       validatedArgsValueCodecVersion:
         fxSystemTransactionSessions.validatedArgsValueCodecVersion,
-      validatedArgsCanonicalByteLength: sql<number>`
+      validatedArgsCanonicalByteLength: sql<number | null>`
         octet_length(${fxSystemTransactionSessions.validatedArgsCanonicalBytes})
       `,
       validatedArgsSha256: fxSystemTransactionSessions.validatedArgsSha256,
@@ -5360,7 +5360,7 @@ async function lockPointCommitSession(
         fxSystemTransactionSessions.authorizationGrantId,
       authorizationGrantValueCodecVersion:
         fxSystemTransactionSessions.authorizationGrantValueCodecVersion,
-      authorizationGrantCanonicalByteLength: sql<number>`
+      authorizationGrantCanonicalByteLength: sql<number | null>`
         octet_length(${fxSystemTransactionSessions.authorizationGrantCanonicalBytes})
       `,
       authorizationGrantSha256:
@@ -6198,6 +6198,12 @@ async function publishPointCommitInTransaction(
 
   const session = await sqlCall("commitSession", () =>
     tx.update(fxSystemTransactionSessions).set({
+      validatedArgsJson: null,
+      validatedArgsCanonicalBytes: null,
+      authorizationGrantJson: null,
+      authorizationGrantCanonicalBytes: null,
+      applicationExecutionAuthorityJson: null,
+      applicationExecutionAuthorityCanonicalBytes: null,
       lifecycle: "committed",
       updatedAt: publicationTime,
     }).where(and(

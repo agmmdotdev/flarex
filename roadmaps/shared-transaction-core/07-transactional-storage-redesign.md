@@ -8,6 +8,8 @@ Slice 2 is implemented: a dedicated wake uses commit identity and one claim fenc
 Expired-lease floor progress is also implemented: only live pins count toward
 the bounded lease directory. Journal roots now retain one final syscall counter,
 and write events retain canonical bytes and digest without a JSON mirror.
+Terminal sessions now discard their argument, grant, and Application authority
+bodies atomically while retaining their request identity and outcome selector.
 The remaining storage replacements below are pending.
 Row-body DDL still needs
 paired measurements, and the coalesced-journal contract remains a separate
@@ -320,7 +322,7 @@ sequence. Framework command, context, and manager contracts are unchanged. Legac
 
 | State | Disposition | Required invariant and deletion condition |
 | --- | --- | --- |
-| Transaction session | **Replace terminal payload policy:** retain active request/authority/attempt state; define slim terminal evidence | Keep enough request identity/fingerprint, final outcome/refusal and fencing to reject stale work and preserve request-key policy. Full args/grants cannot remain forever solely because the marker remains |
+| Transaction session | **Implemented:** active attempts keep complete request/authority bodies; committed/aborted/expired markers keep scalar/digest identity and no bodies | Six JSON/byte columns become null in the lifecycle transition. Markers have no deletion TTL; first terminal time, fencing, request-key non-reuse, and independent outcome retention remain |
 | Snapshot lease | **Retain** | Exact retained snapshot for the current attempt. Expiry is not interchangeable with process claim expiry |
 | Execution claim | **Retain** | Authenticated current process, claim fence and takeover semantics. A matching structural object does not mint authority |
 | Journal root | **Duplicate counter removed** | `lastSyscallSequence` is the sole stored final counter. Sealing, independent canonical-journal authentication, recovery and locked publication bind it to the prepared evidence. Keep other counters, state, result/seal evidence and creation-time cursor |
@@ -330,11 +332,9 @@ sequence. Framework command, context, and manager contracts are unchanged. Legac
 | Ordered write-event journal | **JSON mirror removed; retain canonical events** | Canonical-byte/digest verification and strict logical-write decoding retain kind/sequence correlation and independent write-chain reconstruction. Remove the event table only under a separately selected coalesced-evidence contract |
 | Sealed bytes plus normalized children | **Candidate phase replacement** | Open state needs mutable normalized access. A sealed representation may supersede children only after every stored-attempt/recovery verifier can authenticate it without them |
 
-The current terminalization owner deletes root/children and lease, but retains
-the session's full argument/grant/authority payload. No terminal-session scrub
-or deletion owner was found in the current source audit. Define compact terminal
-state and cleanup at the transaction-session owner; do not delete keys because
-the commit feed was compacted. The
+Terminalization deletes root/children and lease and scrubs session bodies in the
+same transaction. The retained request marker is independent of compactable
+commit history and is not deleted. The
 [journal domain](../35-commit-compiler-and-session-intent.md) separately records
 the hosted bounded-reclamation requirement.
 
@@ -362,6 +362,25 @@ journal/compiler contract and must preserve attempted-write limits, write
 ownership, repeated patches, insert-delete/no-op behavior, randomness replay,
 sealed recovery, and any selected facet provenance. Do not create a second
 journal format or retain both implementations without a real obligation.
+
+### Terminal Session Bodies
+
+Both native publication and explicit abort/expiry clear the argument, signed
+grant, and Application execution-authority JSON/byte pairs in the existing
+lifecycle update and transaction. They retain codecs, digests, request identity,
+authority-generation scalars, attempt fence, and the first terminal timestamp.
+Repeated terminal observations do not rewrite the marker. Migration scrubs old
+terminal rows without changing timestamps; active rows retain complete bodies.
+
+Terminal evidence readers validate the retained identity and exact body absence
+before returning a non-executable observation. They do not reconstruct removed
+Application authority. Active evidence readers retain canonical validation, and
+prepared activation still requires non-null bodies. Request-key matching uses
+retained scalar/digest identity for terminal sessions; active matching continues
+to compare bodies. Application grant refresh and legacy exact-grant matching
+keep their existing distinction. Durable results retain their own expiry policy;
+result expiry does not allow reuse of a terminal request key. No marker cleanup
+service or second transaction lifetime is introduced.
 
 ## Work Per Operation
 

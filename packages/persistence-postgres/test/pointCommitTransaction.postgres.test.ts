@@ -1,3 +1,4 @@
+import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -571,9 +572,11 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         materialScope,
         "publish_material",
       );
+      const payloadBefore = await captureSessionStorage(persistence, material.anchor);
       const published = await runEffect(
         createPublisher(persistence).publish(material.publicationCommand),
       );
+      expectSessionPayloadScrubbed(payloadBefore, await captureSessionStorage(persistence, material.anchor));
       expect(published).toMatchObject({
         kind: "published",
         token: { commitSeq: 1n },
@@ -2143,6 +2146,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         scope,
         "publish_rollback",
       );
+      const payloadBefore = await captureSessionStorage(persistence, attempt.anchor);
       const failure = await runFailure(createPublisher(persistence, {
         afterTransactionStep: (event) => {
           if (event.step === "clockAdvanced") {
@@ -2154,6 +2158,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         },
       }).publish(attempt.publicationCommand));
       expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+      expect(await captureSessionStorage(persistence, attempt.anchor)).toEqual(payloadBefore);
       expect(await durableState(
         persistence,
         attempt.command.sealIdentity.scopeUuid,

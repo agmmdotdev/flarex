@@ -1,3 +1,4 @@
+import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { sql } from "drizzle-orm";
@@ -1096,6 +1097,7 @@ describePostgres("real Postgres O03-B session authority", () => {
          where session_id = $1`,
         [anchor.sessionId],
       );
+      const payloadBefore = await captureSessionStorage(persistence, anchor);
       const events: string[] = [];
       const terminalization = createTerminalizationPersistence(persistence, {
         afterTerminalizationEvent: (event) => {
@@ -1113,6 +1115,8 @@ describePostgres("real Postgres O03-B session authority", () => {
         expirePointMutationSessionAttempt(terminalization, selector),
       ]);
 
+      expectSessionPayloadScrubbed(payloadBefore, await captureSessionStorage(persistence, anchor));
+      expect(results[0]?.terminal).toEqual(results[1]?.terminal);
       expect(results.map((result) => result.status).sort()).toEqual([
         "observed",
         "terminalized",
@@ -1325,6 +1329,7 @@ describePostgres("real Postgres O03-B session authority", () => {
           ),
         )
       ).anchor;
+      const payloadBefore = await captureSessionStorage(persistence, anchor);
       const before = await attemptRowState(persistence, context.scopeId);
       const terminalization = createTerminalizationPersistence(persistence, {
         afterTerminalizationEvent: (event) => {
@@ -1350,6 +1355,7 @@ describePostgres("real Postgres O03-B session authority", () => {
         });
       await expect(attemptRowState(persistence, context.scopeId))
         .resolves.toEqual(before);
+      expect(await captureSessionStorage(persistence, anchor)).toEqual(payloadBefore);
     });
   });
 });
