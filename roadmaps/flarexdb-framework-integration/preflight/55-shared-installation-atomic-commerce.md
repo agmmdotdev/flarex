@@ -197,6 +197,10 @@ Link write. There is no new feed family, receipt brand or second finalizer.
 
 ## B3 And Gate C: Connected Proofs After Their Prerequisites
 
+The [B3 stored Link preflight](./57-stored-product-sales-channel-link.md) records
+the proposed finite source promotion, scoped construction and shared Medusa graph
+correction. It remains unapproved and does not widen B1/B2 authority.
+
 B3 promotes the finite native Link closure with guarded provenance and a cohesive
 module construction entry point. Install a fresh fifteen-table Product + Sales
 Channel + ProductSalesChannel candidate; preserve confined profiles. Prove the
