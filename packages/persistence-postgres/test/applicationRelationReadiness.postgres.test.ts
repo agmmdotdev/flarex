@@ -16,7 +16,6 @@ import { prepareStandardApplicationDefinitionV1 } from
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import {
-  canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity } from
@@ -48,6 +47,7 @@ import {
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
+import { exactRelationCommitRowId, publishExactRelationSourceCommit } from "./applicationRelationSourceCommitFixture";
 
 import {
   advanceAppSchemaCandidateValidationEffect,
@@ -96,9 +96,7 @@ import {
   type ApplicationRelationBuildPort,
 } from "../src/applicationRelationBuild";
 import {
-  applyApplicationRelationCommitEdgesInTransactionEffect,
   createApplicationRelationCommitPort,
-  prepareApplicationRelationCommitResult,
   type LocatedApplicationRelationDefinitionSet,
 } from "../src/applicationRelationCommit";
 import { makeApplicationRelationPublicationRepository } from
@@ -1024,7 +1022,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         relation.binding.schemaVersionId,
       );
 
-      const targetRowId = relationBuildRowId(40_101);
+      const targetRowId = exactRelationCommitRowId(40_101);
       const activationInventoryBeforeReplay = await Promise.all([
         fixture.target.drizzle.select().from(
           fxSystemApplicationActivations,
@@ -2823,120 +2821,17 @@ async function applyExactPostgresRelationSourceCommit(
   fixture: Fixture,
   publication: ApplicationRelationBindingPublication,
   definitions: LocatedApplicationRelationDefinitionSet,
-  binding: ApplicationRelationBindingPublication["binding"][
-    "relationBindings"
-  ][number],
-  targetRowId: ReturnType<typeof relationBuildRowId>,
+  binding: ApplicationRelationBindingPublication["binding"]["relationBindings"][number],
+  targetRowId: ReturnType<typeof exactRelationCommitRowId>,
   sourceOrdinal: number,
-  commitSeq: ReturnType<typeof CommitSeqSchema.make>,
-): Promise<ReturnType<typeof appDocumentIdV1FromRowIdentity>> {
-  const sourceRowId = relationBuildRowId(sourceOrdinal);
-  const sourceDocumentId = appDocumentIdV1FromRowIdentity({
-    tableId: binding.sourceTableId,
-    rowId: sourceRowId,
-  });
-  const targetDocumentId = appDocumentIdV1FromRowIdentity({
-    tableId: binding.targetTableId,
-    rowId: targetRowId,
-  });
-  const sourcePaths = definitions.definitions.map((definition) => {
-    const sourcePath = definition.edge.physical.sourcePath[0];
-    if (sourcePath === undefined) {
-      throw new Error("Expected one PostgreSQL exact relation source field.");
-    }
-    return sourcePath.name;
-  });
-  const sourceFields = Object.freeze(Object.fromEntries(
-    sourcePaths.map(name => [name, targetDocumentId]),
-  ));
-  const sourceCreationTime = decodeAppCreationTimeV1(sourceOrdinal);
-  const final = await canonicalizeAppDocumentV1({
-    tableId: binding.sourceTableId,
-    rowId: sourceRowId,
-    creationTime: sourceCreationTime,
-    fields: sourceFields,
-  });
-  const targetCreationTime = decodeAppCreationTimeV1(40_101);
-  const target = commitSeq === 1n
-    ? await canonicalizeAppDocumentV1({
-        tableId: binding.targetTableId,
-        rowId: targetRowId,
-        creationTime: targetCreationTime,
-        fields: { name: "PostgreSQL natural relation target" },
-      })
-    : null;
-  const transitions = Object.freeze([
-    ...(target === null
-      ? []
-      : [Object.freeze({
-          documentId: targetDocumentId,
-          tableId: binding.targetTableId,
-          rowId: targetRowId,
-          prior: null,
-          final: target,
-        })]),
-    Object.freeze({
-      documentId: sourceDocumentId,
-      tableId: binding.sourceTableId,
-      rowId: sourceRowId,
-      prior: null,
-      final,
-    }),
-  ]);
-  const prepared = Result.getOrThrow(prepareApplicationRelationCommitResult(
-    definitions,
-    transitions,
-  ));
-  await fixture.target.drizzle.transaction(async tx => {
-    for (const transition of transitions) {
-      const document = transition.final;
-      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId: fixture.scopeId,
-        tableId: transition.tableId,
-        rowId: transition.rowId,
-        writeEpoch: fixture.epoch,
-        commitSeq,
-        prevCommitSeq: null,
-        schemaVersionId: publication.binding.schemaVersionId,
-        creationTime: transition.documentId === targetDocumentId
-          ? targetCreationTime
-          : sourceCreationTime,
-        value: {
-          codecVersion: document.codecVersion,
-          valueJson: document.valueJson,
-          canonicalBytes: document.canonicalBytes,
-          sha256: document.sha256,
-        },
-      });
-    }
-    await runEffect(applyApplicationRelationCommitEdgesInTransactionEffect(
-      fixture.relationCommit,
-      tx,
-      {
-        scopeId: fixture.scopeId,
-        schemaVersionId: publication.binding.schemaVersionId,
-        commitSeq,
-        prepared,
-      },
-    ));
-    const advanced = await tx.update(fxSystemScopeClocks).set({
-      lastCommitSeq: commitSeq,
-      updatedAt: new Date(),
-    }).where(and(
-      eq(fxSystemScopeClocks.scopeId, fixture.scopeId),
-      eq(
-        fxSystemScopeClocks.lastCommitSeq,
-        CommitSeqSchema.make(commitSeq - 1n),
-      ),
-    )).returning({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq });
-    if (advanced.length !== 1 || advanced[0]?.lastCommitSeq !== commitSeq) {
-      throw new Error(
-        "Expected one PostgreSQL exact relation source commit sequence.",
-      );
-    }
-  });
-  return sourceDocumentId;
+  expectedCommitSeq: ReturnType<typeof CommitSeqSchema.make>,
+) {
+  expect(binding).toEqual(publication.binding.relationBindings[0]);
+  return publishExactRelationSourceCommit({
+    controlDb: fixture.control.drizzle, scopeId: fixture.scopeId,
+    ports: fixture.pointCommitAuthority, authority: fixture.authority,
+    publication, definitions, relationCommit: fixture.relationCommit,
+  }, targetRowId, sourceOrdinal, expectedCommitSeq);
 }
 
 function relationFoldUuidSequence(

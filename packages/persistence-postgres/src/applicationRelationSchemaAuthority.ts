@@ -24,6 +24,8 @@ import {
 import {
   locateApplicationRelationManifestBindingEffect,
   type ReadApplicationRelationBindingError,
+  type LocatedApplicationRelationManifestBinding,
+  type LocateApplicationRelationManifestBindingInput,
 } from "./applicationRelationBinding";
 import type {
   ApplicationSchemaIndexBinding,
@@ -84,6 +86,22 @@ export interface ApplicationRelationSchemaAuthorityPort {
 }
 
 const schemaAuthorityControlDatabases = new WeakMap<object, FlarexMetadataDatabase>();
+const resolvedBindings = new WeakMap<ApplicationRelationSchemaAuthority, Readonly<{
+  controlDb: FlarexMetadataDatabase;
+  binding: LocatedApplicationRelationManifestBinding;
+}>>();
+
+/** Request-local planning reuse, never a fresh acceptance verdict. Return a
+ * detached copy so a consumer cannot mutate the resolver's captured evidence. */
+export const readResolvedApplicationRelationManifestBinding = Effect.fn("ApplicationRelationSchemaAuthority.readResolvedBinding")(
+  function* (schema: ApplicationRelationSchemaAuthority, controlDb: FlarexMetadataDatabase,
+    input: LocateApplicationRelationManifestBindingInput) {
+    const state = resolvedBindings.get(schema);
+    if (state === undefined || state.controlDb !== controlDb || schema.deploymentId !== input.deploymentId ||
+      schema.applicationManifestSha256 !== input.applicationManifestSha256) return yield* failure("invalidInput");
+    return structuredClone(state.binding);
+  },
+);
 
 export function createApplicationRelationSchemaAuthorityPort(
   controlDb: FlarexMetadataDatabase,
@@ -156,7 +174,7 @@ export function createApplicationRelationSchemaAuthorityPort(
         bound.binding.relationBindings.length !==
           canonical.manifest.schema.relations.length
       ) return yield* failure("bindingMismatch");
-      return Object.freeze({
+      const schema: ApplicationRelationSchemaAuthority = Object.freeze({
         writePolicy: bound.binding.version === 3 ? Object.freeze({
           writePolicySetSha256: bound.binding.writePolicySetSha256,
           writePolicies: bound.binding.writePolicies,
@@ -189,6 +207,8 @@ export function createApplicationRelationSchemaAuthorityPort(
           definition => Object.freeze({ ...definition }),
         )),
       });
+      resolvedBindings.set(schema, { controlDb, binding: located });
+      return schema;
     },
   );
   const port = Object.freeze({ resolve });

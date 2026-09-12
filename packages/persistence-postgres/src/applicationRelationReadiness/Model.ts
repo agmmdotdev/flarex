@@ -41,6 +41,7 @@ import type {
 } from "../appRelationEdges";
 import type { ReadApplicationRelationBindingError } from
   "../applicationRelationBinding";
+import type { ApplicationRelationSchemaAuthorityError } from "../applicationRelationSchemaAuthority";
 
 export interface ApplicationRelationReadinessInput {
   readonly deploymentId: string;
@@ -399,6 +400,10 @@ export type PrepareApplicationRelationReadinessError =
   | ApplicationRelationCommitCorruptionError
   | ReadApplicationRelationBindingError
   | ReadApplicationRelationBindingError<"locateManifestBinding">;
+
+export type PrepareApplicationRelationReadinessFromSchemaError =
+  | PrepareApplicationRelationReadinessError
+  | ApplicationRelationSchemaAuthorityError;
 
 export type AdvanceApplicationRelationReadinessError =
   | PrepareApplicationRelationReadinessError

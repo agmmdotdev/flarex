@@ -9,6 +9,7 @@ import { decodeCatalogEdgeDefinitionId } from "flarex-protocol/catalog";
 import { CommitSeqSchema, decodeReplacementScopeIdV1, LegacyV1StorageGenerationSchema, projectScopeIdUuidV1, ScopeEpochSchema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
+import { exactRelationCommitRowId } from "./applicationRelationSourceCommitFixture";
 import { applicationRelationActiveSelectionMatchesSnapshot, claimApplicationActiveSelection, claimApplicationRelationActiveSelection, makeApplicationActivationRepository, validateApplicationActiveSelectionInTransaction, validateApplicationRelationActiveSelectionInTransaction, validateApplicationRelationActiveSelectionForReadiness } from "../src/applicationActivation";
 import { hasApplicationRelationReadinessFoldAuthority, makeApplicationRelationReadinessFoldRepository, validateApplicationRelationReadinessForActivationInTransaction, validateStoredApplicationRelationReadinessForActivationInTransaction } from "../src/applicationRelationReadinessFold";
 import { createApplicationRelationReadinessPort } from "../src/applicationRelationReadiness";
@@ -518,7 +519,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
 
   it("reads through staged insert, retarget, and delete overlays", async () => {
     const ready = await readyExactRelationReadFixture();
-    const targetRowId = relationBuildRowId(9_051);
+    const targetRowId = exactRelationCommitRowId(9_051);
     const sourceA = await applyExactRelationSourceCommit(
       ready,
       targetRowId,
@@ -645,7 +646,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
 
   it("replaces a naturally conflicted running relation read and retries from the new snapshot", async () => {
     const ready = await readyExactRelationReadFixture();
-    const targetRowId = relationBuildRowId(9_101);
+    const targetRowId = exactRelationCommitRowId(9_101);
     const firstSourceDocumentId = await applyExactRelationSourceCommit(
       ready,
       targetRowId,
@@ -1007,8 +1008,8 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
 
   it("rejects an impossible final relation mismatch before exposing a retry conflict", async () => {
     const ready = await readyExactRelationReadFixture();
-    const targetRowId = relationBuildRowId(9_201);
-    const lowerTargetRowId = relationBuildRowId(9_199);
+    const targetRowId = exactRelationCommitRowId(9_201);
+    const lowerTargetRowId = exactRelationCommitRowId(9_199);
     await applyExactRelationSourceCommit(
       ready,
       targetRowId,
@@ -2353,7 +2354,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     const beforeReplay = await relationActivationInventory(ready.fixture);
     await applyExactRelationSourceCommit(
       ready,
-      relationBuildRowId(19_101),
+      exactRelationCommitRowId(19_101),
       19_102,
       CommitSeqSchema.make(1n),
     );
@@ -2674,7 +2675,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     const ready = await readyExactRelationReadFixture();
     await applyExactRelationSourceCommit(
       ready,
-      relationBuildRowId(19_201),
+      exactRelationCommitRowId(19_201),
       19_202,
       CommitSeqSchema.make(1n),
     );
@@ -2712,7 +2713,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     const ready = await readyExactRelationReadFixture({ semanticReuse: true });
     await applyExactRelationSourceCommit(
       ready,
-      relationBuildRowId(19_301),
+      exactRelationCommitRowId(19_301),
       19_302,
       CommitSeqSchema.make(1n),
     );

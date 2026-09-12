@@ -5,13 +5,13 @@ import { prepareStandardApplicationDefinitionV1 } from "@flarex/standard-applica
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
-import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { CommitSeqSchema, decodeReplacementScopeIdV1, projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { expect } from "vitest";
+import { exactRelationCommitRowId, publishExactRelationSourceCommit } from "./applicationRelationSourceCommitFixture";
 import { policyManifestFixture } from "./applicationWritePolicyFixture";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { advanceAppSchemaCandidateValidationEffect, createAppSchemaCandidateReadinessPort, createAppSchemaCandidateValidationPort, createLocatedAppSchemaCandidateValidationTarget, installAppSchemaCandidateValidationEffect, settleAppSchemaCandidateValidationEffect } from "../src/appSchemaCandidateValidation";
@@ -26,7 +26,7 @@ import { makeApplicationPublicationRepository } from "../src/applicationPublicat
 import { makeApplicationReadinessRepository } from "../src/applicationReadiness";
 import { type ApplicationRelationBindingPublication, publishApplicationRelationBindingEffect } from "../src/applicationRelationBinding";
 import { createApplicationRelationBuildPort } from "../src/applicationRelationBuild";
-import { applyApplicationRelationCommitEdgesInTransactionEffect, createApplicationRelationCommitPort, prepareApplicationRelationCommitResult } from "../src/applicationRelationCommit";
+import { createApplicationRelationCommitPort } from "../src/applicationRelationCommit";
 import { makeApplicationRelationPublicationRepository } from "../src/applicationRelationPublication";
 import { makeApplicationRelationReadinessFoldRepository } from "../src/applicationRelationReadinessFold";
 import { createApplicationRelationReadinessPort } from "../src/applicationRelationReadiness";
@@ -38,7 +38,6 @@ import { createApplicationRelationTaskCatalogSnapshotPort, makeApplicationRelati
 import { makeApplicationSchemaAuthorityPublisher } from "../src/applicationSchemaAuthority";
 import { createApplicationTaskCatalogSnapshotPort, makeApplicationTaskBindingRepository } from "../src/applicationTaskBindings";
 import type { FlarexMetadataDatabase } from "../src/deployments";
-import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from "../src/appRows";
 import { buildAppDeveloperOrderedIndexV1Effect, buildIntrinsicCreationTimeIndexV1Effect } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { loadPublishedPhysicalRequirementSnapshotV1, reconcilePublishedIndexBuildsV1Effect } from "../src/indexBuildReconciliation";
 import { createPhysicalDefinitionLifecyclePort } from "../src/physicalDefinitionLifecycle";
@@ -254,116 +253,16 @@ export async function prepareSealedRelationAttempt(
 
 export async function applyExactRelationSourceCommit(
   ready: ReadyExactRelationReadFixture,
-  targetRowId: ReturnType<typeof relationBuildRowId>,
+  targetRowId: ReturnType<typeof exactRelationCommitRowId>,
   sourceOrdinal: number,
-  commitSeq: ReturnType<typeof CommitSeqSchema.make>,
-  includeTarget: boolean = commitSeq === 1n,
-): Promise<ReturnType<typeof appDocumentIdV1FromRowIdentity>> {
-  const sourceRowId = relationBuildRowId(sourceOrdinal);
-  const sourceDocumentId = appDocumentIdV1FromRowIdentity({
-    tableId: ready.binding.sourceTableId,
-    rowId: sourceRowId,
-  });
-  const targetDocumentId = appDocumentIdV1FromRowIdentity({
-    tableId: ready.binding.targetTableId,
-    rowId: targetRowId,
-  });
-  const sourcePaths = ready.definitions.definitions.map((definition) => {
-    const sourcePath = definition.edge.physical.sourcePath[0];
-    if (sourcePath === undefined) {
-      throw new Error("Expected one exact relation source field.");
-    }
-    return sourcePath.name;
-  });
-  const sourceFields = Object.freeze(Object.fromEntries(
-    sourcePaths.map((name) => [name, targetDocumentId]),
-  ));
-  const sourceCreationTime = decodeAppCreationTimeV1(sourceOrdinal);
-  const final = await canonicalizeAppDocumentV1({
-    tableId: ready.binding.sourceTableId,
-    rowId: sourceRowId,
-    creationTime: sourceCreationTime,
-    fields: sourceFields,
-  });
-  const targetCreationTime = decodeAppCreationTimeV1(9_101);
-  const target = includeTarget
-    ? await canonicalizeAppDocumentV1({
-        tableId: ready.binding.targetTableId,
-        rowId: targetRowId,
-        creationTime: targetCreationTime,
-        fields: { name: "natural relation target" },
-      })
-    : null;
-  const transitions = Object.freeze([
-    ...(target === null
-      ? []
-      : [Object.freeze({
-          documentId: targetDocumentId,
-          tableId: ready.binding.targetTableId,
-          rowId: targetRowId,
-          prior: null,
-          final: target,
-        })]),
-    Object.freeze({
-      documentId: sourceDocumentId,
-      tableId: ready.binding.sourceTableId,
-      rowId: sourceRowId,
-      prior: null,
-      final,
-    }),
-  ]);
-  const prepared = Result.getOrThrow(prepareApplicationRelationCommitResult(
-    ready.definitions,
-    transitions,
-  ));
-  await ready.fixture.persistence.drizzle.transaction(async tx => {
-    for (const transition of transitions) {
-      const document = transition.final;
-      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "live",
-        scopeId: ready.fixture.authority.scopeId,
-        tableId: transition.tableId,
-        rowId: transition.rowId,
-        writeEpoch: ready.fixture.authority.epoch,
-        commitSeq,
-        prevCommitSeq: null,
-        schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
-        creationTime: transition.documentId === targetDocumentId
-          ? targetCreationTime
-          : sourceCreationTime,
-        value: {
-          codecVersion: document.codecVersion,
-          valueJson: document.valueJson,
-          canonicalBytes: document.canonicalBytes,
-          sha256: document.sha256,
-        },
-      });
-    }
-    await runEffect(applyApplicationRelationCommitEdgesInTransactionEffect(
-      ready.fixture.relationCommit,
-      tx,
-      {
-        scopeId: ready.fixture.authority.scopeId,
-        schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
-        commitSeq,
-        prepared,
-      },
-    ));
-    const advanced = await tx.update(fxSystemScopeClocks).set({
-      lastCommitSeq: commitSeq,
-      updatedAt: new Date(),
-    }).where(and(
-      eq(fxSystemScopeClocks.scopeId, ready.fixture.authority.scopeId),
-      eq(
-        fxSystemScopeClocks.lastCommitSeq,
-        CommitSeqSchema.make(commitSeq - 1n),
-      ),
-    )).returning({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq });
-    if (advanced.length !== 1 || advanced[0]?.lastCommitSeq !== commitSeq) {
-      throw new Error("Expected one exact relation source commit sequence.");
-    }
-  });
-  return sourceDocumentId;
+  expectedCommitSeq: ReturnType<typeof CommitSeqSchema.make>,
+  includeTarget: boolean = expectedCommitSeq === 1n,
+) {
+  return publishExactRelationSourceCommit({
+    controlDb: ready.fixture.control.drizzle, scopeId: ready.fixture.authority.scopeId,
+    ports: ready.fixture.pointCommitAuthority, authority: ready.fixture.authorityPorts,
+    publication: ready.fixture.relation, definitions: ready.definitions, relationCommit: ready.fixture.relationCommit,
+  }, targetRowId, sourceOrdinal, expectedCommitSeq, includeTarget);
 }
 
 export async function advanceExactRelationScopeClock(

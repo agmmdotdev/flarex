@@ -37,6 +37,7 @@ import {
   locateApplicationRelationManifestBindingEffect,
   type LocatedApplicationRelationManifestBinding,
 } from "../applicationRelationBinding";
+import { readResolvedApplicationRelationManifestBinding, type ApplicationRelationSchemaAuthority } from "../applicationRelationSchemaAuthority";
 import {
   APP_RELATION_EDGE_BUILD_STORAGE_PAGE_SIZE,
 } from "../appRelationEdges";
@@ -126,6 +127,7 @@ import {
   type PreparedApplicationRelationImmediateOrigin,
   type PreparedApplicationRelationReadiness,
   type PrepareApplicationRelationReadinessError,
+  type PrepareApplicationRelationReadinessFromSchemaError,
   type StoredApplicationRelationSetReadinessReference,
   type ValidateApplicationRelationSetReadinessError,
 } from "./Model";
@@ -229,7 +231,7 @@ export function createApplicationRelationReadinessPort(
   let port: ApplicationRelationReadinessPort;
   port = Object.freeze({
     prepare: (input: ApplicationRelationReadinessInput) =>
-      prepareApplicationRelationReadinessEffect(port, input),
+      prepareApplicationRelationReadinessEffect(port, input, locateApplicationRelationManifestBindingEffect),
     advance: (
       input: ApplicationRelationReadinessInput,
       options: ApplicationRelationBuildOptions = {},
@@ -765,6 +767,7 @@ const advanceApplicationRelationReadinessEffect = Effect.fn(
   const prepared = yield* prepareApplicationRelationReadinessEffect(
     port,
     input,
+    locateApplicationRelationManifestBindingEffect,
   );
   const preparedState = getPreparedApplicationRelationReadinessState(
     port,
@@ -3181,14 +3184,26 @@ function semanticEvidenceResult(
   }));
 }
 
+/** The composed Application fold supplies its exact resolver-issued planning
+ * value. Standalone preparation retains its ordinary acquisition path. */
+export function prepareApplicationRelationReadinessFromSchema(
+  port: ApplicationRelationReadinessPort, input: ApplicationRelationReadinessInput,
+  schema: ApplicationRelationSchemaAuthority,
+): Effect.Effect<PreparedApplicationRelationReadiness, PrepareApplicationRelationReadinessFromSchemaError> {
+  return prepareApplicationRelationReadinessEffect(port, input,
+    (controlDb, decoded) => readResolvedApplicationRelationManifestBinding(schema, controlDb, decoded));
+}
+
 const prepareApplicationRelationReadinessEffect = Effect.fn(
   "ApplicationRelationReadiness.prepare",
-)(function* (
+)(function* <E>(
   port: ApplicationRelationReadinessPort,
   input: unknown,
+  acquireManifest: (controlDb: FlarexMetadataDatabase, input: DecodedInput) =>
+    Effect.Effect<LocatedApplicationRelationManifestBinding | null, E>,
 ): Effect.fn.Return<
   PreparedApplicationRelationReadiness,
-  PrepareApplicationRelationReadinessError
+  PrepareApplicationRelationReadinessError | E
 > {
   const state = applicationRelationReadinessPortStates.get(port);
   if (state === undefined) {
@@ -3199,10 +3214,7 @@ const prepareApplicationRelationReadinessEffect = Effect.fn(
     );
   }
   const decoded = yield* Effect.fromResult(decodeInputResult(input));
-  const locatedManifest = yield* locateApplicationRelationManifestBindingEffect(
-    state.controlDb,
-    decoded,
-  );
+  const locatedManifest = yield* acquireManifest(state.controlDb, decoded);
   if (locatedManifest === null) {
     return yield* Effect.fail(
       new ApplicationRelationReadinessUnavailableError({

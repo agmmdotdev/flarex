@@ -76,6 +76,8 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
         expect(spans.filter(span => span.name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
         expect(spans.filter(span => span.name === "InstallationRuntime.accept")).toHaveLength(1);
         expect(spans.filter(span => span.name === "InstallationRuntime.readEvidence")).toHaveLength(1);
+        expect(spans.filter(span => span.name === "ApplicationRelationBinding.locateManifestBinding")).toHaveLength(2);
+        expect(spans.filter(span => span.name === "PhysicalDefinitionLifecycle.validateReadinessCatalog")).toHaveLength(1);
         expect(spans.some(span => span.name === "DataBindingEvidence.lockInstallation")).toBe(false);
       }
       const durations: Record<string, number> = {};
@@ -148,7 +150,7 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
       } else if (group[0]?.operation === "bind") expect(group.every(sample => sample.calls > 0)).toBe(true);
       else expect(group.every(sample => sample.calls === 0)).toBe(true);
       const names = [...new Set(group.flatMap(sample => Object.keys(sample.spans)))].filter(name =>
-        /^(CmsAdmission\.|CmsCommit\.|ScopeClock\.lock|PayloadAdapter\.call|ApplicationRelationReadinessFold\.|InstallationRuntime\.|DataBindingEvidence\.|PayloadPreferences\.)/.test(name));
+        /^(CmsAdmission\.|CmsCommit\.|ScopeClock\.lock|PayloadAdapter\.call|Application|AppUniqueConstraint|PhysicalDefinitionLifecycle\.|PointCommitTransaction\.loadUnique|ScopeAuthority|InstallationRuntime\.|DataBindingEvidence\.|PayloadPreferences\.)/.test(name));
       return { key, ms: summary(group.map(sample => sample.ms)), calls: summary(group.map(sample => sample.calls)),
         serverMs: summary(group.map(sample => sample.serverMs)), inclusiveSpans: Object.fromEntries(names.map(name =>
           [name, summary(group.map(sample => sample.spans[name] ?? 0))])) };

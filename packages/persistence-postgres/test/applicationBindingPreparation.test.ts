@@ -33,6 +33,7 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   const prepared = await prepare();
   expect(Result.isFailure(claimApplicationExecutableActiveSelection(prepared))).toBe(true);
   expect(spans).not.toContain("ApplicationRelationReadinessFold.validatePreparedInTransaction");
+  expect(spans.filter(name => name === "ApplicationRelationBinding.locateManifestBinding")).toHaveLength(1);
   const accept = (input = prepared) => persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
     const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
     return yield* readApplicationBindingProjectionInTransaction(input, tx, clock);

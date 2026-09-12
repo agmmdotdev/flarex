@@ -53,6 +53,7 @@ import {
 import {
   ApplicationRelationSemanticValidationAttemptFenceSchema,
   getPreparedApplicationRelationReadinessDefinitions,
+  prepareApplicationRelationReadinessFromSchema,
   hasApplicationRelationReadinessComposition,
   hasApplicationRelationSetReadinessEvidenceAuthority,
   type ApplicationRelationReadinessPort,
@@ -102,11 +103,13 @@ import {
 } from "./indexBuildReconciliation";
 import {
   preparePhysicalDefinitionLifecycleReadinessEffect,
+  validatePhysicalDefinitionLifecycleReadinessCatalogEffect,
   hasPhysicalDefinitionLifecycleComposition,
   type PhysicalDefinitionLifecyclePort,
   type PreparedPhysicalDefinitionLifecycleReadiness,
   type PreparePhysicalDefinitionLifecycleReadinessError,
   type ValidatePhysicalDefinitionLifecycleReadinessError,
+  type ValidatePhysicalDefinitionLifecycleReadinessCatalogError,
 } from "./physicalDefinitionLifecycle";
 import {
   loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect,
@@ -252,6 +255,7 @@ export type SettleApplicationRelationReadinessFoldError =
   | ReadSchemaVersionArtifactError
   | PreparePhysicalDefinitionLifecycleReadinessError
   | ValidatePhysicalDefinitionLifecycleReadinessError
+  | ValidatePhysicalDefinitionLifecycleReadinessCatalogError
   | PrepareApplicationRelationReadinessError
   | ValidateApplicationRelationSetReadinessError
   | LockScopeClockForShareError
@@ -376,6 +380,18 @@ export const acceptPreparedApplicationRelationActiveRead = Effect.fn("Applicatio
     const state = preparedActiveReads.get(prepared);
     if (state === undefined) return yield* failure("invalidComposition");
     const current = Object.freeze({ ...state.prepared, ownershipBudget: new ApplicationWriteOwnershipHistoryBudget() });
+    yield* requireExactAuthority(current.bundle.authority, clock);
+    // Fresh read-only catalog observations before issuing prepared admission;
+    // not an atomic snapshot across separately placed control/target databases.
+    const schema = yield* state.repository.context.schema.resolve({
+      deploymentId: current.bundle.deploymentId,
+      applicationManifestSha256: encodeBytesToLowercaseHex(current.bundle.revision.manifestSha256),
+      manifest: current.bundle.manifest,
+    });
+    yield* requireSchemaCorrelation(current.bundle, schema);
+    yield* validatePhysicalDefinitionLifecycleReadinessCatalogEffect(
+      state.repository.context.physicalDefinitionLifecycle, current.physicalLifecycle,
+    );
     const validated = yield* validatePreparedFoldInTransaction(tx, current, state.repository.context, clock, "storedActive");
     if ("status" in validated) return yield* failure("authorityChanged");
     const replay = yield* loadStoredRelationReadinessReplay(tx, current, validated);
@@ -917,11 +933,11 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
         requirements,
         unique,
       );
-    const relations = yield* context.relations.prepare({
+    const relations = yield* prepareApplicationRelationReadinessFromSchema(context.relations, {
       deploymentId: bundle.deploymentId,
       applicationManifestSha256:
         encodeBytesToLowercaseHex(bundle.revision.manifestSha256),
-    });
+    }, schema);
     yield* requireRelationCorrelation(bundle, schema, relations);
     const coldReceiptSetSha256 = yield* digestCanonicalJson({
       format: "flarex.application-cold-receipt-set",

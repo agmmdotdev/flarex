@@ -210,6 +210,7 @@ interface PreparedReadinessState {
   readonly port: PhysicalDefinitionLifecyclePort;
   readonly deploymentId: string;
   readonly schemaVersionId: PublishedPhysicalRequirementSnapshotV1["schemaVersionId"];
+  readonly uniqueSetSha256: LocatedAppUniqueConstraintSetClosureV1["closure"]["definitionSetSha256Hex"];
   readonly located: LocatedTrustedScopeAuthority<
     LocatedPhysicalDefinitionLifecycleTarget
   >;
@@ -358,6 +359,12 @@ export type ValidatePhysicalDefinitionLifecycleReadinessError =
   | InvalidPhysicalDefinitionLifecyclePortError
   | InvalidPreparedPhysicalDefinitionLifecycleReadinessError
   | PhysicalDefinitionLifecyclePersistenceError
+  | PhysicalDefinitionLifecycleConflictError;
+
+export type ValidatePhysicalDefinitionLifecycleReadinessCatalogError =
+  | InvalidPhysicalDefinitionLifecyclePortError
+  | InvalidPreparedPhysicalDefinitionLifecycleReadinessError
+  | ReadAppUniqueConstraintSetClosureV1Error
   | PhysicalDefinitionLifecycleConflictError;
 
 export interface StoredPhysicalDefinitionLifecycle {
@@ -516,10 +523,29 @@ export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
     port,
     deploymentId: snapshot.deploymentId,
     schemaVersionId: snapshot.schemaVersionId,
+    uniqueSetSha256: uniqueClosure.closure.definitionSetSha256Hex,
     located,
     requirements: Object.freeze(requirements),
   }));
   return prepared;
+});
+
+/** Fresh control-catalog observation for prepared Application admission. No
+ * target transaction or control write lock is acquired by this operation. */
+export const validatePhysicalDefinitionLifecycleReadinessCatalogEffect = Effect.fn(
+  "PhysicalDefinitionLifecycle.validateReadinessCatalog",
+)(function* (port: PhysicalDefinitionLifecyclePort, prepared: PreparedPhysicalDefinitionLifecycleReadiness):
+  Effect.fn.Return<void, ValidatePhysicalDefinitionLifecycleReadinessCatalogError> {
+  const catalog = portStates.get(port);
+  const state = preparedReadinessStates.get(prepared);
+  if (catalog === undefined) return yield* Effect.fail(new InvalidPhysicalDefinitionLifecyclePortError());
+  if (state === undefined || state.port !== port) return yield* Effect.fail(new InvalidPreparedPhysicalDefinitionLifecycleReadinessError());
+  const closure = yield* readAppUniqueConstraintSetClosureV1Effect(
+    catalog.controlDb, state.deploymentId, state.schemaVersionId,
+  );
+  if (closure === null || closure.closure.definitionSetSha256Hex !== state.uniqueSetSha256) {
+    return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({ reason: "storedStateInvalid" }));
+  }
 });
 
 export const validatePhysicalDefinitionLifecycleReadinessInTransactionEffect =
