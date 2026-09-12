@@ -7,7 +7,7 @@ import { resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityReso
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
-import { createCommittedPointOutcomeResolverV1 } from "../committedPointOutcome";
+import { createCommittedJsonOutcomeResolver } from "../committedPointOutcome";
 import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
 import { projectCommerceRequestFailure } from "../commerceTransaction/request";
 import type { AtomicCommerceHost } from "./commands";
@@ -66,7 +66,7 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
                     located.authority,
                     clock,
                   );
-                  const retained = yield* createCommittedPointOutcomeResolverV1(tx)
+                  const retained = yield* createCommittedJsonOutcomeResolver(tx)
                     .resolve(evidence.lookup)
                     .pipe(Effect.mapError(projectCommerceRequestFailure));
                   if (retained.kind === "available") return retained.successfulResult.valueJson;

@@ -72,7 +72,6 @@ import {
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
-  type CanonicalSuccessfulResultBytesV1,
   type ApplicationActivationSequenceV1,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
@@ -1712,14 +1711,13 @@ export const fxSystemIdempotency = pgTable(
     resultState: text("result_state")
       .$type<IdempotencyResultState>()
       .notNull(),
+    resultEncoding: text("result_encoding").$type<"application-value" | "json">().notNull().default("application-value"),
     resultValueCodecVersion: integer("result_value_codec_version").$type<
       FlarexValueCodecVersion
     >(),
     resultSemanticBytes: integer("result_semantic_bytes"),
-    resultBytes: bytea("result_bytes").$type<
-      CanonicalSuccessfulResultBytesV1
-    >(),
-    resultSha256: bytea("result_sha256").$type<FlarexValueSha256V1>(),
+    resultBytes: bytea("result_bytes"),
+    resultSha256: bytea("result_sha256"),
     resultExpiredAt: timestamp("result_expired_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1768,13 +1766,17 @@ export const fxSystemIdempotency = pgTable(
       "fx_system_idempotency_result_state_check",
       sql`${table.resultState} in ('available', 'expired')`,
     ),
+    check("fx_system_idempotency_result_encoding_check", sql`${table.resultEncoding} in ('application-value', 'json')`),
     check(
       "fx_system_idempotency_result_evidence_check",
       sql`
         (
           ${table.resultState} = 'available'
-          and ${table.resultValueCodecVersion} is not null
-          and ${table.resultValueCodecVersion} = 1
+          and (
+            (${table.resultEncoding} = 'application-value' and ${table.resultValueCodecVersion} is not null and ${table.resultValueCodecVersion} = 1)
+            or (${table.resultEncoding} = 'json' and ${table.resultValueCodecVersion} is null
+              and ${table.resultSemanticBytes} = octet_length(${table.resultBytes}))
+          )
           and ${table.resultSemanticBytes} is not null
           and ${table.resultSemanticBytes} between 0 and ${sql.raw(
             String(MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1),

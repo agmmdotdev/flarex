@@ -22,6 +22,7 @@ import { defineWorkflowMethod, defineWorkflowModule } from "./workflow/module";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const Ids = Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256)).pipe(Schema.mutable)]);
+const IdFilter = Schema.Union([Ids, Schema.Struct({ $ne: Id })]);
 const LinkInput = Schema.Struct({
   product: Schema.Struct({ product_id: Id }), sales_channel: Schema.Struct({ sales_channel_id: Id }),
   data: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id) })),
@@ -38,7 +39,7 @@ const decodeEndpoint = commerceDecoder(Schema.Union([
   Schema.Struct({ sales_channel: Schema.Struct({ sales_channel_id: Ids }) }),
 ]), "unsupportedProfile");
 const decodeRead = commerceDecoder(Schema.Struct({
-  filters: Schema.optionalKey(Schema.Struct({ product_id: Schema.optionalKey(Ids), sales_channel_id: Schema.optionalKey(Ids), id: Schema.optionalKey(Ids) })),
+  filters: Schema.optionalKey(Schema.Struct({ product_id: Schema.optionalKey(IdFilter), sales_channel_id: Schema.optionalKey(IdFilter), id: Schema.optionalKey(IdFilter) })),
   config: Schema.optionalKey(Schema.Struct({
     select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
     relations: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(0))),

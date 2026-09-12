@@ -12,7 +12,7 @@ import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
 import { makeReadCatalog } from "./query/catalog";
 import { compileProjection } from "./query/projection";
-import { compileWhere, type WherePolicy } from "./query/predicate";
+import { compileWhere, type ScalarFilter, type WherePolicy } from "./query/predicate";
 import { executeRead, orderedCatalog, type ReadPlan } from "./query/read";
 import { compileKeyedUpdates } from "./write/keyed";
 import type { captureSalesChannelMetadata } from "./sales-channel-schema";
@@ -36,8 +36,8 @@ const decodeOptions = commerceDecoder(Schema.Struct({
 const strings = commerceDecoder(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))]), "unsupportedProfile");
 const wherePolicy: WherePolicy = {
   decode: decodeWhere,
-  fields: new Map([
-    ["id", { column: "id", decode: strings }], ["name", { column: "name", decode: strings }],
+  fields: new Map<string, ScalarFilter>([
+    ["id", { column: "id", decode: strings, decodeNotEqual: commerceDecoder(Id, "unsupportedProfile") }], ["name", { column: "name", decode: strings }],
     ["is_disabled", { column: "is_disabled", decode: commerceDecoder(Schema.Boolean, "unsupportedProfile") }],
   ]),
   selectors: { mode: "membership", key: "id", decode: commerceDecoder(Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(256)), "unsupportedProfile") },

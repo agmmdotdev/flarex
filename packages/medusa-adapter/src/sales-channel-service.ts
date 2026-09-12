@@ -42,7 +42,7 @@ const decodeUpdate = commerceDecoder(Schema.Struct({ id: Id, data: Schema.Struct
 }) }), "invalidInput");
 const decodeDelete = commerceDecoder(Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256))]), "invalidInput");
 const Filters = Schema.Struct({
-  id: Schema.optionalKey(Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256))])),
+  id: Schema.optionalKey(Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256)), Schema.Struct({ $ne: Id })])),
   name: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.String).check(Schema.isMaxLength(256))])),
   is_disabled: Schema.optionalKey(Schema.Boolean),
 });

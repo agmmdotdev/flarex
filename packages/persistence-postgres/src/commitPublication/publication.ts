@@ -7,7 +7,7 @@ import { Result, Schema } from "effect";
 import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { MAX_PERSISTED_SIGNED_INT64_V1, CommitSeqSchema, type CommitSeq, type ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
-import { FLAREX_VALUE_CODEC_VERSION_V1, FlarexValueSha256V1Schema } from "flarex-protocol/value";
+import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 import { type AppRowTransaction } from "../appRows";
 import { observeDrizzleQuery as observeCompiledDrizzleQuery } from "../drizzleQueryObservation";
 import { fxSystemCommitAppRowChanges, fxSystemCommitRelationAdjacencyChanges, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemScopeClocks } from "../schema";
@@ -173,12 +173,11 @@ export async function writeScopePublicationPrefix(
       epochUuid,
       commitSeq,
       resultState: "available",
-      resultValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+      resultEncoding: command.successfulResult.encoding,
+      resultValueCodecVersion: command.successfulResult.encoding === "application-value" ? FLAREX_VALUE_CODEC_VERSION_V1 : null,
       resultSemanticBytes: command.successfulResult.semanticSizeBytes,
       resultBytes: command.successfulResult.canonicalBytes,
-      resultSha256: FlarexValueSha256V1Schema.make(copyBytes(
-        command.resultSha256,
-      )),
+      resultSha256: copyBytes(command.resultSha256),
       resultExpiredAt: null,
       createdAt: publicationTime,
     }).returning({ commitSeq: fxSystemIdempotency.commitSeq }));

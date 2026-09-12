@@ -1,6 +1,6 @@
 # Commerce JSON Identity And Retained Outcomes
 
-Status: proposed; implementation approval pending. This is the focused shared
+Status: approved and implemented. This is the focused shared
 owner correction exposed by approved preflight 59 A. It does not approve native
 Link cardinality changes, ShippingProfile activation, or a new execution profile.
 
@@ -39,12 +39,12 @@ The preserved authored witnesses are:
   on the explicitly admitted Sales Channel ID should execute through its own
   profile, without granting inequality to arbitrary fields.
 
-Their recorded failure is `CommerceTransactionError(reason: invalidAuthority)`
+Their pre-correction failure was `CommerceTransactionError(reason: invalidAuthority)`
 with `CommitProtocolV1Error(issue: invalidValue, component: successfulResult,
-path: $)`. The previous implementation turn executed these witnesses; this
-preflight is source research, not a new database validation run.
+path: $)`. These witnesses and independent neutral single/atomic JSON cases
+now exercise the corrected root APIs without changing the Application codec.
 
-| Current owner | Coupling that must be addressed |
+| Owner at the rejected boundary | Pre-correction coupling |
 | --- | --- |
 | `commerceTransaction/host.ts` | Identity/access policy, command envelope including JSON arguments, and successful result all use `canonicalizeSuccessfulResultV1Effect`. Retained results return `valueJson` directly. |
 | `atomicCommerce/configuration.ts`, `request.ts`, `execution.ts`, `host.ts` | Policy/event/budget identity, request evidence, result encoding and retained replay have the same Application-value coupling. |
@@ -147,14 +147,14 @@ captured scalar validation, expiry fixtures and the point-commit inspector
 together. Unknown or contradictory encoding/state/version combinations must
 fail both database checks and resolver validation.
 
-This schema extension needs approval. It adds neither a commerce-only outcome
+The approved schema extension adds neither a commerce-only outcome
 table nor another publication/retention/recovery path. Choose the next migration
 number only when implementation starts; preserve existing migration history.
 
 ## Compatibility And Cleanup
 
 The user has described development-only commerce integration without production
-data. This proposal relies on clean replacement of the private commerce encoding,
+data. This correction relies on clean replacement of the private commerce encoding,
 not on replaying its old keys under new semantics. Application compatibility is
 a real, separate contract and is retained.
 

@@ -694,6 +694,13 @@
       "when": 1789215205650,
       "tag": "0098_index_membership_history",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1789220762334,
+      "tag": "0099_outcome_json_encoding",
+      "breakpoints": true
     }
   ]
 }

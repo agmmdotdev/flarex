@@ -6,13 +6,13 @@ export type { CommerceCommand, CommerceCommandContext, CommerceHost } from "./co
 import { Effect, Exit, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import type { Json } from "flarex-protocol/json";
-import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { canonicalizeJsonOutcome } from "../jsonOutcome";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import { TransactionRequestKeyV1Schema, TransactionFunctionPathV1Schema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
 import { capturePrivateCanonicalValue } from "../frameworkSchema/privateCanonicalValue";
 import { isSyntheticBindingReference } from "../frameworkSchema/binding/canonical";
 import type { InstallationBindingReference } from "../frameworkSchema/binding/model";
-import { capturePrivateJsonData } from "../privateJsonData";
+import { captureCommerceJsonData } from "./request";
 import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../boundedRequestLifetime";
 import { hasApplicationBindingComposition, prepareApplicationBindingSelection } from "../applicationActivation";
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
@@ -21,14 +21,14 @@ import { hasFrameworkMigrationTargetDatabase } from "../migrationCoordination/ta
 import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
 import { hasRelationalSessionDatabase, runRelationalSession } from "../relationalTransaction/session";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import { createCommittedPointOutcomeResolverV1 } from "../committedPointOutcome";
+import { createCommittedJsonOutcomeResolver } from "../committedPointOutcome";
 import { finalizeCommerceCommit } from "./publication";
 import { withCommerceAdmission, requireCommerceAdmission } from "./admission";
 import { prepareInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObservation, type CommerceRowObservation } from "./store";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
-import { commerceRequestHash as hash, projectCommerceRequestFailure as projectFailure } from "./request";
+import { commerceIdentityEvidence, commerceRequestHash as hash, projectCommerceRequestFailure as projectFailure } from "./request";
 
 import type { CommerceHostConfiguration } from "./hostConfiguration";
 
@@ -71,7 +71,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
   const resources = descriptor.resources;
   const sha = (bytes: Uint8Array) => hash(bytes, { maximumInputBytes: resources.commandBytes });
   if (descriptor.localOnly !== (local !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const capturedReference = yield* Effect.fromResult(capturePrivateJsonData(input.installation, commerceLimits.rowBytes, commerceError));
+  const capturedReference = yield* Effect.fromResult(captureCommerceJsonData(input.installation, commerceLimits.rowBytes));
   if (!isSyntheticBindingReference(capturedReference.value)) return yield* Effect.fail(commerceError("invalidInput"));
   const reference = capturedReference.value;
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
@@ -82,8 +82,8 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
     if (command === undefined || !/^[a-z][a-zA-Z0-9_-]{0,63}$/.test(command.name) || command.name === "initialize" || names.has(command.name) || allowed.size > commerceLimits.commandDefinitions) return yield* Effect.fail(commerceError("invalidAuthority"));
     names.add(command.name);
   }
-  const policy = yield* Effect.fromResult(capturePrivateJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes, commerceError));
-  const identityBytes = yield* canonicalizeSuccessfulResultV1Effect(policy.value).pipe(Effect.mapError(projectFailure));
+  const policy = yield* Effect.fromResult(captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes));
+  const identityBytes = yield* commerceIdentityEvidence("policy", policy.value, resources.commandBytes);
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha(identityBytes.canonicalBytes));
   const installationRuntime = yield* prepareInstallationRuntime(database, target, reference).pipe(Effect.mapError(projectFailure));
   const owner = Object.freeze({ hostId: Symbol("commerce.host") });
@@ -91,7 +91,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
     const root = token === null ? undefined : getCommerceCommand(token);
     const bootstrap = token === null;
     if (!bootstrap && (root === undefined || !allowed.has(token) || (requestKey === null ? root.mode !== "read" : root.mode !== "write"))) return yield* Effect.fail(commerceError("invalidAuthority"));
-    const captured = yield* Effect.fromResult(capturePrivateJsonData(args, resources.commandBytes, commerceError));
+    const captured = yield* Effect.fromResult(captureCommerceJsonData(args, resources.commandBytes));
     const key = requestKey === null ? null : yield* Effect.fromResult(decodeKey(requestKey)).pipe(Effect.mapError(cause => commerceError("invalidInput", cause)));
     if (key !== null && !/^commerce\/[a-zA-Z0-9/-]{1,110}$/.test(key)) return yield* Effect.fail(commerceError("invalidInput"));
     if (bootstrap) {
@@ -111,15 +111,15 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
         return yield* withCommerceAdmission(profile, target, reference, active, tx, located.authority, clock, bootstrap, installationRuntime, admission => Effect.gen(function* () {
           const admitted = yield* requireCommerceAdmission(admission);
           const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId)).pipe(Effect.mapError(projectFailure));
-          const evidence = yield* canonicalizeSuccessfulResultV1Effect({ domain: "flarex.private.commerce-command", version: 1,
+          const evidence = yield* commerceIdentityEvidence("command", {
             deploymentId, scopeId: located.authority.scopeId, epoch: clock.epoch, generation: clock.storageGeneration,
             fence: clock.storageGenerationFence.toString(), installation: reference, bindingHead: admitted.head,
-            contractSha256: descriptor.contractSha256, operation: root?.name ?? "initialize", args: captured.value });
+            contractSha256: descriptor.contractSha256, operation: root?.name ?? "initialize", args: captured.value }, resources.commandBytes);
           const lookup = key === null ? null : { scopeUuid: scope.scopeUuid, requestKey: key, expectedIdentityAccessPolicySha256: identityDigest,
             expectedFunctionPath: TransactionFunctionPathV1Schema.make(`__flarex_private_commerce/${root?.name ?? "initialize"}`),
             expectedRequestSha256: TransactionRequestSha256V1Schema.make(yield* sha(evidence.canonicalBytes)) };
           if (lookup !== null) {
-            const retained = yield* createCommittedPointOutcomeResolverV1(tx).resolve(lookup);
+            const retained = yield* createCommittedJsonOutcomeResolver(tx).resolve(lookup);
             if (retained.kind === "available") return retained.successfulResult.valueJson;
             if (retained.kind === "expired") return yield* Effect.fail(commerceError("resultUnavailable"));
             if (recoverOnly) return yield* Effect.fail(commerceError("decisionUncertain"));
@@ -134,7 +134,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
               if (local === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
               if (events.length >= resources.eventMessages) return yield* Effect.fail(commerceError("limitExceeded"));
               const message = yield* local.capture(event);
-              const capturedEvent = yield* Effect.fromResult(capturePrivateJsonData(message, commerceLimits.rowBytes, commerceError));
+              const capturedEvent = yield* Effect.fromResult(captureCommerceJsonData(message, commerceLimits.rowBytes));
               yield* Effect.fromResult(lifetime.charge(capturedEvent.bytes));
               events.push(capturedEvent.value);
             }));
@@ -142,10 +142,10 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
               const definition = getCommerceCommand(command);
               if (definition === undefined || !allowed.has(command) || (key === null && definition.mode !== "read")) return yield* Effect.fail(commerceError("invalidAuthority"));
               const contextFor = (manager: BoundedRequestContext) => makeCommerceCommandContext(lifetime, working, id, manager, invoke, captureEvent);
-              const commandInput = yield* Effect.fromResult(capturePrivateJsonData(inputArgs, lifetime.remainingBytes(), commerceError));
+              const commandInput = yield* Effect.fromResult(captureCommerceJsonData(inputArgs, lifetime.remainingBytes()));
               yield* Effect.fromResult(lifetime.charge(commandInput.bytes));
               const output = yield* definition.run(contextFor(context), commandInput.value);
-              const result = yield* Effect.fromResult(capturePrivateJsonData(output, lifetime.remainingBytes(), commerceError));
+              const result = yield* Effect.fromResult(captureCommerceJsonData(output, lifetime.remainingBytes()));
               yield* Effect.fromResult(lifetime.charge(result.bytes));
               return result.value;
             });
@@ -164,7 +164,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
               if (token === null) return yield* Effect.fail(commerceError("invalidAuthority"));
               value = yield* invoke(lifetime.context, token, captured.value);
             }
-            const result = yield* canonicalizeSuccessfulResultV1Effect(value);
+            const result = yield* Effect.fromResult(canonicalizeJsonOutcome(value, resources.commandBytes)).pipe(Effect.mapError(projectFailure));
             yield* Effect.fromResult(lifetime.charge(bootstrap ? result.canonicalBytes.byteLength : 0));
             yield* lifetime.seal;
             if (local !== undefined) yield* local.validate(Object.freeze(events.slice()), working.snapshot(), root?.name ?? "initialize", working.lifecycleSnapshot(), working.observationSnapshot());

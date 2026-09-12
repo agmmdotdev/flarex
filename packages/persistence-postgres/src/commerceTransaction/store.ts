@@ -1,5 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
 import { isPrivateValueText } from "../frameworkSchema/privateStoredValueShape";
@@ -52,6 +52,9 @@ export type { CommerceStore } from "./storeModel";
 import type { CommerceStore } from "./storeModel";
 
 const invalid = () => commerceError("invalidInput");
+const decodeTextNotEqual = Schema.decodeUnknownResult(Schema.Struct({
+  kind: Schema.Literal("textNotEqual"), column: Schema.String, value: Schema.String,
+}), { onExcessProperty: "error" });
 // Inputs are already detached plain JSON. PostgreSQL text and JSONB must preserve
 // every string and object key exactly across the driver UTF-8 boundary.
 const representable = (value: Json): boolean => typeof value === "string" ? isPrivateValueText(value) :
@@ -237,6 +240,14 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
         return parts.length === 0 ? (supplied.kind === "and" ? sql`true` : sql`false`) : sql`(${sql.join(parts, supplied.kind === "and" ? sql` and ` : sql` or `)})`;
       }
       const field = yield* column(supplied.column);
+      if (supplied.kind === "textNotEqual") {
+        const comparison = yield* decodeTextNotEqual(supplied).pipe(Result.mapError(cause => commerceError("invalidInput", cause)));
+        if (field.type !== "text") return yield* Result.fail(invalid());
+        if (++operands > commerceLimits.filterOperands) return yield* Result.fail(commerceError("limitExceeded"));
+        yield* capturePrivateJsonData(comparison.value, commerceLimits.rowBytes, commerceError);
+        // SQL <> excludes NULL columns; the parameter owner preserves exact text.
+        return sql`${sql.identifier(field.name)} <> ${yield* parameter(field, comparison.value)}`;
+      }
       if (supplied.kind === "textLikeAscii" && field.type === "text" && Object.keys(supplied).every(name => ["kind", "column", "pattern"].includes(name))) {
         if (!isPrivateValueText(supplied.pattern)) return yield* Result.fail(invalid());
         if (++operands > commerceLimits.filterOperands) return yield* Result.fail(commerceError("limitExceeded"));

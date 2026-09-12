@@ -1,6 +1,5 @@
 import { Effect, Schema } from "effect";
 import type { Json } from "flarex-protocol/json";
-import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import {
   TransactionRequestKeyV1Schema,
@@ -10,9 +9,9 @@ import {
 import type { ResolveCommittedPointOutcomeInputV1 } from "../committedPointOutcome";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
-import { capturePrivateJsonData } from "../privateJsonData";
+import { captureCommerceJsonData } from "../commerceTransaction/request";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
-import { commerceRequestHash, projectCommerceRequestFailure } from "../commerceTransaction/request";
+import { commerceIdentityEvidence, commerceRequestHash, projectCommerceRequestFailure } from "../commerceTransaction/request";
 import { requireCommerceAdmission, type CommerceAdmission } from "../commerceTransaction/admission";
 import {
   getAtomicCommerceCommand,
@@ -56,7 +55,7 @@ export const captureAtomicCommerceRequest = Effect.fn("AtomicCommerce.captureReq
   );
   if (!/^commerce\/atomic\/[a-zA-Z0-9/-]{1,100}$/.test(key))
     return yield* Effect.fail(commerceError("invalidInput"));
-  const captured = yield* Effect.fromResult(capturePrivateJsonData(args, commandBytes, commerceError));
+  const captured = yield* Effect.fromResult(captureCommerceJsonData(args, commandBytes));
   return { key, definition, args: captured.value };
 });
 
@@ -77,9 +76,7 @@ export const prepareAtomicCommerceRequestEvidence = Effect.fn("AtomicCommerce.pr
     const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(authority.scopeId)).pipe(
       Effect.mapError(projectCommerceRequestFailure),
     );
-    const evidence = yield* canonicalizeSuccessfulResultV1Effect({
-      domain: "flarex.private.atomic-commerce-command",
-      version: 1,
+    const evidence = yield* commerceIdentityEvidence("atomic-command", {
       deploymentId,
       scopeId: authority.scopeId,
       epoch: clock.epoch,
@@ -94,7 +91,7 @@ export const prepareAtomicCommerceRequestEvidence = Effect.fn("AtomicCommerce.pr
         contractSha256: member.descriptor.contractSha256,
         commands: member.commandNames,
       })),
-    }).pipe(Effect.mapError(projectCommerceRequestFailure));
+    }, commerceLimits.commandBytes);
     const lookup = {
       scopeUuid: scope.scopeUuid,
       requestKey: request.key,

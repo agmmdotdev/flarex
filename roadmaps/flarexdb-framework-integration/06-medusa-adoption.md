@@ -60,19 +60,21 @@ method/repository assembly; root rollback restores pre-existing Link state rathe
 than executing inverse callbacks. This gate adds no core/schema/engine changes.
 Cross-module graph hydration and full `createProductsWorkflow` remain unadmitted.
 The [shipping-profile foundation](./preflight/59-product-shipping-profile-foundation.md)
-has approval for its shared text-inequality prerequisite and native cardinality
-characterization, not Fulfillment/ProductShippingProfile activation. A remains
-incomplete: connected `$ne` reads expose Application-value encoding in the shared
-commerce command identity path, which refuses reserved `$` field names before
-native dispatch. Correction requires an explicit identity/replay decision; no
-adapter rewrite or Application codec relaxation is approved. Native Link also
+implements its shared text-inequality prerequisite and native cardinality
+characterization, not Fulfillment/ProductShippingProfile activation. Inequality
+is explicitly admitted for Link IDs and the Sales Channel ID, with shared
+scope, null, pagination/count and resource limits. Native Link still
 delegates contradictory same-batch profiles, characterized at its router boundary
 but not corrected. The proposed module source closure remains broader than its
 create/scalar-read table grants; full Fulfillment remains unadmitted.
-The proposed [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
-extends the shared outcome owner with an explicit JSON encoding while retaining
-Application evidence unchanged. It requires a schema and identity/replay approval;
-it is not an approved migration or a JSON-inside-Application wrapper.
+The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
+gives both commerce hosts domain-separated ordinary JSON identity and result
+evidence, including reserved and Unicode keys. Shared idempotency rows retain an
+explicit encoding, including after expiration; existing rows remain Application
+evidence without re-encoding. The existing bounded resolver rejects the wrong
+family before byte transfer. Application, CMS and cross-domain encoding is
+unchanged. Old private commerce request keys conflict rather than being replayed
+under new semantics; no compatibility wrapper or second outcome store exists.
 Sales Channel's six-command profile preserves the original service and static
 cases, native metadata merging, scalar/array results, pagination and errors.
 Boundary checks retain input refusal, identity protection, replay, service

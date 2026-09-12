@@ -3,7 +3,7 @@ import { hasApplicationBindingComposition } from "../applicationActivation";
 import { hasFrameworkMigrationTargetDatabase } from "../migrationCoordination/targetSession";
 import { hasRelationalSessionDatabase } from "../relationalTransaction/session";
 import { captureTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
-import { capturePrivateJsonData } from "../privateJsonData";
+import { captureCommerceJsonData } from "../commerceTransaction/request";
 import type { CommerceHostConfiguration } from "../commerceTransaction/hostConfiguration";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
 import type { RequestLimits } from "../boundedRequestLifetime";
@@ -15,24 +15,20 @@ import {
   type AtomicCommerceParticipantInput,
 } from "./participants";
 import { admitParticipantEvents, prepareAtomicCommerceEvents, type AtomicCommerceEvents } from "./events";
-import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { TransactionIdentityAccessPolicySha256V1Schema } from "flarex-protocol/transaction-session";
-import { projectCommerceRequestFailure } from "../commerceTransaction/request";
+import { commerceIdentityEvidence } from "../commerceTransaction/request";
 import { hashAtomicCommerceBytes } from "./request";
 
 export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfiguration<Failure> {
   readonly participants: readonly AtomicCommerceParticipantInput[];
   readonly commands: readonly AtomicCommerceCommand[];
   readonly events?: AtomicCommerceEvents;
-  /** Trusted root selection, capped by every participant. Omission preserves 64
-   * calls and existing request identity; children never receive a fresh budget. */
+  /** Trusted root selection, capped by every participant. Omission selects 64
+   * calls and remains identity-distinct from an explicit limit. */
   readonly requestCallLimit?: number;
 }
 
 const decodeCallLimit = Schema.decodeUnknownEffect(CommerceCallLimit);
-// A non-JSON preimage prefix cannot collide with an omitted host's arbitrary
-// canonical JSON policy, even if that policy resembles our explicit wrapper.
-const callPolicyDomain = new TextEncoder().encode("flarex.atomic-commerce.request-call-policy\0");
 
 /** Captured host configuration, with no request-local state or settlement capability. */
 export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
@@ -77,7 +73,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     names.add(definition.name);
   }
   const policy = yield* Effect.fromResult(
-    capturePrivateJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes, commerceError),
+    captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes),
   );
   const members = yield* prepareAtomicCommerceParticipants(database, target, input.participants);
   const eventPolicy =
@@ -93,31 +89,14 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
       contracts,
     });
   }
-  const eventIdentity =
-    eventPolicy === undefined
-      ? policy.value
-      : {
-          policy: policy.value,
-          events: eventPolicy.identity,
-          participantEvents,
-        };
-  const identity = yield* canonicalizeSuccessfulResultV1Effect(
-    selectedCallLimit === undefined
-      ? eventIdentity
-      : {
-          policy: eventIdentity,
-          requestCallLimit: callLimit,
-        },
-  ).pipe(Effect.mapError(projectCommerceRequestFailure));
-  let identityBytes: Uint8Array = identity.canonicalBytes;
-  if (selectedCallLimit !== undefined) {
-    const tagged = new Uint8Array(callPolicyDomain.byteLength + identityBytes.byteLength);
-    tagged.set(callPolicyDomain);
-    tagged.set(identityBytes, callPolicyDomain.byteLength);
-    identityBytes = tagged;
-  }
+  const identity = yield* commerceIdentityEvidence("atomic-policy", {
+    policy: policy.value,
+    events: eventPolicy?.identity ?? null,
+    participantEvents: eventPolicy === undefined ? [] : participantEvents,
+    requestCallLimit: selectedCallLimit === undefined ? null : callLimit,
+  }, commerceLimits.commandBytes);
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(
-    yield* hashAtomicCommerceBytes(identityBytes),
+    yield* hashAtomicCommerceBytes(identity.canonicalBytes),
   );
   const limits = {
     ...commerceLimits,

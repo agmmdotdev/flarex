@@ -1,7 +1,7 @@
 # Product Shipping Profile Foundation: Preflight
 
-Status: A approved, implementation incomplete and paused at the commerce command
-identity boundary described below. Gate C in preflight 58 is complete. B and
+Status: A implemented, including the approved preflight 60 shared-owner correction.
+Gate C in preflight 58 is complete. B and
 native cardinality correction remain unapproved; no Fulfillment/Link activation.
 
 ## Outcome And Recommendation
@@ -163,57 +163,32 @@ An explicitly expected-failing test preserves the desired pre-delegation
 refusal. The service boundary is a recording stub, not a stored Fulfillment
 implementation; this does not claim persisted ShippingProfile conformance.
 
-If confirmed, record expected/actual behavior at the Medusa Link owner and
-return for an explicit correction decision before B activation. Do not silently
+This confirmed gap requires an explicit Medusa Link owner correction decision
+before B activation. Do not silently
 deduplicate, select the last profile, serialize a bad batch into changed business
 semantics, or add an adapter-only unique index that hides the native contract.
 Same-scope root serialization addresses competing requests; it does not repair
 two contradictory rows submitted in one batch.
 
-### Additional shared-owner boundary: commerce JSON command identity
+### Resolved shared-owner boundary: commerce JSON identity and outcomes
 
-The connected inequality witnesses in `product-sales-channel-link.test.ts` and
-`sales-channel-binding.test.ts` submit a text-ID `$ne` filter through their
-normal root read commands. They expect the admitted native read to reach the
-shared predicate/compiler and return the filtered rows/count. Instead the host
-fails before dispatch with `CommerceTransactionError(reason: invalidAuthority)`
-and `CommitProtocolV1Error(issue: invalidValue, component: successfulResult,
-path: $)`.
+The native-root inequality witnesses exposed an Application-value codec in
+commerce request identity and successful results. Reserved operator keys were
+rejected before dispatch. Approved [preflight 60](./60-commerce-json-identity-and-outcomes.md)
+corrects both single and atomic commerce owners: canonical ordinary JSON,
+domain-separated request/policy identities, explicit retained-result encoding,
+and the existing bounded replay/publication machinery. Application value
+semantics remain unchanged; the adapter does not rewrite filters to bypass them.
 
-`packages/persistence-postgres/src/commerceTransaction/host.ts` fingerprints the
-commerce command envelope, including captured JSON arguments, through
-`canonicalizeSuccessfulResultV1Effect`. That API canonicalizes Application runtime
-values. `packages/flarex-protocol/src/value.ts` deliberately rejects object fields
-beginning with `$` in that value domain. Thus valid Medusa operator objects are
-not representable in the selected command identity path. The same host also
-uses that Application result encoding after native execution; the correction
-must audit both sides and retained replay rather than patch only this filter.
-The atomic path has the same source-level coupling in `atomicCommerce/request.ts`
-and `atomicCommerce/execution.ts`; its independent failing witness remains to be
-added in the correction slice.
+The shared `textNotEqual` reader now reaches the native-root consumers.
+Inequality is granted only to selected Link IDs and the Sales Channel ID.
+Neutral renamed-column witnesses preserve parameterization, null exclusion,
+scope isolation, pre-pagination count and existing resource limits.
+Malformed caller Unicode remains refused as `invalidInput`, without retaining
+the old codec's misleading `invalidAuthority` classification.
 
-The bounded SQL `textNotEqual` reader and shared adapter compiler are implemented
-in the uncommitted slice. Core neutral reader behavior passes independently, but
-connected consumer validation remains failing, so A is not complete. The
-adapter grants inequality only to the selected Link IDs and Sales Channel ID;
-other field grammars remain closed. Do not infer public operator support from
-the adapter decoders or make the witness pass by constructing a different root
-input, stringifying filters locally, moving the filter into test-only execution,
-or changing the Application value codec's reserved-key rules.
-
-The proposed [commerce JSON identity/outcome correction](./60-commerce-json-identity-and-outcomes.md)
-now defines the next approval: correct the shared commerce request/result
-identity owner to carry bounded ordinary JSON through the existing canonical
-JSON, commit and retained-outcome owners, preserving exact request identity,
-conflict detection, result bytes, replay and uncertain-settlement recovery.
-Audit the atomic commerce path too. The accepted Application value domain must
-remain unchanged. Establish the development-only compatibility/retirement
-decision before changing persisted identity/result encoding; no dual path,
-version-suffixed public API or schema migration is implicitly authorized.
-Required correction witnesses include neutral `$`/Unicode object keys, actual
-Medusa filters, different arguments under a reused key, exact result replay,
-malformed/bounded input and both database lanes. Native Link's separate
-in-batch cardinality correction still needs its own decision before B activation.
+Native Link's separate in-batch cardinality correction still needs its own
+decision before B activation.
 
 ## B. Connected Module And Workflow Direction
 

@@ -22,8 +22,9 @@ const decodeRows = commerceDecoder(Schema.Array(Schema.JsonObject), "storedCorru
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
 const strings = commerceDecoder(Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(commerceLimits.filterOperands))]), "unsupportedProfile");
+const decodeNotEqual = commerceDecoder(Id, "unsupportedProfile");
 const wherePolicy: WherePolicy = {
-  decode: decodeWhere, fields: new Map(["id", "product_id", "sales_channel_id"].map(column => [column, { column, decode: strings }])),
+  decode: decodeWhere, fields: new Map(["id", "product_id", "sales_channel_id"].map(column => [column, { column, decode: strings, decodeNotEqual }])),
   logical: { decodeBranches: commerceDecoder(Schema.Array(Schema.JsonObject), "unsupportedProfile"),
     nodes: commerceLimits.filterNodes, depth: commerceLimits.filterDepth, operands: commerceLimits.filterOperands,
     unwrapMembership: input => input !== null && typeof input === "object" && !Array.isArray(input)

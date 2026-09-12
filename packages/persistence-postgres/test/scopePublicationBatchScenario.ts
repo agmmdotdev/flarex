@@ -39,7 +39,7 @@ export async function scopePublicationBatchScenario(persistence: PGliteFlarexPer
     const command = {
       authorityPins: { scopeId, requestKey: TransactionRequestKeyV1Schema.make(randomUUID()),
         functionPath: TransactionFunctionPathV1Schema.make("publication:batch") },
-      rowIntents, successfulResult: result, resultSha256: Buffer.from(result.evidence.sha256Hex, "hex"),
+      rowIntents, successfulResult: { ...result, encoding: "application-value" }, resultSha256: Buffer.from(result.evidence.sha256Hex, "hex"),
       requestSha256: new Uint8Array(32), identityAccessPolicySha256: new Uint8Array(32),
     } satisfies ScopePublicationContribution;
     const readState = async () => ({

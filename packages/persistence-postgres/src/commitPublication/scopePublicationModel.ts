@@ -20,7 +20,9 @@ export interface ScopePublicationContribution {
   readonly identityAccessPolicySha256: Uint8Array;
   readonly requestSha256: Uint8Array;
   readonly resultSha256: Uint8Array;
-  readonly successfulResult: Pick<CanonicalSuccessfulResultV1, "canonicalBytes" | "semanticSizeBytes">;
+  readonly successfulResult:
+    | (Pick<CanonicalSuccessfulResultV1, "canonicalBytes" | "semanticSizeBytes"> & { readonly encoding: "application-value" })
+    | Pick<import("../jsonOutcome").CanonicalJsonOutcome, "encoding" | "canonicalBytes" | "semanticSizeBytes">;
 }
 export interface ScopePublicationKernel {
   readonly clock: ScopePublicationClock;

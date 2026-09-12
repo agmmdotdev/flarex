@@ -1,5 +1,5 @@
 import { publishCommerceAtoms } from "./publicationBoundary";
-import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
+import type { CanonicalJsonOutcome } from "../jsonOutcome";
 import { fxSystemFrameworkInitializations } from "../frameworkSchema/installation/initializationSchema";
 import { requireCommerceAdmission, type CommerceAdmission } from "./admission";
 import { consumeCommerceRows, type CommerceRowClosure } from "./store";
@@ -28,7 +28,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   lifetime: BoundedRequestLifetime<CommerceTransactionError>,
   closure: CommerceRowClosure,
   identity: ResolveCommittedPointOutcomeInputV1,
-  result: CanonicalSuccessfulResultV1,
+  result: CanonicalJsonOutcome,
   resultSha256: Uint8Array,
   additional: readonly Readonly<{ admission: CommerceAdmission; closure: CommerceRowClosure }>[] = [],
   events?: Readonly<{ admission: CommerceAdmission; closure: CommerceEventClosure }>,

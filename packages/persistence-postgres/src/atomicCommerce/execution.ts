@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit } from "effect";
 import type { Json } from "flarex-protocol/json";
-import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
-import { capturePrivateJsonData } from "../privateJsonData";
+import { canonicalizeJsonOutcome } from "../jsonOutcome";
+import { captureCommerceJsonData } from "../commerceTransaction/request";
 import {
   makeBoundedRequestLifetime,
   type BoundedRequestContext,
@@ -71,7 +71,7 @@ function makeParticipantInvocation(
     if (operation === undefined || !member.commands.has(nested))
       return yield* Effect.fail(commerceError("invalidAuthority"));
     const value = yield* Effect.fromResult(
-      capturePrivateJsonData(nestedArgs, lifetime.remainingBytes(), commerceError),
+      captureCommerceJsonData(nestedArgs, lifetime.remainingBytes()),
     );
     yield* Effect.fromResult(lifetime.charge(value.bytes));
     const commandContext = makeCommerceCommandContext(
@@ -95,7 +95,7 @@ function makeParticipantInvocation(
     );
     const output = yield* operation.run(commandContext, value.value);
     const result = yield* Effect.fromResult(
-      capturePrivateJsonData(output, lifetime.remainingBytes(), commerceError),
+      captureCommerceJsonData(output, lifetime.remainingBytes()),
     );
     yield* Effect.fromResult(lifetime.charge(result.bytes));
     return Object.freeze({
@@ -182,7 +182,7 @@ function makeAtomicCommerceExecution(
         "read",
         Effect.gen(function* () {
           const intermediate = yield* Effect.fromResult(
-            capturePrivateJsonData(value, lifetime.remainingBytes(), commerceError),
+            captureCommerceJsonData(value, lifetime.remainingBytes()),
           );
           yield* Effect.fromResult(lifetime.charge(intermediate.bytes));
           return intermediate.value;
@@ -271,10 +271,10 @@ export const executeAtomicCommerceRequest = Effect.fn("AtomicCommerce.executeReq
     // budget and obscure the participant's original failure.
     yield* lifetime.seal;
     const capturedResult = yield* Effect.fromResult(
-      capturePrivateJsonData(value, lifetime.remainingBytes(), commerceError),
+      captureCommerceJsonData(value, lifetime.remainingBytes()),
     );
     yield* Effect.fromResult(lifetime.charge(capturedResult.bytes));
-    const result = yield* canonicalizeSuccessfulResultV1Effect(capturedResult.value).pipe(
+    const result = yield* Effect.fromResult(canonicalizeJsonOutcome(capturedResult.value)).pipe(
       Effect.mapError(projectCommerceRequestFailure),
     );
     const { root, additional, events } = yield* execution.closeContributions();

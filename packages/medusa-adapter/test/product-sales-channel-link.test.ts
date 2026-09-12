@@ -91,6 +91,23 @@ describe("native stored Product Sales Channel Link", () => {
     expect(await runEffect(fixture.host.read(link.links, pair("window", "b")))).toEqual([pair("window", "b")]);
   });
 
+  it("executes native-shaped text inequality inside Link existence and paged count queries", async () => {
+    await expect(runEffect(fixture.host.run(fixture.host.newRequestKey(), link.create, [
+      pair("neq-product", "neq-a"), pair("neq-product", "neq-b"), pair("neq-product", "neq-c"),
+    ]))).resolves.toHaveLength(3);
+    const filters = { product_id: "neq-product", sales_channel_id: { $ne: "neq-a" } };
+    await expect(runEffect(fixture.host.read(link.count, {
+      filters, config: { select: ["product_id", "sales_channel_id"], skip: 1, take: 1 },
+    }))).resolves.toEqual([[{ product_id: "neq-product", sales_channel_id: "neq-c" }], 2]);
+    await expect(runEffect(fixture.host.read(link.list, {
+      filters, config: { select: ["product_id", "sales_channel_id"], take: 1 },
+    }))).resolves.toEqual([{ product_id: "neq-product", sales_channel_id: "neq-b" }]);
+    for (const value of [null, 1, [], { $in: ["a"] }]) {
+      expect(await runEffectFailure(fixture.host.read(link.count, { filters: { sales_channel_id: { $ne: value } } })))
+        .toMatchObject({ reason: "invalidInput" });
+    }
+  });
+
   it("dismisses only the selected tuple and restores by one endpoint, including a no-write repeated restore", async () => {
     expect(await runEffect(fixture.host.run(fixture.host.newRequestKey(), link.dismiss, pair("window", "b"))))
       .toMatchObject([{ id: "prodsc-shared", product_id: "window", sales_channel_id: "b" }]);

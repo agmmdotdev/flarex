@@ -22,6 +22,14 @@ commit, feed, and outbox authority.
 It does not authorize changes to application OCC, point-commit compilation,
 scope-clock locking, commit ordering, or feed storage.
 
+The approved [commerce JSON evidence correction](./preflight/60-commerce-json-identity-and-outcomes.md)
+extends the existing idempotency outcome, not its settlement owner. Single and
+atomic commerce select ordinary canonical JSON; Application, CMS and the current
+cross-domain host retain Application-value encoding. Stored encoding survives
+expiration, and the trusted resolver rejects the wrong family before transferring
+result bytes. Existing Application rows are labelled without re-encoding;
+private commerce identities are cleanly replaced with domain-separated JSON.
+
 The accepted [execution-profile preflight](./preflight/14-transaction-execution-profiles.md)
 records the pinned framework evidence and shared ownership direction. The
 successful-family publication ownership is implemented by record 36 for the

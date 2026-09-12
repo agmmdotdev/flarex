@@ -85,6 +85,17 @@ beforeAll(async () => {
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120000);
 
 describe("atomic participants sharing physical installation", () => {
+  it("retains ordinary JSON arguments, results and policy without Application marker interpretation", async () => {
+    const echo = defineAtomicCommerceCommand("echoJson", (_ctx, value) => Effect.succeed(value));
+    const host = await runEffect(makeAtomicCommerceHost({ ...input, commands: [echo], identityAndAccessPolicy: { "$policy": { "မြန်မာ": true } } }));
+    for (const value of [null, "scalar", [0, false], { "$ne": "x", "မြန်မာ": { "$integer": "1" }, zero: -0 }]) {
+      const key = host.newRequestKey();
+      const fresh = await runEffect(host.run(key, echo, value));
+      expect(fresh).toEqual(JSON.parse(JSON.stringify(value)));
+      expect(await runEffect(host.run(key, echo, value))).toEqual(fresh);
+      expect(await runEffectFailure(host.run(key, echo, [value]))).toMatchObject({ reason: "requestConflict" });
+    }
+  });
   it("prepares and accepts each physical installation once, preserving every logical contribution and replay identity", async () => {
     const prepare = vi.spyOn(installationRuntime, "prepareInstallationRuntime");
     const accept = vi.spyOn(installationRuntime, "acceptPreparedInstallation");

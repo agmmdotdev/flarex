@@ -47,6 +47,7 @@ import {
 } from "flarex-protocol/value";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import { OutcomeResultEncodingSchema, verifyJsonOutcome, type VerifiedJsonOutcome, type OutcomeResultEncoding } from "./jsonOutcome";
 import {
   fxSystemCommits,
   fxSystemIdempotency,
@@ -70,6 +71,32 @@ const decodeEpochUuidResult = Schema.decodeUnknownResult(
   ScopeEpochUuidV1Schema,
 );
 
+const decodeResultEncoding = Schema.decodeUnknownResult(OutcomeResultEncodingSchema);
+const availableResultFields = {
+  resultState: Schema.Literal("available"),
+  resultSemanticBytes: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 })),
+  resultByteLength: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 })),
+  resultSha256ByteLength: Schema.Literal(32),
+  resultExpiredAt: Schema.Null,
+};
+const AvailableOutcomeScalars = Schema.Union([
+  Schema.Struct({ ...availableResultFields, resultEncoding: Schema.Literal("application-value"), resultValueCodecVersion: Schema.Literal(FLAREX_VALUE_CODEC_VERSION_V1) }),
+  Schema.Struct({ ...availableResultFields, resultEncoding: Schema.Literal("json"), resultValueCodecVersion: Schema.Null })
+    .check(Schema.makeFilter(value => value.resultSemanticBytes === value.resultByteLength)),
+]);
+const ExpiredOutcomeScalars = Schema.Struct({
+  resultState: Schema.Literal("expired"),
+  resultEncoding: OutcomeResultEncodingSchema,
+  resultValueCodecVersion: Schema.Null,
+  resultSemanticBytes: Schema.Null,
+  resultByteLength: Schema.Null,
+  resultSha256ByteLength: Schema.Null,
+  // Date normalization is owned by finiteDateMilliseconds, before this decoder.
+  expiredAtMilliseconds: Schema.Finite,
+  createdAtMilliseconds: Schema.Finite,
+}).check(Schema.makeFilter(value => value.expiredAtMilliseconds >= value.createdAtMilliseconds));
+const decodeOutcomeScalars = Schema.decodeUnknownResult(Schema.Union([AvailableOutcomeScalars, ExpiredOutcomeScalars]));
+
 const LOOKUP_INPUT_KEYS = Object.freeze([
   "expectedFunctionPath",
   "expectedIdentityAccessPolicySha256",
@@ -87,6 +114,7 @@ export type CommittedPointOutcomeInputFailureReasonV1 =
   | "requestSha256Invalid";
 
 export type CommittedPointOutcomeMismatchV1 =
+  | "resultEncoding"
   | "identityAccessPolicySha256"
   | "functionPath"
   | "requestSha256";
@@ -229,6 +257,7 @@ export interface CommittedPointOutcomeStoredScalarEvidenceV1
   readonly epochUuid: unknown;
   readonly commitSeq: unknown;
   readonly resultState: unknown;
+  readonly resultEncoding: unknown;
   readonly resultValueCodecVersion: unknown;
   readonly resultSemanticBytes: unknown;
   readonly resultByteLength: unknown;
@@ -305,6 +334,7 @@ export function validateCommittedPointOutcomeStoredScalarsAfterRequestShapeV1(
   input: ResolveCommittedPointOutcomeInputV1,
   row: CommittedPointOutcomeStoredScalarEvidenceV1,
   clock: CommittedPointOutcomeClockEvidenceV1,
+  expectedEncoding: OutcomeResultEncoding = "application-value",
 ): Result.Result<
   ValidatedCommittedPointOutcomeStoredScalarsV1,
   CommittedPointOutcomeRequestKeyReuseErrorV1 |
@@ -372,44 +402,17 @@ export function validateCommittedPointOutcomeStoredScalarsAfterRequestShapeV1(
     if (row.resultState !== "available" && row.resultState !== "expired") {
       return yield* corruption(input, "resultStateInvalid", commitSeq);
     }
-    const resultSemanticBytes = row.resultSemanticBytes;
-    const resultByteLength = row.resultByteLength;
-    const resultExpiredAtMilliseconds = finiteDateMilliseconds(
-      row.resultExpiredAt,
-    );
-    const availableScalarsValid =
-      row.resultValueCodecVersion === FLAREX_VALUE_CODEC_VERSION_V1 &&
-      typeof resultSemanticBytes === "number" &&
-      Number.isInteger(resultSemanticBytes) &&
-      resultSemanticBytes >= 0 &&
-      resultSemanticBytes <= MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 &&
-      typeof resultByteLength === "number" &&
-      Number.isInteger(resultByteLength) &&
-      resultByteLength >= 1 &&
-      resultByteLength <= MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 &&
-      row.resultSha256ByteLength === 32 &&
-      row.resultExpiredAt === null;
-    const expiredScalarsValid =
-      row.resultValueCodecVersion === null &&
-      row.resultSemanticBytes === null &&
-      row.resultByteLength === null &&
-      row.resultSha256ByteLength === null &&
-      resultExpiredAtMilliseconds !== undefined &&
-      resultExpiredAtMilliseconds >= createdAtMilliseconds;
-    if (
-      (row.resultState === "available" && !availableScalarsValid) ||
-      (row.resultState === "expired" && !expiredScalarsValid)
-    ) {
-      return yield* corruption(
-        input,
-        row.resultState === "available"
-          ? "availableResultEvidenceInvalid"
-          : "expiredResultEvidenceInvalid",
-        commitSeq,
-      );
-    }
+    yield* decodeResultEncoding(row.resultEncoding).pipe(Result.mapError(() =>
+      corruptionError(input, "availableResultEvidenceInvalid", commitSeq),
+    ));
+    const evidence = yield* decodeOutcomeScalars({ ...row,
+      expiredAtMilliseconds: finiteDateMilliseconds(row.resultExpiredAt), createdAtMilliseconds,
+    }).pipe(Result.mapError(() => corruptionError(input,
+      row.resultState === "available" ? "availableResultEvidenceInvalid" : "expiredResultEvidenceInvalid", commitSeq,
+    )));
 
-    const mismatches = committedPointOutcomeRequestMismatchesV1(row);
+    const mismatches: CommittedPointOutcomeMismatchV1[] = [...committedPointOutcomeRequestMismatchesV1(row)];
+    if (row.resultEncoding !== expectedEncoding) mismatches.push("resultEncoding");
     if (mismatches.length > 0) {
       return yield* Result.fail(
         new CommittedPointOutcomeRequestKeyReuseErrorV1({
@@ -419,24 +422,14 @@ export function validateCommittedPointOutcomeStoredScalarsAfterRequestShapeV1(
       );
     }
 
-    if (row.resultState === "expired") {
+    if (evidence.resultState === "expired") {
       return Object.freeze({ token, state: "expired" as const });
-    }
-    if (
-      typeof resultSemanticBytes !== "number" ||
-      typeof resultByteLength !== "number"
-    ) {
-      return yield* corruption(
-        input,
-        "availableResultEvidenceInvalid",
-        commitSeq,
-      );
     }
     return Object.freeze({
       token,
       state: "available" as const,
-      resultSemanticBytes,
-      resultByteLength,
+      resultSemanticBytes: evidence.resultSemanticBytes,
+      resultByteLength: evidence.resultByteLength,
     });
   });
 }
@@ -458,10 +451,75 @@ type ValidatedOutcomeRowV1 =
   | ValidatedAvailableOutcomeRowV1
   | ValidatedExpiredOutcomeRowV1;
 
+type OutcomeResolution<SuccessfulResult> =
+  | Readonly<{ kind: "missing" }>
+  | Readonly<{ kind: "expired"; token: CommittedPointOutcomeTokenV1 }>
+  | Readonly<{ kind: "available"; token: CommittedPointOutcomeTokenV1; successfulResult: SuccessfulResult }>;
+
 export function createCommittedPointOutcomeResolverV1(
   db: FlarexMetadataDatabase,
   options: CommittedPointOutcomeResolverOptionsV1 = {},
 ): CommittedPointOutcomeResolverV1 {
+  return createOutcomeResolver(db, "application-value", verifyApplicationOutcome, options);
+}
+
+export function createCommittedJsonOutcomeResolver(
+  db: FlarexMetadataDatabase,
+  options: CommittedPointOutcomeResolverOptionsV1 = {},
+) {
+  return createOutcomeResolver(db, "json", verifyCommittedJsonOutcome, options);
+}
+
+const verifyApplicationOutcome = Effect.fn("CommittedOutcome.verifyApplication")(function* (
+  input: ValidatedLookupInputV1,
+  token: CommittedPointOutcomeTokenV1,
+  bytes: Uint8Array,
+  sha256: Uint8Array,
+): Effect.fn.Return<CommittedPointSuccessfulResultV1, CommittedPointOutcomeCorruptionErrorV1> {
+  const canonical = yield* verifyCanonicalResult(input, token, bytes, sha256);
+    const stableBytes = CanonicalSuccessfulResultBytesV1Schema.make(
+      copyBytes(canonical.canonicalBytes),
+    );
+    const stableSha256 = FlarexValueSha256V1Schema.make(
+      copyBytes(canonical.sha256),
+    );
+    return Object.freeze({
+      valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+      valueJson: canonical.valueJson,
+      semanticSizeBytes: canonical.semanticSizeBytes,
+      canonicalText: canonical.canonicalText,
+      get canonicalBytes() {
+        return CanonicalSuccessfulResultBytesV1Schema.make(
+          copyBytes(stableBytes),
+        );
+      },
+      get sha256() {
+        return FlarexValueSha256V1Schema.make(copyBytes(stableSha256));
+      },
+    } satisfies CommittedPointSuccessfulResultV1);
+
+});
+
+const verifyCommittedJsonOutcome = Effect.fn("CommittedOutcome.verifyJson")((
+  input: ValidatedLookupInputV1,
+  token: CommittedPointOutcomeTokenV1,
+  bytes: Uint8Array,
+  sha256: Uint8Array,
+): Effect.Effect<VerifiedJsonOutcome, CommittedPointOutcomeCorruptionErrorV1> =>
+  verifyJsonOutcome(bytes, sha256).pipe(Effect.catchTag("JsonOutcomeError", cause =>
+    cause.reason === "resourceFailure" ? Effect.die(cause) :
+      corruptionEffect(input, "resultCanonicalEvidenceInvalid", token.commitSeq),
+  )),
+);
+
+/** The two trusted entry points share one bounded SQL and retention algorithm. */
+function createOutcomeResolver<SuccessfulResult extends { readonly semanticSizeBytes: number }>(
+  db: FlarexMetadataDatabase,
+  encoding: OutcomeResultEncoding,
+  verify: (input: ValidatedLookupInputV1, token: CommittedPointOutcomeTokenV1, bytes: Uint8Array, sha256: Uint8Array) =>
+    Effect.Effect<SuccessfulResult, CommittedPointOutcomeCorruptionErrorV1>,
+  options: CommittedPointOutcomeResolverOptionsV1,
+) {
   const executeStatement = Effect.fn("CommittedPointOutcome.executeStatement")(
     (
       query: OutcomeQueryV1,
@@ -483,11 +541,11 @@ export function createCommittedPointOutcomeResolverV1(
   const resolve = Effect.fn("CommittedPointOutcome.resolve")(function* (
     rawInput: ResolveCommittedPointOutcomeInputV1,
   ): Effect.fn.Return<
-    CommittedPointOutcomeResolutionV1,
+    OutcomeResolution<SuccessfulResult>,
     ResolveCommittedPointOutcomeErrorV1
   > {
     const input = yield* Effect.fromResult(validateAndCaptureInput(rawInput));
-    const query = buildOutcomeQuery(db, input);
+    const query = buildOutcomeQuery(db, input, encoding);
     observeOutcomeQuery(query, options.observeQuery);
     const capturedRows = yield* executeStatement(query);
     if (options.afterStatement !== undefined) {
@@ -496,14 +554,14 @@ export function createCommittedPointOutcomeResolverV1(
     }
     const rows = detachOutcomeRows(capturedRows);
     const validated = yield* Effect.fromResult(
-      validateCapturedOutcome(input, rows),
+      validateCapturedOutcome(input, rows, encoding),
     );
     if (validated === null) return Object.freeze({ kind: "missing" });
     if (validated.state === "expired") {
       return Object.freeze({ kind: "expired", token: validated.token });
     }
     options.beforeResultVerification?.();
-    const canonical = yield* verifyCanonicalResult(
+    const canonical = yield* verify(
       input,
       validated.token,
       validated.boundedResultBytes,
@@ -517,36 +575,11 @@ export function createCommittedPointOutcomeResolverV1(
       );
     }
 
-    const stableBytes = CanonicalSuccessfulResultBytesV1Schema.make(
-      copyBytes(canonical.canonicalBytes),
-    );
-    const stableSha256 = FlarexValueSha256V1Schema.make(
-      copyBytes(canonical.sha256),
-    );
-    const successfulResult = Object.freeze({
-      valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
-      valueJson: canonical.valueJson,
-      semanticSizeBytes: canonical.semanticSizeBytes,
-      canonicalText: canonical.canonicalText,
-      get canonicalBytes() {
-        return CanonicalSuccessfulResultBytesV1Schema.make(
-          copyBytes(stableBytes),
-        );
-      },
-      get sha256() {
-        return FlarexValueSha256V1Schema.make(copyBytes(stableSha256));
-      },
-    } satisfies CommittedPointSuccessfulResultV1);
-    return Object.freeze({
-      kind: "available",
-      token: validated.token,
-      successfulResult,
-    });
-  });
 
+    return Object.freeze({ kind: "available", token: validated.token, successfulResult: canonical });
+  });
   return Object.freeze({ resolve });
 }
-
 function validateAndCaptureInput(
   input: ResolveCommittedPointOutcomeInputV1,
 ): Result.Result<ValidatedLookupInputV1, CommittedPointOutcomeInputErrorV1> {
@@ -635,6 +668,7 @@ function inputError(
 function buildOutcomeQuery(
   db: FlarexMetadataDatabase,
   input: ValidatedLookupInputV1,
+  encoding: OutcomeResultEncoding,
 ) {
   const transferableResult = sql`
     ${fxSystemIdempotency.resultState} = 'available'
@@ -642,7 +676,8 @@ function buildOutcomeQuery(
       ${input.expectedIdentityAccessPolicySha256}
     and ${fxSystemIdempotency.functionPath} = ${input.expectedFunctionPath}
     and ${fxSystemIdempotency.requestSha256} = ${input.expectedRequestSha256}
-    and ${fxSystemIdempotency.resultValueCodecVersion} = 1
+    and ${fxSystemIdempotency.resultEncoding} = ${encoding}
+    and ${encoding === "application-value" ? sql`${fxSystemIdempotency.resultValueCodecVersion} = 1` : sql`${fxSystemIdempotency.resultValueCodecVersion} is null and ${fxSystemIdempotency.resultSemanticBytes} = octet_length(${fxSystemIdempotency.resultBytes})`}
     and ${fxSystemIdempotency.resultSemanticBytes}
       between 0 and ${MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1}
     and octet_length(${fxSystemIdempotency.resultBytes})
@@ -702,6 +737,7 @@ function buildOutcomeQuery(
       epochUuid: fxSystemIdempotency.epochUuid,
       commitSeq: fxSystemIdempotency.commitSeq,
       resultState: fxSystemIdempotency.resultState,
+      resultEncoding: fxSystemIdempotency.resultEncoding,
       resultValueCodecVersion: fxSystemIdempotency.resultValueCodecVersion,
       resultSemanticBytes: fxSystemIdempotency.resultSemanticBytes,
       resultByteLength: sql<number | null>`
@@ -778,6 +814,7 @@ function detachOutcomeRows(
     epochUuid: row.epochUuid,
     commitSeq: row.commitSeq,
     resultState: row.resultState,
+    resultEncoding: row.resultEncoding,
     resultValueCodecVersion: row.resultValueCodecVersion,
     resultSemanticBytes: row.resultSemanticBytes,
     resultByteLength: row.resultByteLength,
@@ -806,6 +843,7 @@ function detachDriverValue(value: unknown): unknown {
 function validateCapturedOutcome(
   input: ValidatedLookupInputV1,
   rows: ReadonlyArray<CapturedOutcomeRowV1>,
+  encoding: OutcomeResultEncoding,
 ): Result.Result<
   ValidatedOutcomeRowV1 | null,
   CommittedPointOutcomeRequestKeyReuseErrorV1 |
@@ -844,6 +882,7 @@ function validateCapturedOutcome(
           lastCommitSeq: row.lastCommitSeq,
           oldestAvailableCommitSeq: row.oldestAvailableCommitSeq,
         }),
+        encoding,
       );
     const token = scalars.token;
     const commitSeq = token.commitSeq;

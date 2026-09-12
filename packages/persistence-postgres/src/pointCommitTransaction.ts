@@ -5013,6 +5013,7 @@ async function inspectCommittedOutcomeInTransaction(
       epochUuid: fxSystemIdempotency.epochUuid,
       commitSeq: fxSystemIdempotency.commitSeq,
       resultState: fxSystemIdempotency.resultState,
+      resultEncoding: fxSystemIdempotency.resultEncoding,
       resultValueCodecVersion: fxSystemIdempotency.resultValueCodecVersion,
       resultSemanticBytes: fxSystemIdempotency.resultSemanticBytes,
       resultByteLength: sql<number | null>`
@@ -6153,7 +6154,7 @@ async function publishPointCommitInTransaction(
     identityAccessPolicySha256: command.session.identityAccessPolicySha256,
     requestSha256: command.session.requestSha256,
     resultSha256: command.sealIdentity.resultSha256,
-    successfulResult: command.successfulResult,
+    successfulResult: { ...command.successfulResult, encoding: "application-value" },
   };
   await writeScopePublicationPrefix(tx, contribution, kernel, options);
   const publicationTime = new Date(kernel.publicationTimeMilliseconds);

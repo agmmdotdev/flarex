@@ -67,7 +67,7 @@ export const publishCurrencyAnnouncement = Effect.fn(
     identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
     requestSha256: identity.expectedRequestSha256,
     resultSha256,
-    successfulResult: result,
+    successfulResult: { ...result, encoding: "application-value" },
   };
   const kernel: ScopePublicationKernel = {
     clock,

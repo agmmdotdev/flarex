@@ -26,6 +26,7 @@ const find = defineCommerceCommand("plainFind", "read", (context, input) => cont
 const count = defineCommerceCommand("plainCount", "read", (context, input) => context.store.count(context.manager, input));
 const update = defineCommerceCommand("plainUpdate", "write", (context, rows) => context.store.write(context.manager, "update", rows));
 const upsert = defineCommerceCommand("plainUpsert", "write", (context, rows) => context.store.write(context.manager, "upsert", rows));
+const echoJson = defineCommerceCommand("echoJson", "write", (_context, value) => Effect.succeed(value));
 beforeAll(async () => {
   const native = process.env.FLAREX_TEST_DRIVER === "postgres";
   const registerCleanup = (close: () => Promise<void>) => cleanup.push(close);
@@ -48,13 +49,26 @@ beforeAll(async () => {
     const layout = yield* captureRelationalPhysicalLayout({ artifact: artifact.artifact, ...target });
     const profile = yield* registerLocalCommerceProfile(artifact.artifact, layout, "test.plain", [{ tableId: "plain", keyId: "plain.primary", update: "existingPrimaryKey" }]);
     return { profile, initialization: { rows: undefined } };
-  }), [insert, update, upsert, find, count], control, () => ({
+  }), [insert, update, upsert, find, count, echoJson], control, () => ({
     capture: () => Effect.fail(commerceError("unsupportedProfile")),
     validate: events => events.length === 0 ? Effect.void : Effect.fail(commerceError("adapterFailure")),
     deliver: () => Effect.void,
   }));
 }, 120000);
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
+
+it("retains ordinary JSON arguments, results and policy without Application marker interpretation", async () => {
+  const local = await runEffect(makeLocalCommerceHost({ ...fixture.hostInput, commands: [echoJson],
+    identityAndAccessPolicy: { "$policy": { "မြန်မာ": true } },
+  }, { capture: () => Effect.fail(commerceError("unsupportedProfile")), validate: () => Effect.void, deliver: () => Effect.void }));
+  for (const value of [null, "scalar", [0, false], { "$ne": "x", "မြန်မာ": { "$integer": "1" }, zero: -0 }]) {
+    const key = local.host.newRequestKey();
+    const fresh = await runEffect(local.host.run(key, echoJson, value));
+    expect(fresh).toEqual(JSON.parse(JSON.stringify(value)));
+    expect(await runEffect(local.host.run(key, echoJson, value))).toEqual(fresh);
+    expect(await runEffectFailure(local.host.run(key, echoJson, [value]))).toMatchObject({ reason: "requestConflict" });
+  }
+});
 
 it("does not grant upsert to an existing update-only profile", async () => {
   const before = await commerceInventory(fixture);
@@ -113,6 +127,45 @@ it("matches the pinned SQLite text pattern contract before paging and counting",
   }
 });
 
+it("applies non-null text inequality before paging and counting on neutral columns", async () => {
+  const rows = [
+    { id: "neq-a", value: "same" }, { id: "neq-b", value: "different" },
+    { id: "neq-c", value: null }, { id: "neq-d", value: "' OR true --" }, { id: "neq-e", value: "" },
+  ];
+  await runEffect(fixture.host.run(fixture.host.newRequestKey(), insert, rows));
+  for (const value of ["same", "' OR true --", "", "SAME", "\u00e6"]) {
+    const matching = rows.filter(row => row.value !== null && row.value !== value).map(row => ({ id: row.id }));
+    const query = { fields: ["id"], order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
+      { kind: "in", column: "id", values: rows.map(row => row.id) }, { kind: "textNotEqual", column: "value", value },
+    ] } };
+    expect(await runEffect(fixture.host.read(find, query))).toEqual(matching);
+    expect(await runEffect(fixture.host.read(find, { ...query, skip: 1, take: 1 }))).toEqual(matching.slice(1, 2));
+    expect(await runEffect(fixture.host.read(count, { ...query, skip: 1, take: 0 }))).toBe(matching.length);
+  }
+});
+
+it("refuses invalid text inequality and retains shared filter budgets", async () => {
+  const predicate = { kind: "textNotEqual", column: "value", value: "same" };
+  let deep: Json = predicate;
+  for (let depth = 0; depth < 9; depth++) deep = { kind: "and", children: [deep] };
+  const query = (predicate: Json) => ({ order: { column: "id", direction: "asc" }, predicate });
+  for (const [predicates, reason] of [
+    [[{ ...predicate, value: null }, { ...predicate, value: 3 }, { ...predicate, value: [] },
+      { ...predicate, value: "\0" }, { ...predicate, column: "amount" }, { ...predicate, extra: true },
+      { kind: "textNotEqual", column: "value" }], "invalidInput"],
+    [[{ ...predicate, column: "unknown" }, { ...predicate, column: "scope_uuid" }], "unsupportedProfile"],
+    [[{ ...predicate, value: "x".repeat(65_536) }, deep,
+      { kind: "or", children: Array.from({ length: 64 }, () => predicate) },
+      { kind: "and", children: [predicate, { kind: "in", column: "id", values: Array.from({ length: 256 }, () => "neq-b") }] }], "limitExceeded"],
+    [[{ ...predicate, value: "\ud800" }], "invalidInput"],
+  ] as const) for (const supplied of predicates) for (const command of [find, count]) {
+    expect(await runEffectFailure(fixture.host.read(command, query(supplied)))).toMatchObject({ reason });
+  }
+  expect(await runEffect(fixture.host.read(count, query({ kind: "and", children: [predicate,
+    { kind: "in", column: "id", values: Array.from({ length: 255 }, () => "neq-b") },
+  ] })))).toBe(1);
+});
+
 it("refuses malformed text predicates and charges shared operand node and depth limits", async () => {
   await runEffect(fixture.host.run(fixture.host.newRequestKey(), insert, [{ id: "operand-limit", value: "bounded" }]));
   const like = { kind: "textLikeAscii", column: "value", pattern: "%" };
@@ -137,7 +190,7 @@ it("refuses malformed text predicates and charges shared operand node and depth 
     [[{ ...like, column: "unknown" }], "unsupportedProfile"],
     // The outer canonical command boundary rejects malformed UTF-16 before
     // the store decoder can run; retain its existing authority refusal.
-    [[{ ...like, pattern: "\ud800" }], "invalidAuthority"],
+    [[{ ...like, pattern: "\ud800" }], "invalidInput"],
   ] as const) {
     for (const predicate of predicates) for (const command of [find, count]) {
       expect(await runEffectFailure(fixture.host.read(command, { order: { column: "id", direction: "asc" }, predicate }))).toMatchObject({ reason });
@@ -162,6 +215,11 @@ it("keeps colliding foreign-scope rows outside the text predicate", async () => 
   const query = { order: { column: "id", direction: "asc" }, predicate: { kind: "textLikeAscii", column: "value", pattern: "%foreign-pattern%" } };
   expect(await runEffect(fixture.host.read(find, query))).toEqual([]);
   expect(await runEffect(fixture.host.read(count, query))).toBe(0);
+  const inequality = { ...query, predicate: { kind: "and", children: [
+    { kind: "in", column: "id", values: ["collision"] }, { kind: "textNotEqual", column: "value", value: "owned" },
+  ] } };
+  expect(await runEffect(fixture.host.read(find, inequality))).toEqual([]);
+  expect(await runEffect(fixture.host.read(count, inequality))).toBe(0);
 });
 
 it("bounds registered command definitions separately from request execution", async () => {

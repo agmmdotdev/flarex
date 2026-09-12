@@ -183,7 +183,7 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
         identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
         requestSha256: identity.expectedRequestSha256,
         resultSha256,
-        successfulResult: result,
+        successfulResult: { ...result, encoding: "application-value" },
         payloadPreferenceDeletionCount: preferenceFacts.length,
       };
       const kernel: ScopePublicationKernel = {

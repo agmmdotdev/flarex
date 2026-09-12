@@ -100,6 +100,25 @@ describe("configured endpoint binding", () => {
     productFoundation = { profile, native: nativeProduct };
   });
 
+  it("admits text inequality on Sales Channel IDs without granting it to other fields", async () => {
+    await Effect.runPromise(fixture.host.run(fixture.host.newRequestKey(), sales.create, [
+      { id: "neq-channel-a", name: "Inequality witness" }, { id: "neq-channel-b", name: "Inequality witness" },
+      { id: "neq-channel-c", name: "Inequality witness" },
+    ]));
+    try {
+      await expect(Effect.runPromise(fixture.host.read(sales.count, {
+        filters: { name: "Inequality witness", id: { $ne: "neq-channel-a" } }, config: { select: ["id"], skip: 1, take: 1 },
+      }))).resolves.toEqual([[{ id: "neq-channel-c" }], 2]);
+      for (const filters of [{ name: { $ne: "Inequality witness" } }, { is_disabled: { $ne: false } }, { id: { $ne: null } }]) {
+        expect(await runEffectFailure(fixture.host.read(sales.list, { filters }))).toMatchObject({ reason: "invalidInput" });
+      }
+    } finally {
+      // Keep the failing owner witness from contaminating unrelated native cases.
+      await Effect.runPromise(fixture.host.run(fixture.host.newRequestKey(), sales.delete, ["neq-channel-a", "neq-channel-b", "neq-channel-c"]));
+      fixture.takeDeliveries();
+    }
+  });
+
   it("runs native Sales Channel writes and reads through the confined profile", async () => {
     const run = Effect.runPromise;
     const created = await run(fixture.host.run(fixture.host.newRequestKey(), sales.create, [
