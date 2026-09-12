@@ -878,8 +878,6 @@ function selectRootScalarRows(
     materialWriteEventEvidenceBytes:
       fxSystemTransactionJournals.materialWriteEventEvidenceBytes,
     failureDimension: fxSystemTransactionJournals.failureDimension,
-    sealedFinalSyscallSequence:
-      fxSystemTransactionJournals.sealedFinalSyscallSequence,
     sealedJournalByteLengthText: sql<string | null>`
       case when ${fxSystemTransactionJournals.sealedJournalBytes} is null
         then null

@@ -2806,15 +2806,13 @@ const prepareLogicalWriteEventEffect = Effect.fn(
       new Error("Canonical logical write evidence returned a non-object."),
     );
   }
-  const eventJson = cloneJsonObject(evidence.valueJson);
   const strictWrite = yield* Effect.fromResult(
-    decodeLogicalAppWriteResult(structuredClone(eventJson)).pipe(
+    decodeLogicalAppWriteResult(evidence.valueJson).pipe(
       Result.mapError(mapRunPointOperationFailure),
     ),
   );
   return Object.freeze({
     write: strictWrite,
-    eventJson,
     canonicalBytes: copyCanonicalFlarexValueBytesV1(evidence.canonicalBytes),
     sha256: copyFlarexValueSha256V1(evidence.sha256),
     evidenceBytes: evidence.canonicalBytes.byteLength,
@@ -2936,7 +2934,6 @@ interface SessionJournalOperationPlanV1 {
 
 interface PreparedLogicalWriteEventV1 {
   readonly write: LogicalAppWriteV1;
-  readonly eventJson: JsonObject;
   readonly canonicalBytes: CanonicalFlarexValueBytesV1;
   readonly sha256: FlarexValueSha256V1;
   readonly evidenceBytes: number;
@@ -6428,7 +6425,6 @@ async function persistLogicalWrite(
     syscallSequence: event.write.syscallSequence,
     writeKind: event.write.kind,
     eventCodecVersion: 1,
-    eventJson: cloneJsonObject(event.eventJson),
     eventBytes: new Uint8Array(event.canonicalBytes),
     eventSha256: new Uint8Array(event.sha256),
     createdAt: context.databaseNow,
@@ -7412,11 +7408,9 @@ const decodeAndVerifyLogicalWriteEventEffect = Effect.fn(function* (
       )),
     ),
   );
-  const encoded = requireJson(encodeLogicalAppWrite(write));
   if (
     write.kind !== event.writeKind ||
-    write.syscallSequence !== event.syscallSequence ||
-    !jsonEqual(encoded, event.eventJson)
+    write.syscallSequence !== event.syscallSequence
   ) {
     return yield* Effect.fail(corruption(
       attempt,
@@ -7720,7 +7714,6 @@ const completeSealInTransactionEffect = Effect.fn(
         .set({
           state: "sealed",
           failureDimension: null,
-          sealedFinalSyscallSequence: evidence.finalSyscallSequence,
           sealedJournalBytes: new Uint8Array(evidence.journalBytes),
           sealedJournalSha256: new Uint8Array(evidence.journalSha256),
           sealedResultValueCodecVersion: evidence.resultValueCodecVersion,
@@ -7841,7 +7834,7 @@ function validateStoredSealMatchesResult(
   SessionJournalSealV1Error | SessionJournalStorageCorruptionV1Error
 > {
   if (
-    root.sealedFinalSyscallSequence !== evidence.finalSyscallSequence ||
+    root.lastSyscallSequence !== evidence.finalSyscallSequence ||
     root.sealedJournalBytes === null ||
     root.sealedJournalSha256 === null ||
     root.sealedResultValueCodecVersion !== evidence.resultValueCodecVersion ||

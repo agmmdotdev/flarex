@@ -356,7 +356,6 @@ describePostgres("real Postgres O03-B session authority", () => {
       await persistence.query(
         `update fx_system_tx_journal
          set state = 'sealed',
-             sealed_final_syscall_sequence = last_syscall_sequence,
              sealed_journal_bytes = $2,
              sealed_journal_sha256 = $3,
              sealed_result_value_codec_version = 1,

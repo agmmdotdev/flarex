@@ -177,7 +177,6 @@ export function isPristineFreshTransactionAttemptJournalRootV1(
     root.writeSemanticBytes === 0 &&
     root.materialWriteEventEvidenceBytes === 0 &&
     root.failureDimension === null &&
-    root.sealedFinalSyscallSequence === null &&
     root.sealedJournalBytes === null &&
     root.sealedJournalSha256 === null &&
     root.sealedResultValueCodecVersion === null &&

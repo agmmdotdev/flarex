@@ -6,10 +6,12 @@ Status: replacement implementation authorized. Slice 1 is implemented: shared
 Application facts use bounded inserts and native latest receipts use an upsert.
 Slice 2 is implemented: a dedicated wake uses commit identity and one claim fence.
 Expired-lease floor progress is also implemented: only live pins count toward
-the bounded lease directory. The remaining storage replacements below are pending.
+the bounded lease directory. Journal roots now retain one final syscall counter,
+and write events retain canonical bytes and digest without a JSON mirror.
+The remaining storage replacements below are pending.
 Row-body DDL still needs
 paired measurements, and the coalesced-journal contract remains a separate
-selection. Payload and Medusa operation APIs remain unchanged by both slices;
+selection. Payload and Medusa operation APIs remain unchanged by these replacements;
 exported core clock/counter types lose their obsolete wake-sequence fields.
 
 The owner declares early development and no backward-compatibility requirement
@@ -321,11 +323,11 @@ sequence. Framework command, context, and manager contracts are unchanged. Legac
 | Transaction session | **Replace terminal payload policy:** retain active request/authority/attempt state; define slim terminal evidence | Keep enough request identity/fingerprint, final outcome/refusal and fencing to reject stale work and preserve request-key policy. Full args/grants cannot remain forever solely because the marker remains |
 | Snapshot lease | **Retain** | Exact retained snapshot for the current attempt. Expiry is not interchangeable with process claim expiry |
 | Execution claim | **Retain** | Authenticated current process, claim fence and takeover semantics. A matching structural object does not mint authority |
-| Journal root | **Change selected duplicate fields** | Keep syscall order, counters, state, result/seal evidence and creation-time cursor. Remove duplicated sealed-final sequence only with seal/loader/constraint changes |
+| Journal root | **Duplicate counter removed** | `lastSyscallSequence` is the sole stored final counter. Sealing, independent canonical-journal authentication, recovery and locked publication bind it to the prepared evidence. Keep other counters, state, result/seal evidence and creation-time cursor |
 | Latest syscall receipt | **Retain behavior, replace write mechanic** | One exact receipt supports lost-response replay. Upsert replaces delete+insert; merging a large receipt into the hot root is not selected without row-width measurements |
 | Point journal | **Retain** | Immutable base dependency plus one final overlay per row. It is temporary working state, not another committed row authority |
 | Indexed and relation dependency journals | **Retain** | Complete bounded predicate/adjacency dependencies, including absence and pagination |
-| Ordered write-event journal | **Retain under current authentication; candidate replacement** | It currently supports independent write-chain reconstruction. Remove its duplicate event JSON with byte-decoder proof; remove the event table only under a separately selected coalesced-evidence contract |
+| Ordered write-event journal | **JSON mirror removed; retain canonical events** | Canonical-byte/digest verification and strict logical-write decoding retain kind/sequence correlation and independent write-chain reconstruction. Remove the event table only under a separately selected coalesced-evidence contract |
 | Sealed bytes plus normalized children | **Candidate phase replacement** | Open state needs mutable normalized access. A sealed representation may supersede children only after every stored-attempt/recovery verifier can authenticate it without them |
 
 The current terminalization owner deletes root/children and lease, but retains

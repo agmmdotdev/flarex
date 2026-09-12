@@ -632,7 +632,6 @@ interface StoredAttemptSealedRootPortV1 {
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
     CommitMaterialWriteEventEvidenceBytesV1;
-  readonly sealedFinalSyscallSequence: CommitFinalSyscallSequenceV1;
   readonly journalBytes: Uint8Array;
   readonly journalSha256: Uint8Array;
   readonly resultValueCodecVersion: FlarexValueCodecVersion;

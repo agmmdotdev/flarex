@@ -1080,6 +1080,21 @@ describe("C04A stored-attempt authentication", () => {
       reason?: string;
     }>> = [
       {
+        mutate: (evidence) => {
+          Object.assign(evidence.root, { lastSyscallSequence: 1n });
+        },
+        expected: StoredAttemptStorageCorruptionV1Error,
+        reason: "journalCounterMismatch",
+      },
+      {
+        mutate: (evidence, envelope) => {
+          Object.assign(evidence.root, { lastSyscallSequence: 1n });
+          Object.assign(envelope, { finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n) });
+        },
+        expected: StoredAttemptStorageCorruptionV1Error,
+        reason: "journalCounterMismatch",
+      },
+      {
         mutate: (_evidence, envelope) => {
           Object.assign(envelope, {
             finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n),
@@ -6209,7 +6224,7 @@ function commitInputSourceForTest(
       rootCreatedAtMilliseconds: evidence.root.createdAtMilliseconds,
       rootUpdatedAtMilliseconds: evidence.root.updatedAtMilliseconds,
       sealedAtMilliseconds: evidence.root.sealedAtMilliseconds,
-      finalSyscallSequence: evidence.root.sealedFinalSyscallSequence,
+      finalSyscallSequence: evidence.root.lastSyscallSequence,
       creationTimeSeed: evidence.root.creationTimeSeed,
       nextCreationTime: evidence.root.nextCreationTime,
       journalFormat: current.fixture.journal.journal.format,
@@ -6809,7 +6824,6 @@ async function fixtureForJournal(
       ),
       materialWriteEventEvidenceBytes:
         CommitMaterialWriteEventEvidenceBytesV1Schema.make(0),
-      sealedFinalSyscallSequence: journal.journal.finalSyscallSequence,
       journalBytes: new Uint8Array(journal.canonicalBytes),
       journalSha256: hexBytes(journal.sha256Hex),
       resultValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,

@@ -125,6 +125,7 @@ import {
 } from "../src/sessionJournalStore";
 import { fxSystemIndexBuildStates } from "../src/schema";
 import { sessionJournalReceiptScenario } from "./sessionJournalReceiptScenario";
+import { verifyJournalEventEvidence, verifyJournalSealSequence } from "./journalEvidenceScenario";
 import {
   INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
   IndexBuildAttemptFenceSchema,
@@ -3017,6 +3018,14 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
   });
 
+  it("authenticates canonical write bytes and scalar metadata without a JSON mirror", async () => {
+    await verifyJournalEventEvidence(persistence, await scenario("canonical_event_only"));
+  });
+
+  it("binds seal replay to the surviving root sequence", async () => {
+    await verifyJournalSealSequence(persistence, await scenario("surviving_root_sequence"));
+  });
+
   it("maps malformed receipt, overlay, and write evidence at their Effect adapters", async () => {
     const invalidDigest = new Uint8Array(32);
     const receipt = await scenario("seal_invalid_receipt_evidence");
@@ -3170,7 +3179,6 @@ describe("C03 Postgres SessionJournalStore", () => {
           syscall_sequence,
           write_kind,
           event_codec_version,
-          event_json,
           event_bytes,
           event_sha256,
           created_at
@@ -3181,7 +3189,6 @@ describe("C03 Postgres SessionJournalStore", () => {
                series.value,
                'delete',
                1,
-               '{}'::jsonb,
                decode('00', 'hex'),
                decode(repeat('00', 32), 'hex'),
                root.created_at
@@ -3691,7 +3698,6 @@ describe("C03 Postgres SessionJournalStore", () => {
     );
 
     const sealedNullableColumns = [
-      "sealed_final_syscall_sequence",
       "sealed_journal_bytes",
       "sealed_journal_sha256",
       "sealed_result_value_codec_version",

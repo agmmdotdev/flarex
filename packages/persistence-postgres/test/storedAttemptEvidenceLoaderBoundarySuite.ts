@@ -112,7 +112,7 @@ export function registerStoredAttemptEvidenceLoaderBoundaryTests<
     expect(harness.bytesToHex(result.evidence.root.journalSha256)).toBe(
       envelope.journalSha256Hex,
     );
-    expect(result.evidence.root.sealedFinalSyscallSequence).toBe(0n);
+    expect(result.evidence.root.lastSyscallSequence).toBe(0n);
     expect(result.evidence.points).toEqual([]);
     expect(await harness.timestamps(current.anchor.sessionId)).toEqual(before);
   });

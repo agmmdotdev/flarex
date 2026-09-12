@@ -2170,8 +2170,6 @@ function validRootScalars(root: RootScalarRow): boolean {
   const updatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
   const sealedAtMilliseconds = finiteDateMilliseconds(root.sealedAt);
   return root.failureDimension === null &&
-    root.sealedFinalSyscallSequence !== null &&
-    root.sealedFinalSyscallSequence === root.lastSyscallSequence &&
     root.sealedJournalByteLengthText !== null &&
     root.sealedJournalSha256 !== null &&
     root.sealedResultValueCodecVersion !== null &&
@@ -2247,7 +2245,6 @@ function classifyOpenOccExecutionRoot(
   }
 
   const hasNoSealedEvidence =
-    root.sealedFinalSyscallSequence === null &&
     root.sealedJournalBytes === null &&
     root.sealedJournalSha256 === null &&
     root.sealedResultValueCodecVersion === null &&
@@ -2319,7 +2316,6 @@ function sameSealIdentity(
     ? undefined
     : parseLength(root.sealedResultByteLengthText);
   return root.sealedAt !== null &&
-    root.sealedFinalSyscallSequence !== null &&
     root.sealedJournalSha256 !== null &&
     root.sealedResultValueCodecVersion !== null &&
     root.sealedResultSemanticBytes !== null &&
@@ -2331,7 +2327,7 @@ function sameSealIdentity(
     expected.rootCreatedAtMilliseconds === rootCreatedAtMilliseconds &&
     expected.rootUpdatedAtMilliseconds === rootUpdatedAtMilliseconds &&
     expected.sealedAtMilliseconds === sealedAtMilliseconds &&
-    expected.finalSyscallSequence === root.sealedFinalSyscallSequence &&
+    expected.finalSyscallSequence === root.lastSyscallSequence &&
     expected.creationTimeSeed === root.creationTimeSeed &&
     expected.nextCreationTime === root.nextCreationTime &&
     expected.journalByteLength === journalLength &&

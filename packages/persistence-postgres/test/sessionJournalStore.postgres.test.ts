@@ -42,6 +42,7 @@ import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transactio
 import { Effect, Fiber, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { sessionJournalReceiptScenario } from "./sessionJournalReceiptScenario";
+import { verifyJournalEventEvidence, verifyJournalSealSequence } from "./journalEvidenceScenario";
 
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
@@ -160,6 +161,18 @@ interface AttemptLeaseAndSealState extends Record<string, unknown> {
 
 describePostgres("real Postgres C03 SessionJournalStore", () => {
   const withPostgresPersistence = useFileScopedPostgresPersistence();
+
+  it("authenticates canonical write bytes and scalar metadata without a JSON mirror", async () => {
+    await withPostgresPersistence(async persistence => {
+      await verifyJournalEventEvidence(persistence, await scenario(persistence, "canonical_event_only"));
+    });
+  });
+
+  it("binds seal replay to the surviving root sequence", async () => {
+    await withPostgresPersistence(async persistence => {
+      await verifyJournalSealSequence(persistence, await scenario(persistence, "surviving_root_sequence"));
+    });
+  });
 
   it("rolls back invalid syscall-time validation before journal acceptance", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
@@ -440,7 +453,11 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
                '2030-01-01T00:00:00.000Z')
           `, [session.scopeUuid, session.sessionId]);
 
-          await copyFile(currentJournal, temporaryJournal);
+          await writeFile(
+            temporaryJournal,
+            migrationJournalBefore(journalText, 77),
+            "utf8",
+          );
           current = await createPostgresPersistence({
             ...databaseOptions,
             migrationsFolder,
@@ -1361,7 +1378,6 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true })),
       );
       const sealedNullableColumns = [
-        "sealed_final_syscall_sequence",
         "sealed_journal_bytes",
         "sealed_journal_sha256",
         "sealed_result_value_codec_version",
@@ -1822,7 +1838,7 @@ async function journalLookupPlans(
     );
     const eventPlan = await explain(
       planner,
-      `select event_json from fx_system_tx_journal_write_event
+      `select event_bytes from fx_system_tx_journal_write_event
        where scope_uuid = $1::uuid
          and session_id = $2::uuid
          and attempt_fence = $3::bigint

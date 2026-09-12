@@ -3441,7 +3441,6 @@ async function lockRunningRelationConflictJournal(
     !isNonNegativeSafeInteger(row.materialWriteEventEvidenceBytes) ||
     row.materialWriteEventEvidenceBytes >
       MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1 ||
-    row.sealedFinalSyscallSequence !== null ||
     row.sealedJournalBytes !== null ||
     row.sealedJournalSha256 !== null ||
     row.sealedResultValueCodecVersion !== null ||
@@ -5667,8 +5666,6 @@ async function lockPointCommitJournalRoot(
       materialWriteEventEvidenceBytes:
         fxSystemTransactionJournals.materialWriteEventEvidenceBytes,
       failureDimension: fxSystemTransactionJournals.failureDimension,
-      sealedFinalSyscallSequence:
-        fxSystemTransactionJournals.sealedFinalSyscallSequence,
       sealedJournalByteLength: sql<number | null>`
         octet_length(${fxSystemTransactionJournals.sealedJournalBytes})
       `,
@@ -5728,7 +5725,6 @@ async function lockPointCommitJournalRoot(
       row.attemptFence !== command.authorityPins.attemptFence ||
       row.state !== "sealed" ||
       row.failureDimension !== null ||
-      row.sealedFinalSyscallSequence === null ||
       row.sealedJournalByteLength === null ||
       row.sealedJournalSha256 === null ||
       row.sealedResultValueCodecVersion === null ||
@@ -5737,7 +5733,6 @@ async function lockPointCommitJournalRoot(
       row.sealedResultSha256 === null ||
       row.sealedAt === null ||
       row.lastSyscallSequence !== expected.finalSyscallSequence ||
-      row.sealedFinalSyscallSequence !== expected.finalSyscallSequence ||
       row.creationTimeSeed !== expected.creationTimeSeed ||
       row.nextCreationTime !== expected.nextCreationTime ||
       row.readDocuments !== expected.readDocuments ||

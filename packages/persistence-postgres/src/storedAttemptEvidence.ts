@@ -262,7 +262,6 @@ export interface StoredAttemptSealedRootV1 {
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
     CommitMaterialWriteEventEvidenceBytesV1;
-  readonly sealedFinalSyscallSequence: CommitFinalSyscallSequenceV1;
   readonly journalBytes: Uint8Array;
   readonly journalSha256: Uint8Array;
   readonly resultValueCodecVersion: FlarexValueCodecVersion;
@@ -1309,7 +1308,6 @@ function captureSealedRoot(
   const sealedAtMilliseconds = finiteDateMilliseconds(root.sealedAt);
   if (
     root.failureDimension !== null ||
-    root.sealedFinalSyscallSequence === null ||
     root.sealedJournalBytes === null ||
     root.sealedJournalSha256 === null ||
     root.sealedResultValueCodecVersion === null ||
@@ -1317,7 +1315,6 @@ function captureSealedRoot(
     root.sealedResultBytes === null ||
     root.sealedResultSha256 === null ||
     root.sealedAt === null ||
-    root.sealedFinalSyscallSequence !== root.lastSyscallSequence ||
     createdAtMilliseconds === undefined ||
     updatedAtMilliseconds === undefined ||
     sealedAtMilliseconds === undefined ||
@@ -1360,7 +1357,6 @@ function captureSealedRoot(
     writeOperations: root.writeOperations,
     writeSemanticBytes: root.writeSemanticBytes,
     materialWriteEventEvidenceBytes: root.materialWriteEventEvidenceBytes,
-    sealedFinalSyscallSequence: root.sealedFinalSyscallSequence,
     journalBytes: copyBytes(root.sealedJournalBytes),
     journalSha256: copyBytes(root.sealedJournalSha256),
     resultValueCodecVersion: root.sealedResultValueCodecVersion,

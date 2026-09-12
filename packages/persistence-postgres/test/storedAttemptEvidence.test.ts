@@ -40,6 +40,7 @@ import {
   CanonicalSuccessfulResultBytesV1Schema,
   CommitEnvelopeV1Schema,
   CommitSyscallSequenceV1Schema,
+  CommitFinalSyscallSequenceV1Schema,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSessionJournalV1Effect,
@@ -282,6 +283,7 @@ import {
   fxSystemCommits,
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
+  fxSystemTransactionJournals,
 } from "../src/schema";
 import {
   PointMutationExecutionClaimAcquisitionStaleV1Error,
@@ -2959,6 +2961,58 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     )).toMatchObject({
       _tag: "InvalidPointMutationOccConflictV1Error",
       reason: "alreadyConsumed",
+    });
+  });
+
+  it("rejects root sequence drift during authentication, fresh reconstruction, and prepared publication", async () => {
+    const current = await c04b2Scenario("root_sequence_drift");
+    const envelope = await seal(current);
+    const createAuthentication = () => createO07BAuthentication(current);
+    const authentication = createAuthentication();
+    const selector = {
+      deploymentId: current.anchor.deploymentId, scopeId: current.anchor.scopeId,
+      sessionId: current.anchor.sessionId, attemptFence: current.anchor.attemptFence.toString(),
+    };
+    const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
+    const loaded = await runEffect(current.loading.load(selector));
+    const authority = await runEffect(authentication.deriveAuthority(loaded, current.executionScope));
+    const setSequence = async (lastSyscallSequence: bigint) => {
+      const changed = await persistence.drizzle.update(fxSystemTransactionJournals)
+        .set({ lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(lastSyscallSequence) }).where(and(
+          eq(fxSystemTransactionJournals.scopeUuid, scopeUuid),
+          eq(fxSystemTransactionJournals.sessionId, current.anchor.sessionId),
+          eq(fxSystemTransactionJournals.attemptFence, current.anchor.attemptFence),
+        )).returning({ sequence: fxSystemTransactionJournals.lastSyscallSequence });
+      expect(changed).toEqual([{ sequence: lastSyscallSequence }]);
+    };
+    await setSequence(1n);
+    for (const candidate of [
+      envelope,
+      { ...envelope, finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n) },
+    ]) {
+      expect(await runFailure(authentication.authenticate(authority, encodeEnvelope(candidate))))
+        .toMatchObject({ _tag: "StoredAttemptStorageCorruptionV1Error", reason: "journalCounterMismatch" });
+    }
+    await setSequence(0n);
+    const stored = await runEffect(authentication.authenticate(authority, encodeEnvelope(envelope)));
+    const commitAuthority = await runEffect(authentication.authenticateCommitAuthority(stored));
+    const verified = await runEffect(authentication.verifyCommitInput(commitAuthority));
+    const running = await runEffect(authentication.planPointCommit(verified));
+    const finishing = await runEffect(authentication.enterPointCommitFinishing(running));
+    const before = await o06DurableState(scopeUuid);
+    await setSequence(1n);
+    expect(await runFailure(createAuthentication().reconstructPointCommitFinishing(selector)))
+      .toMatchObject({ _tag: "StoredAttemptStorageCorruptionV1Error", reason: "journalCounterMismatch" });
+    expect(await runFailure(authentication.publishPointCommit(finishing)))
+      .toMatchObject({ _tag: "PointCommitCorruptionV1Error", reason: "journalRootInvalid" });
+    expect(await o06DurableState(scopeUuid)).toEqual(before);
+    expect(await o07bTerminalState(scopeUuid, current.anchor.sessionId)).toMatchObject({ lifecycle: "finishing", leases: "1", journals: "1" });
+    await setSequence(0n);
+    expect(await runEffect(createAuthentication().resumePointCommit(selector)))
+      .toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+    expect(await o06DurableState(scopeUuid)).toMatchObject({
+      revisions: "0", current_rows: "0", commit_headers: "1",
+      commit_changes: "0", outcomes: "1", wakes: "1", last_commit_seq: "1",
     });
   });
 
@@ -9110,7 +9164,7 @@ function commitAuthorityFromStoredEvidence(
       rootCreatedAtMilliseconds: evidence.root.createdAtMilliseconds,
       rootUpdatedAtMilliseconds: evidence.root.updatedAtMilliseconds,
       sealedAtMilliseconds: evidence.root.sealedAtMilliseconds,
-      finalSyscallSequence: evidence.root.sealedFinalSyscallSequence,
+      finalSyscallSequence: evidence.root.lastSyscallSequence,
       creationTimeSeed: evidence.root.creationTimeSeed,
       nextCreationTime: evidence.root.nextCreationTime,
       journalFormat: SESSION_JOURNAL_FORMAT_V1,

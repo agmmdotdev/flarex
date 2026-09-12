@@ -309,7 +309,7 @@ function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
       rootCreatedAtMilliseconds: root.createdAtMilliseconds,
       rootUpdatedAtMilliseconds: root.updatedAtMilliseconds,
       sealedAtMilliseconds: root.sealedAtMilliseconds,
-      finalSyscallSequence: root.sealedFinalSyscallSequence,
+      finalSyscallSequence: root.lastSyscallSequence,
       creationTimeSeed: root.creationTimeSeed,
       nextCreationTime: root.nextCreationTime,
       journalFormat: SESSION_JOURNAL_FORMAT_V1,

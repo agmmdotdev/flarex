@@ -2733,9 +2733,6 @@ export const fxSystemTransactionJournals = pgTable(
     ),
     failureDimension: text("failure_dimension")
       .$type<TransactionJournalOperationalLimitDimensionV1>(),
-    sealedFinalSyscallSequence: bigint("sealed_final_syscall_sequence", {
-      mode: "bigint",
-    }).$type<CommitFinalSyscallSequenceV1>(),
     sealedJournalBytes: bytea("sealed_journal_bytes"),
     sealedJournalSha256: bytea("sealed_journal_sha256"),
     sealedResultValueCodecVersion: integer("sealed_result_value_codec_version")
@@ -2861,7 +2858,6 @@ export const fxSystemTransactionJournals = pgTable(
         (
           ${table.state} = 'open'
           and ${table.failureDimension} is null
-          and ${table.sealedFinalSyscallSequence} is null
           and ${table.sealedJournalBytes} is null
           and ${table.sealedJournalSha256} is null
           and ${table.sealedResultValueCodecVersion} is null
@@ -2873,7 +2869,6 @@ export const fxSystemTransactionJournals = pgTable(
         or (
           ${table.state} = 'failed'
           and ${table.failureDimension} is not null
-          and ${table.sealedFinalSyscallSequence} is null
           and ${table.sealedJournalBytes} is null
           and ${table.sealedJournalSha256} is null
           and ${table.sealedResultValueCodecVersion} is null
@@ -2885,7 +2880,6 @@ export const fxSystemTransactionJournals = pgTable(
         or (
           ${table.state} = 'relation_conflicted'
           and ${table.failureDimension} is null
-          and ${table.sealedFinalSyscallSequence} is null
           and ${table.sealedJournalBytes} is null
           and ${table.sealedJournalSha256} is null
           and ${table.sealedResultValueCodecVersion} is null
@@ -2897,8 +2891,6 @@ export const fxSystemTransactionJournals = pgTable(
         or (
           ${table.state} = 'sealed'
           and ${table.failureDimension} is null
-          and ${table.sealedFinalSyscallSequence} is not null
-          and ${table.sealedFinalSyscallSequence} = ${table.lastSyscallSequence}
           and ${table.sealedJournalBytes} is not null
           and octet_length(${table.sealedJournalBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
           and ${table.sealedJournalSha256} is not null
@@ -3401,7 +3393,6 @@ export const fxSystemTransactionJournalWriteEvents = pgTable(
       .$type<LogicalAppWriteV1["kind"]>()
       .notNull(),
     eventCodecVersion: integer("event_codec_version").$type<1>().notNull(),
-    eventJson: jsonb("event_json").$type<JsonObject>().notNull(),
     eventBytes: bytea("event_bytes").notNull(),
     eventSha256: bytea("event_sha256").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -3436,7 +3427,6 @@ export const fxSystemTransactionJournalWriteEvents = pgTable(
       sql`
         ${table.writeKind} in ('insert', 'patch', 'replace', 'delete')
         and ${table.eventCodecVersion} = 1
-        and jsonb_typeof(${table.eventJson}) = 'object'
         and octet_length(${table.eventBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1))}
         and octet_length(${table.eventSha256}) = 32
       `,

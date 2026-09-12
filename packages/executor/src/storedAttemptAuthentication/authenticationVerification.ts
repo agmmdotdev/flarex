@@ -338,7 +338,7 @@ function storedEnvelopeMismatch(
   }
   if (
     envelope.finalSyscallSequence !==
-      evidence.root.sealedFinalSyscallSequence
+      evidence.root.lastSyscallSequence
   ) {
     return new StoredAttemptEnvelopeMismatchV1Error({ reason: "sequence" });
   }
@@ -399,9 +399,7 @@ function journalCounterMismatch(
     onSuccess: (measuredIndexRangeEvidenceBytes) =>
       journal.protocolVersion !== evidence.session.protocolVersion ||
         journal.finalSyscallSequence !==
-          evidence.root.sealedFinalSyscallSequence ||
-        evidence.root.lastSyscallSequence !==
-          evidence.root.sealedFinalSyscallSequence ||
+          evidence.root.lastSyscallSequence ||
         journal.readUsage.documentsRead !== evidence.root.readDocuments ||
         journal.readUsage.semanticBytesRead !==
           evidence.root.readSemanticBytes ||
@@ -904,7 +902,7 @@ function captureAuthenticatedState(
       rootCreatedAtMilliseconds: root.createdAtMilliseconds,
       rootUpdatedAtMilliseconds: root.updatedAtMilliseconds,
       sealedAtMilliseconds: root.sealedAtMilliseconds,
-      finalSyscallSequence: root.sealedFinalSyscallSequence,
+      finalSyscallSequence: root.lastSyscallSequence,
       creationTimeSeed: root.creationTimeSeed,
       nextCreationTime: root.nextCreationTime,
       journalFormat: journal.format,

@@ -761,6 +761,11 @@ Deferred ownership after the required O03-B core:
   the same bounded stored-evidence snapshot and C04 verifier for a separate
   finishing-only fresh-process entry, traverses the existing compiler chain,
   and invokes the same O07-B publisher. `C06` owns endpoint orchestration;
+- The root's `lastSyscallSequence` is the sole persisted final counter. The
+  canonical journal, caller envelope, frozen seal identity and freshly locked
+  publication root remain independently correlated. Write events store
+  canonical bytes and digest; the existing strict decoder verifies canonical
+  spelling and logical kind/sequence without a persisted JSON mirror;
 - `O07-B` atomically deletes the exact current lease and stores `committed` only
   inside the data/result/outcome/feed/outbox transaction;
 - `O08-A` supplies the checked exact-attempt replacement primitive only;
