@@ -1,11 +1,11 @@
-import {
-  createApplicationNativeMutationPostgresFixture,
-} from
-  "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
+import { createApplicationNativeMutationPostgresFixture } from "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import { describe, expect, it } from "vitest";
 
-import { proveManagedSchemaCookingSchemaB } from
-  "../../support/managedSchemaCookingHarness";
+import {
+  proveManagedSchemaCookingSchemaB,
+  proveManagedSchemaCandidateIndexCoverageBoundaries,
+  proveManagedSchemaCandidateIndexAfterActiveWrite,
+} from "../../support/managedSchemaCookingHarness";
 import {
   postgresUrl,
   withTemporarySplitPostgresPersistence,
@@ -24,10 +24,12 @@ describe("Managed-schema cooking schema B PostgreSQL acceptance environment", ()
 
 describePostgres("Managed-schema cooking schema B - PostgreSQL", () => {
   it("blocks populated removal, preserves A, remediates, and activates B", async () => {
-    await withTemporarySplitPostgresPersistence(async persistence => {
-      await expect(proveManagedSchemaCookingSchemaB(options =>
-        createApplicationNativeMutationPostgresFixture(options, persistence)
-      )).resolves.toMatchObject({
+    await withTemporarySplitPostgresPersistence(async (persistence) => {
+      await expect(
+        proveManagedSchemaCookingSchemaB((options) =>
+          createApplicationNativeMutationPostgresFixture(options, persistence),
+        ),
+      ).resolves.toMatchObject({
         plannedManagedValidation: true,
         developerAdapterProjectionDetached: true,
         developerAdapterProjectionJsonSafe: true,
@@ -53,4 +55,43 @@ describePostgres("Managed-schema cooking schema B - PostgreSQL", () => {
       });
     });
   }, 480_000);
+  it("keeps a candidate index complete after an active write and normal replan", async () => {
+    await withTemporarySplitPostgresPersistence(async (persistence) => {
+      await expect(
+        proveManagedSchemaCandidateIndexAfterActiveWrite((options) =>
+          createApplicationNativeMutationPostgresFixture(options, persistence),
+        ),
+      ).resolves.toEqual({
+        candidateIndexEnabledBeforeWrite: true,
+        schemaAStayedActive: true,
+        activeWritePublished: true,
+        originalPlanRejectedAsStale: true,
+        sameCandidateActivatedAfterReplan: true,
+        pointReadFoundDocument: true,
+        staleCoverageBlockedReadiness: true,
+        activeKeyMovesAndDeletionPublished: true,
+        catchUpRollbackAndUncertainReplay: true,
+        originalSnapshotHistoryPreserved: true,
+        indexedDocumentCount: 1,
+        indexMatchesPoint: true,
+        indexPageIsDone: true,
+      });
+    });
+  }, 480_000);
+  it.each(["cursorAndWholeCommit", "retainedGap", "oversizedHistory"] as const)(
+    "preserves candidate coverage boundary: %s",
+    async (mode) => {
+      await withTemporarySplitPostgresPersistence(async (persistence) => {
+        await expect(
+          proveManagedSchemaCandidateIndexCoverageBoundaries(mode, (options) =>
+            createApplicationNativeMutationPostgresFixture(
+              options,
+              persistence,
+            ),
+          ),
+        ).resolves.toBe(true);
+      });
+    },
+    480_000,
+  );
 });

@@ -272,6 +272,14 @@ live index update when the key stays the same. The proposed Flarex storage is a
 deliberate persistence divergence preserving query results and conflict safety,
 not removal of a behavior solely invented for compatibility.
 
+A reproduced candidate-only index gap blocks the membership rewrite: after the
+candidate build enables, active-schema writes can be absent from that index even
+after normal replanning and activation. The separate
+[coverage correction preflight](./08-index-coverage-correction.md) proposes the
+required index-owner freshness contract. Its new contract is not yet approved;
+row-body work remains independent. Do not fix this by enforcing candidate-only
+constraints or extra fanout against valid active-schema writes.
+
 ### Stable Unique Ownership And Existing Relation Deltas
 
 Keep one unique claim per scope/constraint/locale/canonical key, with its owning

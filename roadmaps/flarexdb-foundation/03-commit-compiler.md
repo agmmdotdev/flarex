@@ -886,6 +886,17 @@ simulation must also traverse Standard preparation and the point-mutation stack
 with its canonical `recipes.by_difficulty` definition on both persistence
 lanes.
 
+The current ordered builder additionally owns explicit completed coverage and an
+immutable first-readable frontier; enabled alone is not a completeness proof.
+Active selected definitions advance coverage atomically with publication, while
+candidate-only definitions catch up through retained committed facts. Initial
+validation restarts after relevant writes; enabled catch-up preserves original
+commit positions and already-served snapshots. Readiness and index admission use
+the same coverage predicate, with an indexed current-table-head proof for
+irrelevant commit suffixes. Unknown pre-correction enabled coverage fails closed.
+See [the approved coverage correction](../shared-transaction-core/08-index-coverage-correction.md)
+for work bounds, migration disposition and the remaining unique-owner correction.
+
 `C08-A` directly replaces C04C1's former developer-index rejection only for a
 private capability minted by the exact point-commit port that owns maintenance;
 an independent host literal cannot enable planning. Before the transaction, a

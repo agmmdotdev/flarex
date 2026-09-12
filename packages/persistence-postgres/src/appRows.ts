@@ -333,7 +333,8 @@ export class AppRowReadPersistenceError extends Error {
       | "readScopeAuthority"
       | "readSnapshotRevision"
       | "readCurrentPointer"
-      | "readCurrentRevision",
+      | "readCurrentRevision"
+      | "readTableFrontier",
     readonly cause: unknown,
   ) {
     super(`Failed to ${operation.replace(/([A-Z])/g, " $1").toLowerCase()}.`, {
@@ -343,10 +344,25 @@ export class AppRowReadPersistenceError extends Error {
   }
 }
 
+export class AppRowTableFrontierCorruptionError extends Error {
+  readonly _tag = "AppRowTableFrontierCorruptionError" as const;
+  constructor(
+    readonly scopeId: ScopeId,
+    readonly tableId: CatalogTableId,
+    cause?: unknown,
+  ) {
+    super(`App-row table frontier is invalid: ${scopeId}/${tableId}.`, {
+      cause,
+    });
+    this.name = "AppRowTableFrontierCorruptionError";
+  }
+}
+
 export type ReadAppRowError =
   | InvalidAppRowReadInputError
   | AppRowScopeAuthorityUnavailableError
   | AppRowReadPersistenceError
+  | AppRowTableFrontierCorruptionError
   | AppRowStorageCorruptionError;
 
 const decodeScopeIdResult = Schema.decodeUnknownResult(
@@ -382,6 +398,66 @@ interface DecodedAppRowReadIdentityV1 {
   readonly identity: AppRowIdentityV1;
   readonly projection: ReturnType<typeof projectScopeIdUuidV1>;
 }
+
+/** Includes tombstone pointers: absence of a later head proves no later table write. */
+export const readAppTableWriteFrontierInTransactionEffect = Effect.fn(
+  "AppRows.readTableWriteFrontier",
+)(function* (
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  tableId: CatalogTableId,
+): Effect.fn.Return<
+  CommitSeq | null,
+  | InvalidAppRowReadInputError
+  | AppRowReadPersistenceError
+  | AppRowTableFrontierCorruptionError
+> {
+  const scope = yield* Effect.fromResult(
+    projectScopeIdUuidV1Result(scopeId),
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new InvalidAppRowReadInputError({ reason: "invalidScopeId", cause }),
+    ),
+  );
+  const table = yield* Effect.fromResult(
+    decodeCatalogTableIdResult(tableId),
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new InvalidAppRowReadInputError({ reason: "invalidTableId", cause }),
+    ),
+  );
+  const rows = yield* readAppRowRowsEffect(
+    tx
+      .select({ commitSeq: fxAppRowCurrent.commitSeq })
+      .from(fxAppRowCurrent)
+      .where(
+        and(
+          eq(fxAppRowCurrent.scopeUuid, scope.scopeUuid),
+          eq(fxAppRowCurrent.tableId, table),
+        ),
+      )
+      .orderBy(desc(fxAppRowCurrent.commitSeq))
+      .limit(1),
+    "readTableFrontier",
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  const frontier = yield* Effect.fromResult(
+    decodeCommitSeqResult(row.commitSeq),
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new AppRowTableFrontierCorruptionError(scopeId, tableId, cause),
+    ),
+  );
+  if (frontier < 1n)
+    return yield* Effect.fail(
+      new AppRowTableFrontierCorruptionError(scopeId, tableId),
+    );
+  return frontier;
+});
 
 export const readAppRowAtSnapshotInTransactionEffect = Effect.fn(
   "AppRows.readAtSnapshotInTransaction",

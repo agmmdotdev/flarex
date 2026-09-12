@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { proveManagedSchemaCookingSchemaB } from
-  "../../support/managedSchemaCookingHarness";
+import {
+  proveManagedSchemaCookingSchemaB,
+  proveManagedSchemaCandidateIndexCoverageBoundaries,
+  proveManagedSchemaCandidateIndexAfterActiveWrite,
+} from "../../support/managedSchemaCookingHarness";
 
 describe("Managed-schema cooking simulation - schema B", () => {
   it("blocks populated removal, preserves A, remediates, and activates B", async () => {
@@ -30,4 +33,32 @@ describe("Managed-schema cooking simulation - schema B", () => {
       outboxCount: 3,
     });
   }, 480_000);
+  it("keeps a candidate index complete after an active write and normal replan", async () => {
+    await expect(
+      proveManagedSchemaCandidateIndexAfterActiveWrite(),
+    ).resolves.toEqual({
+      candidateIndexEnabledBeforeWrite: true,
+      schemaAStayedActive: true,
+      activeWritePublished: true,
+      originalPlanRejectedAsStale: true,
+      sameCandidateActivatedAfterReplan: true,
+      pointReadFoundDocument: true,
+      staleCoverageBlockedReadiness: true,
+      activeKeyMovesAndDeletionPublished: true,
+      catchUpRollbackAndUncertainReplay: true,
+      originalSnapshotHistoryPreserved: true,
+      indexedDocumentCount: 1,
+      indexMatchesPoint: true,
+      indexPageIsDone: true,
+    });
+  }, 480_000);
+  it.each(["cursorAndWholeCommit", "retainedGap", "oversizedHistory"] as const)(
+    "preserves candidate coverage boundary: %s",
+    async (mode) => {
+      await expect(
+        proveManagedSchemaCandidateIndexCoverageBoundaries(mode),
+      ).resolves.toBe(true);
+    },
+    480_000,
+  );
 });

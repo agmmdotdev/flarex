@@ -215,6 +215,7 @@ import type { LocatedAppIndexDefinitionV1 } from "./appIndexDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
+  isIndexBuildSnapshotCoveredInTransactionEffect,
   readFencedIndexBuildStateEffect,
   type ReadFencedIndexBuildStateError,
 } from "./indexBuildStates";
@@ -3458,7 +3459,9 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
   });
   if (
     build.status !== "current" ||
-    build.buildState.lifecycle !== "enabled"
+    !(yield* isIndexBuildSnapshotCoveredInTransactionEffect(
+      tx, build.buildState, index.tableId, index.attempt.snapshotToken.commitSeq,
+    ))
   ) {
     return yield* Effect.fail(
       new SessionJournalDeveloperIndexUnavailableV1Error({

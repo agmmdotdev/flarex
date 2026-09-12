@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -123,7 +124,7 @@ import {
   type SessionJournalStorePersistenceOptionsV1,
   type SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
-import { fxSystemIndexBuildStates } from "../src/schema";
+import { fxSystemIndexBuildStates, fxSystemScopeClocks } from "../src/schema";
 import { sessionJournalReceiptScenario } from "./sessionJournalReceiptScenario";
 import { verifyJournalEventEvidence, verifyJournalSealSequence } from "./journalEvidenceScenario";
 import {
@@ -412,6 +413,8 @@ describe("C03 Postgres SessionJournalStore", () => {
         storageGenerationFence: clock.storageGenerationFence,
         epoch: clock.epoch,
         startCommitSeq: CommitSeqSchema.make(1n),
+        coveredThroughCommitSeq: CommitSeqSchema.make(1n),
+        firstReadableCommitSeq: CommitSeqSchema.make(1n),
         lifecycle: "enabled",
         cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
         backfillCursorRowId: null,
@@ -575,6 +578,27 @@ describe("C03 Postgres SessionJournalStore", () => {
         reason: "invalidComposition",
       });
     }
+  });
+
+  it("rejects uninitialized and future-readable indexes before journal evidence", async () => {
+    const current = await scenario("index_coverage_admission", { seedFields: { name: "Ada" }, developerIndex: true });
+    const index = current.developerIndex;
+    if (index === null) throw new Error("Expected indexed handle.");
+    const invoke = () => runEffect(current.store.runIndexedQueryEffect(index, {
+      kind: "indexRange", syscallSequence: syscallSequence(1n), bounds: {}, limit: 1,
+    }));
+    const scopeId = current.anchor.snapshotToken.scopeId;
+    const selected = eq(fxSystemIndexBuildStates.scopeId, scopeId);
+    await persistence.drizzle.update(fxSystemIndexBuildStates).set({ coveredThroughCommitSeq: null, firstReadableCommitSeq: null }).where(selected);
+    await expect(invoke()).rejects.toMatchObject({ reason: "buildNotEnabled" });
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({ indexed_query_syscalls: 0, index_range_dependency_count: 0 });
+    await persistence.drizzle.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(2n) })
+      .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+    await persistence.drizzle.update(fxSystemIndexBuildStates).set({ coveredThroughCommitSeq: CommitSeqSchema.make(2n), firstReadableCommitSeq: CommitSeqSchema.make(2n) }).where(selected);
+    await expect(invoke()).rejects.toMatchObject({ reason: "buildNotEnabled" });
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({ indexed_query_syscalls: 0, index_range_dependency_count: 0 });
+    await persistence.drizzle.update(fxSystemIndexBuildStates).set({ firstReadableCommitSeq: CommitSeqSchema.make(1n) }).where(selected);
+    await expect(invoke()).resolves.toMatchObject({ kind: "completed", delivery: "executed" });
   });
 
   it("captures and replays one exact indexed snapshot page", async () => {

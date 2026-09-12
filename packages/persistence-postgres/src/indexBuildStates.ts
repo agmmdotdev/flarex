@@ -4,6 +4,7 @@ import { Effect, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
   type CatalogIndexDefinitionId,
+  type CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
   IndexBuildAttemptFenceSchema,
@@ -31,6 +32,7 @@ import {
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 
+import { readAppTableWriteFrontierInTransactionEffect, type AppRowTransaction, type AppRowReadPersistenceError, type AppRowTableFrontierCorruptionError, type InvalidAppRowReadInputError } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import { decodeScopeClockRecordResult } from "./scopeClock";
@@ -90,6 +92,8 @@ interface IndexBuildStateRecordBase {
   readonly storageGenerationFence: StorageGenerationFence;
   readonly epoch: ScopeEpoch;
   readonly startCommitSeq: CommitSeq;
+  readonly coveredThroughCommitSeq: CommitSeq | null;
+  readonly firstReadableCommitSeq: CommitSeq | null;
   readonly attemptFence: IndexBuildAttemptFence;
   readonly createdAt: Date;
   readonly updatedAt: Date;
@@ -271,6 +275,8 @@ function selectFencedIndexBuildStateRows(
           fxSystemIndexBuildStates.storageGenerationFence,
         epoch: fxSystemIndexBuildStates.epoch,
         startCommitSeq: fxSystemIndexBuildStates.startCommitSeq,
+        coveredThroughCommitSeq: fxSystemIndexBuildStates.coveredThroughCommitSeq,
+        firstReadableCommitSeq: fxSystemIndexBuildStates.firstReadableCommitSeq,
         lifecycle: fxSystemIndexBuildStates.lifecycle,
         cursorCodecVersion: fxSystemIndexBuildStates.cursorCodecVersion,
         backfillCursorRowId:
@@ -407,6 +413,20 @@ export function decodeIndexBuildStateRowResult(
       expectedScopeId,
       expectedIndexDefinitionId,
     );
+    const coveredThroughCommitSeq = row.coveredThroughCommitSeq === null ? null
+      : yield* decodeStoredBuildStateFieldResult(
+        decodeCommitSeqResult(row.coveredThroughCommitSeq), expectedScopeId, expectedIndexDefinitionId,
+      );
+    const firstReadableCommitSeq = row.firstReadableCommitSeq === null ? null
+      : yield* decodeStoredBuildStateFieldResult(
+        decodeCommitSeqResult(row.firstReadableCommitSeq), expectedScopeId, expectedIndexDefinitionId,
+      );
+    if (firstReadableCommitSeq !== null &&
+      (coveredThroughCommitSeq === null || firstReadableCommitSeq > coveredThroughCommitSeq)) {
+      return yield* Result.fail(new IndexBuildStateCorruptionError(
+        scopeId, indexDefinitionId, "readable frontier exceeds completed coverage",
+      ));
+    }
     const lifecycle = yield* decodeStoredBuildStateFieldResult(
       decodeIndexBuildLifecycleResult(row.lifecycle),
       expectedScopeId,
@@ -484,6 +504,8 @@ export function decodeIndexBuildStateRowResult(
       storageGenerationFence,
       epoch,
       startCommitSeq,
+      coveredThroughCommitSeq,
+      firstReadableCommitSeq,
       attemptFence,
       createdAt,
       updatedAt,
@@ -508,14 +530,48 @@ export function validateIndexBuildStateFrontierResult(
   state: IndexBuildStateRecord,
   lastCommitSeq: CommitSeq,
 ): Result.Result<void, IndexBuildStateCorruptionError> {
-  return state.startCommitSeq <= lastCommitSeq
-    ? Result.succeed(undefined)
-    : Result.fail(new IndexBuildStateCorruptionError(
-      state.scopeId,
-      state.indexDefinitionId,
-      `start commit sequence ${state.startCommitSeq} is ahead of scope clock ${lastCommitSeq}`,
-    ));
+  for (const [name, frontier] of [
+    ["start", state.startCommitSeq],
+    ["coverage", state.coveredThroughCommitSeq],
+  ] as const) {
+    if (frontier !== null && frontier > lastCommitSeq) {
+      return Result.fail(new IndexBuildStateCorruptionError(
+        state.scopeId, state.indexDefinitionId,
+        `${name} commit sequence ${frontier} is ahead of scope clock ${lastCommitSeq}`,
+      ));
+    }
+  }
+  return Result.succeed(undefined);
 }
+
+/** Call under the caller's scope-clock/snapshot transaction before admitting a read. */
+export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
+  "IndexBuildState.isSnapshotCovered",
+)(function* (
+  tx: AppRowTransaction,
+  state: IndexBuildStateRecord,
+  tableId: CatalogTableId,
+  snapshotCommitSeq: CommitSeq,
+): Effect.fn.Return<
+  boolean,
+  AppRowReadPersistenceError | InvalidAppRowReadInputError | AppRowTableFrontierCorruptionError
+> {
+  const covered = state.coveredThroughCommitSeq;
+  if (
+    state.lifecycle !== "enabled" ||
+    covered === null ||
+    state.firstReadableCommitSeq === null ||
+    state.firstReadableCommitSeq > snapshotCommitSeq
+  )
+    return false;
+  if (covered >= snapshotCommitSeq) return true;
+  const latest = yield* readAppTableWriteFrontierInTransactionEffect(
+    tx,
+    state.scopeId,
+    tableId,
+  );
+  return latest === null || latest <= covered;
+});
 
 function decodeReadInput(
   value: unknown,

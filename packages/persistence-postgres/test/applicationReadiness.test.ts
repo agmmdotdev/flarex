@@ -638,6 +638,28 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     )).toBe(1);
   });
 
+  it("binds immutable first-readable authority while allowing monotonic coverage", async () => {
+    const fixture = await readinessFixture({ includeTable: true });
+    const schemaVersionId = await prepareReadinessAuthorities(fixture);
+    await enablePhysicalBuilds(fixture, schemaVersionId);
+    await runEffect(fixture.repository.settle(fixture.input));
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId, readiness: fixture.repository, authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
+    const before = await runEffect(activation.readActive());
+    // Controlled state perturbation isolates the two evidence fields on an empty table.
+    await fixture.target.drizzle.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+      .where(eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId));
+    await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({ coveredThroughCommitSeq: CommitSeqSchema.make(1n) })
+      .where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
+    const advanced = await runEffect(activation.readActive());
+    expect(advanced.expectedActiveHead).toEqual(before.expectedActiveHead);
+    await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({ firstReadableCommitSeq: CommitSeqSchema.make(1n) })
+      .where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
+    await expect(runEffect(activation.readActive())).rejects.toMatchObject({ _tag: "ApplicationReadinessError", reason: "storedState" });
+  });
+
   it("closes readiness and active selection while a required definition drains", async () => {
     const fixture = await readinessFixture({ includeTable: true });
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
@@ -684,6 +706,10 @@ describe("Application readiness", { timeout: 30_000 }, () => {
       lifecycle: "draining",
       transitionFence: 1n,
     });
+    const buildPorts = { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts };
+    const buildInput = { deploymentId: fixture.input.deploymentId, indexDefinitionId: definition.indexDefinitionId, pageSize: 1 };
+    await expect(runEffect(buildIntrinsicCreationTimeIndexV1Effect(buildPorts, buildInput)))
+      .rejects.toMatchObject({ reason: "unsupportedLifecycle" });
     expect(await runEffect(fixture.repository.settle(fixture.input)))
       .toMatchObject({
         status: "not_ready",
@@ -704,6 +730,8 @@ describe("Application readiness", { timeout: 30_000 }, () => {
       subject,
       Object.freeze({ expectedTransitionFence: 1n }),
     ));
+    await expect(runEffect(buildIntrinsicCreationTimeIndexV1Effect(buildPorts, buildInput)))
+      .resolves.toMatchObject({ status: "replayed", lifecycle: "enabled" });
     expect(await runEffect(fixture.repository.settle(fixture.input)))
       .toMatchObject({ status: "ready", disposition: "replayed" });
     await expect(runEffect(activation.readActive())).resolves.toMatchObject({

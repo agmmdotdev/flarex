@@ -4835,7 +4835,7 @@ async function runPointCommitTransactionKernel(
     }
   }
   await materializeApplicationDocumentRows(tx, command, allocation.commitSeq, clock.record.epoch,
-    loadedHeads, intrinsicBuilds, developerIndexActions, uniqueKeyActions, options);
+    loadedHeads, intrinsicBuilds, developerIndexActions, developerBuilds, uniqueKeyActions, options);
   if (relationPlan !== null) {
     const relationMaintenance = await runPointCommitInTransactionEffect(
       maintainPointCommitApplicationRelationsEffect(

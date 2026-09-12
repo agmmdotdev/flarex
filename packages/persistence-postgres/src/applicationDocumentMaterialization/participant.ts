@@ -339,6 +339,7 @@ export const enterApplicationDocumentParticipant = Effect.fn("ApplicationPartici
             changed.has(index.definition.access.tableId),
           ),
           indexActions,
+          selectedDeveloper,
           uniqueActions,
           prepared.options,
         ),

@@ -1,3 +1,4 @@
+import { isPhysicalIndexBuildActiveInTransactionEffect, PhysicalDefinitionLifecyclePersistenceError } from "./physicalDefinitionLifecycle";
 import { bytesEqualFullScan, copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, desc, eq, gt, lte, sql } from "drizzle-orm";
@@ -40,7 +41,9 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import {
-  appendBackfilledLiveAppIndexEntryRevisionInTransactionEffect,
+  appendBuiltAppIndexEntryRevisionInTransactionEffect,
+  AppIndexEntryWritePersistenceError,
+  AppIndexEntryReadPersistenceError,
   readCurrentAppIndexEntriesForRowInTransactionEffect,
   type AppendAppIndexEntryRevisionV1Error,
   type AppIndexEntryTransaction,
@@ -53,11 +56,13 @@ import {
   type LocatedAppIndexDefinitionV1,
   type ReadAppIndexDefinitionError,
 } from "./appIndexDefinitions";
-import type { AppRowTransaction } from "./appRows";
+import { AppRowReadPersistenceError, readAppTableWriteFrontierInTransactionEffect, readAppRowAtSnapshotInTransactionEffect, type AppRowRevisionV1, type AppRowTransaction } from "./appRows";
+import { readCommitFeedPageInTransactionV1Effect, CommitFeedSqlErrorV1 } from "./commitFeed";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   decodeIndexBuildStateRowResult,
+  validateIndexBuildStateFrontierResult,
   IndexBuildStateCorruptionError,
 } from "./indexBuildStates";
 import {
@@ -610,7 +615,9 @@ const runBuildTransaction = Effect.fn(
       pageSize,
       options,
       policy,
-    ),
+    ).pipe(Effect.mapError(cause => cause instanceof AppIndexEntryWritePersistenceError || cause instanceof AppIndexEntryReadPersistenceError
+      ? new AppOrderedIndexBuildIntegrationError({ phase: "targetTransaction", retryable: true, cause })
+      : cause)),
   );
   const exit = yield* Effect.uninterruptible(Effect.exit(Effect.tryPromise({
     try: () => started.promise,
@@ -746,13 +753,18 @@ const buildInTransaction = Effect.fn(
     definition.indexDefinitionId,
   ));
   yield* Effect.fromResult(requireBuildAuthorityResult(state, authority));
-  if (state.startCommitSeq > clock.lastCommitSeq) {
-    return yield* Effect.fail(new IndexBuildStateCorruptionError(
-      authority.scopeId,
-      definition.indexDefinitionId,
-      `start commit sequence ${state.startCommitSeq} is ahead of scope clock ${clock.lastCommitSeq}`,
-    ));
-  }
+  yield* Effect.fromResult(validateIndexBuildStateFrontierResult(state, clock.lastCommitSeq));
+  const active = yield* isPhysicalIndexBuildActiveInTransactionEffect(
+    tx, authority, definition.deploymentId, definition.indexDefinitionId, definition.physicalSpecSha256Hex,
+  ).pipe(Effect.mapError(cause => cause instanceof PhysicalDefinitionLifecyclePersistenceError
+    ? new AppOrderedIndexBuildIntegrationError({ phase: "targetTransaction", retryable: true, cause })
+    : new AppOrderedIndexBuildStateError({
+      scopeId: state.scopeId, indexDefinitionId: state.indexDefinitionId,
+      reason: "unsupportedLifecycle", detail: String(cause),
+    })));
+  if (!active) return yield* Effect.fail(new AppOrderedIndexBuildStateError({
+    scopeId: state.scopeId, indexDefinitionId: state.indexDefinitionId, reason: "unsupportedLifecycle",
+  }));
   switch (state.lifecycle) {
     case "declared":
       yield* transitionLifecycle(
@@ -781,19 +793,33 @@ const buildInTransaction = Effect.fn(
         pageSize,
         options,
         policy,
+        clock.lastCommitSeq,
       );
-    case "validating":
-      return yield* validateAndEnable(
-        tx,
-        scopeUuid.scopeUuid,
-        state,
-        definition,
-        pageSize,
-        options,
-        policy,
-      );
-    case "enabled":
-      return result(state, "replayed", "enabled", 0, 0, null);
+    case "validating": {
+      const latest = yield* readAppTableWriteFrontierInTransactionEffect(tx, state.scopeId, definition.access.tableId)
+        .pipe(Effect.mapError(cause => cause instanceof AppRowReadPersistenceError
+          ? new AppOrderedIndexBuildIntegrationError({ phase: "targetTransaction", retryable: true, cause })
+          : new AppOrderedIndexBuildStateError({ scopeId: state.scopeId, indexDefinitionId: state.indexDefinitionId, reason: "indexHistoryMismatch", detail: String(cause) })));
+      if (state.coveredThroughCommitSeq === null ||
+        (latest !== null && latest > state.coveredThroughCommitSeq)) {
+        yield* transitionLifecycle(tx, state, "validating", null, options, clock.lastCommitSeq);
+        return result(state, "advanced", "validating", 0, 0, null);
+      }
+      return yield* validateAndEnable(tx, scopeUuid.scopeUuid, state, definition, pageSize, options, policy, clock.lastCommitSeq);
+    }
+    case "enabled": {
+      if (state.coveredThroughCommitSeq === null || state.firstReadableCommitSeq === null) {
+        return yield* mismatch(state, "enabled definition has no authenticated coverage; explicit rebuild required");
+      }
+      const latest = yield* readAppTableWriteFrontierInTransactionEffect(tx, state.scopeId, definition.access.tableId)
+        .pipe(Effect.mapError(cause => cause instanceof AppRowReadPersistenceError
+          ? new AppOrderedIndexBuildIntegrationError({ phase: "targetTransaction", retryable: true, cause })
+          : new AppOrderedIndexBuildStateError({ scopeId: state.scopeId, indexDefinitionId: state.indexDefinitionId, reason: "indexHistoryMismatch", detail: String(cause) })));
+      if (latest === null || latest <= state.coveredThroughCommitSeq) {
+        return result(state, "replayed", "enabled", 0, 0, null);
+      }
+      return yield* catchUpEnabled(tx, scopeUuid.scopeUuid, state, definition, options, policy);
+    }
     case "retiring":
       return yield* Effect.fail(new AppOrderedIndexBuildStateError({
         scopeId: state.scopeId,
@@ -813,6 +839,7 @@ const backfillPage = Effect.fn(
   pageSize: number,
   options: AppOrderedIndexBuildOptionsV1,
   policy: AppOrderedIndexBuildPolicyV1,
+  lastCommitSeq: CommitSeq,
 ): Effect.fn.Return<
   AppOrderedIndexBuildResultV1,
   | AppOrderedIndexBuildIntegrationError
@@ -881,7 +908,7 @@ const backfillPage = Effect.fn(
   const isDone = candidates.length <= pageSize;
   const lifecycle = isDone ? "validating" as const : "backfilling" as const;
   const nextCursor = isDone ? null : lastRowId;
-  yield* transitionLifecycle(tx, state, lifecycle, nextCursor, options);
+  yield* transitionLifecycle(tx, state, lifecycle, nextCursor, options, isDone ? lastCommitSeq : state.coveredThroughCommitSeq);
   return result(
     state,
     "advanced",
@@ -902,11 +929,13 @@ const validateAndEnable = Effect.fn(
   pageSize: number,
   options: AppOrderedIndexBuildOptionsV1,
   policy: AppOrderedIndexBuildPolicyV1,
+  lastCommitSeq: CommitSeq,
 ): Effect.fn.Return<
   AppOrderedIndexBuildResultV1,
   | AppOrderedIndexBuildIntegrationError
   | AppOrderedIndexBuildStateError
   | ReadAppIndexRangeV1Error
+  | AppendAppIndexEntryRevisionV1Error
 > {
   const cursor = state.backfillCursor.afterRowId;
   const cursorBytes = cursor === null
@@ -953,6 +982,8 @@ const validateAndEnable = Effect.fn(
   for (let index = 0; index < page.length; index += 1) {
     const rowId = page[index]!;
     lastRowId = rowId;
+    const revision = yield* readBuildRowAtCommit(tx, state, definition, rowId, lastCommitSeq);
+    yield* reconcileRow(tx, scopeUuid, state, definition, revision, policy, options);
     const expectedRow = yield* loadCurrentAppRow(
       tx,
       scopeUuid,
@@ -1023,7 +1054,7 @@ const validateAndEnable = Effect.fn(
     );
   }
   yield* runFault(options, "beforeEnable", null);
-  yield* transitionLifecycle(tx, state, "enabled", null, options);
+  yield* transitionLifecycle(tx, state, "enabled", null, options, lastCommitSeq, lastCommitSeq);
   return result(state, "enabled", "enabled", page.length, 0, null);
 });
 
@@ -1130,6 +1161,204 @@ const loadCurrentAppRow = Effect.fn(
   });
 });
 
+const readBuildRowAtCommit = Effect.fn("AppOrderedIndexBuild.readRowAtCommit")(
+  function* (
+    tx: AppRowTransaction,
+    state: IndexBuildStateRecord,
+    definition: LocatedAppIndexDefinitionV1,
+    rowId: OrderedIndexRowIdHexV1,
+    commitSeq: CommitSeq,
+  ): Effect.fn.Return<
+    AppRowRevisionV1,
+    AppOrderedIndexBuildStateError | AppOrderedIndexBuildIntegrationError
+  > {
+    const revision = yield* readAppRowAtSnapshotInTransactionEffect(tx, {
+      scopeId: state.scopeId,
+      tableId: definition.access.tableId,
+      rowId,
+      snapshotCommitSeq: commitSeq,
+    }).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof AppRowReadPersistenceError
+          ? new AppOrderedIndexBuildIntegrationError({
+              phase: "targetTransaction",
+              retryable: true,
+              cause,
+            })
+          : new AppOrderedIndexBuildStateError({
+              scopeId: state.scopeId,
+              indexDefinitionId: state.indexDefinitionId,
+              reason: "storedDocumentInvalid",
+              detail: String(cause),
+            }),
+      ),
+    );
+    if (revision.kind === "missing")
+      return yield* mismatch(
+        state,
+        "indexed identity has no retained row revision",
+      );
+    return revision;
+  },
+);
+
+const reconcileRow = Effect.fn("AppOrderedIndexBuild.reconcileRow")(function* (
+  tx: AppRowTransaction,
+  scopeUuid: ScopeUuidV1,
+  state: IndexBuildStateRecord,
+  definition: LocatedAppIndexDefinitionV1,
+  revision: AppRowRevisionV1,
+  policy: AppOrderedIndexBuildPolicyV1,
+  options: AppOrderedIndexBuildOptionsV1,
+): Effect.fn.Return<
+  void,
+  | AppOrderedIndexBuildStateError
+  | AppOrderedIndexBuildIntegrationError
+  | AppendAppIndexEntryRevisionV1Error
+  | ReadAppIndexRangeV1Error
+> {
+  const current: CurrentAppRowV1 | null =
+    revision.kind === "tombstone"
+      ? null
+      : policy.kind === "intrinsicCreationTime"
+        ? { ...revision, kind: "intrinsicCreationTime" }
+        : { ...revision, kind: "developer" };
+  const key =
+    current === null
+      ? null
+      : yield* projectIndexKey(definition, current, state);
+  const positions = yield* readCurrentAppIndexEntriesForRowInTransactionEffect(
+    tx,
+    {
+      scopeId: state.scopeId,
+      definition,
+      rowId: revision.rowId,
+    },
+  );
+  for (const position of positions) {
+    if (position.encodedKey === key) continue;
+    if (position.commitSeq >= revision.commitSeq)
+      return yield* mismatch(
+        state,
+        "index position is ahead of reconciled row",
+      );
+    yield* appendBuiltAppIndexEntryRevisionInTransactionEffect(tx, {
+      kind: "tombstone",
+      scopeId: state.scopeId,
+      scopeUuid,
+      definition,
+      encodedKey: position.encodedKey,
+      rowId: revision.rowId,
+      writeEpochUuid: revision.writeEpochUuid,
+      commitSeq: revision.commitSeq,
+      prevCommitSeq: position.commitSeq,
+    });
+    yield* runFault(options, "afterEntryWrite", revision.rowId);
+  }
+  if (current !== null) {
+    const disposition = yield* ensureCurrentIndexEntry(
+      tx,
+      scopeUuid,
+      state,
+      definition,
+      current,
+    );
+    if (disposition === "written")
+      yield* runFault(options, "afterEntryWrite", revision.rowId);
+  }
+});
+
+/** A catch-up step owns one complete commit, bounded by the feed's 16,000 facts. */
+const catchUpEnabled = Effect.fn("AppOrderedIndexBuild.catchUpEnabled")(
+  function* (
+    tx: AppRowTransaction,
+    scopeUuid: ScopeUuidV1,
+    state: IndexBuildStateRecord,
+    definition: LocatedAppIndexDefinitionV1,
+    options: AppOrderedIndexBuildOptionsV1,
+    policy: AppOrderedIndexBuildPolicyV1,
+  ): Effect.fn.Return<
+    AppOrderedIndexBuildResultV1,
+    | AppOrderedIndexBuildStateError
+    | AppOrderedIndexBuildIntegrationError
+    | AppendAppIndexEntryRevisionV1Error
+    | ReadAppIndexRangeV1Error
+  > {
+    if (state.coveredThroughCommitSeq === null)
+      return yield* mismatch(state, "coverage missing");
+    const page = yield* readCommitFeedPageInTransactionV1Effect(tx, {
+      scopeUuid,
+      exclusiveCommitSeq: state.coveredThroughCommitSeq,
+      maximumCommits: 1,
+    }).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof CommitFeedSqlErrorV1
+          ? new AppOrderedIndexBuildIntegrationError({
+              phase: "targetTransaction",
+              retryable: true,
+              cause,
+            })
+          : new AppOrderedIndexBuildStateError({
+              scopeId: state.scopeId,
+              indexDefinitionId: state.indexDefinitionId,
+              reason: "indexHistoryMismatch",
+              detail: String(cause),
+            }),
+      ),
+    );
+    let processed = 0;
+    let covered = state.coveredThroughCommitSeq;
+    for (const commit of page.commits) {
+      for (const change of commit.appRowChanges) {
+        if (change.tableId !== definition.access.tableId) continue;
+        const rowId = yield* Effect.fromResult(
+          orderedIndexRowIdHexV1FromBytesResult(change.rowId),
+        ).pipe(
+          Effect.mapError(
+            (cause) =>
+              new AppOrderedIndexBuildStateError({
+                scopeId: state.scopeId,
+                indexDefinitionId: state.indexDefinitionId,
+                reason: "indexHistoryMismatch",
+                detail: String(cause),
+              }),
+          ),
+        );
+        const revision = yield* readBuildRowAtCommit(
+          tx,
+          state,
+          definition,
+          rowId,
+          commit.commitSeq,
+        );
+        if (
+          revision.commitSeq !== commit.commitSeq ||
+          revision.writeEpochUuid !== commit.epochUuid
+        )
+          return yield* mismatch(
+            state,
+            "commit fact does not identify exact row revision",
+          );
+        yield* reconcileRow(
+          tx,
+          scopeUuid,
+          state,
+          definition,
+          revision,
+          policy,
+          options,
+        );
+        processed += 1;
+      }
+      covered = commit.commitSeq;
+    }
+    if (covered === state.coveredThroughCommitSeq)
+      return yield* mismatch(state, "missing catch-up commit prefix");
+    yield* transitionLifecycle(tx, state, "enabled", null, options, covered);
+    return result(state, "advanced", "enabled", processed, 0, null);
+  },
+);
+
 const ensureCurrentIndexEntry = Effect.fn(
   "AppOrderedIndexBuild.ensureCurrentEntry",
 )(function* (
@@ -1208,7 +1437,8 @@ const ensureCurrentIndexEntry = Effect.fn(
   if (head !== undefined && head.commitSeq > current.commitSeq) {
     return yield* mismatch(state, "index history is ahead of the current row");
   }
-  yield* appendBackfilledLiveAppIndexEntryRevisionInTransactionEffect(tx, {
+  yield* appendBuiltAppIndexEntryRevisionInTransactionEffect(tx, {
+    kind: "live",
     scopeId: state.scopeId,
     scopeUuid,
     definition,
@@ -1256,53 +1486,64 @@ function projectIndexKey(
   ));
 }
 
-function transitionLifecycle(
+const transitionLifecycle = Effect.fn(
+  "AppOrderedIndexBuild.transitionLifecycle",
+)(function* (
   tx: AppRowTransaction,
   state: IndexBuildStateRecord,
   lifecycle: "building" | "backfilling" | "validating" | "enabled",
   cursorRowId: OrderedIndexRowIdHexV1 | null,
   options: AppOrderedIndexBuildOptionsV1,
-): Effect.Effect<
+  coveredThroughCommitSeq = state.coveredThroughCommitSeq,
+  firstReadableCommitSeq = state.firstReadableCommitSeq,
+): Effect.fn.Return<
   void,
-  | AppOrderedIndexBuildIntegrationError
-  | AppOrderedIndexBuildStateError
+  AppOrderedIndexBuildIntegrationError | AppOrderedIndexBuildStateError
 > {
-  return Effect.gen(function* () {
-    const updated = yield* queryEffect(
-      tx.update(fxSystemIndexBuildStates).set({
+  const updated = yield* queryEffect(
+    tx
+      .update(fxSystemIndexBuildStates)
+      .set({
         lifecycle,
+        coveredThroughCommitSeq,
+        firstReadableCommitSeq,
         backfillCursorRowId:
           cursorRowId === null
             ? null
             : orderedIndexRowIdHexV1ToBytes(cursorRowId),
         updatedAt: sql`clock_timestamp()`,
-      }).where(and(
-        eq(fxSystemIndexBuildStates.scopeId, state.scopeId),
-        eq(
-          fxSystemIndexBuildStates.indexDefinitionId,
-          state.indexDefinitionId,
+      })
+      .where(
+        and(
+          eq(fxSystemIndexBuildStates.scopeId, state.scopeId),
+          eq(
+            fxSystemIndexBuildStates.indexDefinitionId,
+            state.indexDefinitionId,
+          ),
+          eq(
+            fxSystemIndexBuildStates.storageGenerationFence,
+            state.storageGenerationFence,
+          ),
+          eq(fxSystemIndexBuildStates.epoch, state.epoch),
+          eq(fxSystemIndexBuildStates.attemptFence, state.attemptFence),
+          eq(fxSystemIndexBuildStates.lifecycle, state.lifecycle),
         ),
-        eq(fxSystemIndexBuildStates.storageGenerationFence,
-          state.storageGenerationFence),
-        eq(fxSystemIndexBuildStates.epoch, state.epoch),
-        eq(fxSystemIndexBuildStates.attemptFence, state.attemptFence),
-        eq(fxSystemIndexBuildStates.lifecycle, state.lifecycle),
-      )).returning({
+      )
+      .returning({
         indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId,
       }),
+  );
+  if (updated.length !== 1) {
+    return yield* Effect.fail(
+      new AppOrderedIndexBuildStateError({
+        scopeId: state.scopeId,
+        indexDefinitionId: state.indexDefinitionId,
+        reason: "concurrentStateChange",
+      }),
     );
-    if (updated.length !== 1) {
-      return yield* Effect.fail(
-        new AppOrderedIndexBuildStateError({
-          scopeId: state.scopeId,
-          indexDefinitionId: state.indexDefinitionId,
-          reason: "concurrentStateChange",
-        }),
-      );
-    }
-    yield* runFault(options, "afterLifecycleTransition", cursorRowId);
-  });
-}
+  }
+  yield* runFault(options, "afterLifecycleTransition", cursorRowId);
+});
 
 function runFault(
   options: AppOrderedIndexBuildOptionsV1,

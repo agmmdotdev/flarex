@@ -28,7 +28,6 @@ import {
   loadPublishedPhysicalRequirementSnapshotV1,
   reconcilePublishedIndexBuildsV1Effect,
 } from "./indexBuildReconciliation";
-import { readFencedIndexBuildStateEffect } from "./indexBuildStates";
 import {
   buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
@@ -144,7 +143,6 @@ export type ApplicationManagedSchemaApplicationOwnerError =
     >>
   | Effect.Error<ReturnType<typeof reconcilePublishedIndexBuildsV1Effect>>
   | Effect.Error<ReturnType<typeof loadPublishedPhysicalRequirementSnapshotV1>>
-  | Effect.Error<ReturnType<typeof readFencedIndexBuildStateEffect>>
   | Effect.Error<ReturnType<typeof locateAppIndexDefinitionByIdEffect>>
   | Effect.Error<ReturnType<typeof buildAppDeveloperOrderedIndexV1Effect>>
   | Effect.Error<ReturnType<typeof buildIntrinsicCreationTimeIndexV1Effect>>
@@ -352,12 +350,6 @@ export const applyApplicationManagedSchemaPlanStepEffect = Effect.fn(
     );
   }
   for (const requirement of requirements.definitions) {
-    const build = yield* readFencedIndexBuildStateEffect(state.targetDb, {
-      scopeId: located.authority.scopeId,
-      indexDefinitionId: requirement.indexDefinitionId,
-    });
-    if (build.status === "current" &&
-      build.buildState.lifecycle === "enabled") continue;
     const definition = yield* locateAppIndexDefinitionByIdEffect(
       state.controlDb,
       located.authority.scopeId,
@@ -380,6 +372,7 @@ export const applyApplicationManagedSchemaPlanStepEffect = Effect.fn(
           buildPorts,
           buildInput,
         );
+        if (result.status === "replayed") break;
         return progressResult(input, "physicalBuild", result.lifecycle);
       }
       case "by_creation_time": {
@@ -387,6 +380,7 @@ export const applyApplicationManagedSchemaPlanStepEffect = Effect.fn(
           buildPorts,
           buildInput,
         );
+        if (result.status === "replayed") break;
         return progressResult(input, "physicalBuild", result.lifecycle);
       }
       default:

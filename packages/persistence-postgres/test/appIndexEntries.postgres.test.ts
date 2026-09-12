@@ -120,12 +120,25 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
       );
       expect(current.entries.map((entry) => entry.commitSeq)).toEqual([3n, 2n]);
 
+      expect((await indexPlans(persistence)).snapshot).toMatch(/fx_app_index_entry_rev_range_idx/);
+      await seedCurrentLookupPlanHistory(persistence);
       const plans = await indexPlans(persistence);
-      expect(plans.snapshot).toMatch(/fx_app_index_entry_rev_range_idx/);
       expect(plans.current).toMatch(
         /fx_app_index_entry_current_pk/,
       );
-      expect(plans.current).toMatch(/fx_app_index_entry_rev_pk/);
+      // Either complete-key index can serve the point lookup. Assert all join keys
+      // are index conditions; a whole revision scan plus Join Filter is not this proof.
+      expect(plans.current).toMatch(/Index Scan using fx_app_index_entry_rev_(?:pk|commit_range_idx)/);
+      const revisionCondition = plans.current.split("\n").find(line =>
+        line.includes("Index Cond:") && line.includes("current_entry.commit_seq"));
+      expect(revisionCondition).toBeDefined();
+      for (const field of ["scope_uuid", "index_definition_id", "encoded_key", "row_id", "commit_seq"]) {
+        expect(revisionCondition).toContain(field);
+      }
+      for (const field of ["encoded_key", "row_id", "commit_seq"]) {
+        expect(revisionCondition).toContain(`current_entry.${field}`);
+      }
+      expect(plans.current).not.toMatch(/Join Filter:/);
     });
   }, 30_000);
 });
@@ -260,6 +273,40 @@ function indexEntry(
       ? null
       : CommitSeqSchema.make(prevCommitSeq),
   };
+}
+
+/** Plan-only history cohort: many revisions and two current pointers distinguish a point lookup from a tiny whole-index scan. */
+async function seedCurrentLookupPlanHistory(
+  persistence: PostgresFlarexPersistence,
+) {
+  await persistence.query(
+    `insert into fx_app_row_rev
+    (scope_uuid,table_id,row_id,commit_seq,prev_commit_seq,write_epoch_uuid,is_tombstone,schema_version_id,creation_time,value_codec_version,value_bytes,value_sha256)
+    select scope_uuid,table_id,row_id,n,n-1,write_epoch_uuid,is_tombstone,schema_version_id,creation_time,value_codec_version,value_bytes,value_sha256
+    from fx_app_row_rev cross join generate_series(4,1003) as n where row_id=decode($1,'hex') and commit_seq=3`,
+    [rowA],
+  );
+  await persistence.query(
+    `insert into fx_app_index_entry_rev
+    (scope_uuid,index_definition_id,table_id,key_codec_version,physical_spec_sha256,encoded_key,key_sha256,row_id,commit_seq,prev_commit_seq,write_epoch_uuid,is_tombstone)
+    select scope_uuid,index_definition_id,table_id,key_codec_version,physical_spec_sha256,encoded_key,key_sha256,row_id,n,n-1,write_epoch_uuid,is_tombstone
+    from fx_app_index_entry_rev cross join generate_series(4,1003) as n where row_id=decode($1,'hex') and commit_seq=3`,
+    [rowA],
+  );
+  await persistence.query(
+    `update fx_app_row_current set commit_seq=1003 where row_id=decode($1,'hex')`,
+    [rowA],
+  );
+  await persistence.query(
+    `update fx_app_index_entry_current set commit_seq=1003 where row_id=decode($1,'hex')`,
+    [rowA],
+  );
+  await persistence.query(
+    `update fx_system_scope_clock set last_commit_seq=1003 where scope_id=$1`,
+    [scopeId],
+  );
+  await persistence.query("analyze fx_app_index_entry_rev");
+  await persistence.query("analyze fx_app_index_entry_current");
 }
 
 async function indexPlans(

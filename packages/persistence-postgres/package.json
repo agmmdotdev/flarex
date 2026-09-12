@@ -106,6 +106,7 @@
     "./internal/system-test/intrinsicCreationTimeIndexBuildV1": "./src/intrinsicCreationTimeIndexBuildV1.ts",
     "./internal/system-test/appDeveloperOrderedIndexBuildV1": "./src/intrinsicCreationTimeIndexBuildV1.ts",
     "./internal/system-test/appDeveloperIndexCommitV1": "./src/appDeveloperIndexCommitV1.ts",
+    "./internal/system-test/appIndexEntries": "./src/appIndexEntries.ts",
     "./internal/system-test/appIndexDefinitions": "./src/appIndexDefinitions.ts",
     "./internal/system-test/pointCommitTransaction": "./src/pointCommitTransactionApi.ts",
     "./internal/system-test/sessionJournalStore": "./src/sessionJournalStore.ts",

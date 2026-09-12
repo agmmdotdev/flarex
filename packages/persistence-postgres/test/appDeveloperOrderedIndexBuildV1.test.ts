@@ -1,3 +1,4 @@
+import { Cause, Effect, Exit } from "effect";
 import { eq } from "drizzle-orm";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
@@ -151,6 +152,87 @@ describe("C08 developer ordered-index build", () => {
     await buildUntilEnabled(fixture, 1);
     expect(await currentIndexRows(fixture)).toHaveLength(1);
   });
+
+it("types historical append SQL rejection, rolls back, and preserves unrelated defects", async () => {
+  const fixture = await makeFixture("append-sql", [
+    { rowByte: 0x11, name: "Ada" },
+  ]);
+  await buildStep(fixture, 1);
+  await buildStep(fixture, 1);
+  await fixture.persistence.query(
+    `create function reject_coverage_append() returns trigger language plpgsql as $$ begin raise exception 'coverage statement rejection'; end $$`,
+  );
+  await fixture.persistence.query(
+    `create trigger reject_coverage_append before insert on fx_app_index_entry_rev for each row execute function reject_coverage_append()`,
+  );
+  const failure = await runEffectFailure(
+    buildAppDeveloperOrderedIndexV1Effect(
+      fixture.ports,
+      buildInput(fixture, 1),
+    ),
+  );
+  expect(failure).toBeInstanceOf(
+    AppDeveloperOrderedIndexBuildIntegrationV1Error,
+  );
+  expect(failure).toMatchObject({
+    retryable: true,
+    cause: { _tag: "AppIndexEntryWritePersistenceError" },
+  });
+  expect(await currentIndexRows(fixture)).toEqual([]);
+  expect(await indexRevisionCount(fixture)).toBe(0);
+  expect(await buildState(fixture)).toMatchObject({
+    lifecycle: "backfilling",
+    cursor: null,
+  });
+  await fixture.persistence.query(
+    `drop trigger reject_coverage_append on fx_app_index_entry_rev`,
+  );
+  const defect = new Error("owned query construction defect");
+  const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(
+    fixture.persistence.drizzle,
+  );
+  const brokenTarget = createLocatedIndexBuildReconciliationTargetV1(
+    fixture.persistence.drizzle,
+    LOCATOR,
+    (work) =>
+      runner((tx) =>
+        work(
+          new Proxy(tx, {
+            get(target, property, receiver) {
+              if (property === "insert")
+                return () => {
+                  throw defect;
+                };
+              return Reflect.get(target, property, receiver);
+            },
+          }),
+        ),
+      ),
+  );
+  const exit = await Effect.runPromise(
+    Effect.exit(
+      buildAppDeveloperOrderedIndexV1Effect(
+        {
+          ...fixture.ports,
+          authority: {
+            ...fixture.ports.authority,
+            scopeClockTargets: { resolve: async () => brokenTarget },
+          },
+        },
+        buildInput(fixture, 1),
+      ),
+    ),
+  );
+  expect(Exit.isFailure(exit)).toBe(true);
+  if (Exit.isFailure(exit)) {
+    expect(Cause.hasDies(exit.cause)).toBe(true);
+    expect(Cause.pretty(exit.cause)).toContain(defect.message);
+    expect(Cause.hasFails(exit.cause)).toBe(false);
+  }
+  expect(await indexRevisionCount(fixture)).toBe(0);
+  await buildUntilEnabled(fixture, 1);
+  expect(await currentIndexRows(fixture)).toHaveLength(1);
+});
 
   it("surfaces a committed uncertain step and cold-replays without duplicate sidecars", async () => {
     const fixture = await makeFixture("uncertain", [

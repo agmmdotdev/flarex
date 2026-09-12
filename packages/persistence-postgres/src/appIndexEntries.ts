@@ -262,12 +262,32 @@ export class AppIndexEntryReadPersistenceError extends Error {
   }
 }
 
+export class AppIndexEntryWritePersistenceError extends Error {
+  readonly _tag = "AppIndexEntryWritePersistenceError" as const;
+  constructor(readonly cause: unknown) {
+    super("App-index entry append query failed.", { cause });
+    this.name = "AppIndexEntryWritePersistenceError";
+  }
+}
+
+const appendQueryEffect = <T,>(
+  query: PromiseLike<T>,
+): Effect.Effect<T, AppIndexEntryWritePersistenceError> =>
+  Effect.uninterruptible(
+    Effect.tryPromise({
+      try: () => Promise.resolve(query),
+      catch: (cause) => new AppIndexEntryWritePersistenceError(cause),
+    }),
+  );
+
 export type AppendAppIndexEntryRevisionV1Error =
   | InvalidAppIndexEntryInputError
   | AppIndexEntryScopeAuthorityUnavailableError
   | AppIndexEntryRevisionAlreadyExistsError
   | AppIndexEntryRevisionChainConflictError
   | AppIndexEntryParentRevisionError
+  | AppIndexEntryWritePersistenceError
+  | AppIndexEntryReadPersistenceError
   | AppIndexEntryHashError
   | AppIndexEntryStorageCorruptionError;
 
@@ -279,6 +299,8 @@ export function isAppendAppIndexEntryRevisionV1Error(
     value instanceof AppIndexEntryRevisionAlreadyExistsError ||
     value instanceof AppIndexEntryRevisionChainConflictError ||
     value instanceof AppIndexEntryParentRevisionError ||
+    value instanceof AppIndexEntryWritePersistenceError ||
+    value instanceof AppIndexEntryReadPersistenceError ||
     value instanceof AppIndexEntryHashError ||
     value instanceof AppIndexEntryStorageCorruptionError;
 }
@@ -364,16 +386,31 @@ export async function appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionR
   const decodedResult = await decodeAppendInputResult(tx, input);
   return await Result.match(decodedResult, {
     onFailure: async (failure) => Result.fail(failure),
-    onSuccess: (decodedRevision) =>
-      appendDecodedAppIndexEntryRevisionResult(tx, decodedRevision),
+    onSuccess: async (decodedRevision) => {
+      const appended = await Effect.runPromise(
+        Effect.result(
+          appendDecodedAppIndexEntryRevisionEffect(tx, decodedRevision),
+        ),
+      );
+      return Result.match(appended, {
+        onFailure: (error) => {
+          // This Promise API deliberately leaves SQL rejection with its transaction owner.
+          if (error instanceof AppIndexEntryWritePersistenceError)
+            throw error.cause;
+          return Result.fail(error);
+        },
+        onSuccess: Result.succeed,
+      });
+    },
   });
 }
 
 interface AppendBackfilledAppIndexEntryRevisionV1Input {
+  readonly kind: "live" | "tombstone";
   readonly scopeId: ScopeId;
   readonly scopeUuid: ScopeUuidV1;
   readonly definition: LocatedAppIndexDefinitionV1;
-  readonly encodedKey: OrderedIndexKeyHexV1;
+  readonly encodedKey: OrderedIndexKeyBytesHexV1;
   readonly rowId: OrderedIndexRowIdHexV1;
   readonly writeEpochUuid: ScopeEpochUuidV1;
   readonly commitSeq: CommitSeq;
@@ -385,8 +422,9 @@ interface AppendBackfilledAppIndexEntryRevisionV1Input {
  * UUIDs read from the exact authoritative row revision because historical
  * epoch text is intentionally not duplicated in app-row storage.
  */
-export const appendBackfilledLiveAppIndexEntryRevisionInTransactionEffect =
-Effect.fn("AppIndexEntries.appendBackfilledLiveInTransaction")(function* (
+export const appendBuiltAppIndexEntryRevisionInTransactionEffect = Effect.fn(
+  "AppIndexEntries.appendBuiltInTransaction",
+)(function* (
   tx: AppIndexEntryTransaction,
   input: AppendBackfilledAppIndexEntryRevisionV1Input,
 ): Effect.fn.Return<
@@ -394,164 +432,130 @@ Effect.fn("AppIndexEntries.appendBackfilledLiveInTransaction")(function* (
   AppendAppIndexEntryRevisionV1Error
 > {
   const revision = yield* decodeBackfilledAppendInputEffect(tx, input);
-  // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: transaction - Drizzle write rejections stay defects until AppendAppIndexEntryRevisionV1Error gains a persistence variant
-  const appended = yield* Effect.promise(() =>
-    appendDecodedAppIndexEntryRevisionResult(tx, revision)
-  );
-  return yield* Effect.fromResult(appended);
+  return yield* appendDecodedAppIndexEntryRevisionEffect(tx, revision);
 });
 
-async function appendDecodedAppIndexEntryRevisionResult(
+const appendDecodedAppIndexEntryRevisionEffect = Effect.fn(
+  "AppIndexEntries.appendDecoded",
+)(function* (
   tx: AppIndexEntryTransaction,
   revision: DecodedAppendAppIndexEntryRevisionV1,
-): Promise<
-  Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>
+): Effect.fn.Return<
+  AppIndexEntryRevisionV1,
+  AppendAppIndexEntryRevisionV1Error
 > {
-  if (await revisionExists(tx, revision)) {
-    return Result.fail(new AppIndexEntryRevisionAlreadyExistsError(
-      revision.identity,
-      revision.commitSeq,
-    ));
+  if (yield* revisionExistsEffect(tx, revision)) {
+    return yield* Effect.fail(
+      new AppIndexEntryRevisionAlreadyExistsError(
+        revision.identity,
+        revision.commitSeq,
+      ),
+    );
   }
-  const chainHead = await readChainHeadResult(tx, revision);
-  return await Result.match(chainHead, {
-    onFailure: async (failure) => Result.fail(failure),
-    onSuccess: (headRow) => {
-      const actualHeadCommitSeq = headRow?.commitSeq ?? null;
-      if (actualHeadCommitSeq !== revision.prevCommitSeq) {
-        return Result.fail(new AppIndexEntryRevisionChainConflictError(
-          revision.identity,
-          revision.prevCommitSeq,
-          actualHeadCommitSeq,
-        ));
-      }
-      return appendVerifiedParentAndAdvanceCurrent(
-        tx,
-        revision,
-        headRow?.isTombstone === true,
-      );
-    },
-  });
-}
-
-async function appendVerifiedParentAndAdvanceCurrent(
-  tx: AppIndexEntryTransaction,
-  revision: DecodedAppendAppIndexEntryRevisionV1,
-  headIsTombstone: boolean,
-): Promise<
-  Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>
-> {
-  const parent = await requireParentRevisionResult(tx, revision);
-  if (Result.isFailure(parent)) {
-    // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
-    return parent as Result.Result<
-      AppIndexEntryRevisionV1,
-      AppendAppIndexEntryRevisionV1Error
-    >;
+  const head = yield* readChainHeadEffect(tx, revision);
+  const actualHeadCommitSeq = head?.commitSeq ?? null;
+  if (actualHeadCommitSeq !== revision.prevCommitSeq) {
+    return yield* Effect.fail(
+      new AppIndexEntryRevisionChainConflictError(
+        revision.identity,
+        revision.prevCommitSeq,
+        actualHeadCommitSeq,
+      ),
+    );
   }
-  const inserted = await tx
-    .insert(fxAppIndexEntryRevisions)
-    .values({
-      scopeUuid: revision.scopeUuid,
-      indexDefinitionId: revision.identity.indexDefinitionId,
-      tableId: revision.identity.tableId,
-      keyCodecVersion: ORDERED_INDEX_KEY_CODEC_VERSION_V1,
-      physicalSpecSha256: revision.physicalSpecSha256,
-      encodedKey: revision.keyBytes,
-      keySha256: revision.keySha256,
-      rowId: orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
-      commitSeq: revision.commitSeq,
-      prevCommitSeq: revision.prevCommitSeq,
-      writeEpochUuid: revision.writeEpochUuid,
-      isTombstone: revision.kind === "tombstone",
-    })
-    .onConflictDoNothing()
-    .returning({ commitSeq: fxAppIndexEntryRevisions.commitSeq });
+  yield* requireParentRevisionEffect(tx, revision);
+  const headIsTombstone = head?.isTombstone === true;
+  const inserted = yield* appendQueryEffect(
+    tx
+      .insert(fxAppIndexEntryRevisions)
+      .values({
+        scopeUuid: revision.scopeUuid,
+        indexDefinitionId: revision.identity.indexDefinitionId,
+        tableId: revision.identity.tableId,
+        keyCodecVersion: ORDERED_INDEX_KEY_CODEC_VERSION_V1,
+        physicalSpecSha256: revision.physicalSpecSha256,
+        encodedKey: revision.keyBytes,
+        keySha256: revision.keySha256,
+        rowId: orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
+        commitSeq: revision.commitSeq,
+        prevCommitSeq: revision.prevCommitSeq,
+        writeEpochUuid: revision.writeEpochUuid,
+        isTombstone: revision.kind === "tombstone",
+      })
+      .onConflictDoNothing()
+      .returning({ commitSeq: fxAppIndexEntryRevisions.commitSeq }),
+  );
   if (inserted[0] === undefined) {
-    return Result.fail(new AppIndexEntryRevisionAlreadyExistsError(
-      revision.identity,
-      revision.commitSeq,
-    ));
+    return yield* Effect.fail(
+      new AppIndexEntryRevisionAlreadyExistsError(
+        revision.identity,
+        revision.commitSeq,
+      ),
+    );
   }
-
   const rowIdBytes = orderedIndexRowIdHexV1ToBytes(revision.identity.rowId);
-  const advanced = revision.kind === "tombstone"
-    ? await tx
-        .delete(fxAppIndexEntryCurrent)
-        .where(and(
-          eq(fxAppIndexEntryCurrent.scopeUuid, revision.scopeUuid),
-          eq(
-            fxAppIndexEntryCurrent.indexDefinitionId,
-            revision.identity.indexDefinitionId,
-          ),
-          eq(fxAppIndexEntryCurrent.encodedKey, revision.keyBytes),
-          eq(fxAppIndexEntryCurrent.rowId, rowIdBytes),
-          eq(
-            fxAppIndexEntryCurrent.commitSeq,
-            revision.prevCommitSeq ?? revision.commitSeq,
-          ),
-        ))
-        .returning({ commitSeq: fxAppIndexEntryCurrent.commitSeq })
-    : revision.prevCommitSeq === null || headIsTombstone
-    ? await tx
-        .insert(fxAppIndexEntryCurrent)
-        .values({
-          scopeUuid: revision.scopeUuid,
-          indexDefinitionId: revision.identity.indexDefinitionId,
-          encodedKey: revision.keyBytes,
-          rowId: rowIdBytes,
-          commitSeq: revision.commitSeq,
-        })
-        .onConflictDoNothing()
-        .returning({ commitSeq: fxAppIndexEntryCurrent.commitSeq })
-    : await tx
-        .update(fxAppIndexEntryCurrent)
-        .set({ commitSeq: revision.commitSeq })
-        .where(and(
-          eq(fxAppIndexEntryCurrent.scopeUuid, revision.scopeUuid),
-          eq(
-            fxAppIndexEntryCurrent.indexDefinitionId,
-            revision.identity.indexDefinitionId,
-          ),
-          eq(fxAppIndexEntryCurrent.encodedKey, revision.keyBytes),
-          eq(fxAppIndexEntryCurrent.rowId, rowIdBytes),
-          eq(fxAppIndexEntryCurrent.commitSeq, revision.prevCommitSeq),
-        ))
-        .returning({ commitSeq: fxAppIndexEntryCurrent.commitSeq });
+  const advanced = yield* appendQueryEffect(
+    revision.kind === "tombstone"
+      ? tx
+          .delete(fxAppIndexEntryCurrent)
+          .where(
+            and(
+              eq(fxAppIndexEntryCurrent.scopeUuid, revision.scopeUuid),
+              eq(
+                fxAppIndexEntryCurrent.indexDefinitionId,
+                revision.identity.indexDefinitionId,
+              ),
+              eq(fxAppIndexEntryCurrent.encodedKey, revision.keyBytes),
+              eq(fxAppIndexEntryCurrent.rowId, rowIdBytes),
+              eq(
+                fxAppIndexEntryCurrent.commitSeq,
+                revision.prevCommitSeq ?? revision.commitSeq,
+              ),
+            ),
+          )
+          .returning({ commitSeq: fxAppIndexEntryCurrent.commitSeq })
+      : revision.prevCommitSeq === null || headIsTombstone
+        ? tx
+            .insert(fxAppIndexEntryCurrent)
+            .values({
+              scopeUuid: revision.scopeUuid,
+              indexDefinitionId: revision.identity.indexDefinitionId,
+              encodedKey: revision.keyBytes,
+              rowId: rowIdBytes,
+              commitSeq: revision.commitSeq,
+            })
+            .onConflictDoNothing()
+            .returning({ commitSeq: fxAppIndexEntryCurrent.commitSeq })
+        : tx
+            .update(fxAppIndexEntryCurrent)
+            .set({ commitSeq: revision.commitSeq })
+            .where(
+              and(
+                eq(fxAppIndexEntryCurrent.scopeUuid, revision.scopeUuid),
+                eq(
+                  fxAppIndexEntryCurrent.indexDefinitionId,
+                  revision.identity.indexDefinitionId,
+                ),
+                eq(fxAppIndexEntryCurrent.encodedKey, revision.keyBytes),
+                eq(fxAppIndexEntryCurrent.rowId, rowIdBytes),
+                eq(fxAppIndexEntryCurrent.commitSeq, revision.prevCommitSeq),
+              ),
+            )
+            .returning({ commitSeq: fxAppIndexEntryCurrent.commitSeq }),
+  );
   if (advanced[0] === undefined) {
-    return failAdvancedCurrentPointerConflict(tx, revision);
+    yield* deleteRejectedRevisionEffect(tx, revision);
+    const actual = yield* readChainHeadEffect(tx, revision);
+    return yield* Effect.fail(
+      new AppIndexEntryRevisionChainConflictError(
+        revision.identity,
+        revision.prevCommitSeq,
+        actual?.commitSeq ?? null,
+      ),
+    );
   }
-
-  return Result.succeed(projectRevision(revision));
-}
-
-async function failAdvancedCurrentPointerConflict(
-  tx: AppIndexEntryTransaction,
-  revision: DecodedAppendAppIndexEntryRevisionV1,
-): Promise<Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>> {
-  const cleanup = await deleteRejectedRevisionResult(tx, revision);
-  if (Result.isFailure(cleanup)) {
-    // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
-    return cleanup as Result.Result<
-      AppIndexEntryRevisionV1,
-      AppendAppIndexEntryRevisionV1Error
-    >;
-  }
-  return readActualChainHeadAndFail(tx, revision);
-}
-
-async function readActualChainHeadAndFail(
-  tx: AppIndexEntryTransaction,
-  revision: DecodedAppendAppIndexEntryRevisionV1,
-): Promise<Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>> {
-  const actual = await readChainHeadResult(tx, revision);
-  return Result.flatMap(actual, (headRow) =>
-    Result.fail(new AppIndexEntryRevisionChainConflictError(
-      revision.identity,
-      revision.prevCommitSeq,
-      headRow?.commitSeq ?? null,
-    )));
-}
+  return projectRevision(revision);
+});
 
 export const scanAppIndexAtSnapshotInTransactionEffect = Effect.fn(
   "AppIndexEntries.scanAtSnapshotInTransaction",
@@ -859,9 +863,12 @@ const decodeBackfilledAppendInputEffect = Effect.fn(
 ): Effect.fn.Return<
   DecodedAppendAppIndexEntryRevisionV1,
   InvalidAppIndexEntryInputError | AppIndexEntryScopeAuthorityUnavailableError |
-    AppIndexEntryHashError
+    AppIndexEntryHashError | AppIndexEntryReadPersistenceError
 > {
   const captured = Result.gen(function* () {
+    if (input.kind !== "live" && input.kind !== "tombstone") {
+      return yield* Result.fail(new InvalidAppIndexEntryInputError("invalidKind"));
+    }
     const scopeId = yield* decodeWriteFieldResult(
       decodeScopeIdResult(input.scopeId),
       "invalidScopeId",
@@ -937,6 +944,7 @@ const decodeBackfilledAppendInputEffect = Effect.fn(
       );
     }
     return Object.freeze({
+      kind: input.kind,
       identity: Object.freeze({
         scopeId,
         indexDefinitionId: input.definition.indexDefinitionId,
@@ -953,15 +961,7 @@ const decodeBackfilledAppendInputEffect = Effect.fn(
     });
   });
   const value = yield* Effect.fromResult(captured);
-  // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: transaction - Result helper types authority mismatch; Drizzle rejection stays a defect because ReadPersistenceError is outside this operation's error channel
-  const currentScope = yield* Effect.promise(() =>
-    requireScopeUuidResult(
-      tx,
-      value.identity.scopeId,
-      Object.freeze({ scopeUuid: value.scopeUuid }),
-    )
-  );
-  yield* Effect.fromResult(currentScope);
+  yield* requireScopeUuidEffect(tx, value.identity.scopeId, { scopeUuid: value.scopeUuid });
   // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: invariant - helper catches hashing failures into Result before this Effect boundary
   const canonicalPhysicalSpecResult = yield* Effect.promise(() =>
     canonicalizePhysicalSpecResult(value.physicalSpec)
@@ -975,7 +975,7 @@ const decodeBackfilledAppendInputEffect = Effect.fn(
   );
   const keySha256 = yield* Effect.fromResult(keySha256Result);
   return Object.freeze({
-    kind: "live" as const,
+    kind: value.kind,
     identity: value.identity,
     scopeUuid: value.scopeUuid,
     writeEpochUuid: value.writeEpochUuid,
@@ -1471,128 +1471,160 @@ const requireScopeUuidEffect = Effect.fn(
   return projection.scopeUuid;
 });
 
-async function deleteRejectedRevisionResult(
+const deleteRejectedRevisionEffect = Effect.fn(
+  "AppIndexEntries.deleteRejectedRevision",
+)(function* (
   tx: AppIndexEntryTransaction,
   revision: DecodedAppendAppIndexEntryRevisionV1,
-): Promise<Result.Result<void, AppIndexEntryStorageCorruptionError>> {
-  const deleted = await tx
-    .delete(fxAppIndexEntryRevisions)
-    .where(and(
-      eq(fxAppIndexEntryRevisions.scopeUuid, revision.scopeUuid),
-      eq(
-        fxAppIndexEntryRevisions.indexDefinitionId,
-        revision.identity.indexDefinitionId,
-      ),
-      eq(fxAppIndexEntryRevisions.encodedKey, revision.keyBytes),
-      eq(
-        fxAppIndexEntryRevisions.rowId,
-        orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
-      ),
-      eq(fxAppIndexEntryRevisions.commitSeq, revision.commitSeq),
-    ))
-    .returning({ commitSeq: fxAppIndexEntryRevisions.commitSeq });
-  return deleted[0] === undefined
-    ? Result.fail(corruption("rejected revision could not be removed"))
-    : Result.succeed(undefined);
-}
-
-async function revisionExists(
-  tx: AppIndexEntryTransaction,
-  revision: DecodedAppendAppIndexEntryRevisionV1,
-): Promise<boolean> {
-  const rows = await tx
-    .select({ commitSeq: fxAppIndexEntryRevisions.commitSeq })
-    .from(fxAppIndexEntryRevisions)
-    .where(and(
-      eq(fxAppIndexEntryRevisions.scopeUuid, revision.scopeUuid),
-      eq(
-        fxAppIndexEntryRevisions.indexDefinitionId,
-        revision.identity.indexDefinitionId,
-      ),
-      eq(fxAppIndexEntryRevisions.encodedKey, revision.keyBytes),
-      eq(
-        fxAppIndexEntryRevisions.rowId,
-        orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
-      ),
-      eq(fxAppIndexEntryRevisions.commitSeq, revision.commitSeq),
-    ))
-    .limit(1);
-  return rows[0] !== undefined;
-}
-
-async function readChainHeadResult(
-  tx: AppIndexEntryTransaction,
-  revision: DecodedAppendAppIndexEntryRevisionV1,
-): Promise<Result.Result<
-  Readonly<{ readonly commitSeq: CommitSeq; readonly isTombstone: boolean }> | null,
-  AppIndexEntryStorageCorruptionError
->> {
-  const rows = await tx
-    .select({
-      commitSeq: fxAppIndexEntryRevisions.commitSeq,
-      isTombstone: fxAppIndexEntryRevisions.isTombstone,
-    })
-    .from(fxAppIndexEntryRevisions)
-    .where(and(
-      eq(fxAppIndexEntryRevisions.scopeUuid, revision.scopeUuid),
-      eq(
-        fxAppIndexEntryRevisions.indexDefinitionId,
-        revision.identity.indexDefinitionId,
-      ),
-      eq(fxAppIndexEntryRevisions.encodedKey, revision.keyBytes),
-      eq(
-        fxAppIndexEntryRevisions.rowId,
-        orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
-      ),
-    ))
-    .orderBy(desc(fxAppIndexEntryRevisions.commitSeq))
-    .limit(1);
-  const head = rows[0];
-  if (head === undefined) return Result.succeed(null);
-  return decodeCommitSeqResult(head.commitSeq).pipe(
-    Result.mapError(() => corruption("chain-head commit sequence is invalid")),
-    Result.map((commitSeq) => Object.freeze({
-      commitSeq,
-      isTombstone: head.isTombstone,
-    })),
+) {
+  const deleted = yield* appendQueryEffect(
+    tx
+      .delete(fxAppIndexEntryRevisions)
+      .where(
+        and(
+          eq(fxAppIndexEntryRevisions.scopeUuid, revision.scopeUuid),
+          eq(
+            fxAppIndexEntryRevisions.indexDefinitionId,
+            revision.identity.indexDefinitionId,
+          ),
+          eq(fxAppIndexEntryRevisions.encodedKey, revision.keyBytes),
+          eq(
+            fxAppIndexEntryRevisions.rowId,
+            orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
+          ),
+          eq(fxAppIndexEntryRevisions.commitSeq, revision.commitSeq),
+        ),
+      )
+      .returning({ commitSeq: fxAppIndexEntryRevisions.commitSeq }),
   );
-}
+  if (deleted[0] === undefined)
+    return yield* Effect.fail(
+      corruption("rejected revision could not be removed"),
+    );
+});
 
-async function requireParentRevisionResult(
+const revisionExistsEffect = Effect.fn("AppIndexEntries.revisionExists")(
+  function* (
+    tx: AppIndexEntryTransaction,
+    revision: DecodedAppendAppIndexEntryRevisionV1,
+  ) {
+    const rows = yield* appendQueryEffect(
+      tx
+        .select({ commitSeq: fxAppIndexEntryRevisions.commitSeq })
+        .from(fxAppIndexEntryRevisions)
+        .where(
+          and(
+            eq(fxAppIndexEntryRevisions.scopeUuid, revision.scopeUuid),
+            eq(
+              fxAppIndexEntryRevisions.indexDefinitionId,
+              revision.identity.indexDefinitionId,
+            ),
+            eq(fxAppIndexEntryRevisions.encodedKey, revision.keyBytes),
+            eq(
+              fxAppIndexEntryRevisions.rowId,
+              orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
+            ),
+            eq(fxAppIndexEntryRevisions.commitSeq, revision.commitSeq),
+          ),
+        )
+        .limit(1),
+    );
+    return rows[0] !== undefined;
+  },
+);
+
+const readChainHeadEffect = Effect.fn("AppIndexEntries.readChainHead")(
+  function* (
+    tx: AppIndexEntryTransaction,
+    revision: DecodedAppendAppIndexEntryRevisionV1,
+  ) {
+    const rows = yield* appendQueryEffect(
+      tx
+        .select({
+          commitSeq: fxAppIndexEntryRevisions.commitSeq,
+          isTombstone: fxAppIndexEntryRevisions.isTombstone,
+        })
+        .from(fxAppIndexEntryRevisions)
+        .where(
+          and(
+            eq(fxAppIndexEntryRevisions.scopeUuid, revision.scopeUuid),
+            eq(
+              fxAppIndexEntryRevisions.indexDefinitionId,
+              revision.identity.indexDefinitionId,
+            ),
+            eq(fxAppIndexEntryRevisions.encodedKey, revision.keyBytes),
+            eq(
+              fxAppIndexEntryRevisions.rowId,
+              orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
+            ),
+          ),
+        )
+        .orderBy(desc(fxAppIndexEntryRevisions.commitSeq))
+        .limit(1),
+    );
+    const head = rows[0];
+    if (head === undefined) return null;
+    return yield* Effect.fromResult(
+      decodeCommitSeqResult(head.commitSeq).pipe(
+        Result.mapError(() =>
+          corruption("chain-head commit sequence is invalid"),
+        ),
+        Result.map((commitSeq) =>
+          Object.freeze({
+            commitSeq,
+            isTombstone: head.isTombstone,
+          }),
+        ),
+      ),
+    );
+  },
+);
+
+const requireParentRevisionEffect = Effect.fn(
+  "AppIndexEntries.requireParentRevision",
+)(function* (
   tx: AppIndexEntryTransaction,
   revision: DecodedAppendAppIndexEntryRevisionV1,
-): Promise<Result.Result<void, AppIndexEntryParentRevisionError>> {
-  const rows = await tx
-    .select({ isTombstone: fxAppRowRevisions.isTombstone })
-    .from(fxAppRowRevisions)
-    .where(and(
-      eq(fxAppRowRevisions.scopeUuid, revision.scopeUuid),
-      eq(fxAppRowRevisions.tableId, revision.identity.tableId),
-      eq(
-        fxAppRowRevisions.rowId,
-        orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
-      ),
-      eq(fxAppRowRevisions.writeEpochUuid, revision.writeEpochUuid),
-      eq(fxAppRowRevisions.commitSeq, revision.commitSeq),
-    ))
-    .limit(1);
+) {
+  const rows = yield* appendQueryEffect(
+    tx
+      .select({ isTombstone: fxAppRowRevisions.isTombstone })
+      .from(fxAppRowRevisions)
+      .where(
+        and(
+          eq(fxAppRowRevisions.scopeUuid, revision.scopeUuid),
+          eq(fxAppRowRevisions.tableId, revision.identity.tableId),
+          eq(
+            fxAppRowRevisions.rowId,
+            orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
+          ),
+          eq(fxAppRowRevisions.writeEpochUuid, revision.writeEpochUuid),
+          eq(fxAppRowRevisions.commitSeq, revision.commitSeq),
+        ),
+      )
+      .limit(1),
+  );
   const parent = rows[0];
   if (parent === undefined) {
-    return Result.fail(new AppIndexEntryParentRevisionError(
-      revision.identity,
-      revision.commitSeq,
-      "missing",
-    ));
+    return yield* Effect.fail(
+      new AppIndexEntryParentRevisionError(
+        revision.identity,
+        revision.commitSeq,
+        "missing",
+      ),
+    );
   }
   if (revision.kind === "live" && parent.isTombstone) {
-    return Result.fail(new AppIndexEntryParentRevisionError(
-      revision.identity,
-      revision.commitSeq,
-      "tombstonedLiveEntry",
-    ));
+    return yield* Effect.fail(
+      new AppIndexEntryParentRevisionError(
+        revision.identity,
+        revision.commitSeq,
+        "tombstonedLiveEntry",
+      ),
+    );
   }
-  return Result.succeed(undefined);
-}
+  return;
+});
 
 function projectRevision(
   revision: DecodedAppendAppIndexEntryRevisionV1,

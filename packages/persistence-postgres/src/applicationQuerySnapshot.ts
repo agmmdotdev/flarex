@@ -132,6 +132,7 @@ import {
 } from "./applicationRelationSchemaAuthority";
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
+  isIndexBuildSnapshotCoveredInTransactionEffect,
   readFencedIndexBuildStateEffect,
   type ReadFencedIndexBuildStateError,
 } from "./indexBuildStates";
@@ -1296,7 +1297,9 @@ function readPointInTransaction(
   });
 }
 
-function readIndexInTransaction(
+const readIndexInTransaction = Effect.fn(
+  "ApplicationQuerySnapshot.readIndexInTransaction",
+)(function* (
   tx: AppRowTransaction,
   scoped: ScopedTransactionContext,
   input: Readonly<{
@@ -1307,78 +1310,81 @@ function readIndexInTransaction(
     readonly limit: number;
   }>,
 ) {
-  return Effect.gen(function* () {
-    const { state, table, definition, bounds, limit } = input;
-    yield* revalidateInTransaction(
-      tx,
-      scoped.clock,
-      state,
-      "indexRead",
+  const { state, table, definition, bounds, limit } = input;
+  yield* revalidateInTransaction(tx, scoped.clock, state, "indexRead");
+  const build = yield* readFencedIndexBuildStateEffect(tx, {
+    scopeId: scoped.authority.scopeId,
+    indexDefinitionId: definition.indexDefinitionId,
+  });
+  if (build.status !== "current" || build.buildState.lifecycle !== "enabled") {
+    return yield* failure("indexRead", "indexUnavailable");
+  }
+  const covered = yield* isIndexBuildSnapshotCoveredInTransactionEffect(
+    tx,
+    build.buildState,
+    table.tableId,
+    state.metadata.snapshotToken.commitSeq,
+  );
+  if (!covered) {
+    return yield* failure("indexRead", "indexUnavailable");
+  }
+  const positions = yield* scanAppIndexAtSnapshotInTransactionEffect(tx, {
+    scopeId: scoped.authority.scopeId,
+    definition,
+    bounds,
+    limit,
+    snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
+  });
+  const documents: CanonicalFlarexRuntimeObjectV1[] = [];
+  for (
+    let offset = 0;
+    offset < positions.entries.length;
+    offset += INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE
+  ) {
+    const entries = positions.entries.slice(
+      offset,
+      offset + INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE,
     );
-    const build = yield* readFencedIndexBuildStateEffect(tx, {
+    const rows = yield* readLiveAppRowsAtSnapshotInTransactionEffect(tx, {
       scopeId: scoped.authority.scopeId,
-      indexDefinitionId: definition.indexDefinitionId,
-    });
-    if (build.status !== "current" || build.buildState.lifecycle !== "enabled") {
-      return yield* failure("indexRead", "indexUnavailable");
-    }
-    if (build.buildState.startCommitSeq > state.metadata.snapshotToken.commitSeq) {
-      return yield* failure("indexRead", "indexUnavailable");
-    }
-    const positions = yield* scanAppIndexAtSnapshotInTransactionEffect(tx, {
-      scopeId: scoped.authority.scopeId,
-      definition,
-      bounds,
-      limit,
+      tableId: table.tableId,
+      rowIds: Object.freeze(entries.map((entry) => entry.rowId)),
       snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
     });
-    const documents: CanonicalFlarexRuntimeObjectV1[] = [];
-    for (
-      let offset = 0;
-      offset < positions.entries.length;
-      offset += INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE
-    ) {
-      const entries = positions.entries.slice(
-        offset,
-        offset + INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE,
+    let semanticBytes = 0;
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index]!;
+      const entry = entries[index]!;
+      if (
+        entry.tableId !== table.tableId ||
+        row.rowId !== entry.rowId ||
+        !isCanonicalFlarexRuntimeObjectV1(row.document.value)
+      )
+        return yield* failure("indexRead", "resourceFailure");
+      const encodedKey = yield* Effect.fromResult(
+        lowerAppDeveloperIndexKeyV1(
+          definition,
+          row.document,
+          row.creationTime,
+        ).pipe(
+          Result.mapError((cause) =>
+            failureValue("indexRead", "resourceFailure", false, cause),
+          ),
+        ),
       );
-      const rows = yield* readLiveAppRowsAtSnapshotInTransactionEffect(tx, {
-        scopeId: scoped.authority.scopeId,
-        tableId: table.tableId,
-        rowIds: Object.freeze(entries.map(entry => entry.rowId)),
-        snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
-      });
-      let semanticBytes = 0;
-      for (let index = 0; index < rows.length; index += 1) {
-        const row = rows[index]!;
-        const entry = entries[index]!;
-        if (
-          entry.tableId !== table.tableId || row.rowId !== entry.rowId ||
-          !isCanonicalFlarexRuntimeObjectV1(row.document.value)
-        ) return yield* failure("indexRead", "resourceFailure");
-        const encodedKey = yield* Effect.fromResult(
-          lowerAppDeveloperIndexKeyV1(
-            definition,
-            row.document,
-            row.creationTime,
-          ).pipe(Result.mapError(cause =>
-            failureValue("indexRead", "resourceFailure", false, cause)
-          )),
-        );
-        if (encodedKey !== entry.encodedKey) {
-          return yield* failure("indexRead", "resourceFailure");
-        }
-        semanticBytes += row.document.semanticSizeBytes;
-        documents.push(row.document.value);
+      if (encodedKey !== entry.encodedKey) {
+        return yield* failure("indexRead", "resourceFailure");
       }
-      yield* charge(state, "indexRead", {
-        documents: rows.length,
-        semanticBytes,
-      });
+      semanticBytes += row.document.semanticSizeBytes;
+      documents.push(row.document.value);
     }
-    return Object.freeze({ positions, documents: Object.freeze(documents) });
-  });
-}
+    yield* charge(state, "indexRead", {
+      documents: rows.length,
+      semanticBytes,
+    });
+  }
+  return Object.freeze({ positions, documents: Object.freeze(documents) });
+});
 
 const readRelationInTransaction = Effect.fn(
   "ApplicationQuerySnapshot.readRelationInTransaction",

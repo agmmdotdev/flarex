@@ -1,0 +1,5 @@
+ALTER TABLE "fx_system_index_build_state" ADD COLUMN "covered_through_commit_seq" bigint;--> statement-breakpoint
+ALTER TABLE "fx_system_index_build_state" ADD COLUMN "first_readable_commit_seq" bigint;--> statement-breakpoint
+CREATE INDEX "fx_app_row_current_table_frontier_idx" ON "fx_app_row_current" USING btree ("scope_uuid","table_id","commit_seq");--> statement-breakpoint
+ALTER TABLE "fx_system_index_build_state" ADD CONSTRAINT "fx_system_index_build_coverage_check" CHECK ("fx_system_index_build_state"."covered_through_commit_seq" is null or "fx_system_index_build_state"."covered_through_commit_seq" >= 0);--> statement-breakpoint
+ALTER TABLE "fx_system_index_build_state" ADD CONSTRAINT "fx_system_index_build_readable_check" CHECK ("fx_system_index_build_state"."first_readable_commit_seq" is null or ("fx_system_index_build_state"."covered_through_commit_seq" is not null and "fx_system_index_build_state"."first_readable_commit_seq" >= 0 and "fx_system_index_build_state"."first_readable_commit_seq" <= "fx_system_index_build_state"."covered_through_commit_seq"));

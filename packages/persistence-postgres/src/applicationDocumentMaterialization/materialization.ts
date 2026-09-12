@@ -1,3 +1,4 @@
+import { isIndexBuildSnapshotCoveredInTransactionEffect, validateIndexBuildStateFrontierResult } from "../indexBuildStates";
 import { sqlCall } from "../pointCommitErrors";
 import {
   runPointCommitInTransactionEffect,
@@ -133,6 +134,7 @@ import type {
   ReadAppIndexDefinitionError,
 } from "../appIndexDefinitions";
 import {
+  AppRowReadPersistenceError,
   appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
   type AppendPreparedAppRowRevisionV1Input,
   type AppRowIdentityV1,
@@ -533,9 +535,37 @@ export async function materializeApplicationDocumentRows(
   loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
   intrinsicBuilds: ReadonlyArray<LockedPointCommitIntrinsicIndexV1>,
   developerIndexActions: ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>,
+  developerBuilds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
   uniqueKeyActions: ReadonlyArray<PointCommitUniqueKeyActionV1>,
   options: ApplicationDocumentMaterializationOptions,
 ): Promise<void> {
+  const maintainedBuilds = [...intrinsicBuilds, ...developerBuilds];
+  for (const { build, definition } of maintainedBuilds) {
+    if (build.lifecycle !== "enabled") continue;
+    const covered = projectPointCommitTransactionResult(
+      await runPointCommitInTransactionEffect(
+        isIndexBuildSnapshotCoveredInTransactionEffect(
+          tx,
+          build,
+          definition.access.tableId,
+          CommitSeqSchema.make(commitSeq - 1n),
+        ).pipe(
+          Effect.mapError((cause) =>
+            cause instanceof AppRowReadPersistenceError
+              ? new PointCommitSqlFailureMarkerV1(
+                  "lockDeveloperIndexBuilds",
+                  cause.cause,
+                )
+              : corruption("developerIndexBuildInvalid"),
+          ),
+        ),
+      ),
+    );
+    if (!covered)
+      throw new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({
+        reason: "definitionSetUnavailable",
+      });
+  }
   let intrinsicBuildIndex = 0;
   for (const rowIntent of command.rowIntents) {
     const rowRevision = await lowerTentativePointCommitRow(
@@ -597,6 +627,36 @@ export async function materializeApplicationDocumentRows(
     uniqueKeyActions,
     options,
   );
+  for (const { build } of maintainedBuilds) {
+    if (build.lifecycle !== "enabled") continue;
+    const updated = await sqlCall("resetDeveloperIndexValidation", () =>
+      tx
+        .update(fxSystemIndexBuildStates)
+        .set({
+          coveredThroughCommitSeq: commitSeq,
+          updatedAt: sql`clock_timestamp()`,
+        })
+        .where(
+          and(
+            eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
+            eq(
+              fxSystemIndexBuildStates.indexDefinitionId,
+              build.indexDefinitionId,
+            ),
+            eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
+            eq(fxSystemIndexBuildStates.epoch, build.epoch),
+            eq(
+              fxSystemIndexBuildStates.storageGenerationFence,
+              build.storageGenerationFence,
+            ),
+            eq(fxSystemIndexBuildStates.lifecycle, "enabled"),
+          ),
+        )
+        .returning({ id: fxSystemIndexBuildStates.indexDefinitionId }),
+    );
+    if (updated.length !== 1) throw corruption("developerIndexBuildInvalid");
+  }
+
   if (command.rowIntents.length > 0) {
     const reset = await resetPointCommitUniqueConstraintValidation(tx, command);
     if (reset) {
@@ -1219,11 +1279,13 @@ export async function lockPointCommitDeveloperIndexBuilds(
       state.storageGeneration !== clock.record.storageGeneration ||
       state.storageGenerationFence !== clock.record.storageGenerationFence ||
       state.epoch !== clock.record.epoch ||
-      state.startCommitSeq > clock.record.lastCommitSeq ||
       state.lifecycle === "retiring"
     ) {
       throw corruption("developerIndexBuildInvalid");
     }
+    projectPointCommitTransactionResult(validateIndexBuildStateFrontierResult(state, clock.record.lastCommitSeq).pipe(
+      Result.mapError(() => corruption("developerIndexBuildInvalid")),
+    ));
     locked.push(Object.freeze({ definition, build: state }));
   }
   return Object.freeze(locked);
@@ -2298,11 +2360,13 @@ export async function lockPointCommitIntrinsicIndexBuilds(
       state.storageGeneration !== clock.record.storageGeneration ||
       state.storageGenerationFence !== clock.record.storageGenerationFence ||
       state.epoch !== clock.record.epoch ||
-      state.startCommitSeq > clock.record.lastCommitSeq ||
       state.lifecycle === "retiring"
     ) {
       throw corruption("intrinsicIndexBuildInvalid");
     }
+    projectPointCommitTransactionResult(validateIndexBuildStateFrontierResult(state, clock.record.lastCommitSeq).pipe(
+      Result.mapError(() => corruption("intrinsicIndexBuildInvalid")),
+    ));
     locked.push(Object.freeze({ definition, build: state }));
   }
   return Object.freeze(locked);

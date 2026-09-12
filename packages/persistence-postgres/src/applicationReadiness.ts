@@ -40,7 +40,7 @@ import {
   type FlarexDbV1StorageGeneration,
 } from "flarex-protocol/storage-authority";
 
-import type { AppRowTransaction } from "./appRows";
+import { AppRowReadPersistenceError, type AppRowTransaction } from "./appRows";
 import {
   hasAppSchemaCandidateReadinessComposition,
   loadAppSchemaCandidateReadinessEffect,
@@ -72,6 +72,7 @@ import {
   type PublishedPhysicalRequirementSnapshotV1,
 } from "./indexBuildReconciliation";
 import {
+  isIndexBuildSnapshotCoveredInTransactionEffect,
   decodeIndexBuildStateRowResult,
   type IndexBuildStateRecord,
   validateIndexBuildStateFrontierResult,
@@ -171,6 +172,7 @@ export type ApplicationReadinessNotReadyReason =
   | "candidateValidationFailed"
   | "candidateValidationWrongSchema"
   | "physicalBuildMissing"
+  | "physicalBuildNotCovered"
   | "physicalBuildNotEnabled"
   | "physicalDefinitionNotActive"
   | "uniqueConstraintSetMissing"
@@ -1875,7 +1877,7 @@ function* <SchemaFailure, ColdFailure>(
 type PhysicalBuildRowsResult =
   | Readonly<{
       readonly status: "not_ready";
-      readonly reason: "physicalBuildMissing" | "physicalBuildNotEnabled";
+      readonly reason: "physicalBuildMissing" | "physicalBuildNotEnabled" | "physicalBuildNotCovered";
       readonly detail: string;
     }>
   | Readonly<{
@@ -1888,7 +1890,8 @@ export type ApplicationPhysicalReadinessResult =
       readonly status: "not_ready";
       readonly reason:
         | "physicalBuildMissing"
-        | "physicalBuildNotEnabled"
+        | "physicalBuildNotCovered"
+  | "physicalBuildNotEnabled"
         | "physicalDefinitionNotActive";
       readonly detail: string;
     }>
@@ -1947,8 +1950,8 @@ const loadPhysicalReadiness = Effect.fn(
     requirementCount: requirements.definitions.length,
     indexes: physicalBuilds.rows.map((build, index) => {
       const requirement = requirements.definitions[index];
-      if (requirement === undefined) {
-        throw new Error("Application readiness physical definition vanished.");
+      if (requirement === undefined || build.firstReadableCommitSeq === null) {
+        throw new Error("Application readiness physical definition or readable frontier vanished.");
       }
       return {
         indexDefinitionId: build.indexDefinitionId,
@@ -1956,6 +1959,7 @@ const loadPhysicalReadiness = Effect.fn(
         physicalSpecSha256Hex: requirement.physicalSpecSha256Hex,
         lifecycle: build.lifecycle,
         startCommitSeq: build.startCommitSeq.toString(),
+        firstReadableCommitSeq: build.firstReadableCommitSeq.toString(),
         attemptFence: build.attemptFence.toString(),
       };
     }),
@@ -2039,10 +2043,17 @@ const loadPhysicalBuildRows = Effect.fn(
         decoded.epoch !== clock.epoch) {
         return yield* readinessFailure("authorityChanged");
       }
-      if (decoded.lifecycle !== "enabled") {
+      const requirement = requirements.definitions[index];
+      if (requirement === undefined) return yield* readinessFailure("storedState");
+      const covered = yield* isIndexBuildSnapshotCoveredInTransactionEffect(
+        tx, decoded, requirement.tableId, clock.lastCommitSeq,
+      ).pipe(Effect.mapError(cause => cause instanceof AppRowReadPersistenceError
+        ? readinessFailureValue("resourceFailure", retryableCause(cause.cause), cause.cause)
+        : readinessFailureValue("storedState", false, cause)));
+      if (!covered) {
         return Object.freeze({
           status: "not_ready" as const,
-          reason: "physicalBuildNotEnabled" as const,
+          reason: decoded.lifecycle === "enabled" ? "physicalBuildNotCovered" as const : "physicalBuildNotEnabled" as const,
           detail: `${definitionId}:${decoded.lifecycle}`,
         });
       }

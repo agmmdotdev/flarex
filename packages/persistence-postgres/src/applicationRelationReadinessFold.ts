@@ -177,6 +177,7 @@ export type ApplicationRelationReadinessFoldNotReadyReason =
   | "candidateValidationFailed"
   | "candidateValidationWrongSchema"
   | "physicalBuildMissing"
+  | "physicalBuildNotCovered"
   | "physicalBuildNotEnabled"
   | "physicalDefinitionNotActive"
   | "uniqueConstraintSetMissing"

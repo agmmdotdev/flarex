@@ -1436,6 +1436,60 @@ const sha256Effect = Effect.fn("PhysicalDefinitionLifecycle.sha256")((
     catch: cause => new PhysicalDefinitionLifecycleCryptoError({ cause }),
   }));
 
+/** The scope clock must already be locked by the build transaction. */
+export const isPhysicalIndexBuildActiveInTransactionEffect = Effect.fn(
+  "PhysicalDefinitionLifecycle.isIndexBuildActive",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  deploymentId: string,
+  indexDefinitionId: CatalogIndexDefinitionId,
+  physicalSpecSha256Hex: string,
+): Effect.fn.Return<
+  boolean,
+  | PhysicalDefinitionLifecyclePersistenceError
+  | PhysicalDefinitionLifecycleConflictError
+> {
+  const rows = yield* queryEffect("readLifecycle", () =>
+    tx
+      .select()
+      .from(fxSystemPhysicalDefinitionLifecycles)
+      .where(
+        and(
+          eq(fxSystemPhysicalDefinitionLifecycles.scopeId, authority.scopeId),
+          eq(fxSystemPhysicalDefinitionLifecycles.definitionKind, "index"),
+          eq(
+            fxSystemPhysicalDefinitionLifecycles.definitionId,
+            indexDefinitionId,
+          ),
+        ),
+      )
+      .limit(1)
+      .for("share"),
+  );
+  const row = rows[0];
+  if (row === undefined) return true;
+  const stored = yield* decodeLifecycleRowEffect(row, {
+    authority,
+    deploymentId,
+    definitionKind: "index",
+    definitionId: indexDefinitionId,
+  });
+  if (
+    stored.physicalSpecSha256Hex !== physicalSpecSha256Hex ||
+    stored.storageGeneration !== authority.storageGeneration ||
+    stored.storageGenerationFence !== authority.storageGenerationFence ||
+    stored.epoch !== authority.epoch
+  ) {
+    return yield* Effect.fail(
+      new PhysicalDefinitionLifecycleConflictError({
+        reason: "authorityChanged",
+      }),
+    );
+  }
+  return stored.lifecycle === "active";
+});
+
 function readLifecycleEffect(
   tx: AppRowTransaction,
   state: PreparedSubjectState,

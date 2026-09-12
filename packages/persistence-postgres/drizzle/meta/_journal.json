@@ -673,6 +673,13 @@
       "when": 1789200918812,
       "tag": "0095_app-row-body",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1789203752028,
+      "tag": "0096_index-coverage",
+      "breakpoints": true
     }
   ]
 }

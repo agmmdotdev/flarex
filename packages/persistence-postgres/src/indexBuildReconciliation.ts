@@ -195,6 +195,7 @@ export class IndexBuildReconciliationDefinitionSetChangedV1Error
 export class IndexBuildReconciliationStateV1Error
   extends Data.TaggedError("IndexBuildReconciliationStateV1Error")<{
     readonly reason:
+      | "readableBuildRequiresExplicitReset"
       | "attemptFenceExhausted"
       | "concurrentStateChange";
     readonly scopeId: ScopeId;
@@ -233,6 +234,7 @@ export type ReconcilePublishedIndexBuildsV1Error =
   | IndexBuildReconciliationDecisionUncertainV1Error;
 
 interface PhysicalDefinitionRequirementV1 {
+  readonly tableId: AppIndexDefinitionRecord["access"]["tableId"];
   readonly indexDefinitionId: CatalogIndexDefinitionId;
   readonly physicalSpecCodecVersion: AppIndexDefinitionRecord["physicalSpecCodecVersion"];
   readonly physicalSpecBytesHex: AppIndexDefinitionRecord["physicalSpecBytesHex"];
@@ -565,6 +567,7 @@ function projectExactRequirementsResult(
     }
     seen.add(definition.indexDefinitionId);
     projected.push(Object.freeze({
+      tableId: definition.access.tableId,
       indexDefinitionId: definition.indexDefinitionId,
       physicalSpecCodecVersion: definition.physicalSpecCodecVersion,
       physicalSpecBytesHex: definition.physicalSpecBytesHex,
@@ -753,6 +756,12 @@ const reconcileInTransaction = Effect.fn(
       replayedCount += 1;
       continue;
     }
+    if (existing.lifecycle === "enabled" || existing.firstReadableCommitSeq !== null) {
+      return yield* Effect.fail(new IndexBuildReconciliationStateV1Error({
+        reason: "readableBuildRequiresExplicitReset", scopeId: authority.scopeId,
+        indexDefinitionId: definition.indexDefinitionId,
+      }));
+    }
     if (existing.attemptFence >= MAX_INDEX_BUILD_ATTEMPT_FENCE) {
       return yield* Effect.fail(new IndexBuildReconciliationStateV1Error({
         reason: "attemptFenceExhausted",
@@ -772,6 +781,8 @@ const reconcileInTransaction = Effect.fn(
           storageGenerationFence: clock.storageGenerationFence,
           epoch: clock.epoch,
           startCommitSeq: clock.lastCommitSeq,
+          coveredThroughCommitSeq: null,
+          firstReadableCommitSeq: null,
           lifecycle: "declared",
           cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
           backfillCursorRowId: null,

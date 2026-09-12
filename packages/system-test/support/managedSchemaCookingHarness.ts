@@ -1,7 +1,15 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import { ensureAppUniqueConstraintSetClosureV1Effect } from "@flarex/persistence-postgres/internal/app-unique-constraint-set-closure-v1";
 import { Effect, Result, Scope } from "effect";
-import { eq } from "drizzle-orm";
+import { openApplicationQuerySnapshot, readApplicationQueryIndex, readApplicationQueryPoint } from "@flarex/persistence-postgres/internal/application-query-snapshot";
+import { ScopeExecutionLive } from "@flarex/persistence-postgres/internal/scope-execution";
+import { decodeAppDocumentIdV1, decodeAppDocumentIdentityV1, appRowIdHexV1FromBytes } from "flarex-protocol/app-document-id";
+import { and, eq } from "drizzle-orm";
+import { locateAppIndexDefinitionByIdEffect } from "@flarex/persistence-postgres/internal/system-test/appIndexDefinitions";
+import { scanAppIndexAtSnapshotInTransactionEffect } from "@flarex/persistence-postgres/internal/system-test/appIndexEntries";
+import { buildAppDeveloperOrderedIndexV1Effect, AppDeveloperOrderedIndexBuildDecisionUncertainV1Error, AppDeveloperOrderedIndexBuildIntegrationV1Error, AppDeveloperOrderedIndexBuildStateV1Error } from "@flarex/persistence-postgres/internal/app-developer-ordered-index-build-v1";
+import { decodeAppOrderedIndexKeyV1 } from "flarex-protocol/ordered-index";
 import {
   claimPreparedApplicationManagedSchemaPlanResult,
   makeApplicationManagedSchemaApplicationLayer,
@@ -40,6 +48,7 @@ import {
 } from
   "@flarex/persistence-postgres/internal/app-schema-candidate-validation";
 import {
+  RUN_LOCATED_READ_COMMITTED_V1,
   LocatedReadCommittedTransactionFailureV1,
 } from
   "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
@@ -53,7 +62,7 @@ import {
   createApplicationManagedSchemaPlanningPort,
 } from
   "@flarex/persistence-postgres/internal/application-managed-schema-planning";
-import { fxSystemScopeClocks } from
+import { fxSystemScopeClocks, fxSystemIndexBuildStates, fxAppIndexEntryRevisions } from
   "@flarex/persistence-postgres/internal/system-test/schema";
 import { PointCommitStaleAuthorityV1Error } from
   "@flarex/persistence-postgres/point-commit-transaction";
@@ -93,7 +102,7 @@ import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
-import { ScopeEpochSchema } from "flarex-protocol/storage-authority";
+import { ScopeEpochSchema, projectScopeIdUuidV1, type CommitSeq } from "flarex-protocol/storage-authority";
 
 import {
   makeApplicationNativeMutationTestLayer,
@@ -270,6 +279,656 @@ export async function proveManagedSchemaCookingSchemaA(
       feedCount: 1,
       outboxCount: 1,
     });
+  });
+}
+
+/** Real A writes exercise candidate progress without online maintenance of B's index. */
+export async function proveManagedSchemaCandidateIndexCoverageBoundaries(
+  mode: "cursorAndWholeCommit" | "retainedGap" | "oversizedHistory",
+  createFixture: ManagedSchemaCookingFixtureFactory = (options) =>
+    createApplicationNativeMutationPGliteFixture(options),
+) {
+  return withCookingScenario(createFixture, async (scenario) => {
+    const { fixture } = scenario;
+    let request = 0;
+    const mutate = async (operation: string, args: Json) => {
+      const result = await scenario.mutation(
+        invokeApplicationMutation(
+          TransactionFunctionPathV1Schema.make(`recipes:${operation}`),
+          args,
+          TransactionRequestKeyV1Schema.make(
+            `coverage-boundary:${mode}:${request++}`,
+          ),
+        ),
+      );
+      if (result.disposition !== "published")
+        throw new Error("Active A write did not publish.");
+      return result.value;
+    };
+    const initialIds =
+      mode === "cursorAndWholeCommit"
+        ? await mutate("createBatch", { prefix: "initial-" })
+        : [];
+    if (
+      !Array.isArray(initialIds) ||
+      !initialIds.every((value) => typeof value === "string")
+    )
+      throw new Error("Batch did not return document identities.");
+    const source = await cookingSourceBundle("B");
+    scenario.sources.set(source.sourceArtifact.rootSha256, source);
+    const candidate = await fixture.registerRevision({
+      requestKey: `request:coverage-boundary:${mode}`,
+      analysis: cookingAnalysis(
+        source,
+        scenario.analysisLoader,
+        `coverage ${mode}`,
+      ),
+    });
+    await fixture.publishManagedSchemaCandidate(candidate.manifest);
+    const planningLayer = makeApplicationManagedSchemaPlanningLayer(
+      fixture.managedSchemaPlanning,
+    );
+    const applicationLayer = makeApplicationManagedSchemaApplicationLayer(
+      fixture.managedSchemaPlanning,
+      fixture.managedSchemaApplication,
+    );
+    const prepared = await runSystemTestEffectV1(
+      prepareFlarexManagedSchemaDeployment({
+        candidatePublication: candidate.publication,
+      }).pipe(Effect.provide(planningLayer)),
+    );
+    const buildRows = () =>
+      fixture.target.drizzle
+        .select()
+        .from(fxSystemIndexBuildStates)
+        .where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
+    // Definition handles are retained by the catalog owner; locate after managed declaration.
+    const definitions = [];
+    for (let step = 0; step < 64; step++) {
+      const applied = await runSystemTestEffectV1(
+        applyFlarexManagedSchemaDeployment({
+          prepared: prepared.prepared,
+        }).pipe(Effect.provide(applicationLayer)),
+      );
+      if (applied.status !== "in_progress")
+        throw new Error("Candidate passed the coverage pause.");
+      definitions.length = 0;
+      for (const row of await buildRows())
+        definitions.push(
+          await runSystemTestEffectV1(
+            locateAppIndexDefinitionByIdEffect(
+              fixture.control.drizzle,
+              fixture.authority.scopeId,
+              row.indexDefinitionId,
+            ),
+          ),
+        );
+      const definition = definitions.find(
+        (value) => value?.access.kind === "developer",
+      );
+      if (!definition) continue;
+      const state = (await buildRows()).find(
+        (row) => row.indexDefinitionId === definition.indexDefinitionId,
+      );
+      if (
+        mode === "cursorAndWholeCommit"
+          ? state?.lifecycle === "backfilling" &&
+            state.backfillCursorRowId !== null
+          : state?.lifecycle === "enabled"
+      )
+        break;
+      if (step === 63) throw new Error("Coverage pause not reached.");
+    }
+    const definition = definitions.find(
+      (value) => value?.access.kind === "developer",
+    );
+    if (!definition) throw new Error("Developer definition not declared.");
+    const ports = {
+      controlDb: fixture.control.drizzle,
+      authority: fixture.authorityPorts,
+    };
+    const input = {
+      deploymentId: fixture.deploymentId,
+      indexDefinitionId: definition.indexDefinitionId,
+      pageSize: 1,
+    };
+    const build = () =>
+      runSystemTestEffectV1(
+        buildAppDeveloperOrderedIndexV1Effect(ports, input),
+      );
+    const state = async () => {
+      const row = (await buildRows()).find(
+        (value) => value.indexDefinitionId === definition.indexDefinitionId,
+      );
+      if (!row) throw new Error("Build state missing.");
+      return row;
+    };
+    if (mode === "cursorAndWholeCommit") {
+      const cursor = (await state()).backfillCursorRowId;
+      if (!cursor) throw new Error("Initial cursor not populated.");
+      const passed = initialIds
+        .toSorted((left, right) =>
+          decodeAppDocumentIdentityV1(left).rowId.localeCompare(
+            decodeAppDocumentIdentityV1(right).rowId,
+          ),
+        )
+        .find(
+          (id) =>
+            decodeAppDocumentIdentityV1(id).rowId <=
+            appRowIdHexV1FromBytes(cursor),
+        );
+      if (!passed) throw new Error("No row behind initial cursor.");
+      await mutate("rename", { id: passed, name: "behind-initial-cursor" });
+      for (let step = 0; step < 64; step++) {
+        await build();
+        const current = await state();
+        if (
+          current.lifecycle === "validating" &&
+          current.backfillCursorRowId !== null
+        )
+          break;
+        if (step === 63) throw new Error("Validation cursor not reached.");
+      }
+      await mutate("rename", { id: passed, name: "behind-validation-cursor" });
+      const reset = await build();
+      if (
+        reset.lifecycle !== "validating" ||
+        (await state()).backfillCursorRowId !== null
+      )
+        throw new Error("Candidate validation did not reset after an A write.");
+      for (
+        let step = 0;
+        step < 64 && (await state()).lifecycle !== "enabled";
+        step++
+      )
+        await build();
+      if ((await state()).lifecycle !== "enabled")
+        throw new Error("Candidate initial population did not converge.");
+    }
+    const enabled = await state();
+    const intrinsic = definitions.find(
+      (value) => value?.access.kind === "by_creation_time",
+    );
+    if (!intrinsic) throw new Error("Shared intrinsic definition missing.");
+    const sharedBefore = (await buildRows()).find(
+      (row) => row.indexDefinitionId === intrinsic.indexDefinitionId,
+    );
+    if (mode === "oversizedHistory") {
+      const id = await mutate("create", { name: "x".repeat(8192) });
+      if (typeof id !== "string")
+        throw new Error("Oversized active write did not return an identity.");
+      await mutate("rename", { id, name: "repaired" });
+    } else await mutate("createBatch", { prefix: "after-enable-" });
+    if (mode === "retainedGap") await mutate("create", { name: "after-gap" });
+    const clock = await fixture.target.getScopeClock(fixture.authority.scopeId);
+    if (!clock) throw new Error("Scope clock missing.");
+    const sharedAfter = (await buildRows()).find(
+      (row) => row.indexDefinitionId === intrinsic.indexDefinitionId,
+    );
+    if (
+      !sharedBefore ||
+      !sharedAfter ||
+      sharedAfter.coveredThroughCommitSeq !== clock.lastCommitSeq ||
+      sharedBefore.firstReadableCommitSeq !== sharedAfter.firstReadableCommitSeq
+    )
+      throw new Error(
+        "Shared active/candidate definition did not advance atomically.",
+      );
+    if (mode === "retainedGap") {
+      // Retention fault fixture: the builder must reject the lost prefix, not certify newer data.
+      await fixture.target.drizzle
+        .update(fxSystemScopeClocks)
+        .set({ oldestAvailableCommitSeq: clock.lastCommitSeq })
+        .where(eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId));
+    }
+    if (mode !== "cursorAndWholeCommit") {
+      const result = await runSystemTestEffectV1(
+        Effect.result(buildAppDeveloperOrderedIndexV1Effect(ports, input)),
+      );
+      if (
+        Result.isSuccess(result) ||
+        !(result.failure instanceof AppDeveloperOrderedIndexBuildStateV1Error)
+      )
+        throw new Error("Unrepresentable indexed history was not rejected.");
+      if (
+        result.failure.reason !==
+        (mode === "oversizedHistory"
+          ? "indexKeyLimitExceeded"
+          : "indexHistoryMismatch")
+      )
+        throw new Error(
+          `Unexpected catch-up rejection: ${result.failure.reason}.`,
+        );
+      if (
+        (await state()).coveredThroughCommitSeq !==
+        enabled.coveredThroughCommitSeq
+      )
+        throw new Error("Rejected catch-up advanced coverage.");
+      const active = await runSystemTestEffectV1(
+        fixture.activation.readActive(),
+      );
+      if (active.basis.revisionId !== fixture.active.basis.revisionId)
+        throw new Error("Candidate replaced A after rejected catch-up.");
+      return true;
+    }
+    const caught = await build();
+    if (
+      caught.processedRows !== 18 ||
+      (await state()).coveredThroughCommitSeq !== clock.lastCommitSeq
+    )
+      throw new Error(
+        "Catch-up split a whole 18-fact commit at the initial page limit.",
+      );
+    const page = await fixture.target.drizzle.transaction((tx) =>
+      runSystemTestEffectV1(
+        scanAppIndexAtSnapshotInTransactionEffect(tx, {
+          scopeId: fixture.authority.scopeId,
+          definition,
+          bounds: {},
+          snapshotCommitSeq: clock.lastCommitSeq,
+          limit: 64,
+        }),
+      ),
+    );
+    const names = page.entries.map((entry) => {
+      const value = decodeAppOrderedIndexKeyV1({
+        spec: definition.physicalSpec,
+        encodedKey: entry.encodedKey,
+      })[0];
+      if (value?.kind !== "string")
+        throw new Error("Candidate name key was not a string.");
+      return value.value;
+    });
+    if (
+      page.entries.length !== 36 ||
+      !names.includes("behind-validation-cursor")
+    )
+      throw new Error("Candidate missed a cursor-passed row or whole commit.");
+    return true;
+  });
+}
+
+/** A candidate-only index must include writes committed by the still-active revision. */
+export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
+  createFixture: ManagedSchemaCookingFixtureFactory = (options) =>
+    createApplicationNativeMutationPGliteFixture(options),
+) {
+  return withCookingScenario(createFixture, async (scenario) => {
+    const { fixture } = scenario;
+    if (fixture.active.basis.manifest.schema.indexes.length !== 0)
+      throw new Error("Expected A without a developer index.");
+    const source = await cookingSourceBundle("B");
+    scenario.sources.set(source.sourceArtifact.rootSha256, source);
+    const candidate = await fixture.registerRevision({
+      requestKey: "request:managed-schema:candidate-index-after-write",
+      analysis: cookingAnalysis(
+        source,
+        scenario.analysisLoader,
+        "candidate index after active write",
+      ),
+    });
+    if (candidate.manifest.schema.indexes.length !== 1)
+      throw new Error("Expected B's single by_name index.");
+    const candidateSchema = await fixture.publishManagedSchemaCandidate(
+      candidate.manifest,
+    );
+    const planningLayer = makeApplicationManagedSchemaPlanningLayer(
+      fixture.managedSchemaPlanning,
+    );
+    const applicationLayer = makeApplicationManagedSchemaApplicationLayer(
+      fixture.managedSchemaPlanning,
+      fixture.managedSchemaApplication,
+    );
+    const applyStep = (prepared: PreparedApplicationManagedSchemaPlan) =>
+      applyFlarexManagedSchemaDeployment({ prepared }).pipe(
+        Effect.provide(applicationLayer),
+      );
+    const prepare = () =>
+      runSystemTestEffectV1(
+        prepareFlarexManagedSchemaDeployment({
+          candidatePublication: candidate.publication,
+        }).pipe(Effect.provide(planningLayer)),
+      );
+    const prepared = await prepare();
+    let enabled = false;
+    for (let step = 0; step < 32; step += 1) {
+      const applied = await runSystemTestEffectV1(applyStep(prepared.prepared));
+      if (applied.status !== "in_progress")
+        throw new Error(
+          `Candidate terminated before index pause: ${applied.status}.`,
+        );
+      if (applied.phase === "physicalBuild" && applied.detail === "enabled") {
+        enabled = true;
+        break;
+      }
+    }
+    if (!enabled)
+      throw new Error("Candidate index did not enable within 32 steps.");
+    const builds = await fixture.target.drizzle
+      .select()
+      .from(fxSystemIndexBuildStates)
+      .where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
+    const definitions = [];
+    for (const build of builds)
+      definitions.push(
+        await runSystemTestEffectV1(
+          locateAppIndexDefinitionByIdEffect(
+            fixture.control.drizzle,
+            fixture.authority.scopeId,
+            build.indexDefinitionId,
+          ),
+        ),
+      );
+    const definition = definitions.find(
+      (value) => value?.access.kind === "developer",
+    );
+    if (definition === undefined || definition === null)
+      throw new Error("Candidate developer definition missing.");
+    const witnessSnapshots: Array<{
+      commitSeq: CommitSeq;
+      names: readonly string[];
+    }> = [];
+    const remember = async (names: readonly string[]) => {
+      const clock = await fixture.target.getScopeClock(
+        fixture.authority.scopeId,
+      );
+      if (clock === null) throw new Error("Coverage witness clock missing.");
+      witnessSnapshots.push({
+        commitSeq: clock.lastCommitSeq,
+        names: names.toSorted(),
+      });
+    };
+    await remember([]);
+    const stillA = await runSystemTestEffectV1(fixture.activation.readActive());
+    if (stillA.basis.revisionId !== fixture.active.basis.revisionId)
+      throw new Error("A stopped being active before the write.");
+    const name = "Written after candidate index enabled";
+    const published = await scenario.mutation(
+      invokeApplicationMutation(
+        TransactionFunctionPathV1Schema.make("recipes:create"),
+        { name },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:candidate-index:active-a-write",
+        ),
+      ),
+    );
+    if (
+      published.disposition !== "published" ||
+      typeof published.value !== "string"
+    )
+      throw new Error("A did not publish the B-valid recipe.");
+    const documentId = decodeAppDocumentIdV1(published.value);
+    await remember([name]);
+    for (const [ordinal, operation, args] of [
+      [0, "recipes:rename", { id: documentId, name: "Moved away" }],
+      [1, "recipes:removeDescription", { id: documentId }],
+      [2, "recipes:rename", { id: documentId, name }],
+    ] as const) {
+      const changed = await scenario.mutation(
+        invokeApplicationMutation(
+          TransactionFunctionPathV1Schema.make(operation),
+          args,
+          TransactionRequestKeyV1Schema.make(
+            `managed-schema:candidate-index:change:${ordinal}`,
+          ),
+        ),
+      );
+      if (changed.disposition !== "published" || changed.value !== true)
+        throw new Error("A did not publish an index transition.");
+      await remember([ordinal === 2 ? name : "Moved away"]);
+    }
+    const temporary = await scenario.mutation(
+      invokeApplicationMutation(
+        TransactionFunctionPathV1Schema.make("recipes:create"),
+        { name: "Temporary" },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:candidate-index:temporary",
+        ),
+      ),
+    );
+    if (
+      temporary.disposition !== "published" ||
+      typeof temporary.value !== "string"
+    )
+      throw new Error("Temporary recipe was not published.");
+    await remember([name, "Temporary"]);
+    for (const [ordinal, operation] of [
+      "recipes:remove",
+      "recipes:removeDescription",
+    ].entries()) {
+      const removed = await scenario.mutation(
+        invokeApplicationMutation(
+          TransactionFunctionPathV1Schema.make(operation),
+          { id: temporary.value },
+          TransactionRequestKeyV1Schema.make(
+            `managed-schema:candidate-index:remove:${ordinal}`,
+          ),
+        ),
+      );
+      if (removed.disposition !== "published")
+        throw new Error("A deletion/empty mutation did not publish.");
+      await remember([name]);
+    }
+    await settleReadyCandidateValidation(
+      fixture,
+      {
+        deploymentId: fixture.deploymentId,
+        schemaVersionId: candidateSchema.schemaVersionId,
+      },
+      "candidate index coverage",
+    );
+    await runSystemTestEffectV1(
+      ensureAppUniqueConstraintSetClosureV1Effect(fixture.control.drizzle, {
+        deploymentId: fixture.deploymentId,
+        schemaVersionId: candidateSchema.schemaVersionId,
+      }),
+    );
+    const staleReadiness = await runSystemTestEffectV1(
+      fixture.readiness.settle({
+        deploymentId: fixture.deploymentId,
+        revisionId: candidate.publication.revisionId,
+      }),
+    );
+    if (
+      staleReadiness.status !== "not_ready" ||
+      staleReadiness.reason !== "physicalBuildNotCovered"
+    )
+      throw new Error(
+        `Stale physical coverage was not rejected: ${JSON.stringify(staleReadiness)}.`,
+      );
+    const blockedActivation = await runSystemTestEffectV1(
+      Effect.result(
+        fixture.activation.activate({
+          revisionId: candidate.publication.revisionId,
+          expectedActiveHead: fixture.active.expectedActiveHead,
+        }),
+      ),
+    );
+    if (Result.isSuccess(blockedActivation))
+      throw new Error("Stale candidate activated before catch-up.");
+    const stale = await runSystemTestEffectV1(
+      Effect.result(applyStep(prepared.prepared)),
+    );
+    if (
+      Result.isSuccess(stale) ||
+      !(stale.failure instanceof ApplicationManagedSchemaApplyError) ||
+      stale.failure.reason !== "stalePlan"
+    )
+      throw new Error("Original plan accepted frontier drift.");
+    const buildPorts = {
+      controlDb: fixture.control.drizzle,
+      authority: fixture.authorityPorts,
+    };
+    const buildInput = {
+      deploymentId: fixture.deploymentId,
+      indexDefinitionId: definition.indexDefinitionId,
+      pageSize: 1,
+    };
+    const entryHistory = () =>
+      fixture.target.drizzle
+        .select()
+        .from(fxAppIndexEntryRevisions)
+        .where(
+          and(
+            eq(
+              fxAppIndexEntryRevisions.indexDefinitionId,
+              definition.indexDefinitionId,
+            ),
+            eq(
+              fxAppIndexEntryRevisions.scopeUuid,
+              projectScopeIdUuidV1(definition.scopeId).scopeUuid,
+            ),
+          ),
+        );
+    const rolledBack = await runSystemTestEffectV1(
+      Effect.result(
+        buildAppDeveloperOrderedIndexV1Effect(buildPorts, buildInput, {
+          faultAfter: (point) => {
+            if (point === "afterEntryWrite")
+              throw new Error("coverage rollback witness");
+          },
+        }),
+      ),
+    );
+    if (Result.isSuccess(rolledBack) || !(rolledBack.failure instanceof AppDeveloperOrderedIndexBuildIntegrationV1Error) || (await entryHistory()).length !== 0)
+      throw new Error("Catch-up page did not roll back entries.");
+    const originalResolver = fixture.authorityPorts.scopeClockTargets;
+    const uncertain = await runSystemTestEffectV1(
+      Effect.result(
+        buildAppDeveloperOrderedIndexV1Effect(
+          {
+            ...buildPorts,
+            authority: {
+              ...fixture.authorityPorts,
+              scopeClockTargets: {
+                resolve: async (locator) => {
+                  const target = await originalResolver.resolve(locator);
+                  return {
+                    ...target,
+                    [RUN_LOCATED_READ_COMMITTED_V1]: async (work) => {
+                      await target[RUN_LOCATED_READ_COMMITTED_V1](work);
+                      throw new LocatedReadCommittedTransactionFailureV1({
+                        kind: "decisionUncertain",
+                        settlementCause: new Error("lost coverage response"),
+                      });
+                    },
+                  };
+                },
+              },
+            },
+          },
+          buildInput,
+        ),
+      ),
+    );
+    if (Result.isSuccess(uncertain) || !(uncertain.failure instanceof AppDeveloperOrderedIndexBuildDecisionUncertainV1Error) || (await entryHistory()).length !== 1)
+      throw new Error("Uncertain catch-up did not settle exactly one commit.");
+    const replanned = await prepare();
+    if (
+      replanned.projection.status !== "planned" ||
+      prepared.projection.status !== "planned" ||
+      replanned.projection.plan.planSha256Hex ===
+        prepared.projection.plan.planSha256Hex
+    )
+      throw new Error("Replan did not bind the later frontier.");
+    const activated = await applyManagedSchemaPlanUntilTerminal(
+      scenario,
+      replanned.prepared,
+    );
+    if (
+      activated.status !== "activated" ||
+      activated.revisionId !== candidate.publication.revisionId
+    )
+      throw new Error("Replan did not activate the same candidate.");
+    const active = await runSystemTestEffectV1(fixture.activation.readActive());
+    if (active.basis.schemaVersionId !== candidateSchema.schemaVersionId)
+      throw new Error("Expected candidate B's schema.");
+    const observed = await runSystemTestEffectV1(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const opened = yield* openApplicationQuerySnapshot(
+            active.selection,
+            "recipes:get",
+            {
+              maximumPointReads: 1,
+              maximumIndexReads: 1,
+              maximumDocuments: 4,
+              maximumSemanticBytes: 65_536,
+            },
+            {
+              deploymentId: fixture.deploymentId,
+              controlDb: fixture.control.drizzle,
+              authority: fixture.authorityPorts,
+              schema: fixture.schema,
+              developerIndexes: fixture.developerIndexes,
+            },
+          );
+          const point = yield* readApplicationQueryPoint(
+            opened.snapshot,
+            "recipes",
+            documentId,
+          );
+          const index = yield* readApplicationQueryIndex(
+            opened.snapshot,
+            "recipes",
+            "by_name",
+            {},
+            4,
+          );
+          return { point, index };
+        }).pipe(Effect.provide(ScopeExecutionLive)),
+      ),
+    );
+    if (
+      observed.point.kind !== "present" ||
+      observed.point.document.name !== name ||
+      !isJson(observed.point.document) ||
+      !isJson(observed.index.documents)
+    )
+      throw new Error("Point read did not find A's recipe.");
+    for (const witness of witnessSnapshots) {
+      const page = await fixture.target.drizzle.transaction((tx) =>
+        runSystemTestEffectV1(
+          scanAppIndexAtSnapshotInTransactionEffect(tx, {
+            scopeId: fixture.authority.scopeId,
+            definition,
+            bounds: {},
+            limit: 8,
+            snapshotCommitSeq: witness.commitSeq,
+          }),
+        ),
+      );
+      const names = page.entries
+        .map((entry) => {
+          const value = decodeAppOrderedIndexKeyV1({
+            spec: definition.physicalSpec,
+            encodedKey: entry.encodedKey,
+          })[0];
+          if (value?.kind !== "string")
+            throw new Error("Candidate name key was not a string.");
+          return value.value;
+        })
+        .toSorted();
+      if (!jsonEqual(names, witness.names))
+        throw new Error(`Catch-up changed snapshot ${witness.commitSeq}.`);
+    }
+    return {
+      candidateIndexEnabledBeforeWrite: true,
+      schemaAStayedActive: true,
+      activeWritePublished: true,
+      originalPlanRejectedAsStale: true,
+      sameCandidateActivatedAfterReplan: true,
+      pointReadFoundDocument: true,
+      staleCoverageBlockedReadiness: true,
+      activeKeyMovesAndDeletionPublished: true,
+      catchUpRollbackAndUncertainReplay: true,
+      originalSnapshotHistoryPreserved: true,
+      indexedDocumentCount: observed.index.documents.length,
+      indexMatchesPoint: jsonEqual(observed.index.documents, [
+        observed.point.document,
+      ]),
+      indexPageIsDone: observed.index.isDone,
+    };
   });
 }
 
@@ -2362,7 +3021,7 @@ async function cookingSourceBundle(
   const prepared = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
     programBudgetInput: {
       maximumModules: 1,
-      maximumFunctions: 5,
+      maximumFunctions: 8,
       maximumIdentifierUtf8Bytes: 1_024,
       maximumValidatorNodes: 128,
       maximumValidatorDepth: 16,
@@ -2435,6 +3094,12 @@ async function cookingSourceBundle(
           },
           returnsValidator: { type: "string" },
         }, {
+          exportName: "createBatch",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: { type: "object", value: { prefix: { fieldType: { type: "string" }, optional: false } } },
+          returnsValidator: { type: "array", value: { type: "string" } },
+        }, {
           exportName: "removeDescription",
           kind: "mutation",
           visibility: "public",
@@ -2447,6 +3112,23 @@ async function cookingSourceBundle(
               },
             },
           },
+          returnsValidator: { type: "boolean" },
+        }, {
+          exportName: "rename",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: { type: "object", value: {
+            id: { fieldType: { type: "string" }, optional: false },
+            name: { fieldType: { type: "string" }, optional: false },
+          } },
+          returnsValidator: { type: "boolean" },
+        }, {
+          exportName: "remove",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: { type: "object", value: {
+            id: { fieldType: { type: "string" }, optional: false },
+          } },
           returnsValidator: { type: "boolean" },
         }, {
           exportName: "get",
@@ -2503,7 +3185,7 @@ async function cookingSourceBundle(
     },
     materializationBudgetInput: {
       maximumModules: 1,
-      maximumEntryBindings: 5,
+      maximumEntryBindings: 8,
       maximumSourceBytes: 8_192,
       maximumSourceMapBytes: 0,
       maximumBytesMaterialized: 65_536,
@@ -2541,6 +3223,11 @@ async function cookingSourceBundle(
           "  await ctx.db.replace(id, value);",
           "  return id;",
           "}",
+          "export async function createBatch(ctx, args) {",
+          "  const ids = [];",
+          '  for (let i = 0; i < 18; i++) ids.push(await ctx.db.insert("recipes", { name: args.prefix + i }));',
+          "  return ids;",
+          "}",
           "export async function removeDescription(ctx, args) {",
           "  const current = await ctx.db.get(args.id);",
           "  if (current === null) return false;",
@@ -2554,6 +3241,14 @@ async function cookingSourceBundle(
               "    : { name: current.name, slug: current.slug, details: current.details };",
               "  await ctx.db.replace(args.id, value);",
             ]),
+          "  return true;",
+          "}",
+          "export async function rename(ctx, args) {",
+          "  await ctx.db.patch(args.id, { name: args.name });",
+          "  return true;",
+          "}",
+          "export async function remove(ctx, args) {",
+          "  await ctx.db.delete(args.id);",
           "  return true;",
           "}",
           "export async function get(ctx, args) {",

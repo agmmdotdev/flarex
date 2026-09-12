@@ -3707,6 +3707,9 @@ export const fxAppRowCurrent = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.scopeUuid, table.tableId, table.rowId] }),
+    index("fx_app_row_current_table_frontier_idx").on(
+      table.scopeUuid, table.tableId, table.commitSeq,
+    ),
     foreignKey({
       name: "fx_app_row_current_revision_fk",
       columns: [table.scopeUuid, table.tableId, table.rowId, table.commitSeq],
@@ -4942,6 +4945,10 @@ export const fxSystemIndexBuildStates = pgTable(
     startCommitSeq: bigint("start_commit_seq", { mode: "bigint" })
       .$type<CommitSeq>()
       .notNull(),
+    coveredThroughCommitSeq: bigint("covered_through_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>(),
+    firstReadableCommitSeq: bigint("first_readable_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>(),
     lifecycle: text("lifecycle").$type<IndexBuildLifecycleV1>().notNull(),
     cursorCodecVersion: integer("cursor_codec_version")
       .$type<IndexBuildCursorCodecVersionV1>()
@@ -4985,6 +4992,14 @@ export const fxSystemIndexBuildStates = pgTable(
     check(
       "fx_system_index_build_epoch_non_empty",
       nonBlankText(table.epoch),
+    ),
+    check(
+      "fx_system_index_build_coverage_check",
+      sql`${table.coveredThroughCommitSeq} is null or ${table.coveredThroughCommitSeq} >= 0`,
+    ),
+    check(
+      "fx_system_index_build_readable_check",
+      sql`${table.firstReadableCommitSeq} is null or (${table.coveredThroughCommitSeq} is not null and ${table.firstReadableCommitSeq} >= 0 and ${table.firstReadableCommitSeq} <= ${table.coveredThroughCommitSeq})`,
     ),
     check(
       "fx_system_index_build_start_seq_non_negative",
