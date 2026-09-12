@@ -40,6 +40,7 @@ const NativeCollections = Schema.Array(Schema.Struct({
 }));
 const decodeCollections = Schema.decodeUnknownEffect(NativeCollections);
 const access = { read: () => true, create: () => true, update: () => true, delete: () => true };
+const compiledCollections = new WeakSet<object>();
 
 function nativeCollection(collection: typeof NativeCollections.Type[number]): CollectionConfig {
   return { slug: collection.slug, fields: collection.fields.map(field => ({ ...field })),
@@ -128,10 +129,17 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
   const schemaDefinition = Object.freeze({ tables: Object.freeze(Object.fromEntries(schema.tables.map(table => [table.logicalName,
     Object.freeze({ kind: "table", validator: Object.freeze({ isFlarexValidator: true, json: table.definition.documentType }), indexes: Object.freeze([]) }),
   ]))), relations: Object.freeze([]), writePolicies: verified.policies });
-  return Object.freeze({ configuration: verified.policies.configuration, schemaDefinition,
+  const compiled = Object.freeze({ configuration: verified.policies.configuration, schemaDefinition,
     contentIdentity: Object.freeze({ configSha256, provenanceSha256 }),
     // New owned objects on every call; native sanitation cannot mutate compiler evidence.
     createNativeCollections: () => definitions.map(nativeCollection) });
+  compiledCollections.add(compiled);
+  return compiled;
 });
 
 export type CompiledPayloadCollections = Effect.Success<ReturnType<typeof compilePayloadCollections>>;
+
+/** A structural copy must not substitute executable native configuration after checking. */
+export const requireCompiledPayloadCollections = Effect.fn("PayloadCollections.require")(function* (compiled: CompiledPayloadCollections) {
+  if (!compiledCollections.has(compiled)) return yield* Effect.fail(cmsError("unsupportedProfile"));
+});

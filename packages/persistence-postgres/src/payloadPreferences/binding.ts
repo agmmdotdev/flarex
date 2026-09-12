@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { DataBindingSetFrame } from "../frameworkSchema/binding/model";
 import type { RestoredFrameworkSchemaAvailabilityHead } from "../frameworkSchema/installation/storedMetadataRestoration";
 import { bindingError } from "../frameworkSchema/binding/errors";
@@ -21,22 +21,24 @@ interface PayloadContentProfileState {
   }>[];
 }
 const contentProfiles = new WeakMap<object, PayloadContentProfileState>();
-const sha256Pattern = /^[0-9a-f]{64}$/;
+const Digest = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
+const decodeProfiles = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({
+  relationCount: Schema.Literals([0, 1, 2]),
+  identity: Schema.Struct({ configSha256: Digest, provenanceSha256: Digest }),
+})).check(Schema.isMinLength(1), Schema.isMaxLength(64)), { onExcessProperty: "error" });
 
 /** Trusted adapter composition. The opaque token grants binding verification only. */
 export const registerPayloadContentProfiles = Effect.fn("PayloadPreferences.registerContentProfiles")(function* (
   input: readonly Readonly<{ relationCount: 0 | 1 | 2; identity: PayloadContentIdentity }>[],
 ) {
-  const counts = [0, 1, 2].map(relationCount => input.filter(profile => profile.relationCount === relationCount).length);
-  if (input.length !== 4 || counts[0] !== 1 || counts[1] !== 1 || counts[2] !== 2 ||
-    input.some(profile => !sha256Pattern.test(profile.identity.configSha256) || !sha256Pattern.test(profile.identity.provenanceSha256)) ||
-    new Set(input.map(profile => profile.identity.configSha256)).size !== input.length ||
-    new Set(input.map(profile => profile.identity.provenanceSha256)).size !== 1) {
+  const profiles = yield* decodeProfiles(input).pipe(Effect.mapError(cause => bindingError("unsupportedProfile", cause)));
+  if (new Set(profiles.map(profile => profile.identity.configSha256)).size !== profiles.length ||
+    new Set(profiles.map(profile => profile.identity.provenanceSha256)).size !== 1) {
     return yield* Effect.fail(bindingError("unsupportedProfile"));
   }
   // SAFETY: only this WeakMap-backed issuer creates an admitted profile token.
   const token = Object.freeze({}) as PayloadContentProfiles;
-  contentProfiles.set(token, Object.freeze({ profiles: Object.freeze(input.map(profile => Object.freeze({
+  contentProfiles.set(token, Object.freeze({ profiles: Object.freeze(profiles.map(profile => Object.freeze({
     relationCount: profile.relationCount,
     identity: Object.freeze({ ...profile.identity }),
   }))) }));

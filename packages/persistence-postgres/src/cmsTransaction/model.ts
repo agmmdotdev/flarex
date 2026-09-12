@@ -37,6 +37,8 @@ export class CmsTransactionError extends Data.TaggedError("CmsTransactionError")
     | "decisionUncertain"
     | "resourceFailure";
   readonly cause?: unknown;
+  /** Present only when the document owner identified an actual declared constraint. */
+  readonly uniqueConstraint?: Readonly<{ tableName: string; orderedFields: readonly string[] }>;
 }> {}
 
 export function cmsError(reason: CmsTransactionError["reason"], cause?: unknown): CmsTransactionError {

@@ -1,7 +1,8 @@
 # Payload Collection Configuration And Admission
 
-Status: scalar-first implementation approved; authenticated uniqueness and
-inert compiler/descriptor gates implemented; runtime/admission integration pending
+Status: private scalar-first compiler, authenticated admission, multi-collection
+runtime routing, and collection-aware deletion implemented; broader configuration
+and production activation remain gated
 
 ## Outcome And Explicit Limits
 
@@ -36,11 +37,11 @@ their current capabilities are not permission to generalize them here.
 
 ## Why This Slice Now
 
-The runtime cleanup separated conformance instrumentation and typed operation
-contracts, but ordinary construction still installs `payloadPostsCollection()`.
-The limitation is not merely a constructor parameter: collection-specific
-policy also exists in analysis, binding, query admission, unique-error mapping,
-test artifact construction, and preference deletion authority.
+At preflight, runtime cleanup had separated conformance instrumentation and typed
+operation contracts, but ordinary construction still installed
+`payloadPostsCollection()`. The limitation was not merely a constructor parameter:
+collection-specific policy also existed in analysis, binding, query admission,
+unique-error mapping, test artifact construction, and preference deletion authority.
 
 Adding another example collection without correcting those owners would not
 establish a reusable integration. Conversely, generalizing all Payload fields
@@ -68,9 +69,10 @@ Apply the repository Payload integration skill. Implementation must additionally
 apply the Effect skills and review overlay for schemas, typed failures, and
 request/resource lifetimes.
 
-## Current Evidence And Reuse Seams
+## Preflight Evidence And Reuse Seams
 
-Paths below are relative to the repository root.
+Paths below are relative to the repository root. This table records the starting
+constraints; the implemented replacement and removal disposition are below.
 
 | Current owner | Verified behavior | Consequence for this proposal |
 | --- | --- | --- |
@@ -325,7 +327,8 @@ Application definition test. These private consumers now use revision 3; no
 SQL/JSON migration seed or supported deployed descriptor obligation was found in
 the package inventory. No old data is rewritten or discarded. Retained old
 artifacts fail decoding and require an explicitly approved migration if support
-is later requested. The fixed four-profile runtime remains unchanged in scope.
+is later requested. The four closed conformance profiles remain unchanged in
+capability scope; ordinary scalar construction now consumes compiler output.
 
 Revision 3 replaces the unique-only revision, rather than extending its bytes.
 Its compiler and remaining integration boundary are specified below.
@@ -358,7 +361,7 @@ migration, or adapter-side validation workaround. Test orchestration closes and
 builds the published set through existing owners; it does not reproduce physical
 spec generation or install separate fixture metadata.
 
-## Implemented Compiler Contract And Remaining Runtime Gate
+## Implemented Compiler Contract
 
 `@flarex/payload-adapter/internal/collections` exposes construction-time
 `compilePayloadCollections`. It accepts the closed subset of native
@@ -411,10 +414,56 @@ native-authoring-to-fixed-identity drift witness. Old retained bytes fail decodi
 no database was rewritten, discarded, or automatically migrated. A supported old
 artifact would still require explicit migration approval.
 
-This is the compiler/descriptor checkpoint, not the complete integration. The
-new two-collection proof reaches shared loaded-source analysis and manifest
-verification; its manifest source references are test fixtures, not uploaded or
-deployed artifact evidence. The next gate must pass compiler output through
-publication/readiness/binding into the same Local API runtime, generalize checked
-binding and deletion evidence, retain replay/scope/refusal witnesses, and remove
-fixed ordinary construction only after its existing consumers have migrated.
+The compiler is only the construction-time owner. Its generated declaration
+reaches shared loaded-source analysis and manifest verification; manifest source
+references in integration tests are fixtures, not uploaded or deployed artifact
+evidence. Runtime admission is a separate responsibility as described below.
+
+## Implemented Runtime, Admission, And Removal Contract
+
+`makePayloadRuntime(compiled)` and `makePayloadContentProfiles(compiled)` require
+the exact immutable compiler-issued value. Structural copies cannot replace its
+native collection factory or manufacture an admitted configuration. The profile
+token grants binding verification only, not publication or transaction authority.
+The trusted persistence issuer accepts a bounded checked set of content identities
+instead of requiring the four examples, preserving opaque identity, copying,
+freezing, exact provenance/configuration matching, and lifecycle verification.
+
+One stable metadata set supplies each collection's logical table, stored fields,
+writable names, and id/single-unique-text query decoder. Each of the six command
+families captures an explicit native collection slug in its JSON input and hence
+request identity. Selection occurs inside admitted execution. The request bridge
+holds that selected descriptor per operation, not as a mutable global collection.
+Native Local API options, adapter admission, and CMS ID checks agree on the same
+table; a valid ID from another selected table is rejected before row access.
+
+Declared unique conflicts carry typed table/ordered-field evidence from the
+existing CMS document owner. Only matching declared evidence becomes Payload's
+native collection/field validation error; an unrelated ID collision is not
+misreported as a field conflict. No second uniqueness implementation is added.
+
+CMS admission retains the authenticated collection mapping. Pending deletion
+attests document, table, and collection identity in the existing request lifetime.
+Preference cleanup checks the selected mapping and exact pinned native key, then
+the existing finalizer reattests it before publishing atomic deletion evidence.
+Hyphenated and overlapping collection slugs, cross-collection IDs, foreign scope
+preferences, rollback after the first nested deletion, and replay are explicit
+failure/isolation witnesses. Tombstone revision history is retained; deletion
+does not physically erase current-row pointers.
+
+The connected scalar witness defines `news-items` and `news` with different
+fields and unique names. It consumes compiler output through shared analysis,
+publication, readiness, activation and content/lifecycle binding before Local
+API CRUD. Literal defaults, native validation, query/paging, unchanged state on
+refusal, changed-collection replay conflicts, and paired content/preference
+publication use the ordinary runtime rather than conformance hooks. Test fixture
+setup reuses the existing lifecycle artifact, coordinator and physical-table
+owners; it does not synthesize a second content schema or uniqueness definition.
+
+Removal disposition: fixed scalar fields, configurations, native `posts`, and
+four-example identities moved to `conformanceProfile.ts`. Closed relation/many/
+join callers and the Currency/Payload composite supply explicit collection
+selectors through the same internal composition; there is no implicit selector,
+legacy runtime, compatibility alias, or duplicate execution pipeline. General
+relation authoring, old-artifact migration, auth/dashboard serving, subscriptions,
+and Cloudflare production activation remain separately gated.

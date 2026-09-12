@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { payloadPostsCollection, payloadScalarFields } from "../../payload-adapter/src/profile";
+import { payloadPostsCollection, payloadScalarFields } from "../../payload-adapter/src/conformanceProfile";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { readAppUniqueConstraintSetClosureV1Effect } from "../src/appUniqueConstraintSetClosureV1";

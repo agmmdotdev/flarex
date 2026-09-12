@@ -5,6 +5,7 @@ import type { PayloadContentProfile } from "./contract";
 import { UnsupportedPayloadCapability } from "./errors";
 import { makePayloadComposition } from "./composition";
 import type { PayloadRuntime } from "./runtime";
+import { payloadConformanceConfiguration } from "./conformanceProfile";
 
 export interface PayloadConformanceRuntime {
   readonly runtime: PayloadRuntime;
@@ -64,7 +65,7 @@ export const makePayloadConformanceRuntime: (
     return doc;
   }] };
 
-  const composition = yield* makePayloadComposition(profile, {
+  const composition = yield* makePayloadComposition(payloadConformanceConfiguration(profile), {
     hooks, onExecute: () => { executions += 1; },
     onCollection: collection => { touched.add(collection); },
   });

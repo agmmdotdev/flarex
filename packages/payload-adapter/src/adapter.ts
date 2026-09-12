@@ -1,5 +1,6 @@
 import { payloadJoinQuery, type PayloadJoinQuery } from "./joins";
-import { payloadHasMany, payloadJoins, payloadIsManagedField, payloadScalarFields } from "./contract";
+import { payloadHasMany, payloadJoins, payloadIsManagedField } from "./contract";
+import type { PayloadCollectionRuntime } from "./collectionRuntime";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { ValidationError, type BaseDatabaseAdapter, type DatabaseAdapterObj,
   type PayloadRequest, type TypeWithID, type PaginatedDocs } from "payload";
@@ -16,8 +17,9 @@ import type { PayloadContentProfile } from "./contract";
 import { makePayloadPopulation, payloadPopulationIds } from "./population";
 import { payloadManyIds } from "./many";
 import { UnsupportedPayloadCapability } from "./errors";
-import { isPayloadLimit, isPayloadPage, payloadAdapterWhere } from "./query";
+import { isPayloadLimit, isPayloadPage } from "./query";
 interface RequestBridge {
+  readonly collection: PayloadCollectionRuntime;
   readonly context: CmsCommandContext;
   readonly request: Partial<PayloadRequest>;
   readonly signal: AbortSignal;
@@ -36,15 +38,22 @@ const transactionId = (state: RequestBridge): CmsPresentedTransactionId => {
     return value;
   }) : id;
 };
+function projectUniqueFailure(state: RequestBridge, error: CmsTransactionError) {
+  const constraint = error.uniqueConstraint;
+  const field = state.collection.fields.find(candidate => candidate.kind !== "relationship" && candidate.unique === true);
+  if (error.reason !== "uniqueConflict" || constraint === undefined || constraint.tableName !== state.collection.logicalTableName ||
+    field === undefined || constraint.orderedFields.length !== 1 || constraint.orderedFields[0] !== field.name) return error;
+  return new ValidationError({ collection: state.collection.collectionSlug, errors: [{ path: field.name,
+    tableName: state.collection.collectionSlug, message: state.request.t?.("error:valueMustBeUnique") ?? "Value must be unique" }],
+  req: state.request }, state.request.t);
+}
 const run = <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransactionError>): Promise<Value> =>
   Effect.runPromise((state.population === null ? effect : state.semaphore.withPermits(1)(Effect.suspend(() =>
-    state.live ? effect : Effect.fail(cmsError("closed"))))).pipe(Effect.mapError(error => error.reason === "uniqueConflict"
-    ? new ValidationError({ collection: "posts", errors: [{ path: "title", tableName: "posts", message: state.request.t?.("error:valueMustBeUnique") ?? "Value must be unique" }], req: state.request }, state.request.t)
-    : error)), { signal: state.signal });
+    state.live ? effect : Effect.fail(cmsError("closed"))))).pipe(Effect.mapError(error => projectUniqueFailure(state, error))), { signal: state.signal });
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over the owned Result decoder.
 const capture = (value: unknown): Json => Result.getOrThrow(capturePrivateJsonData(value, 65_536, cmsError)).value;
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over its sanitized query decoder.
-const where = (input: unknown) => Result.getOrThrow(payloadAdapterWhere(input));
+const where = (state: RequestBridge, input: unknown) => Result.getOrThrow(state.collection.query.adapter(input));
 const payloadDocument = (value: Json, profile: PayloadContentProfile): Record<string, Json> & { id: string } => {
   if (!isJsonObject(value) || typeof value._id !== "string") throw new Error("Invalid admitted CMS document");
   const { _id, _creationTime, ...fields } = value;
@@ -56,7 +65,7 @@ const payloadDocument = (value: Json, profile: PayloadContentProfile): Record<st
   }
   return document;
 };
-const payloadFields = (profile: PayloadContentProfile, input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => {
+const payloadFields = (profile: PayloadContentProfile, collection: PayloadCollectionRuntime, input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => {
   const normalized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
     // Payload may materialize absent virtual keys while traversing fields.
@@ -76,7 +85,7 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
       normalized[key] = Result.getOrThrow(payloadManyIds(value));
       continue;
     }
-    const scalar = payloadScalarFields.find(field => field.name === key);
+    const scalar = collection.fields.find(field => field.name === key && field.kind !== "relationship");
     if (scalar === undefined) throw new UnsupportedPayloadCapability(`document field: ${key} (${typeof value})`);
     if (value === undefined && payloadIsManagedField(key)) continue;
     if (scalar.kind === "date") {
@@ -95,9 +104,9 @@ const payloadFields = (profile: PayloadContentProfile, input: Record<string, unk
 };
 
 /** Node-only, per-Payload-instance foreign Promise boundary; it owns no database. */
-export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "payload.scalar", onCollection?: (collection: string) => void) {
+export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, onCollection?: (collection: string) => void) {
   const document = (value: Json) => payloadDocument(value, profile);
-  const fields = (input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => payloadFields(profile, input, expectedId, creationTimestamp);
+  const fields = (state: RequestBridge, input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => payloadFields(profile, state.collection, input, expectedId, creationTimestamp);
   const current = new AsyncLocalStorage<RequestBridge>();
   const unsupported = async (capability = "deferred adapter member"): Promise<never> => {
     const state = current.getStore();
@@ -117,7 +126,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "pay
   const admit = (args: { collection: string; req?: Partial<PayloadRequest>; locale?: string; select?: unknown; joins?: unknown;
     returning?: boolean; draft?: boolean; draftsEnabled?: boolean }, projected = false) => {
     const state = stateFor(args.req, projected);
-    if (args.collection !== "posts" || args.locale !== undefined || args.returning === false || args.draft || args.draftsEnabled ||
+    if (args.collection !== state.collection.collectionSlug || args.locale !== undefined || args.returning === false || args.draft || args.draftsEnabled ||
       [args.select, ...(profile === "payload.content-joins" ? [] : [args.joins])].some(value => value !== undefined && (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).length !== 0))) {
       throw new UnsupportedPayloadCapability("collection or projection");
     }
@@ -143,14 +152,14 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "pay
   };
   const one = async (args: Parameters<BaseDatabaseAdapter["findOne"]>[0]) => {
     const state = admit(args, true);
-    const predicate = where(args.where);
+    const predicate = where(state, args.where);
     if (predicate._id !== undefined) {
-      const value = await run(state, state.context.documents.get(state.context.context, transactionId(state), predicate._id));
-      const found = value === null || (predicate.title !== undefined && value.title !== predicate.title) ? null : document(value);
+      const value = await run(state, state.context.documents.get(state.context.context, transactionId(state), predicate._id, state.collection.logicalTableName));
+      const found = value === null || Object.entries(predicate).some(([field, expected]) => value[field] !== expected) ? null : document(value);
       await roots(state, found === null ? [] : [found], args.joins);
       return found;
     }
-    const result = await run(state, state.context.documents.find(state.context.context, transactionId(state), "posts", { where: where(args.where), offset: 0, limit: 1 }));
+    const result = await run(state, state.context.documents.find(state.context.context, transactionId(state), state.collection.logicalTableName, { where: predicate, offset: 0, limit: 1 }));
     const found = result.docs[0] === undefined ? null : document(result.docs[0]);
     await roots(state, found === null ? [] : [found], args.joins);
     return found;
@@ -166,7 +175,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "pay
       run(state, state.context.rollback(typeof id === "number" ? "invalid" : id instanceof Promise ? id.then(String) : id)); },
     create: async args => { const state = admit(args); if (args.customID !== undefined) return unsupported("custom ID");
       const timestamp = new Date(await run(state, Clock.currentTimeMillis)).toISOString();
-      return document(await run(state, state.context.documents.insert(state.context.context, transactionId(state), "posts", fields(args.data, undefined, timestamp)))); },
+      return document(await run(state, state.context.documents.insert(state.context.context, transactionId(state), state.collection.logicalTableName, fields(state, args.data, undefined, timestamp)))); },
     findOne: async <T extends TypeWithID>(args: Parameters<BaseDatabaseAdapter["findOne"]>[0]) => {
       // SAFETY: Payload's caller-selected generic describes its configured collection.
       // The closed profile validates the actual wire document; no generic grants authority.
@@ -183,7 +192,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "pay
           args.skip !== undefined || args.projection !== undefined || args.versions ||
           !(args.sort === "id" || (Array.isArray(args.sort) && args.sort.length === 1 && args.sort[0] === "id"))) return unsupported("population query");
         await run(state, Effect.fromResult(population.admit(batch)));
-        const values = await run(state, state.context.documents.getMany(state.context.context, transactionId(state), "posts", batch));
+        const values = await run(state, state.context.documents.getMany(state.context.context, transactionId(state), state.collection.logicalTableName, batch));
         const docs = values.map(value => value === null ? null : document(value));
         const bytes = await run(state, Effect.fromResult(population.outputBytes(batch, docs)));
         await run(state, state.context.reserveOutput(bytes));
@@ -196,7 +205,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "pay
         args.skip !== undefined || args.projection !== undefined || args.versions || (args.sort !== undefined && args.sort !== "id" && !(Array.isArray(args.sort) && args.sort.length === 1 && args.sort[0] === "id"))) {
         return unsupported("pagination or sort");
       }
-      const found = await run(state, state.context.documents.find(state.context.context, transactionId(state), "posts", { where: where(args.where), offset: (page - 1) * limit, limit }));
+      const found = await run(state, state.context.documents.find(state.context.context, transactionId(state), state.collection.logicalTableName, { where: where(state, args.where), offset: (page - 1) * limit, limit }));
       const paginated = args.pagination !== false;
       const totalDocs = paginated ? found.total : found.docs.length;
       const totalPages = paginated ? Math.max(1, Math.ceil(totalDocs / limit)) : 1;
@@ -206,33 +215,33 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile = "pay
       return { docs, totalDocs, limit, totalPages, page, pagingCounter: paginated ? (page - 1) * limit + 1 : 1,
         hasPrevPage: paginated && page > 1, hasNextPage: paginated && page < totalPages, prevPage: paginated && page > 1 ? page - 1 : null, nextPage: paginated && page < totalPages ? page + 1 : null };
     },
-    count: async args => { const state = admit(args); const result = await run(state, state.context.documents.find(state.context.context, transactionId(state), "posts", { where: where(args.where), offset: 0, limit: 1 })); return { totalDocs: result.total }; },
+    count: async args => { const state = admit(args); const result = await run(state, state.context.documents.find(state.context.context, transactionId(state), state.collection.logicalTableName, { where: where(state, args.where), offset: 0, limit: 1 })); return { totalDocs: result.total }; },
     updateOne: async args => { const state = admit(args); const prior = args.id === undefined ? await one(args) : null;
       const id = args.id ?? prior?.id;
       if (typeof id !== "string") return unsupported("missing update identity");
       if (profile !== "payload.scalar" && args.data.relatedPost === null) {
-        const priorDocument = await run(state, state.context.documents.get(state.context.context, transactionId(state), id));
+        const priorDocument = await run(state, state.context.documents.get(state.context.context, transactionId(state), id, state.collection.logicalTableName));
         if (priorDocument === null) throw new Error("Payload update lost its admitted document");
         const { _id, _creationTime, relatedPost: _relatedPost, ...retained } = priorDocument;
-        return document(await run(state, state.context.documents.replace(state.context.context, transactionId(state), id, { ...retained, ...fields(args.data, id) })));
+        return document(await run(state, state.context.documents.replace(state.context.context, transactionId(state), id, { ...retained, ...fields(state, args.data, id) }, state.collection.logicalTableName)));
       }
-      return document(await run(state, state.context.documents.patch(state.context.context, transactionId(state), id, fields(args.data, id)))); },
+      return document(await run(state, state.context.documents.patch(state.context.context, transactionId(state), id, fields(state, args.data, id), state.collection.logicalTableName))); },
     deleteOne: async args => { const state = admit(args); const prior = await one(args); if (prior === null) return unsupported("missing delete identity");
-      await run(state, state.context.documents.delete(state.context.context, transactionId(state), prior.id)); return prior; },
+      await run(state, state.context.documents.delete(state.context.context, transactionId(state), prior.id, state.collection.logicalTableName)); return prior; },
     countGlobalVersions: deferred, countVersions: deferred, createGlobal: deferred, createGlobalVersion: deferred, createMigration: deferred,
     createVersion: deferred, deleteMany: async args => {
       const state = stateFor(args.req);
       if (args.collection !== "payload-preferences" || Object.keys(args).some(key => !["collection", "req", "where"].includes(key))) return unsupported(`deleteMany:${args.collection}`);
-      await run(state, state.context.preferences.deleteForPendingPost(state.context.context, transactionId(state), args.where));
+      await run(state, state.context.preferences.deleteForPendingDocument(state.context.context, transactionId(state), state.collection.collectionSlug, args.where));
       onCollection?.(args.collection);
     }, deleteVersions: deferred, findDistinct: deferred, findGlobal: deferred,
     findGlobalVersions: deferred, findVersions: deferred, generateSchema: deferred, migrate: deferred, migrateDown: deferred,
     migrateFresh: deferred, migrateRefresh: deferred, migrateReset: deferred, migrateStatus: deferred, queryDrafts: deferred,
     updateGlobal: deferred, updateGlobalVersion: deferred, updateJobs: deferred, updateMany: deferred, updateVersion: deferred, upsert: deferred,
   } satisfies BaseDatabaseAdapter) };
-  const within = async <Value>(context: CmsCommandContext, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }) => {
+  const within = async <Value>(context: CmsCommandContext, collection: PayloadCollectionRuntime, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }) => {
     if (populate && (!context.standaloneRead || profile === "payload.scalar")) throw new UnsupportedPayloadCapability("population request");
-    const state: RequestBridge = { context, request, signal, joins, live: !signal.aborted,
+    const state: RequestBridge = { context, collection, request, signal, joins, live: !signal.aborted,
       population: populate ? makePayloadPopulation(profile) : null, semaphore: Semaphore.makeUnsafe(1) };
     const abort = () => { state.live = false; };
     signal.addEventListener("abort", abort, { once: true });

@@ -1,10 +1,14 @@
 import { expect, expectTypeOf, it } from "vitest";
 import { Result } from "effect";
-import { decodePayloadPaging, decodePayloadWhere, payloadAdapterWhere } from "../src/query";
+import { decodePayloadPaging, makePayloadQuery } from "../src/query";
 import { payloadResults, type PayloadCountResult, type PayloadDocument, type PayloadPageResult } from "../src/results";
 import type { PayloadCreateInput, PayloadUpdateInput, PayloadFindByIdInput } from "../src/inputs";
-import { payloadContentFields, payloadIsManagedField, payloadRelatedPostsField, type PayloadContentProfile } from "../src/contract";
-import { payloadPostsCollection } from "../src/profile";
+import { payloadIsManagedField, payloadRelatedPostsField, type PayloadContentProfile } from "../src/contract";
+import { payloadPostsCollection, payloadContentFields, payloadScalarConfiguration } from "../src/conformanceProfile";
+import { makePayloadCollectionRuntime } from "../src/collectionRuntime";
+
+const collection = makePayloadCollectionRuntime(payloadScalarConfiguration.tables[0]!);
+const { decode: decodePayloadWhere, adapter: payloadAdapterWhere } = makePayloadQuery(collection);
 
 it("keeps caller equality and sanitized adapter filters distinct", () => {
   const where = { title: { equals: "example" } };
@@ -25,6 +29,17 @@ it("preserves the same bounded caller paging policy", () => {
   for (const unsupported of [{ limit: 0 }, { limit: 33 }, { page: 258 }, { page: 0 }, { page: 1.5 }, { sort: ["id"] }]) {
     expect(Result.isFailure(decodePayloadPaging(unsupported))).toBe(true);
   }
+});
+
+it("derives equality from each collection's declared unique field, including absence", () => {
+  const other = makePayloadQuery({ logicalTableName: "inventory", collectionSlug: "inventory", timestamps: true,
+    fields: [{ name: "sku", kind: "text", unique: true }] });
+  expect(Result.getOrThrow(other.adapter({ and: [{ sku: { equals: "one" } }] }))).toEqual({ sku: "one" });
+  expect(Result.isFailure(other.decode({ title: { equals: "one" } }))).toBe(true);
+  const plain = makePayloadQuery({ logicalTableName: "notes", collectionSlug: "notes", timestamps: true,
+    fields: [{ name: "label", kind: "text" }] });
+  expect(Result.getOrThrow(plain.decode({ id: { equals: "identity" } }))).toEqual({ id: { equals: "identity" } });
+  expect(Result.isFailure(plain.decode({ label: { equals: "one" } }))).toBe(true);
 });
 
 it("retains populated output with detached ownership and checks result envelopes", () => {
@@ -51,7 +66,7 @@ it("keeps the admitted field metadata aligned with the native collection", () =>
 });
 
 it("preserves operation argument and result types at the JSON boundary", () => {
-  const create: PayloadCreateInput = { data: { title: "example" } };
+  const create: PayloadCreateInput = { collection, data: { title: "example" } };
   // @ts-expect-error update requires an identity even when create accepts the data
   const update: PayloadUpdateInput = create;
   // @ts-expect-error a decoded identity cannot be a number

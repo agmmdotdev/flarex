@@ -4,7 +4,7 @@ import type { CollectionConfig } from "payload";
 import { analyzeLoadedApplicationSourcePackageEffect } from "@flarex/analysis";
 import { makeApplicationManifest, verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { compilePayloadCollections } from "../src/collections";
-import { payloadScalarContentIdentity, payloadScalarConfiguration } from "../src/profile";
+import { payloadScalarContentIdentity, payloadScalarConfiguration } from "../src/conformanceProfile";
 
 const definitions = (): CollectionConfig[] => [
   { slug: "news-items", fields: [

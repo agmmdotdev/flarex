@@ -151,8 +151,8 @@ for source reuse, typed contracts, boundary-specific validation, and removal
 evidence. This structural cleanup does not broaden the admitted profiles or
 change transaction, public-serving, or production capability status.
 
-Ordinary construction still selects the fixed `posts` configuration; it is not
-yet an application-configurable collection adapter. The approved scalar-first
+Ordinary construction now requires compiler-owned scalar collection metadata;
+it no longer installs the fixed `posts` fixture. The implemented scalar-first
 [collection configuration preflight](./preflight/54-payload-collection-configuration.md)
 separates capability contracts from concrete collection definitions and traces
 the required analysis, binding, and deletion-owner corrections. Its
@@ -166,15 +166,27 @@ captures a closed native scalar definition set, sanitizes owned copies, and
 lowers through shared schema authoring into the existing loaded-source analysis
 input. Descriptor revision 3 records native field order, literal defaults,
 collection-to-table mapping, and managed timestamp mode as well as uniqueness.
-The fixed private consumers use that revision; old bytes fail decoding rather
+The private consumers use that revision; old bytes fail decoding rather
 than acquiring new semantics. No stored data is rewritten.
 
-Compiler tests reach shared analysis and manifest verification, not new-collection
-Local API CRUD or deployed source-artifact admission. Runtime routing, checked
-binding generalization, collection-aware preference cleanup, and migration of
-ordinary construction/conformance through compiled metadata remain pending.
-This compiler does not initialize Payload, install schema state, or issue runtime
-authority. Native configuration and field validation stay Payload-owned.
+The two-collection integration passes generated declarations through shared
+loaded-source analysis, publication, readiness, activation, exact binding, and
+the six Local API command families. Collection selection is captured in request
+identity; checked metadata drives table, field, equality-query, and native unique
+error routing. Stable document IDs must agree with the selected collection's
+authenticated table. The opaque binding verifier accepts compiler-owned content
+identities without granting storage authority. Collection-aware pending-deletion
+evidence and native preference keys preserve one transaction, rollback, exact
+scope isolation, and atomic row/lifecycle publication.
+
+Fixed scalar/relation/many/join configurations now belong to conformance code,
+which uses the same internal composition and request pipeline. No implicit
+`posts` selector, old runtime, or caller-supplied configuration callback remains
+in ordinary construction. The compiler itself still does not initialize Payload,
+install schema state, or issue runtime authority. Native configuration and field
+validation stay Payload-owned. Integration source references remain fixtures,
+not uploaded or deployed artifact evidence; generalized relations, arbitrary
+configuration, serving, and existing-row migration remain outside this gate.
 
 ### Runtime Lifetime And Latency Follow-Up
 

@@ -3,6 +3,7 @@ import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import { lockBindingInstallation } from "../frameworkSchema/binding/evidence";
 import { verifyPayloadPreferenceStorageBinding } from "../payloadPreferences/binding";
 import { Effect, Option } from "effect";
+import type { PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import type { ApplicationActiveSelection, ApplicationBindingSelectionReader } from "../applicationActivation";
 import { claimApplicationExecutableActiveSelection, hasApplicationBindingComposition } from "../applicationActivation";
@@ -24,10 +25,12 @@ import { requireCompositeBinding, type CompositeBinding } from "../crossDomainCo
 declare const admissionBrand: unique symbol;
 export interface CmsAdmission { readonly [admissionBrand]: true }
 export interface PreparedCmsApplication {
+  readonly configuration: PayloadConfiguration;
   readonly selection: ApplicationActiveSelection;
   readonly schema: ApplicationRelationSchemaAuthority;
 }
 export interface CmsAdmissionState {
+  readonly configuration: PayloadConfiguration;
   readonly tx: FlarexMetadataTransaction;
   readonly authority: TrustedScopeAuthority;
   readonly clock: ScopeClockRecord;
@@ -63,7 +66,7 @@ export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function*
     applicationManifestSha256: encodeBytesToLowercaseHex(selection.basis.manifestSha256),
     manifest: selection.basis.manifest,
   });
-  const value: PreparedCmsApplication = Object.freeze({ selection: active.selection, schema });
+  const value: PreparedCmsApplication = Object.freeze({ selection: active.selection, schema, configuration: manifest.schema.writePolicies.configuration });
   prepared.add(value);
   return value;
 });
@@ -118,7 +121,7 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
   }
   // SAFETY: authority resides exclusively in this live, transaction-bound registry.
   const token = Object.freeze({}) as CmsAdmission;
-  admissions.set(token, Object.freeze({ tx, authority, clock, schema, frame, preferenceAvailability,
+  admissions.set(token, Object.freeze({ tx, authority, clock, schema, frame, preferenceAvailability, configuration: application.configuration,
     head: Object.freeze({ sequence: head.value.frame.sequence, sha256: head.value.sha256 }) }));
   return yield* Effect.suspend(() => work(token)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(token))));
 });

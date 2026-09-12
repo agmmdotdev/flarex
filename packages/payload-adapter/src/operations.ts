@@ -9,6 +9,7 @@ import { makePayloadInputs, type PayloadCreateInput, type PayloadUpdateInput, ty
   type PayloadFindInput, type PayloadFindByIdInput, type PayloadCountInput } from "./inputs";
 import type { PayloadJoinQuery } from "./joins";
 import { payloadResults } from "./results";
+import type { PayloadCollectionRuntime } from "./collectionRuntime";
 
 type Bridge = ReturnType<typeof makePayloadDatabaseAdapter>;
 type ReadOptions = Pick<PayloadFindByIdInput, "depth" | "joins" | "joinRead">;
@@ -17,10 +18,10 @@ const noPopulation: ReadOptions = { depth: 0, joins: noJoins, joinRead: false };
 
 /** These handlers belong to one Payload instance; no request state is retained. */
 export function makePayloadOperations(payload: BasePayload, bridge: Bridge, profile: PayloadContentProfile,
-  isLive: () => boolean, onExecute?: () => void) {
-  const inputs = makePayloadInputs(profile);
-  const options = (req: Partial<PayloadRequest>, read: ReadOptions) => ({
-    collection: "posts", req, depth: read.depth, overrideAccess: false,
+  collections: readonly PayloadCollectionRuntime[], isLive: () => boolean, onExecute?: () => void) {
+  const inputs = makePayloadInputs(profile, collections);
+  const options = (req: Partial<PayloadRequest>, collection: PayloadCollectionRuntime, read: ReadOptions) => ({
+    collection: collection.collectionSlug, req, depth: read.depth, overrideAccess: false,
     ...(profile === "payload.content-joins" ? { joins: read.joinRead ? {
       referencedBy: read.joins.referencedBy === false ? false as const : { ...read.joins.referencedBy },
       referencedByMany: read.joins.referencedByMany === false ? false as const : { ...read.joins.referencedByMany },
@@ -28,15 +29,15 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
   } as const);
 
   const call = Effect.fn("PayloadAdapter.call")(function* <A extends Json>(
-    context: CmsCommandContext, write: boolean, read: ReadOptions,
+    context: CmsCommandContext, collection: PayloadCollectionRuntime, write: boolean, read: ReadOptions,
     invoke: (common: ReturnType<typeof options>) => Promise<unknown>,
     decode: (value: unknown) => Result.Result<A, CmsTransactionError>,
   ) {
     const req: Partial<PayloadRequest> = write ? { transactionID: context.transactionId } : {};
-    const common = options(req, read);
+    const common = options(req, collection, read);
     onExecute?.();
     const result = yield* Effect.tryPromise({
-      try: signal => bridge.within(context, req, signal, () => invoke(common), read.depth === 1, read.joins),
+      try: signal => bridge.within(context, collection, req, signal, () => invoke(common), read.depth === 1, read.joins),
       catch: cause => cause,
     }).pipe(
       // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: compatibility - Payload rejects with its own errors or a CMS failure; unknown rejection remains a defect.
@@ -46,20 +47,20 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
 
   const handlers = {
     create: (ctx: CmsCommandContext, args: PayloadCreateInput) =>
-      call(ctx, true, noPopulation, common => payload.create({ ...common, data: args.data }), payloadResults.document),
+      call(ctx, args.collection, true, noPopulation, common => payload.create({ ...common, data: args.data }), payloadResults.document),
     update: (ctx: CmsCommandContext, args: PayloadUpdateInput) =>
-      call(ctx, true, noPopulation, common => payload.update({ ...common, id: args.id, data: args.data }), payloadResults.document),
+      call(ctx, args.collection, true, noPopulation, common => payload.update({ ...common, id: args.id, data: args.data }), payloadResults.document),
     delete: (ctx: CmsCommandContext, args: PayloadDeleteInput) =>
-      call(ctx, true, noPopulation, common => payload.delete({ ...common, id: args.id }), payloadResults.document),
+      call(ctx, args.collection, true, noPopulation, common => payload.delete({ ...common, id: args.id }), payloadResults.document),
     findByID: (ctx: CmsCommandContext, args: PayloadFindByIdInput) =>
-      call(ctx, false, args, common => payload.findByID({ ...common, id: args.id }), payloadResults.document),
+      call(ctx, args.collection, false, args, common => payload.findByID({ ...common, id: args.id }), payloadResults.document),
     find: (ctx: CmsCommandContext, args: PayloadFindInput) =>
-      call(ctx, false, args, common => payload.find({ ...common, where: args.where,
+      call(ctx, args.collection, false, args, common => payload.find({ ...common, where: args.where,
         ...(args.page === undefined ? {} : { page: args.page }),
         ...(args.pagination === undefined ? {} : { pagination: args.pagination }),
         limit: args.limit ?? 10, sort: "id" }), payloadResults.page),
     count: (ctx: CmsCommandContext, args: PayloadCountInput) =>
-      call(ctx, false, noPopulation, common => payload.count({ ...common, where: args.where }), payloadResults.count),
+      call(ctx, args.collection, false, noPopulation, common => payload.count({ ...common, where: args.where }), payloadResults.count),
   };
 
   // The registry's JSON boundary stays inside existing host admission/replay.

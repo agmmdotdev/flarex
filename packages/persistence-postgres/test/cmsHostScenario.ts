@@ -28,7 +28,9 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotenc
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 export async function cmsHostScenario(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {
-  const { fixture, posts, bindings, reference, candidate } = await cmsHostFixture(persistence);
+  const { fixture, tables, bindings, reference, candidate } = await cmsHostFixture(persistence);
+  const posts = tables.find(table => table.logicalName === "posts");
+  if (posts === undefined) throw new Error("Expected conformance posts binding");
   let callbacks = 0;
   let escaped: CmsCommandContext | undefined;
   const create = defineCmsCommand({ name: "create", mode: "write", run: Effect.fn("CmsTest.create")(function* (ctx, args) {

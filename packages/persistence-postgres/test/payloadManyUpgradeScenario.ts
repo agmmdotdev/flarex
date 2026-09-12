@@ -11,10 +11,10 @@ export async function payloadManyUpgradeScenario(input: Parameters<typeof payloa
   await runEffect(Effect.scoped(Effect.gen(function* () {
     const conformance = yield* makePayloadConformanceRuntime();
     const host = yield* conformance.runtime.bind(input.hostInput);
-    const row = yield* host.run(host.newRequestKey(), conformance.runtime.commands.create, { data: { title: "old-post", publishedAt: "2026-01-01" } });
+    const row = yield* host.run(host.newRequestKey(), conformance.runtime.commands.create, { collection: "posts", data: { title: "old-post", publishedAt: "2026-01-01" } });
     if (!isJsonObject(row) || typeof row.id !== "string") throw new Error("Missing old post");
-    yield* host.run(host.newRequestKey(), conformance.runtime.commands.delete, { id: row.id });
-    expect(yield* host.read(conformance.runtime.commands.count, {})).toMatchObject({ totalDocs: 0 });
+    yield* host.run(host.newRequestKey(), conformance.runtime.commands.delete, { collection: "posts", id: row.id });
+    expect(yield* host.read(conformance.runtime.commands.count, { collection: "posts",})).toMatchObject({ totalDocs: 0 });
   })));
   const { fixture } = input;
   const before = await runEffect(fixture.relationActivation.readActive());

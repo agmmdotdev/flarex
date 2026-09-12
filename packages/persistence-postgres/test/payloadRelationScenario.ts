@@ -20,7 +20,7 @@ import { expect } from "vitest";
 import { Effect, Exit, Fiber, Result } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
-import { payloadRelationContentIdentity } from "../../payload-adapter/src/profile";
+import { payloadRelationContentIdentity } from "../../payload-adapter/src/conformanceProfile";
 import { makeCmsHost, defineCmsCommand, type CmsHostInput } from "../src/cmsTransaction/host";
 import { cmsError } from "../src/cmsTransaction/model";
 import { dataBindingActivationRequest, makeDataBindingHost } from "../src/frameworkSchema/binding/host";
@@ -49,7 +49,7 @@ export async function payloadRelationScenario(input: {
     const relation = yield* makePayloadConformanceRuntime("payload.content-relations");
     yield* Effect.promise(async () => {
       const oldHost = await runEffect(scalar.runtime.bind(hostInput));
-      const createOld = (title: string) => runEffect(oldHost.run(oldHost.newRequestKey(), scalar.runtime.commands.create, { data: { title, publishedAt: "2026-01-01" } }));
+      const createOld = (title: string) => runEffect(oldHost.run(oldHost.newRequestKey(), scalar.runtime.commands.create, { collection: "posts", data: { title, publishedAt: "2026-01-01" } }));
       const target = documentId(await createOld("relation-target"));
       const source = documentId(await createOld("relation-source"));
       const old = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
@@ -71,7 +71,7 @@ export async function payloadRelationScenario(input: {
       expect((await runEffect(fixture.relationActivation.readActive())).expectedActiveHead).toEqual(activated.expectedActiveHead);
 
       const calls = scalar.observations.executions();
-      await runEffectFailure(oldHost.read(scalar.runtime.commands.findByID, { id: source }));
+      await runEffectFailure(oldHost.read(scalar.runtime.commands.findByID, { collection: "posts", id: source }));
       expect(scalar.observations.executions()).toBe(calls);
       const reference = await runEffect(bindings.readApplicationReference());
       expect(reference.readiness).toMatchObject({ kind: "policy", relationCount: 1 });
@@ -86,12 +86,12 @@ export async function payloadRelationScenario(input: {
       const pair = defineCmsCommand({ name: "relation-nested", mode: "write", run: Effect.fn("RelationTest.nested")(function* (ctx, args) {
         if (!isJsonObject(args)) return yield* Effect.fail(cmsError("invalidInput"));
         if (args.kind === "create") {
-          const child = yield* ctx.nested(relation.runtime.commands.create, { data: { title: "relation-nested-target", publishedAt: "2026-01-01" } });
+          const child = yield* ctx.nested(relation.runtime.commands.create, { collection: "posts", data: { title: "relation-nested-target", publishedAt: "2026-01-01" } });
           if (!isJsonObject(child)) return yield* Effect.fail(cmsError("invalidInput"));
-          return yield* ctx.nested(relation.runtime.commands.update, { id: source, data: { relatedPost: child.id ?? null } });
+          return yield* ctx.nested(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: child.id ?? null } });
         }
-        yield* ctx.nested(relation.runtime.commands.update, { id: source, data: { relatedPost: null } });
-        return yield* ctx.nested(relation.runtime.commands.delete, { id: args.id ?? null });
+        yield* ctx.nested(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: null } });
+        return yield* ctx.nested(relation.runtime.commands.delete, { collection: "posts", id: args.id ?? null });
       }) });
       const composition = { ...hostInput, expectedContentIdentity: payloadRelationContentIdentity,
         commands: [...Object.values(relation.runtime.commands), pair],
@@ -99,7 +99,7 @@ export async function payloadRelationScenario(input: {
           afterTransactionStep: async (event: { step: string }) => { if (event.step === failureStep) throw new Error(`Injected relation ${event.step}`); } } };
       const host = await runEffect(makeCmsHost(composition));
       const write = (command: typeof relation.runtime.commands.update, args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
-      const read = (id: string) => runEffect(host.read(relation.runtime.commands.findByID, { id }));
+      const read = (id: string) => runEffect(host.read(relation.runtime.commands.findByID, { collection: "posts", id }));
       const inventory = async () => ({ base: await input.inventory(), edges: await db.select().from(fxAppEdgeCurrent),
         adjacency: await db.select().from(fxAppEdgeAdjacencyVersions), relationFacts: await db.select().from(fxSystemCommitRelationAdjacencyChanges),
         preferences: await db.select().from(fxSystemCommitPayloadPreferenceDeletions) });
@@ -132,7 +132,7 @@ export async function payloadRelationScenario(input: {
       for (const relatedPost of [{ id: target }, 42, [target]]) {
         const before = await inventory();
         const executions = relation.observations.executions();
-        expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.update, { id: source, data: { relatedPost } }))).toMatchObject({ reason: "relationInvalid" });
+        expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost } }))).toMatchObject({ reason: "relationInvalid" });
         expect(relation.observations.executions()).toBe(executions);
         expect(await inventory()).toEqual(before);
       }
@@ -140,7 +140,7 @@ export async function payloadRelationScenario(input: {
       const identity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(target));
       const missing = `${identity.tableId}:${randomUUID()}`;
       const wrongTable = `${identity.tableId + 1}:${randomUUID()}`;
-      const tombstone = documentId(await write(relation.runtime.commands.create, { data: { title: "relation-tombstone", publishedAt: "2026-01-01" } }));
+      const tombstone = documentId(await write(relation.runtime.commands.create, { collection: "posts", data: { title: "relation-tombstone", publishedAt: "2026-01-01" } }));
       const tombstoneIdentity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(tombstone));
       const tombstoneRowId = Buffer.from(tombstoneIdentity.rowId, "hex");
       const retainedRow = (await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.rowId, tombstoneRowId)))[0];
@@ -159,19 +159,19 @@ export async function payloadRelationScenario(input: {
       const beforeRestrictFault = await inventory();
       failureStep = "relationRestrictValidated";
       try {
-        expect(await runEffect(host.run(host.newRequestKey(), relation.runtime.commands.delete, { id: tombstone }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
+        expect(await runEffect(host.run(host.newRequestKey(), relation.runtime.commands.delete, { collection: "posts", id: tombstone }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
       } finally { failureStep = undefined; }
       expect(await inventory()).toEqual(beforeRestrictFault);
-      await write(relation.runtime.commands.delete, { id: tombstone });
+      await write(relation.runtime.commands.delete, { collection: "posts", id: tombstone });
       const foreignBefore = await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, foreignUuid));
 
       for (const [relatedPost, reason] of [[missing, "relationTargetMissing"], [tombstone, "relationTargetMissing"], [wrongTable, "documentInvalid"], ["invalid", "documentInvalid"]]) {
         const before = await inventory();
-        expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.update, { id: source, data: { relatedPost } }))).toMatchObject({ reason });
+        expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost } }))).toMatchObject({ reason });
         expect(await inventory()).toEqual(before);
       }
       const key = host.newRequestKey();
-      const args = { id: source, data: { relatedPost: target } };
+      const args = { collection: "posts", id: source, data: { relatedPost: target } };
       const result = await runEffect(host.run(key, relation.runtime.commands.update, args));
       const executed = relation.observations.executions();
       expect(await runEffect(host.run(key, relation.runtime.commands.update, args))).toEqual(result);
@@ -193,21 +193,21 @@ export async function payloadRelationScenario(input: {
       expect(incoming.exhausted).toBe(true);
 
       const beforeRestrict = await inventory();
-      expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.delete, { id: target }))).toMatchObject({ reason: "relationDeleteRestricted" });
+      expect(await runEffectFailure(host.run(host.newRequestKey(), relation.runtime.commands.delete, { collection: "posts", id: target }))).toMatchObject({ reason: "relationDeleteRestricted" });
       expect(await inventory()).toEqual(beforeRestrict);
-      await write(relation.runtime.commands.update, { id: source, data: { score: 7 } });
+      await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { score: 7 } });
       expect(await read(source)).toMatchObject({ relatedPost: target, score: 7 });
       for (const step of ["tentativeRowWritten", "relationEdgeWritten", "commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]) {
         const before = await inventory(); failureStep = step;
-        expect(await runEffect(host.run(host.newRequestKey(), relation.runtime.commands.update, { id: source, data: { relatedPost: source } }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
+        expect(await runEffect(host.run(host.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: source } }).pipe(Effect.exit))).toMatchObject({ _tag: "Failure" });
         failureStep = undefined; expect(await inventory()).toEqual(before);
       }
-      await write(relation.runtime.commands.update, { id: source, data: { relatedPost: source } });
+      await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: source } });
       expect(await read(source)).toMatchObject({ relatedPost: source });
-      await write(relation.runtime.commands.update, { id: source, data: { relatedPost: target } });
-      await write(relation.runtime.commands.update, { id: target, data: { relatedPost: source } });
+      await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: target } });
+      await write(relation.runtime.commands.update, { collection: "posts", id: target, data: { relatedPost: source } });
       expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(2);
-      await write(relation.runtime.commands.update, { id: target, data: { relatedPost: null } });
+      await write(relation.runtime.commands.update, { collection: "posts", id: target, data: { relatedPost: null } });
       const nested = await write(pair, { kind: "create" });
       if (!isJsonObject(nested) || typeof nested.relatedPost !== "string") throw new Error("Missing nested target");
       await input.seed(nested.relatedPost, ["relation-preference"]);
@@ -217,12 +217,12 @@ export async function payloadRelationScenario(input: {
       expect(await db.select().from(fxSystemCommitPayloadPreferenceDeletions)).toHaveLength(1);
       expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(0);
       expect(await read(source)).toMatchObject({ relatedPost: null, score: 7 });
-      await write(relation.runtime.commands.update, { id: source, data: { relatedPost: target } });
+      await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: target } });
       if ("pool" in input.persistence) {
         const persistence = input.persistence;
         const duplicateKey = host.newRequestKey();
         const duplicateCalls = relation.observations.executions();
-        const duplicateArgs = { id: source, data: { score: 8 } };
+        const duplicateArgs = { collection: "posts", id: source, data: { score: 8 } };
         const duplicate = await Promise.allSettled([runEffect(host.run(duplicateKey, relation.runtime.commands.update, duplicateArgs)), runEffect(host.run(duplicateKey, relation.runtime.commands.update, duplicateArgs))]);
         expect(duplicate.map(item => item.status)).toEqual(["fulfilled", "fulfilled"]);
         expect(duplicate[0]).toEqual(duplicate[1]);
@@ -234,15 +234,15 @@ export async function payloadRelationScenario(input: {
           if (event.phase === "commit" && event.edge === "after" && !lost) { lost = true; throw new Error("Lost relation COMMIT acknowledgement"); }
         } }) }));
         const recoveryCalls = relation.observations.executions();
-        expect(await runEffect(recovering.run(recovering.newRequestKey(), relation.runtime.commands.update, { id: source, data: { relatedPost: source } }))).toMatchObject({ relatedPost: source });
+        expect(await runEffect(recovering.run(recovering.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: source } }))).toMatchObject({ relatedPost: source });
         expect(relation.observations.executions()).toBe(recoveryCalls + 1);
         expect(pids.length).toBeGreaterThanOrEqual(2);
         expect(pids[1]).not.toBe(pids[0]);
-        const interruptedId = documentId(await write(relation.runtime.commands.create, { data: { title: "delete-unresolved", publishedAt: "2026-01-01", relatedPost: target } }));
+        const interruptedId = documentId(await write(relation.runtime.commands.create, { collection: "posts", data: { title: "delete-unresolved", publishedAt: "2026-01-01", relatedPost: target } }));
         await input.seed(interruptedId, ["relation-interrupted"]);
         const beforeInterrupt = await inventory();
         const pending = relation.observations.pendingReads();
-        const fiber = Effect.runFork(host.run(host.newRequestKey(), relation.runtime.commands.delete, { id: interruptedId }));
+        const fiber = Effect.runFork(host.run(host.newRequestKey(), relation.runtime.commands.delete, { collection: "posts", id: interruptedId }));
         try {
           const deadline = performance.now() + 5000;
           while (relation.observations.pendingReads() === pending && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
@@ -251,10 +251,10 @@ export async function payloadRelationScenario(input: {
           expect(Exit.isFailure(await runEffect(Fiber.await(fiber)))).toBe(true);
         } finally { await runEffect(Fiber.interrupt(fiber)); }
         expect(await inventory()).toEqual(beforeInterrupt);
-        await write(relation.runtime.commands.update, { id: interruptedId, data: { title: "interrupted-restored", relatedPost: null } });
-        await write(relation.runtime.commands.delete, { id: interruptedId });
+        await write(relation.runtime.commands.update, { collection: "posts", id: interruptedId, data: { title: "interrupted-restored", relatedPost: null } });
+        await write(relation.runtime.commands.delete, { collection: "posts", id: interruptedId });
         for (const first of ["insert", "delete"] as const) {
-          const raceTarget = documentId(await write(relation.runtime.commands.create, { data: { title: `race-${first}`, publishedAt: "2026-01-01" } }));
+          const raceTarget = documentId(await write(relation.runtime.commands.create, { collection: "posts", data: { title: `race-${first}`, publishedAt: "2026-01-01" } }));
           const entered = barrier<number>();
           const release = barrier<void>();
           const holder = await runEffect(makeCmsHost(composition, { afterAdmission: Effect.fn("RelationTest.holdClock")(function* (tx) {
@@ -264,7 +264,7 @@ export async function payloadRelationScenario(input: {
             yield* Effect.promise(() => release.promise);
           }) }));
           const firstCommand = first === "insert" ? relation.runtime.commands.update : relation.runtime.commands.delete;
-          const firstArgs = first === "insert" ? { id: source, data: { relatedPost: raceTarget } } : { id: raceTarget };
+          const firstArgs = first === "insert" ? { collection: "posts", id: source, data: { relatedPost: raceTarget } } : { collection: "posts", id: raceTarget };
           const firstRun = runEffect(holder.run(holder.newRequestKey(), firstCommand, firstArgs).pipe(Effect.result));
           const firstObserved = Promise.allSettled([firstRun]);
           let secondObserved: typeof firstObserved | undefined;
@@ -272,7 +272,7 @@ export async function payloadRelationScenario(input: {
           try {
             const pid = await withDeadline(Promise.race([entered.promise, firstObserved.then(() => { throw new Error("Holder exited before admission"); })]));
             const secondRun = runEffect(host.run(host.newRequestKey(), first === "insert" ? relation.runtime.commands.delete : relation.runtime.commands.update,
-              first === "insert" ? { id: raceTarget } : { id: source, data: { relatedPost: raceTarget } }).pipe(Effect.result));
+              first === "insert" ? { collection: "posts", id: raceTarget } : { collection: "posts", id: source, data: { relatedPost: raceTarget } }).pipe(Effect.result));
             secondObserved = Promise.allSettled([secondRun]);
             const deadline = performance.now() + 5000;
             let waiting = false;
@@ -289,8 +289,8 @@ export async function payloadRelationScenario(input: {
           expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
           expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: { reason: first === "insert" ? "relationDeleteRestricted" : "relationTargetMissing" } } });
           if (first === "insert") {
-            await write(relation.runtime.commands.update, { id: source, data: { relatedPost: null } });
-            await write(relation.runtime.commands.delete, { id: raceTarget });
+            await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: null } });
+            await write(relation.runtime.commands.delete, { collection: "posts", id: raceTarget });
           }
         }
         const preferenceTarget = hostInput.payloadPreferenceTarget;
@@ -322,7 +322,7 @@ export async function payloadRelationScenario(input: {
           }
           const writer = first === "writer" ? heldWriter : host;
           const writerKey = writer.newRequestKey();
-          const writerArgs = { id: source, data: { score: 20 + revisionOrdinal } };
+          const writerArgs = { collection: "posts", id: source, data: { score: 20 + revisionOrdinal } };
           const writing = writer.run(writerKey, relation.runtime.commands.update, writerArgs);
           const results = await heldNativeRace(persistence, first === "writer" ? writing : changing, first === "writer" ? changing : writing, entered.promise, () => release.resolve());
           expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
@@ -338,7 +338,7 @@ export async function payloadRelationScenario(input: {
           expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: change === "activation" ? "Failure" : "Success" } });
           if (change === "activation") {
             const count = relation.observations.executions();
-            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { id: source }))).toMatchObject({ reason: "bindingChanged" });
+            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).toMatchObject({ reason: "bindingChanged" });
             expect(relation.observations.executions()).toBe(count);
             const application = await runEffect(bindings.readApplicationReference());
             const rebound = await runEffect(bindings.prepare({ ...beforeBinding.frame, application, payloadContent: { ...beforeBinding.frame.payloadContent, application } }));
@@ -351,9 +351,9 @@ export async function payloadRelationScenario(input: {
           }
         }
       }
-      await write(relation.runtime.commands.delete, { id: source });
+      await write(relation.runtime.commands.delete, { collection: "posts", id: source });
       expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(0);
-      await write(relation.runtime.commands.delete, { id: target });
+      await write(relation.runtime.commands.delete, { collection: "posts", id: target });
       expect(await db.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, foreignUuid))).toEqual(foreignBefore);
     });
   })));

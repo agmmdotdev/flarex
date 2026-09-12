@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { appDocumentIdV1FromRowIdentity, decodeAppDocumentIdentityV1Result, decodeAppDocumentIdV1, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
-import { payloadManyContentIdentity } from "../../payload-adapter/src/profile";
+import { payloadManyContentIdentity } from "../../payload-adapter/src/conformanceProfile";
 import { makeCmsHost, defineCmsCommand } from "../src/cmsTransaction/host";
 import { cmsError } from "../src/cmsTransaction/model";
 import { makeApplicationActivationRepository } from "../src/applicationActivation";
@@ -37,9 +37,9 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
     const conformance = yield* makePayloadConformanceRuntime("payload.content-many");
     const nested = defineCmsCommand({ name: "many-nested", mode: "write", run: Effect.fn("ManyTest.nested")(function* (ctx, args) {
       if (!isJsonObject(args) || typeof args.source !== "string") return yield* Effect.fail(cmsError("invalidInput"));
-      const target = yield* ctx.nested(conformance.runtime.commands.create, { data: { title: "many-nested-target", publishedAt: "2026-01-01" } });
-      const updated = yield* ctx.nested(conformance.runtime.commands.update, { id: args.source, data: { relatedPosts: [id(target)] } });
-      expect(yield* ctx.nested(conformance.runtime.commands.findByID, { id: args.source })).toEqual(updated);
+      const target = yield* ctx.nested(conformance.runtime.commands.create, { collection: "posts", data: { title: "many-nested-target", publishedAt: "2026-01-01" } });
+      const updated = yield* ctx.nested(conformance.runtime.commands.update, { collection: "posts", id: args.source, data: { relatedPosts: [id(target)] } });
+      expect(yield* ctx.nested(conformance.runtime.commands.findByID, { collection: "posts", id: args.source })).toEqual(updated);
       if (args.fail === true) return yield* Effect.fail(cmsError("invalidInput"));
       return updated;
     }) });
@@ -50,9 +50,9 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
         if (Array.isArray(args.ids)) {
           const documentId = args.ids[index];
           if (typeof documentId !== "string") return yield* Effect.fail(cmsError("invalidInput"));
-          yield* ctx.nested(conformance.runtime.commands.update, { id: documentId, data: { relatedPosts: args.ids } });
+          yield* ctx.nested(conformance.runtime.commands.update, { collection: "posts", id: documentId, data: { relatedPosts: args.ids } });
         } else {
-          created.push(id(yield* ctx.nested(conformance.runtime.commands.create, {
+          created.push(id(yield* ctx.nested(conformance.runtime.commands.create, { collection: "posts",
             data: { title: `many-output-${index}-${"x".repeat(1800)}`, publishedAt: "2026-01-01" },
           })));
         }
@@ -64,9 +64,9 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
     yield* Effect.promise(async () => {
       const host = await runEffect(makeCmsHost(composition));
       const write = (command: typeof conformance.runtime.commands.create, args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
-      const create = (title: string, data: JsonObject = {}) => write(conformance.runtime.commands.create, { data: { title, publishedAt: "2026-01-01", ...data } });
-      const update = (source: string, data: JsonObject) => write(conformance.runtime.commands.update, { id: source, data });
-      const read = (source: string, depth = 0) => runEffect(host.read(conformance.runtime.commands.findByID, { id: source, depth }));
+      const create = (title: string, data: JsonObject = {}) => write(conformance.runtime.commands.create, { collection: "posts", data: { title, publishedAt: "2026-01-01", ...data } });
+      const update = (source: string, data: JsonObject) => write(conformance.runtime.commands.update, { collection: "posts", id: source, data });
+      const read = (source: string, depth = 0) => runEffect(host.read(conformance.runtime.commands.findByID, { collection: "posts", id: source, depth }));
       const first = await create("many-target-a");
       expect(first).toMatchObject({ relatedPosts: [], relatedPost: null });
       const a = id(first); const b = id(await create("many-target-b"));
@@ -95,24 +95,24 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
       const beforeInvalid = await input.inventory();
       const calls = conformance.observations.executions();
       for (const invalid of [null, [a, a], [1], [{ id: a }], ["bad-id"], Array.from({ length: 33 }, () => a)]) {
-        await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.update, { id: source, data: { relatedPosts: invalid } }));
+        await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.update, { collection: "posts", id: source, data: { relatedPosts: invalid } }));
       }
       expect(conformance.observations.executions()).toBe(calls);
       const audit = fixture.relation.binding.tables.find(table => table.logicalName === "audit");
       if (audit === undefined) throw new Error("Missing audit table");
       const wrongTable = appDocumentIdV1FromRowIdentity({ tableId: audit.tableId, rowId: decodeAppRowIdHexV1("1".repeat(32)) });
-      await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.update, { id: source, data: { relatedPosts: [wrongTable] } }));
+      await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.update, { collection: "posts", id: source, data: { relatedPosts: [wrongTable] } }));
       expect(conformance.observations.executions()).toBe(calls);
       expect(await input.inventory()).toEqual(beforeInvalid);
       const identity = Result.getOrThrow(decodeAppDocumentIdentityV1Result(a));
       const missing = appDocumentIdV1FromRowIdentity({ tableId: identity.tableId, rowId: decodeAppRowIdHexV1(randomUUID().replaceAll("-", "")) });
-      expect(await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.update, { id: source, data: { relatedPosts: [missing] } }))).toMatchObject({ reason: "relationTargetMissing" });
-      expect(await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.delete, { id: a }))).toMatchObject({ reason: "relationDeleteRestricted" });
+      expect(await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.update, { collection: "posts", id: source, data: { relatedPosts: [missing] } }))).toMatchObject({ reason: "relationTargetMissing" });
+      expect(await runEffectFailure(host.run(host.newRequestKey(), conformance.runtime.commands.delete, { collection: "posts", id: a }))).toMatchObject({ reason: "relationDeleteRestricted" });
       expect(await input.inventory()).toEqual(beforeInvalid);
       await runEffectFailure(host.run(host.newRequestKey(), nested, { source, fail: true }));
       expect(await input.inventory()).toEqual(beforeInvalid);
       const key = host.newRequestKey();
-      const args = { id: source, data: { relatedPosts: [a] } };
+      const args = { collection: "posts", id: source, data: { relatedPosts: [a] } };
       const saved = await runEffect(host.run(key, conformance.runtime.commands.update, args));
       const replayCalls = conformance.observations.executions();
       expect(await runEffect(host.run(key, conformance.runtime.commands.update, args))).toEqual(saved);
@@ -126,11 +126,11 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
       expect(object(await read(source, 1)).relatedPosts).toEqual([expect.objectContaining({ id: source, relatedPosts: [source, b] }), expect.objectContaining({ id: b })]);
       await update(source, { relatedPosts: [b, a], relatedPost: a });
       const second = id(await create("many-second-source", { relatedPosts: [a, b], relatedPost: b }));
-      const page = object(await runEffect(host.read(conformance.runtime.commands.find, { depth: 1, limit: 32 })));
+      const page = object(await runEffect(host.read(conformance.runtime.commands.find, { collection: "posts", depth: 1, limit: 32 })));
       expect(page.docs).toEqual(expect.arrayContaining([expect.objectContaining({ id: second, relatedPosts: [expect.objectContaining({ id: a }), expect.objectContaining({ id: b })] })]));
       await input.seed(second, ["many-preference"]);
       const beforeDelete = (await db.select().from(fxSystemCommits)).length;
-      await write(conformance.runtime.commands.delete, { id: second });
+      await write(conformance.runtime.commands.delete, { collection: "posts", id: second });
       expect((await db.select().from(fxSystemCommits)).length).toBe(beforeDelete + 1);
       expect(await db.select().from(fxSystemCommitPayloadPreferenceDeletions)).toHaveLength(1);
       expect(await db.select().from(fxAppEdgeCurrent)).toHaveLength(3);
@@ -142,19 +142,19 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
           await update(source, { relatedPosts: [], relatedPost: null });
           const entered = barrier<void>(); const release = barrier<void>();
           const held = await runEffect(makeCmsHost(composition, { afterAdmission: () => Effect.promise(async () => { entered.resolve(); await release.promise; }) }));
-          const inserting = (first === "insert" ? held : host).run(host.newRequestKey(), conformance.runtime.commands.update, { id: source, data: { relatedPosts: [target] } });
-          const deleting = (first === "delete" ? held : host).run(host.newRequestKey(), conformance.runtime.commands.delete, { id: target });
+          const inserting = (first === "insert" ? held : host).run(host.newRequestKey(), conformance.runtime.commands.update, { collection: "posts", id: source, data: { relatedPosts: [target] } });
+          const deleting = (first === "delete" ? held : host).run(host.newRequestKey(), conformance.runtime.commands.delete, { collection: "posts", id: target });
           const results = await heldNativeRace(persistence, first === "insert" ? inserting : deleting, first === "insert" ? deleting : inserting, entered.promise, () => release.resolve());
           expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
           expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: { reason: first === "insert" ? "relationDeleteRestricted" : "relationTargetMissing" } } });
-          if (first === "insert") { await update(source, { relatedPosts: [] }); await write(conformance.runtime.commands.delete, { id: target }); }
+          if (first === "insert") { await update(source, { relatedPosts: [] }); await write(conformance.runtime.commands.delete, { collection: "posts", id: target }); }
         }
         await update(source, { relatedPosts: [a, b] });
         for (const first of ["reader", "writer"] as const) {
           const entered = barrier<void>(); const release = barrier<void>();
           const held = await runEffect(makeCmsHost(composition, { afterAdmission: () => Effect.promise(async () => { entered.resolve(); await release.promise; }) }));
-          const reading = (first === "reader" ? held : host).read(conformance.runtime.commands.findByID, { id: source, depth: 1 });
-          const writing = (first === "writer" ? held : host).run(host.newRequestKey(), conformance.runtime.commands.update, { id: source, data: { relatedPosts: [b, a] } });
+          const reading = (first === "reader" ? held : host).read(conformance.runtime.commands.findByID, { collection: "posts", id: source, depth: 1 });
+          const writing = (first === "writer" ? held : host).run(host.newRequestKey(), conformance.runtime.commands.update, { collection: "posts", id: source, data: { relatedPosts: [b, a] } });
           const results = await heldNativeRace(persistence, first === "reader" ? reading : writing, first === "reader" ? writing : reading, entered.promise, () => release.resolve());
           expect(results).toEqual([expect.objectContaining({ status: "fulfilled", value: expect.objectContaining({ _tag: "Success" }) }), expect.objectContaining({ status: "fulfilled", value: expect.objectContaining({ _tag: "Success" }) })]);
           expect(results[first === "reader" ? 0 : 1]).toMatchObject({ value: { success: { relatedPosts: (first === "reader" ? [a, b] : [b, a]).map(id => expect.objectContaining({ id })) } } });
@@ -165,7 +165,7 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
           if (event.phase === "commit" && event.edge === "after" && !lost) { lost = true; throw new Error("Lost many COMMIT acknowledgement"); }
         } }) }));
         const recoverKey = recovering.newRequestKey();
-        const recoverArgs = { id: source, data: { relatedPosts: [b, a] } };
+        const recoverArgs = { collection: "posts", id: source, data: { relatedPosts: [b, a] } };
         const recovered = await runEffect(recovering.run(recoverKey, conformance.runtime.commands.update, recoverArgs));
         expect(lost).toBe(true);
         expect(await runEffect(host.run(recoverKey, conformance.runtime.commands.update, recoverArgs))).toEqual(recovered);
@@ -173,7 +173,7 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
       const entered = barrier<void>();
       const blocked = await runEffect(makeCmsHost(composition, { documentReads: { beforeRead: selection => selection === "batch" ?
         Effect.sync(() => entered.resolve()).pipe(Effect.andThen(Effect.never)) : Effect.void } }));
-      const reading = Effect.runFork(blocked.read(conformance.runtime.commands.findByID, { id: source, depth: 1 }));
+      const reading = Effect.runFork(blocked.read(conformance.runtime.commands.findByID, { collection: "posts", id: source, depth: 1 }));
       try { await withDeadline(entered.promise); } finally { await runEffect(Fiber.interrupt(reading)); }
       expect(Exit.isFailure(await runEffect(Fiber.await(reading)))).toBe(true);
       await update(source, { relatedPosts: [b, a], relatedPost: a });
@@ -189,7 +189,7 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
       // Keep the aggregate target set exactly 32 so this refusal reaches output accounting.
       await update(source, { relatedPosts: [], relatedPost: null });
       const beforeOutputRefusal = await input.inventory();
-      expect(await runEffectFailure(host.read(conformance.runtime.commands.find, { depth: 1, limit: 32 }))).toMatchObject({ reason: "limitExceeded" });
+      expect(await runEffectFailure(host.read(conformance.runtime.commands.find, { collection: "posts", depth: 1, limit: 32 }))).toMatchObject({ reason: "limitExceeded" });
       expect(await input.inventory()).toEqual(beforeOutputRefusal);
       await update(source, { relatedPosts: [b, a], relatedPost: a });
       restoredSource = source; restoredTargets = [b, a];
@@ -203,7 +203,7 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
     const conformance = yield* makePayloadConformanceRuntime("payload.content-many");
     const host = yield* conformance.runtime.bind({ ...hostInput, application: coldApplication,
       materialization: { ...hostInput.materialization, applicationRelations: fixture.relationCommit } });
-    expect(yield* host.read(conformance.runtime.commands.findByID, { id: restoredSource })).toMatchObject({ relatedPosts: restoredTargets });
-    expect(object(yield* host.read(conformance.runtime.commands.findByID, { id: restoredSource, depth: 1 })).relatedPosts).toEqual(restoredTargets.map(id => expect.objectContaining({ id })));
+    expect(yield* host.read(conformance.runtime.commands.findByID, { collection: "posts", id: restoredSource })).toMatchObject({ relatedPosts: restoredTargets });
+    expect(object(yield* host.read(conformance.runtime.commands.findByID, { collection: "posts", id: restoredSource, depth: 1 })).relatedPosts).toEqual(restoredTargets.map(id => expect.objectContaining({ id })));
   })));
 }

@@ -1,6 +1,5 @@
 import { Effect, Result, Schema } from "effect";
 import { sql } from "drizzle-orm";
-import { isJsonObject } from "flarex-protocol/json";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { requireCmsAdmission, type CmsAdmission } from "../cmsTransaction/admission";
@@ -12,11 +11,12 @@ import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
 
 export interface PayloadPreferenceCleanup {
-  readonly deleteForPendingPost: (context: CmsRequestContext, transactionId: CmsPresentedTransactionId,
-    selector: unknown) => Effect.Effect<void, CmsTransactionError>;
+  readonly deleteForPendingDocument: (context: CmsRequestContext, transactionId: CmsPresentedTransactionId,
+    collectionSlug: string, selector: unknown) => Effect.Effect<void, CmsTransactionError>;
 }
 interface DeletionEvidence {
   readonly documentId: AppDocumentIdV1;
+  readonly collectionSlug: string;
   readonly key: string;
   readonly preferenceIds: readonly string[];
 }
@@ -31,6 +31,8 @@ interface ReceiptAuthority {
 }
 const receipts = new WeakMap<object, ReceiptAuthority & DeletionEvidence>();
 const closures = new WeakMap<object, ReceiptAuthority & Readonly<{ receipts: readonly PayloadPreferenceCleanupReceipt[] }>>();
+const decodeSelector = Schema.decodeUnknownEffect(Schema.Struct({ key: Schema.Struct({ in: Schema.Tuple([Schema.String]) }) }),
+  { onExcessProperty: "error" });
 const decodeIds = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ id: Schema.String.check(
   Schema.makeFilter(value => value.length > 0 && value.length <= 512 ? undefined : "Invalid preference identity"),
 ) })));
@@ -50,23 +52,26 @@ export const makePayloadPreferenceCleanup = Effect.fn("PayloadPreferences.makeCl
   let identityCount = 0;
   let closed = false;
   const authority = Object.freeze({ admission, lifetime, pendingDeletions });
-  const deleteForPendingPost: PayloadPreferenceCleanup["deleteForPendingPost"] = Effect.fn("PayloadPreferences.deleteForPendingPost")(
-    (context, transactionId, selector) => lifetime.operation(context, transactionId, "write", Effect.gen(function* () {
+  const deleteForPendingDocument: PayloadPreferenceCleanup["deleteForPendingDocument"] = Effect.fn("PayloadPreferences.deleteForPendingDocument")(
+    (context, transactionId, collectionSlug, selector) => lifetime.operation(context, transactionId, "write", Effect.gen(function* () {
       yield* requireCmsAdmission(admission, state.tx);
       if (closed) return yield* Effect.fail(cmsError("closed"));
       const availability = state.preferenceAvailability;
       if (availability === null) return yield* Effect.fail(cmsError("unsupportedProfile"));
       const captured = yield* Effect.fromResult(capturePrivateJsonData(selector, lifetime.remainingBytes(), cmsError));
       yield* Effect.fromResult(lifetime.charge(captured.bytes));
-      const value = captured.value;
-      if (!isJsonObject(value) || Object.keys(value).join() !== "key" || value.key === undefined || !isJsonObject(value.key) ||
-        Object.keys(value.key).join() !== "in" || !Array.isArray(value.key.in) || value.key.in.length !== 1 ||
-        typeof value.key.in[0] !== "string" || !value.key.in[0].startsWith("collection-posts-")) {
+      const value = yield* decodeSelector(captured.value).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
+      const prefix = `collection-${collectionSlug}-`;
+      if (!state.configuration.tables.some(table => table.collectionSlug === collectionSlug) || !value.key.in[0].startsWith(prefix)) {
         return yield* Effect.fail(cmsError("invalidInput"));
       }
       const key = value.key.in[0];
       if (keys.has(key)) return yield* Effect.fail(cmsError("invalidInput"));
-      const documentId = yield* requireCmsPendingDeletion(pendingDeletions, admission, lifetime, key.slice("collection-posts-".length));
+      const pending = yield* requireCmsPendingDeletion(pendingDeletions, admission, lifetime, key.slice(prefix.length));
+      if (pending.collectionSlug !== collectionSlug || key !== `collection-${pending.collectionSlug}-${pending.documentId}`) {
+        return yield* Effect.fail(cmsError("invalidAuthority"));
+      }
+      const documentId = pending.documentId;
       const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)
         .pipe(Result.mapError(cause => cmsError("invalidAuthority", cause))));
       const layout = availability.installation.plan.plan.physicalLayout.frame;
@@ -97,7 +102,7 @@ export const makePayloadPreferenceCleanup = Effect.fn("PayloadPreferences.makeCl
       }
       // SAFETY: only the owner issues receipts after the actual bounded query/delete.
       const receipt = Object.freeze({}) as PayloadPreferenceCleanupReceipt;
-      receipts.set(receipt, Object.freeze({ ...authority, documentId, key, preferenceIds: Object.freeze(selected) }));
+      receipts.set(receipt, Object.freeze({ ...authority, documentId, collectionSlug, key, preferenceIds: Object.freeze(selected) }));
       issued.push(receipt);
       identityCount += selected.length;
       keys.add(key);
@@ -112,7 +117,7 @@ export const makePayloadPreferenceCleanup = Effect.fn("PayloadPreferences.makeCl
     closures.set(closure, Object.freeze({ ...authority, receipts: Object.freeze([...issued]) }));
     return closure;
   });
-  return Object.freeze({ cleanup: Object.freeze({ deleteForPendingPost }), close });
+  return Object.freeze({ cleanup: Object.freeze({ deleteForPendingDocument }), close });
 });
 
 /** Single-use owner evidence only; consuming it grants no publication authority. */
@@ -131,8 +136,11 @@ export const consumePayloadPreferenceCleanup = Effect.fn("PayloadPreferences.con
     if (entry === undefined || entry.admission !== admission || entry.lifetime !== lifetime || entry.pendingDeletions !== state.pendingDeletions) {
       return yield* Effect.fail(cmsError("invalidAuthority"));
     }
-    yield* requireCmsPendingDeletion(entry.pendingDeletions, admission, lifetime, entry.documentId);
-    evidence.push(Object.freeze({ documentId: entry.documentId, key: entry.key, preferenceIds: entry.preferenceIds }));
+    const pending = yield* requireCmsPendingDeletion(entry.pendingDeletions, admission, lifetime, entry.documentId);
+    if (pending.collectionSlug !== entry.collectionSlug || entry.key !== `collection-${pending.collectionSlug}-${pending.documentId}`) {
+      return yield* Effect.fail(cmsError("invalidAuthority"));
+    }
+    evidence.push(Object.freeze({ documentId: entry.documentId, collectionSlug: entry.collectionSlug, key: entry.key, preferenceIds: entry.preferenceIds }));
   }
   closures.delete(closure);
   for (const receipt of state.receipts) receipts.delete(receipt);

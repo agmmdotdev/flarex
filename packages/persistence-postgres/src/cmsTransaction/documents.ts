@@ -14,7 +14,7 @@ import { lowerCanonicalAppUniqueConstraintV1Result } from "../appUniqueConstrain
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { PointCommitDependencyV1 } from "../pointCommitTransaction";
 import { requireCmsAdmission, type CmsAdmission } from "./admission";
-import { cmsError, cmsLimits, type CmsRequestContext, type CmsPresentedTransactionId, type CmsTransactionError } from "./model";
+import { cmsError, cmsLimits, CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
 import type { CmsRequestLifetime } from "./lifetime";
 
 interface PendingDocument {
@@ -55,19 +55,21 @@ const deletionSets = new WeakMap<object, Readonly<{
   rows: ReadonlyMap<AppDocumentIdV1, PendingDocument>;
 }>>();
 
-/** Only the document owner can attest a still-pending posts deletion. No SQL is issued. */
+/** Only the document owner can attest a still-pending collection deletion. No SQL is issued. */
 export const requireCmsPendingDeletion = Effect.fn("CmsDocuments.requirePendingDeletion")(function* (
   token: CmsPendingDeletions, admission: CmsAdmission, lifetime: CmsRequestLifetime, documentId: string,
 ) {
   const state = deletionSets.get(token);
   if (state === undefined || state.admission !== admission || state.lifetime !== lifetime) return yield* Effect.fail(cmsError("invalidAuthority"));
-  yield* requireCmsAdmission(admission);
+  const admitted = yield* requireCmsAdmission(admission);
   const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(documentId).pipe(Result.mapError(cause => cmsError("invalidInput", cause))));
   const row = state.rows.get(identity.id);
-  if (row === undefined || row.tableName !== "posts" || row.current !== null || row.attempts.length === 0) {
+  if (row === undefined || row.current !== null || row.attempts.length === 0) {
     return yield* Effect.fail(cmsError("invalidAuthority"));
   }
-  return row.documentId;
+  const collection = admitted.configuration.tables.find(table => table.logicalTableName === row.tableName);
+  if (collection === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+  return Object.freeze({ documentId: row.documentId, tableName: row.tableName, collectionSlug: collection.collectionSlug });
 });
 
 /** Only a closed, internally derived set can enter Application materialization. */
@@ -86,15 +88,15 @@ export const consumeCmsDocumentClosure = Effect.fn("CmsDocuments.consumeClosure"
 });
 
 export interface CmsDocuments {
-  readonly get: (context: CmsRequestContext, id: CmsPresentedTransactionId, documentId: string) => Effect.Effect<JsonObject | null, CmsTransactionError>;
+  readonly get: (context: CmsRequestContext, id: CmsPresentedTransactionId, documentId: string, tableName?: string) => Effect.Effect<JsonObject | null, CmsTransactionError>;
   readonly getMany: (context: CmsRequestContext, id: CmsPresentedTransactionId, tableName: string,
     documentIds: readonly string[]) => Effect.Effect<readonly (JsonObject | null)[], CmsTransactionError>;
   readonly find: (context: CmsRequestContext, id: CmsPresentedTransactionId, tableName: string,
     query: Readonly<{ where: JsonObject; offset: number; limit: number }>) => Effect.Effect<Readonly<{ docs: readonly JsonObject[]; total: number }>, CmsTransactionError>;
   readonly insert: (context: CmsRequestContext, id: CmsPresentedTransactionId, tableName: string, fields: unknown) => Effect.Effect<JsonObject, CmsTransactionError>;
-  readonly patch: (context: CmsRequestContext, id: CmsPresentedTransactionId, documentId: string, fields: unknown) => Effect.Effect<JsonObject, CmsTransactionError>;
-  readonly replace: (context: CmsRequestContext, id: CmsPresentedTransactionId, documentId: string, fields: unknown) => Effect.Effect<JsonObject, CmsTransactionError>;
-  readonly delete: (context: CmsRequestContext, id: CmsPresentedTransactionId, documentId: string) => Effect.Effect<void, CmsTransactionError>;
+  readonly patch: (context: CmsRequestContext, id: CmsPresentedTransactionId, documentId: string, fields: unknown, tableName?: string) => Effect.Effect<JsonObject, CmsTransactionError>;
+  readonly replace: (context: CmsRequestContext, id: CmsPresentedTransactionId, documentId: string, fields: unknown, tableName?: string) => Effect.Effect<JsonObject, CmsTransactionError>;
+  readonly delete: (context: CmsRequestContext, id: CmsPresentedTransactionId, documentId: string, tableName?: string) => Effect.Effect<void, CmsTransactionError>;
 }
 
 export interface CmsDocumentReadTestHooks {
@@ -169,9 +171,12 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     }
     if (rowId === undefined && rowIds === undefined) scanned.add(tableId);
   });
-  const locate = Effect.fn("CmsDocuments.locate")(function* (inputId: string) {
+  const locate = Effect.fn("CmsDocuments.locate")(function* (inputId: string, tableName?: string) {
     const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(inputId).pipe(Result.mapError(cause => cmsError("invalidInput", cause))));
     yield* Effect.fromResult(tableForId(identity.tableId));
+    if (tableName !== undefined && (yield* Effect.fromResult(tableForName(tableName))).tableId !== identity.tableId) {
+      return yield* Effect.fail(cmsError("invalidInput"));
+    }
     if (!rows.has(identity.id) && !scanned.has(identity.tableId)) yield* readBase(identity.tableId, identity.rowId);
     return { identity, pending: rows.get(identity.id) };
   });
@@ -188,7 +193,10 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
         const existing = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, other.current)
           .pipe(Result.mapError(cause => cmsError("storedCorruption", cause))));
         if (existing.canonical.kind === "claim" && existing.canonical.localeKey === projected.canonical.localeKey &&
-          existing.canonical.encodedKey === projected.canonical.encodedKey) return yield* Effect.fail(cmsError("uniqueConflict"));
+          existing.canonical.encodedKey === projected.canonical.encodedKey) return yield* Effect.fail(new CmsTransactionError({
+            reason: "uniqueConflict", uniqueConstraint: Object.freeze({ tableName: pending.tableName,
+              orderedFields: Object.freeze([...definition.physicalSpec.orderedFields]) }),
+          }));
       }
     }
   });
@@ -216,8 +224,8 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     rows.set(pending.documentId, pending);
     return yield* Effect.fromResult(output(document, true));
   });
-  const get: CmsDocuments["get"] = Effect.fn("CmsDocuments.get")((context, id, documentId) =>
-    lifetime.operation(context, id, "read", locate(documentId).pipe(Effect.flatMap(({ pending }) =>
+  const get: CmsDocuments["get"] = Effect.fn("CmsDocuments.get")((context, id, documentId, tableName) =>
+    lifetime.operation(context, id, "read", locate(documentId, tableName).pipe(Effect.flatMap(({ pending }) =>
       pending?.current == null ? Effect.succeed(null) : Effect.fromResult(output(pending.current, true))))));
   const getMany: CmsDocuments["getMany"] = Effect.fn("CmsDocuments.getMany")((context, id, tableName, input) =>
     lifetime.operation(context, id, "read", Effect.gen(function* () {
@@ -254,17 +262,17 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
         creationTime: time, current: null, attempts: [] }, fields, "insert");
     })));
   const edit = Effect.fn("CmsDocuments.edit")((context: CmsRequestContext, id: CmsPresentedTransactionId,
-    documentId: string, input: unknown, operation: "patch" | "replace") => lifetime.operation(context, id, "write", Effect.gen(function* () {
+    documentId: string, input: unknown, operation: "patch" | "replace", tableName?: string) => lifetime.operation(context, id, "write", Effect.gen(function* () {
       const fields = yield* Effect.fromResult(captureFields(input));
-      const { pending } = yield* locate(documentId);
+      const { pending } = yield* locate(documentId, tableName);
       if (pending?.current == null) return yield* Effect.fail(cmsError("documentMissing"));
       const previous = yield* Effect.fromResult(output(pending.current));
       const { _id: _documentId, _creationTime: _created, ...developerFields } = previous;
       return yield* write(pending, operation === "patch" ? { ...developerFields, ...fields } : fields, operation);
     })));
-  const remove: CmsDocuments["delete"] = Effect.fn("CmsDocuments.delete")((context, id, documentId) =>
+  const remove: CmsDocuments["delete"] = Effect.fn("CmsDocuments.delete")((context, id, documentId, tableName) =>
     lifetime.operation(context, id, "write", Effect.gen(function* () {
-      const { pending } = yield* locate(documentId);
+      const { pending } = yield* locate(documentId, tableName);
       if (pending?.current == null) return yield* Effect.fail(cmsError("documentMissing"));
       yield* Effect.fromResult(recordAttempt(pending, "delete"));
       pending.current = null;
@@ -280,6 +288,11 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
         return yield* Effect.fail(cmsError("invalidInput"));
       }
       const table = yield* Effect.fromResult(tableForName(tableName));
+      if (query.value.where._id !== undefined) {
+        const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(query.value.where._id).pipe(
+          Result.mapError(cause => cmsError("invalidInput", cause))));
+        if (identity.tableId !== table.tableId) return yield* Effect.fail(cmsError("invalidInput"));
+      }
       if (!scanned.has(table.tableId)) yield* readBase(table.tableId);
       const predicate = Object.entries(query.value.where);
       const matched: { id: AppDocumentIdV1; document: CanonicalFlarexValueV1 }[] = [];
@@ -318,7 +331,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     return closure;
   });
   const documents = Object.freeze({ get, getMany, find, insert, delete: remove,
-    patch: (context, id, documentId, fields) => edit(context, id, documentId, fields, "patch"),
-    replace: (context, id, documentId, fields) => edit(context, id, documentId, fields, "replace") } satisfies CmsDocuments);
+    patch: (context, id, documentId, fields, tableName) => edit(context, id, documentId, fields, "patch", tableName),
+    replace: (context, id, documentId, fields, tableName) => edit(context, id, documentId, fields, "replace", tableName) } satisfies CmsDocuments);
   return Object.freeze({ documents, close, pendingDeletions });
 });

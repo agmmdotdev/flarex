@@ -1,10 +1,10 @@
+import { installPayloadPreferenceFixture } from "./payloadPreferenceFixture";
 import { payloadJoinScenario } from "./payloadJoinScenario";
 import { projectScopeIdUuidV1Result, ScopeIdSchema, ScopeEpochSchema, StorageGenerationSchema } from "flarex-protocol/storage-authority";
 import { isJsonObject } from "flarex-protocol/json";
 import { ne } from "drizzle-orm";
 import { expect } from "vitest";
 import { Effect, Result, Schema } from "effect";
-import { pgTable, text, jsonb, timestamp, uuid } from "drizzle-orm/pg-core";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
@@ -14,31 +14,25 @@ import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemOutbox,
   fxSystemCommitAppRowChanges, fxSystemScopeClocks, fxAppUniqueKeys, fxAppIndexEntryCurrent } from "../src/schema";
-import { capturePayloadPreferenceProfile, type PayloadContentProfiles } from "../src/payloadPreferences/binding";
+import { type PayloadContentProfiles } from "../src/payloadPreferences/binding";
 import { capturePayloadPreferenceRecord } from "../src/payloadPreferences/value";
 import { payloadPreferenceSchemaInput } from "../src/payloadPreferences/schema";
 import { captureRelationalSchemaArtifact } from "../src/relationalSchema/artifact";
 import { captureRelationalPhysicalLayout } from "../src/relationalSchema/physical/canonical";
 import { captureFreshRelationalMigrationPlan } from "../src/migrationCoordination/canonical";
 import { frameworkMigrationTargetSnapshot } from "../src/migrationCoordination/targetSession";
-import { runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
-import { prepareFrameworkSchemaArtifactAdmission, makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
-import { admitFrameworkSchemaArtifactEffect } from "../src/frameworkSchema/artifact/admission";
-import { makeFrameworkSchemaArtifactControlSessionStarter } from "../src/frameworkSchema/artifact/controlSession";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../src/frameworkSchema/artifact/postgresControlSession";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import { captureFrameworkSchemaAvailabilityHistory, captureFrameworkSchemaAvailabilityHead } from "../src/frameworkSchema/installation/canonical";
 import { appendFrameworkSchemaAvailabilityHistoryInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHistoryRepository";
 import { compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHeadRepository";
-import { payloadScalarFields } from "../../payload-adapter/src/contract";
-import { payloadScalarContentIdentity } from "../../payload-adapter/src/profile";
+import { payloadScalarFields } from "../../payload-adapter/src/conformanceProfile";
+import { payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
 import { createAppSchemaCandidateWriteGuardPort } from "../src/appSchemaCandidateValidation";
 import { cmsHostFixture } from "./cmsHostFixture";
-import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "./frameworkSchemaArtifactAdmissionTestSupport";
 import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { payloadPreferencePublicationScenario } from "./payloadPreferencePublicationScenario";
@@ -58,29 +52,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   const { fixture, target, bindings, reference, candidate: contentCandidate, payloadProfiles } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields,
     ...(many === null ? {} : { cmsManifest: { manifest: many.manifest, manifestSha256: createHash("sha256").update(many.canonicalBytes).digest("hex") } }),
     physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
-  const profile = await runEffect(capturePayloadPreferenceProfile(fixture.deploymentId));
-  const repository = "pool" in persistence ? Result.getOrThrow(makeFrameworkSchemaArtifactRepository({ controlDb: persistence.drizzle,
-    controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({ controlDb: persistence.drizzle, driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(persistence.pool) }),
-    readTimeoutMilliseconds: 10000, attemptTimeoutMilliseconds: 10000, recoveryTimeoutMilliseconds: 10000, lockTimeoutMilliseconds: 2000 })) : makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence).repository;
-  await runEffect(admitFrameworkSchemaArtifactEffect(repository, Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(profile.artifact))));
-  const input = { target, artifactRepository: repository, artifactIdentity: profile.artifact.identity, attemptId: "preference-install", leaseOwnerId: "preference-test",
-    leaseDurationMilliseconds: 120000, lockTimeoutMilliseconds: 5000, statementTimeoutMilliseconds: 30000, maximumStepsPerRun: 16 };
-  const ready = await runEffect(runFreshFrameworkMigrationCoordinatorEffect(input));
-  if (ready.kind !== "ready") throw new Error(`Preference installation incomplete: ${ready.kind}`);
-  const availability = ready.availability;
-  expect(availability.installation.admission.admission.frame.admissionProfile).toBe("payload-preferences-fresh");
-  expect((await runEffect(runFreshFrameworkMigrationCoordinatorEffect(input))).kind).toBe("ready");
-  const physical = availability.installation.plan.plan.physicalLayout.frame.tables[0];
-  if (physical === undefined) throw new Error("Missing installed preference table");
-  const column = (id: string) => {
-    const value = physical.columns.find(column => column.identity.columnId === id);
-    if (value === undefined) throw new Error(`Missing preference column ${id}`);
-    return value.name;
-  };
-  // Test-only typed physical fixture; no runtime preference DML port is admitted.
-  const table = pgTable(physical.name, { scope: uuid("scope_uuid"), generation: text(column("storage_generation")), id: text(column("id")), key: text(column("key")),
-    userCollection: text(column("user_collection")), userId: text(column("user_id")), value: jsonb(column("value")),
-    createdAt: timestamp(column("created_at"), { withTimezone: true, mode: "string" }), updatedAt: timestamp(column("updated_at"), { withTimezone: true, mode: "string" }) });
+  const { profile, availability, table } = await installPayloadPreferenceFixture(persistence, target, fixture.deploymentId);
   const record = await runEffect(capturePayloadPreferenceRecord({ id: "preference-a", key: "collection-posts-a", user: { relationTo: "users", value: "user-a" },
     value: { nested: [true, null, String.fromCodePoint(0x1f600), 1.5] }, createdAt: "2026-01-01", updatedAt: "2026-01-01" }));
   await persistence.drizzle.insert(table).values({ scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration, id: record.id, key: record.key,
@@ -165,7 +137,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
     if (!isJsonObject(args) || typeof args.id !== "string") return yield* Effect.fail(cmsError("invalidInput"));
     escaped = ctx;
     if (args.beforeDelete !== true) yield* ctx.documents.delete(ctx.context, ctx.transactionId, args.id);
-    const cleanup = ctx.preferences.deleteForPendingPost(ctx.context, args.foreignId === true ? "foreign" : ctx.transactionId,
+    const cleanup = ctx.preferences.deleteForPendingDocument(ctx.context, args.foreignId === true ? "foreign" : ctx.transactionId, "posts",
       args.selector ?? { key: { in: [`collection-posts-${args.id}`] } });
     if (args.catchFailure === true) yield* cleanup.pipe(Effect.catchTag("CmsTransactionError", () => Effect.void));
     else yield* cleanup;
@@ -193,7 +165,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   // A real zero-match query produces a receipt, then the closed publication gate rolls back.
   expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId }))).toMatchObject({ reason: "unsupportedProfile" });
   expect(cleanupCompletions).toBe(1);
-  expect(closedReceipts.at(-1)).toEqual([{ documentId: postId, key: selector.key.in[0], preferenceIds: [] }]);
+  expect(closedReceipts.at(-1)).toEqual([{ collectionSlug: "posts", documentId: postId, key: selector.key.in[0], preferenceIds: [] }]);
   const seed = { scope: Result.getOrThrow(projectScopeIdUuidV1Result(reference.scopeId)).scopeUuid, generation: reference.storageGeneration,
     key: selector.key.in[0], userCollection: "users", userId: "user-a", value: { retained: true }, createdAt: record.createdAt, updatedAt: record.updatedAt };
   await persistence.drizzle.insert(table).values([{ ...seed, id: "matching-a" }, { ...seed, id: "matching-b" },
@@ -208,7 +180,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
     expect(await persistence.drizzle.select().from(table)).toEqual(preferencesBefore);
   }
   const completedBeforeRefusals = cleanupCompletions;
-  expect(closedReceipts.at(-1)).toEqual([{ documentId: postId, key: selector.key.in[0], preferenceIds: ["matching-a", "matching-b"] }]);
+  expect(closedReceipts.at(-1)).toEqual([{ collectionSlug: "posts", documentId: postId, key: selector.key.in[0], preferenceIds: ["matching-a", "matching-b"] }]);
   for (const args of [{ id: postId, beforeDelete: true }, { id: postId, foreignId: true },
     ...[{ key: { equals: selector.key.in[0] } }, { key: { in: [] } }, { key: { in: [selector.key.in[0], "extra"] } },
       { key: { in: ["collection-users-a"] } }, { key: { in: ["collection-posts-not-pending"] } }, { ...selector, extra: true }].map(selector => ({ id: postId, selector }))]) {
@@ -217,7 +189,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   expect(cleanupCompletions).toBe(completedBeforeRefusals);
   await runEffectFailure(cleanupHost.read(cleanupRead, { id: postId, beforeDelete: true }));
   if (escaped === undefined) throw new Error("Missing escaped request");
-  await runEffectFailure(escaped.preferences.deleteForPendingPost(escaped.context, escaped.transactionId, selector));
+  await runEffectFailure(escaped.preferences.deleteForPendingDocument(escaped.context, escaped.transactionId, "posts", selector));
   // The existing host rejects output charging once a caught operation has latched rollback.
   expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId, selector: {}, catchFailure: true }))).toMatchObject({ reason: "closed" });
   // Overflow is detected before DELETE, even when the command catches the error.

@@ -4,7 +4,7 @@ import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analys
 import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { payloadManyIds, makePayloadPopulation } from "../../payload-adapter/src/testing";
-import { payloadScalarFields } from "../../payload-adapter/src/contract";
+import { payloadScalarFields } from "../../payload-adapter/src/conformanceProfile";
 import { isOptionalPostRelationSuccessor } from "../src/applicationWriteOwnership/Successor";
 import { policyManifestFixture } from "./applicationWritePolicyFixture";
 import { payloadRelationManifest } from "./payloadRelationFixture";

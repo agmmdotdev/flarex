@@ -11,7 +11,7 @@ import { makePostgresRelationalSession, issueRelationalSession, runRelationalSes
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
 import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
-import { payloadScalarFields, payloadScalarContentIdentity } from "../../payload-adapter/src/profile";
+import { payloadScalarFields, payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
 import { makeCurrencyAnnouncementHost } from "../../persistence-postgres/src/crossDomainCommand/host";
 import { compositeError } from "../../persistence-postgres/src/crossDomainCommand/model";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../persistence-postgres/src/intrinsicCreationTimeIndexBuildV1";
@@ -52,7 +52,7 @@ it("settles real Currency, Payload and Application participants once, with compl
       currencyCommand: currencyAnnouncementWrite, cmsCommand: conformance.runtime.commands.create, applicationTable: "audit" };
     const host = yield* makeCurrencyAnnouncementHost(input);
     const args = (title: string, applicationTitle: string | number = title) => ({ currency: { code: "zzz", name: title, symbol: "T", symbol_native: "T", decimal_digits: 2, rounding: 0 },
-      cms: { data: { title, publishedAt: "2026-01-01" } }, application: { title: applicationTitle } });
+      cms: { collection: "posts", data: { title, publishedAt: "2026-01-01" } }, application: { title: applicationTitle } });
     yield* Effect.gen(function* () {
       const before = (yield* Effect.promise(inventory));
       const key = host.newRequestKey();

@@ -13,7 +13,7 @@ describe.skipIf(postgresUrl === null)("pinned Payload scalar Local API (PostgreS
     payloadScalarScenario(persistence, makePostgresRelationalSession(persistence), async ({ conformance, host, hostInput, inventory }) => {
       expect((await persistence.query<{ superuser: boolean }>("select rolsuper as superuser from pg_roles where rolname=current_user")).rows[0]?.superuser).toBe(false);
       const sameKey = host.newRequestKey();
-      const input = { data: { title: "native-duplicate", publishedAt: "2026-01-01" } };
+      const input = { collection: "posts", data: { title: "native-duplicate", publishedAt: "2026-01-01" } };
       const before = await persistence.drizzle.select().from(fxSystemCommits);
       const calls = conformance.observations.executions();
       const duplicated = await Promise.allSettled([runEffect(host.run(sameKey, conformance.runtime.commands.create, input)), runEffect(host.run(sameKey, conformance.runtime.commands.create, input))]);
@@ -21,7 +21,7 @@ describe.skipIf(postgresUrl === null)("pinned Payload scalar Local API (PostgreS
       expect(duplicated[0]).toEqual(duplicated[1]);
       expect(conformance.observations.executions()).toBe(calls + 1);
       expect(await persistence.drizzle.select().from(fxSystemCommits)).toHaveLength(before.length + 1);
-      const race = { data: { title: "native-unique", publishedAt: "2026-01-01" } };
+      const race = { collection: "posts", data: { title: "native-unique", publishedAt: "2026-01-01" } };
       const raced = await Promise.allSettled([runEffect(host.run(host.newRequestKey(), conformance.runtime.commands.create, race)), runEffect(host.run(host.newRequestKey(), conformance.runtime.commands.create, race))]);
       expect(raced.filter(result => result.status === "fulfilled")).toHaveLength(1);
       expect(raced.filter(result => result.status === "rejected")).toHaveLength(1);
@@ -36,7 +36,7 @@ describe.skipIf(postgresUrl === null)("pinned Payload scalar Local API (PostgreS
       } }) }));
       const recoverCalls = conformance.observations.executions();
       const recoverKey = recovering.newRequestKey();
-      const recoverInput = { data: { title: "native-recovery", publishedAt: "2026-01-01" } };
+      const recoverInput = { collection: "posts", data: { title: "native-recovery", publishedAt: "2026-01-01" } };
       const recovered = await runEffect(recovering.run(recoverKey, conformance.runtime.commands.create, recoverInput));
       expect(recovered).toMatchObject({ title: "native-recovery" });
       expect(conformance.observations.executions()).toBe(recoverCalls + 1);
@@ -46,7 +46,7 @@ describe.skipIf(postgresUrl === null)("pinned Payload scalar Local API (PostgreS
       expect(conformance.observations.executions()).toBe(recoverCalls + 1);
       const stable = await inventory();
       const pendingBefore = conformance.observations.pendingReads();
-      const fiber = Effect.runFork(host.run(host.newRequestKey(), conformance.runtime.commands.create, { data: { title: "id-unresolved", publishedAt: "2026-01-01" } }));
+      const fiber = Effect.runFork(host.run(host.newRequestKey(), conformance.runtime.commands.create, { collection: "posts", data: { title: "id-unresolved", publishedAt: "2026-01-01" } }));
       try {
         const deadline = performance.now() + 5000;
         while (conformance.observations.pendingReads() === pendingBefore && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
