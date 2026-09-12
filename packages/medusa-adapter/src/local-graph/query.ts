@@ -32,7 +32,9 @@ function graphOrder(read: GraphReadDefinition, supplied: Readonly<Record<string,
   if (identity === undefined) return Result.fail(commerceError("unsupportedProfile"));
   const order = { ...supplied };
   if (Object.keys(order).some(key => !read.orderable.includes(key))) return Result.fail(commerceError("unsupportedProfile"));
-  if (!Object.keys(order).some(key => read.uniqueOrder.includes(key))) order[identity] = "ASC";
+  // The physical reader appends every remaining primary-key component as an
+  // ascending tie-breaker. Do not pretend the leading component is unique.
+  if (!Object.keys(order).some(key => read.uniqueOrder.includes(key)) && !Object.hasOwn(order, identity)) order[identity] = "ASC";
   if (!read.multipleOrder && Object.keys(order).length !== 1) return Result.fail(commerceError("unsupportedProfile"));
   return Result.succeed(order);
 }
@@ -65,8 +67,9 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
     for (const { participant, module } of participants) {
       const models = new Map<string, GraphReadDefinition>();
       for (const input of module.reads) {
-        if (!input.model.trim() || !input.methodSuffix.trim() || models.has(input.model) || !isGraphReadCommand(input.command)
-          || input.table.primaryKeys.length !== 1) return yield* Result.fail(commerceError("unsupportedProfile"));
+        if (!input.model.trim() || models.has(input.model) || !isGraphReadCommand(input.command)
+          || input.table.primaryKeys.length === 0 || input.table.primaryKeys.length > 16
+          || new Set(input.table.primaryKeys).size !== input.table.primaryKeys.length) return yield* Result.fail(commerceError("unsupportedProfile"));
         // Reuse the read catalog's owned metadata snapshots; its relation map is
         // unnecessary here because services retain population responsibility.
         const tables = new Map([input.table, ...input.paths.map(path => path.table)].map(table => [table.name, table]));
@@ -81,7 +84,8 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
         if ([...names].some(path => path.includes(".") && !names.has(path.slice(0, path.lastIndexOf("."))))) return yield* Result.fail(commerceError("unsupportedProfile"));
         const table = yield* catalog.table(input.table.name);
         const identity = table.primaryKeys[0];
-        if (identity === undefined || !input.orderable.includes(identity) || !input.uniqueOrder.includes(identity)
+        if (identity === undefined || !input.orderable.includes(identity)
+          || (table.primaryKeys.length === 1 && !input.uniqueOrder.includes(identity))
           || input.orderable.some(field => !table.columns.includes(field)) || input.uniqueOrder.some(field => !input.orderable.includes(field))) return yield* Result.fail(commerceError("unsupportedProfile"));
         const read = Object.freeze({ ...input, table, paths: Object.freeze(paths),
           orderable: Object.freeze([...input.orderable]), uniqueOrder: Object.freeze([...input.uniqueOrder]), decode: input.decode });
@@ -91,7 +95,7 @@ export function prepareLocalGraph(participants: readonly GraphParticipant[]): Re
       for (const alias of module.aliases) {
         const read = models.get(alias.model);
         if (read === undefined) continue;
-        if (!/^[a-z][a-z0-9_]*$/.test(alias.name) || alias.methodSuffix !== read.methodSuffix || entries.has(alias.name)) return yield* Result.fail(commerceError("unsupportedProfile"));
+        if (!/^[a-z][a-z0-9_]*$/.test(alias.name) || entries.has(alias.name)) return yield* Result.fail(commerceError("unsupportedProfile"));
         entries.set(alias.name, { participant, read });
         selected.add(alias.model);
       }

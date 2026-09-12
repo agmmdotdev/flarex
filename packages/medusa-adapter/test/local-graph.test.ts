@@ -128,11 +128,36 @@ describe("native local Graph Query contract", () => {
 
 describe("graph registration and metadata ownership", () => {
   const command = defineGraphReadCommand("graphUnitRead", () => Effect.succeed([[], 0]));
-  const definition = (): GraphModuleDefinition => ({ aliases: [{ name: "item", model: "Item", methodSuffix: "Items" }], reads: [{
-    model: "Item", methodSuffix: "Items", command,
+  const definition = (): GraphModuleDefinition => ({ aliases: [{ name: "item", model: "Item" }], reads: [{
+    model: "Item", command,
     table: { name: "item", columns: ["key", "name"], primaryKeys: ["key"], foreignKeys: [], companions: {} },
     paths: [], orderable: ["key"], uniqueOrder: ["key"], multipleOrder: false, decode: decodeGraphCount,
   }] });
+
+  it("binds unsuffixed neutral composite aliases without treating a key component or non-key ID as unique", async () => {
+    const module: GraphModuleDefinition = {
+      aliases: [{ name: "shelf_copy", model: "ShelfCopy" }, { name: "shelf_copies", model: "ShelfCopy" }],
+      reads: [{ model: "ShelfCopy", command,
+        table: { name: "shelf_copy", columns: ["shelf", "copy", "id"], primaryKeys: ["shelf", "copy"], foreignKeys: [], companions: {} },
+        paths: [], orderable: ["shelf"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount }],
+    };
+    const graph = Result.getOrThrow(prepareLocalGraph([{ participant, module }]));
+    const calls: Json[] = [];
+    const result = await runEffect(graph.bind(context([[{ shelf: "a", copy: "2", id: "repeated" }], 3], calls)).graph({
+      entity: "shelf_copies", fields: ["id"], pagination: { take: 1, skip: 1, order: { shelf: "DESC" } },
+    }));
+    expect(result).toEqual({ data: [{ id: "repeated" }], metadata: { count: 3, skip: 1, take: 1 } });
+    // Repository projection retains storage keys; graph requests only the
+    // caller's scalar mask and preserves the leading-key direction.
+    expect(calls).toEqual([{ filters: {}, config: { select: ["id"], relations: [], order: { shelf: "DESC" }, skip: 1, take: 1 } }]);
+    expect(graph.entities).toEqual(["shelf_copy", "shelf_copies"]);
+    const read = module.reads[0];
+    if (read === undefined) throw new Error("Missing fixture read");
+    for (const primaryKeys of [[], ["shelf", "shelf"], ["missing"], Array.from({ length: 17 }, (_, i) => String(i))]) {
+      expect(prepareLocalGraph([{ participant, module: { ...module, reads: [{ ...read, table: { ...read.table, primaryKeys } }] } }]))
+        .toMatchObject({ _tag: "Failure" });
+    }
+  });
 
   it("expands scalar wildcards against detached metadata", async () => {
     const columns = ["key", "name"];
@@ -141,13 +166,13 @@ describe("graph registration and metadata ownership", () => {
     if (first === undefined) throw new Error("Missing fixture read");
     const module = { ...source, reads: [{ ...first, table: { ...first.table, columns } }] };
     const graph = await runEffect(Effect.fromResult(prepareLocalGraph([{ participant, module }])));
-    columns.push("secret"); module.aliases = [{ name: "renamed", model: "Item", methodSuffix: "Items" }];
+    columns.push("secret"); module.aliases = [{ name: "renamed", model: "Item" }];
     expect(graph.entities).toEqual(["item"]);
     expect((await runEffect(graph.bind(context([[{ key: "i", name: "item", secret: "hidden" }], 1])).graph(query("item", ["*"])))).data)
       .toEqual([{ key: "i", name: "item" }]);
   });
 
-  it("rejects alias collisions, missing methods, unknown read tokens and incomplete paths", () => {
+  it("rejects alias collisions, missing bindings, unknown read tokens and incomplete paths", () => {
     const source = definition();
     const first = source.reads[0];
     if (first === undefined) throw new Error("Missing fixture read");
@@ -155,7 +180,8 @@ describe("graph registration and metadata ownership", () => {
     const write: typeof command = defineCommerceCommand("write", "write", () => Effect.succeed(null));
     for (const module of [
       { ...source, aliases: [...source.aliases, ...source.aliases] }, { ...source, aliases: [] },
-      { ...source, aliases: [{ name: "item", model: "Item", methodSuffix: "Wrong" }] },
+      { ...source, aliases: [{ name: "item", model: "Unknown" }] },
+      { ...source, aliases: [{ name: "bad.alias", model: "Item" }] },
       { ...source, reads: [{ ...first, command: write }] },
       { ...source, reads: [{ ...first, paths: [{ path: "child.nested", table: first.table, many: true }] }] },
     ]) expect(prepareLocalGraph([{ participant, module }])).toMatchObject({ _tag: "Failure" });

@@ -41,7 +41,17 @@ One unversioned current binding API
 replaces the development-only encodings; the owner confirmed no production data
 or retained compatibility obligation. Neutral core fixtures exercise three
 disjoint profiles without module-specific branches. Same-installation atomic
-participants retain those confined profiles; commerce-link admission remains a separate gate.
+participants retain those confined profiles. The approved
+[stored ProductSalesChannel Link](./preflight/57-stored-product-sales-channel-link.md)
+adds a fresh fifteen-table candidate and a third confined profile. Its actual
+native Link router/services implement attach, tuple dismiss, endpoint-selected
+soft-delete/restore and Link-root reads. Native event evidence, complete-key
+ordering, atomic endpoint-plus-Link composition, replay and rollback are covered
+by complete PGlite and ordinary-role PostgreSQL conformance. Shared assignment
+batching replaces repeated installer SQL without changing its deadline or adding
+a Medusa-specific core branch. The construction entry
+point owns native wiring without exposing repository/manager assembly to callers.
+Cross-module graph hydration and the native association step remain unadmitted.
 Sales Channel's six-command profile preserves the original service and static
 cases, native metadata merging, scalar/array results, pagination and errors.
 Boundary checks retain input refusal, identity protection, replay, service
@@ -58,7 +68,7 @@ completed correction changes shared Medusa adapter composition, not Flarex core.
 The Sales Channel entry point reuses it without module-specific subscriber wiring.
 
 Complete integration-suite coverage does not establish arbitrary input parity
-or a complete module bootstrap/migration adapter. Stored Module Links,
+or a complete module bootstrap/migration adapter. Other stored Module Links,
 workflows, distributed locks, durable business-event delivery, general module
 migrations, public serving, and production activation remain separately gated.
 

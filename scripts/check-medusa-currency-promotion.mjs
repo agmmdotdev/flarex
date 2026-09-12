@@ -12,6 +12,7 @@ const owners = new Map([
   ["packages/medusa-currency", "@medusajs/currency"],
   ["packages/medusa-product", "@medusajs/product"],
   ["packages/medusa-sales-channel", "@medusajs/sales-channel"],
+  ["packages/medusa-link-modules", "@medusajs/link-modules"],
   ["packages/medusa-core-flows", "@medusajs/core-flows"],
   ["packages/medusa-workflows-sdk", "@medusajs/workflows-sdk"],
   ["packages/medusa-drizzle", "@medusajs/drizzle"],
@@ -108,12 +109,18 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const sourceHashes = new Map(readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"), "utf8")
     .split(/\r?\n/).filter(Boolean).map((line) => ["third_party/medusa/" + line.slice(66), line.slice(0, 64)]));
   for (const file of promotion.files) {
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target === "packages/medusa-adapter/test/workflow-composer-upstream.test.ts")) {
       throw new Error("Workflow fork adaptation outside its approved source closure");
     }
+    if (file.classification === "linkFork" && ![
+      "packages/medusa-modules-sdk/src/link.ts",
+      "packages/medusa-link-modules/src/utils/generate-entity.ts",
+      "packages/medusa-link-modules/src/services/dynamic-service-class.ts",
+      "packages/medusa-link-modules/src/definitions/product-sales-channel.ts",
+    ].includes(file.target)) throw new Error("Link adaptation outside its approved finite source closure");
     const owned = [...owners.keys()].some((owner) => file.target.startsWith(owner + "/"))
       || file.target === "tools/medusa/tsconfig.fork.json";
     if (!validPath(file.target) || !owned) throw new Error(`Unadmitted promotion target: ${file.target}`);

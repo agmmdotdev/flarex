@@ -13,7 +13,7 @@ export function currencyGraphDefinition(commands: Pick<typeof currencyCommands, 
     const table = yield* catalog.table("currency");
     const joiner = currencyStaticResources.joinerConfig;
     if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
-    return { aliases: yield* moduleAliases(joiner), reads: [{ model: "Currency", methodSuffix: "Currencies", command: commands.count,
+    return { aliases: yield* moduleAliases(joiner), reads: [{ model: "Currency", command: commands.count,
       table, paths: [], orderable: table.primaryKeys, uniqueOrder: table.primaryKeys, multipleOrder: false, decode: decodeGraphCount }] };
   });
 }

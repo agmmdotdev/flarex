@@ -11,7 +11,7 @@ const source = "packages/medusa-currency/src/models/currency.ts";
 
 describe("exact Currency promotion", () => {
   it("authenticates source, transformed inputs, package exports, and available build outputs", () => {
-    expect(promotion.packages).toHaveLength(13);
+    expect(promotion.packages).toHaveLength(14);
     expect(promotion.files.some((file) => file.target === source && file.classification === "unchanged")).toBe(true);
   });
   it.each([
@@ -20,6 +20,7 @@ describe("exact Currency promotion", () => {
     ["missing input", { ...promotion, files: promotion.files.filter((file) => file.target !== source) }],
     ["unapproved owner", { ...promotion, packages: promotion.packages.map((pkg) => ({ ...pkg, path: "packages/executor" })) }],
     ["misclassified preserved source", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "workflowFork" } : file) }],
+    ["misclassified Link adaptation", { ...promotion, files: promotion.files.map((file) => file.target === source ? { ...file, classification: "linkFork" } : file) }],
     ["unapproved transform", { ...promotion, files: promotion.files.map((file) => ({ ...file, classification: "anything" })) }],
   ])("rejects %s", (_name, input) => {
     expect(() => verifyCurrencyPromotion(root, input)).toThrow();
@@ -61,7 +62,7 @@ describe("exact Currency promotion", () => {
 
   it("retains the executable original compatibility scenarios and assertions", () => {
     const tests = promotion.files.filter((file) => file.classification === "testPort");
-    expect(tests).toHaveLength(16);
+    expect(tests).toHaveLength(17);
     for (const file of tests) {
       const original = file.source;
       if (!original) throw new Error("Missing original test source");

@@ -26,3 +26,4 @@ export { moduleEventBuilderFactory } from "@medusajs/utils/modules-sdk/event-bui
 export { buildModuleResourceEventName } from "@medusajs/utils/event-bus/utils";
 export { camelToSnakeCase } from "@medusajs/utils/common/camel-to-snake-case";
 export { ContainerRegistrationKeys } from "@medusajs/utils/common/container";
+export { mapObjectTo, type MapToConfig } from "@medusajs/utils/common/map-object-to";

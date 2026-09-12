@@ -17,6 +17,8 @@
     "effect": "catalog:",
     "@medusajs/product": "workspace:*",
     "@medusajs/sales-channel": "workspace:*",
+    "@medusajs/link-modules": "workspace:*",
+    "@medusajs/modules-sdk": "workspace:*",
     "@medusajs/drizzle": "workspace:*",
     "@medusajs/workflows-sdk": "workspace:*",
     "@medusajs/core-flows": "workspace:*"
@@ -25,7 +27,6 @@
     "@medusajs/deps": "workspace:*",
     "@medusajs/framework": "workspace:*",
     "@medusajs/types": "workspace:*",
-    "@medusajs/modules-sdk": "workspace:*",
     "@medusajs/test-utils": "workspace:*"
   },
   "scripts": {

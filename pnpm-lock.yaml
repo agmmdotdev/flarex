@@ -834,6 +834,12 @@ importers:
       '@medusajs/drizzle':
         specifier: workspace:*
         version: link:../medusa-drizzle
+      '@medusajs/link-modules':
+        specifier: workspace:*
+        version: link:../medusa-link-modules
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
       '@medusajs/product':
         specifier: workspace:*
         version: link:../medusa-product
@@ -856,9 +862,6 @@ importers:
       '@medusajs/framework':
         specifier: workspace:*
         version: link:../medusa-framework
-      '@medusajs/modules-sdk':
-        specifier: workspace:*
-        version: link:../medusa-modules-sdk
       '@medusajs/test-utils':
         specifier: workspace:*
         version: link:../medusa-test-utils
@@ -923,6 +926,18 @@ importers:
       '@medusajs/deps':
         specifier: workspace:*
         version: link:../medusa-deps
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
+  packages/medusa-link-modules:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
       '@medusajs/types':
         specifier: workspace:*
         version: link:../medusa-types

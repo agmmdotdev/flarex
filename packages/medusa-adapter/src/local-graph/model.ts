@@ -14,18 +14,18 @@ export interface GraphRelationPath {
 
 export interface GraphReadDefinition {
   readonly model: string;
-  readonly methodSuffix: string;
   readonly command: GraphReadCommand;
   readonly table: ReadTable;
   readonly paths: readonly GraphRelationPath[];
   readonly orderable: readonly string[];
+  /** Individually unique columns; composite primary-key components are not. */
   readonly uniqueOrder: readonly string[];
   readonly multipleOrder: boolean;
   readonly decode: (value: Json) => Result.Result<readonly [readonly JsonObject[], number], CommerceTransactionError>;
 }
 
 export interface GraphModuleDefinition {
-  readonly aliases: readonly { readonly name: string; readonly model: string; readonly methodSuffix: string }[];
+  readonly aliases: readonly { readonly name: string; readonly model: string }[];
   readonly reads: readonly GraphReadDefinition[];
 }
 

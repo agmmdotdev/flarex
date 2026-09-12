@@ -62,7 +62,7 @@ const decodeGraphMetadata = commerceDecoder(Schema.Struct({ table: Table,
   paths: Schema.Array(Schema.Struct({ path: Schema.String, table: Table, many: Schema.Boolean, optional: Schema.optionalKey(Schema.Boolean) })),
   orderable: Schema.Array(Schema.String), uniqueOrder: Schema.Array(Schema.String),
 }), "unsupportedProfile");
-const decodeAliases = commerceDecoder(Schema.Array(Schema.Struct({ name: Schema.String, model: Schema.String, methodSuffix: Schema.String })), "unsupportedProfile");
+const decodeAliases = commerceDecoder(Schema.Array(Schema.Struct({ name: Schema.String, model: Schema.String })), "unsupportedProfile");
 
 /** Module-owned integration metadata. The original module constructor and its
  * commands continue to own service construction and all database operations. */
@@ -107,7 +107,7 @@ function captureGraphDefinition(input: GraphModuleDefinition) {
     for (const source of yield* captureWorkflowArray(definition.reads)) {
       const read = yield* captureWorkflowRecord(source);
       const metadata = yield* captureCommerceInput({ table: read.table, paths: read.paths, orderable: read.orderable, uniqueOrder: read.uniqueOrder }).pipe(Result.flatMap(decodeGraphMetadata));
-      if (typeof read.model !== "string" || typeof read.methodSuffix !== "string" || typeof read.decode !== "function" || typeof read.multipleOrder !== "boolean") return yield* Result.fail(commerceError("unsupportedProfile"));
+      if (typeof read.model !== "string" || typeof read.decode !== "function" || typeof read.multipleOrder !== "boolean") return yield* Result.fail(commerceError("unsupportedProfile"));
       reads.push(Object.freeze({ ...read, ...metadata }));
     }
     return Object.freeze({ aliases, reads: Object.freeze(reads) });

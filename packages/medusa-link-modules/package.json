@@ -1,0 +1,22 @@
+{
+  "name": "@medusajs/link-modules",
+  "version": "2.13.4",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@medusajs/framework": "workspace:*",
+    "@medusajs/types": "workspace:*",
+    "@medusajs/utils": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

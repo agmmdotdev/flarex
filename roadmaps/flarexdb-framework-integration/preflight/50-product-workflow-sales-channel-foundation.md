@@ -2,8 +2,9 @@
 
 Status: Gate A complete, including its shared installation-binding prerequisite
 under preflight 51. B1 shared-installation atomic admission is complete;
-B2's shared contract is complete under preflight 56; stored Link gate B3 and
-workflow gate C remain unapproved.
+B2's shared contract is complete under preflight 56. Stored Link gate B3 is
+complete under preflight 57 for its bounded private profile, including PGlite
+and ordinary-role PostgreSQL conformance; workflow gate C remains unapproved.
 
 ## Outcome And Direction
 
@@ -250,14 +251,15 @@ Sales Channel-local subscriber workaround or core persistence change is involved
 The [focused Gate B preflight](./55-shared-installation-atomic-commerce.md)
 separates B1 shared-installation atomic admission from B2 native characterization
 and key/publication contract approval, then B3 stored Link integration.
-B1 is complete; B2's shared contract is approved in preflight 56. B3 remains
-proposed, and neither shared-core correction authorizes native Link writes.
+B1, B2 and the bounded private B3 profile are complete under
+[preflight 57](./57-stored-product-sales-channel-link.md), with complete PGlite
+and ordinary-role PostgreSQL conformance. Its fresh fifteen-table
+candidate admits the selected native Link profile and events, without treating
+either earlier shared-core correction as permission for arbitrary native writes.
 
-Before stored Link implementation, complete the B3 preflight against the approved
-core contract and characterized native duplicate/reactivation outcomes.
-Then add one fresh Product + Sales Channel + ProductSalesChannel candidate,
-admit storage constraints and link receipts/events, and promote the portable
-native Link closure. Fresh private fixtures are recreated; this is not an
+The B3 implementation uses the approved core contract and characterized native
+duplicate/reactivation outcomes, plus the finite promoted portable native Link
+closure. Fresh private fixtures are recreated; this is not an
 existing-row module-set upgrade or production migration promise.
 
 Prove attach, dismiss, soft-delete/restore, endpoint-triggered traversal with

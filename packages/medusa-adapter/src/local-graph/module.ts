@@ -4,14 +4,14 @@ import { commerceError } from "@flarex/persistence-postgres/internal/commerce-va
 import type { ReadCatalog } from "../query/catalog";
 import type { GraphModuleDefinition, GraphRelationPath } from "./model";
 
-/** Use the pinned module's declared entity and method suffix. No naming guesses,
+/** Use the pinned module's declared alias and entity. No naming guesses,
  * global container or request services are involved in alias preparation. */
 export function moduleAliases(config: ModuleJoinerConfig): Result.Result<GraphModuleDefinition["aliases"], ReturnType<typeof commerceError>> {
   return Result.gen(function* () {
     const output: Array<GraphModuleDefinition["aliases"][number]> = [];
     for (const alias of Array.isArray(config.alias) ? config.alias : config.alias === undefined ? [] : [config.alias]) {
-      if (typeof alias.entity !== "string" || typeof alias.args?.methodSuffix !== "string") return yield* Result.fail(commerceError("unsupportedProfile"));
-      for (const name of typeof alias.name === "string" ? [alias.name] : alias.name) output.push({ name, model: alias.entity, methodSuffix: alias.args.methodSuffix });
+      if (typeof alias.entity !== "string") return yield* Result.fail(commerceError("unsupportedProfile"));
+      for (const name of typeof alias.name === "string" ? [alias.name] : alias.name) output.push({ name, model: alias.entity });
     }
     return output;
   });

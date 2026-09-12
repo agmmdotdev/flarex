@@ -66,3 +66,6 @@ export { IProductModuleService } from "./product/service";
 export { AdditionalData } from "./http/common/additional_data";
 export { LinkWorkflowInput } from "./common/batch";
 export * as ProductCategoryWorkflow from "./workflow/product-category";
+export { ILinkModule } from "./link-modules/service";
+export { JoinerRelationship } from "./joiner/index";
+export { LoadedModule, LinkDefinition, ModuleJoinerRelationship } from "./modules-sdk/index";

@@ -1,7 +1,116 @@
 # Stored Product Sales Channel Link: B3 Preflight
 
-Status: proposed, awaiting implementation approval. B1 and B2 are complete;
-this document does not activate native Link storage or workflow Gate C.
+Status: B3 complete for the bounded private stored-Link profile. B1 and B2 are
+complete. Full Link conformance passes on PGlite and ordinary-role PostgreSQL
+after the approved shared assignment-batch correction, without a deadline change.
+Workflow Gate C remains unapproved.
+
+## Shared Installation Timing Sensitivity
+
+The fresh fifteen-table candidate requires 95 installation steps. Before the
+assignment-batch correction, its PGlite setup intermittently reached the shared
+`commerceHostFixture` 90-second Effect
+deadline before installation plus the cold-profile reopening proof completes.
+The consumer tests were then skipped: this was not a native Link command failure.
+An intervening successful run does not establish the cause of the timeout.
+
+Reproduce from `packages/medusa-adapter` with
+`FLAREX_PRODUCT_TIMINGS=1 pnpm exec vitest run --config vitest.link.config.ts --reporter=verbose`
+and `FLAREX_TEST_DRIVER` unset or set to `pglite`. The existing fixture timing
+output records progress through five batches (80 of 95 steps) before the final
+batch and cold reopening. Expected: the admitted candidate finishes setup within
+the unchanged shared fixture deadline. Actual: setup can fail with Effect
+`TimeoutError`, preventing dependent assertions in that run. Both ordinary,
+uninstrumented database lanes have completed native Link conformance under the
+unchanged deadline, but subsequent uninstrumented PGlite setup also timed out
+before the final review regression could execute. The observed sensitivity was
+not limited to profiling overhead. Following the approved batch replacement,
+both complete ordinary lanes pass; this is bounded functional acceptance, not
+a claim that all timing variability or the historical root cause is established.
+
+The deadline owner is
+`packages/persistence-postgres/test/commerceHostFixture.ts`; installation and
+verification execute through the shared fresh migration coordinator and its
+verification scope. This evidence does not yet distinguish a shared runtime
+performance defect, test-budget insufficiency or environmental sensitivity.
+No Link-specific workaround, higher deadline or claim of production performance
+is admitted. The bounded shared correction below is separately approved.
+Preserve the consumer witness and rerun both database
+lanes after any approved correction; review and commit remain completion gates.
+
+### Diagnosis And Approved Shared-owner Correction
+
+Serial diagnostic measurements separate full-plan runner issuance from stored
+graph reconstruction and the final cold reopening. Runner issuance is negligible
+in this witness; rebuilding that runner is not the recommended correction. The
+measured candidate is repeated shared metadata restoration, including physical
+name assignments and Effect function-stack/span construction. Main-thread idle
+samples do not distinguish database execution, worker transport and scheduling;
+neither an occasional passing run nor query counts prove a single root cause.
+
+Approved correction: reduce demonstrated duplicate immutable-value
+restoration in the existing migration/physical-value owners. Investigate exact
+assignment-row reuse within the existing authenticated read pass before adding
+any mechanism. Reuse must include all actual detached row projections, issued
+collision identity and validation policy; retain fresh SQL reads and release
+references at the existing read-pass boundary. If that boundary offers no useful
+reuse, do not extend it across writes or transactions. Remove transparent helper
+tracing only where sampling and a controlled comparison demonstrate its cost;
+retain named repository/domain operations and full failure semantics.
+
+Exact same-collision assignment-row memoization did not demonstrate useful
+end-to-end improvement and is not retained. The existing read-pass lifetime and
+retention limits remain unchanged. A smaller private canonical-comparison tracing
+change has isolated cost evidence and is implemented at the physical-value owner.
+Named assignment/layout restoration spans, errors and canonical checks remain
+intact. No diagnostic hooks or benchmark cases remain in the integration suite.
+
+No schema, public API, new cache lifetime, larger retention bound, runner redesign,
+Medusa-specific branch or deadline change is part of this correction.
+The displaced scalar SQL loop is removed by the approved replacement below;
+there is no selectable alternate path.
+Acceptance requires corruption/projection, collision, cold-restoration,
+read-pass isolation and cancellation regressions, a neutral owner fixture and
+another supported consumer, followed by complete Link conformance in PGlite and
+ordinary-role PostgreSQL. Compare work and timings under the same serial setup;
+remove temporary instrumentation before final review and commit. Broader changes
+to the stated owners or authority/lifetime contracts require a new preflight.
+
+### Shared Assignment Batch Correction: Implemented
+
+The displaced `prepareCoordinatorGraphInTransaction` called the scalar
+physical-name-assignment ensure operation for every assignment, on every batch
+and on cold reopening. This candidate has 237 assignments. Each scalar ensure
+reauthenticates the collision through SQL, attempts an immutable insert, and
+resolves the stored occupant. Diagnostic query counts and current source agree
+on this repeated work; counts do not by themselves quantify its elapsed cost.
+
+The approved correction is a bounded set-oriented assignment operation in
+that existing repository, replacing the coordinator's scalar loop. It should
+authenticate current collision evidence once per operation, batch immutable
+inserts and occupant reads, then retain exact-byte, spelling, digest, projection
+and cross-collision checks for every assignment. No retained database references,
+new cache, Medusa branch, larger deadline or transaction lifetime is proposed.
+The approval covers changed SQL grouping and the corresponding conflict/lock proofs.
+
+The replacement validates the entire supplied inventory in input order before
+writes, bounds prepared canonical evidence by the existing layout limit, and
+reauthenticates stored collision evidence once. Inserts use global assignment
+digest order with at most 64 rows and 256 KiB canonical bytes per statement.
+Only after all inserts complete does it read bounded occupant batches and apply
+the existing digest-first, lazy-spelling authentication policy in input order.
+This private batch contract intentionally separates input validation from SQL
+conflict resolution; it does not preserve the displaced scalar loop's interleaving
+of those phases. No stored-row cache survives a write. Transaction settlement and
+rollback remain with the existing outer owner.
+
+The neutral owner regressions cover row/byte batches, aggregate refusal,
+corruption, replay and transaction rollback on both databases; PostgreSQL also
+observes a real overlapping-inventory insert lock wait. The scalar coordinator
+path and production API are replaced without a compatibility fallback.
+Acceptance remains the complete ordinary Link proof
+under the unchanged fixture deadline, with another supported consumer and final
+review. No broader installer or workflow redesign is implied.
 
 ## Outcome And Why Now
 
@@ -14,7 +123,7 @@ This supplies the `LINK` dependency of the native
 
 The accepted [Medusa boundary](../../../design-notes/flarex-db-accepted-design.md#medusa-boundary),
 [commerce-owned Link design](../../../design-notes/flarexdb-medusa-commerce-adapter.md#2-commerce-owned-link-entity),
-[adoption gate](../06-medusa-adoption.md#commerce-link-commit-admission),
+[adoption gate](../06-medusa-adoption.md#status-and-scope),
 [shared-installation contract](./55-shared-installation-atomic-commerce.md) and
 [native storage contract](./56-native-link-storage-contract.md) govern this slice.
 No new Flarex persistence, settlement, feed family, core branch, resource ceiling
@@ -110,8 +219,9 @@ Proposed correction belongs to the shared **Medusa graph adapter**, not Flarex:
   such as `product.sales_channels.*`, arbitrary relation filters and reverse
   aliases are not silently included; add them from the next workflow requirement.
 
-Disposition: identified at the owning shared adapter; correction proposed for
-B3 approval, not implemented or bypassed by this research.
+Disposition: the approved correction is implemented at the shared graph adapter.
+The native stored-Link implementation passes its complete two-driver conformance
+after the shared installation correction above.
 
 ## Native Compatibility And Refusal Boundaries
 

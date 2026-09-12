@@ -21,17 +21,17 @@ export function productGraphDefinition(metadata: ProductRuntimeMetadata, command
   return Result.gen(function* () {
     const reads: GraphReadDefinition[] = [];
     const selected = [
-      { entity: metadata.product, command: commands.count, methodSuffix: "Products", paths: [...productRelations] },
-      { entity: metadata.category, command: commands.countCategories, methodSuffix: "ProductCategories", paths: ["products"] },
-      { entity: metadata.collection, command: commands.countCollections, methodSuffix: "ProductCollections" },
-      { entity: metadata.type, command: commands.countTypes, methodSuffix: "ProductTypes" },
-      { entity: metadata.tag, command: commands.countTags, methodSuffix: "ProductTags" },
-      { entity: metadata.option, command: commands.countOptions, methodSuffix: "ProductOptions" },
-      { entity: metadata.variant, command: commands.countVariants, methodSuffix: "ProductVariants" },
-      { entity: metadata.image, command: commands.countImages, methodSuffix: "ProductImages" },
+      { entity: metadata.product, command: commands.count, paths: [...productRelations] },
+      { entity: metadata.category, command: commands.countCategories, paths: ["products"] },
+      { entity: metadata.collection, command: commands.countCollections },
+      { entity: metadata.type, command: commands.countTypes },
+      { entity: metadata.tag, command: commands.countTags },
+      { entity: metadata.option, command: commands.countOptions },
+      { entity: metadata.variant, command: commands.countVariants },
+      { entity: metadata.image, command: commands.countImages },
     ];
     for (const item of selected) {
-      const { entity, command, methodSuffix } = item;
+      const { entity, command } = item;
       const table = yield* metadata.readCatalog.table(entity.table.name);
       const paths = yield* relationPaths(metadata.readCatalog, table.name, item.paths ?? metadata.relatedReads.get(table.name)?.paths ?? []);
       if (entity === metadata.category) paths.push(
@@ -41,7 +41,7 @@ export function productGraphDefinition(metadata: ProductRuntimeMetadata, command
       if (entity === metadata.product) paths.push({ path: "variants.images", table: yield* metadata.readCatalog.table(metadata.image.table.name), many: true });
       const orderable = entity === metadata.product ? ["id", "handle"] : entity === metadata.category ? ["id", "rank"] : ["id"];
       const uniqueOrder = orderable.filter(field => field === "id" || entity.table.indexes.some(index => index.unique && index.columns.length === 1 && index.columns[0] === field));
-      reads.push({ model: entity.model, methodSuffix, command, table, paths, orderable, uniqueOrder,
+      reads.push({ model: entity.model, command, table, paths, orderable, uniqueOrder,
         multipleOrder: entity === metadata.category, decode: entity === metadata.category ? decodeCategoryCount : decodeGraphCount });
     }
     // The retained method is pure static metadata and does not use its receiver.

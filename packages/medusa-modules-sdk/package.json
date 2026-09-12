@@ -12,6 +12,11 @@
       "types": "./dist/definitions.d.ts",
       "source": "./src/definitions.ts",
       "default": "./dist/definitions.js"
+    },
+    "./link": {
+      "types": "./dist/link.d.ts",
+      "source": "./src/link.ts",
+      "default": "./dist/link.js"
     }
   },
   "license": "MIT",

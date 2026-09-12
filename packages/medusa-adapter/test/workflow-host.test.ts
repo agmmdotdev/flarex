@@ -16,8 +16,8 @@ import type { CommercePromiseOwner } from "../src/commerce-promise-owner";
 
 const source = { name: "sample-module", profile: "sample", models: [], extensions: [], capabilities: [] };
 const command = defineGraphReadCommand("sampleRead", () => Effect.succeed([[], 0]));
-const graphDefinition = (): GraphModuleDefinition => ({ aliases: [{ name: "sample", model: "Sample", methodSuffix: "Samples" }], reads: [{
-  command, model: "Sample", methodSuffix: "Samples", table: { name: "sample", columns: ["id"], primaryKeys: ["id"], foreignKeys: [], companions: {} },
+const graphDefinition = (): GraphModuleDefinition => ({ aliases: [{ name: "sample", model: "Sample" }], reads: [{
+  command, model: "Sample", table: { name: "sample", columns: ["id"], primaryKeys: ["id"], foreignKeys: [], companions: {} },
   paths: [], orderable: ["id"], uniqueOrder: ["id"], multipleOrder: false, decode: commerceDecoder(Schema.Tuple([Schema.Array(Schema.JsonObject), Schema.Number]), "storedCorruption"),
 }] });
 const methodInput = { command, arguments: commerceDecoder(Schema.Tuple([Schema.String]), "invalidInput"),
