@@ -79,6 +79,12 @@ contention are covered independently of host serialization. No core capability
 changed, and no Fulfillment or ProductShippingProfile Link is activated.
 The proposed module source closure remains broader than its
 create/scalar-read table grants; full Fulfillment remains unadmitted.
+The focused [connected ShippingProfile proposal](./preflight/66-connected-product-shipping-profile.md)
+selects native create/scalar reads and two homogeneous Link families under one
+resolver in the existing atomic workflow. Construction, seventeen-table schema
+and connected execution remain unproven; implementation approval is pending.
+It explicitly retains the private commerce error envelope rather than claiming
+the pinned test adapter's duplicate-name message or full Fulfillment parity.
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result
 evidence, including reserved and Unicode keys. Shared idempotency rows retain an

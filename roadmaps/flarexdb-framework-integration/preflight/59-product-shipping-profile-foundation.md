@@ -6,6 +6,9 @@ activation. [Preflight 61](./61-native-link-batch-cardinality.md) implements the
 native router correction.
 [Preflight 63](./63-native-singular-link-storage.md) implements the singular storage
 foundation and native endpoint protection; it is not B activation approval.
+[Preflight 66](./66-connected-product-shipping-profile.md) now owns the focused
+B implementation proposal, including construction, two-Link composition and
+the explicit private error-message compatibility boundary. Approval is pending.
 
 ## Outcome And Recommendation
 
@@ -148,16 +151,16 @@ new execution profile or budget increase is proposed.
 
 Before preflight 61, the native router accumulated all uniqueness filters, read
 existing rows, then passed the whole batch to the service without comparing
-incoming partners. Its generator still declares the two
-endpoint columns as the physical primary key; it does not derive a unique
-`product_id` constraint from `hasMany`.
+incoming partners. Before preflight 63, its generator declared the two
+endpoint columns as the physical primary key without deriving active unique
+`product_id` constraints from `hasMany`.
 
 The original source-derived counterexample was: on empty storage, create
 `(product-1, profile-A)` and `(product-1, profile-B)` in one batch. Both
 pre-insert existence checks can be empty, and the composite keys differ.
 The authored `packages/medusa-adapter/test/native-link-cardinality.test.ts`
 initially confirmed that the actual native router delegated both conflicting
-tuples after one existing-row query. The actual structural generator declares composite
+tuples after one existing-row query. The then-current structural generator declared composite
 endpoint identity and no endpoint-only unique index. The test also characterizes
 exact duplicate delegation, multiple Products sharing a profile, repeated
 same-pair checks and refusal when the service reports an existing conflict.
