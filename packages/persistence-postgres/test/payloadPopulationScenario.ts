@@ -3,6 +3,8 @@ import { Effect, Exit, Fiber, Result } from "effect";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { appRowIdHexV1ToBytes, decodeAppDocumentIdentityV1Result, appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
+import { decodeCanonicalAppDocumentEvidenceV1 } from "flarex-protocol/app-document";
+import { appRowIdHexV1FromBytes } from "flarex-protocol/app-document-id";
 import { canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { fxAppRowCurrent, fxAppRowRevisions } from "../src/schema";
@@ -233,18 +235,23 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
       const template = (await input.persistence.drizzle.select().from(fxAppRowRevisions).where(and(
         eq(fxAppRowRevisions.scopeUuid, currentTarget.scopeUuid), eq(fxAppRowRevisions.tableId, currentTarget.tableId),
         eq(fxAppRowRevisions.rowId, currentTarget.rowId), eq(fxAppRowRevisions.commitSeq, currentTarget.commitSeq))))[0];
-      if (template === undefined || !isJsonObject(template.valueJson)) throw new Error("Missing canonical template");
+      if (template === undefined) throw new Error("Missing canonical template");
+      const templateDocument = await decodeCanonicalAppDocumentEvidenceV1({
+        tableId: template.tableId, rowId: appRowIdHexV1FromBytes(template.rowId), creationTime: template.creationTime,
+        codecVersion: template.valueCodecVersion, canonicalBytes: template.valueBytes, sha256: template.valueSha256,
+      });
+      if (!isJsonObject(templateDocument.valueJson)) throw new Error("Invalid canonical template");
       const ids: string[] = [];
       const revisions: (typeof fxAppRowRevisions.$inferInsert)[] = [];
       const pointers: (typeof fxAppRowCurrent.$inferInsert)[] = [];
-      const { relatedPost: _relatedPost, ...fields } = template.valueJson;
+      const { relatedPost: _relatedPost, ...fields } = templateDocument.valueJson;
       for (let index = 0; index < 257; index += 1) {
         const rowId = decodeAppRowIdHexV1(randomUUID().replaceAll("-", ""));
         const documentId = appDocumentIdV1FromRowIdentity({ tableId: targetIdentity.tableId, rowId });
         const value = await runEffect(canonicalizeFlarexValueV1Effect({ ...fields, _id: documentId, title: `capacity-${index}` }));
         ids.push(documentId);
         revisions.push({ ...template, rowId: appRowIdHexV1ToBytes(rowId), prevCommitSeq: null,
-          valueJson: value.valueJson, valueBytes: value.canonicalBytes, valueSha256: value.sha256 });
+          valueBytes: value.canonicalBytes, valueSha256: value.sha256 });
         pointers.push({ ...currentTarget, rowId: appRowIdHexV1ToBytes(rowId) });
       }
       await input.persistence.drizzle.transaction(async tx => {

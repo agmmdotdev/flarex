@@ -1,4 +1,4 @@
-import { Data, Schema } from "effect";
+import { Data, Effect, Schema } from "effect";
 
 import type { CatalogTableId } from "./catalog";
 import {
@@ -8,6 +8,9 @@ import {
 } from "./app-document-id";
 import {
   canonicalizeFlarexValueV1,
+  decodeCanonicalFlarexValueEvidenceV1,
+  FlarexValueEvidenceV1Error,
+  FlarexValueCodecV1Error,
   isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexValueV1,
   verifyFlarexValueEvidenceV1,
@@ -15,6 +18,7 @@ import {
   type CanonicalFlarexRuntimeValueV1,
   type CanonicalFlarexValueV1,
   type VerifyFlarexValueEvidenceV1Input,
+  type DecodeCanonicalFlarexValueEvidenceV1Input,
 } from "./value";
 
 export const AppCreationTimeV1Schema = Schema.Number.check(
@@ -60,12 +64,73 @@ export interface CanonicalizeAppDocumentV1Input {
   readonly fields: unknown;
 }
 
-export interface VerifyAppDocumentEvidenceV1Input
-  extends Omit<VerifyFlarexValueEvidenceV1Input, "profile"> {
+export interface VerifyAppDocumentEvidenceV1Input extends Omit<
+  VerifyFlarexValueEvidenceV1Input,
+  "profile"
+> {
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
   readonly creationTime: AppCreationTimeV1;
 }
+
+export interface DecodeCanonicalAppDocumentEvidenceV1Input extends Omit<
+  DecodeCanonicalFlarexValueEvidenceV1Input,
+  "profile"
+> {
+  readonly codecVersion: unknown;
+  readonly tableId: CatalogTableId;
+  readonly rowId: AppRowIdHexV1;
+  readonly creationTime: AppCreationTimeV1;
+}
+
+/** Decode the sole persisted body and authenticate its trusted row identity once. */
+export async function decodeCanonicalAppDocumentEvidenceV1(
+  input: DecodeCanonicalAppDocumentEvidenceV1Input,
+): Promise<CanonicalFlarexValueV1> {
+  const creationTime = decodeAppCreationTimeV1(input.creationTime);
+  const expectedId = appDocumentIdV1FromRowIdentity({
+    tableId: input.tableId,
+    rowId: input.rowId,
+  });
+  if (input.codecVersion !== 1) {
+    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: protocol - Promise codec reports unsupported evidence for its typed adapter to classify.
+    throw new FlarexValueEvidenceV1Error({
+      issue: { reason: "unsupportedCodecVersion", actual: input.codecVersion },
+    });
+  }
+  const verified = await decodeCanonicalFlarexValueEvidenceV1({
+    canonicalBytes: input.canonicalBytes,
+    sha256: input.sha256,
+    profile: "appDocument",
+  });
+  return verifyDocumentSystemFields(verified, expectedId, creationTime);
+}
+
+export const decodeCanonicalAppDocumentEvidenceV1Effect = Effect.fn(
+  "AppDocument.decodeCanonicalEvidenceV1",
+)(
+  (
+    input: DecodeCanonicalAppDocumentEvidenceV1Input,
+  ): Effect.Effect<
+    CanonicalFlarexValueV1,
+    | AppDocumentSystemFieldV1Error
+    | FlarexValueCodecV1Error
+    | FlarexValueEvidenceV1Error
+  > =>
+    Effect.tryPromise({
+      try: () => decodeCanonicalAppDocumentEvidenceV1(input),
+      catch: (cause): unknown => cause,
+    }).pipe(
+      // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: protocol - Classify unknown Promise codec rejections once and preserve unexpected defects.
+      Effect.catch((cause: unknown) =>
+        cause instanceof AppDocumentSystemFieldV1Error ||
+        cause instanceof FlarexValueCodecV1Error ||
+        cause instanceof FlarexValueEvidenceV1Error
+          ? Effect.fail(cause)
+          : Effect.die(cause),
+      ),
+    ),
+);
 
 export async function canonicalizeAppDocumentV1(
   input: CanonicalizeAppDocumentV1Input,
@@ -101,6 +166,14 @@ export async function verifyAppDocumentEvidenceV1(
       : { canonicalBytes: input.canonicalBytes }),
     profile: "appDocument",
   });
+  return verifyDocumentSystemFields(verified, expectedId, creationTime);
+}
+
+function verifyDocumentSystemFields(
+  verified: CanonicalFlarexValueV1,
+  expectedId: AppDocumentIdV1,
+  creationTime: AppCreationTimeV1,
+): CanonicalFlarexValueV1 {
   const document = requireCanonicalDocumentObject(verified.value);
   if (document._id !== expectedId) {
     throw new AppDocumentSystemFieldV1Error({
@@ -139,7 +212,10 @@ function requireCanonicalDocumentObject(
   value: CanonicalFlarexRuntimeValueV1,
 ): CanonicalFlarexRuntimeObjectV1 {
   if (!isCanonicalFlarexRuntimeObjectV1(value)) {
-    throw new Error("Value Codec V1 app-document profile returned a non-object.");
+    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - The appDocument normalization profile guarantees object output.
+    throw new Error(
+      "Value Codec V1 app-document profile returned a non-object.",
+    );
   }
   return value;
 }

@@ -3485,7 +3485,6 @@ export const fxAppRowRevisions = pgTable(
       .$type<FlarexValueCodecVersion>()
       .notNull(),
     isTombstone: boolean("is_tombstone").notNull(),
-    valueJson: jsonb("value_json").$type<Json>(),
     valueBytes: bytea("value_bytes").$type<CanonicalFlarexValueBytesV1>(),
     valueSha256: bytea("value_sha256").$type<FlarexValueSha256V1>(),
   },
@@ -3543,15 +3542,12 @@ export const fxAppRowRevisions = pgTable(
       sql`
         (
           ${table.isTombstone}
-          and ${table.valueJson} is null
           and ${table.valueBytes} is null
           and ${table.valueSha256} is null
         )
         or
         (
           not ${table.isTombstone}
-          and ${table.valueJson} is not null
-          and jsonb_typeof(${table.valueJson}) = 'object'
           and ${table.valueBytes} is not null
           and octet_length(${table.valueBytes}) > 0
           and ${table.valueSha256} is not null

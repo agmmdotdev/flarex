@@ -829,6 +829,10 @@ Outcome:
   evidence, immutable trusted creation time, explicit tombstone state, and the
   prior commit sequence without making that predecessor a retention-blocking
   foreign key.
+  The selected storage redesign retains one canonical byte body and SHA-256;
+  the JSONB mirror is removed. SQL checks state and byte structure, while the
+  shared document decoder authenticates canonicality, shape and system fields.
+  Decoded values and exact canonical-byte hydration limits remain unchanged.
 - Add `fx_app_row_current` as an epoch-independent pointer to one exact revision,
   protected by a composite foreign key. It does not duplicate document value
   evidence or become a second value authority.

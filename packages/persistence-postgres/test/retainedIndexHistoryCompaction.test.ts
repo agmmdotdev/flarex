@@ -306,9 +306,9 @@ describe("O11-D retained ordered-index history compaction", () => {
          (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
           write_epoch_uuid, schema_version_id, creation_time,
           value_codec_version, is_tombstone,
-          value_json, value_bytes, value_sha256)
+          value_bytes, value_sha256)
        select scope_uuid, 1, decode($2, 'hex'), 3, 2,
-              epoch_uuid, 'schema_v1', 3, 1, true, null, null, null
+              epoch_uuid, 'schema_v1', 3, 1, true, null, null
        from fx_system_scope_clock where scope_id = $1`,
       [context.scopeId, testRowIdHex],
     );
@@ -544,10 +544,10 @@ async function seedIdentityHistory(
          (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
           write_epoch_uuid, schema_version_id, creation_time,
           value_codec_version, is_tombstone,
-          value_json, value_bytes, value_sha256)
+          value_bytes, value_sha256)
        select scope_uuid, 1, decode($3, 'hex'), $2::bigint, $4::bigint,
               epoch_uuid, 'schema_v1', $2::double precision,
-              1, true, null, null, null
+              1, true, null, null
        from fx_system_scope_clock where scope_id = $1`,
       [scopeId, commit, input.rowIdHex, storedPrevious],
     );

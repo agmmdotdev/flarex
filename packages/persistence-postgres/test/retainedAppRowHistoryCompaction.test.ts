@@ -464,10 +464,10 @@ async function seedHistory(
          (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
           write_epoch_uuid, schema_version_id, creation_time,
           value_codec_version, is_tombstone,
-          value_json, value_bytes, value_sha256)
+          value_bytes, value_sha256)
        select scope_uuid, 1, decode($3, 'hex'), $2::bigint, $4::bigint,
               epoch_uuid, 'schema_v1', $5::double precision,
-              1, true, null, null, null
+              1, true, null, null
        from fx_system_scope_clock where scope_id = $1`,
       [scopeId, commit, input.rowIdHex, storedPrevious, creationTime],
     );

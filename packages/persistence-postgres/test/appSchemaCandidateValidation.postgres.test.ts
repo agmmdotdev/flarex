@@ -169,12 +169,12 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
         `insert into fx_app_row_rev
           (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
            write_epoch_uuid, schema_version_id, creation_time,
-           value_codec_version, is_tombstone, value_json, value_bytes,
+           value_codec_version, is_tombstone, value_bytes,
            value_sha256)
          select clock.scope_uuid, $2::integer,
            decode(lpad(to_hex(series.value), 32, '0'), 'hex'),
            2, null, clock.epoch_uuid, $3, 1750000000000,
-           1, true, null, null, null
+           1, true, null, null
          from fx_system_scope_clock as clock
          cross join generate_series(1000, 5999) as series(value)
          where clock.scope_id = $1`,

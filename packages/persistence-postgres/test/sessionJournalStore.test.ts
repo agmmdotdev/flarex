@@ -1148,9 +1148,8 @@ describe("C03 Postgres SessionJournalStore", () => {
     await persistence.query(
       `update fx_app_row_rev
           set value_codec_version = $5,
-              value_json = $6,
-              value_bytes = $7,
-              value_sha256 = $8
+              value_bytes = $6,
+              value_sha256 = $7
         where scope_uuid = (
           select scope_uuid from fx_system_tx_session where session_id = $1
         )
@@ -1163,7 +1162,6 @@ describe("C03 Postgres SessionJournalStore", () => {
         appRowIdHexV1ToBytes(SEEDED_ROW_ID),
         1n,
         mismatched.codecVersion,
-        mismatched.valueJson,
         mismatched.canonicalBytes,
         mismatched.sha256,
       ],

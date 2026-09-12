@@ -3,6 +3,7 @@ import { assertCmsParticipantAdmission } from "./cmsParticipantAdmission";
 import { expect } from "vitest";
 import { Effect, Exit } from "effect";
 import { and, eq } from "drizzle-orm";
+import { CanonicalFlarexValueBytesV1Schema } from "flarex-protocol/value";
 import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { appendAppRowRevisionAndAdvanceCurrentInTransaction, readBoundedCurrentAppRowsInTransactionEffect } from "../src/appRows";
@@ -281,18 +282,21 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
     expect(await runEffectFailure(readBoundedCurrentAppRowsInTransactionEffect(tx, bounds))).toMatchObject({ issue: { reason: "rowLimitExceeded" } });
     throw rollbackProbe;
   })).rejects.toBe(rollbackProbe);
-  await expect(persistence.drizzle.transaction(async tx => {
-    const locked = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.authority.scopeId));
-    // Each corrupt projection is below the per-row JSON allowance, but together
-    // they exceed the aggregate allowance while canonical bytea remains tiny.
-    await tx.update(fxAppRowRevisions).set({ valueJson: { title: "x".repeat(200_000) } }).where(and(
-      eq(fxAppRowRevisions.tableId, posts.tableId), eq(fxAppRowRevisions.isTombstone, false)));
-    expect(await runEffectFailure(readBoundedCurrentAppRowsInTransactionEffect(tx, {
-      scopeId: fixture.authority.scopeId, tableId: posts.tableId, snapshotCommitSeq: locked.lastCommitSeq,
-      maximumIdentities: 256, maximumDocumentBytes: 65_536, maximumTotalValueBytes: 1_048_576,
-    }))).toMatchObject({ issue: { reason: "rowLimitExceeded" } });
-    throw rollbackProbe;
-  })).rejects.toBe(rollbackProbe);
+  for (const aggregate of [false, true]) {
+    await expect(persistence.drizzle.transaction(async tx => {
+      const locked = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.authority.scopeId));
+      // Deliberately invalid stored bodies must fail the byte budget before decoding.
+      await tx.update(fxAppRowRevisions).set({ valueBytes: CanonicalFlarexValueBytesV1Schema.make(new Uint8Array(aggregate ? 32_768 : 65_537)) }).where(and(
+        eq(fxAppRowRevisions.tableId, posts.tableId), eq(fxAppRowRevisions.isTombstone, false)));
+      const observed: string[] = [];
+      expect(await runEffectFailure(readBoundedCurrentAppRowsInTransactionEffect(tx, {
+        scopeId: fixture.authority.scopeId, tableId: posts.tableId, snapshotCommitSeq: locked.lastCommitSeq,
+        maximumIdentities: 256, maximumDocumentBytes: 65_536, maximumTotalValueBytes: aggregate ? 32_768 : 1_048_576,
+      }, query => { observed.push(query.name); }))).toMatchObject({ issue: { reason: "rowLimitExceeded" } });
+      expect(observed).toEqual(["currentSizes"]);
+      throw rollbackProbe;
+    })).rejects.toBe(rollbackProbe);
+  }
   expect(await inventory()).toEqual(beforeBounds);
   return { host, input, read, edit, create, netZero, inventory, created, key, fixture, bindings,
     activationRequest: dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "cms-host-activate", candidate.sha256, null), callbackCount: () => callbacks };

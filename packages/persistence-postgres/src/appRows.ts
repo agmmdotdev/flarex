@@ -2,10 +2,10 @@ import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
 import {
-  AppDocumentSystemFieldV1Error,
   AppCreationTimeV1Schema,
   decodeAppCreationTimeV1,
   verifyAppDocumentEvidenceV1,
+  decodeCanonicalAppDocumentEvidenceV1Effect,
   type AppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
@@ -45,8 +45,6 @@ import {
 } from "flarex-protocol/storage-authority";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
-  FlarexValueCodecV1Error,
-  FlarexValueEvidenceV1Error,
   type CanonicalFlarexValueBytesV1,
   type CanonicalFlarexValueV1,
   type FlarexValueCodecVersion,
@@ -737,17 +735,13 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
     selectedRowIds === undefined ? undefined : inArray(fxAppRowCurrent.rowId, selectedRowIds.map(appRowIdHexV1ToBytes)));
   const sizeQuery = tx.select({
     bytes: sql<number>`coalesce(octet_length(${fxAppRowRevisions.valueBytes}), 0)`,
-    jsonBytes: sql<number>`coalesce(octet_length(${fxAppRowRevisions.valueJson}::text), 0)`,
   }).from(fxAppRowCurrent).leftJoin(fxAppRowRevisions, join).where(where)
     .orderBy(fxAppRowCurrent.rowId).limit(input.maximumIdentities + 1);
   observeDrizzleQuery("currentSizes", sizeQuery, observer);
   const sizes = yield* readAppRowRowsEffect(sizeQuery, "readCurrentRevision");
   if (sizes.length > input.maximumIdentities || sizes.some(size =>
-    size.bytes > input.maximumDocumentBytes || size.jsonBytes > input.maximumDocumentBytes * 4) ||
-    sizes.reduce((total, size) => total + size.bytes, 0) > input.maximumTotalValueBytes ||
-    // JSONB text has an explicit bounded representation allowance as well as
-    // canonical bytes. Corrupt mismatched projections must not hydrate unbounded JSON.
-    sizes.reduce((total, size) => total + size.jsonBytes, 0) > input.maximumTotalValueBytes * 4) {
+    size.bytes > input.maximumDocumentBytes) ||
+    sizes.reduce((total, size) => total + size.bytes, 0) > input.maximumTotalValueBytes) {
     return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: "bounded current view exceeds capture budget" }));
   }
   const documentQuery = tx.select({ pointer: fxAppRowCurrent, revision: fxAppRowRevisions })
@@ -837,7 +831,6 @@ async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
       creationTime: decoded.creationTime,
       valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
       isTombstone: decoded.kind === "tombstone",
-      valueJson: decoded.kind === "live" ? decoded.document.valueJson : null,
       valueBytes:
         decoded.kind === "live" ? decoded.document.canonicalBytes : null,
       valueSha256: decoded.kind === "live" ? decoded.document.sha256 : null,
@@ -911,11 +904,10 @@ async function failAdvancedCurrentPointerConflict(
   decoded: DecodedAppendAppRowRevisionV1,
 ): Promise<Result.Result<AppRowRevisionV1, AppendAppRowRevisionV1Error>> {
   const deleted = await deleteInsertedRevisionInTransactionResult(tx, decoded);
-  if (Result.isFailure(deleted)) {
-    // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
-    return deleted as Result.Result<AppRowRevisionV1, AppendAppRowRevisionV1Error>;
-  }
-  return readActualPointerCommitSeqAndFail(tx, decoded);
+  return await Result.match(deleted, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: () => readActualPointerCommitSeqAndFail(tx, decoded),
+  });
 }
 
 async function readActualPointerCommitSeqAndFail(
@@ -977,7 +969,6 @@ type DecodedAppRowRevisionEvidenceV1 =
       readonly kind: "live";
       readonly base: AppRowRevisionV1Base;
       readonly valueCodecVersion: AppRowRevisionRow["valueCodecVersion"];
-      readonly valueJson: NonNullable<AppRowRevisionRow["valueJson"]>;
       readonly valueBytes: NonNullable<AppRowRevisionRow["valueBytes"]>;
       readonly valueSha256: NonNullable<AppRowRevisionRow["valueSha256"]>;
     }>;
@@ -997,30 +988,18 @@ const decodeRevisionRowEffect = Effect.fn(
       ...decoded.base,
     } satisfies TombstoneAppRowRevisionV1);
   }
-  const document = yield* Effect.tryPromise({
-    try: () => verifyAppDocumentEvidenceV1({
-      tableId: identity.tableId,
-      rowId: identity.rowId,
-      creationTime: decoded.base.creationTime,
-      codecVersion: decoded.valueCodecVersion,
-      valueJson: decoded.valueJson,
-      canonicalBytes: decoded.valueBytes,
-      sha256: decoded.valueSha256,
-    }),
-    catch: (cause): unknown => cause,
-  }).pipe(
-    Effect.catch((cause: unknown) =>
-      cause instanceof AppDocumentSystemFieldV1Error ||
-        cause instanceof FlarexValueCodecV1Error ||
-        cause instanceof FlarexValueEvidenceV1Error
-        ? Effect.fail(new AppRowStorageCorruptionError(
-            identity,
-            "live revision value evidence or trusted system fields do not verify",
-            { cause },
-          ))
-        : Effect.die(cause),
-    ),
-  );
+  const document = yield* decodeCanonicalAppDocumentEvidenceV1Effect({
+    tableId: identity.tableId,
+    rowId: identity.rowId,
+    creationTime: decoded.base.creationTime,
+    codecVersion: decoded.valueCodecVersion,
+    canonicalBytes: decoded.valueBytes,
+    sha256: decoded.valueSha256,
+  }).pipe(Effect.mapError(cause => new AppRowStorageCorruptionError(
+    identity,
+    "live revision value evidence or trusted system fields do not verify",
+    { cause },
+  )));
   return Object.freeze({
     kind: "live",
     ...decoded.base,
@@ -1098,13 +1077,6 @@ function decodeRevisionRowEvidenceResult(
       decodeBooleanResult(storedIsTombstone),
     );
     if (isTombstone) {
-      const valueJson = row.valueJson;
-      if (valueJson !== null) {
-        return yield* Result.fail(new AppRowStorageCorruptionError(
-          identity,
-          "tombstone retains value evidence",
-        ));
-      }
       const valueBytes = row.valueBytes;
       if (valueBytes !== null) {
         return yield* Result.fail(new AppRowStorageCorruptionError(
@@ -1120,13 +1092,6 @@ function decodeRevisionRowEvidenceResult(
         ));
       }
       return Object.freeze({ kind: "tombstone", base } as const);
-    }
-    const valueJson = row.valueJson;
-    if (valueJson === null) {
-      return yield* Result.fail(new AppRowStorageCorruptionError(
-        identity,
-        "live revision is missing value evidence",
-      ));
     }
     const valueBytes = row.valueBytes;
     if (valueBytes === null) {
@@ -1147,7 +1112,6 @@ function decodeRevisionRowEvidenceResult(
       kind: "live",
       base,
       valueCodecVersion,
-      valueJson,
       valueBytes,
       valueSha256,
     } as const);

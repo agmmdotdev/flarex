@@ -527,11 +527,11 @@ describe("FlarexDB app-row revision storage", () => {
           (
             scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
             write_epoch_uuid, schema_version_id, creation_time,
-            value_codec_version, is_tombstone, value_json, value_bytes,
+            value_codec_version, is_tombstone, value_bytes,
             value_sha256
           )
         values ($1::uuid, $2, $3, 1, null, $4::uuid, $5, $6, 1, false,
-          $7::jsonb, $8, $9)
+          $7, $8)
       `,
       [
         "50000000-0000-0000-0000-000000000001",
@@ -540,7 +540,6 @@ describe("FlarexDB app-row revision storage", () => {
         "50000000-0000-0000-0000-000000000002",
         schemaVersionId,
         creationTime,
-        JSON.stringify(document.valueJson),
         document.canonicalBytes,
         new Uint8Array(32).fill(9),
       ],
@@ -670,10 +669,10 @@ describe("FlarexDB app-row revision storage", () => {
     });
   });
 
-  it("maps malformed live value JSON into typed corruption", async () => {
+  it("maps malformed live canonical bytes into typed corruption", async () => {
     const document = await canonicalDocument({ title: "malformed codec" });
     const storedRow = storedLiveDriverRow(document);
-    storedRow.valueJson = undefined;
+    storedRow.valueBytes = undefined;
     let readCount = 0;
     const tx = appRowSelectTransaction(() => {
       readCount += 1;
@@ -1088,7 +1087,6 @@ function storedTombstoneDriverRow(): Record<string, unknown> {
     creationTime,
     valueCodecVersion: 1,
     isTombstone: true,
-    valueJson: null,
     valueBytes: null,
     valueSha256: null,
   };
@@ -1101,7 +1099,6 @@ function storedLiveDriverRow(
     ...storedTombstoneDriverRow(),
     valueCodecVersion: document.codecVersion,
     isTombstone: false,
-    valueJson: document.valueJson,
     valueBytes: document.canonicalBytes,
     valueSha256: document.sha256,
   };

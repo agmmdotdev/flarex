@@ -628,10 +628,10 @@ async function seedConnectedHistory(
          (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
           write_epoch_uuid, schema_version_id, creation_time,
           value_codec_version, is_tombstone,
-          value_json, value_bytes, value_sha256)
+          value_bytes, value_sha256)
        select scope_uuid, 1, decode($2, 'hex'), $3::bigint,
               case when $3::bigint = 1 then null else $3::bigint - 1 end,
-              epoch_uuid, 'schema_v1', 42, 1, true, null, null, null
+              epoch_uuid, 'schema_v1', 42, 1, true, null, null
        from fx_system_scope_clock where scope_id = $1`,
       [scopeId, rowId, commitSeq],
     );

@@ -3,9 +3,8 @@ import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, desc, eq, gt, lte, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Option, Result, Schema } from "effect";
 import {
-  AppDocumentSystemFieldV1Error,
   type AppCreationTimeV1,
-  verifyAppDocumentEvidenceV1,
+  decodeCanonicalAppDocumentEvidenceV1Effect,
 } from "flarex-protocol/app-document";
 import {
   appRowIdHexV1FromBytes,
@@ -30,8 +29,6 @@ import {
   type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
 import {
-  FlarexValueCodecV1Error,
-  FlarexValueEvidenceV1Error,
   type CanonicalFlarexValueV1,
 } from "flarex-protocol/value";
 import {
@@ -1082,7 +1079,6 @@ const loadCurrentAppRow = Effect.fn(
       creationTime: fxAppRowRevisions.creationTime,
       writeEpochUuid: fxAppRowRevisions.writeEpochUuid,
       valueCodecVersion: fxAppRowRevisions.valueCodecVersion,
-      valueJson: fxAppRowRevisions.valueJson,
       valueBytes: fxAppRowRevisions.valueBytes,
       valueSha256: fxAppRowRevisions.valueSha256,
     }).from(fxAppRowCurrent).innerJoin(fxAppRowRevisions, and(
@@ -1101,7 +1097,7 @@ const loadCurrentAppRow = Effect.fn(
   if (row === undefined) return null;
   const appRowId = appRowIdHexV1FromBytes(copyBytes(row.rowId));
   if (
-    row.valueCodecVersion === null || row.valueJson === null ||
+    row.valueCodecVersion === null ||
     row.valueBytes === null || row.valueSha256 === null
   ) {
     return yield* Effect.fail(new AppOrderedIndexBuildStateError({
@@ -1111,29 +1107,19 @@ const loadCurrentAppRow = Effect.fn(
       detail: "live current row is missing canonical value evidence",
     }));
   }
-  const document = yield* Effect.tryPromise({
-    try: () => verifyAppDocumentEvidenceV1({
-      tableId: definition.access.tableId,
-      rowId: appRowId,
-      creationTime: row.creationTime,
-      codecVersion: row.valueCodecVersion,
-      valueJson: row.valueJson,
-      canonicalBytes: row.valueBytes,
-      sha256: row.valueSha256,
-    }),
-    catch: (cause): unknown => cause,
-  }).pipe(Effect.catch((cause: unknown) =>
-    cause instanceof AppDocumentSystemFieldV1Error ||
-      cause instanceof FlarexValueCodecV1Error ||
-      cause instanceof FlarexValueEvidenceV1Error
-      ? Effect.fail(new AppOrderedIndexBuildStateError({
-          scopeId: state.scopeId,
-          indexDefinitionId: state.indexDefinitionId,
-          reason: "storedDocumentInvalid",
-          detail: "live current row canonical evidence does not verify",
-        }))
-      : Effect.die(cause)
-  ));
+  const document = yield* decodeCanonicalAppDocumentEvidenceV1Effect({
+    tableId: definition.access.tableId,
+    rowId: appRowId,
+    creationTime: row.creationTime,
+    codecVersion: row.valueCodecVersion,
+    canonicalBytes: row.valueBytes,
+    sha256: row.valueSha256,
+  }).pipe(Effect.mapError(() => new AppOrderedIndexBuildStateError({
+    scopeId: state.scopeId,
+    indexDefinitionId: state.indexDefinitionId,
+    reason: "storedDocumentInvalid",
+    detail: "live current row canonical evidence does not verify",
+  })));
   return Object.freeze({
     kind: "developer",
     rowId: appRowId,

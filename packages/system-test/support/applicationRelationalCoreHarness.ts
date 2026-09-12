@@ -1,5 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import type { fxAppRowRevisions } from "@flarex/persistence-postgres/internal/system-test/schema";
+import { decodeCanonicalAppDocumentEvidenceV1 } from "flarex-protocol/app-document";
 import {
   createApplicationRelationalCorePGliteSystemTestFixture,
   type ApplicationRelationalCoreSystemTestFixture,
@@ -347,15 +349,40 @@ export async function proveApplicationRelationalCore(
          from fx_app_edge_current
         order by position asc nulls last`,
     );
-    const sourceRows = await fixture.target.query<{
-      commit_seq: bigint;
-      value_json: unknown;
-    }>(
-      `select commit_seq, value_json
-         from fx_app_row_rev
-        where value_json ? 'authors'
-        order by commit_seq`,
+    const postIdentity = decodeAppDocumentIdentityV1(postDocumentId);
+    const sourceRows = await fixture.target.query<
+      Pick<typeof fxAppRowRevisions.$inferSelect,
+        "creationTime" | "valueCodecVersion" | "valueBytes" | "valueSha256"
+      > & { commit_seq: string }
+    >(
+      `select commit_seq::text,
+          creation_time as "creationTime",
+          value_codec_version as "valueCodecVersion",
+          value_bytes as "valueBytes",
+          value_sha256 as "valueSha256"
+       from fx_app_row_rev
+       where scope_uuid = $1 and table_id = $2
+         and row_id = decode($3, 'hex') and not is_tombstone
+       order by fx_app_row_rev.commit_seq`,
+      [projectScopeIdUuidV1(fixture.authority.scopeId).scopeUuid,
+        postIdentity.tableId, postIdentity.rowId],
     );
+    const sourceRelationHistory = [];
+    for (const row of sourceRows.rows) {
+      const document = await decodeCanonicalAppDocumentEvidenceV1({
+        tableId: postIdentity.tableId,
+        rowId: postIdentity.rowId,
+        creationTime: row.creationTime,
+        codecVersion: row.valueCodecVersion,
+        canonicalBytes: row.valueBytes,
+        sha256: row.valueSha256,
+      });
+      const value = requireRecord(document.valueJson);
+      sourceRelationHistory.push(Object.freeze({
+        commitSeq: BigInt(row.commit_seq),
+        authors: requireStringArray(Reflect.get(value, "authors")),
+      }));
+    }
     const adjacencyRows = await fixture.target.query<{
       direction: string;
       last_changed_commit_seq: bigint;
@@ -400,13 +427,7 @@ export async function proveApplicationRelationalCore(
         finalIncoming.sources.map(source => source.sourceDocumentId),
       ),
       edgePositions: Object.freeze(edgeRows.rows.map(row => row.position)),
-      sourceRelationHistory: Object.freeze(sourceRows.rows.map(row => {
-        const value = requireRecord(row.value_json);
-        return Object.freeze({
-          commitSeq: BigInt(row.commit_seq),
-          authors: requireStringArray(Reflect.get(value, "authors")),
-        });
-      })),
+      sourceRelationHistory: Object.freeze(sourceRelationHistory),
       adjacencyVersions: Object.freeze(adjacencyRows.rows.map(row =>
         Object.freeze({
           direction: row.direction,

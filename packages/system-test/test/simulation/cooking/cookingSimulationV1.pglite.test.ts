@@ -1,3 +1,6 @@
+import type { fxAppRowRevisions } from "@flarex/persistence-postgres/internal/system-test/schema";
+import { decodeCanonicalAppDocumentEvidenceV1 } from "flarex-protocol/app-document";
+import { decodeAppDocumentIdentityV1 } from "flarex-protocol/app-document-id";
 import { Effect } from "effect";
 import { expect, it } from "vitest";
 import { createMigratedSplitPGlitePersistence as createMigratedPGlitePersistence } from
@@ -277,25 +280,42 @@ it("runs the cooking simulation through the real Standard path", async () => {
     revisions: "77",
     current_rows: "28",
   });
-  const removedFieldEvidence = await persistence.target.query<{
-    commit_seq: string;
-    value_json: unknown;
-  }>(`select revision.commit_seq::text,
-      revision.value_json
+  const removedFieldIdentity = decodeAppDocumentIdentityV1(
+    proof.workloadProof.indexedPhantomDocumentId,
+  );
+  const removedFieldEvidence = await persistence.target.query<
+    Pick<typeof fxAppRowRevisions.$inferSelect,
+      "creationTime" | "valueCodecVersion" | "valueBytes" | "valueSha256"
+    > & { commit_seq: string }
+  >(`select revision.commit_seq::text,
+      revision.creation_time as "creationTime",
+      revision.value_codec_version as "valueCodecVersion",
+      revision.value_bytes as "valueBytes",
+      revision.value_sha256 as "valueSha256"
     from fx_app_row_current as current_row
     join fx_app_row_rev as revision
       on revision.scope_uuid = current_row.scope_uuid
      and revision.table_id = current_row.table_id
      and revision.row_id = current_row.row_id
      and revision.commit_seq = current_row.commit_seq
-    where encode(current_row.row_id, 'hex') = $1`, [
-    pointRowIdHex(proof.workloadProof.indexedPhantomDocumentId),
+    where current_row.table_id = $1 and current_row.row_id = decode($2, 'hex')`, [
+    removedFieldIdentity.tableId, removedFieldIdentity.rowId,
   ]);
   expect(removedFieldEvidence.rows).toHaveLength(1);
-  expect(removedFieldEvidence.rows[0]?.commit_seq).toBe("13");
-  expect(removedFieldEvidence.rows[0]?.value_json).not.toHaveProperty(
-    "description",
-  );
+  const removedFieldRow = removedFieldEvidence.rows[0];
+  if (removedFieldRow === undefined) {
+    throw new Error("Cooking removed-field revision is missing.");
+  }
+  expect(removedFieldRow.commit_seq).toBe("13");
+  const removedFieldDocument = await decodeCanonicalAppDocumentEvidenceV1({
+    tableId: removedFieldIdentity.tableId,
+    rowId: removedFieldIdentity.rowId,
+    creationTime: removedFieldRow.creationTime,
+    codecVersion: removedFieldRow.valueCodecVersion,
+    canonicalBytes: removedFieldRow.valueBytes,
+    sha256: removedFieldRow.valueSha256,
+  });
+  expect(removedFieldDocument.valueJson).not.toHaveProperty("description");
   const optionalFieldSidecars = await persistence.target.query<{
     commit_seq: string;
     current_count: string;

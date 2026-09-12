@@ -999,10 +999,10 @@ describe("M03-A app-schema candidate validation", () => {
       `insert into fx_app_row_rev
         (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
          write_epoch_uuid, schema_version_id, creation_time,
-         value_codec_version, is_tombstone, value_json, value_bytes,
+         value_codec_version, is_tombstone, value_bytes,
          value_sha256)
        select scope_uuid, $2, decode($3, 'hex'), 2, 1, epoch_uuid, $4,
-         1750000000000, 1, true, null, null, null
+         1750000000000, 1, true, null, null
        from fx_system_scope_clock
        where scope_id = $1`,
       [fixture.scopeId, fixture.tableId, id, fixture.schemaVersionId],

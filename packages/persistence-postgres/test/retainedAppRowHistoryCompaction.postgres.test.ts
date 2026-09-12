@@ -53,6 +53,7 @@ describePostgres("real PostgreSQL O11-D retained app-row history compaction", ()
         "fx_app_index_entry_rev_row_revision_fk",
         "fx_app_row_current_revision_fk",
         "fx_app_unique_key_row_revision_fk",
+        "fx_commit_preference_deletion_content_fk",
         "fx_system_commit_app_row_change_revision_fk",
       ]);
       const queries = new Map<
@@ -150,12 +151,12 @@ async function seedPopulatedAppRowHistory(
        (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
         write_epoch_uuid, schema_version_id, creation_time,
         value_codec_version, is_tombstone,
-        value_json, value_bytes, value_sha256)
+        value_bytes, value_sha256)
      select scope_uuid, 1, decode(repeat('00', 15) || '01', 'hex'),
             series.value,
             case when series.value = 1 then null else series.value - 1 end,
             epoch_uuid, 'schema_v1', 42,
-            1, true, null, null, null
+            1, true, null, null
      from fx_system_scope_clock,
           generate_series(1, 300) as series(value)
      where scope_id = $1`,
@@ -172,11 +173,11 @@ async function seedPopulatedAppRowHistory(
        (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
         write_epoch_uuid, schema_version_id, creation_time,
         value_codec_version, is_tombstone,
-        value_json, value_bytes, value_sha256)
+        value_bytes, value_sha256)
      select scope_uuid, 1,
             decode(lpad(to_hex(series.value + 1), 32, '0'), 'hex'),
             301, null, epoch_uuid, 'schema_v1', series.value + 42,
-            1, true, null, null, null
+            1, true, null, null
      from fx_system_scope_clock,
           generate_series(1, 4096) as series(value)
      where scope_id = $1`,

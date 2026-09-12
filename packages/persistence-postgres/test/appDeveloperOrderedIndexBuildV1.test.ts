@@ -245,10 +245,9 @@ describe("C08 developer ordered-index build", () => {
     });
     await fixture.persistence.query(
       `update fx_app_row_rev
-          set value_json = $1::jsonb, value_bytes = $2, value_sha256 = $3
-        where scope_uuid = $4`,
+          set value_bytes = $1, value_sha256 = $2
+        where scope_uuid = $3`,
       [
-        JSON.stringify(wrongDocument.valueJson),
         wrongDocument.canonicalBytes,
         wrongDocument.sha256,
         "c08d0000-0000-0000-0000-000000000001",

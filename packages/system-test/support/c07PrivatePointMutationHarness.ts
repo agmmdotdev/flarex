@@ -1,8 +1,10 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
+import type { fxAppRowRevisions } from "@flarex/persistence-postgres/internal/system-test/schema";
+import { decodeAppCreationTimeV1, decodeCanonicalAppDocumentEvidenceV1 } from "flarex-protocol/app-document";
 import {
   appDocumentIdV1FromRowIdentity,
+  appRowIdHexV1FromBytes,
   decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
@@ -921,6 +923,17 @@ function resolutionPorts(
   };
 }
 
+type StoredRowEvidence = Pick<
+  typeof fxAppRowRevisions.$inferSelect,
+  | "tableId"
+  | "rowId"
+  | "creationTime"
+  | "valueCodecVersion"
+  | "isTombstone"
+  | "valueBytes"
+  | "valueSha256"
+>;
+
 export async function loadPrivateC07DurableAgreementV1(
   persistence: FlarexPersistence,
   scopeUuid: string,
@@ -931,8 +944,9 @@ export async function loadPrivateC07DurableAgreementV1(
     revisions: string;
     current_rows: string;
     current_commit_seq: string | null;
-    current_value: unknown;
     last_commit_seq: string;
+  } & {
+    [Field in keyof StoredRowEvidence]: StoredRowEvidence[Field] | null;
   }>(
     `
       select
@@ -944,19 +958,27 @@ export async function loadPrivateC07DurableAgreementV1(
           where scope_uuid = $1) as revisions,
         (select count(*)::text from fx_app_row_current
           where scope_uuid = $1) as current_rows,
-        (select current_row.commit_seq::text
-          from fx_app_row_current as current_row
-          where current_row.scope_uuid = $1 limit 1) as current_commit_seq,
-        (select revision.value_json
-          from fx_app_row_current as current_row
-          join fx_app_row_rev as revision
-            on revision.scope_uuid = current_row.scope_uuid
-            and revision.table_id = current_row.table_id
-            and revision.row_id = current_row.row_id
-            and revision.commit_seq = current_row.commit_seq
-          where current_row.scope_uuid = $1 limit 1) as current_value,
+        current_revision.commit_seq::text as current_commit_seq,
+        current_revision.table_id as "tableId",
+        current_revision.row_id as "rowId",
+        current_revision.creation_time as "creationTime",
+        current_revision.value_codec_version as "valueCodecVersion",
+        current_revision.is_tombstone as "isTombstone",
+        current_revision.value_bytes as "valueBytes",
+        current_revision.value_sha256 as "valueSha256",
         clock.last_commit_seq::text
       from fx_system_scope_clock as clock
+      left join lateral (
+        select revision.*
+        from fx_app_row_current as current_row
+        join fx_app_row_rev as revision
+          on revision.scope_uuid = current_row.scope_uuid
+         and revision.table_id = current_row.table_id
+         and revision.row_id = current_row.row_id
+         and revision.commit_seq = current_row.commit_seq
+        where current_row.scope_uuid = clock.scope_uuid
+        limit 1
+      ) as current_revision on true
       where clock.scope_uuid = $1
     `,
     [scopeUuid],
@@ -966,10 +988,23 @@ export async function loadPrivateC07DurableAgreementV1(
     row === undefined ||
     row.lifecycle === null ||
     row.current_commit_seq === null ||
-    row.current_value === null
+    row.tableId === null ||
+    row.rowId === null ||
+    row.creationTime === null ||
+    row.isTombstone !== false ||
+    row.valueBytes === null ||
+    row.valueSha256 === null
   ) {
     throw new Error("C07 durable agreement is missing required state.");
   }
+  const document = await decodeCanonicalAppDocumentEvidenceV1({
+    tableId: row.tableId,
+    rowId: appRowIdHexV1FromBytes(row.rowId),
+    creationTime: row.creationTime,
+    codecVersion: row.valueCodecVersion,
+    canonicalBytes: row.valueBytes,
+    sha256: row.valueSha256,
+  });
   const commits = await persistence.query<{ commit_seq: string }>(
     `select commit_seq::text from fx_system_commit
      where scope_uuid = $1 order by commit_seq`,
@@ -998,7 +1033,7 @@ export async function loadPrivateC07DurableAgreementV1(
     revisions: row.revisions,
     currentRows: row.current_rows,
     currentCommitSeq: row.current_commit_seq,
-    currentValue: structuredClone(row.current_value),
+    currentValue: structuredClone(document.valueJson),
     commitSeqs: Object.freeze(commits.rows.map((item) => item.commit_seq)),
     changeCommitSeqs: Object.freeze(
       changes.rows.map((item) => item.commit_seq),

@@ -10,10 +10,10 @@ the bounded lease directory. Journal roots now retain one final syscall counter,
 and write events retain canonical bytes and digest without a JSON mirror.
 Terminal sessions now discard their argument, grant, and Application authority
 bodies atomically while retaining their request identity and outcome selector.
-The remaining storage replacements below are pending.
-Row-body DDL still needs
-paired measurements, and the coalesced-journal contract remains a separate
-selection. Payload and Medusa operation APIs remain unchanged by these replacements;
+Slice 4 uses one canonical byte body plus digest for Application row revisions;
+the JSONB mirror and its readers/projection checks are removed. Membership and
+stable unique ownership remain pending, and the coalesced-journal contract
+remains a separate selection. Payload and Medusa operation APIs remain unchanged by these replacements;
 exported core clock/counter types lose their obsolete wake-sequence fields.
 
 The owner declares early development and no backward-compatibility requirement
@@ -36,8 +36,9 @@ The accepted [architecture](../../design-notes/flarex-db-accepted-design.md),
 [native OCC contract](../flarexdb-foundation/02-occ-and-transactions.md), and
 [shared ownership](./README.md) remain authoritative until a selected slice
 explicitly reconciles its changed storage or protocol contract. In particular,
-the current same-commit index provenance and dual row representation are
-intentional contracts, not already-established defects.
+the current same-commit index provenance is an intentional contract, not an
+already-established defect. The selected row-body replacement reconciles its
+changed storage checks in that accepted design.
 
 ## Recommended Direction
 
@@ -53,9 +54,9 @@ Optimize work and persisted information at the existing owners:
    and retain returned-row OCC dependencies.
    Change the writers, storage constraints, builders, validation, and compaction
    together; simply omitting current writes is incorrect.
-4. Prefer one complete persisted Application value representation: canonical
-   bytes plus digest, with decoded values supplied by the existing row owner.
-   Measure this against the current representation before selecting its DDL.
+4. Store one complete Application value representation: canonical bytes plus
+   digest, with decoded values supplied by the existing row owner. The paired
+   experiment below supports this storage choice without a universal latency claim.
 5. Bound temporary and terminal execution evidence. Start with receipt writes,
    duplicate scalar/payload fields, and explicit terminal retention. A later
    coalesced-journal contract can remove intermediate value history only after
@@ -105,7 +106,7 @@ meaning remains accurate; renaming alone is not an optimization.
 | Current storage | Disposition and proposed final contents | Why it remains or what must disappear |
 | --- | --- | --- |
 | Scope clock | **Extend/change:** retain scope/epoch, generation fence, commit head, retained floor, and revocation authority; delete the independent target outbox head in the wake replacement | One commit order and authority fence. Text/UUID scope normalization crosses additional authority consumers and is not selected by this core slice |
-| App row revision | **Replace representation:** row identity, commit/previous sequence, write epoch, schema provenance, creation time, codec, tombstone, canonical value bytes and digest | One complete persisted value. Delete row JSONB only after the encoding decision and all row consumers switch |
+| App row revision | **Replaced representation:** row identity, commit/previous sequence, write epoch, schema provenance, creation time, codec, tombstone, canonical value bytes and digest | One complete persisted value. Row JSONB and its consumer projections are deleted |
 | App row current | **Retain:** identity and exact revision pointer, with FK | It stores no second document. It supports current-head access, integrity, and compare-and-set writes |
 | Ordered-index revision | **Replace contract:** ordered membership transitions, physical definition identity, row identity, transition sequence, and exact key evidence | Delete body-revision mirroring, predecessor chains and exact row-revision FK; keep snapshot/OCC history and stable row identity |
 | Ordered-index current | **Retain/change:** current live membership with pointer to its latest membership revision | Its version becomes membership sequence, not the latest document revision |
@@ -121,43 +122,64 @@ meaning remains accurate; renaming alone is not an optimization.
 
 ### Application Value Representation
 
-Current [row DDL](../../packages/persistence-postgres/src/schema.ts) stores
-JSONB, canonical bytes and SHA-256 for each live revision. The
-[row reader](../../packages/persistence-postgres/src/appRows.ts) passes all three
-to [value verification](../../packages/flarex-protocol/src/value.ts), which
-canonicalizes JSON, hashes it, and compares the supplied canonical bytes. The
-stored bytes therefore do not currently avoid reader canonicalization.
+The [row DDL](../../packages/persistence-postgres/src/schema.ts) stores canonical
+Value Codec V1 bytes and SHA-256 for each live revision. The
+[row reader](../../packages/persistence-postgres/src/appRows.ts) and developer
+index builder use the existing protocol owner's document-evidence decoder. It
+parses, recanonicalizes, and checks exact bytes, digest, document profile, `_id`
+and immutable `_creationTime`, then returns the existing decoded canonical value.
+The producer-facing JSON-plus-evidence verifier remains useful when authenticating
+new write inputs; it no longer implies a second persisted body.
 
-Recommended candidate: keep canonical bytes and digest as the persisted body;
-reuse the existing canonical-evidence decoder, which parses, recanonicalizes,
-and checks exact bytes plus digest. Return the existing decoded canonical value
-to callers. Do not add a second codec, a hash-only equality rule, or a
-content-addressed blob store with another lifetime.
+The independent JSONB mirror and its cross-representation corruption check are
+removed. SQL still checks state/nullability, nonempty live bytes, digest length,
+codec and structural identity. Document shape is checked at the bounded decoder
+instead of a SQL JSON-object check. Tombstones retain neither body nor digest.
+Current-row capture checks individual and aggregate canonical-byte sizes before
+hydration; there is no remaining JSON projection budget or fallback read path.
+The accepted row contract records this integrity tradeoff explicitly.
 
-This removes the independently stored JSON mirror and its cross-representation
-corruption check. It also moves the SQL object-shape check into the bounded
-document decoder; SQL still checks state/nullability/length and structural
-identity constraints. Explicitly reconcile that integrity tradeoff with the
-accepted row contract. `_id`, immutable `_creationTime`, special values,
-tombstones, canonicality, corruption limits, and document profile checks remain.
+Payload continues to receive decoded documents through the CMS owner. Ordinary
+Medusa relational rows use their existing physical storage and are unaffected.
+Index builders and diagnostic fixtures decode through the same protocol owner;
+no framework API, schema-validation algorithm, extra codec or blob store is added.
 
-The current CMS reader consumes decoded rows; it does not require JSONB as its
-adapter-facing representation. Index builders and bounded-size projections are
-connected consumers. Inventory their projections before changing the column;
-any other body-predicate SQL consumer must be handled at its existing owner.
-Do not investigate or redesign schema-validation algorithms as part of this
-inventory.
+Retained pre-retirement analyzer fixtures still describe their historical JSONB
+schema. They are historical evidence under [roadmap 43](../43-first-flarexdb-system-api-vertical.md),
+and do not establish acceptance of the current transaction contract. Their scripts
+still exist; this scoped acceptance does not claim those old-schema suites pass.
+This replacement does not synthesize a
+hybrid old-analyzer/new-storage migration profile. Current C07, native mutation,
+relational and cooking consumers exercise the selected row contract.
 
-The final encoding decision needs paired point/current/batch reads, writes,
-large documents, and index-build hydration. Compare JSONB+bytes+digest against
-bytes+digest and JSONB+digest. The last option loses independent canonical-byte
-evidence and is not equivalent merely because digests agree. PostgreSQL
-[JSONB](https://www.postgresql.org/docs/current/datatype-json.html) changes the
-physical representation and does not preserve source key order; application
-canonicalization remains a codec concern. Measure total table/index/TOAST
-storage because [TOAST](https://www.postgresql.org/docs/current/storage-toast.html)
-can compress and move large attributes out of the main row. Removing one body
-column does not establish a particular percentage reduction.
+The standalone [representation experiment](../../packages/persistence-postgres/test/rowRepresentationBenchmark.ts)
+compares JSONB+bytes+digest, bytes+digest and JSONB+digest with identical cohorts,
+three row revisions, tombstones, primary indexes and exact current-pointer FKs.
+It measures point, batch, current and append/CAS shapes, including codec and
+parameter construction costs, and includes TOAST in row-relation storage.
+The selected bytes+digest representation preserves exact canonical evidence and
+SQL byte-size accounting. JSONB alone does not preserve that stored-byte contract.
+
+A local ordinary-role PostgreSQL 18 experiment with pglz compression measured
+these row-relation totals (MiB, including indexes and TOAST):
+
+| Document cohort | JSONB + bytes + digest | Bytes + digest | JSONB + digest |
+| --- | ---: | ---: | ---: |
+| Small, about 768 bytes | 6.06 | 4.90 | 4.90 |
+| Varied nested, about 4 KiB | 32.22 | 16.50 | 16.50 |
+| Varied, about 32 KiB | 50.20 | 25.24 | 25.23 |
+| Repeated, about 256 KiB | 0.84 | 0.48 | 0.48 |
+| Varied, about 256 KiB | 49.09 | 24.85 | 24.36 |
+| Varied, about 900 KiB | 48.74 | 24.68 | 24.20 |
+
+This supports reducing duplicated storage, not a universal latency improvement.
+In the final warm sample, the repeated-256-KiB batch median increased from 40.90
+to 41.71 ms and the varied-32-KiB batch from 44.49 to 47.59 ms. Some larger point
+reads improved. Nine measured samples per variant, simplified storage tables,
+and rollback-only append timing do not establish concurrent throughput, durable
+commit latency, tail latency or production performance. Rerun the experiment
+for the deployment's document distribution and PostgreSQL configuration before
+making those claims. Compression and TOAST prevent a fixed percentage guarantee.
 
 ### Membership History Instead Of Row-Revision Mirroring
 

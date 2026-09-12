@@ -60,8 +60,9 @@ drivers; pure lifetime cases require no database startup. Native execution
 requires `FLAREX_POSTGRES_DATABASE_URL` for an ordinary test role.
 
 The bounded profile counts the root command within the call limit. JSON capture
-and current-row hydration both have aggregate limits, including corrupt JSONB
-projections. Final unique transitions obey the existing Application commit
+and current-row hydration both have aggregate limits. Current-row capture checks
+individual and aggregate canonical-byte sizes before loading document bodies;
+the removed row JSONB mirror has no separate projection budget. Final unique transitions obey the existing Application commit
 budget. Uncertain settlement resolves only authenticated retained outcomes on a
 fresh session; absent outcome evidence remains decision-uncertain and never
 triggers automatic command replay.

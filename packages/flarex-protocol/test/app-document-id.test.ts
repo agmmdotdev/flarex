@@ -1,5 +1,5 @@
-import { Result } from "effect";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { Effect, Exit, Result } from "effect";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   AppDocumentIdV1Error,
@@ -20,9 +20,12 @@ import {
   AppDocumentSystemFieldV1Error,
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
+  decodeCanonicalAppDocumentEvidenceV1,
+  decodeCanonicalAppDocumentEvidenceV1Effect,
   verifyAppDocumentEvidenceV1,
   type AppCreationTimeV1,
 } from "../src/app-document";
+import { canonicalizeFlarexValueV1 } from "../src/value";
 import { decodeCatalogTableId } from "../src/catalog";
 
 const tableId = decodeCatalogTableId(1);
@@ -146,7 +149,9 @@ describe("replacement app document identity v1", () => {
     const first = appRowIdHexV1ToBytes(hex);
     const second = appRowIdHexV1ToBytes(hex);
     first.fill(255);
-    expect(second).toEqual(Uint8Array.from({ length: 16 }, (_, index) => index));
+    expect(second).toEqual(
+      Uint8Array.from({ length: 16 }, (_, index) => index),
+    );
     expect(() => appRowIdHexV1FromBytes(new Uint8Array(15))).toThrow(
       AppDocumentIdV1Error,
     );
@@ -170,9 +175,7 @@ describe("replacement app document identity v1", () => {
       },
     });
     expect(proxied.byteLength).toBe(16);
-    expect(() => appRowIdHexV1FromBytes(proxied)).toThrow(
-      AppDocumentIdV1Error,
-    );
+    expect(() => appRowIdHexV1FromBytes(proxied)).toThrow(AppDocumentIdV1Error);
     expect(Result.isFailure(appRowIdHexV1FromBytesResult(proxied))).toBe(true);
   });
 });
@@ -242,8 +245,129 @@ describe("trusted app document system fields v1", () => {
     });
   });
 
+  it("decodes the sole canonical body with one digest and preserves portable values", async () => {
+    const creationTime = decodeAppCreationTimeV1(10.25);
+    const canonical = await canonicalizeAppDocumentV1({
+      tableId,
+      rowId,
+      creationTime,
+      fields: {
+        title: "雪\u0000🌏",
+        count: 9_007_199_254_740_993n,
+        bytes: new Uint8Array([0, 127, 255]).buffer,
+        special: [-0, NaN, Infinity, -Infinity],
+        nested: { array: [true, null, "value"] },
+      },
+    });
+    const digest = vi.spyOn(crypto.subtle, "digest");
+    try {
+      expect(
+        await decodeCanonicalAppDocumentEvidenceV1({
+          tableId,
+          rowId,
+          creationTime,
+          codecVersion: canonical.codecVersion,
+          canonicalBytes: canonical.canonicalBytes,
+          sha256: canonical.sha256,
+        }),
+      ).toEqual(canonical);
+      expect(digest).toHaveBeenCalledTimes(1);
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("rejects mismatched row pins, unsupported codecs and non-document bytes", async () => {
+    const creationTime = decodeAppCreationTimeV1(11);
+    const canonical = await canonicalizeAppDocumentV1({
+      tableId,
+      rowId,
+      creationTime,
+      fields: { title: "valid" },
+    });
+    const input = {
+      tableId,
+      rowId,
+      creationTime,
+      codecVersion: canonical.codecVersion,
+      canonicalBytes: canonical.canonicalBytes,
+      sha256: canonical.sha256,
+    };
+    await expect(
+      decodeCanonicalAppDocumentEvidenceV1({ ...input, tableId: otherTableId }),
+    ).rejects.toMatchObject({ issue: { reason: "identityMismatch" } });
+    await expect(
+      decodeCanonicalAppDocumentEvidenceV1({
+        ...input,
+        creationTime: decodeAppCreationTimeV1(12),
+      }),
+    ).rejects.toMatchObject({ issue: { reason: "creationTimeMismatch" } });
+    await expect(
+      decodeCanonicalAppDocumentEvidenceV1({ ...input, codecVersion: 2 }),
+    ).rejects.toMatchObject({ issue: { reason: "unsupportedCodecVersion" } });
+    const scalar = await canonicalizeFlarexValueV1("not a document");
+    await expect(
+      decodeCanonicalAppDocumentEvidenceV1({
+        ...input,
+        canonicalBytes: scalar.canonicalBytes,
+        sha256: scalar.sha256,
+      }),
+    ).rejects.toMatchObject({ _tag: "FlarexValueCodecV1Error" });
+  });
+
+  it("classifies document evidence failures while preserving unexpected crypto defects", async () => {
+    const creationTime = decodeAppCreationTimeV1(11);
+    const canonical = await canonicalizeAppDocumentV1({
+      tableId,
+      rowId,
+      creationTime,
+      fields: { title: "valid" },
+    });
+    const input = {
+      tableId,
+      rowId,
+      creationTime,
+      codecVersion: canonical.codecVersion,
+      canonicalBytes: canonical.canonicalBytes,
+      sha256: canonical.sha256,
+    };
+    const invalid = await Effect.runPromise(
+      Effect.result(
+        decodeCanonicalAppDocumentEvidenceV1Effect({
+          ...input,
+          tableId: otherTableId,
+        }),
+      ),
+    );
+    expect(Result.isFailure(invalid)).toBe(true);
+    if (Result.isFailure(invalid)) {
+      expect(invalid.failure).toBeInstanceOf(AppDocumentSystemFieldV1Error);
+    }
+    const defect = new Error("unavailable crypto implementation");
+    const digest = vi
+      .spyOn(crypto.subtle, "digest")
+      .mockRejectedValueOnce(defect);
+    try {
+      const exit = await Effect.runPromiseExit(
+        decodeCanonicalAppDocumentEvidenceV1Effect(input),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons).toMatchObject([{ _tag: "Die", defect }]);
+      }
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
   it("rejects invalid trusted creation times", () => {
-    for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
+    for (const value of [
+      0,
+      -1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      2 ** 53,
+    ]) {
       expect(() => decodeAppCreationTimeV1(value)).toThrow();
     }
   });

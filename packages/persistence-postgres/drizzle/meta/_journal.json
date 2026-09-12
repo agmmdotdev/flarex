@@ -666,6 +666,13 @@
       "when": 1789199069727,
       "tag": "0094_terminal-session-payload",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1789200918812,
+      "tag": "0095_app-row-body",
+      "breakpoints": true
     }
   ]
 }

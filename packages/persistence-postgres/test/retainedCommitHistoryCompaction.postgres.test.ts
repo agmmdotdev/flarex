@@ -161,11 +161,11 @@ async function seedMaximumCommitGroup(
        (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
         write_epoch_uuid, schema_version_id, creation_time,
         value_codec_version, is_tombstone,
-        value_json, value_bytes, value_sha256)
+        value_bytes, value_sha256)
      select scope_uuid, 1,
             decode(lpad(to_hex(generated_id::bigint + 1), 32, '0'), 'hex'),
             1, null, epoch_uuid, 'schema_v1', generated_id + 1,
-            1, true, null, null, null
+            1, true, null, null
      from fx_system_scope_clock,
           generate_series(0, 15999) as generated_id
      where scope_id = $1`,

@@ -365,7 +365,7 @@ async function seedPlannerRows(
   await persistence.query(
     `with template as (
        select scope_uuid, table_id, write_epoch_uuid, schema_version_id,
-              value_codec_version, value_json, value_bytes, value_sha256
+              value_codec_version, value_bytes, value_sha256
          from fx_app_row_rev
         order by commit_seq
         limit 1
@@ -373,13 +373,13 @@ async function seedPlannerRows(
      insert into fx_app_row_rev
        (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
         write_epoch_uuid, schema_version_id, creation_time,
-        value_codec_version, is_tombstone, value_json, value_bytes,
+        value_codec_version, is_tombstone, value_bytes,
         value_sha256)
      select template.scope_uuid, template.table_id,
             decode(lpad(to_hex(series.value), 32, '0'), 'hex'),
             series.value, null, template.write_epoch_uuid,
             template.schema_version_id, series.value,
-            template.value_codec_version, false, template.value_json,
+            template.value_codec_version, false,
             template.value_bytes, template.value_sha256
        from template
        cross join generate_series($1::integer, $2::integer) as series(value)`,

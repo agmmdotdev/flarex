@@ -993,11 +993,11 @@ describe("C08-B1 closed unique-set build foundation", () => {
       `insert into fx_app_row_rev
         (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
          write_epoch_uuid, schema_version_id, creation_time,
-         value_codec_version, is_tombstone, value_json, value_bytes,
+         value_codec_version, is_tombstone, value_bytes,
          value_sha256)
        select scope_uuid, table_id + 1, row_id, commit_seq, prev_commit_seq,
               write_epoch_uuid, schema_version_id, creation_time,
-              value_codec_version, is_tombstone, value_json, value_bytes,
+              value_codec_version, is_tombstone, value_bytes,
               value_sha256
          from fx_app_row_rev
         where scope_uuid = $1::uuid and row_id = decode($2, 'hex')`,

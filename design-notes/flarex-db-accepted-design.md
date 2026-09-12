@@ -879,10 +879,15 @@ derived native UUID projections, while legacy noncanonical text authorities
 remain unmapped and cannot access replacement rows.
 
 `fx_app_row_rev` is the sole authoritative row-value history. A live revision
-stores the complete Value Codec V1 document, including storage-verified `_id`
-and immutable positive finite float64 `_creationTime`, plus canonical bytes and
-SHA-256. A tombstone is a distinct revision state whose value JSON, canonical
-bytes, and hash are SQL `NULL`; it is never represented by encoded Flarex null.
+stores the complete Value Codec V1 document as canonical bytes and SHA-256,
+including storage-verified `_id` and immutable positive finite float64
+`_creationTime`. The selected [row representation](../roadmaps/shared-transaction-core/07-transactional-storage-redesign.md#application-value-representation)
+removes the independent JSONB mirror. SQL enforces codec, state, byte/digest
+lengths, and structural identity; the existing bounded document decoder verifies
+canonical encoding, document shape, digest, and trusted system fields before
+returning a live value. It returns the same decoded canonical document to core
+and framework callers. A tombstone is a distinct revision state whose canonical
+bytes and hash are SQL `NULL`; it is never represented by encoded Flarex null.
 `fx_app_row_current` stores only an epoch-independent pointer protected by a
 foreign key to one exact revision. Epoch on a revision is write provenance, not
 part of row identity or a visibility predicate. S06 supplies storage history
