@@ -4072,6 +4072,63 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(missingFailure).toMatchObject({ reason: "epochChanged" });
   });
 
+  it("rolls back a native row-fact batch and resumes with dense ordinals", async () => {
+    const parameters: number[] = [];
+    let steps = 0;
+    const prepared = await prepareO07BScenario("publication_batches", async (current, table) => {
+      for (let index = 0; index < 128; index += 1) {
+        await runPointOperation(current.store, table, {
+          kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
+          fields: { name: `batch row ${index}` },
+        });
+      }
+    }, {
+      observeQuery: (query) => {
+        if (query.name === "writeCommitChange") parameters.push(query.params.length);
+      },
+      afterTransactionStep: async (event) => {
+        if (event.step === "commitChangeWritten" && ++steps === 1) {
+          throw new PointCommitCorruptionV1Error({ reason: "publicationInvariantInvalid" });
+        }
+      },
+    });
+    await expect(runFailure(prepared.authentication.publishPointCommit(prepared.plan)))
+      .resolves.toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(parameters).toEqual([768]);
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "0", current_rows: "0", commit_headers: "0", commit_changes: "0",
+      outcomes: "0", wakes: "0", last_commit_seq: "0", last_outbox_seq: "0",
+    });
+    parameters.length = 0;
+    const recovered = createO07BAuthentication(prepared.current, {
+      observeQuery: (query) => {
+        if (query.name === "writeCommitChange") parameters.push(query.params.length);
+      },
+    });
+    const selector = {
+      deploymentId: prepared.current.anchor.deploymentId,
+      scopeId: prepared.current.anchor.scopeId,
+      sessionId: prepared.current.anchor.sessionId,
+      attemptFence: prepared.current.anchor.attemptFence.toString(),
+    };
+    await expect(runEffect(recovered.resumePointCommit(selector)))
+      .resolves.toMatchObject({ kind: "published" });
+    expect(parameters).toEqual([768]);
+    const facts = await persistence.drizzle.select().from(fxSystemCommitAppRowChanges)
+      .where(eq(fxSystemCommitAppRowChanges.scopeUuid, prepared.scopeUuid))
+      .orderBy(fxSystemCommitAppRowChanges.changeOrdinal);
+    expect(facts.map(fact => fact.changeOrdinal)).toEqual(
+      Array.from({ length: 128 }, (_, ordinal) => ordinal),
+    );
+    expect(new Set(facts.map(fact => Buffer.from(fact.rowId).toString("hex"))).size).toBe(128);
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "128", commit_changes: "128", commit_headers: "1", outcomes: "1", wakes: "1",
+    });
+    await expect(runEffect(prepared.authentication.publishPointCommit(prepared.plan)))
+      .resolves.toMatchObject({ kind: "replayed" });
+    expect(parameters).toEqual([768]);
+  }, 120_000);
+
   it("rolls back every publication atom when a late invariant fails", async () => {
     const prepared = await prepareO07BScenario(
       "o07b_late_rollback",

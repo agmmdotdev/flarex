@@ -2,10 +2,11 @@
 
 ## Status, Scope, And Decision
 
-Status: source audit and proposed replacement design. The owner approved this
-design investigation, including its effects on Payload and Medusa. The schema,
-protocol, and implementation changes below are proposals for selection; this
-document does not describe changes already implemented.
+Status: replacement implementation authorized. Slice 1 is implemented: shared
+Application facts use bounded inserts and native latest receipts use an upsert.
+The remaining storage replacements below are pending. Row-body DDL still needs
+paired measurements, and the coalesced-journal contract remains a separate
+selection. Payload and Medusa operation APIs remain unchanged by slice 1.
 
 The owner declares early development and no backward-compatibility requirement
 for this redesign. Existing internal types, fixtures, migration tests, and
@@ -359,10 +360,13 @@ and other phases unless explicitly stated.
 
 Let N be app-row facts, A adjacency facts, R relational facts, P preference
 deletion facts, E domain events, and b(x) = ceil(x / 500), with b(0) = 0.
-A batch of 500 is the proposed initial
-app-fact bound, reusing the existing adjacency bound; validate bind/byte budgets.
+A batch of 500 is the implemented app-fact bound, shared with adjacency facts.
+App facts use six bind parameters per row, at most 3,000 per statement.
+Each returned batch must contain the exact commit and dense global ordinal set;
+the transaction rolls back on missing, duplicate or out-of-batch evidence.
+The internal change-written hook runs once per verified batch.
 
-| Operation fragment | Current work | Proposed work |
+| Operation fragment | Before redesign | Replacement work |
 | --- | --- | --- |
 | Shared publication plus clock | 4 + N + b(A) + 1[R>0] + 2[E>0] SQL | 4 + b(N) + b(A) + 1[R>0] + 2[E>0] |
 | Native publication plus root/lease/session completion | 7 + N + b(A) SQL | 7 + b(N) + b(A) |
@@ -381,9 +385,16 @@ its kernel has separate liveness-time reads outside this count. CMS/commerce
 read commands do not finalize. Successful no-row write commands still publish
 their result token/header/wake. Replays must not create a new publication.
 
-For 1,000 native app-row facts with no adjacency facts, publication plus native
-completion changes from 1,007 to 9 statements. This arithmetic covers that
-phase only; it is not a whole-transaction count or a latency promise. For a
+Slice 1 implements the publication batching and receipt reductions in this
+table. Receipt upsert preserves the latest syscall's creation/update time;
+the exact-attempt root CAS and all journal child writes remain atomic.
+
+For 1,000 app-row facts with no other fact families, the shared publication
+owner plus clock changes from 1,004 to 6 statements. This is a private owner
+capacity proof: the native planner currently admits at most 128 material rows,
+and CMS has its separate 64-call/256-identity limits. At 128 native rows,
+publication plus native completion changes from 135 to 8 statements. These
+counts cover that phase only, not whole transactions or latency. For a
 non-key update with three developer indexes, the current scalar sidecar path
 alone accounts for 25 SQL statements and eight row writes. A membership-only
 path removes those appends but must account for any replacement validation work.

@@ -41,6 +41,7 @@ import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { Effect, Fiber, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
+import { sessionJournalReceiptScenario } from "./sessionJournalReceiptScenario";
 
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
@@ -521,6 +522,12 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
     } finally {
       await rm(testRoot, { recursive: true, force: true });
     }
+  }, 120_000);
+
+  it("rolls back a receipt upsert with its root and material writes", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      await sessionJournalReceiptScenario(persistence, await scenario(persistence, "receipt_upsert"));
+    });
   }, 120_000);
 
   it("serializes same-sequence and ordered adjacent-sequence races into one latest receipt", async () => {

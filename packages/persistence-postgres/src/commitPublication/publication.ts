@@ -3,7 +3,7 @@ import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../commitEv
 import { copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, eq, sql } from "drizzle-orm";
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { MAX_PERSISTED_SIGNED_INT64_V1, CommitSeqSchema, OutboxSeqSchema, type CommitSeq, type OutboxSeq, type ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
@@ -49,22 +49,37 @@ export async function writeScopePublicationPrefix(
   );
   await emitTransactionStep(options, command, "commitHeaderWritten");
 
-  for (let ordinal = 0; ordinal < command.rowIntents.length; ordinal += 1) {
-    const rowIntent = command.rowIntents[ordinal];
-    if (rowIntent === undefined) {
-      throw corruption("publicationInvariantInvalid");
-    }
-    const change = await sqlCall("writeCommitChange", () =>
-      tx.insert(fxSystemCommitAppRowChanges).values({
+  for (
+    let firstOrdinal = 0;
+    firstOrdinal < command.rowIntents.length;
+    firstOrdinal += MAX_COMMIT_CHANGES_PER_STATEMENT
+  ) {
+    const batch = command.rowIntents.slice(
+      firstOrdinal,
+      firstOrdinal + MAX_COMMIT_CHANGES_PER_STATEMENT,
+    );
+    const query = tx.insert(fxSystemCommitAppRowChanges).values(
+      batch.map((rowIntent, batchIndex) => ({
         scopeUuid,
         epochUuid,
         commitSeq,
-        changeOrdinal: ordinal,
+        changeOrdinal: firstOrdinal + batchIndex,
         tableId: rowIntent.tableId,
         rowId: appRowIdHexV1ToBytes(rowIntent.rowId),
-      }).returning({ commitSeq: fxSystemCommitAppRowChanges.commitSeq }));
+      })),
+    ).returning({
+      commitSeq: fxSystemCommitAppRowChanges.commitSeq,
+      changeOrdinal: fxSystemCommitAppRowChanges.changeOrdinal,
+    });
+    observeDrizzleQuery("writeCommitChange", query, options);
+    const changes = await sqlCall("writeCommitChange", () => query);
     projectScopePublicationResult(
-      requireSinglePublicationWriteResult(change, commitSeq, "commitSeq"),
+      requireCommitChangeBatchWriteResult(
+        changes,
+        commitSeq,
+        firstOrdinal,
+        batch.length,
+      ),
     );
     await emitTransactionStep(options, command, "commitChangeWritten");
   }
@@ -72,11 +87,11 @@ export async function writeScopePublicationPrefix(
   for (
     let firstOrdinal = 0;
     firstOrdinal < kernel.relationAdjacencyChanges.length;
-    firstOrdinal += MAX_COMMIT_RELATION_ADJACENCY_CHANGES_PER_STATEMENT
+    firstOrdinal += MAX_COMMIT_CHANGES_PER_STATEMENT
   ) {
     const batch = kernel.relationAdjacencyChanges.slice(
       firstOrdinal,
-      firstOrdinal + MAX_COMMIT_RELATION_ADJACENCY_CHANGES_PER_STATEMENT,
+      firstOrdinal + MAX_COMMIT_CHANGES_PER_STATEMENT,
     );
     const query = tx.insert(fxSystemCommitRelationAdjacencyChanges).values(
       batch.map((relationChange, batchIndex) => ({
@@ -104,7 +119,7 @@ export async function writeScopePublicationPrefix(
       () => query,
     );
     projectScopePublicationResult(
-      requireRelationAdjacencyChangeBatchWriteResult(
+      requireCommitChangeBatchWriteResult(
         changes,
         commitSeq,
         firstOrdinal,
@@ -308,32 +323,36 @@ function decodeScopePublicationDatabaseTimeResult(
   return Result.succeed(value);
 }
 
-function requireRelationAdjacencyChangeBatchWriteResult(
-  rows: ReadonlyArray<Readonly<{
-    readonly commitSeq: CommitSeq;
-    readonly changeOrdinal: number;
-  }>>,
+const decodeCommitChangeBatch = Schema.decodeUnknownResult(Schema.Array(
+  Schema.Struct({ commitSeq: Schema.toType(CommitSeqSchema), changeOrdinal: Schema.Int }),
+));
+
+function requireCommitChangeBatchWriteResult(
+  input: unknown,
   expectedCommitSeq: CommitSeq,
   firstOrdinal: number,
   expectedCount: number,
 ): Result.Result<void, ScopePublicationCorruptionError> {
-  if (rows.length !== expectedCount) {
-    return Result.fail(corruption("publicationInvariantInvalid"));
-  }
-  const ordinals = new Set<number>();
-  for (const row of rows) {
-    if (
-      row.commitSeq !== expectedCommitSeq ||
-      !Number.isInteger(row.changeOrdinal) ||
-      row.changeOrdinal < firstOrdinal ||
-      row.changeOrdinal >= firstOrdinal + expectedCount ||
-      ordinals.has(row.changeOrdinal)
-    ) {
-      return Result.fail(corruption("publicationInvariantInvalid"));
+  return Result.gen(function* () {
+    const rows = yield* decodeCommitChangeBatch(input).pipe(
+      Result.mapError(() => corruption("publicationInvariantInvalid")),
+    );
+    if (rows.length !== expectedCount) {
+      return yield* Result.fail(corruption("publicationInvariantInvalid"));
     }
-    ordinals.add(row.changeOrdinal);
-  }
-  return Result.succeed(undefined);
+    const ordinals = new Set<number>();
+    for (const row of rows) {
+      if (
+        row.commitSeq !== expectedCommitSeq ||
+        row.changeOrdinal < firstOrdinal ||
+        row.changeOrdinal >= firstOrdinal + expectedCount ||
+        ordinals.has(row.changeOrdinal)
+      ) {
+        return yield* Result.fail(corruption("publicationInvariantInvalid"));
+      }
+      ordinals.add(row.changeOrdinal);
+    }
+  });
 }
 
 function requirePointCommitClockPublicationResult(
@@ -367,7 +386,7 @@ function requireSinglePublicationWriteResult<
     : Result.fail(corruption("publicationInvariantInvalid"));
 }
 
-const MAX_COMMIT_RELATION_ADJACENCY_CHANGES_PER_STATEMENT = 500;
+const MAX_COMMIT_CHANGES_PER_STATEMENT = 500;
 const corruption = (reason: ScopePublicationCorruptionError["reason"]) => new ScopePublicationCorruptionError({ reason });
 
 // This is the existing native Promise publication boundary. Effect participants

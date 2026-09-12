@@ -6208,26 +6208,7 @@ async function persistAcceptedOperation(
   state: PersistAcceptedOperationRootStateV1,
 ): Promise<void> {
   const outcomeEvidence = await canonicalizeStoredOutcome(outcome);
-  await tx
-    .delete(fxSystemTransactionJournalLatestReceipts)
-    .where(and(
-      eq(
-        fxSystemTransactionJournalLatestReceipts.scopeUuid,
-        context.scopeUuid,
-      ),
-      eq(
-        fxSystemTransactionJournalLatestReceipts.sessionId,
-        context.anchor.sessionId,
-      ),
-      eq(
-        fxSystemTransactionJournalLatestReceipts.attemptFence,
-        context.anchor.attemptFence,
-      ),
-    ));
-  await tx.insert(fxSystemTransactionJournalLatestReceipts).values({
-    scopeUuid: context.scopeUuid,
-    sessionId: context.anchor.sessionId,
-    attemptFence: context.anchor.attemptFence,
+  const receipt = {
     lastSyscallSequence: request.syscallSequence,
     operationKind: request.kind,
     requestCodecVersion: 1,
@@ -6239,6 +6220,22 @@ async function persistAcceptedOperation(
     outcomeSha256: new Uint8Array(outcomeEvidence.sha256),
     createdAt: context.databaseNow,
     updatedAt: context.databaseNow,
+  } satisfies Omit<
+    typeof fxSystemTransactionJournalLatestReceipts.$inferInsert,
+    "scopeUuid" | "sessionId" | "attemptFence"
+  >;
+  await tx.insert(fxSystemTransactionJournalLatestReceipts).values({
+    scopeUuid: context.scopeUuid,
+    sessionId: context.anchor.sessionId,
+    attemptFence: context.anchor.attemptFence,
+    ...receipt,
+  }).onConflictDoUpdate({
+    target: [
+      fxSystemTransactionJournalLatestReceipts.scopeUuid,
+      fxSystemTransactionJournalLatestReceipts.sessionId,
+      fxSystemTransactionJournalLatestReceipts.attemptFence,
+    ],
+    set: receipt,
   });
   const updated = await tx
     .update(fxSystemTransactionJournals)

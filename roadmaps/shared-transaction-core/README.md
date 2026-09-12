@@ -10,6 +10,11 @@ implemented with one shared lifetime and settlement. The separate private
 extends that ownership to Product and Currency installations. Broader measured validation
 and additional composition profiles remain open.
 
+The authorized [transactional storage redesign](./07-transactional-storage-redesign.md)
+starts with shared Application fact batching and native latest-receipt upserts.
+Those statement reductions are implemented without changing framework APIs;
+the dedicated wake, index/unique and evidence storage replacements remain open.
+
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;
 replacement and cleanup obligations; and performance and completion gates.

@@ -517,6 +517,46 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     });
   }, 120_000);
 
+  it.each([0, 1, 128])("publishes %i admitted native row facts in one batch", async (count) => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory((0x96b00000 + count).toString(16));
+      const label = `publish_batch_${count}`;
+      const scope = await createScope(persistence, randomUuid, label);
+      const attempt = await createAttempt(persistence, randomUuid, scope, label, count);
+      const parameters: number[] = [];
+      let steps = 0;
+      const publisher = createPublisher(persistence, {
+        observeQuery: (query) => {
+          if (query.name === "writeCommitChange") parameters.push(query.params.length);
+        },
+        afterTransactionStep: async (event) => {
+          if (event.step === "commitChangeWritten") steps += 1;
+        },
+      });
+      await expect(runEffect(publisher.publish(attempt.publicationCommand)))
+        .resolves.toMatchObject({ kind: "published" });
+      const expectedBatches = count === 0 ? [] : Array.from(
+        { length: Math.ceil(count / 500) },
+        (_, index) => Math.min(500, count - index * 500) * 6,
+      );
+      expect(parameters).toEqual(expectedBatches);
+      expect(steps).toBe(expectedBatches.length);
+      const facts = await persistence.drizzle.select().from(fxSystemCommitAppRowChanges)
+        .where(eq(fxSystemCommitAppRowChanges.scopeUuid, attempt.command.sealIdentity.scopeUuid))
+        .orderBy(fxSystemCommitAppRowChanges.changeOrdinal);
+      expect(facts.map(fact => fact.changeOrdinal)).toEqual(
+        Array.from({ length: count }, (_, ordinal) => ordinal),
+      );
+      expect(new Set(facts.map(fact => Buffer.from(fact.rowId).toString("hex"))).size).toBe(count);
+      expect(await durableState(persistence, attempt.command.sealIdentity.scopeUuid))
+        .toMatchObject({ revisions: String(count), commit_changes: String(count),
+          commit_headers: "1", outcomes: "1", wakes: "1" });
+      await expect(runEffect(publisher.publish(attempt.publicationCommand)))
+        .resolves.toMatchObject({ kind: "replayed" });
+      expect(parameters).toEqual(expectedBatches);
+    });
+  }, 120_000);
+
   it("publishes material and zero-row successes with complete atomic evidence", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96400000");

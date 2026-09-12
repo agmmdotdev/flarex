@@ -124,6 +124,7 @@ import {
   type SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
 import { fxSystemIndexBuildStates } from "../src/schema";
+import { sessionJournalReceiptScenario } from "./sessionJournalReceiptScenario";
 import {
   INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
   IndexBuildAttemptFenceSchema,
@@ -1998,6 +1999,10 @@ describe("C03 Postgres SessionJournalStore", () => {
     }
     await interruption;
     expect(interruptionSettled).toBe(true);
+  });
+
+  it("rolls back a receipt upsert with its root and material writes", async () => {
+    await sessionJournalReceiptScenario(persistence, await scenario("receipt_upsert"));
   });
 
   it("keeps one durable latest receipt across replay, mismatch, gap, and stale delivery", async () => {
