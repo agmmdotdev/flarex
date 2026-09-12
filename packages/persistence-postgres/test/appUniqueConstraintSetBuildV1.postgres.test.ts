@@ -30,7 +30,7 @@ import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
   AppUniqueConstraintSetBuildReclamationError,
   AppUniqueConstraintSetBuildStaleAuthorityV1Error,
-  MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+  MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
   advanceAppUniqueConstraintSetBackfillV1Effect,
   createAppUniqueConstraintSetEligibilityPortV1,
   createLocatedAppUniqueConstraintSetBuildTargetV1,
@@ -68,6 +68,63 @@ const LOCATOR = Object.freeze({
 } as const satisfies ScopePhysicalLocator);
 
 describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
+  it("bounds inherited claim draining and recovers rollback plus a lost response", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+    const fixture = await fixtureFor(persistence);
+    await closeFixtureSet(fixture);
+    for (let n = 1; n <= 17; n += 1) await appendLiveRow(fixture, n.toString(16).padStart(32, "0"), `owner${n}@example.com`);
+    await persistence.query("update fx_system_scope_clock set last_commit_seq = 1 where scope_id = $1", [fixture.scopeId]);
+    await reconcile(fixture);
+    await advanceUntilEnabled(fixture);
+    const claims = await persistence.query(`select *, xmin::text tuple_version from fx_app_unique_key order by row_id`);
+    expect(claims.rows).toHaveLength(17);
+    // Models 0097 replacing progress while preserving inherited stable claims.
+    await persistence.query("delete from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId]);
+    await reconcile(fixture);
+    await advanceBackfill(fixture, 16);
+    const before = await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId]);
+    const buildPorts = fixture.ports;
+    const buildInput = fixture.input;
+    await expect(runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(buildPorts, { ...buildInput, pageSize: 1 }, {
+      faultAfter: point => { if (point === "afterInitialClaimDrain") throw new Error("rollback initial drain"); },
+    }))).rejects.toMatchObject({ _tag: "AppUniqueConstraintSetBuildIntegrationV1Error" });
+    expect((await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows).toEqual(before.rows);
+    expect((await persistence.query(`select *, xmin::text tuple_version from fx_app_unique_key order by row_id`)).rows).toEqual(claims.rows);
+    const baseRunner = createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool);
+    let drained = false;
+    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(persistence.drizzle, LOCATOR, async work => {
+      const value = await baseRunner(work);
+      if (!drained) {
+        drained = true;
+        throw new LocatedReadCommittedTransactionFailureV1({ kind: "decisionUncertain", settlementCause: new Error("lost drain response") });
+      }
+      return value;
+    });
+    await expect(runEffect(advanceAppUniqueConstraintSetBackfillV1Effect({ ...buildPorts, authority: { ...buildPorts.authority, scopeClockTargets: { resolve: async () => target } } }, { ...buildInput, pageSize: 1 })))
+      .rejects.toMatchObject({ _tag: "AppUniqueConstraintSetBuildDecisionUncertainV1Error" });
+    expect((await persistence.query("select * from fx_app_unique_key")).rows).toHaveLength(1);
+    expect((await persistence.query("select lifecycle, covered_through_commit_seq from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows)
+      .toEqual([{ lifecycle: "building", covered_through_commit_seq: null }]);
+    await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({ lifecycle: "backfilling" });
+    expect((await persistence.query("select * from fx_app_unique_key")).rows).toHaveLength(0);
+    await advanceUntilEnabled(fixture);
+    const rebuilt = await persistence.query("select constraint_id, encoded_key, row_id from fx_app_unique_key order by row_id");
+    expect(rebuilt.rows).toEqual(claims.rows.map(({ constraint_id, encoded_key, row_id }) => ({ constraint_id, encoded_key, row_id })));
+    // Repeated reconciliation must not accumulate an unrelated feed backlog.
+    for (const seq of [102, 203]) {
+      await setClockCommit(fixture, BigInt(seq));
+      await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({ lifecycle: "enabled", status: "replayed" });
+      expect((await persistence.query<{ coverage: string }>("select covered_through_commit_seq::text coverage from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows).toEqual([{ coverage: String(seq) }]);
+    }
+    await appendLiveRow(fixture, "1".padStart(32, "0"), "changed@example.com", 204n, 1n);
+    await setClockCommit(fixture, 204n);
+    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({ lifecycle: "enabled" });
+    expect((await persistence.query("select encoded_key from fx_app_unique_key order by row_id")).rows[0]).not.toEqual({ encoded_key: rebuilt.rows[0]?.encoded_key });
+    expect((await persistence.query("select covered_through_commit_seq::text coverage from fx_system_unique_constraint_build where scope_id = $1", [fixture.scopeId])).rows).toEqual([{ coverage: "204" }]);
+
+    });
+  }, 120_000);
+
   it("serializes closure/build replay and proves rollback plus stale redeclaration", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const fixture = await fixtureFor(persistence);
@@ -100,7 +157,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       )).toHaveLength(11);
 
       await persistence.query(
-        "delete from fx_system_unique_constraint_set_build where scope_id = $1",
+        "delete from fx_system_unique_constraint_build where scope_id = $1",
         [fixture.scopeId],
       );
       const failure = await runEffectFailure(
@@ -117,8 +174,8 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
 
       await expect(reconcile(fixture)).resolves.toMatchObject({
         disposition: "created",
-        startCommitSeq: 0n,
-        attemptFence: 1n,
+        definitionBuilds: [{startCommitSeq: 0n,
+        attemptFence: 1n}],
       });
       await persistence.query(
         `update fx_system_scope_clock
@@ -128,8 +185,8 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       );
       await expect(reconcile(fixture)).resolves.toMatchObject({
         disposition: "redeclared",
-        startCommitSeq: 19n,
-        attemptFence: 2n,
+        definitionBuilds: [{startCommitSeq: 19n,
+        attemptFence: 2n}],
       });
     });
   }, 120_000);
@@ -178,8 +235,8 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
         value.lifecycle === "enabled"
       )).toHaveLength(1);
       const build = await persistence.query<{ lifecycle: string }>(
-        `select lifecycle from fx_system_unique_constraint_set_build
-          where scope_id = $1 and schema_version_id = $2`,
+        `select lifecycle from fx_system_unique_constraint_build
+          where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
         [fixture.scopeId, fixture.schemaVersionId],
       );
       expect(build.rows).toEqual([{ lifecycle: "enabled" }]);
@@ -196,14 +253,14 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       });
       const claims = await persistence.query<{
         row_id_hex: string;
-        commit_seq: string;
+        encoded_key_hex: string;
       }>(
-        `select encode(row_id, 'hex') row_id_hex, commit_seq::text
+        `select encode(row_id, 'hex') row_id_hex, encode(encoded_key, 'hex') encoded_key_hex
            from fx_app_unique_key order by row_id asc`,
       );
-      expect(claims.rows).toEqual([
-        { row_id_hex: "73000000000040008000000000000001", commit_seq: "1" },
-        { row_id_hex: "73000000000040008000000000000002", commit_seq: "1" },
+      expect(claims.rows).toMatchObject([
+        { row_id_hex: "73000000000040008000000000000001" },
+        { row_id_hex: "73000000000040008000000000000002" },
       ]);
     });
   }, 120_000);
@@ -232,10 +289,9 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       ] as const) {
         await reconcile(fixture);
         await persistence.query(
-          `update fx_system_unique_constraint_set_build
-              set lifecycle = $3, cursor_definition_id = null,
-                  cursor_row_id = null
-            where scope_id = $1 and schema_version_id = $2`,
+          `update fx_system_unique_constraint_build
+              set lifecycle = $3, cursor_row_id = null
+            where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
           [fixture.scopeId, fixture.schemaVersionId, lifecycle],
         );
         await expect(runEffect(
@@ -243,27 +299,18 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
             port,
             fixture.input,
           ),
-        )).resolves.toMatchObject({ disposition: "deleted", lifecycle });
+        )).resolves.toMatchObject({ disposition: "deleted", deletedDefinitionIds: [1] });
       }
 
       await reconcile(fixture);
       await persistence.query(
-        `update fx_system_unique_constraint_set_build set lifecycle = 'enabled'
-          where scope_id = $1 and schema_version_id = $2`,
+        `update fx_system_unique_constraint_build set lifecycle = 'enabled', covered_through_commit_seq = 0
+          where scope_id = $1 and unique_constraint_definition_id in (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
         [fixture.scopeId, fixture.schemaVersionId],
       );
-      const enabledFailure = await runEffectFailure(
-        reclaimSupersededAppUniqueConstraintSetBuildEffect(
-          port,
-          fixture.input,
-        ),
-      );
-      expect(enabledFailure).toBeInstanceOf(
-        AppUniqueConstraintSetBuildReclamationError,
-      );
-      expect(enabledFailure).toMatchObject({ reason: "buildEnabled" });
+      await expect(runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(port, fixture.input))).resolves.toMatchObject({disposition: "retained", retainedDefinitionIds: [1]});
       await persistence.query(
-        "delete from fx_system_unique_constraint_set_build where scope_id = $1",
+        "delete from fx_system_unique_constraint_build where scope_id = $1",
         [fixture.scopeId],
       );
 
@@ -377,7 +424,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
     });
   }, 120_000);
 
-  it("recovers uncertainty and reuses the exact 32-row directory slot", async () => {
+  it("recovers uncertainty and reuses the exact physical-definition directory slot", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const fixture = await fixtureFor(persistence);
       await closeFixtureSet(fixture);
@@ -386,12 +433,14 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
         persistence.pool,
       );
       let injected = false;
+      let transactionCount = 0;
       const uncertainTarget = createLocatedAppUniqueConstraintSetBuildTargetV1(
         persistence.drizzle,
         LOCATOR,
         async work => {
           const result = await baseRunner(work);
-          if (!injected) {
+          transactionCount += 1;
+          if (!injected && transactionCount === 2) {
             injected = true;
             throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
               kind: "decisionUncertain",
@@ -419,25 +468,10 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       expect(injected).toBe(true);
 
       await reconcile(fixture);
-      for (
-        let ordinal = 0;
-        ordinal < MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 - 1;
-        ordinal += 1
-      ) {
-        await persistence.query(
-          `insert into fx_system_unique_constraint_set_build
-            (scope_id, schema_version_id, set_codec_version, definition_count,
-             definition_set_sha256, storage_generation,
-             storage_generation_fence, epoch, start_commit_seq, lifecycle,
-             cursor_codec_version, cursor_definition_id, cursor_row_id,
-             attempt_fence)
-           values ($1, $2, 1, 0, decode(repeat('cd', 32), 'hex'),
-                   'flarexdb_v1', 1, $3, 0, 'enabled', 1, null, null, 1)`,
-          [fixture.scopeId, `schema_capacity_pg_${ordinal}`, fixture.epoch],
-        );
-      }
+      await persistence.query(`insert into fx_system_unique_constraint_build (scope_id, unique_constraint_definition_id, storage_generation, storage_generation_fence, epoch, start_commit_seq, lifecycle, covered_through_commit_seq, attempt_fence)
+        select $1, id, 'flarexdb_v1', 1, $2, 0, 'enabled', 0, 1 from generate_series(2, $3::int) id`, [fixture.scopeId, fixture.epoch, MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE]);
       expect(await buildCount(persistence, fixture.scopeId)).toBe(
-        MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+        MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
       );
       const port = createAppUniqueConstraintSetEligibilityPortV1(
         fixture.ports,
@@ -448,13 +482,13 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
         fixture.input,
       ));
       expect(await buildCount(persistence, fixture.scopeId)).toBe(
-        MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 - 1,
+        MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE - 1,
       );
       await expect(reconcile(fixture)).resolves.toMatchObject({
         disposition: "created",
       });
       expect(await buildCount(persistence, fixture.scopeId)).toBe(
-        MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+        MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
       );
     });
   }, 120_000);
@@ -637,6 +671,8 @@ async function appendLiveRow(
   fixture: Awaited<ReturnType<typeof fixtureFor>>,
   rowIdText: string,
   email: string,
+  commitSeq = 1n,
+  prevCommitSeq: bigint | null = null,
 ) {
   const rowId = decodeAppRowIdHexV1(rowIdText);
   const creationTime = decodeAppCreationTimeV1(1_750_000_000_000);
@@ -656,8 +692,8 @@ async function appendLiveRow(
           tableId: fixture.tableId,
           rowId,
           writeEpoch: fixture.epoch,
-          commitSeq: CommitSeqSchema.make(1n),
-          prevCommitSeq: null,
+          commitSeq: CommitSeqSchema.make(commitSeq),
+          prevCommitSeq: prevCommitSeq === null ? null : CommitSeqSchema.make(prevCommitSeq),
           schemaVersionId: fixture.schemaVersionId,
           creationTime,
           document,
@@ -672,15 +708,15 @@ async function buildCount(
   scopeId: string,
 ) {
   const result = await persistence.query<{ count: number }>(
-    "select count(*)::int count from fx_system_unique_constraint_set_build where scope_id = $1",
+    "select count(*)::int count from fx_system_unique_constraint_build where scope_id = $1",
     [scopeId],
   );
   return result.rows[0]?.count ?? -1;
 }
 
 function uniqueClaims(persistence: PostgresFlarexPersistence) {
-  return persistence.query<{ row_id_hex: string; commit_seq: string }>(
-    `select encode(row_id, 'hex') row_id_hex, commit_seq::text
+  return persistence.query<{ row_id_hex: string; encoded_key_hex: string }>(
+    `select encode(row_id, 'hex') row_id_hex, encode(encoded_key, 'hex') encoded_key_hex
        from fx_app_unique_key order by row_id asc`,
   ).then(result => result.rows);
 }
@@ -735,11 +771,23 @@ async function waitForBlockedScopeClockOperations(
         where activity.datname = current_database()
           and activity.wait_event_type = 'Lock'
           and activity.query ilike '%fx_system_scope_clock%'
-          and activity.query ilike '%for update%'`,
+          and (activity.query ilike '%for update%' or activity.query ilike '%for share%')`,
       [blockerPid],
     );
     if ((blocked.rows[0]?.count ?? 0) >= expected) return;
     await delay(25);
   }
   throw new Error(`Timed out waiting for ${expected} scope-clock waiters.`);
+}
+
+// Fixture-only authoritative history setup for direct builder tests.
+async function setClockCommit(fixture: Awaited<ReturnType<typeof fixtureFor>>, commitSeq: bigint) {
+  await fixture.persistence.query(`insert into fx_system_commit (scope_uuid, epoch_uuid, commit_seq, change_count, relation_adjacency_change_count)
+    select clock.scope_uuid, clock.epoch_uuid, seq, (select count(*)::int from fx_app_row_rev revision where revision.scope_uuid = clock.scope_uuid and revision.commit_seq = seq), 0
+    from fx_system_scope_clock clock cross join lateral generate_series(clock.last_commit_seq + 1, $2::bigint) seq where clock.scope_id = $1`, [fixture.scopeId, commitSeq.toString()]);
+  await fixture.persistence.query(`insert into fx_system_commit_app_row_change (scope_uuid, epoch_uuid, commit_seq, change_ordinal, table_id, row_id)
+    select revision.scope_uuid, revision.write_epoch_uuid, revision.commit_seq, (row_number() over (partition by revision.commit_seq order by revision.table_id, revision.row_id) - 1)::int, revision.table_id, revision.row_id
+    from fx_app_row_rev revision join fx_system_scope_clock clock on clock.scope_uuid = revision.scope_uuid
+    where clock.scope_id = $1 and revision.commit_seq > clock.last_commit_seq and revision.commit_seq <= $2::bigint`, [fixture.scopeId, commitSeq.toString()]);
+  await fixture.persistence.query(`update fx_system_scope_clock set last_commit_seq = $2 where scope_id = $1`, [fixture.scopeId, commitSeq.toString()]);
 }

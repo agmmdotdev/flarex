@@ -125,9 +125,50 @@ contract remains outside this slice. The replaced static-verifier generation in
 `applicationRevisionReadinessV1` remains historical; this correction does not
 modernize its activation/schema contract.
 
-Unique physical coverage and stable claim ownership remain in progress. The
-schema-keyed set workspace must be replaced, not accompanied by a second progress
-table. A bounded latest-state reconciliation must release changed old ownership
-before claiming final keys, so an A-only transient duplicate repaired by a later
-A commit does not trap candidate catch-up at the earlier commit. Membership-only
-ordered history follows the completed coverage correction.
+Unique coverage now belongs to one physical constraint workspace per scope,
+shared by all closed revision sets that reference that definition. Migration
+0097 replaces the schema-keyed workspace and removes unique-claim schema, epoch,
+and commit provenance. It preserves claims and row data while new workspaces
+start unserved. Initial population drains inherited ownership in independent
+16-claim transactions, then populates and validates bounded current-row/claim
+pages. Interrupted or uncertain pages resume through the same owner.
+
+A ready physical constraint has authenticated current ownership through its
+covered scope sequence, or an unchanged-table proof. Catch-up authenticates a
+complete gap bounded by 100 commits and 16,000 facts before mutating claims. It
+releases all changed owners before claiming final current keys. Thus a transient
+A-only duplicate repaired by a later A commit does not trap candidate B at the
+earlier duplicate. Missing retained facts and oversized gaps fail closed; no
+partial gap grants readiness. Regular reconciliation advances coverage across
+unchanged table suffixes so unrelated commits do not accumulate stale work.
+
+Active writers authenticate the selected physical workspaces and stored claim
+bytes before row publication, omit unchanged ownership writes, and advance only
+those workspaces atomically with the scope clock. Candidate-only constraints do
+not impose candidate uniqueness on active writes. Build directory limits apply
+to new declarations, not a global scan or reset on every commit. Stable readiness
+binds the exact per-definition start/fence vector, excluding mutable coverage.
+
+Workspace reclamation authenticates active/candidate heads and protects their
+physical memberships. Shared or enabled work remains; unknown protected closure
+membership prevents deletion. Candidate supersession and eligible deletion stay
+in one transaction. Physical draining/retired state prevents builder work.
+Medusa and Payload operation APIs and framework lifecycle ownership are unchanged.
+Membership-only ordered history remains the next storage replacement.
+
+## Standard Mutation Composition
+
+The standard `ApplicationMutationSystem` now constructs the existing exact
+unique-definition and eligibility pair from its trusted control database and
+admission authority and supplies both to its existing committer. The lower
+proof profile may still omit those ports; the standard Application runtime
+always composes them. No operation-facing API, schema installation, transaction
+owner, or framework lifecycle changes are introduced.
+
+The cooking witness reproduces candidate B becoming stale after valid A-only
+duplicates, rejects B catch-up until A repairs them, activates B, and then
+executes a B mutation that maintains unique coverage. A conflicting B write
+fails without changing rows, claims, coverage, commit facts, outcomes, or wakes.
+This closes the former composition gap where B activated but its standard
+runtime omitted unique maintenance. Empty closed sets retain their zero-workspace
+behavior through the same definition and eligibility owners.

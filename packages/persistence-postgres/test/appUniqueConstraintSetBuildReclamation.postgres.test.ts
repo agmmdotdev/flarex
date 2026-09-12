@@ -3,6 +3,17 @@ import {
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
 import { Result } from "effect";
+import { CatalogTableIdSchema } from "flarex-protocol/catalog";
+import { SchemaManifestAppIndexDescriptorSchema } from "flarex-protocol/schema-manifest";
+import {
+  APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+  APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  decodeAppUniqueConstraintPhysicalSpecV1,
+} from "flarex-protocol/app-unique-constraint-definition";
+import {
+  prepareAppUniqueConstraintDefinitionBindingV1Effect,
+  ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
+} from "../src/appUniqueConstraintDefinitions";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -21,6 +32,7 @@ import {
 import {
   closeAppUniqueConstraintSetV1InTransactionEffect,
   prepareAppUniqueConstraintSetClosureV1Effect,
+  readAppUniqueConstraintSetClosureV1Effect,
 } from "../src/appUniqueConstraintSetClosureV1";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
@@ -38,6 +50,43 @@ describePostgres(
   "real PostgreSQL M05-A selected-schema refusal",
   { timeout: 180_000 },
   () => {
+    it("retains shared physical work and releases only known private membership", async () => {
+      await withTemporaryPostgresPersistencePair(async (control, target) => {
+        const fixture = await createApplicationNativeMutationPostgresFixture({ runtimeHostIdentity: "flarex.test/unique-shared-pg", compatibilityDate: "2026-08-16" }, {control, target});
+    const candidateA = await fixture.publishManagedSchemaCandidate(
+      manifestWithOptionalField(manifestWithOptionalField(fixture.active.basis.manifest, "shared"), "onlyA"),
+    );
+    await closeCandidateSet(fixture, candidateA.schemaVersionId, ["shared", "onlyA"]);
+    await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts(fixture), buildInput(fixture, candidateA.schemaVersionId)));
+    await runEffect(installAppSchemaCandidateValidationEffect(fixture.candidateValidation, buildInput(fixture, candidateA.schemaVersionId)));
+    const before = await fixture.target.query(`select * from fx_system_unique_constraint_build where scope_id = $1 order by unique_constraint_definition_id`, [fixture.authority.scopeId]);
+    expect(before.rows).toHaveLength(2);
+    const candidateB = await fixture.publishManagedSchemaCandidate(manifestWithOptionalField(fixture.active.basis.manifest, "shared"));
+    await closeCandidateSet(fixture, candidateB.schemaVersionId, "shared");
+    const closure = await runEffect(readAppUniqueConstraintSetClosureV1Effect(fixture.control.drizzle, fixture.deploymentId, candidateB.schemaVersionId));
+    if (closure === null) throw new Error("Expected shared closure.");
+    const sharedId = closure.members[0]!.uniqueConstraintDefinitionId;
+    await expect(runEffect(installAppSchemaCandidateWithWorkspaceReclamationEffect(
+      fixture.uniqueConstraintEligibility, fixture.candidateValidation, buildInput(fixture, candidateB.schemaVersionId),
+    ))).resolves.toMatchObject({ workspace: { disposition: "deleted" } });
+    const after = await fixture.target.query(`select * from fx_system_unique_constraint_build where scope_id = $1`, [fixture.authority.scopeId]);
+    expect(after.rows).toEqual(before.rows.filter(row => row.unique_constraint_definition_id === sharedId));
+    expect(after.rows).toHaveLength(1);
+    await expect(runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(fixture.uniqueConstraintEligibility, buildInput(fixture, candidateA.schemaVersionId))))
+      .resolves.toMatchObject({ disposition: "retained", retainedDefinitionIds: [sharedId], deletedDefinitionIds: [] });
+    const reconciled = await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts(fixture), buildInput(fixture, candidateB.schemaVersionId)));
+    expect(reconciled).toMatchObject({ status: "reconciled", disposition: "replayed" });
+    const candidateC = await fixture.publishManagedSchemaCandidate(manifestWithOptionalField(fixture.active.basis.manifest, "unknown"));
+    await expect(runEffect(installAppSchemaCandidateWithWorkspaceReclamationEffect(
+      fixture.uniqueConstraintEligibility, fixture.candidateValidation, buildInput(fixture, candidateC.schemaVersionId),
+    ))).resolves.toMatchObject({ workspace: { disposition: "retained", reason: "protectedMembershipUnknown" } });
+    expect((await fixture.target.query(`select * from fx_system_unique_constraint_build where scope_id = $1`, [fixture.authority.scopeId])).rows).toEqual(after.rows);
+    await closeCandidateSet(fixture, candidateC.schemaVersionId, []);
+    await expect(runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(fixture.uniqueConstraintEligibility, buildInput(fixture, candidateB.schemaVersionId))))
+      .resolves.toMatchObject({ disposition: "deleted", deletedDefinitionIds: [sharedId], retainedDefinitionIds: [] });
+      });
+    });
+
     it("atomically installs the replacement and reclaims its displaced workspace", async () => {
       await withTemporaryPostgresPersistencePair(async (control, target) => {
         const fixture = await createApplicationNativeMutationPostgresFixture({
@@ -47,7 +96,7 @@ describePostgres(
         const candidateA = await fixture.publishManagedSchemaCandidate(
           manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
         );
-        await closeEmptySet(fixture, candidateA.schemaVersionId);
+        await closeCandidateSet(fixture, candidateA.schemaVersionId, "candidateA");
         await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
           buildPorts(fixture),
           buildInput(fixture, candidateA.schemaVersionId),
@@ -59,6 +108,7 @@ describePostgres(
         const candidateB = await fixture.publishManagedSchemaCandidate(
           manifestWithOptionalField(fixture.active.basis.manifest, "candidateB"),
         );
+    await closeCandidateSet(fixture, candidateB.schemaVersionId, "candidateB");
         await expect(runEffect(
           installAppSchemaCandidateWithWorkspaceReclamationEffect(
             fixture.uniqueConstraintEligibility,
@@ -72,19 +122,23 @@ describePostgres(
             schemaVersionId: candidateA.schemaVersionId,
           },
         });
+        const displacedClosure = await runEffect(readAppUniqueConstraintSetClosureV1Effect(
+          fixture.control.drizzle, fixture.deploymentId, candidateA.schemaVersionId,
+        ));
+        if (displacedClosure === null) throw new Error("Expected displaced closure.");
         const durable = await fixture.target.query<{
           candidate_schema_version_id: string;
           displaced_build_count: string;
         }>(
           `select candidate.schema_version_id candidate_schema_version_id,
-                  count(build.schema_version_id)::text displaced_build_count
+                  count(build.unique_constraint_definition_id)::text displaced_build_count
              from fx_system_app_schema_candidate_validation candidate
-             left join fx_system_unique_constraint_set_build build
+             left join fx_system_unique_constraint_build build
                on build.scope_id = candidate.scope_id
-              and build.schema_version_id = $2
+              and build.unique_constraint_definition_id = any($2::integer[])
             where candidate.scope_id = $1
             group by candidate.schema_version_id`,
-          [fixture.authority.scopeId, candidateA.schemaVersionId],
+          [fixture.authority.scopeId, displacedClosure.members.map(member => member.uniqueConstraintDefinitionId)],
         );
         expect(durable.rows).toEqual([{
           candidate_schema_version_id: candidateB.schemaVersionId,
@@ -146,7 +200,7 @@ describePostgres(
             "candidateOnly",
           ),
         );
-        await closeEmptySet(fixture, candidate.schemaVersionId);
+        await closeCandidateSet(fixture, candidate.schemaVersionId, "candidateOnly");
         await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
           buildPorts(fixture),
           buildInput(fixture, candidate.schemaVersionId),
@@ -156,11 +210,8 @@ describePostgres(
           buildInput(fixture, candidate.schemaVersionId),
         ));
         await expectReclamationRefusal(
-          fixture,
-          port,
-          candidate.schemaVersionId,
-          "currentCandidate",
-        );
+      fixture, port, candidate.schemaVersionId, "currentCandidate",
+    );
         const candidateDigest = await fixture.target.query<{
           frame_sha256_hex: string;
         }>(
@@ -192,7 +243,7 @@ describePostgres(
             "supersededOnly",
           ),
         );
-        await closeEmptySet(fixture, superseded.schemaVersionId);
+        await closeCandidateSet(fixture, superseded.schemaVersionId, "supersededOnly");
         await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
           buildPorts(fixture),
           buildInput(fixture, superseded.schemaVersionId),
@@ -205,8 +256,7 @@ describePostgres(
         )).resolves.toMatchObject({
           disposition: "deleted",
           schemaVersionId: superseded.schemaVersionId,
-          lifecycle: "declared",
-        });
+            });
       });
     });
   },
@@ -226,10 +276,31 @@ function buildInput(
   return Object.freeze({ deploymentId: fixture.deploymentId, schemaVersionId });
 }
 
-async function closeEmptySet(
+async function closeCandidateSet(
   fixture: ApplicationNativeMutationPostgresFixture,
   schemaVersionId: ApplicationNativeMutationPostgresFixture["active"]["basis"]["schemaVersionId"],
+  fieldNames: string | readonly string[],
 ) {
+  for (const fieldName of typeof fieldNames === "string" ? [fieldNames] : fieldNames) {
+  const binding = await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(
+    fixture.control.drizzle,
+    {
+      ...buildInput(fixture, schemaVersionId),
+      tableId: CatalogTableIdSchema.make(1),
+      descriptor: SchemaManifestAppIndexDescriptorSchema.make(`by_${fieldName}`),
+      physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+        kind: "appUniqueConstraint", specVersion: 1,
+        orderedFields: [fieldName], sparse: false,
+        localePolicy: { kind: "none" },
+        keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+        keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+      }),
+    },
+  ));
+  await fixture.control.drizzle.transaction(tx => runEffect(
+    ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, binding),
+  ));
+  }
   const prepared = await runEffect(
     prepareAppUniqueConstraintSetClosureV1Effect(
       fixture.control.drizzle,

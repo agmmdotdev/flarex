@@ -895,7 +895,7 @@ commit positions and already-served snapshots. Readiness and index admission use
 the same coverage predicate, with an indexed current-table-head proof for
 irrelevant commit suffixes. Unknown pre-correction enabled coverage fails closed.
 See [the approved coverage correction](../shared-transaction-core/08-index-coverage-correction.md)
-for work bounds, migration disposition and the remaining unique-owner correction.
+for work bounds, migration disposition and the physical unique-owner correction.
 
 `C08-A` directly replaces C04C1's former developer-index rejection only for a
 private capability minted by the exact point-commit port that owns maintenance;
@@ -925,61 +925,33 @@ authority and canonical commitments; it does not store user code or artifact
 bodies. The S11 claim identity is the physical definition ID. No claim,
 backfill, readiness, activation, or point-commit behavior is introduced.
 
-`C08-B2` is now implemented as a private, production-inert point-commit
-capability. Before the existing transaction it locates opaque definitions for
-the pinned schema and touched tables. Inside the existing scope-clock lane it
-derives prior/final unique projections from verified application documents and
-uses S11 for deterministic release, same-key advance, and claim actions. All
-releases precede claims, so a bounded multi-row key swap is atomic. Existing
-claims must match prior row/key lineage; a missing claim remains an accepted
-pre-B1 convergence state. The first generation caps one commit at 32
-definition/row transitions and 64 S11 actions. It changes no commit/OCC owner,
-schema, migration, readiness, activation, or query authority.
+`C08-B2` locates opaque definitions for the pinned schema and touched tables.
+The existing scope-clock transaction derives prior/final unique projections from
+verified Application documents, authenticates stored canonical ownership, releases
+changed owners, and claims final keys. All releases precede claims, making
+bounded multi-row swaps atomic. Unchanged keys produce no claim write. Missing
+or corrupted expected prior ownership fails closed. The bound remains 32
+selected definition/row transitions and at most 64 claim actions.
 
-The first private `C08-B1` foundation closes the exact schema-version
-definition set and reconciles one target-native, scope-clock-fenced build row
-for that set. Migration `0049` stores the compact canonical set commitment,
-scope generation/epoch/frontier pins, lifecycle cursor, and replay-safe attempt
-fence. Exact binding replay remains allowed after closure while late or changed
-bindings fail closed. This is build authority only: no backfill, validation,
-enabled verdict, planner eligibility, readiness, activation, or routing is
-introduced by that foundation.
+`C08-B1` retains exact immutable schema-version set closure in control storage,
+while physical build progress is keyed by scope and constraint definition.
+Shared definitions reuse one workspace. Current claims reference stable row
+identity rather than body revisions. Initial inherited claims are drained in
+16-owner pages before bounded population and validation. Enabled coverage is
+checked against the requested scope head, using the current-table frontier for
+unchanged suffixes or authenticated latest-state gap reconciliation. Active
+publication advances only selected definitions; it no longer scans or resets all
+candidate workspaces. Readiness binds immutable per-definition start/fence
+identity while mutable coverage is checked transactionally. The declaration
+limit is 8192 physical workspaces per scope and does not tax ordinary writes.
 
-The next private `C08-B1` checkpoint now advances that same row through bounded
-backfill and stops at `validating`. A set-based ordered frontier scan is capped
-at 16 definition/row candidates per transaction. Every candidate is re-read
-through canonical current-row evidence before the shared C08 lowering owner
-and a dedicated S11 reconciliation primitive either acquire an absent claim or
-authenticate an exact replay. Duplicate ownership, contradictory lineage,
-oversized/invalid lowering, storage corruption, and injected faults fail closed
-and roll back the page plus cursor. Current rows newer than the accepted start
-frontier are used, preventing stale candidate resurrection. No new table,
-migration, claim owner, OCC lane, or commit owner is introduced.
-
-The final private `C08-B1` build checkpoint now validates the bounded union of
-current application rows and S11 claim-only rows in target transactions.
-Canonical current-row evidence determines the exact expected claim or absence;
-S11 authenticates the stored owner identity and lineage without taking over or
-repairing it. Bounded owner-index range probes reject wrong-locale and
-wrong-table claims; other missing, unexpected, mismatched, or corrupt claims
-also fail closed. Every material point commit resets all validating
-schema-version build cursors for its scope inside the existing scope-clock
-transaction, independent of the optional B2 locator. Thus current/old-schema
-commits, prospective builds, sparse rows, and omitted rows cannot escape the
-clean complete pass required to advance one row to `enabled`. A
-primary-key-ordered cap-plus-one selection bounds the complete per-scope build
-directory to 32 rows and fails the entire commit closed above the ceiling; only
-non-null validating cursors from that locked snapshot are rewritten. The
-reconciliation writer checks the same bounded directory before insertion and
-atomically rejects row 33, while point commits remain writable at exactly 32.
-PGlite proves
-bounded progress, claim-only and malformed-dimension rejection, no-port and
-cross-schema reset, directory admission and exact-ceiling behavior,
-invalidation-ceiling rollback, fault rollback, and replay. A fresh isolated
-PostgreSQL 18.3 run now migrates through `0047` and `0049`, passes the two
-direct C08-B0 definition cases, and passes all 26 C08-B1C build/eligibility/
-point-commit scenarios; the migration-isolation defect is resolved in the
-owning index roadmap.
+Migration 0097 replaces the old set workspace and removes obsolete claim
+provenance. Existing claims/data survive, but replacement workspaces must become
+ready before use. No dual storage or fallback path remains. Shared/active/current
+candidate membership and enabled work are protected during reclamation; unknown
+protected membership retains state. See the
+[coverage owner](../shared-transaction-core/08-index-coverage-correction.md)
+for gap bounds, recovery, cleanup, and development replacement policy.
 
 General C08 remains production-inert. The private B1 planner-eligibility gate is
 an opaque facet of the exact B2 point-commit port, not a new public manifest or

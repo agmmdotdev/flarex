@@ -1,5 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
+
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
@@ -240,7 +242,7 @@ import {
   prepareAppUniqueConstraintDefinitionBindingV1Effect,
 } from "../src/appUniqueConstraintDefinitions";
 import {
-  MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+  MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
   advanceAppUniqueConstraintSetBackfillV1Effect,
   createAppUniqueConstraintSetEligibilityPortV1,
   createLocatedAppUniqueConstraintSetBuildTargetV1,
@@ -4849,7 +4851,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     }
     expect(await uniqueKeyState(prepared.scopeUuid)).toMatchObject([{
       rowIdHex: pointRowIdHex(insertedDocumentId),
-      commitSeq: "1",
     }]);
   });
 
@@ -4904,198 +4905,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     )).resolves.toMatchObject({ kind: "published" });
   });
 
-  it("resets validating unique-set progress in point commit and rolls it back with the commit", async () => {
-    const reset = await prepareO07BScenario(
-      "c08b1c_unique_validation_reset",
-      async (current, table) => {
-        await runPointOperation(current.store, table, {
-          kind: "insert",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          fields: { name: "behind-validation-cursor" },
-        });
-      },
-      async (current) => {
-        await insertValidatingUniqueSetBuild(current);
-        await insertValidatingUniqueSetBuild(
-          current,
-          `${current.schemaVersionId}_candidate`,
-        );
-        return {};
-      },
-    );
-    expect(await uniqueSetBuildCursors(reset.current)).toEqual([
-      {
-        schemaVersionId: reset.current.schemaVersionId,
-        lifecycle: "validating",
-        cursorDefinitionId: 1,
-        cursorRowHex: "ff".repeat(16),
-      },
-      {
-        schemaVersionId: `${reset.current.schemaVersionId}_candidate`,
-        lifecycle: "validating",
-        cursorDefinitionId: 1,
-        cursorRowHex: "ff".repeat(16),
-      },
-    ]);
-    await runEffect(reset.authentication.publishPointCommit(reset.plan));
-    expect(await uniqueSetBuildCursors(reset.current)).toEqual([
-      {
-        schemaVersionId: reset.current.schemaVersionId,
-        lifecycle: "validating",
-        cursorDefinitionId: null,
-        cursorRowHex: null,
-      },
-      {
-        schemaVersionId: `${reset.current.schemaVersionId}_candidate`,
-        lifecycle: "validating",
-        cursorDefinitionId: null,
-        cursorRowHex: null,
-      },
-    ]);
-
-    const rolledBack = await prepareO07BScenario(
-      "c08b1c_unique_validation_reset_rollback",
-      async (current, table) => {
-        await runPointOperation(current.store, table, {
-          kind: "insert",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          fields: { name: "rollback-validation-reset" },
-        });
-      },
-      async (current) => {
-        await insertValidatingUniqueSetBuild(current);
-        return {
-          afterTransactionStep: (event) => {
-            if (event.step === "uniqueConstraintValidationReset") {
-              throw new PointCommitCorruptionV1Error({
-                reason: "publicationInvariantInvalid",
-              });
-            }
-            return Promise.resolve();
-          },
-        };
-      },
-    );
-    expect(await runFailure(
-      rolledBack.authentication.publishPointCommit(rolledBack.plan),
-    )).toBeInstanceOf(PointCommitCorruptionV1Error);
-    expect(await uniqueSetBuildCursor(rolledBack.current)).toEqual({
-      lifecycle: "validating",
-      cursorDefinitionId: 1,
-      cursorRowHex: "ff".repeat(16),
+  it("leaves unselected candidate progress untouched even beyond the historical directory ceiling", async () => {
+    const prepared = await prepareO07BScenario("unique_unselected_directory", async (current, table) => {
+      await runPointOperation(current.store, table, {kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(1n), fields: {name: "valid-active-write"}});
+    }, async current => {
+      await seedUnselectedUniqueBuilds(current, MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE + 1);
+      return {};
     });
-    expect(await o06DurableState(rolledBack.scopeUuid)).toMatchObject({
-      revisions: "0",
-      current_rows: "0",
-      commit_headers: "0",
-      outcomes: "0",
-      last_commit_seq: "0",
-    });
-  });
-
-  it("fails closed before commit when the scope build directory ceiling is exceeded", async () => {
-    const prepared = await prepareO07BScenario(
-      "c08b1c_unique_validation_reset_ceiling",
-      async (current, table) => {
-        await runPointOperation(current.store, table, {
-          kind: "insert",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          fields: { name: "validation-reset-ceiling" },
-        });
-      },
-      async (current) => {
-        for (
-          let ordinal = 0;
-          ordinal <= MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1;
-          ordinal += 1
-        ) {
-          await insertValidatingUniqueSetBuild(
-            current,
-            `${current.schemaVersionId}_candidate_${ordinal}`,
-          );
-        }
-        await persistence.query(
-          `update fx_system_unique_constraint_set_build
-              set lifecycle = 'enabled', cursor_definition_id = null,
-                  cursor_row_id = null
-            where scope_id = $1 and schema_version_id <> $2`,
-          [
-            current.anchor.scopeId,
-            `${current.schemaVersionId}_candidate_${
-              MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1
-            }`,
-          ],
-        );
-        return {};
-      },
-    );
-    expect(await runFailure(
-      prepared.authentication.publishPointCommit(prepared.plan),
-    )).toMatchObject({
-      _tag: "PointCommitCorruptionV1Error",
-      reason: "uniqueConstraintBuildInvalid",
-    });
-    const cursors = await uniqueSetBuildCursors(prepared.current);
-    expect(cursors).toHaveLength(
-      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 + 1,
-    );
-    expect(cursors.filter((row) => row.cursorRowHex === null)).toHaveLength(
-      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
-    );
-    expect(cursors.filter((row) =>
-      row.cursorRowHex === "ff".repeat(16)
-    )).toHaveLength(1);
-    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
-      revisions: "0",
-      current_rows: "0",
-      commit_headers: "0",
-      outcomes: "0",
-      last_commit_seq: "0",
-    });
-  });
-
-  it("publishes at the exact scope build directory ceiling", async () => {
-    const prepared = await prepareO07BScenario(
-      "c08b1c_unique_validation_reset_exact_ceiling",
-      async (current, table) => {
-        await runPointOperation(current.store, table, {
-          kind: "insert",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          fields: { name: "validation-reset-exact-ceiling" },
-        });
-      },
-      async (current) => {
-        for (
-          let ordinal = 0;
-          ordinal < MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1;
-          ordinal += 1
-        ) {
-          await insertValidatingUniqueSetBuild(
-            current,
-            `${current.schemaVersionId}_history_${ordinal}`,
-          );
-        }
-        await persistence.query(
-          `update fx_system_unique_constraint_set_build
-              set lifecycle = 'enabled', cursor_definition_id = null,
-                  cursor_row_id = null
-            where scope_id = $1`,
-          [current.anchor.scopeId],
-        );
-        return {};
-      },
-    );
+    const before = await uniqueBuildStates(prepared.current);
     await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
-    expect(await uniqueSetBuildCursors(prepared.current)).toHaveLength(
-      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
-    );
-    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
-      revisions: "1",
-      current_rows: "1",
-      commit_headers: "1",
-      outcomes: "1",
-      last_commit_seq: "1",
-    });
+    expect(await uniqueBuildStates(prepared.current)).toEqual(before);
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({revisions: "1", current_rows: "1", commit_headers: "1", outcomes: "1", last_commit_seq: "1"});
+  });
+
+  it("rolls back active unique coverage together with row and claim publication", async () => {
+    const prepared = await prepareO07BScenario("unique_coverage_rollback", async (current, table) => {
+      await runPointOperation(current.store, table, {kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(1n), fields: {name: "rollback-active-coverage"}});
+    }, async current => ({...await prepareUniqueConstraintForO06(current, false), afterTransactionStep: async event => {
+      if (event.step === "uniqueConstraintCoverageAdvanced") throw new PointCommitCorruptionV1Error({reason: "publicationInvariantInvalid"});
+    }}));
+    const before = await uniqueBuildStates(prepared.current);
+    expect(await runFailure(prepared.authentication.publishPointCommit(prepared.plan))).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(await uniqueBuildStates(prepared.current)).toEqual(before);
+    expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({revisions: "0", current_rows: "0", commit_headers: "0", outcomes: "0", last_commit_seq: "0"});
   });
 
   it("rejects structurally copied unique locator authority before transaction", async () => {
@@ -5210,7 +5043,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       true,
     );
     const before = await uniqueKeyState(prepared.scopeUuid);
-    expect(before).toMatchObject([{ commitSeq: "1" }]);
+    expect(before).toHaveLength(1);
 
     expect(await runFailure(
       prepared.authentication.publishPointCommit(prepared.plan),
@@ -5229,7 +5062,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       attemptFence: prepared.current.anchor.attemptFence.toString(),
     }));
     const after = await uniqueKeyState(prepared.scopeUuid);
-    expect(after).toMatchObject([{ commitSeq: "2" }]);
+    expect(after).toHaveLength(1);
     expect(after[0]?.encodedKeyHex).not.toBe(before[0]?.encodedKeyHex);
   });
 
@@ -5306,7 +5139,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const afterUnique = await uniqueKeyState(prepared.scopeUuid);
     expect(afterDeveloper.revisions).toHaveLength(3);
     expect(afterDeveloper.current).toMatchObject([{ commitSeq: "2" }]);
-    expect(afterUnique).toMatchObject([{ commitSeq: "2" }]);
+    expect(afterUnique).toHaveLength(1);
     expect(afterDeveloper.current[0]?.encodedKeyHex).not.toBe(
       beforeDeveloper.current[0]?.encodedKeyHex,
     );
@@ -5324,7 +5157,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
-  it("advances same-key claims, releases deletes, and omits sparse keys", async () => {
+  it.each(["missing", "digest", "differentCanonicalKey"] as const)("rejects %s corruption before omitting an unchanged unique key", async mode => {
+    const prepared = await prepareO07BScenario(`unique_noop_corruption_${mode}`, async (current, table) => {
+      if (current.seededDocumentId === null) throw new Error("Missing seeded unique row.");
+      await runPointOperation(current.store, table, {kind: "patch", syscallSequence: CommitSyscallSequenceV1Schema.make(1n), documentId: current.seededDocumentId, patch: {category: "unchanged-unique-key"}});
+    }, current => prepareUniqueConstraintForO06(current, true), true);
+    if (mode === "missing") await persistence.query("delete from fx_app_unique_key where scope_uuid = $1", [prepared.scopeUuid]);
+    else if (mode === "digest") await persistence.query("update fx_app_unique_key set canonical_key_sha256 = decode(repeat('ff',32),'hex') where scope_uuid = $1", [prepared.scopeUuid]);
+    else {
+      const key = Result.getOrThrow(canonicalizeAppUniqueKeyV1Result({sparse: false, localeKey: null, values: [orderedIndexValueFromFlarexValueV1("foreign-current-key")]}));
+      if (key.kind !== "claim") throw new Error("Expected a concrete replacement key.");
+      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(key.canonicalKeyBytes)));
+      await persistence.query("update fx_app_unique_key set encoded_key = $2, canonical_key_sha256 = $3 where scope_uuid = $1", [prepared.scopeUuid, key.canonicalKeyBytes, digest]);
+    }
+    const before = await o06DurableState(prepared.scopeUuid);
+    const claims = await uniqueKeyState(prepared.scopeUuid);
+    const builds = await uniqueBuildStates(prepared.current);
+    expect(await runFailure(prepared.authentication.publishPointCommit(prepared.plan))).toMatchObject({_tag: "PointCommitCorruptionV1Error", reason: "uniqueKeyTransitionInvalid"});
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual(before);
+    expect(await uniqueKeyState(prepared.scopeUuid)).toEqual(claims);
+    expect(await uniqueBuildStates(prepared.current)).toEqual(builds);
+  });
+
+  it("preserves same-key claims, releases deletes, and omits sparse keys", async () => {
+    let uniqueWrites = 0;
     const sameKey = await prepareO07BScenario(
       "c08b2_unique_same_key",
       async (current, table) => {
@@ -5338,13 +5194,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           patch: { category: "non-unique-change" },
         });
       },
-      (current) => prepareUniqueConstraintForO06(current, true),
+      async current => ({...await prepareUniqueConstraintForO06(current, true), afterTransactionStep: async event => { if (event.step === "uniqueKeyWritten") uniqueWrites += 1; }}),
       true,
     );
     const sameKeyBefore = await uniqueKeyState(sameKey.scopeUuid);
     await runEffect(sameKey.authentication.publishPointCommit(sameKey.plan));
     const sameKeyAfter = await uniqueKeyState(sameKey.scopeUuid);
-    expect(sameKeyAfter).toMatchObject([{ commitSeq: "2" }]);
+    expect(sameKeyAfter).toEqual(sameKeyBefore);
+    expect(uniqueWrites).toBe(0);
     expect(sameKeyAfter[0]?.encodedKeyHex).toBe(
       sameKeyBefore[0]?.encodedKeyHex,
     );
@@ -5442,7 +5299,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
     const after = await uniqueKeyState(prepared.scopeUuid);
     expect(after).toHaveLength(2);
-    expect(after.every((row) => row.commitSeq === "2")).toBe(true);
     const firstRowId = pointRowIdHex(prepared.current.seededDocumentId);
     const secondRowId = pointRowIdHex(secondDocumentId);
     expect(after.find((row) => row.rowIdHex === firstRowId)?.encodedKeyHex).toBe(
@@ -7563,9 +7419,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           tableId,
           rowId,
           writeEpoch: clock.epoch,
-          commitSeq: CommitSeqSchema.make(1n),
-          rowPrevCommitSeq: null,
-          previousClaimCommitSeq: null,
           previous: null,
           next: Result.getOrThrow(
             lowerAppUniqueConstraintProjectionV1Result(definition, document),
@@ -7650,73 +7503,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   }
 
-  async function insertValidatingUniqueSetBuild(
-    current: Awaited<ReturnType<typeof c04b2Scenario>>,
-    schemaVersionId: string = current.schemaVersionId,
-  ) {
-    const clock = await persistence.getScopeClock(current.anchor.scopeId);
-    if (clock === null) throw new Error("Missing C08-B1C scope clock.");
-    await persistence.query(
-      `insert into fx_system_unique_constraint_set_build
-        (scope_id, schema_version_id, set_codec_version, definition_count,
-         definition_set_sha256, storage_generation,
-         storage_generation_fence, epoch, start_commit_seq, lifecycle,
-         cursor_codec_version, cursor_definition_id, cursor_row_id,
-         attempt_fence)
-       values ($1, $2, 1, 1, decode(repeat('ab', 32), 'hex'),
-               'flarexdb_v1', $3, $4, $5, 'validating', 1, 1,
-               decode(repeat('ff', 16), 'hex'), 1)
-       on conflict (scope_id, schema_version_id) do update
-         set lifecycle = 'validating', cursor_definition_id = 1,
-             cursor_row_id = decode(repeat('ff', 16), 'hex')`,
-      [
-        current.anchor.scopeId,
-        schemaVersionId,
-        clock.storageGenerationFence.toString(),
-        clock.epoch,
-        clock.lastCommitSeq.toString(),
-      ],
-    );
+  async function seedUnselectedUniqueBuilds(current: Awaited<ReturnType<typeof c04b2Scenario>>, count: number) {
+    await persistence.query(`insert into fx_system_unique_constraint_build (scope_id, unique_constraint_definition_id, storage_generation, storage_generation_fence, epoch, start_commit_seq, covered_through_commit_seq, lifecycle, cursor_row_id, attempt_fence)
+      select scope_id, id, storage_generation, storage_generation_fence, epoch, last_commit_seq, last_commit_seq, 'validating', decode(repeat('ff',16),'hex'), 1
+      from fx_system_scope_clock cross join generate_series(1000, $2::int + 999) id where scope_id = $1`, [current.anchor.scopeId, count]);
   }
 
-  async function uniqueSetBuildCursor(
-    current: Awaited<ReturnType<typeof c04b2Scenario>>,
-  ) {
-    const result = await persistence.query<{
-      lifecycle: string;
-      cursorDefinitionId: number | null;
-      cursorRowHex: string | null;
-    }>(
-      `select lifecycle,
-              cursor_definition_id "cursorDefinitionId",
-              encode(cursor_row_id, 'hex') "cursorRowHex"
-         from fx_system_unique_constraint_set_build
-        where scope_id = $1 and schema_version_id = $2`,
-      [current.anchor.scopeId, current.schemaVersionId],
-    );
-    const row = result.rows[0];
-    if (row === undefined) throw new Error("Missing C08-B1C build row.");
-    return row;
-  }
-
-  async function uniqueSetBuildCursors(
-    current: Awaited<ReturnType<typeof c04b2Scenario>>,
-  ) {
-    const result = await persistence.query<{
-      schemaVersionId: string;
-      lifecycle: string;
-      cursorDefinitionId: number | null;
-      cursorRowHex: string | null;
-    }>(
-      `select schema_version_id "schemaVersionId", lifecycle,
-              cursor_definition_id "cursorDefinitionId",
-              encode(cursor_row_id, 'hex') "cursorRowHex"
-         from fx_system_unique_constraint_set_build
-        where scope_id = $1
-        order by schema_version_id asc`,
-      [current.anchor.scopeId],
-    );
-    return result.rows;
+  async function uniqueBuildStates(current: Awaited<ReturnType<typeof c04b2Scenario>>) {
+    return (await persistence.query(`select * from fx_system_unique_constraint_build where scope_id = $1 order by unique_constraint_definition_id`, [current.anchor.scopeId])).rows;
   }
 
   async function seedSecondUniqueUser(
@@ -7774,9 +7568,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         tableId,
         rowId,
         writeEpoch: clock.epoch,
-        commitSeq: CommitSeqSchema.make(1n),
-        rowPrevCommitSeq: null,
-        previousClaimCommitSeq: null,
         previous: null,
         next: Result.getOrThrow(
           lowerAppUniqueConstraintProjectionV1Result(definition, document),
@@ -8648,12 +8439,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       constraint_id: string;
       encoded_key_hex: string;
       row_id_hex: string;
-      commit_seq: string;
+      table_id: number;
+      locale_key: string;
+      key_sha256_hex: string;
     }>(
       `select constraint_id::text,
          encode(encoded_key, 'hex') as encoded_key_hex,
          encode(row_id, 'hex') as row_id_hex,
-         commit_seq::text
+         table_id, locale_key, encode(canonical_key_sha256, 'hex') key_sha256_hex
        from fx_app_unique_key
        where scope_uuid = $1
        order by constraint_id, encoded_key, row_id`,
@@ -8663,7 +8456,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       constraintId: row.constraint_id,
       encodedKeyHex: row.encoded_key_hex,
       rowIdHex: row.row_id_hex,
-      commitSeq: row.commit_seq,
+      tableId: row.table_id, localeKey: row.locale_key, keySha256Hex: row.key_sha256_hex,
     })));
   }
 

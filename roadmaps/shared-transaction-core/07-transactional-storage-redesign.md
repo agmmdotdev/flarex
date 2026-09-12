@@ -11,8 +11,10 @@ and write events retain canonical bytes and digest without a JSON mirror.
 Terminal sessions now discard their argument, grant, and Application authority
 bodies atomically while retaining their request identity and outcome selector.
 Slice 4 uses one canonical byte body plus digest for Application row revisions;
-the JSONB mirror and its readers/projection checks are removed. Membership and
-stable unique ownership remain pending, and the coalesced-journal contract
+the JSONB mirror and its readers/projection checks are removed. Unique claims now
+retain stable ownership without document-revision provenance or same-key refresh;
+physical constraint coverage replaces schema-set progress. Membership-only ordered
+history remains pending, and the coalesced-journal contract
 remains a separate selection. Payload and Medusa operation APIs remain unchanged by these replacements;
 exported core clock/counter types lose their obsolete wake-sequence fields.
 

@@ -1,3 +1,4 @@
+import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBuildV1";
 import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
 import { readApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Repository";
 import type { ScopeId } from "flarex-protocol/storage-authority";
@@ -915,7 +916,7 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
       entries: [],
     });
     const uniqueSha256 = yield* digestCanonicalJson(
-      uniqueConstraintFrame(unique),
+      appUniqueConstraintEligibilityFrame(unique),
     );
     return Object.freeze({
       target: located.target,
@@ -1282,7 +1283,7 @@ const validatePreparedFoldInTransaction = Effect.fn(
       if (
         unique.status !== "eligible" ||
         !bytesEqualFullScan(
-          yield* digestCanonicalJson(uniqueConstraintFrame(unique)),
+          yield* digestCanonicalJson(appUniqueConstraintEligibilityFrame(unique)),
           prepared.uniqueSha256,
         )
       ) return yield* failure("authorityChanged");
@@ -2445,63 +2446,6 @@ function requireExactAuthority(
     : failure("authorityChanged");
 }
 
-function uniqueConstraintFrame(
-  eligibility: Exclude<
-    AppUniqueConstraintSetEligibilityResultV1,
-    { readonly status: "not_ready" }
-  >,
-): Readonly<Record<string, Json>> {
-  if (eligibility.status === "not_required") {
-    return Object.freeze({
-      format: "flarex.application-unique-constraint-eligibility",
-      version: 1,
-      status: "not_required",
-      tableIds: [],
-    });
-  }
-  const evidence = eligibility.evidence;
-  return Object.freeze({
-    format: "flarex.application-unique-constraint-eligibility",
-    version: 1,
-    status: "eligible",
-    deploymentId: evidence.deploymentId,
-    scopeId: evidence.scopeId,
-    schemaVersionId: evidence.schemaVersionId,
-    definitionCount: evidence.definitionCount,
-    definitionSetSha256: evidence.definitionSetSha256Hex,
-    tableIds: [...evidence.tableIds],
-    storageGeneration: evidence.storageGeneration,
-    storageGenerationFence: evidence.storageGenerationFence.toString(),
-    epoch: evidence.epoch,
-    startCommitSeq: evidence.startCommitSeq.toString(),
-    attemptFence: evidence.attemptFence.toString(),
-  });
-}
-
-const canonicalBytes = Effect.fn(
-  "ApplicationRelationReadinessFold.canonicalBytes",
-)(function (
-  value: unknown,
-): Effect.Effect<Uint8Array, ApplicationRelationReadinessFoldIssue> {
-  if (!isJson(value)) return failure("storedState");
-  return Effect.try({
-    try: () => UTF8.encode(encodeCanonicalJson(value, issue => {
-        throw new Error(
-          `Application relation readiness frame invariant: ${issue.reason}`,
-        );
-      })),
-    catch: cause => failureValue("storedState", false, cause),
-  });
-});
-
-const digestCanonicalJson = Effect.fn(
-  "ApplicationRelationReadinessFold.digestCanonicalJson",
-)(function (
-  value: Readonly<Record<string, Json>>,
-): Effect.Effect<Uint8Array, ApplicationRelationReadinessFoldIssue> {
-  return canonicalBytes(value).pipe(Effect.flatMap(sha256));
-});
-
 function sha256(bytes: Uint8Array): Effect.Effect<Uint8Array> {
   return Effect.tryPromise(() => crypto.subtle.digest(
     "SHA-256",
@@ -2716,4 +2660,28 @@ export const readApplicationRelationOwnershipInTransaction = Effect.fn("Applicat
   const catalog = catalogLease === undefined ? undefined : activationCatalogLeases.get(catalogLease);
   if (state === undefined || (catalogLease !== undefined && (catalog === undefined || issuedReadyResults.get(catalog.issued)?.repository !== state))) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
   return yield* readApplicationWriteOwnershipInTransaction(tx, scopeId, budget, catalog?.tx ?? state.context.controlDb);
+});
+
+const canonicalBytes = Effect.fn(
+  "ApplicationRelationReadinessFold.canonicalBytes",
+)(function (
+  value: unknown,
+): Effect.Effect<Uint8Array, ApplicationRelationReadinessFoldIssue> {
+  if (!isJson(value)) return failure("storedState");
+  return Effect.try({
+    try: () => UTF8.encode(encodeCanonicalJson(value, issue => {
+        throw new Error(
+          `Application relation readiness frame invariant: ${issue.reason}`,
+        );
+      })),
+    catch: cause => failureValue("storedState", false, cause),
+  });
+});
+
+const digestCanonicalJson = Effect.fn(
+  "ApplicationRelationReadinessFold.digestCanonicalJson",
+)(function (
+  value: Readonly<Record<string, Json>>,
+): Effect.Effect<Uint8Array, ApplicationRelationReadinessFoldIssue> {
+  return canonicalBytes(value).pipe(Effect.flatMap(sha256));
 });

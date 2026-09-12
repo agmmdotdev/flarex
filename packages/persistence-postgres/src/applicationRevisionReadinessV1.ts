@@ -1719,8 +1719,8 @@ function uniqueConstraintReadinessRootItems(
     UTF8.encode(evidence.storageGeneration),
     u64(evidence.storageGenerationFence),
     UTF8.encode(evidence.epoch),
-    u64(evidence.startCommitSeq),
-    u64(evidence.attemptFence),
+    u64(BigInt(evidence.definitionBuilds.length)),
+    ...evidence.definitionBuilds.flatMap(build => [u64(BigInt(build.uniqueConstraintDefinitionId)), u64(BigInt(build.tableId)), u64(build.startCommitSeq), u64(build.attemptFence)]),
   ];
 }
 

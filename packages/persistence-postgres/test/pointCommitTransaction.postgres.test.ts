@@ -1,3 +1,14 @@
+import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
+import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import {
+  advanceAppUniqueConstraintSetBackfillV1Effect,
+  createLocatedAppUniqueConstraintSetBuildTargetV1,
+  reconcileAppUniqueConstraintSetBuildV1Effect,
+} from "../src/appUniqueConstraintSetBuildV1";
+import {
+  closeAppUniqueConstraintSetV1InTransactionEffect,
+  prepareAppUniqueConstraintSetClosureV1Effect,
+} from "../src/appUniqueConstraintSetClosureV1";
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
@@ -1080,6 +1091,41 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     });
   }, 120_000);
 
+  it.each(["unchanged", "missing", "digest", "differentCanonicalKey"] as const)("authenticates %s unique ownership before omitting a PostgreSQL write", async mode => {
+    await withPostgresPersistence(async persistence => {
+      const randomUuid = uuidFactory("96418e00");
+      const scope = await createScope(persistence, randomUuid, `unique_noop_${mode}`);
+      const options = await prepareUniqueConstraintForPostgres(persistence, scope);
+      const inserted = await createAttempt(persistence, randomUuid, scope, "unique_noop_insert");
+      await runEffect(createPublisher(persistence, options).publish(inserted.publicationCommand));
+      const row = inserted.command.rowIntents[0];
+      if (row?.kind !== "live") throw new Error("Expected inserted row.");
+      const next = await createAttempt(persistence, randomUuid, scope, "unique_noop_update", { kind: "patch", documentId: row.documentId, patch: { category: "non-key" } });
+      const scopeUuid = next.command.sealIdentity.scopeUuid;
+      if (mode === "missing") await persistence.query("delete from fx_app_unique_key where scope_uuid = $1", [scopeUuid]);
+      else if (mode === "digest") await persistence.query("update fx_app_unique_key set canonical_key_sha256 = decode(repeat('ff',32),'hex') where scope_uuid = $1", [scopeUuid]);
+      else if (mode === "differentCanonicalKey") {
+        const key = Result.getOrThrow(canonicalizeAppUniqueKeyV1Result({ sparse: false, localeKey: null, values: [orderedIndexValueFromFlarexValueV1("foreign-key")] }));
+        if (key.kind !== "claim") throw new Error("Expected canonical key.");
+        const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(key.canonicalKeyBytes)));
+        await persistence.query("update fx_app_unique_key set encoded_key = $2, canonical_key_sha256 = $3 where scope_uuid = $1", [scopeUuid, key.canonicalKeyBytes, digest]);
+      }
+      const before = await durableState(persistence, scopeUuid);
+      const claims = await persistence.query("select *, xmin::text tuple_version from fx_app_unique_key where scope_uuid = $1", [scopeUuid]);
+      const builds = await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1", [scope.scopeId]);
+      let writes = 0;
+      const publisher = createPublisher(persistence, { ...options, afterTransactionStep: async event => { if (event.step === "uniqueKeyWritten") writes += 1; } });
+      if (mode === "unchanged") await runEffect(publisher.publish(next.publicationCommand));
+      else {
+        expect(await runFailure(publisher.publish(next.publicationCommand))).toMatchObject({ _tag: "PointCommitCorruptionV1Error", reason: "uniqueKeyTransitionInvalid" });
+        expect(await durableState(persistence, scopeUuid)).toEqual(before);
+        expect((await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1", [scope.scopeId])).rows).toEqual(builds.rows);
+      }
+      expect(writes).toBe(0);
+      expect((await persistence.query("select *, xmin::text tuple_version from fx_app_unique_key where scope_uuid = $1", [scopeUuid])).rows).toEqual(claims.rows);
+    });
+  }, 120_000);
+
   it("maintains unique claims and atomically rejects PostgreSQL conflicts", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96418800");
@@ -1096,7 +1142,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       await setValidatingUniqueSetBuild(
         persistence,
         scope,
-        `${scope.schemaVersionId}_candidate`,
+        1001,
       );
       const inserted = await createAttempt(
         persistence,
@@ -1107,10 +1153,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       await runEffect(createPublisher(persistence, uniqueOptions).publish(
         inserted.publicationCommand,
       ));
-      expect(await uniqueSetBuildCursors(persistence, scope)).toEqual([
-        null,
-        null,
-      ]);
+      expect(await uniqueSetBuildCursors(persistence, scope)).toEqual(["ff".repeat(16), "ff".repeat(16)]);
       const insertIntent = inserted.command.rowIntents[0];
       if (insertIntent?.kind !== "live") {
         throw new Error("Expected a PostgreSQL C08-B2 insert intent.");
@@ -1119,7 +1162,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         persistence,
         inserted.command.sealIdentity.scopeUuid,
       );
-      expect(beforeMove).toMatchObject([{ commitSeq: "1" }]);
+      expect(beforeMove).toHaveLength(1);
 
       const moved = await createAttempt(
         persistence,
@@ -1137,7 +1180,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       await setValidatingUniqueSetBuild(
         persistence,
         scope,
-        `${scope.schemaVersionId}_candidate`,
+        1001,
       );
       const failure = await runFailure(createPublisher(persistence, {
         ...uniqueOptions,
@@ -1145,7 +1188,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           if (event.step === "uniqueKeyWritten") {
             uniqueWrites += 1;
           }
-          if (event.step === "uniqueConstraintValidationReset") {
+          if (event.step === "uniqueConstraintCoverageAdvanced") {
             throw new PointCommitCorruptionV1Error({
               reason: "publicationInvariantInvalid",
             });
@@ -1167,15 +1210,12 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       await runEffect(createPublisher(persistence, uniqueOptions).publish(
         moved.publicationCommand,
       ));
-      expect(await uniqueSetBuildCursors(persistence, scope)).toEqual([
-        null,
-        null,
-      ]);
+      expect(await uniqueSetBuildCursors(persistence, scope)).toEqual(["ff".repeat(16), "ff".repeat(16)]);
       const afterMove = await uniqueKeyState(
         persistence,
         inserted.command.sealIdentity.scopeUuid,
       );
-      expect(afterMove).toMatchObject([{ commitSeq: "2" }]);
+      expect(afterMove).toHaveLength(1);
       expect(afterMove[0]?.encodedKeyHex).not.toBe(
         beforeMove[0]?.encodedKeyHex,
       );
@@ -1325,7 +1365,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
       expect(afterDeveloper.revisions).toHaveLength(3);
       expect(afterDeveloper.current).toMatchObject([{ commitSeq: "2" }]);
-      expect(afterUnique).toMatchObject([{ commitSeq: "2" }]);
+      expect(afterUnique).toHaveLength(1);
       expect(afterDeveloper.current[0]?.encodedKeyHex).not.toBe(
         beforeDeveloper.current[0]?.encodedKeyHex,
       );
@@ -1462,7 +1502,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       });
       expect(winnerUnique).toMatchObject([{
         rowIdHex: pointRowIdHex(winnerIntent.documentId),
-        commitSeq: "1",
       }]);
       const winnerDeveloperKey = winnerDeveloper.current[0]?.encodedKeyHex;
       const winnerUniqueKey = winnerUnique[0]?.encodedKeyHex;
@@ -1543,7 +1582,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       expect(await uniqueKeyState(persistence, scopeUuid)).toMatchObject([{
         encodedKeyHex: winnerUniqueKey,
         rowIdHex: pointRowIdHex(reusedIntent.documentId),
-        commitSeq: "3",
       }]);
       expect(await durableState(persistence, scopeUuid)).toEqual({
         revisions: "3",
@@ -3470,6 +3508,8 @@ async function createIndexedAttempt(
     epoch: clock.epoch,
     startCommitSeq: CommitSeqSchema.make(0n),
     lifecycle: "enabled",
+    coveredThroughCommitSeq: clock.lastCommitSeq,
+    firstReadableCommitSeq: clock.lastCommitSeq,
     cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
     backfillCursorRowId: null,
     attemptFence: IndexBuildAttemptFenceSchema.make(1n),
@@ -3821,6 +3861,25 @@ async function prepareUniqueConstraintForPostgres(
       ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
     )
   );
+  const input = { deploymentId: scope.deploymentId, schemaVersionId: scope.schemaVersionId };
+  const closure = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(persistence.drizzle, input));
+  await persistence.drizzle.transaction(tx => runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure)));
+  const buildPorts = {
+    controlDb: persistence.drizzle,
+    authority: {
+      scopeMetadata: persistence,
+      provisioningReceipts: { getScopeAuthorityProvisioningReceipt: async () => null },
+      scopeClockTargets: { resolve: async (locator: ScopePhysicalLocator) =>
+        createLocatedAppUniqueConstraintSetBuildTargetV1(persistence.drizzle, locator) },
+    },
+  };
+  await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts, input));
+  let enabled = false;
+  for (let step = 0; step < 16; step += 1) {
+    const advanced = await runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(buildPorts, { ...input, pageSize: 16 }));
+    if (advanced.lifecycle === "enabled") { enabled = true; break; }
+  }
+  if (!enabled) throw new Error("Expected PostgreSQL unique build to enable.");
   return Object.freeze({
     uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(
       persistence.drizzle,
@@ -3828,48 +3887,15 @@ async function prepareUniqueConstraintForPostgres(
   });
 }
 
-async function setValidatingUniqueSetBuild(
-  persistence: PostgresFlarexPersistence,
-  scope: ScopeScenario,
-  schemaVersionId: string = scope.schemaVersionId,
-) {
-  const clock = await persistence.getScopeClock(scope.scopeId);
-  if (clock === null) throw new Error("Missing PostgreSQL C08-B1C clock.");
-  await persistence.query(
-    `insert into fx_system_unique_constraint_set_build
-      (scope_id, schema_version_id, set_codec_version, definition_count,
-       definition_set_sha256, storage_generation, storage_generation_fence,
-       epoch, start_commit_seq, lifecycle, cursor_codec_version,
-       cursor_definition_id, cursor_row_id, attempt_fence)
-     values ($1, $2, 1, 1, decode(repeat('ab', 32), 'hex'),
-             'flarexdb_v1', $3, $4, $5, 'validating', 1, 1,
-             decode(repeat('ff', 16), 'hex'), 1)
-     on conflict (scope_id, schema_version_id) do update
-       set lifecycle = 'validating', cursor_definition_id = 1,
-           cursor_row_id = decode(repeat('ff', 16), 'hex'),
-           updated_at = clock_timestamp()`,
-    [
-      scope.scopeId,
-      schemaVersionId,
-      clock.storageGenerationFence.toString(),
-      clock.epoch,
-      clock.lastCommitSeq.toString(),
-    ],
-  );
+async function setValidatingUniqueSetBuild(persistence: PostgresFlarexPersistence, scope: ScopeScenario, definitionId = 1000) {
+  await persistence.query(`insert into fx_system_unique_constraint_build (scope_id, unique_constraint_definition_id, storage_generation, storage_generation_fence, epoch, start_commit_seq, covered_through_commit_seq, lifecycle, cursor_row_id, attempt_fence)
+    select scope_id, $2, storage_generation, storage_generation_fence, epoch, last_commit_seq, last_commit_seq, 'validating', decode(repeat('ff',16),'hex'), 1 from fx_system_scope_clock where scope_id = $1
+    on conflict (scope_id, unique_constraint_definition_id) do nothing`, [scope.scopeId, definitionId]);
 }
 
-async function uniqueSetBuildCursors(
-  persistence: PostgresFlarexPersistence,
-  scope: ScopeScenario,
-) {
-  const result = await persistence.query<{ cursor_row_hex: string | null }>(
-    `select encode(cursor_row_id, 'hex') cursor_row_hex
-       from fx_system_unique_constraint_set_build
-      where scope_id = $1
-      order by schema_version_id asc`,
-    [scope.scopeId],
-  );
-  return result.rows.map((row) => row.cursor_row_hex);
+async function uniqueSetBuildCursors(persistence: PostgresFlarexPersistence, scope: ScopeScenario) {
+  const result = await persistence.query<{cursor_row_hex: string | null}>(`select encode(cursor_row_id, 'hex') cursor_row_hex from fx_system_unique_constraint_build where scope_id = $1 and unique_constraint_definition_id >= 1000 order by unique_constraint_definition_id`, [scope.scopeId]);
+  return result.rows.map(row => row.cursor_row_hex);
 }
 
 function createPort(
@@ -4454,12 +4480,14 @@ async function uniqueKeyState(
     constraint_id: string;
     encoded_key_hex: string;
     row_id_hex: string;
-    commit_seq: string;
+    table_id: number;
+    locale_key: string;
+    key_sha256_hex: string;
   }>(
     `select constraint_id::text,
        encode(encoded_key, 'hex') as encoded_key_hex,
        encode(row_id, 'hex') as row_id_hex,
-       commit_seq::text
+       table_id, locale_key, encode(canonical_key_sha256, 'hex') key_sha256_hex
      from fx_app_unique_key
      where scope_uuid = $1
      order by constraint_id, encoded_key, row_id`,
@@ -4469,7 +4497,7 @@ async function uniqueKeyState(
     constraintId: row.constraint_id,
     encodedKeyHex: row.encoded_key_hex,
     rowIdHex: row.row_id_hex,
-    commitSeq: row.commit_seq,
+    tableId: row.table_id, localeKey: row.locale_key, keySha256Hex: row.key_sha256_hex,
   })));
 }
 

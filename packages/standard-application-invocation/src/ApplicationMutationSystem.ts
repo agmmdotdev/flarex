@@ -46,6 +46,10 @@ import {
   "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 import type { AppDeveloperIndexDefinitionPortV1 } from
   "@flarex/persistence-postgres/internal/app-developer-index-commit-v1";
+import { createAppUniqueConstraintDefinitionPortV1 } from
+  "@flarex/persistence-postgres/internal/app-unique-constraint-commit-v1";
+import { createAppUniqueConstraintSetEligibilityPortV1 } from
+  "@flarex/persistence-postgres/internal/app-unique-constraint-set-build-v1";
 import type { IntrinsicCreationTimeIndexDefinitionPortV1 } from
   "@flarex/persistence-postgres/internal/intrinsic-creation-time-index-build-v1";
 import {
@@ -648,11 +652,23 @@ function makeSelectionInvoke(
   const applicationRunner = makeApplicationPointMutationRunner(
     live.applicationRunner,
   );
+  const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
+    live.sessionAuthority.applicationControlDb,
+  );
+  const uniqueConstraintEligibility = createAppUniqueConstraintSetEligibilityPortV1(
+    {
+      controlDb: live.sessionAuthority.applicationControlDb,
+      authority: live.admission.authority,
+    },
+    uniqueConstraints,
+  );
   const pointCommit = createPointCommitPublisherPortV1(
     live.sessionAuthority,
     {
       intrinsicCreationTimeIndexes: live.intrinsicCreationTimeIndexes,
       developerIndexes: live.developerIndexes,
+      uniqueConstraints,
+      uniqueConstraintEligibility,
       candidateSchemaWriteGuard: live.candidateSchemaWriteGuard,
       ...(live.applicationRelations === undefined
         ? {}

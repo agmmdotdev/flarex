@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   proveManagedSchemaCookingSchemaB,
+  proveManagedSchemaCandidateUniqueAfterActiveWrite,
   proveManagedSchemaCandidateIndexCoverageBoundaries,
   proveManagedSchemaCandidateIndexAfterActiveWrite,
 } from "../../support/managedSchemaCookingHarness";
@@ -94,4 +95,10 @@ describePostgres("Managed-schema cooking schema B - PostgreSQL", () => {
     },
     480_000,
   );
+  it("blocks stale candidate uniqueness after valid active duplicates and repairs", async () => {
+    await withTemporarySplitPostgresPersistence(async persistence => {
+      await expect(proveManagedSchemaCandidateUniqueAfterActiveWrite(options => createApplicationNativeMutationPostgresFixture(options, persistence))).resolves.toBe(true);
+    });
+  }, 480_000);
+
 });

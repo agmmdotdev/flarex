@@ -84,7 +84,7 @@ export {
   fxSystemTransactionJournals,
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionSessions,
-  fxSystemUniqueConstraintSetBuilds,
+  fxSystemUniqueConstraintBuilds,
   indexes,
   invokeSessionDocumentReads,
   invokeSessionDocumentWrites,

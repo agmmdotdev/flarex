@@ -168,7 +168,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_tx_journal_relation_incoming",
       "fx_system_tx_journal_write_event",
       "fx_system_tx_session",
-      "fx_system_unique_constraint_set_build",
+      "fx_system_unique_constraint_build",
       "indexes",
       "invoke_session_document_reads",
       "invoke_session_document_writes",
@@ -3195,16 +3195,14 @@ describe("createPGlitePersistence", () => {
           and constraint_name in (
             'fx_app_unique_key_pk',
             'fx_app_unique_key_owner_unique',
-            'fx_app_unique_key_scope_clock_fk',
-            'fx_app_unique_key_row_revision_fk'
+            'fx_app_unique_key_row_identity_fk'
           )
         order by constraint_name
       `);
       expect(constraints.rows).toEqual([
         { constraint_name: "fx_app_unique_key_owner_unique" },
         { constraint_name: "fx_app_unique_key_pk" },
-        { constraint_name: "fx_app_unique_key_row_revision_fk" },
-        { constraint_name: "fx_app_unique_key_scope_clock_fk" },
+        { constraint_name: "fx_app_unique_key_row_identity_fk" },
       ]);
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
@@ -3594,7 +3592,7 @@ describe("createPGlitePersistence", () => {
             where table_schema = current_schema()
               and table_name in (
                 'fx_control_schema_unique_constraint_set',
-                'fx_system_unique_constraint_set_build'
+                'fx_system_unique_constraint_build'
               )) as table_count,
           (select count(*)::text from drizzle.__drizzle_migrations) as receipts
       `);

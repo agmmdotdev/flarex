@@ -3,6 +3,17 @@ import {
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
 import { Result } from "effect";
+import { CatalogTableIdSchema } from "flarex-protocol/catalog";
+import { SchemaManifestAppIndexDescriptorSchema } from "flarex-protocol/schema-manifest";
+import {
+  APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+  APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  decodeAppUniqueConstraintPhysicalSpecV1,
+} from "flarex-protocol/app-unique-constraint-definition";
+import {
+  prepareAppUniqueConstraintDefinitionBindingV1Effect,
+  ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
+} from "../src/appUniqueConstraintDefinitions";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -15,7 +26,7 @@ import {
 } from "../src/appUniqueConstraintCommitV1";
 import {
   AppUniqueConstraintSetBuildReclamationError,
-  MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+  MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
   advanceAppUniqueConstraintSetBackfillV1Effect,
   createAppUniqueConstraintSetEligibilityPortV1,
   installAppSchemaCandidateWithWorkspaceReclamationEffect,
@@ -25,6 +36,7 @@ import {
 import {
   closeAppUniqueConstraintSetV1InTransactionEffect,
   prepareAppUniqueConstraintSetClosureV1Effect,
+  readAppUniqueConstraintSetClosureV1Effect,
 } from "../src/appUniqueConstraintSetClosureV1";
 import {
   LocatedReadCommittedTransactionFailureV1,
@@ -39,6 +51,41 @@ import {
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, () => {
+  it("retains shared physical work and releases only known private membership", async () => {
+    const fixture = await createApplicationNativeMutationPGliteFixture({ runtimeHostIdentity: "flarex.test/unique-shared", compatibilityDate: "2026-08-16" });
+    const candidateA = await fixture.publishManagedSchemaCandidate(
+      manifestWithOptionalField(manifestWithOptionalField(fixture.active.basis.manifest, "shared"), "onlyA"),
+    );
+    await closeCandidateSet(fixture, candidateA.schemaVersionId, ["shared", "onlyA"]);
+    await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts(fixture), buildInput(fixture, candidateA.schemaVersionId)));
+    await runEffect(installAppSchemaCandidateValidationEffect(fixture.candidateValidation, buildInput(fixture, candidateA.schemaVersionId)));
+    const before = await fixture.target.query(`select * from fx_system_unique_constraint_build where scope_id = $1 order by unique_constraint_definition_id`, [fixture.authority.scopeId]);
+    expect(before.rows).toHaveLength(2);
+    const candidateB = await fixture.publishManagedSchemaCandidate(manifestWithOptionalField(fixture.active.basis.manifest, "shared"));
+    await closeCandidateSet(fixture, candidateB.schemaVersionId, "shared");
+    const closure = await runEffect(readAppUniqueConstraintSetClosureV1Effect(fixture.control.drizzle, fixture.deploymentId, candidateB.schemaVersionId));
+    if (closure === null) throw new Error("Expected shared closure.");
+    const sharedId = closure.members[0]!.uniqueConstraintDefinitionId;
+    await expect(runEffect(installAppSchemaCandidateWithWorkspaceReclamationEffect(
+      fixture.uniqueConstraintEligibility, fixture.candidateValidation, buildInput(fixture, candidateB.schemaVersionId),
+    ))).resolves.toMatchObject({ workspace: { disposition: "deleted" } });
+    const after = await fixture.target.query(`select * from fx_system_unique_constraint_build where scope_id = $1`, [fixture.authority.scopeId]);
+    expect(after.rows).toEqual(before.rows.filter(row => row.unique_constraint_definition_id === sharedId));
+    expect(after.rows).toHaveLength(1);
+    await expect(runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(fixture.uniqueConstraintEligibility, buildInput(fixture, candidateA.schemaVersionId))))
+      .resolves.toMatchObject({ disposition: "retained", retainedDefinitionIds: [sharedId], deletedDefinitionIds: [] });
+    const reconciled = await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts(fixture), buildInput(fixture, candidateB.schemaVersionId)));
+    expect(reconciled).toMatchObject({ status: "reconciled", disposition: "replayed" });
+    const candidateC = await fixture.publishManagedSchemaCandidate(manifestWithOptionalField(fixture.active.basis.manifest, "unknown"));
+    await expect(runEffect(installAppSchemaCandidateWithWorkspaceReclamationEffect(
+      fixture.uniqueConstraintEligibility, fixture.candidateValidation, buildInput(fixture, candidateC.schemaVersionId),
+    ))).resolves.toMatchObject({ workspace: { disposition: "retained", reason: "protectedMembershipUnknown" } });
+    expect((await fixture.target.query(`select * from fx_system_unique_constraint_build where scope_id = $1`, [fixture.authority.scopeId])).rows).toEqual(after.rows);
+    await closeCandidateSet(fixture, candidateC.schemaVersionId, []);
+    await expect(runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(fixture.uniqueConstraintEligibility, buildInput(fixture, candidateB.schemaVersionId))))
+      .resolves.toMatchObject({ disposition: "deleted", deletedDefinitionIds: [sharedId], retainedDefinitionIds: [] });
+  });
+
   it("atomically reclaims the exact candidate displaced by private installation", async () => {
     const fixture = await createApplicationNativeMutationPGliteFixture({
       runtimeHostIdentity: "flarex.test/m05-a2-runtime-host",
@@ -54,7 +101,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
     );
-    await closeEmptySet(fixture, candidateA.schemaVersionId);
+    await closeCandidateSet(fixture, candidateA.schemaVersionId, "candidateA");
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
       buildPorts(fixture),
       buildInput(fixture, candidateA.schemaVersionId),
@@ -68,8 +115,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     )).resolves.toMatchObject({
       installation: { disposition: "superseded" },
       workspace: {
-        disposition: "retained",
-        reason: "activeSchema",
+        disposition: "already_absent",
         schemaVersionId: activeSchemaVersionId,
       },
     });
@@ -77,6 +123,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const candidateB = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateB"),
     );
+    await closeCandidateSet(fixture, candidateB.schemaVersionId, "candidateB");
     const replaced = await runEffect(
       installAppSchemaCandidateWithWorkspaceReclamationEffect(
         port,
@@ -92,8 +139,6 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       },
     });
     await expectBuildPresence(fixture, candidateA.schemaVersionId, false);
-
-    await closeEmptySet(fixture, candidateB.schemaVersionId);
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
       buildPorts(fixture),
       buildInput(fixture, candidateB.schemaVersionId),
@@ -101,6 +146,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const candidateC = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateC"),
     );
+    await closeCandidateSet(fixture, candidateC.schemaVersionId, "candidateC");
     await expect(runEffect(
       installAppSchemaCandidateWithWorkspaceReclamationEffect(
         port,
@@ -170,7 +216,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       installation: { disposition: "superseded" },
       workspace: {
         disposition: "retained",
-        reason: "buildEnabled",
+        reason: "sharedDefinition",
         schemaVersionId: candidateB.schemaVersionId,
       },
     });
@@ -228,7 +274,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const candidate = await fixture.publishManagedSchemaCandidate(
       candidateManifest,
     );
-    await closeEmptySet(fixture, candidate.schemaVersionId);
+    await closeCandidateSet(fixture, candidate.schemaVersionId, "candidateOnly");
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
       buildPorts(fixture),
       buildInput(fixture, candidate.schemaVersionId),
@@ -238,10 +284,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       buildInput(fixture, candidate.schemaVersionId),
     ));
     await expectReclamationRefusal(
-      fixture,
-      port,
-      candidate.schemaVersionId,
-      "currentCandidate",
+      fixture, port, candidate.schemaVersionId, "currentCandidate",
     );
     const candidateDigest = await fixture.target.query<{
       frame_sha256_hex: string;
@@ -275,7 +318,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const superseded = await fixture.publishManagedSchemaCandidate(
       supersededManifest,
     );
-    await closeEmptySet(fixture, superseded.schemaVersionId);
+    await closeCandidateSet(fixture, superseded.schemaVersionId, "supersededOnly");
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
       buildPorts(fixture),
       buildInput(fixture, superseded.schemaVersionId),
@@ -289,7 +332,6 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       status: "reclaimed",
       disposition: "deleted",
       schemaVersionId: superseded.schemaVersionId,
-      lifecycle: "declared",
     });
     await expect(runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
       buildPorts(fixture),
@@ -305,7 +347,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
     );
-    await closeEmptySet(fixture, candidateA.schemaVersionId);
+    await closeCandidateSet(fixture, candidateA.schemaVersionId, "candidateA");
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
       buildPorts(fixture),
       buildInput(fixture, candidateA.schemaVersionId),
@@ -317,6 +359,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const candidateB = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateB"),
     );
+    await closeCandidateSet(fixture, candidateB.schemaVersionId, "candidateB");
     const metadata = await fixture.authorityPorts.scopeMetadata
       .getScopeMetadataByDeploymentId(fixture.deploymentId);
     if (metadata === null) throw new Error("M05-A2 scope metadata is missing.");
@@ -330,7 +373,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       async work => {
         transactionCount += 1;
         const result = await baseRunner(work);
-        if (transactionCount === 2) {
+        if (transactionCount === 3) {
           throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
             kind: "decisionUncertain",
             settlementCause: new Error("lost M05-A2 transaction response"),
@@ -363,7 +406,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       _tag: "AppUniqueConstraintSetBuildIntegrationV1Error",
       retryable: true,
     });
-    expect(transactionCount).toBe(2);
+    expect(transactionCount).toBe(3);
     await expectBuildPresence(fixture, candidateA.schemaVersionId, false);
     await expect(runEffect(
       installAppSchemaCandidateWithWorkspaceReclamationEffect(
@@ -385,7 +428,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
     );
-    await closeEmptySet(fixture, candidateA.schemaVersionId);
+    await closeCandidateSet(fixture, candidateA.schemaVersionId, "candidateA");
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
       buildPorts(fixture),
       buildInput(fixture, candidateA.schemaVersionId),
@@ -412,7 +455,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       metadata.physicalLocator,
       async work => {
         transactionCount += 1;
-        if (transactionCount === 2) {
+        if (transactionCount === 3) {
           await runEffect(installAppSchemaCandidateValidationEffect(
             fixture.candidateValidation,
             buildInput(fixture, racingCandidate.schemaVersionId),
@@ -445,7 +488,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       _tag: "AppSchemaCandidateValidationOperationV1Error",
       reason: "superseded",
     });
-    expect(transactionCount).toBe(2);
+    expect(transactionCount).toBe(3);
     await expectCurrentCandidate(fixture, racingCandidate.schemaVersionId);
     await expectBuildPresence(fixture, candidateA.schemaVersionId, true);
   });
@@ -458,7 +501,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
     );
-    await closeEmptySet(fixture, candidateA.schemaVersionId);
+    await closeCandidateSet(fixture, candidateA.schemaVersionId, "candidateA");
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
       buildPorts(fixture),
       buildInput(fixture, candidateA.schemaVersionId),
@@ -483,7 +526,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       metadata.physicalLocator,
       async work => {
         transactionCount += 1;
-        if (transactionCount === 2) {
+        if (transactionCount === 3) {
           await fixture.target.query(
             `update fx_system_app_schema_candidate_validation
                 set deployment_id = $2
@@ -515,10 +558,10 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
         buildInput(fixture, requestedCandidate.schemaVersionId),
       ),
     )).rejects.toMatchObject({
-      _tag: "AppSchemaCandidateValidationOperationV1Error",
-      reason: "superseded",
+      _tag: "AppUniqueConstraintSetBuildReclamationError",
+      reason: "activeSchemaStateInvalid",
     });
-    expect(transactionCount).toBe(2);
+    expect(transactionCount).toBe(3);
     const durable = await fixture.target.query<{
       deployment_id: string;
       schema_version_id: string;
@@ -535,7 +578,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     await expectBuildPresence(fixture, candidateA.schemaVersionId, true);
   });
 
-  it("reports an absent displaced workspace without weakening candidate installation", async () => {
+  it("retains unknown displaced membership without weakening candidate installation", async () => {
     const fixture = await createApplicationNativeMutationPGliteFixture({
       runtimeHostIdentity: "flarex.test/m05-a2-absent-runtime-host",
       compatibilityDate: "2026-08-16",
@@ -550,6 +593,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const candidateB = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateB"),
     );
+    await closeCandidateSet(fixture, candidateB.schemaVersionId, "candidateB");
     await expect(runEffect(
       installAppSchemaCandidateWithWorkspaceReclamationEffect(
         fixture.uniqueConstraintEligibility,
@@ -559,7 +603,8 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     )).resolves.toMatchObject({
       installation: { disposition: "superseded" },
       workspace: {
-        disposition: "already_absent",
+        disposition: "retained",
+        reason: "protectedMembershipUnknown",
         schemaVersionId: candidateA.schemaVersionId,
       },
     });
@@ -574,7 +619,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     const candidateA = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
     );
-    await closeEmptySet(fixture, candidateA.schemaVersionId);
+    await closeCandidateSet(fixture, candidateA.schemaVersionId, "candidateA");
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
       buildPorts(fixture),
       buildInput(fixture, candidateA.schemaVersionId),
@@ -583,34 +628,23 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       fixture.candidateValidation,
       buildInput(fixture, candidateA.schemaVersionId),
     ));
-    for (
-      let ordinal = 0;
-      ordinal < MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 - 1;
-      ordinal += 1
-    ) {
-      await fixture.target.query(
-        `insert into fx_system_unique_constraint_set_build
-          (scope_id, schema_version_id, set_codec_version, definition_count,
-           definition_set_sha256, storage_generation,
-           storage_generation_fence, epoch, start_commit_seq, lifecycle,
-           cursor_codec_version, cursor_definition_id, cursor_row_id,
-           attempt_fence)
-         values ($1, $2, 1, 0, decode(repeat('cd', 32), 'hex'),
-                 'flarexdb_v1', 1, $3, 0, 'enabled', 1, null, null, 1)`,
-        [
-          fixture.authority.scopeId,
-          `m05_a2_capacity_${ordinal}`,
-          fixture.authority.epoch,
-        ],
-      );
-    }
+    await fixture.target.query(
+      `insert into fx_system_unique_constraint_build
+        (scope_id, unique_constraint_definition_id, storage_generation,
+         storage_generation_fence, epoch, start_commit_seq, lifecycle,
+         covered_through_commit_seq, attempt_fence)
+       select $1, ordinal, 'flarexdb_v1', $3, $2, 0, 'enabled', 0, 1
+       from generate_series(1000, $4::integer + 998) ordinal`,
+      [fixture.authority.scopeId, fixture.authority.epoch,
+       fixture.authority.storageGenerationFence, MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE],
+    );
     expect(await buildDirectoryCount(fixture)).toBe(
-      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+      MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
     );
     const candidateB = await fixture.publishManagedSchemaCandidate(
       manifestWithOptionalField(fixture.active.basis.manifest, "candidateB"),
     );
-    await closeEmptySet(fixture, candidateB.schemaVersionId);
+    await closeCandidateSet(fixture, candidateB.schemaVersionId, "candidateB");
     await expect(runEffect(
       installAppSchemaCandidateWithWorkspaceReclamationEffect(
         fixture.uniqueConstraintEligibility,
@@ -625,14 +659,14 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       },
     });
     expect(await buildDirectoryCount(fixture)).toBe(
-      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 - 1,
+      MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE - 1,
     );
     await expect(runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
       buildPorts(fixture),
       buildInput(fixture, candidateB.schemaVersionId),
     ))).resolves.toMatchObject({ disposition: "created" });
     expect(await buildDirectoryCount(fixture)).toBe(
-      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+      MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
     );
   });
 
@@ -678,10 +712,31 @@ function buildInput(
   });
 }
 
-async function closeEmptySet(
+async function closeCandidateSet(
   fixture: ApplicationNativeMutationPGliteFixture,
   schemaVersionId: ApplicationNativeMutationPGliteFixture["active"]["basis"]["schemaVersionId"],
+  fieldNames: string | readonly string[],
 ) {
+  for (const fieldName of typeof fieldNames === "string" ? [fieldNames] : fieldNames) {
+  const binding = await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(
+    fixture.control.drizzle,
+    {
+      ...buildInput(fixture, schemaVersionId),
+      tableId: CatalogTableIdSchema.make(1),
+      descriptor: SchemaManifestAppIndexDescriptorSchema.make(`by_${fieldName}`),
+      physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+        kind: "appUniqueConstraint", specVersion: 1,
+        orderedFields: [fieldName], sparse: false,
+        localePolicy: { kind: "none" },
+        keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+        keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+      }),
+    },
+  ));
+  await fixture.control.drizzle.transaction(tx => runEffect(
+    ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, binding),
+  ));
+  }
   const prepared = await runEffect(
     prepareAppUniqueConstraintSetClosureV1Effect(
       fixture.control.drizzle,
@@ -720,13 +775,14 @@ async function expectBuildPresence(
   schemaVersionId: ApplicationNativeMutationPGliteFixture["active"]["basis"]["schemaVersionId"],
   expected: boolean,
 ) {
+  const closure = await runEffect(readAppUniqueConstraintSetClosureV1Effect(
+    fixture.control.drizzle, fixture.deploymentId, schemaVersionId,
+  ));
+  if (closure === null) throw new Error("Expected closed fixture constraint set.");
   const rows = await fixture.target.query<{ present: boolean }>(
-    `select exists(
-       select 1
-         from fx_system_unique_constraint_set_build
-        where scope_id = $1 and schema_version_id = $2
-     ) present`,
-    [fixture.authority.scopeId, schemaVersionId],
+    `select exists(select 1 from fx_system_unique_constraint_build
+       where scope_id = $1 and unique_constraint_definition_id = any($2::integer[])) present`,
+    [fixture.authority.scopeId, closure.members.map(member => member.uniqueConstraintDefinitionId)],
   );
   expect(rows.rows[0]?.present).toBe(expected);
 }
@@ -749,7 +805,7 @@ async function buildDirectoryCount(
 ) {
   const result = await fixture.target.query<{ build_count: string }>(
     `select count(*)::text build_count
-       from fx_system_unique_constraint_set_build
+       from fx_system_unique_constraint_build
       where scope_id = $1`,
     [fixture.authority.scopeId],
   );

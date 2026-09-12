@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { resolveTrustedScopeAuthorityEffect } from "../src/scopeAuthorityResolution";
+import { Cause, Effect, Exit, Result } from "effect";
 import {
   canonicalAppUniqueConstraintSpecBytesHexV1ToBytes,
   appUniqueConstraintSpecSha256HexV1ToBytes,
@@ -28,6 +29,7 @@ import {
   createPhysicalDefinitionLifecyclePort,
   finalizePhysicalDefinitionRetirementEffect,
   inspectPhysicalDefinitionLifecycleEffect,
+  isPhysicalUniqueBuildActiveInTransactionEffect,
   preparePhysicalDefinitionLifecycleReadinessEffect,
   preparePhysicalDefinitionLifecycleSubjectEffect,
   validatePhysicalDefinitionLifecycleReadinessInTransactionEffect,
@@ -36,7 +38,7 @@ import {
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from
   "../src/indexBuildReconciliation";
-import { loadAppUniqueConstraintSetEligibilityForReadinessV1Effect } from
+import { advanceAppUniqueConstraintSetBackfillV1Effect, loadAppUniqueConstraintSetEligibilityForReadinessV1Effect } from
   "../src/appUniqueConstraintSetBuildV1";
 import { lockScopeClockForShareInTransactionEffect } from "../src/scopeClock";
 import {
@@ -45,6 +47,35 @@ import {
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
+  it("keeps unique lifecycle query construction defects distinct from driver rejections", async () => {
+    const fixture = await createApplicationNativeMutationPGliteFixture({ runtimeHostIdentity: "flarex.test/unique-lifecycle-errors", compatibilityDate: "2026-08-18" });
+    const authority = await runEffect(resolveTrustedScopeAuthorityEffect(fixture.deploymentId, fixture.authorityPorts));
+    for (const mode of ["construction", "rejection"] as const) {
+      const sentinel = new Error(`unique lifecycle ${mode}`);
+      const exit = await fixture.target.drizzle.transaction(async tx => {
+        await runEffect(lockScopeClockForShareInTransactionEffect(tx, fixture.authority.scopeId));
+        const injected = new Proxy(tx, {
+          get(transaction, property) {
+            if (property === "select") return () => {
+              if (mode === "construction") throw sentinel;
+              return { from: () => ({ where: () => ({ limit: () => ({ for: () => Promise.reject(sentinel) }) }) }) };
+            };
+            const member = Reflect.get(transaction, property, transaction);
+            return typeof member === "function" ? member.bind(transaction) : member;
+          },
+        });
+        return runEffect(Effect.exit(isPhysicalUniqueBuildActiveInTransactionEffect(injected, authority, fixture.deploymentId, decodeCatalogUniqueConstraintDefinitionId(1), "00".repeat(32))));
+      });
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(mode === "construction");
+        expect(Cause.hasFails(exit.cause)).toBe(mode === "rejection");
+        if (mode === "construction") expect(Result.getOrThrow(Cause.findDie(exit.cause)).defect).toBe(sentinel);
+        else expect(Result.getOrThrow(Cause.findFail(exit.cause)).error).toMatchObject({ _tag: "PhysicalDefinitionLifecyclePersistenceError", cause: sentinel });
+      }
+    }
+  });
+
   it("fences draining, exact replay, cancellation, rollback, and corruption", async () => {
     const fixture = await createApplicationNativeMutationPGliteFixture({
       runtimeHostIdentity: "flarex.test/m05-b1-runtime-host",
@@ -343,18 +374,14 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
       ],
     );
     await fixture.target.query(
-      `insert into fx_system_unique_constraint_set_build
-         (scope_id, schema_version_id, set_codec_version, definition_count,
-          definition_set_sha256, storage_generation,
+      `insert into fx_system_unique_constraint_build
+         (scope_id, unique_constraint_definition_id, storage_generation,
           storage_generation_fence, epoch, start_commit_seq, lifecycle,
-          cursor_codec_version, cursor_definition_id, cursor_row_id,
-          attempt_fence)
-       values ($1, $2, 1, 1, $3, 'flarexdb_v1', $4, $5, 0,
-               'enabled', 1, null, null, 1)`,
+          covered_through_commit_seq, attempt_fence)
+       values ($1, $2, 'flarexdb_v1', $3, $4, 0, 'enabled', 0, 1)`,
       [
         fixture.authority.scopeId,
-        fixture.active.basis.schemaVersionId,
-        appUniqueConstraintSetSha256HexV1ToBytes(uniqueSet.sha256Hex),
+        uniqueConstraintDefinitionId,
         fixture.authority.storageGenerationFence,
         fixture.authority.epoch,
       ],
@@ -394,6 +421,10 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
         lifecycle: "draining",
       },
     });
+    await expect(runEffectFailure(advanceAppUniqueConstraintSetBackfillV1Effect(
+      { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts },
+      { deploymentId: fixture.deploymentId, schemaVersionId: fixture.active.basis.schemaVersionId, pageSize: 1 },
+    ))).resolves.toMatchObject({ _tag: "AppUniqueConstraintSetBuildStateV1Error", reason: "physicalDefinitionInactive" });
     await expect(runEffectFailure(finalizePhysicalDefinitionRetirementEffect(
       prepared,
       { expectedTransitionFence: 1n },

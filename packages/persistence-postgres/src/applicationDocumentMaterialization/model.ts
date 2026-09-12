@@ -75,7 +75,7 @@ export type ApplicationDocumentMaterializationStep =
   | "uniqueKeyWritten"
   | "relationEdgeWritten"
   | "relationRestrictValidated"
-  | "uniqueConstraintValidationReset";
+  | "uniqueConstraintCoverageAdvanced";
 
 export interface ApplicationDocumentMaterializationOptions {
   /**
@@ -246,7 +246,6 @@ export interface PointCommitUniqueKeyPlanV1 {
 }
 
 export interface PointCommitUniqueKeyOwnerV1 {
-  readonly commitSeq: CommitSeq;
   readonly encodedKey: OrderedIndexKeyHexV1;
 }
 
@@ -257,11 +256,9 @@ export interface PointCommitUniqueKeyOwnerPositionV1 {
 }
 
 export interface PointCommitUniqueKeyActionV1 {
-  readonly phase: "release" | "advance" | "claim";
+  readonly phase: "release" | "claim";
   readonly definition: LocatedAppUniqueConstraintDefinitionV1;
   readonly rowId: AppRowIdHexV1;
-  readonly rowPrevCommitSeq: CommitSeq | null;
-  readonly previousClaimCommitSeq: CommitSeq | null;
   readonly previous: AppUniqueKeyProjectionV1 | null;
   readonly next: AppUniqueKeyProjectionV1 | null;
   readonly sortKey: OrderedIndexKeyHexV1;

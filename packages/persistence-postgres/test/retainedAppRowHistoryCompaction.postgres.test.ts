@@ -52,7 +52,6 @@ describePostgres("real PostgreSQL O11-D retained app-row history compaction", ()
       )).resolves.toEqual([
         "fx_app_index_entry_rev_row_revision_fk",
         "fx_app_row_current_revision_fk",
-        "fx_app_unique_key_row_revision_fk",
         "fx_commit_preference_deletion_content_fk",
         "fx_system_commit_app_row_change_revision_fk",
       ]);

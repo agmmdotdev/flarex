@@ -71,7 +71,7 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
       const claimed = await apply(persistence, scopeId, epoch, rowA, 1n);
       expect(claimed.status).toBe("claimed");
 
-      expect(claimed.claim?.schemaVersionId).toBe(schemaVersionId);
+      expect(claimed.claim).toMatchObject({scopeId, constraintId, tableId, rowId: rowA});
       const repeatedClaim = await persistence.drizzle.transaction((tx) =>
         runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(tx, {
           scopeId,
@@ -79,9 +79,6 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
           tableId,
           rowId: rowA,
           writeEpoch: epoch,
-          commitSeq: CommitSeqSchema.make(1n),
-          rowPrevCommitSeq: null,
-          previousClaimCommitSeq: null,
           previous: null,
           next: key,
         }))
@@ -102,9 +99,6 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
           tableId,
           rowId: rowB,
           writeEpoch: epoch,
-          commitSeq: CommitSeqSchema.make(2n),
-          rowPrevCommitSeq: null,
-          previousClaimCommitSeq: null,
           previous: null,
           next: key,
         }))
@@ -181,9 +175,6 @@ async function apply(
       tableId,
       rowId,
       writeEpoch,
-      commitSeq: CommitSeqSchema.make(commitSeq),
-      rowPrevCommitSeq: null,
-      previousClaimCommitSeq: null,
       previous: null,
       next: key,
     }))

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   proveManagedSchemaCookingSchemaB,
+  proveManagedSchemaCandidateUniqueAfterActiveWrite,
   proveManagedSchemaCandidateIndexCoverageBoundaries,
   proveManagedSchemaCandidateIndexAfterActiveWrite,
 } from "../../support/managedSchemaCookingHarness";
@@ -61,4 +62,8 @@ describe("Managed-schema cooking simulation - schema B", () => {
     },
     480_000,
   );
+  it("blocks stale candidate uniqueness after valid active duplicates and repairs", async () => {
+    await expect(proveManagedSchemaCandidateUniqueAfterActiveWrite()).resolves.toBe(true);
+  }, 480_000);
+
 });

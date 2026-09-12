@@ -114,10 +114,11 @@ import {
 } from "../appUniqueConstraintDefinitions";
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
-  resetAppUniqueConstraintSetValidationInTransactionEffect,
+  prepareActiveUniqueCoverageInTransactionEffect, advanceActiveUniqueCoverageInTransactionEffect,
 } from "../appUniqueConstraintSetBuildV1";
 import {
   applyAppUniqueKeyMutationInTransactionEffect,
+  readAppUniqueKeyOwnersInTransactionEffect,
   AppUniqueKeyConflictError,
   AppUniqueKeyHashError,
   AppUniqueKeyPersistenceError,
@@ -531,14 +532,17 @@ export async function materializeApplicationDocumentRows(
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
   commitSeq: CommitSeq,
-  writeEpoch: ScopeEpoch,
+  clock: ScopeClockRecord,
   loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
   intrinsicBuilds: ReadonlyArray<LockedPointCommitIntrinsicIndexV1>,
   developerIndexActions: ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>,
   developerBuilds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
   uniqueKeyActions: ReadonlyArray<PointCommitUniqueKeyActionV1>,
+  uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
   options: ApplicationDocumentMaterializationOptions,
 ): Promise<void> {
+  const writeEpoch = clock.epoch;
+  const uniqueBuilds = await runUniqueCoverage(prepareActiveUniqueCoverageInTransactionEffect(tx, clock, command.authorityPins.schemaVersionId, uniqueDefinitions));
   const maintainedBuilds = [...intrinsicBuilds, ...developerBuilds];
   for (const { build, definition } of maintainedBuilds) {
     if (build.lifecycle !== "enabled") continue;
@@ -622,7 +626,6 @@ export async function materializeApplicationDocumentRows(
   await writePointCommitUniqueKeyActions(
     tx,
     command,
-    commitSeq,
     writeEpoch,
     uniqueKeyActions,
     options,
@@ -657,42 +660,13 @@ export async function materializeApplicationDocumentRows(
     if (updated.length !== 1) throw corruption("developerIndexBuildInvalid");
   }
 
-  if (command.rowIntents.length > 0) {
-    const reset = await resetPointCommitUniqueConstraintValidation(tx, command);
-    if (reset) {
-      await emitTransactionStep(
-        options,
-        command,
-        "uniqueConstraintValidationReset",
-      );
-    }
-  }
+  await runUniqueCoverage(advanceActiveUniqueCoverageInTransactionEffect(tx, uniqueBuilds, commitSeq, command.authorityPins.schemaVersionId));
+  if (uniqueBuilds.length > 0) await emitTransactionStep(options, command, "uniqueConstraintCoverageAdvanced");
 }
 
-async function resetPointCommitUniqueConstraintValidation(
-  tx: AppRowTransaction,
-  command: ApplicationDocumentMaterializationCommand,
-): Promise<boolean> {
-  const settled = await Effect.runPromise(
-    Effect.result(
-      resetAppUniqueConstraintSetValidationInTransactionEffect(tx, {
-        scopeId: command.authorityPins.scopeId,
-      }),
-    ),
-  );
-  const result = projectPointCommitTransactionResult(
-    settled.pipe(
-      Result.mapError((failure) =>
-        failure instanceof AppUniqueConstraintSetBuildIntegrationV1Error
-          ? new PointCommitSqlFailureMarkerV1(
-              "resetUniqueConstraintValidation",
-              failure.cause,
-            )
-          : corruption("uniqueConstraintBuildInvalid"),
-      ),
-    ),
-  );
-  return result.status === "reset";
+async function runUniqueCoverage<A>(effect: Effect.Effect<A, AppUniqueConstraintSetBuildIntegrationV1Error | import("../appUniqueConstraintSetBuildV1").AppUniqueConstraintSetBuildStateV1Error>): Promise<A> {
+  return projectPointCommitTransactionResult((await runPointCommitInTransactionEffect(effect)).pipe(Result.mapError(failure =>
+    failure instanceof AppUniqueConstraintSetBuildIntegrationV1Error ? new PointCommitSqlFailureMarkerV1("maintainUniqueConstraintCoverage", failure.cause) : corruption("uniqueConstraintBuildInvalid"))));
 }
 
 export async function preparePointCommitApplicationRelationPlan(
@@ -1536,10 +1510,10 @@ export async function preparePointCommitUniqueKeyActions(
       plan.previousCanonical?.kind === "claim" ? plan.previousCanonical : null;
     const nextClaim =
       plan.nextCanonical?.kind === "claim" ? plan.nextCanonical : null;
+    if (owner === null && previousClaim !== null) throw corruption("uniqueKeyTransitionInvalid");
     if (owner !== null) {
       if (
         plan.rowPrevCommitSeq === null ||
-        owner.commitSeq !== plan.rowPrevCommitSeq ||
         previousClaim === null ||
         owner.encodedKey !== previousClaim.encodedKey
       )
@@ -1548,23 +1522,12 @@ export async function preparePointCommitUniqueKeyActions(
         nextClaim !== null &&
         nextClaim.encodedKey === previousClaim.encodedKey
       ) {
-        actions.push(
-          uniqueKeyAction(
-            "advance",
-            plan,
-            owner.commitSeq,
-            plan.previousProjection,
-            plan.nextProjection,
-            previousClaim.encodedKey,
-          ),
-        );
         continue;
       }
       actions.push(
         uniqueKeyAction(
           "release",
           plan,
-          owner.commitSeq,
           plan.previousProjection,
           null,
           previousClaim.encodedKey,
@@ -1576,7 +1539,6 @@ export async function preparePointCommitUniqueKeyActions(
         uniqueKeyAction(
           "claim",
           plan,
-          null,
           null,
           plan.nextProjection,
           nextClaim.encodedKey,
@@ -1620,107 +1582,20 @@ async function loadPointCommitUniqueKeyOwners(
   command: ApplicationDocumentMaterializationCommand,
   plans: ReadonlyArray<PointCommitUniqueKeyPlanV1>,
 ): Promise<ReadonlyMap<string, PointCommitUniqueKeyOwnerV1>> {
-  if (plans.length === 0) return new Map();
-  const scopeUuid = projectPointCommitTransactionResult(
-    projectScopeIdUuidV1Result(command.authorityPins.scopeId).pipe(
-      Result.mapError(() => corruption("uniqueKeyTransitionInvalid")),
-    ),
-  ).scopeUuid;
   const positions = uniquePointCommitUniqueKeyOwnerPositions(plans);
-  const values = sql.join(
-    positions.map(
-      (position, ordinal) => sql`
-    (
-      ${ordinal}::integer,
-      ${position.definitionId}::integer,
-      ${position.tableId}::integer,
-      ${appRowIdHexV1ToBytes(position.rowId)}::bytea
-    )
-  `,
-    ),
-    sql`, `,
-  );
-  const statement = sql`
-    with requested(ordinal, constraint_id, table_id, row_id) as (
-      values ${values}
-    )
-    select
-      requested.ordinal::text as "ordinalText",
-      current_key.locale_key as "localeKey",
-      current_key.encoded_key as "encodedKey",
-      current_key.commit_seq::text as "commitSeqText"
-    from requested
-    left join fx_app_unique_key as current_key
-      on current_key.scope_uuid = ${scopeUuid}
-      and current_key.constraint_id = requested.constraint_id
-      and current_key.table_id = requested.table_id
-      and current_key.row_id = requested.row_id
-    order by requested.ordinal asc
-  `;
-  const result = await sqlCall("loadUniqueKeyOwners", () =>
-    tx.execute(statement),
-  );
-  const rows = rowsFromDriverExecuteResult(result, () => {
-    throw corruption("uniqueKeyTransitionInvalid");
-  });
-  if (rows.length !== positions.length) {
-    throw corruption("uniqueKeyTransitionInvalid");
-  }
+  const claims = projectPointCommitTransactionResult((await runPointCommitInTransactionEffect(readAppUniqueKeyOwnersInTransactionEffect(tx, {
+    scopeId: command.authorityPins.scopeId,
+    positions: positions.map(position => {
+      const plan = plans.find(value => value.definition.uniqueConstraintDefinitionId === position.definitionId);
+      if (!plan) throw corruption("uniqueKeyTransitionInvalid");
+      return { constraintId: position.definitionId, tableId: position.tableId, rowId: position.rowId, componentCount: plan.definition.physicalSpec.orderedFields.length + 1 };
+    }),
+  }))).pipe(Result.mapError(mapPointCommitUniqueKeyFailure)));
   const owners = new Map<string, PointCommitUniqueKeyOwnerV1>();
-  for (let ordinal = 0; ordinal < positions.length; ordinal += 1) {
-    const row = rows[ordinal];
-    const position = positions[ordinal];
-    if (!isNonArrayRecord(row) || position === undefined) {
-      throw corruption("uniqueKeyTransitionInvalid");
-    }
-    const decodedOrdinal = projectPointCommitTransactionResult(
-      parseNonNegativeIntegerTextResult(row.ordinalText).pipe(
-        Result.mapError(() => corruption("uniqueKeyTransitionInvalid")),
-      ),
-    );
-    if (decodedOrdinal !== ordinal) {
-      throw corruption("uniqueKeyTransitionInvalid");
-    }
-    if (
-      row.localeKey === null &&
-      row.encodedKey === null &&
-      row.commitSeqText === null
-    )
-      continue;
-    if (
-      row.localeKey !== "" ||
-      !isUint8Array(row.encodedKey) ||
-      typeof row.commitSeqText !== "string"
-    )
-      throw corruption("uniqueKeyTransitionInvalid");
-    const commitSeq = projectPointCommitTransactionResult(
-      parseNullableCommitSeqTextResult(row.commitSeqText).pipe(
-        Result.mapError(() => corruption("uniqueKeyTransitionInvalid")),
-        Result.filterOrFail(
-          (value): value is CommitSeq => value !== null,
-          () => corruption("uniqueKeyTransitionInvalid"),
-        ),
-      ),
-    );
-    const ownerPosition = uniqueKeyOwnerPosition(
-      position.definitionId,
-      position.tableId,
-      position.rowId,
-    );
-    if (owners.has(ownerPosition)) {
-      throw corruption("uniqueKeyTransitionInvalid");
-    }
-    owners.set(
-      ownerPosition,
-      Object.freeze({
-        commitSeq,
-        // SAFETY: row.encodedKey stores the canonical lowercase hex spelling
-        // of an ordered index key.
-        encodedKey: encodeBytesToLowercaseHex(
-          row.encodedKey,
-        ) as OrderedIndexKeyHexV1,
-      }),
-    );
+  for (const claim of claims) {
+    const key = uniqueKeyOwnerPosition(claim.constraintId, claim.tableId, claim.rowId);
+    if (claim.localeKey !== "" || owners.has(key)) throw corruption("uniqueKeyTransitionInvalid");
+    owners.set(key, Object.freeze({ encodedKey: claim.encodedKey }));
   }
   return owners;
 }
@@ -1757,7 +1632,6 @@ function uniquePointCommitUniqueKeyOwnerPositions(
 function uniqueKeyAction(
   phase: PointCommitUniqueKeyActionV1["phase"],
   plan: PointCommitUniqueKeyPlanV1,
-  previousClaimCommitSeq: CommitSeq | null,
   previous: AppUniqueKeyProjectionV1 | null,
   next: AppUniqueKeyProjectionV1 | null,
   sortKey: OrderedIndexKeyHexV1,
@@ -1766,8 +1640,6 @@ function uniqueKeyAction(
     phase,
     definition: plan.definition,
     rowId: plan.rowId,
-    rowPrevCommitSeq: plan.rowPrevCommitSeq,
-    previousClaimCommitSeq,
     previous,
     next,
     sortKey,
@@ -1785,7 +1657,7 @@ function uniqueKeyOwnerPosition(
 function pointCommitUniqueKeyPhaseRank(
   phase: PointCommitUniqueKeyActionV1["phase"],
 ): number {
-  return phase === "release" ? 0 : phase === "advance" ? 1 : 2;
+  return phase === "release" ? 0 : 1;
 }
 
 function comparePointCommitUniqueKeyActions(
@@ -2204,7 +2076,6 @@ async function writePointCommitDeveloperIndexActions(
 async function writePointCommitUniqueKeyActions(
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
-  commitSeq: CommitSeq,
   writeEpoch: ScopeEpoch,
   actions: ReadonlyArray<PointCommitUniqueKeyActionV1>,
   options: ApplicationDocumentMaterializationOptions,
@@ -2216,9 +2087,6 @@ async function writePointCommitUniqueKeyActions(
       tableId: action.definition.tableId,
       rowId: action.rowId,
       writeEpoch,
-      commitSeq,
-      rowPrevCommitSeq: action.rowPrevCommitSeq,
-      previousClaimCommitSeq: action.previousClaimCommitSeq,
       previous: action.previous,
       next: action.next,
     });

@@ -319,9 +319,10 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     "update fx_system_index_build_state set lifecycle = 'enabled'",
   );
   await lane.persistence.query(
-    `update fx_system_unique_constraint_set_build
+    `update fx_system_unique_constraint_build
         set lifecycle = 'validating'
-      where schema_version_id = $1`,
+      where unique_constraint_definition_id in (select unique_constraint_definition_id
+        from fx_control_schema_version_unique_constraint_binding where schema_version_id = $1)`,
     [second.schemaVersionId],
   );
   const uniqueConstraintNotReady = await Effect.runPromise(
@@ -336,9 +337,10 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     "ApplicationRevisionActivationNotReadyV1Error",
   );
   await lane.persistence.query(
-    `update fx_system_unique_constraint_set_build
+    `update fx_system_unique_constraint_build
         set lifecycle = 'enabled'
-      where schema_version_id = $1`,
+      where unique_constraint_definition_id in (select unique_constraint_definition_id
+        from fx_control_schema_version_unique_constraint_binding where schema_version_id = $1)`,
     [second.schemaVersionId],
   );
   let driftActivationCompleted = false;
@@ -366,9 +368,10 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     throw new Error("FSV05 coherent reader did not observe drift activation.");
   }
   await lane.persistence.query(
-    `update fx_system_unique_constraint_set_build
+    `update fx_system_unique_constraint_build
         set attempt_fence = attempt_fence + 1
-      where schema_version_id = $1`,
+      where unique_constraint_definition_id in (select unique_constraint_definition_id
+        from fx_control_schema_version_unique_constraint_binding where schema_version_id = $1)`,
     [second.schemaVersionId],
   );
   const uniqueConstraintDrift = await Effect.runPromise(Effect.exit(
@@ -379,9 +382,10 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     "ApplicationRevisionReadinessStaleAuthorityV1Error",
   );
   await lane.persistence.query(
-    `update fx_system_unique_constraint_set_build
+    `update fx_system_unique_constraint_build
         set attempt_fence = attempt_fence - 1
-      where schema_version_id = $1`,
+      where unique_constraint_definition_id in (select unique_constraint_definition_id
+        from fx_control_schema_version_unique_constraint_binding where schema_version_id = $1)`,
     [second.schemaVersionId],
   );
 

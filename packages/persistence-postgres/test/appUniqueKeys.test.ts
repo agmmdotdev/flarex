@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import {
   canonicalizeAppDocumentV1,
@@ -25,7 +26,8 @@ import {
 } from "../src/appUniqueKeyContract";
 import {
   AppUniqueKeyConflictError,
-  AppUniqueKeyParentRevisionError,
+  AppUniqueKeyStorageCorruptionError,
+  AppUniqueKeyParentRowError,
   AppUniqueKeyPreviousClaimMismatchError,
   CanonicalAppUniqueKeyHashCollisionError,
   applyAppUniqueKeyMutationInTransactionEffect,
@@ -128,7 +130,22 @@ describe("S11 app unique-key storage", () => {
     expect(sparseReads).toBe(1);
   });
 
-  it("claims, advances, rejects overwrite, releases, reuses, and localizes by scope", async () => {
+  it("decodes a malformed stored slot before comparing canonical bytes", async () => {
+    const persistence = await uniquePersistence();
+    await appendRow(persistence, await liveRow(scopeId, epoch, rowA, 1n, null, "a"));
+    await apply(persistence, mutation(scopeId, epoch, rowA, null, keyA));
+    const rollback = new Error("restore deliberately malformed storage");
+    await expect(persistence.drizzle.transaction(async tx => {
+      await tx.execute(sql`alter table fx_app_unique_key alter column encoded_key drop not null`);
+      await tx.execute(sql`update fx_app_unique_key set encoded_key = null`);
+      expect(await runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(tx, mutation(scopeId, epoch, rowA, keyA, keyA))))
+        .toBeInstanceOf(AppUniqueKeyStorageCorruptionError);
+      throw rollback;
+    })).rejects.toBe(rollback);
+    expect((await apply(persistence, mutation(scopeId, epoch, rowA, keyA, keyA))).status).toBe("unchanged");
+  });
+
+  it("claims, preserves unchanged owners, rejects overwrite, releases, reuses, and localizes by scope", async () => {
     const persistence = await uniquePersistence();
     await appendRow(
       persistence,
@@ -138,15 +155,13 @@ describe("S11 app unique-key storage", () => {
       scopeId,
       epoch,
       rowA,
-      1n,
-      null,
       null,
       keyA,
     ))).status).toBe("claimed");
     const repeatedClaim = await persistence.drizzle.transaction((tx) =>
       runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(
         tx,
-        mutation(scopeId, epoch, rowA, 1n, null, null, keyA),
+        mutation(scopeId, epoch, rowA, null, keyA),
       ))
     );
     expect(repeatedClaim).toBeInstanceOf(AppUniqueKeyConflictError);
@@ -159,11 +174,9 @@ describe("S11 app unique-key storage", () => {
       scopeId,
       epoch,
       rowA,
-      2n,
-      1n,
       keyA,
       keyA,
-    ))).status).toBe("advanced");
+    ))).status).toBe("unchanged");
 
     await appendRow(
       persistence,
@@ -173,18 +186,16 @@ describe("S11 app unique-key storage", () => {
       scopeId,
       epoch,
       rowA,
-      3n,
-      2n,
       keyA,
       keyB,
-    ))).status).toBe("advanced");
+    ))).status).toBe("claimed");
     const contradictoryPrior = await persistence.drizzle.transaction((tx) =>
       runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(
         tx,
-        mutation(scopeId, epoch, rowA, 3n, 2n, keyB, keyB),
+        mutation(scopeId, epoch, rowA, keyA, keyB),
       ))
     );
-    expect(contradictoryPrior).toBeInstanceOf(AppUniqueKeyConflictError);
+    expect(contradictoryPrior).toBeInstanceOf(AppUniqueKeyPreviousClaimMismatchError);
 
     await appendRow(
       persistence,
@@ -193,7 +204,7 @@ describe("S11 app unique-key storage", () => {
     const conflict = await persistence.drizzle.transaction((tx) =>
       runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(
         tx,
-        mutation(scopeId, epoch, rowB, 4n, null, null, keyB),
+        mutation(scopeId, epoch, rowB, null, keyB),
       ))
     );
     expect(conflict).toBeInstanceOf(AppUniqueKeyConflictError);
@@ -203,15 +214,13 @@ describe("S11 app unique-key storage", () => {
       scopeId,
       epoch,
       rowA,
-      5n,
-      3n,
       keyB,
       null,
     ))).status).toBe("released");
     const repeatedRelease = await persistence.drizzle.transaction((tx) =>
       runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(
         tx,
-        mutation(scopeId, epoch, rowA, 5n, 3n, keyB, null),
+        mutation(scopeId, epoch, rowA, keyB, null),
       ))
     );
     expect(repeatedRelease).toBeInstanceOf(
@@ -226,8 +235,6 @@ describe("S11 app unique-key storage", () => {
       scopeId,
       epoch,
       rowB,
-      6n,
-      4n,
       null,
       keyB,
     ))).status).toBe("claimed");
@@ -240,28 +247,15 @@ describe("S11 app unique-key storage", () => {
       otherScopeId,
       otherEpoch,
       rowC,
-      1n,
-      null,
       null,
       keyA,
     ))).status).toBe("claimed");
 
-    const rows = await persistence.query<{
-      scope_id: string;
-      schema_version_id: string;
-      commit_seq: string;
-    }>(`
-      select clock.scope_id, claim.schema_version_id,
-             claim.commit_seq::text as commit_seq
-      from fx_app_unique_key as claim
-      join fx_system_scope_clock as clock
-        on clock.scope_uuid = claim.scope_uuid
-      order by clock.scope_id
-    `);
-    expect(rows.rows).toEqual([
-      { scope_id: scopeId, schema_version_id: schemaVersionId, commit_seq: "6" },
-      { scope_id: otherScopeId, schema_version_id: schemaVersionId, commit_seq: "1" },
-    ]);
+    const rows = await persistence.query<{ scope_id: string; row_id: string }>(`
+      select clock.scope_id, encode(claim.row_id, 'hex') as row_id
+      from fx_app_unique_key as claim join fx_system_scope_clock as clock on clock.scope_uuid = claim.scope_uuid
+      order by clock.scope_id`);
+    expect(rows.rows).toEqual([{scope_id: scopeId, row_id: rowB}, {scope_id: otherScopeId, row_id: rowC}]);
 
     await appendRow(
       persistence,
@@ -271,8 +265,6 @@ describe("S11 app unique-key storage", () => {
       scopeId,
       epoch,
       rowD,
-      7n,
-      null,
       null,
       projection("localized", "en"),
     ));
@@ -284,8 +276,6 @@ describe("S11 app unique-key storage", () => {
       scopeId,
       epoch,
       rowE,
-      8n,
-      null,
       null,
       projection("localized", "fr"),
     ));
@@ -297,8 +287,6 @@ describe("S11 app unique-key storage", () => {
       scopeId,
       epoch,
       rowF,
-      9n,
-      null,
       null,
       { sparse: true, localeKey: null, values: [missing()] },
     ))).status).toBe("omitted");
@@ -324,7 +312,7 @@ describe("S11 app unique-key storage", () => {
     await persistence.drizzle.transaction((tx) =>
       runEffect(applyAppUniqueKeyMutationInTransactionEffect(
         tx,
-        { ...mutation(scopeId, epoch, rowA, 1n, null, null, keyA), constraintId: collisionConstraintId },
+        { ...mutation(scopeId, epoch, rowA, null, keyA), constraintId: collisionConstraintId },
         fixedDigest,
       ))
     );
@@ -335,7 +323,7 @@ describe("S11 app unique-key storage", () => {
     const collision = await persistence.drizzle.transaction((tx) =>
       runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(
         tx,
-        { ...mutation(scopeId, epoch, rowB, 2n, null, null, keyB), constraintId: collisionConstraintId },
+        { ...mutation(scopeId, epoch, rowB, null, keyB), constraintId: collisionConstraintId },
         fixedDigest,
       ))
     );
@@ -348,37 +336,24 @@ describe("S11 app unique-key storage", () => {
     expect(encodeBytesToLowercaseHex(stored.rows[0]!.row_id)).toBe(rowA);
   });
 
-  it("rejects a unique mutation that skips authoritative row lineage", async () => {
+  it("retains stable ownership across body revisions and requires a live current parent", async () => {
     const persistence = await uniquePersistence();
-    await appendRow(
-      persistence,
-      await liveRow(scopeId, epoch, rowA, 1n, null, "a"),
-    );
-    await apply(persistence, mutation(
-      scopeId,
-      epoch,
-      rowA,
-      1n,
-      null,
-      null,
-      keyA,
-    ));
-    await appendRow(
-      persistence,
-      await liveRow(scopeId, epoch, rowA, 2n, 1n, "a2"),
-    );
-    await appendRow(
-      persistence,
-      await liveRow(scopeId, epoch, rowA, 3n, 2n, "a3"),
-    );
-    const skipped = await persistence.drizzle.transaction((tx) =>
-      runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(
-        tx,
-        mutation(scopeId, epoch, rowA, 3n, 1n, keyA, keyB),
-      ))
-    );
-    expect(skipped).toBeInstanceOf(AppUniqueKeyParentRevisionError);
-    expect(skipped).toMatchObject({ reason: "lineageMismatch" });
+    const missing = await persistence.drizzle.transaction(tx => runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(tx, mutation(scopeId, epoch, rowA, null, keyA))));
+    expect(missing).toBeInstanceOf(AppUniqueKeyParentRowError);
+    expect(missing).toMatchObject({reason: "missing"});
+    await appendRow(persistence, await liveRow(scopeId, epoch, rowA, 1n, null, "a"));
+    await apply(persistence, mutation(scopeId, epoch, rowA, null, keyA));
+    const before = await persistence.query("select *, xmin::text as tuple_version from fx_app_unique_key");
+    await appendRow(persistence, await liveRow(scopeId, epoch, rowA, 2n, 1n, "a2"));
+    await appendRow(persistence, await liveRow(scopeId, epoch, rowA, 3n, 2n, "a3"));
+    expect((await apply(persistence, mutation(scopeId, epoch, rowA, keyA, keyA))).status).toBe("unchanged");
+    expect((await persistence.query("select *, xmin::text as tuple_version from fx_app_unique_key")).rows).toEqual(before.rows);
+    await expect(persistence.query("delete from fx_app_row_current")).rejects.toMatchObject({code: "23503"});
+    await appendRow(persistence, tombstoneRow(scopeId, epoch, rowA, 4n, 3n));
+    const tombstoned = await persistence.drizzle.transaction(tx => runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(tx, mutation(scopeId, epoch, rowA, keyA, keyB))));
+    expect(tombstoned).toBeInstanceOf(AppUniqueKeyParentRowError);
+    expect(tombstoned).toMatchObject({reason: "tombstonedClaim"});
+    expect((await apply(persistence, mutation(scopeId, epoch, rowA, keyA, null))).status).toBe("released");
   });
 
   it("captures every accessor-backed mutation field once", async () => {
@@ -388,8 +363,6 @@ describe("S11 app unique-key storage", () => {
       await liveRow(scopeId, epoch, rowA, 1n, null, "accessor"),
     );
     const reads = {
-      rowPrevCommitSeq: 0,
-      previousClaimCommitSeq: 0,
       previous: 0,
       next: 0,
     };
@@ -399,19 +372,6 @@ describe("S11 app unique-key storage", () => {
       tableId,
       rowId: rowA,
       writeEpoch: epoch,
-      commitSeq: CommitSeqSchema.make(1n),
-      get rowPrevCommitSeq() {
-        reads.rowPrevCommitSeq += 1;
-        return reads.rowPrevCommitSeq === 1
-          ? null
-          : CommitSeqSchema.make(99n);
-      },
-      get previousClaimCommitSeq() {
-        reads.previousClaimCommitSeq += 1;
-        return reads.previousClaimCommitSeq === 1
-          ? null
-          : CommitSeqSchema.make(99n);
-      },
       get previous() {
         reads.previous += 1;
         return reads.previous === 1 ? null : keyB;
@@ -423,8 +383,6 @@ describe("S11 app unique-key storage", () => {
     };
     expect((await apply(persistence, accessorInput)).status).toBe("claimed");
     expect(reads).toEqual({
-      rowPrevCommitSeq: 1,
-      previousClaimCommitSeq: 1,
       previous: 1,
       next: 1,
     });
@@ -441,7 +399,7 @@ describe("S11 app unique-key storage", () => {
       );
       await runEffect(applyAppUniqueKeyMutationInTransactionEffect(
         tx,
-        mutation(scopeId, epoch, rowA, 1n, null, null, keyA),
+        mutation(scopeId, epoch, rowA, null, keyA),
       ));
       throw new Error("injected S11 rollback");
     })).rejects.toThrow("injected S11 rollback");
@@ -494,8 +452,6 @@ function mutation(
   owningScopeId: typeof scopeId,
   writeEpoch: typeof epoch,
   rowId: typeof rowA,
-  commitSeq: bigint,
-  rowPrevCommitSeq: bigint | null,
   previous: AppUniqueKeyProjectionV1 | null,
   next: AppUniqueKeyProjectionV1 | null,
 ): ApplyAppUniqueKeyMutationV1Input {
@@ -505,13 +461,6 @@ function mutation(
     tableId,
     rowId,
     writeEpoch,
-    commitSeq: CommitSeqSchema.make(commitSeq),
-    rowPrevCommitSeq: rowPrevCommitSeq === null
-      ? null
-      : CommitSeqSchema.make(rowPrevCommitSeq),
-    previousClaimCommitSeq: previous === null
-      ? null
-      : CommitSeqSchema.make(rowPrevCommitSeq!),
     previous,
     next,
   };

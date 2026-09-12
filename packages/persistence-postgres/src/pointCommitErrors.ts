@@ -224,7 +224,7 @@ export type PointCommitSqlOperationV1 =
   | "loadUniqueKeyOwners"
   | "resetIntrinsicIndexValidation"
   | "resetDeveloperIndexValidation"
-  | "resetUniqueConstraintValidation"
+  | "maintainUniqueConstraintCoverage"
   | "validateCandidateSchema"
   | "writeTentativeRow"
   | "writeIntrinsicIndexEntry"

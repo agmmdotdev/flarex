@@ -1,5 +1,9 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import { prepareAppUniqueConstraintDefinitionBindingV1Effect, ensureAppUniqueConstraintDefinitionBindingV1InTransaction } from "@flarex/persistence-postgres/internal/app-unique-constraint-definitions-v1";
+import { reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstraintSetBackfillV1Effect, loadAppUniqueConstraintSetEligibilityForReadinessV1Effect } from "@flarex/persistence-postgres/internal/app-unique-constraint-set-build-v1";
+import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1, decodeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
+import { SchemaManifestAppIndexDescriptorSchema } from "flarex-protocol/schema-manifest";
 import { ensureAppUniqueConstraintSetClosureV1Effect } from "@flarex/persistence-postgres/internal/app-unique-constraint-set-closure-v1";
 import { Effect, Result, Scope } from "effect";
 import { openApplicationQuerySnapshot, readApplicationQueryIndex, readApplicationQueryPoint } from "@flarex/persistence-postgres/internal/application-query-snapshot";
@@ -279,6 +283,80 @@ export async function proveManagedSchemaCookingSchemaA(
       feedCount: 1,
       outboxCount: 1,
     });
+  });
+}
+
+/** A's valid duplicates must block B's unique readiness without rejecting A. */
+export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
+  createFixture: ManagedSchemaCookingFixtureFactory = options => createApplicationNativeMutationPGliteFixture(options),
+) {
+  return withCookingScenario(createFixture, async scenario => {
+    const { fixture } = scenario;
+    const source = await cookingSourceBundle("B");
+    scenario.sources.set(source.sourceArtifact.rootSha256, source);
+    const candidate = await fixture.registerRevision({ requestKey: "request:candidate-unique-coverage",
+      analysis: cookingAnalysis(source, scenario.analysisLoader, "unique coverage"),
+    });
+    const schema = await fixture.publishManagedSchemaCandidate(candidate.manifest);
+    const table = schema.manifest.tableDefinitions.tables.find(value => value.logicalName === "recipes");
+    if (!table) throw new Error("Recipes table missing.");
+    const binding = await runSystemTestEffectV1(prepareAppUniqueConstraintDefinitionBindingV1Effect(fixture.control.drizzle, {
+      deploymentId: fixture.deploymentId, schemaVersionId: schema.schemaVersionId, tableId: table.tableId,
+      descriptor: SchemaManifestAppIndexDescriptorSchema.make("unique_name"),
+      physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,
+        orderedFields: ["name"], sparse: false, localePolicy: { kind: "none" },
+        keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1, keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1 }),
+    }));
+    await fixture.control.drizzle.transaction(tx => runSystemTestEffectV1(ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, binding)));
+    const input = { deploymentId: fixture.deploymentId, schemaVersionId: schema.schemaVersionId };
+    const ports = { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts };
+    await runSystemTestEffectV1(ensureAppUniqueConstraintSetClosureV1Effect(fixture.control.drizzle, input));
+    await runSystemTestEffectV1(reconcileAppUniqueConstraintSetBuildV1Effect(ports, input));
+    let enabled = false;
+    for (let step = 0; step < 16; step++) {
+      const result = await runSystemTestEffectV1(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...input, pageSize: 1 }));
+      if (result.lifecycle === "enabled") { enabled = true; break; }
+    }
+    if (!enabled) throw new Error("Empty candidate unique build did not enable.");
+    const ids: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const result = await scenario.mutation(invokeApplicationMutation(TransactionFunctionPathV1Schema.make("recipes:create"),
+        { name: "duplicate accepted by A" }, TransactionRequestKeyV1Schema.make(`unique-coverage:duplicate:${i}`)));
+      if (result.disposition !== "published" || typeof result.value !== "string") throw new Error("A duplicate was rejected by candidate-only uniqueness.");
+      ids.push(result.value);
+    }
+    const eligibility = await runSystemTestEffectV1(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(fixture.uniqueConstraintEligibility, { ...input, scopeId: fixture.authority.scopeId }));
+    if (eligibility.status !== "not_ready") throw new Error("Stale candidate unique set remained eligible after A published duplicates.");
+    const blocked = await runSystemTestEffectV1(Effect.result(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...input, pageSize: 1 })));
+    if (Result.isSuccess(blocked) || blocked.failure._tag !== "AppUniqueKeyConflictError") throw new Error("Candidate catch-up did not reject A's current duplicate.");
+    const beforeRepair = await runSystemTestEffectV1(fixture.activation.readActive());
+    if (beforeRepair.basis.revisionId !== fixture.active.basis.revisionId) throw new Error("A lost authority while B uniqueness was blocked.");
+    const repaired = await scenario.mutation(invokeApplicationMutation(TransactionFunctionPathV1Schema.make("recipes:rename"),
+      { id: ids[1]!, name: "repaired by A" }, TransactionRequestKeyV1Schema.make("unique-coverage:repair")));
+    if (repaired.disposition !== "published") throw new Error("A could not repair its duplicate.");
+    const planningLayer = makeApplicationManagedSchemaPlanningLayer(fixture.managedSchemaPlanning);
+    const prepared = await runSystemTestEffectV1(prepareFlarexManagedSchemaDeployment({ candidatePublication: candidate.publication }).pipe(Effect.provide(planningLayer)));
+    const activated = await applyManagedSchemaPlanUntilTerminal(scenario, prepared.prepared);
+    if (activated.status !== "activated" || activated.revisionId !== candidate.publication.revisionId) throw new Error("Repaired unique candidate did not activate through normal managed apply.");
+    const activeWrite = await scenario.mutation(invokeApplicationMutation(TransactionFunctionPathV1Schema.make("recipes:rename"),
+      { id: ids[1]!, name: "maintained by B" }, TransactionRequestKeyV1Schema.make("unique-coverage:active-B")));
+    if (activeWrite.disposition !== "published") throw new Error("B could not maintain its activated unique constraint.");
+    const afterWrite = await runSystemTestEffectV1(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(fixture.uniqueConstraintEligibility, { ...input, scopeId: fixture.authority.scopeId }));
+    if (afterWrite.status !== "eligible") throw new Error(`B publication did not advance its selected unique coverage: ${JSON.stringify(afterWrite)}`);
+    const beforeConflict = await durableCounts(fixture);
+    const storageBeforeConflict = await applicationStorageCounts(fixture);
+    const claimsBeforeConflict = await fixture.target.query("select to_jsonb(c)::text claim from fx_app_unique_key c order by constraint_id, row_id");
+    const buildsBeforeConflict = await fixture.target.query("select to_jsonb(b)::text build from fx_system_unique_constraint_build b order by unique_constraint_definition_id");
+    const conflict = await scenario.mutation(Effect.result(invokeApplicationMutation(TransactionFunctionPathV1Schema.make("recipes:rename"),
+      { id: ids[1]!, name: "duplicate accepted by A" }, TransactionRequestKeyV1Schema.make("unique-coverage:active-B-conflict"))));
+    if (Result.isSuccess(conflict) || !("_tag" in conflict.failure) || conflict.failure._tag !== "AppUniqueKeyConflictError") throw new Error(`B failed to reject duplicate ownership: ${JSON.stringify(conflict)}`);
+    if (!sameDurableCounts(beforeConflict, await durableCounts(fixture)) ||
+      !sameApplicationStorageCounts(storageBeforeConflict, await applicationStorageCounts(fixture))) throw new Error("B unique conflict changed authoritative publication state.");
+    const claimsAfterConflict = await fixture.target.query("select to_jsonb(c)::text claim from fx_app_unique_key c order by constraint_id, row_id");
+    const buildsAfterConflict = await fixture.target.query("select to_jsonb(b)::text build from fx_system_unique_constraint_build b order by unique_constraint_definition_id");
+    if (JSON.stringify(claimsAfterConflict.rows) !== JSON.stringify(claimsBeforeConflict.rows) ||
+      JSON.stringify(buildsAfterConflict.rows) !== JSON.stringify(buildsBeforeConflict.rows)) throw new Error("B unique conflict changed ownership or coverage.");
+    return true;
   });
 }
 

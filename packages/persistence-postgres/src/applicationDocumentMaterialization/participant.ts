@@ -333,7 +333,7 @@ export const enterApplicationDocumentParticipant = Effect.fn("ApplicationPartici
           tx,
           command,
           commitSeq,
-          scopeClock.epoch,
+          scopeClock,
           heads,
           intrinsic.filter((index) =>
             changed.has(index.definition.access.tableId),
@@ -341,6 +341,7 @@ export const enterApplicationDocumentParticipant = Effect.fn("ApplicationPartici
           indexActions,
           selectedDeveloper,
           uniqueActions,
+          prepared.unique.filter(definition => changed.has(definition.tableId)),
           prepared.options,
         ),
       );

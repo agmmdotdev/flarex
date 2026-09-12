@@ -3932,9 +3932,9 @@ export const fxAppIndexEntryCurrent = pgTable(
 /**
  * Current target-native occupancy for one declared unique-key slot.
  *
- * The authoritative value remains the exact app-row revision referenced below.
- * C08 later owns deriving these rows from trusted constraint definitions and
- * final row bodies inside the existing commit transaction.
+ * The foreign key protects stable current-row identity. The materializer derives
+ * ownership from authenticated prior/final documents; unchanged keys do not
+ * refresh the claim or pin a superseded document revision.
  */
 export const fxAppUniqueKeys = pgTable(
   "fx_app_unique_key",
@@ -3951,15 +3951,7 @@ export const fxAppUniqueKeys = pgTable(
     encodedKey: bytea("encoded_key").notNull(),
     tableId: integer("table_id").$type<CatalogTableId>().notNull(),
     rowId: bytea("row_id").notNull(),
-    schemaVersionId: text("schema_version_id")
-      .$type<CatalogSchemaVersionId>()
-      .notNull(),
-    writeEpochUuid: uuid("write_epoch_uuid")
-      .$type<ScopeEpochUuidV1>()
-      .notNull(),
-    commitSeq: bigint("commit_seq", { mode: "bigint" })
-      .$type<CommitSeq>()
-      .notNull(),
+
   },
   (table) => [
     primaryKey({
@@ -3979,29 +3971,10 @@ export const fxAppUniqueKeys = pgTable(
       table.rowId,
     ),
     foreignKey({
-      name: "fx_app_unique_key_scope_clock_fk",
-      columns: [table.scopeUuid],
-      foreignColumns: [fxSystemScopeClocks.scopeUuid],
-    }).onDelete("restrict"),
-    foreignKey({
-      name: "fx_app_unique_key_row_revision_fk",
-      columns: [
-        table.scopeUuid,
-        table.tableId,
-        table.rowId,
-        table.writeEpochUuid,
-        table.commitSeq,
-      ],
-      foreignColumns: [
-        fxAppRowRevisions.scopeUuid,
-        fxAppRowRevisions.tableId,
-        fxAppRowRevisions.rowId,
-        fxAppRowRevisions.writeEpochUuid,
-        fxAppRowRevisions.commitSeq,
-      ],
-    })
-      .onUpdate("restrict")
-      .onDelete("restrict"),
+      name: "fx_app_unique_key_row_identity_fk",
+      columns: [table.scopeUuid, table.tableId, table.rowId],
+      foreignColumns: [fxAppRowCurrent.scopeUuid, fxAppRowCurrent.tableId, fxAppRowCurrent.rowId],
+    }).onUpdate("restrict").onDelete("restrict"),
     check(
       "fx_app_unique_key_constraint_id_check",
       sql`${table.constraintId} between 1 and ${sql.raw(
@@ -4036,14 +4009,7 @@ export const fxAppUniqueKeys = pgTable(
       "fx_app_unique_key_row_id_length_check",
       sql`octet_length(${table.rowId}) = 16`,
     ),
-    check(
-      "fx_app_unique_key_schema_version_id_check",
-      nonBlankText(table.schemaVersionId),
-    ),
-    check(
-      "fx_app_unique_key_commit_seq_check",
-      sql`${table.commitSeq} >= 1`,
-    ),
+
   ],
 );
 
@@ -5132,19 +5098,13 @@ export const fxSystemPhysicalDefinitionLifecycles = pgTable(
   ],
 );
 
-/** One fenced build/readiness row for a schema version's closed unique set. */
-export const fxSystemUniqueConstraintSetBuilds = pgTable(
-  "fx_system_unique_constraint_set_build",
+/** One fenced population and coverage workspace per physical unique constraint. */
+export const fxSystemUniqueConstraintBuilds = pgTable(
+  "fx_system_unique_constraint_build",
   {
     scopeId: text("scope_id").$type<ScopeId>().notNull(),
-    schemaVersionId: text("schema_version_id")
-      .$type<CatalogSchemaVersionId>()
-      .notNull(),
-    setCodecVersion: integer("set_codec_version")
-      .$type<AppUniqueConstraintSetCodecVersionV1>()
-      .notNull(),
-    definitionCount: integer("definition_count").notNull(),
-    definitionSetSha256: bytea("definition_set_sha256").notNull(),
+    uniqueConstraintDefinitionId: integer("unique_constraint_definition_id")
+      .$type<CatalogUniqueConstraintDefinitionId>().notNull(),
     storageGeneration: text("storage_generation")
       .$type<FlarexDbV1StorageGeneration>()
       .notNull(),
@@ -5158,11 +5118,8 @@ export const fxSystemUniqueConstraintSetBuilds = pgTable(
     lifecycle: text("lifecycle")
       .$type<AppUniqueConstraintSetBuildLifecycleV1>()
       .notNull(),
-    cursorCodecVersion: integer("cursor_codec_version")
-      .$type<AppUniqueConstraintSetBuildCursorCodecVersionV1>()
-      .notNull(),
-    cursorDefinitionId: integer("cursor_definition_id")
-      .$type<CatalogUniqueConstraintDefinitionId>(),
+    coveredThroughCommitSeq: bigint("covered_through_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>(),
     cursorRowId: bytea("cursor_row_id"),
     attemptFence: bigint("attempt_fence", { mode: "bigint" })
       .$type<AppUniqueConstraintSetBuildAttemptFenceV1>()
@@ -5176,51 +5133,44 @@ export const fxSystemUniqueConstraintSetBuilds = pgTable(
   },
   (table) => [
     primaryKey({
-      name: "fx_system_unique_set_build_pk",
-      columns: [table.scopeId, table.schemaVersionId],
+      name: "fx_system_unique_build_pk",
+      columns: [table.scopeId, table.uniqueConstraintDefinitionId],
     }),
     foreignKey({
-      name: "fx_system_unique_set_build_scope_fk",
+      name: "fx_system_unique_build_scope_fk",
       columns: [table.scopeId],
       foreignColumns: [fxSystemScopeClocks.scopeId],
     }).onDelete("restrict"),
-    check("fx_system_unique_set_build_scope_check", nonBlankText(table.scopeId)),
+    check("fx_system_unique_build_scope_check", nonBlankText(table.scopeId)),
+    check("fx_system_unique_build_identity_check",
+      sql`${table.uniqueConstraintDefinitionId} between 1 and 2147483647`),
     check(
-      "fx_system_unique_set_build_schema_check",
-      nonBlankText(table.schemaVersionId),
-    ),
-    check(
-      "fx_system_unique_set_build_identity_check",
-      sql`${table.setCodecVersion} = 1
-        and ${table.definitionCount} between 0 and 256
-        and octet_length(${table.definitionSetSha256}) = 32`,
-    ),
-    check(
-      "fx_system_unique_set_build_clock_check",
+      "fx_system_unique_build_clock_check",
       sql`${table.storageGeneration} = 'flarexdb_v1'
         and ${table.storageGenerationFence} >= 1
         and ${nonBlankText(table.epoch)}
         and ${table.startCommitSeq} >= 0`,
     ),
     check(
-      "fx_system_unique_set_build_lifecycle_check",
+      "fx_system_unique_build_lifecycle_check",
       sql`${table.lifecycle} in ('declared', 'building', 'backfilling', 'validating', 'enabled')`,
     ),
     check(
-      "fx_system_unique_set_build_cursor_check",
-      sql`${table.cursorCodecVersion} = 1
-        and (${table.cursorDefinitionId} is null or ${table.cursorDefinitionId} between 1 and 2147483647)
-        and (${table.cursorRowId} is null or octet_length(${table.cursorRowId}) = 16)
-        and (${table.cursorDefinitionId} is not null or ${table.cursorRowId} is null)
+      "fx_system_unique_build_cursor_check",
+      sql`(${table.cursorRowId} is null or octet_length(${table.cursorRowId}) = 16)
         and (${table.lifecycle} not in ('declared', 'building', 'enabled')
-          or (${table.cursorDefinitionId} is null and ${table.cursorRowId} is null))`,
+          or ${table.cursorRowId} is null)`,
     ),
+    check("fx_system_unique_build_coverage_check",
+      sql`(${table.coveredThroughCommitSeq} is null or ${table.coveredThroughCommitSeq} >= ${table.startCommitSeq})
+        and (${table.lifecycle} not in ('declared', 'building') or ${table.coveredThroughCommitSeq} is null)
+        and (${table.lifecycle} <> 'enabled' or ${table.coveredThroughCommitSeq} is not null)`),
     check(
-      "fx_system_unique_set_build_attempt_check",
+      "fx_system_unique_build_attempt_check",
       sql`${table.attemptFence} >= 1`,
     ),
     check(
-      "fx_system_unique_set_build_time_check",
+      "fx_system_unique_build_time_check",
       sql`isfinite(${table.createdAt}) and isfinite(${table.updatedAt})
         and ${table.updatedAt} >= ${table.createdAt}`,
     ),
@@ -9648,7 +9598,7 @@ export const flarexSchema = {
   fxSystemIndexBuildStates,
   fxSystemPhysicalDefinitionLifecycles,
   fxSystemAppSchemaCandidateValidations,
-  fxSystemUniqueConstraintSetBuilds,
+  fxSystemUniqueConstraintBuilds,
   fxSystemExternalEffectAttemptsV1,
   fxSystemSnapshotLeases,
   fxSystemScopeClocks,

@@ -786,7 +786,7 @@ export type PointCommitTransactionProofStepV1 =
   | "relationTargetsValidated"
   | "relationEdgeWritten"
   | "relationRestrictValidated"
-  | "uniqueConstraintValidationReset"
+  | "uniqueConstraintCoverageAdvanced"
   | "candidateSchemaValidationFailed"
   | "outcomeRechecked"
   | "commitHeaderWritten"
@@ -4834,8 +4834,8 @@ async function runPointCommitTransactionKernel(
       );
     }
   }
-  await materializeApplicationDocumentRows(tx, command, allocation.commitSeq, clock.record.epoch,
-    loadedHeads, intrinsicBuilds, developerIndexActions, developerBuilds, uniqueKeyActions, options);
+  await materializeApplicationDocumentRows(tx, command, allocation.commitSeq, clock.record,
+    loadedHeads, intrinsicBuilds, developerIndexActions, developerBuilds, uniqueKeyActions, uniqueDefinitions, options);
   if (relationPlan !== null) {
     const relationMaintenance = await runPointCommitInTransactionEffect(
       maintainPointCommitApplicationRelationsEffect(

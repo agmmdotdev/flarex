@@ -1,3 +1,4 @@
+import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBuildV1";
 import {
   canonicalizeApplicationManifestV1,
   type ApplicationManifestV1,
@@ -581,7 +582,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
       const cold = coldEvidence.entries;
       const coldReceiptSetSha256 = yield* digestColdReceiptSet(coldEvidence);
       const uniqueConstraintEligibilitySha256 = yield* digestCanonicalJson(
-        uniqueConstraintFrame(uniqueConstraintEligibility),
+        appUniqueConstraintEligibilityFrame(uniqueConstraintEligibility),
       );
       return yield* runLocatedTransaction(
         located.target,
@@ -1717,7 +1718,7 @@ function* <SchemaFailure, ColdFailure>(
         );
       }
       if (validatedUnique.status !== "eligible" || !bytesEqualFullScan(
-        yield* digestCanonicalJson(uniqueConstraintFrame(validatedUnique)),
+        yield* digestCanonicalJson(appUniqueConstraintEligibilityFrame(validatedUnique)),
         prepared.uniqueConstraintEligibilitySha256,
       )) return yield* readinessFailure("authorityChanged");
     }
@@ -2524,39 +2525,6 @@ function uniqueNotReadyReason(
     case "buildNotEnabled": return "uniqueConstraintBuildNotEnabled";
     case "buildStale": return "uniqueConstraintBuildStale";
   }
-}
-
-function uniqueConstraintFrame(
-  eligibility: Exclude<
-    AppUniqueConstraintSetEligibilityResultV1,
-    { readonly status: "not_ready" }
-  >,
-): Readonly<Record<string, Json>> {
-  if (eligibility.status === "not_required") {
-    return Object.freeze({
-      format: "flarex.application-unique-constraint-eligibility",
-      version: 1,
-      status: "not_required",
-      tableIds: [],
-    });
-  }
-  const evidence = eligibility.evidence;
-  return Object.freeze({
-    format: "flarex.application-unique-constraint-eligibility",
-    version: 1,
-    status: "eligible",
-    deploymentId: evidence.deploymentId,
-    scopeId: evidence.scopeId,
-    schemaVersionId: evidence.schemaVersionId,
-    definitionCount: evidence.definitionCount,
-    definitionSetSha256: evidence.definitionSetSha256Hex,
-    tableIds: [...evidence.tableIds],
-    storageGeneration: evidence.storageGeneration,
-    storageGenerationFence: evidence.storageGenerationFence.toString(),
-    epoch: evidence.epoch,
-    startCommitSeq: evidence.startCommitSeq.toString(),
-    attemptFence: evidence.attemptFence.toString(),
-  });
 }
 
 function canonicalBytes(value: Readonly<Record<string, Json>>): Uint8Array {

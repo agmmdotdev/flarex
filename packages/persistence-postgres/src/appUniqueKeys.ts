@@ -3,7 +3,7 @@ import {
   isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or, isNull } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
   AppRowIdHexV1Schema,
@@ -13,33 +13,28 @@ import {
 } from "flarex-protocol/app-document-id";
 import {
   CatalogTableIdSchema,
+  CatalogUniqueConstraintDefinitionIdSchema,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
   MAX_ORDERED_INDEX_KEY_BYTES_V1,
+  decodeOrderedIndexComponentsV1,
+  orderedIndexKeyBytesHexV1FromBytes,
   type OrderedIndexKeyHexV1,
 } from "flarex-protocol/ordered-index";
 import {
-  CatalogSchemaVersionIdSchema,
-  type CatalogSchemaVersionId,
-} from "flarex-protocol/schema-manifest";
-import {
-  CommitSeqSchema,
   ScopeEpochSchema,
-  ScopeEpochUuidV1Schema,
   ScopeIdSchema,
   ScopeUuidV1Schema,
-  projectScopeEpochUuidV1Result,
   projectScopeIdUuidV1Result,
-  type CommitSeq,
   type ScopeEpoch,
-  type ScopeEpochUuidV1,
   type ScopeId,
   type ScopeUuidV1,
 } from "flarex-protocol/storage-authority";
 
 import {
   APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  MAX_APP_UNIQUE_KEY_COMPONENTS_V1,
   canonicalizeAppUniqueKeyV1Result,
   decodeAppUniqueConstraintIdV1Result,
   type AppUniqueConstraintIdV1,
@@ -50,8 +45,10 @@ import {
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   fxAppRowRevisions,
+  fxAppRowCurrent,
   fxAppUniqueKeys,
   fxSystemScopeClocks,
+  fxSystemUniqueConstraintBuilds,
 } from "./schema";
 
 export type AppUniqueKeyTransaction = FlarexMetadataTransaction;
@@ -62,9 +59,7 @@ export interface ApplyAppUniqueKeyMutationV1Input {
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
   readonly writeEpoch: ScopeEpoch;
-  readonly commitSeq: CommitSeq;
-  readonly rowPrevCommitSeq: CommitSeq | null;
-  readonly previousClaimCommitSeq: CommitSeq | null;
+
   readonly previous: AppUniqueKeyProjectionV1 | null;
   readonly next: AppUniqueKeyProjectionV1 | null;
 }
@@ -78,17 +73,10 @@ export interface AppUniqueKeyClaimV1 {
   readonly canonicalKeySha256: Uint8Array;
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
-  readonly schemaVersionId: CatalogSchemaVersionId;
-  readonly writeEpochUuid: ScopeEpochUuidV1;
-  readonly commitSeq: CommitSeq;
 }
 
 export interface ApplyAppUniqueKeyMutationV1Result {
-  readonly status:
-    | "claimed"
-    | "advanced"
-    | "released"
-    | "omitted";
+  readonly status: "claimed" | "unchanged" | "released" | "omitted";
   readonly claim: AppUniqueKeyClaimV1 | null;
 }
 
@@ -98,9 +86,7 @@ export interface EnsureAppUniqueKeyBackfillClaimV1Input {
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
   readonly authorityEpoch: ScopeEpoch;
-  readonly parentWriteEpochUuid: ScopeEpochUuidV1;
-  readonly commitSeq: CommitSeq;
-  readonly rowPrevCommitSeq: CommitSeq | null;
+
   readonly claim: AppUniqueKeyProjectionV1;
 }
 
@@ -115,12 +101,7 @@ export interface ValidateAppUniqueKeyClaimV1Input {
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
   readonly authorityEpoch: ScopeEpoch;
-  readonly expected: Readonly<{
-    readonly schemaVersionId: CatalogSchemaVersionId;
-    readonly parentWriteEpochUuid: ScopeEpochUuidV1;
-    readonly commitSeq: CommitSeq;
-    readonly claim: AppUniqueKeyProjectionV1;
-  }> | null;
+  readonly expected: AppUniqueKeyProjectionV1 | null;
 }
 
 export type ValidateAppUniqueKeyClaimV1Result = Readonly<
@@ -128,9 +109,7 @@ export type ValidateAppUniqueKeyClaimV1Result = Readonly<
   | {
       readonly status: "mismatched";
       readonly reason:
-        | "missingClaim"
-        | "unexpectedClaim"
-        | "claimIdentityMismatch";
+        "missingClaim" | "unexpectedClaim" | "claimIdentityMismatch";
     }
 >;
 
@@ -140,9 +119,6 @@ export type InvalidAppUniqueKeyMutationV1Issue =
   | "invalidTableId"
   | "invalidRowId"
   | "invalidWriteEpoch"
-  | "invalidCommitSeq"
-  | "invalidRowPreviousCommitSeq"
-  | "invalidPreviousClaimCommitSeq"
   | "invalidTransition"
   | "invalidPreviousKey"
   | "invalidNextKey";
@@ -171,21 +147,20 @@ export class AppUniqueKeyScopeAuthorityUnavailableError extends Error {
   }
 }
 
-export class AppUniqueKeyParentRevisionError extends Error {
-  readonly _tag = "AppUniqueKeyParentRevisionError" as const;
+export class AppUniqueKeyParentRowError extends Error {
+  readonly _tag = "AppUniqueKeyParentRowError" as const;
 
   constructor(
     readonly scopeId: ScopeId,
     readonly tableId: CatalogTableId,
     readonly rowId: AppRowIdHexV1,
-    readonly commitSeq: CommitSeq,
-    readonly reason: "missing" | "lineageMismatch" | "tombstonedClaim",
+
+    readonly reason: "missing" | "tombstonedClaim",
   ) {
     super(
-      `App unique-key parent revision is ${reason} at ` +
-        `${scopeId}/${tableId}/${rowId}/${commitSeq}.`,
+      `App unique-key parent row is ${reason} at ${scopeId}/${tableId}/${rowId}.`,
     );
-    this.name = "AppUniqueKeyParentRevisionError";
+    this.name = "AppUniqueKeyParentRowError";
   }
 }
 
@@ -261,7 +236,10 @@ export class AppUniqueKeyHashError extends Error {
 export class AppUniqueKeyStorageCorruptionError extends Error {
   readonly _tag = "AppUniqueKeyStorageCorruptionError" as const;
 
-  constructor(readonly reason: string, options?: ErrorOptions) {
+  constructor(
+    readonly reason: string,
+    options?: ErrorOptions,
+  ) {
     super(`App unique-key storage is invalid: ${reason}.`, options);
     this.name = "AppUniqueKeyStorageCorruptionError";
   }
@@ -279,7 +257,7 @@ export class AppUniqueKeyPersistenceError extends Error {
 export type ApplyAppUniqueKeyMutationV1Error =
   | InvalidAppUniqueKeyMutationV1Error
   | AppUniqueKeyScopeAuthorityUnavailableError
-  | AppUniqueKeyParentRevisionError
+  | AppUniqueKeyParentRowError
   | AppUniqueKeyConflictError
   | CanonicalAppUniqueKeyHashCollisionError
   | AppUniqueKeyPreviousClaimMismatchError
@@ -290,7 +268,7 @@ export type ApplyAppUniqueKeyMutationV1Error =
 export type EnsureAppUniqueKeyBackfillClaimV1Error =
   | InvalidAppUniqueKeyMutationV1Error
   | AppUniqueKeyScopeAuthorityUnavailableError
-  | AppUniqueKeyParentRevisionError
+  | AppUniqueKeyParentRowError
   | AppUniqueKeyConflictError
   | CanonicalAppUniqueKeyHashCollisionError
   | AppUniqueKeyBackfillClaimMismatchError
@@ -305,9 +283,7 @@ export type ValidateAppUniqueKeyClaimV1Error =
   | AppUniqueKeyStorageCorruptionError
   | AppUniqueKeyPersistenceError;
 
-export type AppUniqueKeySha256V1 = (
-  bytes: Uint8Array,
-) => Promise<Uint8Array>;
+export type AppUniqueKeySha256V1 = (bytes: Uint8Array) => Promise<Uint8Array>;
 
 interface DecodedMutationV1 {
   readonly scopeId: ScopeId;
@@ -317,10 +293,7 @@ interface DecodedMutationV1 {
   readonly rowId: AppRowIdHexV1;
   readonly rowIdBytes: Uint8Array;
   readonly writeEpoch: ScopeEpoch;
-  readonly writeEpochUuid: ScopeEpochUuidV1;
-  readonly commitSeq: CommitSeq;
-  readonly rowPrevCommitSeq: CommitSeq | null;
-  readonly previousClaimCommitSeq: CommitSeq | null;
+
   readonly previous: HashedClaimV1 | null;
   readonly next: HashedClaimV1 | null;
 }
@@ -333,10 +306,7 @@ interface CapturedMutationV1 {
   readonly rowId: AppRowIdHexV1;
   readonly rowIdBytes: Uint8Array;
   readonly writeEpoch: ScopeEpoch;
-  readonly writeEpochUuid: ScopeEpochUuidV1;
-  readonly commitSeq: CommitSeq;
-  readonly rowPrevCommitSeq: CommitSeq | null;
-  readonly previousClaimCommitSeq: CommitSeq | null;
+
   readonly previous: CanonicalAppUniqueKeyClaimV1 | null;
   readonly next: CanonicalAppUniqueKeyClaimV1 | null;
 }
@@ -353,26 +323,48 @@ interface DecodedValidationInputV1 {
   readonly rowId: AppRowIdHexV1;
   readonly rowIdBytes: Uint8Array;
   readonly authorityEpoch: ScopeEpoch;
-  readonly expected: Readonly<{
-    readonly schemaVersionId: CatalogSchemaVersionId;
-    readonly parentWriteEpochUuid: ScopeEpochUuidV1;
-    readonly commitSeq: CommitSeq;
-    readonly claim: CanonicalAppUniqueKeyClaimV1;
-  }> | null;
+  readonly expected: CanonicalAppUniqueKeyClaimV1 | null;
 }
 
-interface DecodedStoredValidationClaimV1 {
-  readonly scopeUuid: ScopeUuidV1;
-  readonly constraintId: AppUniqueConstraintIdV1;
-  readonly localeKey: string;
-  readonly encodedKeyBytes: Uint8Array;
-  readonly canonicalKeySha256: Uint8Array;
-  readonly tableId: CatalogTableId;
-  readonly rowId: AppRowIdHexV1;
-  readonly schemaVersionId: CatalogSchemaVersionId;
-  readonly writeEpochUuid: ScopeEpochUuidV1;
-  readonly commitSeq: CommitSeq;
-}
+const StoredClaimSchema = Schema.Struct({
+  scopeUuid: ScopeUuidV1Schema,
+  constraintId: CatalogUniqueConstraintDefinitionIdSchema,
+  localeKey: Schema.String,
+  keyCodecVersion: Schema.Literal(APP_UNIQUE_KEY_CODEC_VERSION_V1),
+  encodedKey: Schema.Uint8Array.check(
+    Schema.makeFilter(
+      (value) =>
+        value.byteLength >= 1 &&
+        value.byteLength <= MAX_ORDERED_INDEX_KEY_BYTES_V1,
+    ),
+  ),
+  canonicalKeySha256: Schema.Uint8Array.check(
+    Schema.makeFilter((value) => value.byteLength === 32),
+  ),
+  tableId: CatalogTableIdSchema,
+  rowId: Schema.Uint8Array.check(
+    Schema.makeFilter((value) => value.byteLength === 16),
+  ),
+});
+const decodeStoredClaimRowResult =
+  Schema.decodeUnknownResult(StoredClaimSchema);
+const OwnerPositionsSchema = Schema.Array(
+  Schema.Struct({
+    constraintId: CatalogUniqueConstraintDefinitionIdSchema,
+    tableId: CatalogTableIdSchema,
+    rowId: AppRowIdHexV1Schema,
+    componentCount: Schema.Number.check(
+      Schema.makeFilter(
+        (value) =>
+          Number.isInteger(value) &&
+          value >= 1 &&
+          value <= MAX_APP_UNIQUE_KEY_COMPONENTS_V1 + 1,
+      ),
+    ),
+  }),
+).check(Schema.makeFilter((value) => value.length <= 32));
+const decodeOwnerPositionsResult =
+  Schema.decodeUnknownResult(OwnerPositionsSchema);
 
 type StoredClaimRow = typeof fxAppUniqueKeys.$inferSelect;
 
@@ -387,20 +379,11 @@ const decodeScopeEpochResult = Schema.decodeUnknownResult(
 const decodeScopeUuidResult = Schema.decodeUnknownResult(
   Schema.toType(ScopeUuidV1Schema),
 );
-const decodeScopeEpochUuidResult = Schema.decodeUnknownResult(
-  Schema.toType(ScopeEpochUuidV1Schema),
-);
 const decodeTableIdResult = Schema.decodeUnknownResult(
   Schema.toType(CatalogTableIdSchema),
 );
 const decodeRowIdResult = Schema.decodeUnknownResult(
   Schema.toType(AppRowIdHexV1Schema),
-);
-const decodeCommitSeqResult = Schema.decodeUnknownResult(
-  Schema.toType(CommitSeqSchema),
-);
-const decodeSchemaVersionIdResult = Schema.decodeUnknownResult(
-  Schema.toType(CatalogSchemaVersionIdSchema),
 );
 
 /**
@@ -419,11 +402,7 @@ export const applyAppUniqueKeyMutationInTransactionEffect = Effect.fn(
   input: ApplyAppUniqueKeyMutationV1Input,
   sha256: AppUniqueKeySha256V1 = liveSha256,
 ) {
-  const { mutation, parent } = yield* prepareMutationEffect(
-    tx,
-    input,
-    sha256,
-  );
+  const mutation = yield* prepareMutationEffect(tx, input, sha256);
 
   let nextStoredRow: StoredClaimRow | null = null;
   if (mutation.next !== null) {
@@ -434,46 +413,59 @@ export const applyAppUniqueKeyMutationInTransactionEffect = Effect.fn(
     );
   }
   if (nextStoredRow !== null) {
-    yield* Effect.fromResult(compareStoredKeyResult(
-      nextStoredRow,
-      mutation.next!,
-      mutation.constraintId,
-    ));
-    const decodedNext = yield* Effect.fromResult(decodeStoredClaimResult(
-      mutation.scopeId,
-      nextStoredRow,
-      mutation.next!,
-    ));
-    if (!isPreviousOwner(decodedNext, mutation)) {
-      return yield* Effect.fail(new AppUniqueKeyConflictError(
+    yield* Effect.fromResult(
+      compareStoredKeyResult(
+        nextStoredRow,
+        mutation.next!,
         mutation.constraintId,
-        mutation.next!.localeKey,
-        decodedNext.tableId,
-        decodedNext.rowId,
-      ));
+      ),
+    );
+    const decodedNext = yield* Effect.fromResult(
+      decodeStoredClaimResult(mutation.scopeId, nextStoredRow, mutation.next!),
+    );
+    if (!isPreviousOwner(decodedNext, mutation)) {
+      return yield* Effect.fail(
+        new AppUniqueKeyConflictError(
+          mutation.constraintId,
+          mutation.next!.localeKey,
+          decodedNext.tableId,
+          decodedNext.rowId,
+        ),
+      );
     }
   }
 
-  const ownerRows = yield* persistenceEffect(() =>
-    tx.select().from(fxAppUniqueKeys).where(and(
-      eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
-      eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
-      eq(fxAppUniqueKeys.localeKey, ownerLocaleKey(mutation)),
-      eq(fxAppUniqueKeys.tableId, mutation.tableId),
-      eq(fxAppUniqueKeys.rowId, mutation.rowIdBytes),
-    )).limit(2).for("update")
+  const ownerRows = yield* persistenceEffect(
+    tx
+      .select()
+      .from(fxAppUniqueKeys)
+      .where(
+        and(
+          eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
+          eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
+          eq(fxAppUniqueKeys.localeKey, ownerLocaleKey(mutation)),
+          eq(fxAppUniqueKeys.tableId, mutation.tableId),
+          eq(fxAppUniqueKeys.rowId, mutation.rowIdBytes),
+        ),
+      )
+      .limit(2)
+      .for("update"),
   );
   if (ownerRows.length > 1) {
-    return yield* Effect.fail(corruption("one owner has multiple current claims"));
+    return yield* Effect.fail(
+      corruption("one owner has multiple current claims"),
+    );
   }
   const owner = ownerRows[0] ?? null;
 
   if (mutation.previous === null) {
     if (owner !== null) {
-      return yield* Effect.fail(new AppUniqueKeyPreviousClaimMismatchError(
-        mutation.constraintId,
-        mutation.rowId,
-      ));
+      return yield* Effect.fail(
+        new AppUniqueKeyPreviousClaimMismatchError(
+          mutation.constraintId,
+          mutation.rowId,
+        ),
+      );
     }
   } else {
     const previousStored = yield* readClaimSlotForUpdateEffect(
@@ -482,79 +474,74 @@ export const applyAppUniqueKeyMutationInTransactionEffect = Effect.fn(
       mutation.previous,
     );
     if (previousStored === null || owner === null) {
-      return yield* Effect.fail(new AppUniqueKeyPreviousClaimMismatchError(
-        mutation.constraintId,
-        mutation.rowId,
-      ));
+      return yield* Effect.fail(
+        new AppUniqueKeyPreviousClaimMismatchError(
+          mutation.constraintId,
+          mutation.rowId,
+        ),
+      );
     }
-    yield* Effect.fromResult(compareStoredKeyResult(
-      previousStored,
-      mutation.previous,
-      mutation.constraintId,
-    ));
-    const decodedPrevious = yield* Effect.fromResult(decodeStoredClaimResult(
-      mutation.scopeId,
-      previousStored,
-      mutation.previous,
-    ));
+    yield* Effect.fromResult(
+      compareStoredKeyResult(
+        previousStored,
+        mutation.previous,
+        mutation.constraintId,
+      ),
+    );
+    const decodedPrevious = yield* Effect.fromResult(
+      decodeStoredClaimResult(
+        mutation.scopeId,
+        previousStored,
+        mutation.previous,
+      ),
+    );
     if (
       !isPreviousOwner(decodedPrevious, mutation) ||
       !sameStoredIdentity(previousStored, owner)
     ) {
-      return yield* Effect.fail(new AppUniqueKeyPreviousClaimMismatchError(
-        mutation.constraintId,
-        mutation.rowId,
-      ));
+      return yield* Effect.fail(
+        new AppUniqueKeyPreviousClaimMismatchError(
+          mutation.constraintId,
+          mutation.rowId,
+        ),
+      );
     }
   }
 
-  if (mutation.previous !== null && mutation.next !== null &&
-      sameClaimSlot(mutation.previous, mutation.next)) {
-    const rows = yield* persistenceEffect(() =>
-      tx.update(fxAppUniqueKeys).set({
-        schemaVersionId: parent.schemaVersionId,
-        writeEpochUuid: mutation.writeEpochUuid,
-        commitSeq: mutation.commitSeq,
-      }).where(and(
-        eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
-        eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
-        eq(fxAppUniqueKeys.localeKey, mutation.previous!.localeKey),
-        eq(fxAppUniqueKeys.canonicalKeySha256, mutation.previous!.canonicalKeySha256),
-        eq(fxAppUniqueKeys.tableId, mutation.tableId),
-        eq(fxAppUniqueKeys.rowId, mutation.rowIdBytes),
-        eq(fxAppUniqueKeys.commitSeq, mutation.previousClaimCommitSeq!),
-      )).returning()
-    );
-    if (rows[0] === undefined) {
-      return yield* Effect.fail(new AppUniqueKeyPreviousClaimMismatchError(
-        mutation.constraintId,
-        mutation.rowId,
-      ));
-    }
-    return projectMutation(
-      "advanced",
-      mutation,
-      parent.schemaVersionId,
-    );
+  if (
+    mutation.previous !== null &&
+    mutation.next !== null &&
+    sameClaimSlot(mutation.previous, mutation.next)
+  ) {
+    return projectMutation("unchanged", mutation);
   }
 
   if (mutation.previous !== null) {
-    const deleted = yield* persistenceEffect(() =>
-      tx.delete(fxAppUniqueKeys).where(and(
-        eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
-        eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
-        eq(fxAppUniqueKeys.localeKey, mutation.previous!.localeKey),
-        eq(fxAppUniqueKeys.canonicalKeySha256, mutation.previous!.canonicalKeySha256),
-        eq(fxAppUniqueKeys.tableId, mutation.tableId),
-        eq(fxAppUniqueKeys.rowId, mutation.rowIdBytes),
-        eq(fxAppUniqueKeys.commitSeq, mutation.previousClaimCommitSeq!),
-      )).returning({ commitSeq: fxAppUniqueKeys.commitSeq })
+    const deleted = yield* persistenceEffect(
+      tx
+        .delete(fxAppUniqueKeys)
+        .where(
+          and(
+            eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
+            eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
+            eq(fxAppUniqueKeys.localeKey, mutation.previous!.localeKey),
+            eq(
+              fxAppUniqueKeys.canonicalKeySha256,
+              mutation.previous!.canonicalKeySha256,
+            ),
+            eq(fxAppUniqueKeys.tableId, mutation.tableId),
+            eq(fxAppUniqueKeys.rowId, mutation.rowIdBytes),
+          ),
+        )
+        .returning({ rowId: fxAppUniqueKeys.rowId }),
     );
     if (deleted[0] === undefined) {
-      return yield* Effect.fail(new AppUniqueKeyPreviousClaimMismatchError(
-        mutation.constraintId,
-        mutation.rowId,
-      ));
+      return yield* Effect.fail(
+        new AppUniqueKeyPreviousClaimMismatchError(
+          mutation.constraintId,
+          mutation.rowId,
+        ),
+      );
     }
   }
 
@@ -564,29 +551,24 @@ export const applyAppUniqueKeyMutationInTransactionEffect = Effect.fn(
       claim: null,
     });
   }
-  yield* persistenceEffect(() => tx.insert(fxAppUniqueKeys).values({
-    scopeUuid: mutation.scopeUuid,
-    constraintId: mutation.constraintId,
-    localeKey: mutation.next!.localeKey,
-    canonicalKeySha256: mutation.next!.canonicalKeySha256,
-    keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
-    encodedKey: mutation.next!.canonicalKeyBytes,
-    tableId: mutation.tableId,
-    rowId: mutation.rowIdBytes,
-    schemaVersionId: parent.schemaVersionId,
-    writeEpochUuid: mutation.writeEpochUuid,
-    commitSeq: mutation.commitSeq,
-  }));
-  return projectMutation(
-    mutation.previous === null ? "claimed" : "advanced",
-    mutation,
-    parent.schemaVersionId,
+  yield* persistenceEffect(
+    tx.insert(fxAppUniqueKeys).values({
+      scopeUuid: mutation.scopeUuid,
+      constraintId: mutation.constraintId,
+      localeKey: mutation.next!.localeKey,
+      canonicalKeySha256: mutation.next!.canonicalKeySha256,
+      keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+      encodedKey: mutation.next!.canonicalKeyBytes,
+      tableId: mutation.tableId,
+      rowId: mutation.rowIdBytes,
+    }),
   );
+  return projectMutation("claimed", mutation);
 });
 
 /**
  * Transaction-only S11 reconciliation primitive for a bounded C08 backfill.
- * It authenticates the current parent revision exactly, claims an absent slot,
+ * It requires a live current parent row, claims an absent slot,
  * and treats only an identical current claim as replay. It never advances or
  * releases ownership; normal point-commit mutation remains the sole online
  * transition owner.
@@ -601,7 +583,7 @@ export const ensureAppUniqueKeyBackfillClaimInTransactionEffect = Effect.fn(
   EnsureAppUniqueKeyBackfillClaimV1Result,
   EnsureAppUniqueKeyBackfillClaimV1Error
 > {
-  const { mutation, parent } = yield* prepareMutationEffect(
+  const mutation = yield* prepareMutationEffect(
     tx,
     {
       scopeId: input.scopeId,
@@ -609,110 +591,93 @@ export const ensureAppUniqueKeyBackfillClaimInTransactionEffect = Effect.fn(
       tableId: input.tableId,
       rowId: input.rowId,
       writeEpoch: input.authorityEpoch,
-      commitSeq: input.commitSeq,
-      rowPrevCommitSeq: input.rowPrevCommitSeq,
-      previousClaimCommitSeq: null,
       previous: null,
       next: input.claim,
     },
     sha256,
-    yield* Effect.fromResult(
-      decodeScopeEpochUuidResult(input.parentWriteEpochUuid).pipe(
-        Result.mapError((cause) => new InvalidAppUniqueKeyMutationV1Error(
-          "invalidWriteEpoch",
-          cause,
-        )),
-      ),
-    ),
   );
   const claim = mutation.next;
   if (claim === null) {
-    return yield* Effect.fail(new InvalidAppUniqueKeyMutationV1Error(
-      "invalidNextKey",
-    ));
+    return yield* Effect.fail(
+      new InvalidAppUniqueKeyMutationV1Error("invalidNextKey"),
+    );
   }
   const storedSlot = yield* readClaimSlotForUpdateEffect(tx, mutation, claim);
   if (storedSlot !== null) {
-    yield* Effect.fromResult(compareStoredKeyResult(
-      storedSlot,
-      claim,
-      mutation.constraintId,
-    ));
-    const decoded = yield* Effect.fromResult(decodeStoredClaimResult(
-      mutation.scopeId,
-      storedSlot,
-      claim,
-    ));
+    yield* Effect.fromResult(
+      compareStoredKeyResult(storedSlot, claim, mutation.constraintId),
+    );
+    const decoded = yield* Effect.fromResult(
+      decodeStoredClaimResult(mutation.scopeId, storedSlot, claim),
+    );
     if (
       decoded.tableId !== mutation.tableId ||
       decoded.rowId !== mutation.rowId
     ) {
-      return yield* Effect.fail(new AppUniqueKeyConflictError(
-        mutation.constraintId,
-        claim.localeKey,
-        decoded.tableId,
-        decoded.rowId,
-      ));
-    }
-    if (
-      decoded.schemaVersionId !== parent.schemaVersionId ||
-      decoded.writeEpochUuid !== mutation.writeEpochUuid ||
-      decoded.commitSeq !== mutation.commitSeq
-    ) {
-      return yield* Effect.fail(new AppUniqueKeyBackfillClaimMismatchError(
-        mutation.constraintId,
-        mutation.rowId,
-      ));
+      return yield* Effect.fail(
+        new AppUniqueKeyConflictError(
+          mutation.constraintId,
+          claim.localeKey,
+          decoded.tableId,
+          decoded.rowId,
+        ),
+      );
     }
     return Object.freeze({ status: "replayed", claim: decoded });
   }
 
-  const ownerRows = yield* persistenceEffect(() =>
-    tx.select().from(fxAppUniqueKeys).where(and(
-      eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
-      eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
-      eq(fxAppUniqueKeys.localeKey, claim.localeKey),
-      eq(fxAppUniqueKeys.tableId, mutation.tableId),
-      eq(fxAppUniqueKeys.rowId, mutation.rowIdBytes),
-    )).limit(2).for("update")
+  const ownerRows = yield* persistenceEffect(
+    tx
+      .select()
+      .from(fxAppUniqueKeys)
+      .where(
+        and(
+          eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
+          eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
+          eq(fxAppUniqueKeys.localeKey, claim.localeKey),
+          eq(fxAppUniqueKeys.tableId, mutation.tableId),
+          eq(fxAppUniqueKeys.rowId, mutation.rowIdBytes),
+        ),
+      )
+      .limit(2)
+      .for("update"),
   );
   if (ownerRows.length > 1) {
-    return yield* Effect.fail(corruption("one owner has multiple current claims"));
+    return yield* Effect.fail(
+      corruption("one owner has multiple current claims"),
+    );
   }
   if (ownerRows[0] !== undefined) {
-    return yield* Effect.fail(new AppUniqueKeyBackfillClaimMismatchError(
-      mutation.constraintId,
-      mutation.rowId,
-    ));
+    return yield* Effect.fail(
+      new AppUniqueKeyBackfillClaimMismatchError(
+        mutation.constraintId,
+        mutation.rowId,
+      ),
+    );
   }
 
-  yield* persistenceEffect(() => tx.insert(fxAppUniqueKeys).values({
-    scopeUuid: mutation.scopeUuid,
-    constraintId: mutation.constraintId,
-    localeKey: claim.localeKey,
-    canonicalKeySha256: claim.canonicalKeySha256,
-    keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
-    encodedKey: claim.canonicalKeyBytes,
-    tableId: mutation.tableId,
-    rowId: mutation.rowIdBytes,
-    schemaVersionId: parent.schemaVersionId,
-    writeEpochUuid: mutation.writeEpochUuid,
-    commitSeq: mutation.commitSeq,
-  }));
+  yield* persistenceEffect(
+    tx.insert(fxAppUniqueKeys).values({
+      scopeUuid: mutation.scopeUuid,
+      constraintId: mutation.constraintId,
+      localeKey: claim.localeKey,
+      canonicalKeySha256: claim.canonicalKeySha256,
+      keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+      encodedKey: claim.canonicalKeyBytes,
+      tableId: mutation.tableId,
+      rowId: mutation.rowIdBytes,
+    }),
+  );
   return Object.freeze({
     status: "claimed",
-    claim: projectMutation(
-      "claimed",
-      mutation,
-      parent.schemaVersionId,
-    ).claim!,
+    claim: projectMutation("claimed", mutation).claim!,
   });
 });
 
 /**
  * Transaction-only S11 validation primitive for the bounded C08 validation
  * pass. Its caller first rejects claims outside the definition's exact locale
- * and table dimensions; this operation then requires exact row lineage or
+ * and table dimensions; this operation then requires exact key ownership or
  * exact absence without mutating claim ownership.
  */
 export const validateAppUniqueKeyClaimInTransactionEffect = Effect.fn(
@@ -732,19 +697,26 @@ export const validateAppUniqueKeyClaimInTransactionEffect = Effect.fn(
     decoded.expectedScopeUuid,
     decoded.authorityEpoch,
   );
-  const rows = yield* persistenceEffect(() =>
-    tx.select().from(fxAppUniqueKeys).where(and(
-      eq(fxAppUniqueKeys.scopeUuid, scopeUuid),
-      eq(fxAppUniqueKeys.constraintId, decoded.constraintId),
-      eq(fxAppUniqueKeys.localeKey, ""),
-      eq(fxAppUniqueKeys.tableId, decoded.tableId),
-      eq(fxAppUniqueKeys.rowId, decoded.rowIdBytes),
-    )).limit(2).for("update")
+  const rows = yield* persistenceEffect(
+    tx
+      .select()
+      .from(fxAppUniqueKeys)
+      .where(
+        and(
+          eq(fxAppUniqueKeys.scopeUuid, scopeUuid),
+          eq(fxAppUniqueKeys.constraintId, decoded.constraintId),
+          eq(fxAppUniqueKeys.localeKey, ""),
+          eq(fxAppUniqueKeys.tableId, decoded.tableId),
+          eq(fxAppUniqueKeys.rowId, decoded.rowIdBytes),
+        ),
+      )
+      .limit(2)
+      .for("update"),
   );
   if (rows.length > 1) {
-    return yield* Effect.fail(corruption(
-      "one definition/row owner has multiple current claims",
-    ));
+    return yield* Effect.fail(
+      corruption("one definition/row owner has multiple current claims"),
+    );
   }
   const stored = rows[0];
   if (stored === undefined) {
@@ -760,9 +732,9 @@ export const validateAppUniqueKeyClaimInTransactionEffect = Effect.fn(
   );
   const actualDigest = yield* hashBytesEffect(actual.encodedKeyBytes, sha256);
   if (!bytesEqualFullScan(actualDigest, actual.canonicalKeySha256)) {
-    return yield* Effect.fail(corruption(
-      "stored canonical key digest does not match encoded bytes",
-    ));
+    return yield* Effect.fail(
+      corruption("stored canonical key digest does not match encoded bytes"),
+    );
   }
   if (decoded.expected === null) {
     return Object.freeze({
@@ -770,17 +742,14 @@ export const validateAppUniqueKeyClaimInTransactionEffect = Effect.fn(
       reason: "unexpectedClaim" as const,
     });
   }
-  const expected = yield* hashClaimEffect(decoded.expected.claim, sha256);
+  const expected = yield* hashClaimEffect(decoded.expected, sha256);
   return actual.scopeUuid === scopeUuid &&
-      actual.constraintId === decoded.constraintId &&
-      actual.localeKey === expected.localeKey &&
-      actual.tableId === decoded.tableId &&
-      actual.rowId === decoded.rowId &&
-      actual.schemaVersionId === decoded.expected.schemaVersionId &&
-      actual.writeEpochUuid === decoded.expected.parentWriteEpochUuid &&
-      actual.commitSeq === decoded.expected.commitSeq &&
-      bytesEqualFullScan(actual.encodedKeyBytes, expected.canonicalKeyBytes) &&
-      bytesEqualFullScan(actual.canonicalKeySha256, expected.canonicalKeySha256)
+    actual.constraintId === decoded.constraintId &&
+    actual.localeKey === expected.localeKey &&
+    actual.tableId === decoded.tableId &&
+    actual.rowId === decoded.rowId &&
+    bytesEqualFullScan(actual.encodedKeyBytes, expected.canonicalKeyBytes) &&
+    bytesEqualFullScan(actual.canonicalKeySha256, expected.canonicalKeySha256)
     ? MATCHED_VALIDATION
     : Object.freeze({
         status: "mismatched" as const,
@@ -788,46 +757,37 @@ export const validateAppUniqueKeyClaimInTransactionEffect = Effect.fn(
       });
 });
 
-const prepareMutationEffect = Effect.fn(
-  "AppUniqueKeys.prepareMutation",
-)(function* (
-  tx: AppUniqueKeyTransaction,
-  input: ApplyAppUniqueKeyMutationV1Input,
-  sha256: AppUniqueKeySha256V1,
-  parentWriteEpochUuid?: ScopeEpochUuidV1,
-) {
-  const captured = yield* Effect.fromResult(decodeMutationInputResult(input));
-  const scopeUuid = yield* requireScopeAuthorityEffect(
-    tx,
-    captured.scopeId,
-    captured.expectedScopeUuid,
-    captured.writeEpoch,
-  );
-  const previous = captured.previous === null
-    ? null
-    : yield* hashClaimEffect(captured.previous, sha256);
-  const next = captured.next === null
-    ? null
-    : yield* hashClaimEffect(captured.next, sha256);
-  const mutation: DecodedMutationV1 = Object.freeze({
-    ...captured,
-    scopeUuid,
-    writeEpochUuid: parentWriteEpochUuid ?? captured.writeEpochUuid,
-    previous,
-    next,
-  });
-  const parent = yield* requireParentRevisionEffect(tx, mutation);
-  if (mutation.next !== null && parent.isTombstone) {
-    return yield* Effect.fail(new AppUniqueKeyParentRevisionError(
-      mutation.scopeId,
-      mutation.tableId,
-      mutation.rowId,
-      mutation.commitSeq,
-      "tombstonedClaim",
-    ));
-  }
-  return Object.freeze({ mutation, parent });
-});
+const prepareMutationEffect = Effect.fn("AppUniqueKeys.prepareMutation")(
+  function* (
+    tx: AppUniqueKeyTransaction,
+    input: ApplyAppUniqueKeyMutationV1Input,
+    sha256: AppUniqueKeySha256V1,
+  ) {
+    const captured = yield* Effect.fromResult(decodeMutationInputResult(input));
+    const scopeUuid = yield* requireScopeAuthorityEffect(
+      tx,
+      captured.scopeId,
+      captured.expectedScopeUuid,
+      captured.writeEpoch,
+    );
+    const previous =
+      captured.previous === null
+        ? null
+        : yield* hashClaimEffect(captured.previous, sha256);
+    const next =
+      captured.next === null
+        ? null
+        : yield* hashClaimEffect(captured.next, sha256);
+    const mutation: DecodedMutationV1 = Object.freeze({
+      ...captured,
+      scopeUuid,
+      previous,
+      next,
+    });
+    if (next !== null) yield* requireLiveParentRowEffect(tx, mutation);
+    return mutation;
+  },
+);
 
 const requireScopeAuthorityEffect = Effect.fn(
   "AppUniqueKeys.requireScopeAuthority",
@@ -837,42 +797,48 @@ const requireScopeAuthorityEffect = Effect.fn(
   expectedScopeUuid: ScopeUuidV1,
   expectedEpoch: ScopeEpoch,
 ) {
-  const scope = yield* persistenceEffect(() => tx.select({
-    scopeUuid: fxSystemScopeClocks.scopeUuid,
-    epoch: fxSystemScopeClocks.epoch,
-  }).from(fxSystemScopeClocks).where(
-    eq(fxSystemScopeClocks.scopeId, scopeId),
-  ).limit(1));
+  const scope = yield* persistenceEffect(
+    tx
+      .select({
+        scopeUuid: fxSystemScopeClocks.scopeUuid,
+        epoch: fxSystemScopeClocks.epoch,
+      })
+      .from(fxSystemScopeClocks)
+      .where(eq(fxSystemScopeClocks.scopeId, scopeId))
+      .limit(1),
+  );
   const authority = scope[0];
   if (authority === undefined) {
-    return yield* Effect.fail(new AppUniqueKeyScopeAuthorityUnavailableError(
-      scopeId,
-      "missing",
-    ));
+    return yield* Effect.fail(
+      new AppUniqueKeyScopeAuthorityUnavailableError(scopeId, "missing"),
+    );
   }
   const scopeUuid = yield* Effect.fromResult(
     decodeScopeUuidResult(authority.scopeUuid).pipe(
-      Result.flatMap((value) => value === expectedScopeUuid
-        ? Result.succeed(value)
-        : Result.fail(new AppUniqueKeyScopeAuthorityUnavailableError(
-          scopeId,
-          "identityMismatch",
-        ))),
+      Result.flatMap((value) =>
+        value === expectedScopeUuid
+          ? Result.succeed(value)
+          : Result.fail(
+              new AppUniqueKeyScopeAuthorityUnavailableError(
+                scopeId,
+                "identityMismatch",
+              ),
+            ),
+      ),
       Result.mapError((error) =>
         error instanceof AppUniqueKeyScopeAuthorityUnavailableError
           ? error
           : new AppUniqueKeyScopeAuthorityUnavailableError(
-            scopeId,
-            "identityMismatch",
-          )
+              scopeId,
+              "identityMismatch",
+            ),
       ),
     ),
   );
   if (authority.epoch !== expectedEpoch) {
-    return yield* Effect.fail(new AppUniqueKeyScopeAuthorityUnavailableError(
-      scopeId,
-      "staleEpoch",
-    ));
+    return yield* Effect.fail(
+      new AppUniqueKeyScopeAuthorityUnavailableError(scopeId, "staleEpoch"),
+    );
   }
   return scopeUuid;
 });
@@ -882,18 +848,17 @@ function decodeMutationInputResult(
 ): Result.Result<CapturedMutationV1, InvalidAppUniqueKeyMutationV1Error> {
   const captured = Result.gen(function* () {
     const inputSnapshot = yield* Result.try({
-      try: () => Object.freeze({
-        scopeId: input.scopeId,
-        constraintId: input.constraintId,
-        tableId: input.tableId,
-        rowId: input.rowId,
-        writeEpoch: input.writeEpoch,
-        commitSeq: input.commitSeq,
-        rowPrevCommitSeq: input.rowPrevCommitSeq,
-        previousClaimCommitSeq: input.previousClaimCommitSeq,
-        previous: input.previous,
-        next: input.next,
-      }),
+      try: () =>
+        Object.freeze({
+          scopeId: input.scopeId,
+          constraintId: input.constraintId,
+          tableId: input.tableId,
+          rowId: input.rowId,
+          writeEpoch: input.writeEpoch,
+
+          previous: input.previous,
+          next: input.next,
+        }),
       catch: (cause) => invalid("invalidTransition", cause),
     });
     const scopeId = yield* field(
@@ -915,58 +880,31 @@ function decodeMutationInputResult(
       decodeScopeEpochResult(inputSnapshot.writeEpoch),
       "invalidWriteEpoch",
     );
-    const commitSeq = yield* field(
-      decodeCommitSeqResult(inputSnapshot.commitSeq),
-      "invalidCommitSeq",
-    );
-    const rowPrevCommitSeq = inputSnapshot.rowPrevCommitSeq === null
-      ? null
-      : yield* field(
-        decodeCommitSeqResult(inputSnapshot.rowPrevCommitSeq),
-        "invalidRowPreviousCommitSeq",
-      );
-    const previousClaimCommitSeq = inputSnapshot.previousClaimCommitSeq === null
-      ? null
-      : yield* field(
-        decodeCommitSeqResult(inputSnapshot.previousClaimCommitSeq),
-        "invalidPreviousClaimCommitSeq",
-      );
-    if (
-      commitSeq < 1n ||
-      (rowPrevCommitSeq !== null &&
-        (rowPrevCommitSeq < 1n || rowPrevCommitSeq >= commitSeq)) ||
-      (previousClaimCommitSeq !== null &&
-        (previousClaimCommitSeq < 1n ||
-          previousClaimCommitSeq >= commitSeq ||
-          rowPrevCommitSeq === null ||
-          previousClaimCommitSeq > rowPrevCommitSeq)) ||
-      (inputSnapshot.previous === null && inputSnapshot.next === null)
-    ) {
+    if (inputSnapshot.previous === null && inputSnapshot.next === null)
       return yield* Result.fail(invalid("invalidTransition"));
-    }
-    const previous = inputSnapshot.previous === null
-      ? null
-      : yield* canonicalizeAppUniqueKeyV1Result(inputSnapshot.previous).pipe(
-        Result.mapError((cause) => invalid("invalidPreviousKey", cause)),
-      );
-    const next = inputSnapshot.next === null
-      ? null
-      : yield* canonicalizeAppUniqueKeyV1Result(inputSnapshot.next).pipe(
-        Result.mapError((cause) => invalid("invalidNextKey", cause)),
-      );
+    const previous =
+      inputSnapshot.previous === null
+        ? null
+        : yield* canonicalizeAppUniqueKeyV1Result(inputSnapshot.previous).pipe(
+            Result.mapError((cause) => invalid("invalidPreviousKey", cause)),
+          );
+    const next =
+      inputSnapshot.next === null
+        ? null
+        : yield* canonicalizeAppUniqueKeyV1Result(inputSnapshot.next).pipe(
+            Result.mapError((cause) => invalid("invalidNextKey", cause)),
+          );
     const previousClaim = previous?.kind === "claim" ? previous : null;
     const nextClaim = next?.kind === "claim" ? next : null;
     if (
-      (previousClaim === null) !== (previousClaimCommitSeq === null) ||
-      (previousClaim !== null && nextClaim !== null &&
-        previousClaim.localeKey !== nextClaim.localeKey)
-    ) return yield* Result.fail(invalid("invalidTransition"));
+      previousClaim !== null &&
+      nextClaim !== null &&
+      previousClaim.localeKey !== nextClaim.localeKey
+    )
+      return yield* Result.fail(invalid("invalidTransition"));
     const scopeProjection = yield* projectScopeIdUuidV1Result(scopeId).pipe(
       Result.mapError((cause) => invalid("invalidScopeId", cause)),
     );
-    const epochProjection = yield* projectScopeEpochUuidV1Result(
-      writeEpoch,
-    ).pipe(Result.mapError((cause) => invalid("invalidWriteEpoch", cause)));
     return Object.freeze({
       scopeId,
       expectedScopeUuid: scopeProjection.scopeUuid,
@@ -975,10 +913,6 @@ function decodeMutationInputResult(
       rowId,
       rowIdBytes: appRowIdHexV1ToBytes(rowId),
       writeEpoch,
-      writeEpochUuid: epochProjection.epochUuid,
-      commitSeq,
-      rowPrevCommitSeq,
-      previousClaimCommitSeq,
       previous: previousClaim,
       next: nextClaim,
     });
@@ -988,20 +922,18 @@ function decodeMutationInputResult(
 
 function decodeValidationInputResult(
   input: ValidateAppUniqueKeyClaimV1Input,
-): Result.Result<
-  DecodedValidationInputV1,
-  InvalidAppUniqueKeyMutationV1Error
-> {
+): Result.Result<DecodedValidationInputV1, InvalidAppUniqueKeyMutationV1Error> {
   return Result.gen(function* () {
     const captured = yield* Result.try({
-      try: () => Object.freeze({
-        scopeId: input.scopeId,
-        constraintId: input.constraintId,
-        tableId: input.tableId,
-        rowId: input.rowId,
-        authorityEpoch: input.authorityEpoch,
-        expected: input.expected,
-      }),
+      try: () =>
+        Object.freeze({
+          scopeId: input.scopeId,
+          constraintId: input.constraintId,
+          tableId: input.tableId,
+          rowId: input.rowId,
+          authorityEpoch: input.authorityEpoch,
+          expected: input.expected,
+        }),
       catch: (cause) => invalid("invalidTransition", cause),
     });
     const scopeId = yield* field(
@@ -1024,48 +956,20 @@ function decodeValidationInputResult(
       "invalidWriteEpoch",
     );
     const capturedExpected = captured.expected;
-    const expected = capturedExpected === null
-      ? null
-      : yield* Result.gen(function* () {
-          const expectedSnapshot = yield* Result.try({
-            try: () => Object.freeze({
-              schemaVersionId: capturedExpected.schemaVersionId,
-              parentWriteEpochUuid: capturedExpected.parentWriteEpochUuid,
-              commitSeq: capturedExpected.commitSeq,
-              claim: capturedExpected.claim,
-            }),
-            catch: (cause) => invalid("invalidTransition", cause),
+    const expected =
+      capturedExpected === null
+        ? null
+        : yield* Result.gen(function* () {
+            const claim = yield* canonicalizeAppUniqueKeyV1Result(
+              capturedExpected,
+            ).pipe(
+              Result.mapError((cause) => invalid("invalidNextKey", cause)),
+            );
+            if (claim.kind !== "claim") {
+              return yield* Result.fail(invalid("invalidNextKey"));
+            }
+            return claim;
           });
-          const schemaVersionId = yield* field(
-            decodeSchemaVersionIdResult(expectedSnapshot.schemaVersionId),
-            "invalidTransition",
-          );
-          const parentWriteEpochUuid = yield* field(
-            decodeScopeEpochUuidResult(
-              expectedSnapshot.parentWriteEpochUuid,
-            ),
-            "invalidWriteEpoch",
-          );
-          const commitSeq = yield* field(
-            decodeCommitSeqResult(expectedSnapshot.commitSeq),
-            "invalidCommitSeq",
-          );
-          if (commitSeq < 1n) {
-            return yield* Result.fail(invalid("invalidCommitSeq"));
-          }
-          const claim = yield* canonicalizeAppUniqueKeyV1Result(
-            expectedSnapshot.claim,
-          ).pipe(Result.mapError((cause) => invalid("invalidNextKey", cause)));
-          if (claim.kind !== "claim") {
-            return yield* Result.fail(invalid("invalidNextKey"));
-          }
-          return Object.freeze({
-            schemaVersionId,
-            parentWriteEpochUuid,
-            commitSeq,
-            claim,
-          });
-        });
     const expectedScopeUuid = yield* projectScopeIdUuidV1Result(scopeId).pipe(
       Result.map((projection) => projection.scopeUuid),
       Result.mapError((cause) => invalid("invalidScopeId", cause)),
@@ -1104,60 +1008,61 @@ const hashBytesEffect = Effect.fn("AppUniqueKeys.hashBytes")(function* (
     catch: (cause) => new AppUniqueKeyHashError(cause),
   }).pipe(Effect.uninterruptible);
   if (!isUint8ArrayWithByteLength(digest, 32)) {
-    return yield* Effect.fail(new AppUniqueKeyHashError(
-      new Error("SHA-256 adapter returned an invalid digest."),
-    ));
+    return yield* Effect.fail(
+      new AppUniqueKeyHashError(
+        new Error("SHA-256 adapter returned an invalid digest."),
+      ),
+    );
   }
   return new Uint8Array(digest);
 });
 
-const requireParentRevisionEffect = Effect.fn(
-  "AppUniqueKeys.requireParentRevision",
-)(function* (
-  tx: AppUniqueKeyTransaction,
-  mutation: DecodedMutationV1,
-) {
-  const rows = yield* persistenceEffect(() => tx.select({
-    isTombstone: fxAppRowRevisions.isTombstone,
-    prevCommitSeq: fxAppRowRevisions.prevCommitSeq,
-    schemaVersionId: fxAppRowRevisions.schemaVersionId,
-  }).from(fxAppRowRevisions).where(and(
-    eq(fxAppRowRevisions.scopeUuid, mutation.scopeUuid),
-    eq(fxAppRowRevisions.tableId, mutation.tableId),
-    eq(fxAppRowRevisions.rowId, mutation.rowIdBytes),
-    eq(fxAppRowRevisions.writeEpochUuid, mutation.writeEpochUuid),
-    eq(fxAppRowRevisions.commitSeq, mutation.commitSeq),
-  )).limit(1));
-  const row = rows[0];
-  if (row === undefined) {
-    return yield* Effect.fail(new AppUniqueKeyParentRevisionError(
-      mutation.scopeId,
-      mutation.tableId,
-      mutation.rowId,
-      mutation.commitSeq,
-      "missing",
-    ));
-  }
-  if (row.prevCommitSeq !== mutation.rowPrevCommitSeq) {
-    return yield* Effect.fail(new AppUniqueKeyParentRevisionError(
-      mutation.scopeId,
-      mutation.tableId,
-      mutation.rowId,
-      mutation.commitSeq,
-      "lineageMismatch",
-    ));
-  }
-  const schemaVersionId = yield* Effect.fromResult(
-    decodeSchemaVersionIdResult(row.schemaVersionId).pipe(
-      Result.mapError((cause) =>
-        corruption("parent schema version is invalid", cause)
-      ),
-    ),
+const requireLiveParentRowEffect = Effect.fn(
+  "AppUniqueKeys.requireLiveParentRow",
+)(function* (tx: AppUniqueKeyTransaction, mutation: DecodedMutationV1) {
+  const rows = yield* persistenceEffect(
+    tx
+      .select({ isTombstone: fxAppRowRevisions.isTombstone })
+      .from(fxAppRowCurrent)
+      .innerJoin(
+        fxAppRowRevisions,
+        and(
+          eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid),
+          eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
+          eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId),
+          eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
+        ),
+      )
+      .where(
+        and(
+          eq(fxAppRowCurrent.scopeUuid, mutation.scopeUuid),
+          eq(fxAppRowCurrent.tableId, mutation.tableId),
+          eq(fxAppRowCurrent.rowId, mutation.rowIdBytes),
+        ),
+      )
+      .limit(1),
   );
-  return Object.freeze({
-    isTombstone: row.isTombstone,
-    schemaVersionId,
-  });
+  const row = rows[0];
+  if (!row)
+    return yield* Effect.fail(
+      new AppUniqueKeyParentRowError(
+        mutation.scopeId,
+        mutation.tableId,
+        mutation.rowId,
+        "missing",
+      ),
+    );
+  if (typeof row.isTombstone !== "boolean")
+    return yield* Effect.fail(corruption("parent tombstone flag is invalid"));
+  if (row.isTombstone)
+    return yield* Effect.fail(
+      new AppUniqueKeyParentRowError(
+        mutation.scopeId,
+        mutation.tableId,
+        mutation.rowId,
+        "tombstonedClaim",
+      ),
+    );
 });
 
 const readClaimSlotForUpdateEffect = Effect.fn(
@@ -1167,37 +1072,53 @@ const readClaimSlotForUpdateEffect = Effect.fn(
   mutation: DecodedMutationV1,
   claim: HashedClaimV1,
 ) {
-  const rows = yield* persistenceEffect(() =>
-    tx.select().from(fxAppUniqueKeys).where(and(
-      eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
-      eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
-      eq(fxAppUniqueKeys.localeKey, claim.localeKey),
-      eq(fxAppUniqueKeys.canonicalKeySha256, claim.canonicalKeySha256),
-    )).limit(2).for("update")
+  const rows = yield* persistenceEffect(
+    tx
+      .select()
+      .from(fxAppUniqueKeys)
+      .where(
+        and(
+          eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
+          eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
+          eq(fxAppUniqueKeys.localeKey, claim.localeKey),
+          eq(fxAppUniqueKeys.canonicalKeySha256, claim.canonicalKeySha256),
+        ),
+      )
+      .limit(2)
+      .for("update"),
   );
   if (rows.length > 1) {
-    return yield* Effect.fail(corruption(
-      "one unique-key slot has multiple owners",
-    ));
+    return yield* Effect.fail(
+      corruption("one unique-key slot has multiple owners"),
+    );
   }
-  return rows[0] ?? null;
+  const row = rows[0];
+  return row === undefined
+    ? null
+    : yield* Effect.fromResult(storedField(decodeStoredClaimRowResult(row)));
 });
 
 function compareStoredKeyResult(
   stored: StoredClaimRow,
   expected: HashedClaimV1,
   constraintId: AppUniqueConstraintIdV1,
-): Result.Result<void, CanonicalAppUniqueKeyHashCollisionError | AppUniqueKeyStorageCorruptionError> {
+): Result.Result<
+  void,
+  CanonicalAppUniqueKeyHashCollisionError | AppUniqueKeyStorageCorruptionError
+> {
   if (
     stored.keyCodecVersion !== APP_UNIQUE_KEY_CODEC_VERSION_V1 ||
     stored.localeKey !== expected.localeKey ||
     !bytesEqualFullScan(stored.canonicalKeySha256, expected.canonicalKeySha256)
-  ) return Result.fail(corruption("stored key identity is inconsistent"));
+  )
+    return Result.fail(corruption("stored key identity is inconsistent"));
   if (!bytesEqualFullScan(stored.encodedKey, expected.canonicalKeyBytes)) {
-    return Result.fail(new CanonicalAppUniqueKeyHashCollisionError(
-      constraintId,
-      expected.localeKey,
-    ));
+    return Result.fail(
+      new CanonicalAppUniqueKeyHashCollisionError(
+        constraintId,
+        expected.localeKey,
+      ),
+    );
   }
   return Result.succeed(undefined);
 }
@@ -1207,116 +1128,316 @@ function decodeStoredClaimResult(
   stored: StoredClaimRow,
   expected: HashedClaimV1,
 ): Result.Result<AppUniqueKeyClaimV1, AppUniqueKeyStorageCorruptionError> {
+  return decodeStoredValidationClaimResult(stored).pipe(
+    Result.map((row) =>
+      Object.freeze({
+        scopeId,
+        scopeUuid: row.scopeUuid,
+        constraintId: row.constraintId,
+        localeKey: row.localeKey,
+        encodedKey: expected.encodedKey,
+        canonicalKeySha256: new Uint8Array(row.canonicalKeySha256),
+        tableId: row.tableId,
+        rowId: row.rowId,
+      }),
+    ),
+  );
+}
+
+function decodeStoredValidationClaimResult(stored: unknown) {
   return Result.gen(function* () {
-    const scopeUuid = yield* storedField(decodeScopeUuidResult(stored.scopeUuid));
-    const constraintId = yield* decodeAppUniqueConstraintIdV1Result(
-      stored.constraintId,
-    ).pipe(Result.mapError((cause) => corruption("constraint ID is invalid", cause)));
-    const tableId = yield* storedField(decodeTableIdResult(stored.tableId));
-    const rowId = yield* appRowIdHexV1FromBytesResult(stored.rowId).pipe(
-      Result.mapError((cause) => corruption("stored row ID is invalid", cause)),
-    );
-    const schemaVersionId = yield* storedField(
-      decodeSchemaVersionIdResult(stored.schemaVersionId),
-    );
-    const writeEpochUuid = yield* storedField(
-      decodeScopeEpochUuidResult(stored.writeEpochUuid),
-    );
-    const commitSeq = yield* storedField(
-      decodeCommitSeqResult(stored.commitSeq),
-    );
-    if (!isUint8ArrayWithByteLength(stored.canonicalKeySha256, 32)) {
-      return yield* Result.fail(corruption("canonical key digest is invalid"));
-    }
+    const row = yield* storedField(decodeStoredClaimRowResult(stored));
+    const rowId = yield* storedField(appRowIdHexV1FromBytesResult(row.rowId));
     return Object.freeze({
-      scopeId,
-      scopeUuid,
-      constraintId,
-      localeKey: stored.localeKey,
-      encodedKey: expected.encodedKey,
-      canonicalKeySha256: new Uint8Array(stored.canonicalKeySha256),
-      tableId,
+      ...row,
       rowId,
-      schemaVersionId,
-      writeEpochUuid,
-      commitSeq,
+      encodedKeyBytes: new Uint8Array(row.encodedKey),
+      canonicalKeySha256: new Uint8Array(row.canonicalKeySha256),
     });
   });
 }
 
-function decodeStoredValidationClaimResult(
-  stored: StoredClaimRow,
-): Result.Result<
-  DecodedStoredValidationClaimV1,
-  AppUniqueKeyStorageCorruptionError
-> {
-  return Result.gen(function* () {
-    const scopeUuid = yield* storedField(decodeScopeUuidResult(stored.scopeUuid));
-    const constraintId = yield* decodeAppUniqueConstraintIdV1Result(
-      stored.constraintId,
-    ).pipe(Result.mapError((cause) =>
-      corruption("constraint ID is invalid", cause)
-    ));
-    const tableId = yield* storedField(decodeTableIdResult(stored.tableId));
-    const rowId = yield* appRowIdHexV1FromBytesResult(stored.rowId).pipe(
-      Result.mapError((cause) => corruption("stored row ID is invalid", cause)),
+/** Authenticate current ownership before a writer may omit an unchanged-key operation. */
+export const readAppUniqueKeyOwnersInTransactionEffect = Effect.fn(
+  "AppUniqueKeys.readOwners",
+)(function* (
+  tx: AppUniqueKeyTransaction,
+  input: {
+    readonly scopeId: ScopeId;
+    readonly positions: readonly {
+      readonly constraintId: AppUniqueConstraintIdV1;
+      readonly tableId: CatalogTableId;
+      readonly rowId: AppRowIdHexV1;
+      readonly componentCount: number;
+    }[];
+  },
+) {
+  const scope = yield* Effect.fromResult(
+    projectScopeIdUuidV1Result(input.scopeId),
+  ).pipe(Effect.mapError((cause) => invalid("invalidScopeId", cause)));
+  const positions = yield* Effect.fromResult(
+    decodeOwnerPositionsResult(input.positions),
+  ).pipe(Effect.mapError((cause) => invalid("invalidTransition", cause)));
+  if (positions.length === 0) return Object.freeze([]);
+  const rows = yield* persistenceEffect(
+    tx
+      .select()
+      .from(fxAppUniqueKeys)
+      .where(
+        and(
+          eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid),
+          or(
+            ...positions.map((position) =>
+              and(
+                eq(fxAppUniqueKeys.constraintId, position.constraintId),
+                eq(fxAppUniqueKeys.tableId, position.tableId),
+                eq(fxAppUniqueKeys.rowId, appRowIdHexV1ToBytes(position.rowId)),
+              ),
+            ),
+          ),
+        ),
+      )
+      .orderBy(
+        fxAppUniqueKeys.constraintId,
+        fxAppUniqueKeys.tableId,
+        fxAppUniqueKeys.rowId,
+        fxAppUniqueKeys.localeKey,
+      )
+      .limit(positions.length + 1),
+  );
+  if (rows.length > positions.length)
+    return yield* Effect.fail(
+      corruption("owner lookup exceeds its fixed claim bound"),
     );
-    const schemaVersionId = yield* storedField(
-      decodeSchemaVersionIdResult(stored.schemaVersionId),
+  const claims: (AppUniqueKeyClaimV1 & {
+    readonly projection: AppUniqueKeyProjectionV1;
+  })[] = [];
+  for (const stored of rows) {
+    const rowId = yield* Effect.fromResult(
+      storedField(appRowIdHexV1FromBytesResult(stored.rowId)),
     );
-    const writeEpochUuid = yield* storedField(
-      decodeScopeEpochUuidResult(stored.writeEpochUuid),
+    const position = positions.find(
+      (value) =>
+        value.constraintId === stored.constraintId &&
+        value.tableId === stored.tableId &&
+        value.rowId === rowId,
     );
-    const commitSeq = yield* storedField(
-      decodeCommitSeqResult(stored.commitSeq),
+    if (!position)
+      return yield* Effect.fail(
+        corruption("lookup returned an unrequested owner"),
+      );
+    claims.push(
+      yield* authenticateStoredClaimEffect(
+        input.scopeId,
+        stored,
+        position.componentCount,
+      ),
     );
-    if (
-      stored.keyCodecVersion !== APP_UNIQUE_KEY_CODEC_VERSION_V1 ||
-      !isUint8ArrayWithByteLength(stored.canonicalKeySha256, 32) ||
-      !isUint8Array(stored.encodedKey) ||
-      stored.encodedKey.byteLength < 1 ||
-      stored.encodedKey.byteLength > MAX_ORDERED_INDEX_KEY_BYTES_V1
-    ) {
-      return yield* Result.fail(corruption(
-        "stored key evidence is invalid",
-      ));
-    }
-    return Object.freeze({
-      scopeUuid,
-      constraintId,
-      localeKey: stored.localeKey,
-      encodedKeyBytes: new Uint8Array(stored.encodedKey),
-      canonicalKeySha256: new Uint8Array(stored.canonicalKeySha256),
-      tableId,
-      rowId,
-      schemaVersionId,
-      writeEpochUuid,
-      commitSeq,
-    });
+  }
+  return Object.freeze(claims);
+});
+
+const authenticateStoredClaimEffect = Effect.fn(
+  "AppUniqueKeys.authenticateStoredClaim",
+)(function* (scopeId: ScopeId, stored: StoredClaimRow, componentCount: number) {
+  const row = yield* Effect.fromResult(
+    decodeStoredValidationClaimResult(stored),
+  );
+  const projection = yield* Effect.fromResult(
+    Result.try({
+      try: () => {
+        const values = decodeOrderedIndexComponentsV1(
+          orderedIndexKeyBytesHexV1FromBytes(row.encodedKeyBytes),
+          componentCount,
+        );
+        const locale = values[0];
+        if (
+          !(row.localeKey === ""
+            ? locale?.kind === "missing"
+            : locale?.kind === "string" && locale.value === row.localeKey)
+        )
+          throw corruption("key locale differs from its slot");
+        return {
+          sparse: false,
+          localeKey: row.localeKey === "" ? null : row.localeKey,
+          values: values.slice(1),
+        };
+      },
+      catch: (cause) => corruption("stored key components are invalid", cause),
+    }),
+  );
+  const canonical = yield* Effect.fromResult(
+    canonicalizeAppUniqueKeyV1Result(projection),
+  ).pipe(
+    Effect.mapError((cause) =>
+      corruption("stored key is not canonical", cause),
+    ),
+  );
+  if (
+    canonical.kind !== "claim" ||
+    !bytesEqualFullScan(canonical.canonicalKeyBytes, row.encodedKeyBytes)
+  )
+    return yield* Effect.fail(corruption("stored key is not canonical"));
+  const digest = yield* hashBytesEffect(row.encodedKeyBytes, liveSha256);
+  if (!bytesEqualFullScan(digest, row.canonicalKeySha256))
+    return yield* Effect.fail(
+      corruption("stored key digest differs from its bytes"),
+    );
+  return Object.freeze({
+    scopeId,
+    scopeUuid: row.scopeUuid,
+    constraintId: row.constraintId,
+    localeKey: row.localeKey,
+    encodedKey: canonical.encodedKey,
+    canonicalKeySha256: digest,
+    tableId: row.tableId,
+    rowId: row.rowId,
+    projection: Object.freeze(projection),
   });
-}
+});
+
+/** Initial population alone may drain inherited claims, in fixed 16-owner pages. */
+export const drainInitialAppUniqueKeyClaimsInTransactionEffect = Effect.fn(
+  "AppUniqueKeys.drainInitialClaims",
+)(function* (
+  tx: AppUniqueKeyTransaction,
+  input: {
+    readonly scopeId: ScopeId;
+    readonly constraintId: AppUniqueConstraintIdV1;
+    readonly authorityEpoch: ScopeEpoch;
+    readonly attemptFence: import("flarex-protocol/internal/app-unique-constraint-set-v1").AppUniqueConstraintSetBuildAttemptFenceV1;
+  },
+) {
+  const scope = yield* Effect.fromResult(
+    projectScopeIdUuidV1Result(input.scopeId),
+  ).pipe(Effect.mapError((cause) => invalid("invalidScopeId", cause)));
+  yield* requireScopeAuthorityEffect(
+    tx,
+    input.scopeId,
+    scope.scopeUuid,
+    input.authorityEpoch,
+  );
+  const builds = yield* persistenceEffect(
+    tx
+      .select({ scopeId: fxSystemUniqueConstraintBuilds.scopeId })
+      .from(fxSystemUniqueConstraintBuilds)
+      .innerJoin(
+        fxSystemScopeClocks,
+        and(
+          eq(
+            fxSystemUniqueConstraintBuilds.scopeId,
+            fxSystemScopeClocks.scopeId,
+          ),
+          eq(
+            fxSystemUniqueConstraintBuilds.storageGeneration,
+            fxSystemScopeClocks.storageGeneration,
+          ),
+          eq(
+            fxSystemUniqueConstraintBuilds.storageGenerationFence,
+            fxSystemScopeClocks.storageGenerationFence,
+          ),
+        ),
+      )
+      .where(
+        and(
+          eq(fxSystemUniqueConstraintBuilds.scopeId, input.scopeId),
+          eq(
+            fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId,
+            input.constraintId,
+          ),
+          eq(fxSystemUniqueConstraintBuilds.epoch, input.authorityEpoch),
+          eq(fxSystemUniqueConstraintBuilds.attemptFence, input.attemptFence),
+          eq(fxSystemUniqueConstraintBuilds.lifecycle, "building"),
+          isNull(fxSystemUniqueConstraintBuilds.coveredThroughCommitSeq),
+        ),
+      )
+      .limit(1)
+      .for("update"),
+  );
+  if (builds.length !== 1)
+    return yield* Effect.fail(
+      corruption("initial claim drain has no matching unserved build"),
+    );
+  const rows = yield* persistenceEffect(
+    tx
+      .select({
+        localeKey: fxAppUniqueKeys.localeKey,
+        tableId: fxAppUniqueKeys.tableId,
+        rowId: fxAppUniqueKeys.rowId,
+      })
+      .from(fxAppUniqueKeys)
+      .where(
+        and(
+          eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid),
+          eq(fxAppUniqueKeys.constraintId, input.constraintId),
+        ),
+      )
+      .orderBy(
+        fxAppUniqueKeys.localeKey,
+        fxAppUniqueKeys.tableId,
+        fxAppUniqueKeys.rowId,
+      )
+      .limit(17),
+  );
+  const selected = rows.slice(0, 16);
+  if (selected.length !== 0) {
+    const deleted = yield* persistenceEffect(
+      tx
+        .delete(fxAppUniqueKeys)
+        .where(
+          and(
+            eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid),
+            eq(fxAppUniqueKeys.constraintId, input.constraintId),
+            or(
+              ...selected.map((row) =>
+                and(
+                  eq(fxAppUniqueKeys.localeKey, row.localeKey),
+                  eq(fxAppUniqueKeys.tableId, row.tableId),
+                  eq(fxAppUniqueKeys.rowId, row.rowId),
+                ),
+              ),
+            ),
+          ),
+        )
+        .returning({ rowId: fxAppUniqueKeys.rowId }),
+    );
+    if (deleted.length !== selected.length)
+      return yield* Effect.fail(
+        corruption("initial claim drain changed concurrently"),
+      );
+  }
+  return Object.freeze({ drained: selected.length, hasMore: rows.length > 16 });
+});
 
 function isPreviousOwner(
   claim: AppUniqueKeyClaimV1,
   mutation: DecodedMutationV1,
 ): boolean {
-  return mutation.previousClaimCommitSeq !== null &&
+  return (
+    mutation.previous !== null &&
     claim.tableId === mutation.tableId &&
-    claim.rowId === mutation.rowId &&
-    claim.commitSeq === mutation.previousClaimCommitSeq;
+    claim.rowId === mutation.rowId
+  );
 }
 
-function sameStoredIdentity(left: StoredClaimRow, right: StoredClaimRow): boolean {
-  return left.scopeUuid === right.scopeUuid &&
+function sameStoredIdentity(
+  left: StoredClaimRow,
+  right: StoredClaimRow,
+): boolean {
+  return (
+    left.scopeUuid === right.scopeUuid &&
     left.constraintId === right.constraintId &&
     left.localeKey === right.localeKey &&
-    bytesEqualFullScan(left.canonicalKeySha256, right.canonicalKeySha256);
+    bytesEqualFullScan(left.canonicalKeySha256, right.canonicalKeySha256)
+  );
 }
 
 function sameClaimSlot(left: HashedClaimV1, right: HashedClaimV1): boolean {
-  return left.localeKey === right.localeKey &&
+  return (
+    left.localeKey === right.localeKey &&
     bytesEqualFullScan(left.canonicalKeySha256, right.canonicalKeySha256) &&
-    bytesEqualFullScan(left.canonicalKeyBytes, right.canonicalKeyBytes);
+    bytesEqualFullScan(left.canonicalKeyBytes, right.canonicalKeyBytes)
+  );
 }
 
 function ownerLocaleKey(mutation: DecodedMutationV1): string {
@@ -1324,9 +1445,8 @@ function ownerLocaleKey(mutation: DecodedMutationV1): string {
 }
 
 function projectMutation(
-  status: "claimed" | "advanced",
+  status: "claimed" | "unchanged",
   mutation: DecodedMutationV1,
-  schemaVersionId: CatalogSchemaVersionId,
 ): ApplyAppUniqueKeyMutationV1Result {
   const claim = mutation.next!;
   return Object.freeze({
@@ -1340,18 +1460,15 @@ function projectMutation(
       canonicalKeySha256: new Uint8Array(claim.canonicalKeySha256),
       tableId: mutation.tableId,
       rowId: mutation.rowId,
-      schemaVersionId,
-      writeEpochUuid: mutation.writeEpochUuid,
-      commitSeq: mutation.commitSeq,
     }),
   });
 }
 
 function persistenceEffect<Value>(
-  run: () => PromiseLike<Value>,
+  query: PromiseLike<Value>,
 ): Effect.Effect<Value, AppUniqueKeyPersistenceError> {
   return Effect.tryPromise({
-    try: () => Promise.resolve(run()),
+    try: () => Promise.resolve(query),
     catch: (cause) => new AppUniqueKeyPersistenceError(cause),
   }).pipe(Effect.uninterruptible);
 }
@@ -1366,9 +1483,11 @@ function field<Value>(
 function storedField<Value>(
   result: Result.Result<Value, unknown>,
 ): Result.Result<Value, AppUniqueKeyStorageCorruptionError> {
-  return result.pipe(Result.mapError((cause) =>
-    corruption("stored claim column does not decode", cause)
-  ));
+  return result.pipe(
+    Result.mapError((cause) =>
+      corruption("stored claim column does not decode", cause),
+    ),
+  );
 }
 
 function invalid(
