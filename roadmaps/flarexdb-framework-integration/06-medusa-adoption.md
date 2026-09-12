@@ -59,6 +59,11 @@ through the existing atomic workflow host. Module-owned registrations hide
 method/repository assembly; root rollback restores pre-existing Link state rather
 than executing inverse callbacks. This gate adds no core/schema/engine changes.
 Cross-module graph hydration and full `createProductsWorkflow` remain unadmitted.
+The proposed [shipping-profile foundation](./preflight/59-product-shipping-profile-foundation.md)
+identifies the next shared text-inequality prerequisite and native cardinality
+characterization before Fulfillment/ProductShippingProfile activation. Its model
+source closure is broader than its proposed create/scalar-read table grants;
+neither full Fulfillment nor the new core predicate is approved by that preflight.
 Sales Channel's six-command profile preserves the original service and static
 cases, native metadata merging, scalar/array results, pagination and errors.
 Boundary checks retain input refusal, identity protection, replay, service

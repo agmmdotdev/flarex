@@ -30,9 +30,9 @@ other Links and transitive execution audits as separate requirements.
   publication. Medusa owns service, Link and workflow meaning.
 - `roadmaps/16-package-boundaries.md`: framework adaptation stays above neutral
   persistence; a workflow consumer does not introduce a new transaction owner.
-- Preflight 50 Gate C and preflight 57: the fresh fifteen-table candidate and its
-  three confined profiles are present; the native association step is not yet
-  promoted or admitted.
+- Preflight 50 and preflight 57 established the fresh fifteen-table candidate
+  and its three confined profiles. Gate C now promotes and admits the native
+  association step within the bounded composition described here.
 - `roadmaps/workflow-foundations/10-medusa-workflow-integration.md`, 11, 15 and 16:
   finite ordered steps/transforms, selected methods, child composition, internal
   event sets, atomic rollback and retained root replay are existing capabilities.
