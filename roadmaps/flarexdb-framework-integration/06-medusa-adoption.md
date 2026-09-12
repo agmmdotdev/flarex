@@ -65,7 +65,11 @@ characterization, not Fulfillment/ProductShippingProfile activation. Inequality
 is explicitly admitted for Link IDs and the Sales Channel ID, with shared
 scope, null, pagination/count and resource limits. Native Link still
 delegates contradictory same-batch profiles, characterized at its router boundary
-but not corrected. The proposed module source closure remains broader than its
+but not corrected. The proposed [native batch correction](./preflight/61-native-link-batch-cardinality.md)
+keeps validation in the native router without a Flarex core change. Approval is
+pending; cardinality-derived storage constraints and singular-Link lifecycle
+proofs remain separate prerequisites for ShippingProfile activation.
+The proposed module source closure remains broader than its
 create/scalar-read table grants; full Fulfillment remains unadmitted.
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result

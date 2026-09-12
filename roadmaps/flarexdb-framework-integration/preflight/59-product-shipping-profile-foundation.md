@@ -3,6 +3,8 @@
 Status: A implemented, including the approved preflight 60 shared-owner correction.
 Gate C in preflight 58 is complete. B and
 native cardinality correction remain unapproved; no Fulfillment/Link activation.
+[Preflight 61](./61-native-link-batch-cardinality.md) proposes the native router
+correction; singular-Link storage constraints remain a separate B entry gate.
 
 ## Outcome And Recommendation
 
@@ -110,14 +112,12 @@ it issues a list query of the following shape, with `take: 1`:
 { $or: [{ shipping_profile_id: { $ne: "sp-new" }, product_id: "prod-one" }] }
 ```
 
-The existing Link adapter field decoder accepts IDs/membership, not `$ne`.
-`packages/medusa-adapter/src/query/predicate.ts` has no inequality operation.
-The core reader in
-`packages/persistence-postgres/src/commerceTransaction/store.ts` only admits its
-closed existing predicate grammar; it cannot execute scalar inequality either.
-The source-level reproduction is to submit that native predicate through the
-existing Link policy: it is refused rather than finding a conflicting row.
-No new stored ShippingProfile run has been used to establish this finding.
+Before A, the Link adapter field decoder accepted IDs/membership, not `$ne`.
+`packages/medusa-adapter/src/query/predicate.ts` and the core commerce reader
+lacked scalar inequality. Submitting that native predicate through the Link
+policy was refused rather than finding a conflicting row. A now implements the
+bounded shared operation described below; this historical prerequisite is not
+a remaining query gap. No stored ShippingProfile run establishes its support.
 
 Approved A scope:
 
@@ -187,8 +187,11 @@ scope isolation, pre-pagination count and existing resource limits.
 Malformed caller Unicode remains refused as `invalidInput`, without retaining
 the old codec's misleading `invalidAuthority` classification.
 
-Native Link's separate in-batch cardinality correction still needs its own
-decision before B activation.
+Native Link's separate in-batch cardinality correction is proposed in
+[preflight 61](./61-native-link-batch-cardinality.md). That router-only correction
+does not close the generator's missing cardinality-derived uniqueness or prove
+direct-service/concurrent/restore behavior. Resolve that native storage contract
+and its adapter lowering explicitly before B activation.
 
 ## B. Connected Module And Workflow Direction
 
