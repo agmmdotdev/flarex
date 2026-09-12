@@ -99,9 +99,10 @@ export const restoreStoredRelationalPhysicalLayout = Effect.fn(
   return layout;
 });
 
-const verifyStoredCanonicalEvidence = Effect.fn(
-  "RelationalPhysicalValue.verifyStoredCanonicalEvidence",
-)(function* (
+// This per-frame comparison is inside the named assignment/layout restores.
+// Its extra stack/span construction is measurable on repeated verification;
+// keep domain tracing at those parents without duplicating it for this helper.
+const verifyStoredCanonicalEvidence = Effect.fnUntraced(function* (
   frame: JsonObject,
   maximumCanonicalBytes: number,
   expectedSha256: string,

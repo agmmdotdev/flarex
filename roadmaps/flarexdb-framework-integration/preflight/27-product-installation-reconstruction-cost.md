@@ -21,7 +21,7 @@ Event predecessor transport is batched in windows of 32. Known event receipt sub
 
 Mutable heads, lease decisions, collision locks and compare-and-swap predicates remain fresh. Connected head/dependency preparation shares a read-only pass that settles before the guarded update; post-write restoration uses a new pass. No transaction-wide database cache or process-global verification cache is introduced.
 
-Per-node memo lookup, peek and canonical-capture helpers use the installed Effect untraced helper because their stack allocation is a measured hot path. Repository operations retain named tracing and typed errors. Ordinary driver records avoid an exception-based Date probe; intrinsic validation still handles tagged, cross-realm and unusual Date objects without invoking tag getters.
+Per-node memo lookup, peek, canonical capture and private stored-canonical comparison helpers use the installed Effect untraced helper because their stack allocation is a measured hot path. Repository and assignment/layout restoration operations retain named tracing and typed errors. Ordinary driver records avoid an exception-based Date probe; intrinsic validation still handles tagged, cross-realm and unusual Date objects without invoking tag getters.
 
 ## Acceptance And Reproduction
 
