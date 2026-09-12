@@ -24,10 +24,10 @@ export function payloadJoinQuery(input: unknown, sanitized = false): Result.Resu
       if (options === false) continue;
       if (options !== undefined && (!isJsonObject(options) || Object.keys(options).some(key =>
         !["limit", "page", "count", ...(sanitized ? ["where"] : [])].includes(key)))) return yield* Result.fail(cmsError("unsupportedProfile"));
-      if (isJsonObject(options) && ((options.page !== undefined && options.page !== 1) ||
+      if (options !== undefined && ((options.page !== undefined && options.page !== 1) ||
         (options.count !== undefined && options.count !== false) ||
         (options.where !== undefined && (!isJsonObject(options.where) || Object.keys(options.where).length !== 0)))) return yield* Result.fail(cmsError("unsupportedProfile"));
-      const limit = isJsonObject(options) ? options.limit === undefined ? join.defaultLimit : options.limit : join.defaultLimit;
+      const limit = options !== undefined ? options.limit === undefined ? join.defaultLimit : options.limit : join.defaultLimit;
       if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > join.maximumLimit) return yield* Result.fail(cmsError("unsupportedProfile"));
       query[join.name] = Object.freeze({ limit });
     }

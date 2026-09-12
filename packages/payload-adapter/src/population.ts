@@ -16,7 +16,7 @@ export function payloadPopulationIds(input: unknown): Result.Result<readonly str
   return Result.gen(function* () {
     let value = (yield* capturePrivateJsonData(input ?? {}, cmsLimits.documentBytes, cmsError)).value;
     if (isJsonObject(value) && Object.keys(value).join() === "and" && Array.isArray(value.and) && value.and.length === 1) value = value.and[0] ?? null;
-    if (!isJsonObject(value) || !isJsonObject(value.id) || !Object.hasOwn(value.id, "in")) return null;
+    if (!isJsonObject(value) || value.id === undefined || !isJsonObject(value.id) || !Object.hasOwn(value.id, "in")) return null;
     if (Object.keys(value).join() !== "id" || Object.keys(value.id).join() !== "in" || !Array.isArray(value.id.in) ||
       value.id.in.length === 0 || value.id.in.some(id => typeof id !== "string")) return yield* Result.fail(cmsError("invalidInput"));
     if (value.id.in.length > maximumPayloadPopulationTargets) return yield* Result.fail(cmsError("limitExceeded"));
