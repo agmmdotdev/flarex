@@ -33,7 +33,7 @@ import {
   ensureFreshRelationalMigrationPlanInTransactionEffect,
 } from "../src/migrationCoordination/migrationPlanRepository";
 import {
-  ensureRelationalPhysicalNameAssignmentInTransactionEffect,
+  ensureRelationalPhysicalNameAssignmentsInTransactionEffect,
 } from "../src/migrationCoordination/physicalNameAssignmentRepository";
 import type { FrameworkMigrationRepositoryError } from
   "../src/migrationCoordination/repositoryErrors";
@@ -997,15 +997,13 @@ async function ensureAssignments(
   collision: RestoredFrameworkMigrationCollisionDomain,
   values: Awaited<ReturnType<typeof freshPlanRepositoryValues>>,
 ): Promise<void> {
-  for (const assignment of values.physicalLayout.nameAssignments) {
-    await runEffect(
-      ensureRelationalPhysicalNameAssignmentInTransactionEffect(
-        transaction,
-        collision,
-        assignment,
-      ),
-    );
-  }
+  await runEffect(
+    ensureRelationalPhysicalNameAssignmentsInTransactionEffect(
+      transaction,
+      collision,
+      values.physicalLayout.nameAssignments,
+    ),
+  );
 }
 
 async function captureAttempt(

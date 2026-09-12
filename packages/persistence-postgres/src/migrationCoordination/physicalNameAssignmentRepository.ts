@@ -1,5 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Encoding, Option, Schema } from "effect";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 
 import { detachDriverRows } from "../detachDriverRows";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
@@ -13,6 +14,7 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import {
   classifyRelationalPhysicalNameAssignmentReplay,
   MAX_RELATIONAL_PHYSICAL_ASSIGNMENT_CANONICAL_BYTES,
+  MAX_RELATIONAL_PHYSICAL_LAYOUT_CANONICAL_BYTES,
   verifyStoredRelationalPhysicalValue,
 } from "../relationalSchema/physical/canonical";
 import type { RelationalPhysicalValueError } from
@@ -101,67 +103,138 @@ interface PhysicalNameAssignmentDriverRow
   readonly canonicalBytes: Uint8Array | null;
 }
 
-export const ensureRelationalPhysicalNameAssignmentInTransactionEffect =
-  Effect.fn(
-    "RelationalPhysicalNameAssignmentRepository.ensure",
-  )(function* (
+// Bound prepared evidence by the owning layout limit, and each SQL statement by
+// both row count and canonical bytes. These are transport batches, not a cache.
+const ASSIGNMENT_WRITE_BATCH_ROWS = 64;
+const ASSIGNMENT_WRITE_BATCH_BYTES = 262_144;
+const isAssignmentInventory = Schema.is(
+  Schema.Array(Schema.Unknown).check(Schema.isMaxLength(MAX_RELATIONAL_PHYSICAL_ASSIGNMENTS)),
+);
+
+export const ensureRelationalPhysicalNameAssignmentsInTransactionEffect =
+  Effect.fn("RelationalPhysicalNameAssignmentRepository.ensureAll")(function* (
     transaction: FlarexMetadataTransaction,
     collision: RestoredFrameworkMigrationCollisionDomain,
-    expectedAssignment: RelationalPhysicalNameAssignment,
-  ): Effect.fn.Return<
-    RestoredRelationalPhysicalNameAssignment,
-    FrameworkMigrationRepositoryError
-  > {
+    expectedAssignments: readonly RelationalPhysicalNameAssignment[],
+  ): Effect.fn.Return<readonly RestoredRelationalPhysicalNameAssignment[], FrameworkMigrationRepositoryError> {
     const operation = "ensurePhysicalNameAssignment" as const;
-    const expected = yield* prepareExpectedAssignment(
-      expectedAssignment,
-      operation,
-    );
-    const storedCollision = yield* requireStoredCollision(
-      transaction,
-      collision,
-      operation,
-    );
-    if (!assignmentBelongsToCollision(
-      expected.assignment.frame,
-      storedCollision.coordinate,
-    )) {
-      return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.referenceRefusal(operation),
-      );
+    if (!isAssignmentInventory(expectedAssignments) || !isRestoredFrameworkMigrationCollisionDomain(collision)) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
     }
-
-    const statement = transaction.insert(
-      fxSystemRelationalPhysicalNameAssignments,
-    ).values({
-      collisionStorageId: storedCollision.storageId,
-      physicalDatabaseIdentity:
-        storedCollision.coordinate.targetNamespace.physicalDatabaseIdentity,
-      schemaName: storedCollision.coordinate.targetNamespace.schemaName,
-      spelling: expected.assignment.frame.spelling,
-      nameSha256: expected.nameSha256Bytes,
-      assignmentSha256: expected.assignmentSha256Bytes,
-      frameFormat: expected.assignment.frame.format,
-      frameVersion: expected.assignment.frame.version,
-      canonicalByteLength: expected.canonicalBytes.byteLength,
-      canonicalBytes: expected.canonicalBytes,
-    }).onConflictDoNothing();
-    yield* runRepositoryStatement(operation, statement);
-
-    const resolved = yield* resolveExpectedAssignment(
-      transaction,
-      storedCollision,
-      expected.assignment,
-      expected.assignmentSha256Bytes,
-      operation,
-    );
-    if (Option.isNone(resolved)) {
-      return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.immutableConflict(operation),
-      );
+    const inputs = [...expectedAssignments];
+    const prepared: PreparedPhysicalNameAssignment[] = [];
+    let bytes = 0;
+    // Validate supplied evidence in input order before issuing any writes.
+    for (const input of inputs) {
+      const value = yield* prepareExpectedAssignment(input, operation);
+      bytes += value.canonicalBytes.byteLength;
+      if (bytes > MAX_RELATIONAL_PHYSICAL_LAYOUT_CANONICAL_BYTES ||
+        !assignmentBelongsToCollision(value.assignment.frame, collision.coordinate)) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+      }
+      prepared.push(value);
     }
-    return resolved.value;
+    if (prepared.length === 0) return Object.freeze([]);
+    const storedCollision = yield* requireStoredCollision(transaction, collision, operation);
+    // Global digest order makes overlapping inventories acquire unique-index
+    // conflicts in the same order, independent of caller order and chunk size.
+    const insertOrder = prepared.toSorted((left, right) =>
+      compareUtf16Strings(left.assignment.assignmentSha256, right.assignment.assignmentSha256));
+    for (const batch of assignmentBatches(insertOrder)) {
+      yield* runRepositoryStatement(operation, transaction.insert(fxSystemRelationalPhysicalNameAssignments)
+        .values(batch.map(expected => ({
+          collisionStorageId: storedCollision.storageId,
+          physicalDatabaseIdentity: storedCollision.coordinate.targetNamespace.physicalDatabaseIdentity,
+          schemaName: storedCollision.coordinate.targetNamespace.schemaName,
+          spelling: expected.assignment.frame.spelling,
+          nameSha256: expected.nameSha256Bytes,
+          assignmentSha256: expected.assignmentSha256Bytes,
+          frameFormat: expected.assignment.frame.format,
+          frameVersion: expected.assignment.frame.version,
+          canonicalByteLength: expected.canonicalBytes.byteLength,
+          canonicalBytes: expected.canonicalBytes,
+        }))).onConflictDoNothing());
+    }
+    // All writes precede these fresh reads. No fetched row or restored reference
+    // is reused across a subsequent write. Conflict verdicts retain input order.
+    const restored: RestoredRelationalPhysicalNameAssignment[] = [];
+    for (const batch of assignmentBatches(prepared)) {
+      restored.push(...yield* readEnsuredAssignmentBatch(transaction, storedCollision, batch));
+    }
+    return Object.freeze(restored);
   });
+
+function* assignmentBatches(values: readonly PreparedPhysicalNameAssignment[]) {
+  let batch: PreparedPhysicalNameAssignment[] = [];
+  let bytes = 0;
+  for (const value of values) {
+    if (batch.length >= ASSIGNMENT_WRITE_BATCH_ROWS ||
+      bytes + value.canonicalBytes.byteLength > ASSIGNMENT_WRITE_BATCH_BYTES) {
+      yield batch;
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(value);
+    bytes += value.canonicalBytes.byteLength;
+  }
+  if (batch.length !== 0) yield batch;
+}
+
+const readEnsuredAssignmentBatch = Effect.fn("RelationalPhysicalNameAssignmentRepository.readEnsuredBatch")(function* (
+  transaction: FlarexMetadataTransaction,
+  collision: RestoredFrameworkMigrationCollisionDomain,
+  expected: readonly PreparedPhysicalNameAssignment[],
+): Effect.fn.Return<readonly RestoredRelationalPhysicalNameAssignment[], FrameworkMigrationRepositoryError> {
+  const operation = "ensurePhysicalNameAssignment" as const;
+  const table = fxSystemRelationalPhysicalNameAssignments;
+  const requested = new Set<string>(expected.map(value => value.assignment.assignmentSha256));
+  const rows = yield* runRepositoryStatement(operation, transaction.select(assignmentReadSelection).from(table)
+    .where(inArray(table.assignmentSha256, expected.map(value => value.assignmentSha256Bytes)))
+    .limit(requested.size + 1)).pipe(Effect.map(detachDriverRows));
+  const byDigest = new Map<string, PhysicalNameAssignmentDriverRow>();
+  for (const row of rows) {
+    const digest = yield* Effect.fromResult(decodeStoredSha256HexResult(row.assignmentSha256,
+      () => FrameworkMigrationRepositoryError.storedCorruption(operation)));
+    if (!requested.has(digest) || byDigest.has(digest)) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    byDigest.set(digest, row);
+  }
+  const restore = (row: PhysicalNameAssignmentDriverRow | undefined) => row === undefined
+    ? Effect.succeed(Option.none<RestoredRelationalPhysicalNameAssignment>())
+    : restoreRelationalPhysicalNameAssignmentOccupantInTransactionEffect(transaction, row, collision, operation)
+      .pipe(Effect.map(Option.some));
+  let bySpelling: Map<string, PhysicalNameAssignmentDriverRow> | undefined;
+  const readBySpelling = Effect.fn("RelationalPhysicalNameAssignmentRepository.readEnsuredSpelling")(function* (spelling: string) {
+    if (bySpelling === undefined) {
+      const spellings = new Set(expected.filter(value => !byDigest.has(value.assignment.assignmentSha256))
+        .map(value => value.assignment.frame.spelling));
+      const spellingRows = yield* runRepositoryStatement(operation, transaction.select(assignmentReadSelection).from(table)
+        .where(and(eq(table.physicalDatabaseIdentity, collision.coordinate.targetNamespace.physicalDatabaseIdentity),
+          eq(table.schemaName, collision.coordinate.targetNamespace.schemaName), inArray(table.spelling, [...spellings])))
+        .limit(spellings.size + 1)).pipe(Effect.map(detachDriverRows));
+      bySpelling = new Map();
+      for (const row of spellingRows) {
+        if (!spellings.has(row.spelling) || bySpelling.has(row.spelling)) {
+          return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+        }
+        bySpelling.set(row.spelling, row);
+      }
+    }
+    return yield* restore(bySpelling.get(spelling));
+  });
+  const restored: RestoredRelationalPhysicalNameAssignment[] = [];
+  for (const value of expected) {
+    const resolved = yield* resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsForOperationEffect(
+      collision, value.assignment, operation, {
+        readByDigest: () => restore(byDigest.get(value.assignment.assignmentSha256)),
+        readBySpelling: () => readBySpelling(value.assignment.frame.spelling),
+      });
+    if (Option.isNone(resolved)) return yield* Effect.fail(FrameworkMigrationRepositoryError.immutableConflict(operation));
+    restored.push(resolved.value);
+  }
+  return restored;
+});
 
 export const readRelationalPhysicalNameAssignmentInTransactionEffect =
   Effect.fn(

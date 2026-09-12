@@ -17,7 +17,7 @@ import {
   restoreStoredFreshRelationalMigrationPlanReferenceInTransactionEffect,
 } from "../src/migrationCoordination/migrationPlanRepository";
 import {
-  ensureRelationalPhysicalNameAssignmentInTransactionEffect,
+  ensureRelationalPhysicalNameAssignmentsInTransactionEffect,
 } from "../src/migrationCoordination/physicalNameAssignmentRepository";
 import {
   fxSystemFrameworkMigrationPlans,
@@ -623,15 +623,13 @@ async function ensurePlanPrerequisites(
   values: Awaited<ReturnType<typeof freshPlanRepositoryValues>>,
 ) {
   const parents = await ensurePlanParents(transaction, values);
-  for (const assignment of values.physicalLayout.nameAssignments) {
-    await runEffect(
-      ensureRelationalPhysicalNameAssignmentInTransactionEffect(
-        transaction,
-        parents.collision,
-        assignment,
-      ),
-    );
-  }
+  await runEffect(
+    ensureRelationalPhysicalNameAssignmentsInTransactionEffect(
+      transaction,
+      parents.collision,
+      values.physicalLayout.nameAssignments,
+    ),
+  );
   return parents;
 }
 

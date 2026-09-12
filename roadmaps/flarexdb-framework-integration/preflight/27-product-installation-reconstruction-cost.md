@@ -25,6 +25,34 @@ Per-node memo lookup, peek, canonical capture and private stored-canonical compa
 
 ## Acceptance And Reproduction
 
+### Assignment Inventory Transport
+
+The shared coordinator ensures the physical-name inventory through one private
+repository operation instead of a scalar SQL loop. It captures and validates all
+input evidence in caller order before writes, using the existing assignment-count
+and 4 MiB layout-evidence limits, then reauthenticates current collision evidence
+once. Inserts are ordered by global assignment digest and split at 64 rows or
+256 KiB canonical bytes. The coordinator's existing collision lock remains.
+
+All inserts finish before fresh occupant reads. Digest queries use at most 64
+requested rows plus a duplicate sentinel; every row retains the existing 20 KiB
+canonical cap. Spelling fallback is lazy and remains bounded to missing digests
+within that batch. Actual returned bytes may exceed 256 KiB when stored evidence
+differs from the input; that threshold bounds insert evidence, not SQL responses.
+The existing canonical, projection, digest-first conflict and cross-collision
+restoration owners decide each result in input order. No restored row is cached
+across writes or operation settlement.
+
+This is an approved private contract replacement: whole-inventory validation
+precedes SQL conflicts, rather than interleaving the two for each scalar call.
+The displaced scalar API has no production compatibility obligation and is
+removed; one-item convenience remains test-local. Transaction rollback,
+interruption, uncertain settlement and deadlines remain with their existing
+owners. Neutral two-driver regressions cover row/byte splitting, aggregate
+refusal, exact/reversed/duplicate replay and late-corruption rollback; real
+PostgreSQL additionally observes an overlapping inventory's unique-index wait.
+This shared correction introduces no Medusa branch, schema or cache lifetime.
+
 The complete Product harness uses one shared conformance body for PGlite and ordinary-role PostgreSQL. Installation and fresh-profile reopening must finish within its 90-second cancellable setup budget; incomplete setup skips dependent assertions. The original Vitest hook bound remains 120 seconds to permit settlement and cleanup.
 
 Run the Product installation through its dedicated Vitest configuration. Set FLAREX_TEST_DRIVER to postgres and provide FLAREX_POSTGRES_DATABASE_URL for native PostgreSQL; the default is PGlite. FLAREX_PRODUCT_MEASURE_STEPS=1 selects the repeatable two-step measurement, and FLAREX_PRODUCT_TIMINGS=1 reports full-run batch timings. The measurement mode is not database acceptance.

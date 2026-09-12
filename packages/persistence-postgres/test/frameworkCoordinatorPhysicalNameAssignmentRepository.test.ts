@@ -9,7 +9,7 @@ import {
   captureFreshRelationalMigrationPlan,
 } from "../src/migrationCoordination/canonical";
 import {
-  ensureRelationalPhysicalNameAssignmentInTransactionEffect,
+  ensureRelationalPhysicalNameAssignmentsInTransactionEffect,
   readRelationalPhysicalNameAssignmentInTransactionEffect,
   resolveAuthenticatedRelationalPhysicalNameAssignmentOccupantsEffect,
   restoreRelationalPhysicalNameAssignmentOccupantInTransactionEffect,
@@ -35,7 +35,7 @@ import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 describe("framework coordinator physical-name assignment repository", () => {
   it("keeps transaction kernels source-private", async () => {
     expect(
-      "ensureRelationalPhysicalNameAssignmentInTransactionEffect" in
+      "ensureRelationalPhysicalNameAssignmentsInTransactionEffect" in
         persistenceRoot,
     ).toBe(false);
     expect(
@@ -568,3 +568,15 @@ function rejectingSelectTransaction(
   };
   return transaction as unknown as FlarexMetadataTransaction;
 }
+
+// Single-item convenience belongs to tests; the repository accepts inventories.
+const ensureRelationalPhysicalNameAssignmentInTransactionEffect = Effect.fn(function* (
+  transaction: Parameters<typeof ensureRelationalPhysicalNameAssignmentsInTransactionEffect>[0],
+  collision: Parameters<typeof ensureRelationalPhysicalNameAssignmentsInTransactionEffect>[1],
+  assignment: Parameters<typeof ensureRelationalPhysicalNameAssignmentsInTransactionEffect>[2][number],
+) {
+  const rows = yield* ensureRelationalPhysicalNameAssignmentsInTransactionEffect(transaction, collision, [assignment]);
+  const row = rows[0];
+  if (row === undefined) throw new Error("Expected one ensured assignment");
+  return row;
+});

@@ -107,7 +107,7 @@ import type {
   FrameworkMigrationBaseInstallation,
 } from "./model";
 import {
-  ensureRelationalPhysicalNameAssignmentInTransactionEffect,
+  ensureRelationalPhysicalNameAssignmentsInTransactionEffect,
 } from "./physicalNameAssignmentRepository";
 import {
   captureRelationalStructuralValidationSha256Effect,
@@ -545,13 +545,11 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
       transaction,
       ensuredCollision,
     );
-  for (const assignment of planValue.physicalLayout.nameAssignments) {
-    yield* ensureRelationalPhysicalNameAssignmentInTransactionEffect(
-      transaction,
-      collision,
-      assignment,
-    );
-  }
+  yield* ensureRelationalPhysicalNameAssignmentsInTransactionEffect(
+    transaction,
+    collision,
+    planValue.physicalLayout.nameAssignments,
+  );
   const plan = yield* ensureFreshRelationalMigrationPlanInTransactionEffect(
     transaction,
     collision,

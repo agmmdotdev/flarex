@@ -33,7 +33,7 @@ import {
   ensureFreshRelationalMigrationPlanInTransactionEffect,
 } from "../src/migrationCoordination/migrationPlanRepository";
 import {
-  ensureRelationalPhysicalNameAssignmentInTransactionEffect,
+  ensureRelationalPhysicalNameAssignmentsInTransactionEffect,
 } from "../src/migrationCoordination/physicalNameAssignmentRepository";
 import {
   ensureFrameworkMigrationStepReceiptInTransactionEffect,
@@ -95,15 +95,13 @@ export async function storeSuccessfulTerminalGraphInTransaction(
       planValue,
     ),
   );
-  for (const assignment of physicalLayout.nameAssignments) {
-    await runEffect(
-      ensureRelationalPhysicalNameAssignmentInTransactionEffect(
-        transaction,
-        collision,
-        assignment,
-      ),
-    );
-  }
+  await runEffect(
+    ensureRelationalPhysicalNameAssignmentsInTransactionEffect(
+      transaction,
+      collision,
+      physicalLayout.nameAssignments,
+    ),
+  );
   const plan = await runEffect(
     ensureFreshRelationalMigrationPlanInTransactionEffect(
       transaction,
