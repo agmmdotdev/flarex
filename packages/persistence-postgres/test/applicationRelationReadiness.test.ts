@@ -11,7 +11,6 @@ import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
-  OutboxSeqSchema,
   projectScopeIdUuidV1Result,
   ScopeEpochSchema,
   ScopeIdSchema,
@@ -1093,7 +1092,6 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
       FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
-    lastOutboxSeq: OutboxSeqSchema.make(0n),
     epoch,
   });
   const pointTarget = createPGliteLocatedPointMutationSessionActivationTargetV1(

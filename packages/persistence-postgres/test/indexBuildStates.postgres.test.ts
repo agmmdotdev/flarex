@@ -28,15 +28,8 @@ describePostgres("real Postgres fenced index build-state reads", () => {
       await persistence.query(
         `
           insert into fx_system_scope_clock
-            (
-              scope_id,
-              storage_generation,
-              storage_generation_fence,
-              last_commit_seq,
-              last_outbox_seq,
-              epoch
-            )
-          values ($1, 'flarexdb_v1', $2, $3, 0, 'epoch-pg')
+      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
+      values ($1, 'flarexdb_v1', $2, $3, 'epoch-pg')
         `,
         [scopeId, largeFence, largeFence],
       );

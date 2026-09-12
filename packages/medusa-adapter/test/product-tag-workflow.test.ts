@@ -189,7 +189,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   it("rolls back failures at event, delivery, result, wake and clock publication", async () => {
     const workflow = await assemble();
     const before = await inventory();
-    for (const table of ["fx_system_commit_event", "fx_system_commit_event_delivery", "fx_system_idempotency", "fx_system_outbox", "fx_system_scope_clock"]) {
+    for (const table of ["fx_system_commit_event", "fx_system_commit_event_delivery", "fx_system_idempotency", "fx_system_commit_wake", "fx_system_scope_clock"]) {
       await product.persistence.exec("create function fx_test_workflow_failure() returns trigger language plpgsql as $$ begin raise exception 'workflow publication failure'; end $$");
       try {
         await product.persistence.exec(`create trigger fx_test_workflow_failure before ${table === "fx_system_scope_clock" ? "update" : "insert"} on "${table}" for each row execute function fx_test_workflow_failure()`);

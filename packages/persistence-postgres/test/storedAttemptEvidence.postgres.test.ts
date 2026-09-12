@@ -1181,7 +1181,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
         outcomes: string;
         wakes: string;
         last_commit_seq: string;
-        last_outbox_seq: string;
       }>(
         `select session.lifecycle,
           (select count(*)::text from fx_system_tx_execution_claim claim
@@ -1199,10 +1198,9 @@ describePostgres("real Postgres stored-attempt authority", () => {
            where change.scope_uuid = session.scope_uuid) as changes,
           (select count(*)::text from fx_system_idempotency outcome
            where outcome.scope_uuid = session.scope_uuid) as outcomes,
-          (select count(*)::text from fx_system_outbox wake
+          (select count(*)::text from fx_system_commit_wake wake
            where wake.scope_uuid = session.scope_uuid) as wakes,
-          clock.last_commit_seq::text,
-          clock.last_outbox_seq::text
+          clock.last_commit_seq::text
          from fx_system_tx_session session
          join fx_system_scope_clock clock
            on clock.scope_uuid = session.scope_uuid
@@ -1218,7 +1216,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       }] });
     });
   }, 120_000);
@@ -1402,25 +1399,22 @@ describePostgres("real Postgres stored-attempt authority", () => {
         const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
         await expect(persistence.query<{
           last_commit_seq: string;
-          last_outbox_seq: string;
           headers: string;
           outcomes: string;
           wakes: string;
         }>(
           `select clock.last_commit_seq::text,
-             clock.last_outbox_seq::text,
              (select count(*)::text from fx_system_commit header
               where header.scope_uuid = clock.scope_uuid) as headers,
              (select count(*)::text from fx_system_idempotency outcome
               where outcome.scope_uuid = clock.scope_uuid) as outcomes,
-             (select count(*)::text from fx_system_outbox wake
+             (select count(*)::text from fx_system_commit_wake wake
               where wake.scope_uuid = clock.scope_uuid) as wakes
            from fx_system_scope_clock clock
            where clock.scope_uuid = $1`,
           [scopeUuid],
         )).resolves.toEqual({ rows: [{
           last_commit_seq: "1",
-          last_outbox_seq: "1",
           headers: "1",
           outcomes: "1",
           wakes: "1",
@@ -1551,25 +1545,22 @@ describePostgres("real Postgres stored-attempt authority", () => {
         const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
         await expect(persistence.query<{
           readonly last_commit_seq: string;
-          readonly last_outbox_seq: string;
           readonly headers: string;
           readonly outcomes: string;
           readonly wakes: string;
         }>(
           `select clock.last_commit_seq::text,
-             clock.last_outbox_seq::text,
              (select count(*)::text from fx_system_commit header
               where header.scope_uuid = clock.scope_uuid) as headers,
              (select count(*)::text from fx_system_idempotency outcome
               where outcome.scope_uuid = clock.scope_uuid) as outcomes,
-             (select count(*)::text from fx_system_outbox wake
+             (select count(*)::text from fx_system_commit_wake wake
               where wake.scope_uuid = clock.scope_uuid) as wakes
            from fx_system_scope_clock clock
            where clock.scope_uuid = $1`,
           [scopeUuid],
         )).resolves.toEqual({ rows: [{
           last_commit_seq: "1",
-          last_outbox_seq: "1",
           headers: "1",
           outcomes: "1",
           wakes: "1",
@@ -1694,18 +1685,16 @@ describePostgres("real Postgres stored-attempt authority", () => {
         const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
         const durable = await persistence.query<{
           readonly last_commit_seq: string;
-          readonly last_outbox_seq: string;
           readonly headers: string;
           readonly outcomes: string;
           readonly wakes: string;
         }>(
           `select clock.last_commit_seq::text,
-             clock.last_outbox_seq::text,
              (select count(*)::text from fx_system_commit header
               where header.scope_uuid = clock.scope_uuid) as headers,
              (select count(*)::text from fx_system_idempotency outcome
               where outcome.scope_uuid = clock.scope_uuid) as outcomes,
-             (select count(*)::text from fx_system_outbox wake
+             (select count(*)::text from fx_system_commit_wake wake
               where wake.scope_uuid = clock.scope_uuid) as wakes
            from fx_system_scope_clock clock
            where clock.scope_uuid = $1`,
@@ -1713,7 +1702,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
         );
         expect(durable.rows).toEqual([{
           last_commit_seq: "1",
-          last_outbox_seq: "1",
           headers: "1",
           outcomes: "1",
           wakes: "1",
@@ -1820,18 +1808,16 @@ describePostgres("real Postgres stored-attempt authority", () => {
         const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
         const durable = await persistence.query<{
           readonly last_commit_seq: string;
-          readonly last_outbox_seq: string;
           readonly headers: string;
           readonly outcomes: string;
           readonly wakes: string;
         }>(
           `select clock.last_commit_seq::text,
-             clock.last_outbox_seq::text,
              (select count(*)::text from fx_system_commit header
               where header.scope_uuid = clock.scope_uuid) as headers,
              (select count(*)::text from fx_system_idempotency outcome
               where outcome.scope_uuid = clock.scope_uuid) as outcomes,
-             (select count(*)::text from fx_system_outbox wake
+             (select count(*)::text from fx_system_commit_wake wake
               where wake.scope_uuid = clock.scope_uuid) as wakes
            from fx_system_scope_clock clock
            where clock.scope_uuid = $1`,
@@ -1839,7 +1825,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
         );
         expect(durable.rows).toEqual([{
           last_commit_seq: "1",
-          last_outbox_seq: "1",
           headers: "1",
           outcomes: "1",
           wakes: "1",
@@ -1967,7 +1952,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
           outcomes: "0",
           wakes: "0",
           last_commit_seq: "0",
-          last_outbox_seq: "0",
         });
         await expect(runFailure(
           second.redispatchExactPointMutationAttempt(selector),
@@ -2046,7 +2030,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
                and journal.session_id = session.session_id) as journals,
             (select count(*)::text from fx_system_idempotency as outcome
              where outcome.scope_uuid = session.scope_uuid) as outcomes,
-            (select count(*)::text from fx_system_outbox as wake
+            (select count(*)::text from fx_system_commit_wake as wake
              where wake.scope_uuid = session.scope_uuid) as wakes,
             (select count(*)::text from fx_system_commit as header
              where header.scope_uuid = session.scope_uuid) as headers,
@@ -2142,7 +2126,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
           outcomes: "1",
           wakes: "1",
           last_commit_seq: "1",
-          last_outbox_seq: "1",
         });
         expect(observations.txids).toContain(state.header_xmin);
         expect(state.committed_at_micros).toBe(
@@ -2290,7 +2273,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
           outcomes: "2",
           wakes: "2",
           last_commit_seq: "2",
-          last_outbox_seq: "2",
           header_xmin: observations.txids[2],
           committed_at_micros:
             observations.publicationTimesMicros[2]?.toString(),
@@ -2335,15 +2317,11 @@ describePostgres("real Postgres stored-attempt authority", () => {
           ],
           wakes: [
             {
-              outbox_seq: "1",
               commit_seq: "1",
-              event_kind: "deployment_sync_commit_wake_v1",
               delivery_state: "pending",
             },
             {
-              outbox_seq: "2",
               commit_seq: "2",
-              event_kind: "deployment_sync_commit_wake_v1",
               delivery_state: "pending",
             },
           ],
@@ -2444,7 +2422,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
           outcomes: "0",
           wakes: "0",
           last_commit_seq: "0",
-          last_outbox_seq: "0",
         });
         expect(await o08CAttemptState(
           persistence,
@@ -2549,7 +2526,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
             outcomes: "1",
             wakes: "1",
             last_commit_seq: "1",
-            last_outbox_seq: "1",
           });
         }
       } finally {
@@ -2621,7 +2597,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
           outcomes: "0",
           wakes: "0",
           last_commit_seq: "0",
-          last_outbox_seq: "0",
         });
         expect(await o08CAttemptState(
           persistence,
@@ -2687,7 +2662,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
 
       const missingCurrent = await o08B1Scenario(
@@ -2735,7 +2709,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
     });
   }, 120_000);
@@ -2803,7 +2776,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
 
       const unresolvedCurrent = await o08B1Scenario(
@@ -2856,7 +2828,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
         outcomes: "0",
         wakes: "0",
         last_commit_seq: "0",
-        last_outbox_seq: "0",
       });
       expect(await o08CAttemptState(
         persistence,
@@ -2944,7 +2915,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
       const independentScope = projectScopeIdUuidV1(
         independent.anchor.scopeId,
@@ -2958,7 +2928,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
     });
   }, 120_000);
@@ -4556,7 +4525,6 @@ async function o08CPublicationState(
     outcomes: string;
     wakes: string;
     last_commit_seq: string;
-    last_outbox_seq: string;
     header_xmin: string;
     committed_at_micros: string;
   }>(
@@ -4572,10 +4540,9 @@ async function o08CPublicationState(
           where scope_uuid = $1) as commit_changes,
         (select count(*)::text from fx_system_idempotency
           where scope_uuid = $1) as outcomes,
-        (select count(*)::text from fx_system_outbox
+        (select count(*)::text from fx_system_commit_wake
           where scope_uuid = $1) as wakes,
         clock.last_commit_seq::text,
-        clock.last_outbox_seq::text,
         coalesce((select header.xmin::text from fx_system_commit header
           where header.scope_uuid = $1
           order by header.commit_seq desc
@@ -4645,17 +4612,15 @@ async function o08CInterleavingPublicationRows(
       [scopeUuid],
     ),
     persistence.query<{
-      outbox_seq: string;
       commit_seq: string;
-      event_kind: string;
       delivery_state: string;
     }>(
       `
-        select outbox_seq::text, commit_seq::text,
-          event_kind, delivery_state
-        from fx_system_outbox
+        select commit_seq::text,
+          delivery_state
+        from fx_system_commit_wake
         where scope_uuid = $1
-        order by outbox_seq
+        order by commit_seq
       `,
       [scopeUuid],
     ),
@@ -4716,7 +4681,6 @@ async function o08DispositionPostgresState(
     outcomes: string;
     wakes: string;
     last_commit_seq: string;
-    last_outbox_seq: string;
   }>(
     `
       select session.lifecycle,
@@ -4744,10 +4708,9 @@ async function o08DispositionPostgresState(
           where change.scope_uuid = session.scope_uuid) as changes,
         (select count(*)::text from fx_system_idempotency outcome
           where outcome.scope_uuid = session.scope_uuid) as outcomes,
-        (select count(*)::text from fx_system_outbox wake
+        (select count(*)::text from fx_system_commit_wake wake
           where wake.scope_uuid = session.scope_uuid) as wakes,
-        clock.last_commit_seq::text,
-        clock.last_outbox_seq::text
+        clock.last_commit_seq::text
       from fx_system_tx_session session
       join fx_system_scope_clock clock
         on clock.scope_uuid = session.scope_uuid

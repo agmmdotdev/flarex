@@ -5,7 +5,6 @@ import {
   ScopeIdSchema,
   StorageGenerationFenceSchema,
   CommitSeqSchema,
-  OutboxSeqSchema,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
 import type { PoolClient } from "pg";
@@ -67,7 +66,6 @@ describePostgres("real Postgres split scope authority provisioning", () => {
         storageGeneration: "legacy_v1",
         storageGenerationFence: 1n,
         lastCommitSeq: 0n,
-        lastOutboxSeq: 0n,
         epoch: `epoch_${testUuid(2)}`,
       });
 
@@ -100,7 +98,6 @@ describePostgres("real Postgres split scope authority provisioning", () => {
         storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
         storageGenerationFence: StorageGenerationFenceSchema.make(1n),
         lastCommitSeq: CommitSeqSchema.make(0n),
-        lastOutboxSeq: OutboxSeqSchema.make(0n),
         epoch: ScopeEpochSchema.make("epoch_existing_target_authority"),
       });
       await expect(
@@ -205,7 +202,6 @@ describePostgres("real Postgres split scope authority provisioning", () => {
           storageGeneration: "legacy_v1",
           storageGenerationFence: 1n,
           lastCommitSeq: 0n,
-          lastOutboxSeq: 0n,
           epoch: `epoch_${testUuid(6)}`,
         });
         await expect(

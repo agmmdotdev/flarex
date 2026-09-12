@@ -20,7 +20,6 @@ import { TestClock } from "effect/testing";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
-  OutboxSeqSchema,
   ScopeEpochSchema,
   StorageGenerationFenceSchema,
   replacementScopeIdV1FromUuid,
@@ -332,7 +331,6 @@ function scopeClock(scopeId: typeof SCOPE_ID): ScopeClockRecord {
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
     oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
-    lastOutboxSeq: OutboxSeqSchema.make(0n),
     epoch: ScopeEpochSchema.make("epoch-task-compute-delivery"),
     updatedAt: new Date("2026-08-11T00:00:00.000Z"),
   });

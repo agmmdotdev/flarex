@@ -1102,7 +1102,7 @@ async function publicationCounts(persistence: Persistence) {
     (select count(*)::text from fx_system_commit_app_row_change) as changes,
     (select count(*)::text from fx_system_tx_journal) as journals,
     (select count(*)::text from fx_system_idempotency) as outcomes,
-    (select count(*)::text from fx_system_outbox) as outbox`);
+    (select count(*)::text from fx_system_commit_wake) as outbox`);
   const row = rows.rows[0];
   if (row === undefined) throw new Error("PQV-A1 publication counts missing.");
   return Object.freeze({

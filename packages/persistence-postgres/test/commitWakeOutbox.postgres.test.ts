@@ -1,14 +1,3 @@
-import {
-  cp,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { Effect, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -17,6 +6,7 @@ import type { ScopeEpochUuidV1 } from "flarex-protocol/storage-authority";
 import type { FlarexPersistence } from "../src";
 import {
   CommitWakeCorruptionErrorV1,
+  CommitWakeResourceExhaustionErrorV1,
   CommitWakeStaleClaimErrorV1,
   createCommitWakeOutboxRepositoryV1,
   type ClaimedCommitWakeV1,
@@ -30,7 +20,6 @@ import {
   insertPendingWake,
   insertWakeHeader,
   insertWakeScope,
-  outboxSeq,
   WAKE_EPOCH_A,
   WAKE_EPOCH_B,
   WAKE_EPOCH_C,
@@ -40,112 +29,36 @@ import {
   WAKE_SCOPE_B,
 } from "./commitWakeOutboxTestSupport";
 import { runEffect } from "./effectTestRuntime";
-import {
-  writeJournalThrough0030,
-  writeJournalThrough0031,
-} from "./idempotencySchemaTestSupport";
+import { verifyCommitWakeMigration } from "./commitWakeMigrationScenario";
+import { makeDrizzleCopyFixture } from "./migrationFixtureSupport";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
   withTemporaryPostgresSchema,
 } from "./postgresHelpers";
 
-const MIGRATION_NAME = "0031_commit_wake_outbox.sql";
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 type SqlPersistence = Pick<FlarexPersistence, "query">;
 
 describePostgres("real Postgres S09-B commit-wake outbox", () => {
-  it("rolls back, upgrades 0030, and replays in a non-public schema", async () => {
-    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-s09b-postgres-"));
-    const migrationsFolder = resolve(testRoot, "drizzle");
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
-    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
-    const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
-    const copiedMigration = resolve(migrationsFolder, MIGRATION_NAME);
-
+  it("preserves delivery states and replays 0092 in a non-public schema", async () => {
+    const fixture = await makeDrizzleCopyFixture("flarex-commit-wake", "postgres", "0092_commit-wake.sql");
     try {
-      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
-      await writeJournalThrough0030(currentJournal, temporaryJournal);
       await withTemporaryPostgresSchema(async (databaseOptions) => {
-        const previous = await createPostgresPersistence({
+        const persistence = await createPostgresPersistence({
           ...databaseOptions,
-          migrationsFolder,
+          migrationsFolder: fixture.migrationsFolder,
         });
-        let current: PostgresFlarexPersistence | undefined;
         try {
-          await previous.migrate();
-          await insertWakeScope(previous, {
-            scopeUuid: WAKE_SCOPE_A,
-            epochUuid: WAKE_EPOCH_A,
-            lastCommitSeq: 1n,
-            lastOutboxSeq: 0n,
-          });
-          await insertWakeHeader(previous, WAKE_SCOPE_A, WAKE_EPOCH_A, 1n);
-          await previous.query(`
-            insert into outbox (deployment_id, ts, sequence, event)
-            values ('legacy-s09b', 1, 0, '{"kind":"legacy"}'::jsonb)
-          `);
-
-          await writeJournalThrough0031(currentJournal, temporaryJournal);
-          const originalMigration = await readFile(copiedMigration, "utf8");
-          await writeFile(
-            copiedMigration,
-            `${originalMigration}\n--> statement-breakpoint\nselect * from fx_s09b_deliberate_missing_table;\n`,
-            "utf8",
-          );
-          current = await createPostgresPersistence({
-            ...databaseOptions,
-            migrationsFolder,
-          });
-          await expect(current.migrate()).rejects.toThrow();
-          const rolledBack = await current.query<{
-            outbox_tables: number;
-            receipts: number;
-          }>(`
-            select
-              (select count(*)::int from information_schema.tables
-               where table_schema = current_schema()
-                 and table_name = 'fx_system_outbox') as outbox_tables,
-              (select count(*)::int
-               from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations) as receipts
-          `);
-          expect(rolledBack.rows).toEqual([
-            { outbox_tables: 0, receipts: 31 },
-          ]);
-
-          await writeFile(copiedMigration, originalMigration, "utf8");
-          await expect(current.migrate()).resolves.toBeUndefined();
-          await expect(current.migrate()).resolves.toBeUndefined();
-          const upgraded = await current.query<{
-            current_schema: string;
-            headers: number;
-            legacy_outbox: number;
-            replacement_outbox: number;
-            receipts: number;
-          }>(`
-            select
-              current_schema() as current_schema,
-              (select count(*)::int from fx_system_commit) as headers,
-              (select count(*)::int from outbox) as legacy_outbox,
-              (select count(*)::int from fx_system_outbox) as replacement_outbox,
-              (select count(*)::int
-               from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations) as receipts
-          `);
-          expect(upgraded.rows[0]).toMatchObject({
-            headers: 1,
-            legacy_outbox: 1,
-            replacement_outbox: 0,
-            receipts: 32,
-          });
-          expect(upgraded.rows[0]?.current_schema).not.toBe("public");
+          await verifyCommitWakeMigration(persistence, fixture, databaseOptions.migrationsSchema);
+          expect((await persistence.query("select current_schema() as name")).rows)
+            .not.toEqual([{ name: "public" }]);
         } finally {
-          await current?.close();
-          await previous.close();
+          await persistence.close();
         }
       });
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   });
 
@@ -172,8 +85,8 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
       expect(left).toHaveLength(1);
       expect(right).toHaveLength(1);
       expect(new Set([
-        left[0]?.outboxSeq,
-        right[0]?.outboxSeq,
+        left[0]?.commitSeq,
+        right[0]?.commitSeq,
       ])).toEqual(new Set([1n, 2n]));
 
       const [first, second] = await Promise.all([
@@ -221,7 +134,7 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
         $$;
 
         create trigger fx_test_commit_wake_database_clock
-        before update on fx_system_outbox
+        before update on fx_system_commit_wake
         for each row
         execute function fx_test_assert_commit_wake_database_clock()
       `);
@@ -239,7 +152,7 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
 
       await expect(runEffect(repository.settleClaim({
         scopeUuid: WAKE_SCOPE_A,
-        outboxSeq: claimed.value.outboxSeq,
+        commitSeq: claimed.value.commitSeq,
         claimOwner: WAKE_OWNER_A,
         claimFence: claimed.value.claimFence,
         settlement: { kind: "delivered" },
@@ -265,9 +178,9 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
 
       // The process crashes after the sink durably accepts but before ack.
       await persistence.query(`
-        update fx_system_outbox
+        update fx_system_commit_wake
         set claim_expires_at = claimed_at + interval '1 millisecond'
-        where scope_uuid = '${WAKE_SCOPE_A}'::uuid and outbox_seq = 1
+        where scope_uuid = '${WAKE_SCOPE_A}'::uuid and commit_seq = 1
       `);
       const replayed = await runEffect(repository.claimReadyBatch({
         scopeUuid: WAKE_SCOPE_A,
@@ -286,7 +199,7 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
       const stale = await runEffect(Effect.result(
         repository.settleClaim({
           scopeUuid: WAKE_SCOPE_A,
-          outboxSeq: outboxSeq(1n),
+          commitSeq: commitSeq(1n),
           claimOwner: WAKE_OWNER_A,
           claimFence: firstOption.value.claimFence,
           settlement: { kind: "delivered" },
@@ -298,7 +211,7 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
       }
       await expect(runEffect(repository.settleClaim({
         scopeUuid: WAKE_SCOPE_A,
-        outboxSeq: outboxSeq(1n),
+        commitSeq: commitSeq(1n),
         claimOwner: WAKE_OWNER_B,
         claimFence: replayedWake.claimFence,
         settlement: { kind: "delivered" },
@@ -313,7 +226,6 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
         epochUuid: WAKE_EPOCH_B,
         lastCommitSeq: 2n,
         oldestAvailableCommitSeq: 0n,
-        lastOutboxSeq: 2n,
       });
       for (const sequence of [1n, 2n]) {
         await insertWakeHeader(
@@ -324,7 +236,6 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
         );
         await insertPendingWake(persistence, {
           scopeUuid: WAKE_SCOPE_A,
-          outboxSeq: sequence,
           epochUuid: WAKE_EPOCH_A,
           commitSeq: sequence,
         });
@@ -360,9 +271,9 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
         await compactor.query("commit");
 
         await persistence.query(`
-          update fx_system_outbox
+          update fx_system_commit_wake
           set claim_expires_at = claimed_at + interval '1 millisecond'
-          where scope_uuid = '${WAKE_SCOPE_A}'::uuid and outbox_seq = 1
+          where scope_uuid = '${WAKE_SCOPE_A}'::uuid and commit_seq = 1
         `);
         const postCompaction = await runEffect(
           repository.claimReadyBatch({
@@ -412,17 +323,46 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
     });
   });
 
-  it("uses bounded claim and token indexes", async () => {
+  it("rolls back the whole selected batch when a later claim fence is exhausted", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      await seedWakeRange(persistence, 2);
+      await persistence.query(`
+        update fx_system_commit_wake
+        set claim_fence = 9223372036854775807,
+            last_failure_code = 'transient_delivery', last_failed_at = now(),
+            next_attempt_at = now()
+        where scope_uuid = '${WAKE_SCOPE_A}'::uuid and commit_seq = 2
+      `);
+      const repository = createCommitWakeOutboxRepositoryV1(persistence.drizzle);
+      const result = await runEffect(Effect.result(repository.claimReadyBatch({
+        scopeUuid: WAKE_SCOPE_A,
+        claimOwner: WAKE_OWNER_A,
+        leaseMilliseconds: 60_000,
+        limit: 2,
+      })));
+      if (Result.isSuccess(result)) throw new Error("Expected claim-fence exhaustion.");
+      expect(result.failure).toBeInstanceOf(CommitWakeResourceExhaustionErrorV1);
+      expect((await persistence.query(`
+        select commit_seq::text, claim_fence::text, delivery_state, claim_owner
+        from fx_system_commit_wake order by commit_seq
+      `)).rows).toEqual([
+        { commit_seq: "1", claim_fence: "0", delivery_state: "pending", claim_owner: null },
+        { commit_seq: "2", claim_fence: "9223372036854775807", delivery_state: "pending", claim_owner: null },
+      ]);
+    });
+  });
+
+  it("uses only the due-time index and commit primary key for bounded claims", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await seedWakeRange(persistence, 25);
-      await persistence.query("analyze fx_system_outbox");
+      await persistence.query("analyze fx_system_commit_wake");
       await persistence.query("set enable_seqscan = off");
       const claimPlan = await persistence.query<{
         plan: unknown;
       }>(`
         explain (format json, costs off)
-        select outbox_seq
-        from fx_system_outbox
+        select commit_seq
+        from fx_system_commit_wake
         where scope_uuid = '${WAKE_SCOPE_A}'::uuid
           and delivery_state in ('pending', 'claimed')
           and case
@@ -434,28 +374,35 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
           when delivery_state = 'pending' then next_attempt_at
           when delivery_state = 'claimed' then claim_expires_at
           else null
-        end, outbox_seq
+        end, commit_seq
         limit 10
         for update skip locked
       `);
       const claimPlanText = JSON.stringify(claimPlan.rows);
       expect(claimPlanText).toContain(
-        "fx_system_outbox_claimable_idx",
+        "fx_system_commit_wake_claimable_idx",
       );
       expect(claimPlanText).toContain("Index Cond");
       expect(claimPlanText).toContain("next_attempt_at");
       expect(claimPlanText).toContain("claim_expires_at");
       const tokenPlan = await persistence.query<{ plan: unknown }>(`
         explain (format json, costs off)
-        select outbox_seq
-        from fx_system_outbox
+        select commit_seq
+        from fx_system_commit_wake
         where scope_uuid = '${WAKE_SCOPE_A}'::uuid
-          and event_kind = 'deployment_sync_commit_wake_v1'
           and commit_seq = 17
       `);
       expect(JSON.stringify(tokenPlan.rows)).toContain(
-        "fx_system_outbox_commit_token_idx",
+        "fx_system_commit_wake_scope_uuid_commit_seq_pk",
       );
+      expect((await persistence.query(`
+        select indexname from pg_indexes
+        where schemaname = current_schema() and tablename = 'fx_system_commit_wake'
+        order by indexname
+      `)).rows).toEqual([
+        { indexname: "fx_system_commit_wake_claimable_idx" },
+        { indexname: "fx_system_commit_wake_scope_uuid_commit_seq_pk" },
+      ]);
     });
   });
 });
@@ -468,7 +415,6 @@ async function seedWakeRange(
     scopeUuid: WAKE_SCOPE_A,
     epochUuid: WAKE_EPOCH_A,
     lastCommitSeq: BigInt(count),
-    lastOutboxSeq: BigInt(count),
   });
   for (let sequence = 1; sequence <= count; sequence += 1) {
     const value = BigInt(sequence);
@@ -480,7 +426,6 @@ async function seedWakeRange(
     );
     await insertPendingWake(persistence, {
       scopeUuid: WAKE_SCOPE_A,
-      outboxSeq: value,
       epochUuid: WAKE_EPOCH_A,
       commitSeq: value,
     });
@@ -523,8 +468,4 @@ class DeterministicCommitWakeSink {
       ? "duplicate"
       : "resnapshot";
   }
-}
-
-function quoteIdentifier(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
 }

@@ -12,8 +12,9 @@ and additional composition profiles remain open.
 
 The authorized [transactional storage redesign](./07-transactional-storage-redesign.md)
 starts with shared Application fact batching and native latest-receipt upserts.
-Those statement reductions are implemented without changing framework APIs;
-the dedicated wake, index/unique and evidence storage replacements remain open.
+Those statement reductions and the dedicated commit-keyed wake are implemented
+without changing framework APIs. Obsolete core wake counter/clock projections
+are removed; index/unique and evidence storage replacements remain open.
 
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;
@@ -45,7 +46,8 @@ public APIs and production activation retain separate decisions and gates.
 - The [transactional storage redesign](./07-transactional-storage-redesign.md)
   proposes clean replacement of redundant storage and per-operation work,
   with a physical inventory, source-derived costs, and Payload/Medusa API impact.
-  Its implementation slices remain proposed; it does not reopen completed R1/R2.
+  Its status distinguishes implemented replacements from pending slices; it does
+  not reopen completed R1/R2.
 
 ## Current Architecture
 
@@ -136,8 +138,8 @@ backward-compatibility obligation. The
 history/authority from duplicated fields, body representations and per-row SQL.
 It also identifies terminal-session payload retention and expired-lease backlog
 as separate storage/progress obligations. Installation and app schema validation
-remain outside that investigation. Its proposed DDL and protocol changes do not
-describe implemented behavior or measured performance.
+remain outside that investigation. Pending slices do not describe implemented
+behavior, and storage reductions alone do not establish measured performance.
 
 ## Target Direction
 

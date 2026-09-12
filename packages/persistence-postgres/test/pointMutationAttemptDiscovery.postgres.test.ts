@@ -234,9 +234,8 @@ async function installAuthority(
   ] as const) {
     await persistence.query(
       `insert into fx_system_scope_clock
-         (scope_id, storage_generation, storage_generation_fence,
-          last_commit_seq, last_outbox_seq, epoch)
-       values ($1, 'flarexdb_v1', 1, 0, 0, $2)`,
+      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
+      values ($1, 'flarexdb_v1', 1, 0, $2)`,
       [scopeId, `epoch_${epochUuid}`],
     );
   }

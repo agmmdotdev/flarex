@@ -139,10 +139,8 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
         readPointCommitDatabaseTime(state.tx, scope.scopeId, prepared.options),
       );
       const allocation = yield* Effect.fromResult(
-        allocatePointCommitKernelResult(clock, "publish", now),
+        allocatePointCommitKernelResult(clock, now),
       ).pipe(Effect.mapError((cause) => cmsError("resourceFailure", cause)));
-      if (allocation.outboxSeq === null)
-        return yield* Effect.fail(cmsError("storedCorruption"));
       const adjacency = yield* delta.lower(allocation.commitSeq)
         .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
       // Positive receipts exist only after checked Application lowering. This issuer
@@ -191,7 +189,6 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
       const kernel: ScopePublicationKernel = {
         clock,
         ...allocation,
-        outboxSeq: allocation.outboxSeq,
         relationAdjacencyChanges: adjacency,
       };
       yield* cmsKernel(() =>

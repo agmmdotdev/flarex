@@ -12,7 +12,7 @@ import { makeCmsHost, defineCmsCommand, type CmsCommandContext } from "../src/cm
 import { cmsError, cmsLimits } from "../src/cmsTransaction/model";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
-import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemOutbox,
+import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
   fxSystemCommitAppRowChanges, fxSystemScopeClocks, fxAppUniqueKeys, fxAppIndexEntryCurrent } from "../src/schema";
 import { type PayloadContentProfiles } from "../src/payloadPreferences/binding";
 import { capturePayloadPreferenceRecord } from "../src/payloadPreferences/value";
@@ -99,7 +99,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
       uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle), candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }) } };
   const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent), revisions: await persistence.drizzle.select().from(fxAppRowRevisions),
     commits: await persistence.drizzle.select().from(fxSystemCommits), outcomes: await persistence.drizzle.select().from(fxSystemIdempotency),
-    wakes: await persistence.drizzle.select().from(fxSystemOutbox), facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges),
+    wakes: await persistence.drizzle.select().from(fxSystemCommitWakes), facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges),
     clocks: await persistence.drizzle.select().from(fxSystemScopeClocks), unique: await persistence.drizzle.select().from(fxAppUniqueKeys), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent) });
 
   if (relationOnly) {

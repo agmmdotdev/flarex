@@ -1894,7 +1894,6 @@ interface ClockAuthorityProjectionRow {
   readonly storageGenerationFence: unknown;
   readonly lastCommitSeq: unknown;
   readonly oldestAvailableCommitSeq: unknown;
-  readonly lastOutboxSeq: unknown;
   readonly epoch: unknown;
   readonly updatedAt: unknown;
   readonly scopeUuid: unknown;

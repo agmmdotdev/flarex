@@ -227,9 +227,8 @@ async function makeFixture(persistence: PostgresFlarexPersistence) {
   await persistence.insertScopeMetadata({ scopeId, deploymentId, physicalLocator: LOCATOR });
   await persistence.query(
     `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence,
-       last_commit_seq, last_outbox_seq, epoch)
-     values ($1, 'flarexdb_v1', 1, 0, 0, $2)`,
+      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
+      values ($1, 'flarexdb_v1', 1, 0, $2)`,
     [scopeId, ScopeEpochSchema.make(
       "epoch_c0810000-0000-0000-0000-000000000001",
     )],

@@ -1803,7 +1803,7 @@ async function captureCoreState(
     ["fx_system_tx_journal_write_event", "scope_uuid, session_id, attempt_fence, syscall_sequence"],
     ["fx_system_commit", "scope_uuid, commit_seq"],
     ["fx_system_commit_app_row_change", "scope_uuid, commit_seq, change_ordinal"],
-    ["fx_system_outbox", "scope_uuid, outbox_seq"],
+    ["fx_system_commit_wake", "scope_uuid, commit_seq"],
   ] as const);
   const tables = await Promise.all(tableQueries.map(async ([name, order]) => {
     const result = await target.query<Readonly<Record<string, unknown>>>(

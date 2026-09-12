@@ -4,7 +4,6 @@ import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
   LegacyV1StorageGenerationSchema,
-  OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
@@ -177,7 +176,6 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
         storageGeneration: "legacy_v1",
         storageGenerationFence: 1n,
         lastCommitSeq: 0n,
-        lastOutboxSeq: 0n,
         epoch: `epoch_${testUuid(2)}`,
       });
     }
@@ -201,7 +199,6 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
         storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
         storageGenerationFence: StorageGenerationFenceSchema.make(9n),
         lastCommitSeq: CommitSeqSchema.make(21n),
-        lastOutboxSeq: OutboxSeqSchema.make(34n),
         epoch: ScopeEpochSchema.make("epoch_advanced_ready_replay"),
       })
       .where(eq(fxSystemScopeClocks.scopeId, created.scope.scopeId));
@@ -232,7 +229,6 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
       storageGeneration: "flarexdb_v1",
       storageGenerationFence: 9n,
       lastCommitSeq: 21n,
-      lastOutboxSeq: 34n,
       epoch: "epoch_advanced_ready_replay",
     });
   });
@@ -480,7 +476,6 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
             storageGenerationFence: StorageGenerationFenceSchema.make(1n),
             lastCommitSeq: CommitSeqSchema.make(0n),
             oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
-            lastOutboxSeq: OutboxSeqSchema.make(0n),
             epoch: ScopeEpochSchema.make("epoch_inexact_target_result"),
             updatedAt: new Date(),
           },
@@ -814,7 +809,6 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
         storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
         storageGenerationFence: StorageGenerationFenceSchema.make(2n),
         lastCommitSeq: CommitSeqSchema.make(1n),
-        lastOutboxSeq: OutboxSeqSchema.make(1n),
         epoch: ScopeEpochSchema.make("epoch_after_ready_race"),
       })
       .where(eq(fxSystemScopeClocks.scopeId, winnerResult.scope.scopeId));
@@ -942,7 +936,6 @@ async function insertClock(
     storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
-    lastOutboxSeq: OutboxSeqSchema.make(0n),
     epoch,
   });
 }

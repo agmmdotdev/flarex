@@ -5,14 +5,13 @@ import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, eq, sql } from "drizzle-orm";
 import { Result, Schema } from "effect";
 import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { MAX_PERSISTED_SIGNED_INT64_V1, CommitSeqSchema, OutboxSeqSchema, type CommitSeq, type OutboxSeq, type ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
+import { MAX_PERSISTED_SIGNED_INT64_V1, CommitSeqSchema, type CommitSeq, type ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
 import { FLAREX_VALUE_CODEC_VERSION_V1, FlarexValueSha256V1Schema } from "flarex-protocol/value";
 import { type AppRowTransaction } from "../appRows";
-import { COMMIT_WAKE_OUTBOX_EVENT_KIND_V1 } from "../commitWakeOutbox";
 import { observeDrizzleQuery as observeCompiledDrizzleQuery } from "../drizzleQueryObservation";
-import { fxSystemCommitAppRowChanges, fxSystemCommitRelationAdjacencyChanges, fxSystemCommits, fxSystemIdempotency, fxSystemOutbox, fxSystemScopeClocks } from "../schema";
-import { ScopePublicationCorruptionError, ScopePublicationResourceError, ScopePublicationSqlFailure, type ScopePublicationClock, type ScopePublicationContribution, type ScopePublicationKernel, type ScopePublicationMode, type ScopePublicationOptions, type ScopePublicationSqlOperation, type ScopePublicationStep } from "./scopePublicationModel";
+import { fxSystemCommitAppRowChanges, fxSystemCommitRelationAdjacencyChanges, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemScopeClocks } from "../schema";
+import { ScopePublicationCorruptionError, ScopePublicationResourceError, ScopePublicationSqlFailure, type ScopePublicationClock, type ScopePublicationContribution, type ScopePublicationKernel, type ScopePublicationOptions, type ScopePublicationSqlOperation, type ScopePublicationStep } from "./scopePublicationModel";
 
 export async function writeScopePublicationPrefix(
   tx: AppRowTransaction,
@@ -26,7 +25,6 @@ export async function writeScopePublicationPrefix(
   const scopeUuid = kernel.clock.scopeUuid;
   const epochUuid = kernel.clock.epochUuid;
   const commitSeq = kernel.commitSeq;
-  const outboxSeq = kernel.outboxSeq;
   const changeCount = command.rowIntents.length;
   const relationAdjacencyChangeCount =
     kernel.relationAdjacencyChanges.length;
@@ -191,16 +189,13 @@ export async function writeScopePublicationPrefix(
 
   signal?.throwIfAborted();
   const wake = await sqlCall("writeWake", () =>
-    tx.insert(fxSystemOutbox).values({
+    tx.insert(fxSystemCommitWakes).values({
       scopeUuid,
-      outboxSeq,
       epochUuid,
       commitSeq,
-      eventKind: COMMIT_WAKE_OUTBOX_EVENT_KIND_V1,
       deliveryState: "pending",
       createdAt: publicationTime,
       nextAttemptAt: publicationTime,
-      attemptCount: 0n,
       claimFence: 0n,
       claimOwner: null,
       claimedAt: null,
@@ -210,9 +205,9 @@ export async function writeScopePublicationPrefix(
       lastFailedAt: null,
       deliveredAt: null,
       deadLetteredAt: null,
-    }).returning({ outboxSeq: fxSystemOutbox.outboxSeq }));
+    }).returning({ commitSeq: fxSystemCommitWakes.commitSeq }));
   projectScopePublicationResult(
-    requireSinglePublicationWriteResult(wake, outboxSeq, "outboxSeq"),
+    requireSinglePublicationWriteResult(wake, commitSeq, "commitSeq"),
   );
   await emitTransactionStep(options, command, "wakeWritten");
 
@@ -226,12 +221,10 @@ export async function advanceScopePublicationClock(
 ): Promise<void> {
   const scopeUuid = kernel.clock.scopeUuid;
   const commitSeq = kernel.commitSeq;
-  const outboxSeq = kernel.outboxSeq;
   const publicationTime = new Date(kernel.publicationTimeMilliseconds);
   const clock = await sqlCall("advanceScopeClock", () =>
     tx.update(fxSystemScopeClocks).set({
       lastCommitSeq: commitSeq,
-      lastOutboxSeq: outboxSeq,
       updatedAt: publicationTime,
     }).where(and(
       eq(fxSystemScopeClocks.scopeUuid, scopeUuid),
@@ -239,28 +232,21 @@ export async function advanceScopePublicationClock(
         fxSystemScopeClocks.lastCommitSeq,
         kernel.clock.record.lastCommitSeq,
       ),
-      eq(
-        fxSystemScopeClocks.lastOutboxSeq,
-        kernel.clock.record.lastOutboxSeq,
-      ),
     )).returning({
       lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
-      lastOutboxSeq: fxSystemScopeClocks.lastOutboxSeq,
     }));
   projectScopePublicationResult(
-    requirePointCommitClockPublicationResult(clock, commitSeq, outboxSeq),
+    requirePointCommitClockPublicationResult(clock, commitSeq),
   );
   await emitTransactionStep(options, command, "clockAdvanced");
 }
 
 export function allocateScopePublicationResult(
   clock: Pick<ScopePublicationClock, "record">,
-  mode: ScopePublicationMode,
   publicationTimeMilliseconds: number,
 ): Result.Result<
   Readonly<{
     readonly commitSeq: CommitSeq;
-    readonly outboxSeq: OutboxSeq | null;
     readonly publicationTimeMilliseconds: number;
   }>,
   ScopePublicationResourceError
@@ -271,20 +257,8 @@ export function allocateScopePublicationResult(
       maximum: MAX_PERSISTED_SIGNED_INT64_V1,
     }));
   }
-  if (
-    mode === "publish" &&
-    clock.record.lastOutboxSeq >= MAX_PERSISTED_SIGNED_INT64_V1
-  ) {
-    return Result.fail(new ScopePublicationResourceError({
-      dimension: "outboxSequence",
-      maximum: MAX_PERSISTED_SIGNED_INT64_V1,
-    }));
-  }
   return Result.succeed(Object.freeze({
     commitSeq: CommitSeqSchema.make(clock.record.lastCommitSeq + 1n),
-    outboxSeq: mode === "publish"
-      ? OutboxSeqSchema.make(clock.record.lastOutboxSeq + 1n)
-      : null,
     publicationTimeMilliseconds,
   }));
 }
@@ -358,15 +332,12 @@ function requireCommitChangeBatchWriteResult(
 function requirePointCommitClockPublicationResult(
   rows: ReadonlyArray<Readonly<{
     readonly lastCommitSeq: CommitSeq;
-    readonly lastOutboxSeq: OutboxSeq;
   }>>,
   expectedCommitSeq: CommitSeq,
-  expectedOutboxSeq: OutboxSeq,
 ): Result.Result<void, ScopePublicationCorruptionError> {
   if (
     rows.length !== 1 ||
-    rows[0]?.lastCommitSeq !== expectedCommitSeq ||
-    rows[0]?.lastOutboxSeq !== expectedOutboxSeq
+    rows[0]?.lastCommitSeq !== expectedCommitSeq
   ) {
     return Result.fail(corruption("publicationInvariantInvalid"));
   }
@@ -374,7 +345,7 @@ function requirePointCommitClockPublicationResult(
 }
 
 function requireSinglePublicationWriteResult<
-  Key extends "commitSeq" | "outboxSeq" | "sessionId",
+  Key extends "commitSeq" | "sessionId",
   Value,
 >(
   rows: ReadonlyArray<Readonly<Record<Key, Value>>>,

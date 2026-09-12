@@ -1,7 +1,6 @@
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
-  OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
@@ -140,7 +139,6 @@ describe("app-data snapshot resolution", () => {
         FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
       storageGenerationFence: StorageGenerationFenceSchema.make(9n),
       lastCommitSeq: CommitSeqSchema.make(41n),
-      lastOutboxSeq: OutboxSeqSchema.make(17n),
       epoch: ScopeEpochSchema.make(
         "epoch_30000000-0000-4000-8000-000000000099",
       ),
@@ -284,7 +282,6 @@ function scopeClock(
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
     oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
-    lastOutboxSeq: OutboxSeqSchema.make(0n),
     epoch: initialEpoch,
     updatedAt: new Date("2026-07-13T00:00:00.000Z"),
     ...overrides,

@@ -161,12 +161,6 @@ export const CommitSeqSchema =
   );
 export type CommitSeq = typeof CommitSeqSchema.Type;
 
-export const OutboxSeqSchema =
-  CanonicalNonNegativePostgresBigIntFromString.pipe(
-    Schema.brand("FlarexDB/OutboxSeq"),
-  );
-export type OutboxSeq = typeof OutboxSeqSchema.Type;
-
 export const StorageGenerationFenceSchema =
   CanonicalPositivePostgresBigIntFromString.pipe(
     Schema.brand("FlarexDB/StorageGenerationFence"),

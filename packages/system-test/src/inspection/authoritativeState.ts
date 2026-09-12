@@ -191,8 +191,8 @@ const INSPECTION_SQL = `select
      where scope_uuid = $1
   ), '[]'::jsonb) as feed_commit_seqs,
   coalesce((
-    select jsonb_agg(commit_seq::text order by outbox_seq)
-      from fx_system_outbox
+    select jsonb_agg(commit_seq::text order by commit_seq)
+      from fx_system_commit_wake
      where scope_uuid = $1
   ), '[]'::jsonb) as outbox_commit_seqs`;
 

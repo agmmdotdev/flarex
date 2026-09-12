@@ -778,7 +778,7 @@ async function mutationPublicationCounts(persistence: Persistence) {
     (select count(*)::text from fx_system_idempotency) as outcomes,
     (select count(*)::text from fx_system_commit) as commits,
     (select count(*)::text from fx_system_commit_app_row_change) as changes,
-    (select count(*)::text from fx_system_outbox) as outbox`);
+    (select count(*)::text from fx_system_commit_wake) as outbox`);
   const row = result.rows[0];
   if (row === undefined) throw new Error("SAP05 publication counts are missing.");
   return row;

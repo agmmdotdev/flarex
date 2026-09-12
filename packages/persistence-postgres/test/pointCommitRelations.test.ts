@@ -430,7 +430,6 @@ describe("C09 point-commit relation maintenance", () => {
       outcomes: "0",
       wakes: "0",
       lastCommitSeq: "0",
-      lastOutboxSeq: "0",
     });
 
     await expect(runEffect(relationPublisher(scope).publish(prepared.command)))
@@ -448,7 +447,6 @@ describe("C09 point-commit relation maintenance", () => {
       outcomes: "1",
       wakes: "1",
       lastCommitSeq: "1",
-      lastOutboxSeq: "1",
     });
   });
 
@@ -835,7 +833,6 @@ describe("C09 point-commit relation maintenance", () => {
       outcomes: string;
       wakes: string;
       last_commit_seq: string;
-      last_outbox_seq: string;
     }>(`
       select
         (select count(*)::text from fx_app_row_rev
@@ -855,10 +852,9 @@ describe("C09 point-commit relation maintenance", () => {
           where scope_uuid = $1) as relation_changes,
         (select count(*)::text from fx_system_idempotency
           where scope_uuid = $1) as outcomes,
-        (select count(*)::text from fx_system_outbox
+        (select count(*)::text from fx_system_commit_wake
           where scope_uuid = $1) as wakes,
-        last_commit_seq::text,
-        last_outbox_seq::text
+        last_commit_seq::text
       from fx_system_scope_clock
       where scope_uuid = $1
     `, [scopeUuid]);
@@ -875,7 +871,6 @@ describe("C09 point-commit relation maintenance", () => {
       outcomes: row.outcomes,
       wakes: row.wakes,
       lastCommitSeq: row.last_commit_seq,
-      lastOutboxSeq: row.last_outbox_seq,
     });
   }
 

@@ -145,7 +145,6 @@ describe("M03-A app-schema candidate validation", () => {
       storageGenerationFence: currentClock.storageGenerationFence,
       epoch: currentClock.epoch,
       lastCommitSeq: currentClock.lastCommitSeq,
-      lastOutboxSeq: currentClock.lastOutboxSeq,
     });
     await expect(fixture.persistence.drizzle.transaction(tx => runEffect(
       Effect.gen(function* () {
@@ -345,7 +344,6 @@ describe("M03-A app-schema candidate validation", () => {
       storageGenerationFence: clock.storageGenerationFence,
       epoch: clock.epoch,
       lastCommitSeq: clock.lastCommitSeq,
-      lastOutboxSeq: clock.lastOutboxSeq,
     });
     const document = await canonicalizeAppDocumentV1({
       tableId: fixture.tableId,
@@ -437,7 +435,6 @@ describe("M03-A app-schema candidate validation", () => {
       storageGenerationFence: clock.storageGenerationFence,
       epoch: clock.epoch,
       lastCommitSeq: clock.lastCommitSeq,
-      lastOutboxSeq: clock.lastOutboxSeq,
     });
     const prepared = await runEffect(prepareAppSchemaCandidateWriteGuardEffect(
       guard,
@@ -657,7 +654,6 @@ describe("M03-A app-schema candidate validation", () => {
       storageGenerationFence: clock.storageGenerationFence,
       epoch: clock.epoch,
       lastCommitSeq: clock.lastCommitSeq,
-      lastOutboxSeq: clock.lastOutboxSeq,
     });
     const invalid = await canonicalizeAppDocumentV1({
       tableId: fixture.tableId,
@@ -1129,9 +1125,8 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
   await persistence.insertScopeMetadata({ scopeId, deploymentId, physicalLocator: LOCATOR });
   await persistence.query(
     `insert into fx_system_scope_clock
-      (scope_id, storage_generation, storage_generation_fence,
-       last_commit_seq, last_outbox_seq, epoch)
-     values ($1, 'flarexdb_v1', 1, 0, 0, $2)`,
+      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
+      values ($1, 'flarexdb_v1', 1, 0, $2)`,
     [scopeId, epoch],
   );
   const first = await persistence.publishAppSchemaV1({

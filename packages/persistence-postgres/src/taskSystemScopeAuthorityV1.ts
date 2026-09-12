@@ -29,7 +29,6 @@ export function captureTaskSystemTrustedScopeAuthorityV1(
     storageGenerationFence: authority.storageGenerationFence,
     epoch: authority.epoch,
     lastCommitSeq: authority.lastCommitSeq,
-    lastOutboxSeq: authority.lastOutboxSeq,
   });
 }
 

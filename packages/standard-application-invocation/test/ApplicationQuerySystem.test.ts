@@ -904,7 +904,6 @@ function activeBasis(manifest: ApplicationManifestV1) {
       storageGenerationFence: 1n,
       epoch: "epoch_00000000-0000-4000-8000-000000000002",
       lastCommitSeq: 7n,
-      lastOutboxSeq: 0n,
     }),
     deploymentId: "deployment-query",
     revisionId: "revision-query",

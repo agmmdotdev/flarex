@@ -1,4 +1,4 @@
-import { fxSystemCommits, fxSystemIdempotency, fxSystemOutbox, fxSystemScopeClocks } from "../src/schema";
+import { fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemScopeClocks } from "../src/schema";
 import { fxSystemCommitRelationalChanges } from "../src/commitPublication/relationalFactsSchema";
 import { fxSystemFrameworkInitializations } from "../src/frameworkSchema/installation/initializationSchema";
 import type { CommerceHostTestFixture } from "./commerceHostFixture";
@@ -27,7 +27,7 @@ export async function commerceInventory(fixture: CommerceHostTestFixture) {
   if (rows === undefined) throw new Error("Missing fixture inventory");
   return { rows, tables, commits: await db.select().from(fxSystemCommits).orderBy(fxSystemCommits.commitSeq),
     facts: await db.select().from(fxSystemCommitRelationalChanges).orderBy(fxSystemCommitRelationalChanges.commitSeq, fxSystemCommitRelationalChanges.changeOrdinal),
-    outcomes: await db.select().from(fxSystemIdempotency), wakes: await db.select().from(fxSystemOutbox), clocks: await db.select().from(fxSystemScopeClocks),
+    outcomes: await db.select().from(fxSystemIdempotency), wakes: await db.select().from(fxSystemCommitWakes), clocks: await db.select().from(fxSystemScopeClocks),
     initialization: await db.select().from(fxSystemFrameworkInitializations) };
 }
 

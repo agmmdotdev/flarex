@@ -1058,11 +1058,12 @@ Exit gates:
 
 Outcome:
 
-- Migration `0031` adds one package-private, scope-owned wake row keyed by
-  `(scope_uuid, outbox_seq)` and uniquely correlated to
-  `(scope_uuid, deployment_sync_commit_wake_v1, commit_seq)`. The scope clock's
-  `last_outbox_seq` remains the sole allocation head; S09-B adds no allocator
-  or writer.
+- The dedicated `fx_system_commit_wake` row is keyed by `(scope_uuid, commit_seq)`.
+  Migration `0092` replaces the original target outbox in place and deletes its
+  independent sequence, constant event kind, duplicate attempt counter, and
+  scope wake head. The commit publisher remains the sole writer/allocator;
+  one claim fence also counts attempts. The primary key and partial due-time
+  index are the only wake indexes.
 - The wake retains commit and write-epoch provenance without a lifetime-
   coupling FK to compactable S08 headers. Claim-time validation uses one
   snapshot-consistent PostgreSQL statement: a missing header is valid only

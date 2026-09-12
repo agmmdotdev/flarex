@@ -162,7 +162,7 @@ export class PointCommitCorruptionV1Error extends Data.TaggedError(
 export class PointCommitResourceExhaustionV1Error extends Data.TaggedError(
   "PointCommitResourceExhaustionV1Error",
 )<{
-  readonly dimension: "commitSequence" | "outboxSequence";
+  readonly dimension: "commitSequence";
   readonly maximum: bigint;
 }> {}
 

@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
-  OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
@@ -359,7 +358,6 @@ describe("shared scope authority bootstrap", () => {
         storageGeneration: "legacy_v1",
         storageGenerationFence: 1n,
         lastCommitSeq: 0n,
-        lastOutboxSeq: 0n,
         epoch: `epoch_${uuids.epochA}`,
       },
     });
@@ -396,7 +394,6 @@ describe("shared scope authority bootstrap", () => {
           FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
         storageGenerationFence: StorageGenerationFenceSchema.make(9n),
         lastCommitSeq: CommitSeqSchema.make(21n),
-        lastOutboxSeq: OutboxSeqSchema.make(34n),
         epoch: ScopeEpochSchema.make("epoch_advanced_bootstrap"),
         updatedAt: advancedAt,
       })
@@ -420,7 +417,6 @@ describe("shared scope authority bootstrap", () => {
         storageGeneration: "flarexdb_v1",
         storageGenerationFence: 9n,
         lastCommitSeq: 21n,
-        lastOutboxSeq: 34n,
         epoch: "epoch_advanced_bootstrap",
         updatedAt: advancedAt,
       },
@@ -760,14 +756,9 @@ async function insertOrphanClock(
 ): Promise<void> {
   await persistence.query(
     `
-      insert into fx_system_scope_clock (
-        scope_id,
-        storage_generation,
-        storage_generation_fence,
-        last_commit_seq,
-        last_outbox_seq,
-        epoch
-      ) values ($1, 'legacy_v1', 1, 0, 0, $2)
+      insert into fx_system_scope_clock
+      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
+      values ($1, 'legacy_v1', 1, 0, $2)
     `,
     [scopeId, epoch],
   );

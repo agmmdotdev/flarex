@@ -71,7 +71,7 @@ export {
   fxSystemIdempotency,
   fxSystemIndexBuildStates,
   fxSystemPhysicalDefinitionLifecycles,
-  fxSystemOutbox,
+  fxSystemCommitWakes,
   fxSystemPointMutationRedeliveryScheduler,
   fxSystemRetainedHistoryScheduler,
   fxSystemScopeClocks,

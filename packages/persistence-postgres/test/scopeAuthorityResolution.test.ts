@@ -3,7 +3,6 @@ import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
   LegacyV1StorageGenerationSchema,
-  OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
@@ -135,7 +134,6 @@ describe("trusted scope authority resolution", () => {
       storageGenerationFence: provisioned.clock.storageGenerationFence,
       epoch: provisioned.clock.epoch,
       lastCommitSeq: provisioned.clock.lastCommitSeq,
-      lastOutboxSeq: provisioned.clock.lastOutboxSeq,
     });
     expect(Object.isFrozen(authority)).toBe(true);
     expect(Object.isFrozen(authority.physicalLocator)).toBe(true);
@@ -171,7 +169,6 @@ describe("trusted scope authority resolution", () => {
         FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
       storageGenerationFence: StorageGenerationFenceSchema.make(9n),
       lastCommitSeq: CommitSeqSchema.make(41n),
-      lastOutboxSeq: OutboxSeqSchema.make(17n),
       epoch: ScopeEpochSchema.make(
         "epoch_20000000-0000-4000-8000-000000000099",
       ),
@@ -190,7 +187,6 @@ describe("trusted scope authority resolution", () => {
       storageGeneration: "flarexdb_v1",
       storageGenerationFence: 9n,
       lastCommitSeq: 41n,
-      lastOutboxSeq: 17n,
     });
     expect(fixture.resolveClockTarget)
       .toHaveBeenCalledExactlyOnceWith(splitLocator);
@@ -705,7 +701,6 @@ function scopeClock(
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
     oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
-    lastOutboxSeq: OutboxSeqSchema.make(0n),
     epoch: initialEpoch,
     updatedAt: new Date("2026-07-11T00:00:00.000Z"),
     ...overrides,

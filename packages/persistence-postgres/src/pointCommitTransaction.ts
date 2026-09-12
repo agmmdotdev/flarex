@@ -24,7 +24,7 @@ import { CatalogEdgeDefinitionIdSchema, type CatalogIndexDefinitionId, type Cata
 import { CanonicalSuccessfulResultBytesV1Schema, CanonicalSessionJournalBytesV1Schema, decodeCanonicalSessionJournalV1Effect, CommitSyscallSequenceV1Schema, LogicalApplicationRelationIncomingReadDependencyV1Schema, LogicalIndexRangeReadDependencyV1Schema, MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1, MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1, MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1, MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1, MAX_COMMIT_READ_DOCUMENTS_V1, MAX_COMMIT_READ_SEMANTIC_BYTES_V1, MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1, MAX_COMMIT_RELATION_READ_SYSCALLS_V1, MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1, MAX_COMMIT_POINT_READ_DEPENDENCIES_V1, MAX_COMMIT_WRITE_OPERATIONS_V1, MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1, MAX_POINT_COMMIT_MATERIAL_ROWS_V1, SESSION_JOURNAL_FORMAT_V1, canonicalizeSuccessfulResultV1Effect, measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result, normalizeLogicalIndexRangeReadDependenciesV1Result, type CommitFinalSyscallSequenceV1, type CommitSyscallSequenceV1, type CommitMaterialWriteEventEvidenceBytesV1, type LogicalReadDependencyV1, type LogicalApplicationRelationIncomingReadDependencyV1, type LogicalIndexRangeReadDependencyV1, type SuccessfulResultSha256HexV1 } from "flarex-protocol/commit-protocol";
 import { orderedIndexBoundHexV1ToBytes, orderedIndexKeyBytesHexV1FromBytes, orderedIndexKeyBytesHexV1ToBytes, orderedIndexRowIdHexV1ToBytes, orderedIndexRowIdHexV1FromBytesResult, OrderedIndexKeyBytesHexV1Schema, OrderedIndexRowIdHexV1Schema, type OrderedIndexKeyBytesHexV1, type OrderedIndexRowIdHexV1 } from "flarex-protocol/ordered-index";
 import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, ScopeEpochUuidV1Schema, ScopeUuidV1Schema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq, type FlarexDbV1StorageGeneration, type OutboxSeq, type ReplacementScopeIdV1, type ScopeEpochUuidV1, type ScopeUuidV1, type SnapshotToken, type StorageGenerationFence } from "flarex-protocol/storage-authority";
+import { CommitSeqSchema, ScopeEpochUuidV1Schema, ScopeUuidV1Schema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq, type FlarexDbV1StorageGeneration, type ReplacementScopeIdV1, type ScopeEpochUuidV1, type ScopeUuidV1, type SnapshotToken, type StorageGenerationFence } from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
 import { TRANSACTION_SESSION_PROTOCOL_VERSION_V1, MAX_TRANSACTION_ATTEMPT_FENCE, TransactionAttemptFenceSchema, TransactionAuthorizationRevocationEpochSchema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema, type StoredTransactionSessionScalarsV1, type TransactionArtifactIdV1, type TransactionArtifactRuntimeV1, type TransactionAttemptFence, type TransactionAuthorizationGrantIdV1, type TransactionAuthorizationRevocationEpoch, type TransactionExecutionModuleV1, type TransactionFunctionPathV1, type TransactionPackageIdV1, type TransactionPolicyVersionV1, type TransactionRequestKeyV1, type TransactionSessionIdV1, type TransactionSourcePackageSha256HexV1 } from "flarex-protocol/transaction-session";
 import { FLAREX_VALUE_CODEC_VERSION_V1, FlarexValueCodecV1Error, FlarexValueEvidenceV1Error, canonicalizeFlarexValueV1, decodeCanonicalFlarexValueEvidenceV1, isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1, type CanonicalFlarexValueV1, type FlarexValueCodecVersion } from "flarex-protocol/value";
@@ -3009,7 +3009,6 @@ type PointCommitKernelResultV1 =
       readonly kind: "ready";
       readonly clock: LockedPointCommitClockV1;
       readonly commitSeq: CommitSeq | null;
-      readonly outboxSeq: OutboxSeq | null;
       readonly publicationTimeMilliseconds: number | null;
       readonly relationAdjacencyChanges:
         ReadonlyArray<ApplicationRelationAdjacencyChange>;
@@ -3020,7 +3019,6 @@ type PointCommitReadyForPublicationV1 = Extract<
   { readonly kind: "ready" }
 > & {
   readonly commitSeq: CommitSeq;
-  readonly outboxSeq: OutboxSeq;
   readonly publicationTimeMilliseconds: number;
 };
 
@@ -4766,7 +4764,6 @@ async function runPointCommitTransactionKernel(
       kind: "ready",
       clock,
       commitSeq: null,
-      outboxSeq: null,
       publicationTimeMilliseconds: null,
       relationAdjacencyChanges: Object.freeze([]),
     });
@@ -4786,7 +4783,6 @@ async function runPointCommitTransactionKernel(
   const allocation = projectPointCommitTransactionResult(
     allocatePointCommitKernelResult(
       clock,
-      mode,
       preWriteDatabaseNowMilliseconds,
     ),
   );
@@ -4875,10 +4871,6 @@ function requirePointCommitReadyForPublicationResult(
   if (commitSeq === null) {
     return Result.fail(corruption("publicationInvariantInvalid"));
   }
-  const outboxSeq = kernel.outboxSeq;
-  if (outboxSeq === null) {
-    return Result.fail(corruption("publicationInvariantInvalid"));
-  }
   const publicationTimeMilliseconds = kernel.publicationTimeMilliseconds;
   if (publicationTimeMilliseconds === null) {
     return Result.fail(corruption("publicationInvariantInvalid"));
@@ -4886,7 +4878,6 @@ function requirePointCommitReadyForPublicationResult(
   return Result.succeed(Object.freeze({
     ...kernel,
     commitSeq,
-    outboxSeq,
     publicationTimeMilliseconds,
   }));
 }
@@ -6157,7 +6148,6 @@ async function publishPointCommitInTransaction(
   command: PreparedPointCommitPublicationCommandV1,
   kernel: Extract<PointCommitKernelResultV1, { readonly kind: "ready" }> & {
     readonly commitSeq: CommitSeq;
-    readonly outboxSeq: OutboxSeq;
     readonly publicationTimeMilliseconds: number;
   },
   options: PointCommitTransactionProofOptionsV1,
@@ -6238,7 +6228,7 @@ async function publishPointCommitInTransaction(
 }
 
 function requireSinglePublicationWriteResult<
-  Key extends "commitSeq" | "outboxSeq" | "sessionId",
+  Key extends "commitSeq" | "sessionId",
   Value,
 >(
   rows: ReadonlyArray<Readonly<Record<Key, Value>>>,

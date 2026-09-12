@@ -536,7 +536,7 @@ async function publicationCounts(
         where scope_uuid = c.scope_uuid) as commits,
        (select count(*)::int from fx_system_idempotency
         where scope_uuid = c.scope_uuid) as outcomes,
-       (select count(*)::int from fx_system_outbox
+       (select count(*)::int from fx_system_commit_wake
         where scope_uuid = c.scope_uuid) as wakes
      from fx_system_scope_clock c where c.scope_id = $1`,
     [scopeId],

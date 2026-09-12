@@ -188,7 +188,6 @@ describe("O08-A exact-attempt replacement", () => {
       outcomes: "0",
       wakes: "0",
       last_commit_seq: "1",
-      last_outbox_seq: "0",
     });
 
     await expect(runEffect(port.replace(current.command))).resolves.toMatchObject({
@@ -800,9 +799,9 @@ describe("O08-A exact-attempt replacement", () => {
           where c.scope_uuid = session.scope_uuid) as commit_headers,
         (select count(*)::text from fx_system_idempotency i
           where i.scope_uuid = session.scope_uuid) as outcomes,
-        (select count(*)::text from fx_system_outbox o
+        (select count(*)::text from fx_system_commit_wake o
           where o.scope_uuid = session.scope_uuid) as wakes,
-        clock.last_commit_seq::text, clock.last_outbox_seq::text
+        clock.last_commit_seq::text
       from fx_system_tx_session session
       join fx_system_scope_clock clock on clock.scope_uuid = session.scope_uuid
       left join fx_system_snapshot_lease lease

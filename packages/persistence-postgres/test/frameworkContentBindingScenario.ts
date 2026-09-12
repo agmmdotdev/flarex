@@ -10,7 +10,7 @@ import type { DataBindingSetFrame, PayloadContentBinding } from "../src/framewor
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import { fxSystemDataBindingCandidates, fxSystemDataBindingHeads, fxSystemDataBindingActivations } from "../src/frameworkSchema/binding/schema";
 import { fxSystemApplicationWriteOwnership } from "../src/applicationWriteOwnership/Schema";
-import { fxSystemScopeClocks, fxSystemCommits, fxSystemIdempotency, fxSystemOutbox,
+import { fxSystemScopeClocks, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
   fxAppRowCurrent, fxSystemTransactionSessions } from "../src/schema";
 import { relationReadinessFixture, prepareReadinessEvidence, prepareAdditionalRelationRevision } from "./applicationRelationReadinessFixture";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -49,7 +49,7 @@ export async function frameworkContentBindingScenario(persistence: PGliteFlarexP
     rows: await persistence.drizzle.select().from(fxAppRowCurrent),
     commits: await persistence.drizzle.select().from(fxSystemCommits),
     outcomes: await persistence.drizzle.select().from(fxSystemIdempotency),
-    wakes: await persistence.drizzle.select().from(fxSystemOutbox),
+    wakes: await persistence.drizzle.select().from(fxSystemCommitWakes),
     sessions: await persistence.drizzle.select().from(fxSystemTransactionSessions),
   });
   const before = await inventory();

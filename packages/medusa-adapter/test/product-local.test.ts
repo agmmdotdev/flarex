@@ -19,7 +19,7 @@ import { defineCommerceCommand, type CommerceCommand, type CommerceCommandContex
 import { issueRelationalSession, runRelationalSession, type RelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import { fxSystemCommitRelationalChanges } from "../../persistence-postgres/src/commitPublication/relationalFactsSchema";
-import { fxSystemCommits, fxSystemOutbox, fxSystemScopeClocks } from "../../persistence-postgres/src/schema";
+import { fxSystemCommits, fxSystemCommitWakes, fxSystemScopeClocks } from "../../persistence-postgres/src/schema";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -104,7 +104,7 @@ describe("local Product service through shared Flarex core", () => {
     expect(facts).toHaveLength(16);
     expect(facts.filter(fact => fact.codecVersion === 2)).toHaveLength(4);
     expect((await fixture.persistence.drizzle.select().from(fxSystemCommits))[0]?.relationalChangeCount).toBe(16);
-    const outbox = await fixture.persistence.drizzle.select().from(fxSystemOutbox);
+    const outbox = await fixture.persistence.drizzle.select().from(fxSystemCommitWakes);
     expect(outbox).toHaveLength(1);
     expect(JSON.stringify(outbox, (_, value) => typeof value === "bigint" ? String(value) : value)).not.toContain(".created");
     expect(await run(fixture.host.run(key, runtime.commands.create, [nestedProduct]))).toEqual(result);
@@ -276,7 +276,7 @@ describe("local Product service through shared Flarex core", () => {
     const local = await localHost();
     const before = await commerceInventory(fixture);
     const eventCount = received.length;
-    for (const table of ["fx_system_commit", "fx_system_commit_relational_change", "fx_system_idempotency", "fx_system_outbox", "fx_system_scope_clock"]) {
+    for (const table of ["fx_system_commit", "fx_system_commit_relational_change", "fx_system_idempotency", "fx_system_commit_wake", "fx_system_scope_clock"]) {
       await fixture.persistence.exec("create function fx_test_product_failure() returns trigger language plpgsql as $$ begin raise exception 'Product finalization failure'; end $$");
       try {
         await fixture.persistence.exec(`create trigger fx_test_product_failure before ${table === "fx_system_scope_clock" ? "update" : "insert"} on "${table}" for each row execute function fx_test_product_failure()`);

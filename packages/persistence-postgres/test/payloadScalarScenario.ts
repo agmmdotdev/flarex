@@ -16,7 +16,7 @@ import { payloadScalarFields, payloadScalarContentIdentity } from "../../payload
 import type { RelationalSession } from "../src/relationalTransaction/session";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
-import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemOutbox, fxSystemCommitAppRowChanges, fxSystemScopeClocks, fxAppUniqueKeys, fxAppIndexEntryCurrent } from "../src/schema";
+import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemCommitAppRowChanges, fxSystemScopeClocks, fxAppUniqueKeys, fxAppIndexEntryCurrent } from "../src/schema";
 import { cmsHostFixture } from "./cmsHostFixture";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
@@ -36,7 +36,7 @@ export function payloadScalarScenario(persistence: PGliteFlarexPersistence | Pos
     const host = await runEffect(conformance.runtime.bind(hostInput));
     const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent), revisions: await persistence.drizzle.select().from(fxAppRowRevisions),
       commits: await persistence.drizzle.select().from(fxSystemCommits), outcomes: await persistence.drizzle.select().from(fxSystemIdempotency),
-      wakes: await persistence.drizzle.select().from(fxSystemOutbox), facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges),
+      wakes: await persistence.drizzle.select().from(fxSystemCommitWakes), facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges),
       clocks: await persistence.drizzle.select().from(fxSystemScopeClocks), unique: await persistence.drizzle.select().from(fxAppUniqueKeys), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent) });
     const initial = await inventory();
     expect(await runEffect(host.read(conformance.runtime.commands.find, { collection: "posts",}))).toEqual({ docs: [], totalDocs: 0, limit: 10, totalPages: 1,

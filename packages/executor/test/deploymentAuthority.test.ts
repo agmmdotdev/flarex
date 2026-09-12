@@ -121,7 +121,6 @@ describe("executor deployment authority composition", () => {
       storageGeneration: "legacy_v1",
       storageGenerationFence: 1n,
       lastCommitSeq: 0n,
-      lastOutboxSeq: 0n,
       epoch: `epoch_${uuids.epochB}`,
     });
   });

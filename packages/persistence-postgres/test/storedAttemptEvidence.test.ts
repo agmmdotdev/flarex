@@ -925,7 +925,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "1",
-      last_outbox_seq: "1",
     });
     const terminal = await o07bTerminalState(
       prepared.scopeUuid,
@@ -962,7 +961,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "1",
-      last_outbox_seq: "1",
     });
   });
 
@@ -1314,7 +1312,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "3",
-      last_outbox_seq: "1",
     });
     expect(
       await o07bTerminalState(
@@ -1643,7 +1640,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "2",
-      last_outbox_seq: "1",
     });
   });
 
@@ -1792,7 +1788,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "0",
       wakes: "0",
       last_commit_seq: "1",
-      last_outbox_seq: "0",
     });
   });
 
@@ -1950,7 +1945,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "1",
-      last_outbox_seq: "1",
     });
   });
 
@@ -2349,7 +2343,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
     }
   });
@@ -2483,7 +2476,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         outcomes: "0",
         wakes: "0",
         last_commit_seq: "0",
-        last_outbox_seq: "0",
       });
       await expect(runEffect(
         pointMutationAttemptDiscovery(persistence).discoverEffect({
@@ -3025,7 +3017,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "1",
-      last_outbox_seq: "1",
     });
   });
 
@@ -3065,7 +3056,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "1",
-      last_outbox_seq: "1",
     });
     expect(await o07bTerminalState(
       prepared.scopeUuid,
@@ -3100,7 +3090,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "1",
-      last_outbox_seq: "1",
     });
 
     let missingTransactions = 0;
@@ -3137,7 +3126,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "0",
       wakes: "0",
       last_commit_seq: "0",
-      last_outbox_seq: "0",
     });
     expect(await o07bTerminalState(
       missing.scopeUuid,
@@ -3205,7 +3193,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "1",
-      last_outbox_seq: "1",
     });
   });
 
@@ -3394,21 +3381,19 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "1",
-      last_outbox_seq: "1",
     });
     const header = await persistence.query<{
       change_count: number;
       delivery_state: string;
-      attempt_count: string;
       claim_fence: string;
       same_initial_time: boolean;
     }>(
       `
         select commit.change_count, wake.delivery_state,
-          wake.attempt_count::text, wake.claim_fence::text,
+          wake.claim_fence::text,
           wake.created_at = wake.next_attempt_at as same_initial_time
         from fx_system_commit as commit
-        join fx_system_outbox as wake
+        join fx_system_commit_wake as wake
           on wake.scope_uuid = commit.scope_uuid
           and wake.commit_seq = commit.commit_seq
         where commit.scope_uuid = $1
@@ -3418,7 +3403,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(header.rows[0]).toEqual({
       change_count: 0,
       delivery_state: "pending",
-      attempt_count: "0",
       claim_fence: "0",
       same_initial_time: true,
     });
@@ -3659,7 +3643,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "0",
       wakes: "0",
       last_commit_seq: "0",
-      last_outbox_seq: "0",
     });
   });
 
@@ -3755,7 +3738,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         outcomes: "0",
         wakes: "0",
         last_commit_seq: "0",
-        last_outbox_seq: "0",
       });
     } finally {
       await persistence.query(
@@ -3966,7 +3948,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
       expect(await o07bTerminalState(
         prepared.scopeUuid,
@@ -4019,7 +4000,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         outcomes: "0",
         wakes: "0",
         last_commit_seq: "0",
-        last_outbox_seq: "0",
       });
       expect(await o07bTerminalState(
         prepared.scopeUuid,
@@ -4097,7 +4077,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(parameters).toEqual([768]);
     expect(await o06DurableState(prepared.scopeUuid)).toEqual({
       revisions: "0", current_rows: "0", commit_headers: "0", commit_changes: "0",
-      outcomes: "0", wakes: "0", last_commit_seq: "0", last_outbox_seq: "0",
+      outcomes: "0", wakes: "0", last_commit_seq: "0",
     });
     parameters.length = 0;
     const recovered = createO07BAuthentication(prepared.current, {
@@ -4162,7 +4142,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "0",
       wakes: "0",
       last_commit_seq: "0",
-      last_outbox_seq: "0",
     });
     expect(await o07bTerminalState(
       prepared.scopeUuid,
@@ -4190,7 +4169,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "1",
-      last_outbox_seq: "1",
     });
   });
 
@@ -4273,7 +4251,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "0",
       wakes: "0",
       last_commit_seq: "1",
-      last_outbox_seq: "0",
     });
 
     const recovered = createO07BAuthentication(
@@ -4298,7 +4275,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "2",
-      last_outbox_seq: "1",
     });
     const expectedRevisions = [{
       tableId: "1",
@@ -5281,7 +5257,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: "1",
       wakes: "1",
       last_commit_seq: "2",
-      last_outbox_seq: "1",
     });
   });
 
@@ -8472,7 +8447,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcomes: string;
       wakes: string;
       last_commit_seq: string;
-      last_outbox_seq: string;
     }>(
       `
         select
@@ -8486,10 +8460,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             where scope_uuid = $1) as commit_changes,
           (select count(*)::text from fx_system_idempotency
             where scope_uuid = $1) as outcomes,
-          (select count(*)::text from fx_system_outbox
+          (select count(*)::text from fx_system_commit_wake
             where scope_uuid = $1) as wakes,
-          last_commit_seq::text,
-          last_outbox_seq::text
+          last_commit_seq::text
         from fx_system_scope_clock
         where scope_uuid = $1
       `,

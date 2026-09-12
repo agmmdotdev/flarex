@@ -259,7 +259,6 @@ function selectFencedIndexBuildStateRows(
         lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
         oldestAvailableCommitSeq:
           fxSystemScopeClocks.oldestAvailableCommitSeq,
-        lastOutboxSeq: fxSystemScopeClocks.lastOutboxSeq,
         epoch: fxSystemScopeClocks.epoch,
         epochUuid: fxSystemScopeClocks.epochUuid,
         updatedAt: fxSystemScopeClocks.updatedAt,

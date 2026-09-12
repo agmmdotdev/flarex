@@ -699,7 +699,6 @@ describe("createLocalExecutorHttpRuntime", () => {
         storageGeneration: "legacy_v1",
         storageGenerationFence: 1n,
         lastCommitSeq: 0n,
-        lastOutboxSeq: 0n,
       });
       await runtime.executor.activateDeploymentPackage({
         deploymentId: "deployment-pglite-trigger",

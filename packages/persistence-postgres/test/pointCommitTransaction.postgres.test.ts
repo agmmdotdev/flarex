@@ -590,7 +590,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
       expect(await terminalPublicationState(
         persistence,
@@ -631,7 +630,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
       expect(await terminalPublicationState(
         persistence,
@@ -719,7 +717,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "0",
         wakes: "0",
         last_commit_seq: "1",
-        last_outbox_seq: "0",
       });
 
       await expect(runEffect(
@@ -741,7 +738,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "2",
-        last_outbox_seq: "1",
       });
       expect(await intrinsicIndexState(
         persistence,
@@ -1217,7 +1213,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "0",
         wakes: "0",
         last_commit_seq: "0",
-        last_outbox_seq: "0",
       });
     });
   }, 120_000);
@@ -1479,7 +1474,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
 
       const publisher = createPublisher(persistence, proofOptions);
@@ -1556,7 +1550,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "3",
         wakes: "3",
         last_commit_seq: "3",
-        last_outbox_seq: "3",
       });
     });
   }, 120_000);
@@ -1605,7 +1598,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "0",
         wakes: "0",
         last_commit_seq: "0",
-        last_outbox_seq: "0",
       });
     });
   }, 120_000);
@@ -1743,7 +1735,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           outcomes: "1",
           wakes: "1",
           last_commit_seq: "1",
-          last_outbox_seq: "1",
         });
         const expectedSidecars = attempt.command.rowIntents.map((intent) => ({
           tableId: intent.tableId.toString(),
@@ -1944,7 +1935,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "8",
         wakes: "8",
         last_commit_seq: "8",
-        last_outbox_seq: "8",
       });
       const expectedContendedSidecars = contendedResults.flatMap(
         (result, attemptIndex) => {
@@ -1983,7 +1973,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
       if (independentResult.result.kind !== "published") {
         throw new Error("Expected a published independent O09-A outcome.");
@@ -2065,7 +2054,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
 
       const lateProof = await runFailure(
@@ -2122,23 +2110,21 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "2",
         wakes: "2",
         last_commit_seq: "2",
-        last_outbox_seq: "2",
       });
       const sequenceRows = await persistence.query<{
         commit_seq: string;
-        outbox_seq: string;
       }>(
         `
-          select commit_seq::text, outbox_seq::text
-          from fx_system_outbox
+          select commit_seq::text
+          from fx_system_commit_wake
           where scope_uuid = $1
-          order by outbox_seq
+          order by commit_seq
         `,
         [first.command.sealIdentity.scopeUuid],
       );
       expect(sequenceRows.rows).toEqual([
-        { commit_seq: "1", outbox_seq: "1" },
-        { commit_seq: "2", outbox_seq: "2" },
+        { commit_seq: "1" },
+        { commit_seq: "2" },
       ]);
     });
   }, 120_000);
@@ -2179,7 +2165,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "0",
         wakes: "0",
         last_commit_seq: "0",
-        last_outbox_seq: "0",
       });
     });
   }, 120_000);
@@ -2389,7 +2374,6 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
     });
   }, 120_000);
@@ -2477,7 +2461,6 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
           outcomes: "1",
           wakes: "1",
           last_commit_seq: "1",
-          last_outbox_seq: "1",
         });
       }
     });
@@ -2617,7 +2600,6 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
 
       const missing = await createAttempt(
@@ -2650,7 +2632,6 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
       await expect(runEffect(
         createPublisher(persistence).publish(missing.publicationCommand),
@@ -2666,7 +2647,6 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
         outcomes: "2",
         wakes: "2",
         last_commit_seq: "2",
-        last_outbox_seq: "2",
       });
     });
   }, 120_000);
@@ -2726,7 +2706,6 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
-        last_outbox_seq: "1",
       });
     });
   }, 120_000);
@@ -4139,7 +4118,6 @@ function emptyDurableState() {
     outcomes: "0",
     wakes: "0",
     last_commit_seq: "0",
-    last_outbox_seq: "0",
   } as const;
 }
 
@@ -4338,7 +4316,6 @@ async function durableState(
     outcomes: string;
     wakes: string;
     last_commit_seq: string;
-    last_outbox_seq: string;
   }>(
     `
       select
@@ -4352,10 +4329,9 @@ async function durableState(
           where scope_uuid = $1) as commit_changes,
         (select count(*)::text from fx_system_idempotency
           where scope_uuid = $1) as outcomes,
-        (select count(*)::text from fx_system_outbox
+        (select count(*)::text from fx_system_commit_wake
           where scope_uuid = $1) as wakes,
-        last_commit_seq::text,
-        last_outbox_seq::text
+        last_commit_seq::text
       from fx_system_scope_clock
       where scope_uuid = $1
     `,
@@ -4598,7 +4574,7 @@ async function terminalPublicationState(
       from fx_system_tx_session as session
       join fx_system_commit as commit
         on commit.scope_uuid = session.scope_uuid
-      join fx_system_outbox as wake
+      join fx_system_commit_wake as wake
         on wake.scope_uuid = commit.scope_uuid
         and wake.commit_seq = commit.commit_seq
       where session.scope_uuid = $1 and session.session_id = $2

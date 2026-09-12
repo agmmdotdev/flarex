@@ -4,9 +4,11 @@
 
 Status: replacement implementation authorized. Slice 1 is implemented: shared
 Application facts use bounded inserts and native latest receipts use an upsert.
+Slice 2 is implemented: a dedicated wake uses commit identity and one claim fence.
 The remaining storage replacements below are pending. Row-body DDL still needs
 paired measurements, and the coalesced-journal contract remains a separate
-selection. Payload and Medusa operation APIs remain unchanged by slice 1.
+selection. Payload and Medusa operation APIs remain unchanged by both slices;
+exported core clock/counter types lose their obsolete wake-sequence fields.
 
 The owner declares early development and no backward-compatibility requirement
 for this redesign. Existing internal types, fixtures, migration tests, and
@@ -273,7 +275,7 @@ existing Payload/Medusa relation authorities.
 
 ### Dedicated Commit Wake
 
-Proposed table: `fx_system_commit_wake`.
+Implemented table: `fx_system_commit_wake`.
 
 ```text
 PRIMARY KEY (scope_uuid, commit_seq)
@@ -290,11 +292,10 @@ claimed rows, ordered by scope, pending retry/claim expiry time, and commit
 sequence. Do not add a commit-header FK: delivery state can outlive compacted
 history. Epoch remains write provenance; old-epoch wakes remain claimable.
 
-This replaces 18 columns with 15 and four current indexes with two proposed
-indexes. Delete `outbox_seq`, `event_kind`, `attempt_count`, and the clock's
-`last_outbox_seq`. The existing CHECK requires attempt count and claim fence to
-be equal. Both sequence heads currently start at zero and advance together in
-the sole target publisher. The chosen final contract is one wake per commit;
+This replaces 18 columns with 15 and four indexes with two. The discarded
+`outbox_seq`, `event_kind`, `attempt_count`, and clock `last_outbox_seq` are gone.
+The previous CHECK required attempt count and claim fence to be equal. The
+previous sequence heads advanced together in the sole target publisher. The chosen final contract is one wake per commit;
 future event/subscriber deliveries do not require preserving a generic outbox.
 
 Change claimed/settlement identities to commit sequence; retain exact owner,
@@ -305,9 +306,10 @@ Keep bounded failure evidence and independent wake retention. Define the
 terminal cleanup policy before enabling deletion; this replacement does not
 implement a wake collector.
 
-Delete discarded clock/publication/protocol projections after switching all
-consumers. `OutboxSeq`, `ScopePublicationKernel.outboxSeq`, and related resource
-errors disappear only when their target consumers are gone. Legacy freshness
+The discarded clock/publication/protocol projections and their consumers are
+removed, including `OutboxSeq`, `ScopePublicationKernel.outboxSeq`, and the
+outbox-exhaustion error branch. The private wake settlement DTO uses commit
+sequence. Framework command, context, and manager contracts are unchanged. Legacy freshness
 `outboxSequence` is a separate serving family and has its own retirement gate.
 
 ## Execution State And Retention Inventory

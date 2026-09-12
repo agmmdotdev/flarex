@@ -354,11 +354,8 @@ describePostgres(
             await persistence.migrate();
             await persistence.query(
               `insert into fx_system_scope_clock
-                (scope_id, storage_generation, storage_generation_fence,
-                 last_commit_seq, last_outbox_seq, epoch)
-               values ('scope_93000000-0000-4000-8000-000000000001',
-                 'flarexdb_v1', 1, 0, 0,
-                 'epoch_94000000-0000-4000-8000-000000000001')`,
+      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
+      values ('scope_93000000-0000-4000-8000-000000000001', 'flarexdb_v1', 1, 0, 'epoch_94000000-0000-4000-8000-000000000001')`,
             );
             await writePhysicalDefinitionLifecycleJournalThrough(
               fixture.currentJournal,

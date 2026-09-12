@@ -123,7 +123,6 @@ function authenticStoreWithoutIo(): ApplicationTaskReadStore {
       storageGenerationFence: 1n,
       epoch: "epoch_00000000-0000-4000-8000-0000000000b4",
       lastCommitSeq: 0n,
-      lastOutboxSeq: 0n,
     }),
     target: Object.freeze({}),
   }) as unknown as Parameters<

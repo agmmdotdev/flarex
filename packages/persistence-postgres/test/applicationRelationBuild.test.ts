@@ -12,7 +12,6 @@ import {
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
-  OutboxSeqSchema,
   projectScopeIdUuidV1Result,
   ScopeEpochSchema,
   ScopeIdSchema,
@@ -952,7 +951,6 @@ async function fixtureFor(
       FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
-    lastOutboxSeq: OutboxSeqSchema.make(0n),
     epoch,
   });
   const publication = await runEffect(publishApplicationRelationBindingEffect(
@@ -1117,7 +1115,6 @@ function authorityFromFixture(
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
     lastCommitSeq: clock.lastCommitSeq,
-    lastOutboxSeq: clock.lastOutboxSeq,
   });
 }
 

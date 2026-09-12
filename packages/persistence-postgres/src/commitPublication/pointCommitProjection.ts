@@ -1,5 +1,4 @@
 import { pointCommitSqlCallFailure } from "../pointCommitErrors";
-import type { ScopePublicationMode } from "./scopePublicationModel";
 
 import {
   PointCommitResourceExhaustionV1Error,
@@ -25,10 +24,9 @@ import { type ScopeClockRecord } from "../scopeClock";
 // Native and CMS retain their established kernel error channel. No mechanics are duplicated here.
 export const allocatePointCommitKernelResult = (
   clock: { readonly record: ScopeClockRecord },
-  mode: ScopePublicationMode,
   now: number,
 ) =>
-  allocateScopePublicationResult(clock, mode, now).pipe(
+  allocateScopePublicationResult(clock, now).pipe(
     Result.mapError(
       (error) =>
         new PointCommitResourceExhaustionV1Error({

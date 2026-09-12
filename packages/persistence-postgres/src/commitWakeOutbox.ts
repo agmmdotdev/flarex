@@ -11,11 +11,9 @@ import { Data, Effect, Option, Result, Schema } from "effect";
 import {
   CommitSeqSchema,
   MAX_PERSISTED_SIGNED_INT64_V1,
-  OutboxSeqSchema,
   ScopeEpochUuidV1Schema,
   ScopeUuidV1Schema,
   type CommitSeq,
-  type OutboxSeq,
   type ScopeEpochUuidV1,
   type ScopeUuidV1,
 } from "flarex-protocol/storage-authority";
@@ -23,15 +21,10 @@ import {
 import type { FlarexMetadataDatabase } from "./deployments";
 import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import {
-  fxSystemOutbox,
+  fxSystemCommitWakes,
   type CommitWakeOutboxDeliveryStateV1,
-  type CommitWakeOutboxEventKindV1,
   type CommitWakeOutboxFailureCodeV1,
 } from "./schema";
-
-export const COMMIT_WAKE_OUTBOX_EVENT_KIND_V1 =
-  "deployment_sync_commit_wake_v1" as const satisfies
-    CommitWakeOutboxEventKindV1;
 
 export const MAX_COMMIT_WAKE_CLAIM_BATCH_SIZE_V1 = 100;
 export const MAX_COMMIT_WAKE_DELAY_MILLISECONDS_V1 = 2_147_483_647;
@@ -71,7 +64,6 @@ export type CommitWakeOperationV1 =
 export type CommitWakeInputFailureReasonV1 =
   | "scopeUuidInvalid"
   | "commitSeqInvalid"
-  | "outboxSeqInvalid"
   | "claimOwnerInvalid"
   | "claimFenceInvalid"
   | "claimBatchLimitInvalid"
@@ -82,8 +74,7 @@ export type CommitWakeInputFailureReasonV1 =
 
 export type CommitWakeCorruptionReasonV1 =
   | "scopeClockInvalid"
-  | "outboxRowInvalid"
-  | "outboxSeqAheadOfClock"
+  | "wakeRowInvalid"
   | "commitSeqAheadOfClock"
   | "commitWakeMissing"
   | "missingRetainedHeader"
@@ -119,7 +110,6 @@ export class CommitWakeCorruptionErrorV1 extends Data.TaggedError(
   readonly operation: CommitWakeOperationV1;
   readonly reason: CommitWakeCorruptionReasonV1;
   readonly scopeUuid: ScopeUuidV1;
-  readonly outboxSeq?: OutboxSeq;
   readonly commitSeq?: CommitSeq;
 }> {}
 
@@ -128,7 +118,7 @@ export class CommitWakeStaleClaimErrorV1 extends Data.TaggedError(
 )<{
   readonly reason: CommitWakeStaleClaimReasonV1;
   readonly scopeUuid: ScopeUuidV1;
-  readonly outboxSeq: OutboxSeq;
+  readonly commitSeq: CommitSeq;
 }> {}
 
 export class CommitWakeResourceExhaustionErrorV1 extends Data.TaggedError(
@@ -136,7 +126,7 @@ export class CommitWakeResourceExhaustionErrorV1 extends Data.TaggedError(
 )<{
   readonly operation: "claimForCommit" | "claimReadyBatch";
   readonly scopeUuid: ScopeUuidV1;
-  readonly outboxSeq: OutboxSeq;
+  readonly commitSeq: CommitSeq;
   readonly resource: "claimFence";
 }> {}
 
@@ -191,7 +181,7 @@ export type CommitWakeSettlementV1 =
 
 export interface SettleCommitWakeClaimInputV1 {
   readonly scopeUuid: ScopeUuidV1;
-  readonly outboxSeq: OutboxSeq;
+  readonly commitSeq: CommitSeq;
   readonly claimOwner: CommitWakeClaimOwnerV1;
   readonly claimFence: CommitWakeClaimFenceV1;
   readonly settlement: CommitWakeSettlementV1;
@@ -205,13 +195,10 @@ export interface CommitWakeFailureEvidenceV1 {
 
 export interface ClaimedCommitWakeV1 {
   readonly scopeUuid: ScopeUuidV1;
-  readonly outboxSeq: OutboxSeq;
   readonly epochUuid: ScopeEpochUuidV1;
   readonly commitSeq: CommitSeq;
-  readonly eventKind: typeof COMMIT_WAKE_OUTBOX_EVENT_KIND_V1;
   readonly claimOwner: CommitWakeClaimOwnerV1;
   readonly claimFence: CommitWakeClaimFenceV1;
-  readonly attemptCount: bigint;
   readonly claimedAtEpochMilliseconds: number;
   readonly claimExpiresAtEpochMilliseconds: number;
   readonly previousFailure: CommitWakeFailureEvidenceV1 | null;
@@ -221,19 +208,19 @@ export type SettledCommitWakeV1 =
   | Readonly<{
       readonly state: "pending";
       readonly scopeUuid: ScopeUuidV1;
-      readonly outboxSeq: OutboxSeq;
+      readonly commitSeq: CommitSeq;
       readonly nextAttemptAtEpochMilliseconds: number;
     }>
   | Readonly<{
       readonly state: "delivered";
       readonly scopeUuid: ScopeUuidV1;
-      readonly outboxSeq: OutboxSeq;
+      readonly commitSeq: CommitSeq;
       readonly deliveredAtEpochMilliseconds: number;
     }>
   | Readonly<{
       readonly state: "dead_lettered";
       readonly scopeUuid: ScopeUuidV1;
-      readonly outboxSeq: OutboxSeq;
+      readonly commitSeq: CommitSeq;
       readonly deadLetteredAtEpochMilliseconds: number;
     }>;
 
@@ -268,20 +255,16 @@ interface CapturedScopeClockV1 {
   readonly scopeUuid: ScopeUuidV1;
   readonly lastCommitSeq: CommitSeq;
   readonly oldestAvailableCommitSeq: CommitSeq;
-  readonly lastOutboxSeq: OutboxSeq;
   readonly databaseNowEpochMilliseconds: number;
 }
 
 interface StoredCommitWakeV1 {
   readonly scopeUuid: ScopeUuidV1;
-  readonly outboxSeq: OutboxSeq;
   readonly epochUuid: ScopeEpochUuidV1;
   readonly commitSeq: CommitSeq;
-  readonly eventKind: CommitWakeOutboxEventKindV1;
   readonly deliveryState: CommitWakeOutboxDeliveryStateV1;
   readonly createdAtEpochMilliseconds: number;
   readonly nextAttemptAtEpochMilliseconds: number | null;
-  readonly attemptCount: bigint;
   readonly claimFence: bigint;
   readonly claimOwner: CommitWakeClaimOwnerV1 | null;
   readonly claimedAtEpochMilliseconds: number | null;
@@ -469,8 +452,8 @@ function validateSettleClaimInput(
     const decodedScope = yield* decodeScopeUuidResult(input.scopeUuid).pipe(
       Result.mapError(() => inputError("settleClaim", "scopeUuidInvalid")),
     );
-    if (!isPositivePersistedBigInt(input.outboxSeq)) {
-      return yield* inputFailure("settleClaim", "outboxSeqInvalid");
+    if (!isPositivePersistedBigInt(input.commitSeq)) {
+      return yield* inputFailure("settleClaim", "commitSeqInvalid");
     }
     const decodedOwner = yield* decodeClaimOwnerResult(input.claimOwner).pipe(
       Result.mapError(() => inputError("settleClaim", "claimOwnerInvalid")),
@@ -481,7 +464,7 @@ function validateSettleClaimInput(
     const settlement = yield* validateSettlement(input.settlement);
     return Object.freeze({
       scopeUuid: decodedScope,
-      outboxSeq: OutboxSeqSchema.make(input.outboxSeq),
+      commitSeq: CommitSeqSchema.make(input.commitSeq),
       claimOwner: decodedOwner,
       claimFence: CommitWakeClaimFenceV1Schema.make(input.claimFence),
       settlement,
@@ -576,7 +559,6 @@ async function claimSelectedCommitWake(
       "claimForCommit",
       input.scopeUuid,
       "commitWakeMissing",
-      undefined,
       input.commitSeq,
     ));
   }
@@ -612,7 +594,6 @@ function claimedCommitWakeOrRollback(
       "claimForCommit",
       input.scopeUuid,
       "claimUpdateMismatch",
-      selected.wake.outboxSeq,
       selected.wake.commitSeq,
     ));
   }
@@ -661,7 +642,7 @@ async function claimCapturedWakes(
       return Result.fail(new CommitWakeResourceExhaustionErrorV1({
         operation,
         scopeUuid: clock.scopeUuid,
-        outboxSeq: item.wake.outboxSeq,
+        commitSeq: item.wake.commitSeq,
         resource: "claimFence",
       }));
     }
@@ -673,12 +654,11 @@ async function claimCapturedWakes(
     const wake = item.wake;
     const reclaimed = wake.deliveryState === "claimed";
     const rows = await tx
-      .update(fxSystemOutbox)
+      .update(fxSystemCommitWakes)
       .set({
         deliveryState: "claimed",
         nextAttemptAt: null,
-        attemptCount: sql`${fxSystemOutbox.attemptCount} + 1`,
-        claimFence: sql`${fxSystemOutbox.claimFence} + 1`,
+        claimFence: sql`${fxSystemCommitWakes.claimFence} + 1`,
         claimOwner,
         claimedAt: sql`statement_timestamp()`,
         claimExpiresAt:
@@ -692,16 +672,16 @@ async function claimCapturedWakes(
           : {}),
       })
       .where(and(
-        eq(fxSystemOutbox.scopeUuid, wake.scopeUuid),
-        eq(fxSystemOutbox.outboxSeq, wake.outboxSeq),
-        eq(fxSystemOutbox.deliveryState, wake.deliveryState),
-        eq(fxSystemOutbox.claimFence, wake.claimFence),
+        eq(fxSystemCommitWakes.scopeUuid, wake.scopeUuid),
+        eq(fxSystemCommitWakes.commitSeq, wake.commitSeq),
+        eq(fxSystemCommitWakes.deliveryState, wake.deliveryState),
+        eq(fxSystemCommitWakes.claimFence, wake.claimFence),
       ))
       .returning({
-        outboxSeq: fxSystemOutbox.outboxSeq,
-        claimedAt: fxSystemOutbox.claimedAt,
-        claimExpiresAt: fxSystemOutbox.claimExpiresAt,
-        lastFailedAt: fxSystemOutbox.lastFailedAt,
+        commitSeq: fxSystemCommitWakes.commitSeq,
+        claimedAt: fxSystemCommitWakes.claimedAt,
+        claimExpiresAt: fxSystemCommitWakes.claimExpiresAt,
+        lastFailedAt: fxSystemCommitWakes.lastFailedAt,
       });
     const row = rows[0];
     const claimedAt = row?.claimedAt;
@@ -714,7 +694,7 @@ async function claimCapturedWakes(
     const lastFailedAtEpochMilliseconds = finiteDateMilliseconds(lastFailedAt);
     if (
       rows.length !== 1 ||
-      row?.outboxSeq !== wake.outboxSeq ||
+      row?.commitSeq !== wake.commitSeq ||
       claimedAtEpochMilliseconds === undefined ||
       claimExpiresAtEpochMilliseconds === undefined ||
       claimExpiresAtEpochMilliseconds <= claimedAtEpochMilliseconds ||
@@ -724,7 +704,6 @@ async function claimCapturedWakes(
         operation,
         wake.scopeUuid,
         "claimUpdateMismatch",
-        wake.outboxSeq,
         wake.commitSeq,
       ));
     }
@@ -741,13 +720,10 @@ async function claimCapturedWakes(
       : wake.lastFailure;
     claimed.push(Object.freeze({
       scopeUuid: wake.scopeUuid,
-      outboxSeq: wake.outboxSeq,
       epochUuid: wake.epochUuid,
       commitSeq: wake.commitSeq,
-      eventKind: COMMIT_WAKE_OUTBOX_EVENT_KIND_V1,
       claimOwner,
       claimFence: CommitWakeClaimFenceV1Schema.make(nextFence),
-      attemptCount: nextFence,
       claimedAtEpochMilliseconds,
       claimExpiresAtEpochMilliseconds,
       previousFailure,
@@ -788,7 +764,7 @@ async function settleCapturedWake(
     return Result.fail(new CommitWakeStaleClaimErrorV1({
       reason: "wakeMissing",
       scopeUuid: input.scopeUuid,
-      outboxSeq: input.outboxSeq,
+      commitSeq: input.commitSeq,
     }));
   }
   const staleReason = staleClaimReason(
@@ -799,42 +775,41 @@ async function settleCapturedWake(
     return Result.fail(new CommitWakeStaleClaimErrorV1({
       reason: staleReason,
       scopeUuid: input.scopeUuid,
-      outboxSeq: input.outboxSeq,
+      commitSeq: input.commitSeq,
     }));
   }
 
   const update = settlementUpdate(input);
   const rows = await tx
-    .update(fxSystemOutbox)
+    .update(fxSystemCommitWakes)
     .set(update)
     .where(and(
-      eq(fxSystemOutbox.scopeUuid, input.scopeUuid),
-      eq(fxSystemOutbox.outboxSeq, input.outboxSeq),
-      eq(fxSystemOutbox.deliveryState, "claimed"),
-      eq(fxSystemOutbox.claimOwner, input.claimOwner),
-      eq(fxSystemOutbox.claimFence, input.claimFence),
-      sql`${fxSystemOutbox.claimExpiresAt} > clock_timestamp()`,
+      eq(fxSystemCommitWakes.scopeUuid, input.scopeUuid),
+      eq(fxSystemCommitWakes.commitSeq, input.commitSeq),
+      eq(fxSystemCommitWakes.deliveryState, "claimed"),
+      eq(fxSystemCommitWakes.claimOwner, input.claimOwner),
+      eq(fxSystemCommitWakes.claimFence, input.claimFence),
+      sql`${fxSystemCommitWakes.claimExpiresAt} > clock_timestamp()`,
     ))
     .returning({
-      outboxSeq: fxSystemOutbox.outboxSeq,
-      nextAttemptAt: fxSystemOutbox.nextAttemptAt,
-      deliveredAt: fxSystemOutbox.deliveredAt,
-      deadLetteredAt: fxSystemOutbox.deadLetteredAt,
+      commitSeq: fxSystemCommitWakes.commitSeq,
+      nextAttemptAt: fxSystemCommitWakes.nextAttemptAt,
+      deliveredAt: fxSystemCommitWakes.deliveredAt,
+      deadLetteredAt: fxSystemCommitWakes.deadLetteredAt,
     });
   if (rows.length === 0) {
     return Result.fail(new CommitWakeStaleClaimErrorV1({
       reason: "claimExpired",
       scopeUuid: input.scopeUuid,
-      outboxSeq: input.outboxSeq,
+      commitSeq: input.commitSeq,
     }));
   }
-  if (rows.length !== 1 || rows[0]?.outboxSeq !== input.outboxSeq) {
+  if (rows.length !== 1 || rows[0]?.commitSeq !== input.commitSeq) {
     throw new CommitWakeRollbackSignal(corruption(
       "settleClaim",
       input.scopeUuid,
       "settleUpdateMismatch",
-      input.outboxSeq,
-      selected.wake.commitSeq,
+      input.commitSeq,
     ));
   }
   const settled = materializeSettlementResult(input, rows[0]);
@@ -843,8 +818,7 @@ async function settleCapturedWake(
       "settleClaim",
       input.scopeUuid,
       "settleUpdateMismatch",
-      input.outboxSeq,
-      selected.wake.commitSeq,
+      input.commitSeq,
     ));
   }
   return Result.succeed(settled);
@@ -893,7 +867,7 @@ function settlementUpdate(
 function materializeSettlementResult(
   input: ValidatedSettleClaimInputV1,
   row: Readonly<{
-    outboxSeq: bigint;
+    commitSeq: bigint;
     nextAttemptAt: Date | null;
     deliveredAt: Date | null;
     deadLetteredAt: Date | null;
@@ -908,7 +882,7 @@ function materializeSettlementResult(
         ? Object.freeze({
             state: "delivered",
             scopeUuid: input.scopeUuid,
-            outboxSeq: input.outboxSeq,
+            commitSeq: input.commitSeq,
             deliveredAtEpochMilliseconds,
           })
         : null;
@@ -921,7 +895,7 @@ function materializeSettlementResult(
         ? Object.freeze({
             state: "pending",
             scopeUuid: input.scopeUuid,
-            outboxSeq: input.outboxSeq,
+            commitSeq: input.commitSeq,
             nextAttemptAtEpochMilliseconds,
           })
         : null;
@@ -934,7 +908,7 @@ function materializeSettlementResult(
         ? Object.freeze({
             state: "dead_lettered",
             scopeUuid: input.scopeUuid,
-            outboxSeq: input.outboxSeq,
+            commitSeq: input.commitSeq,
             deadLetteredAtEpochMilliseconds,
           })
         : null;
@@ -963,10 +937,7 @@ function claimForCommitCaptureStatement(
 ): SQL {
   return captureStatement(input.scopeUuid, sql`
     o.scope_uuid = ${input.scopeUuid}
-    and o.event_kind = ${COMMIT_WAKE_OUTBOX_EVENT_KIND_V1}
     and o.commit_seq = ${input.commitSeq}
-    order by o.outbox_seq asc
-    limit 1
     for update of o
   `);
 }
@@ -976,7 +947,6 @@ function claimReadyBatchCaptureStatement(
 ): SQL {
   return captureStatement(input.scopeUuid, sql`
     o.scope_uuid = ${input.scopeUuid}
-    and o.event_kind = ${COMMIT_WAKE_OUTBOX_EVENT_KIND_V1}
     and o.delivery_state in ('pending', 'claimed')
     and case
       when o.delivery_state = 'pending' then o.next_attempt_at
@@ -989,7 +959,7 @@ function claimReadyBatchCaptureStatement(
         when o.delivery_state = 'claimed' then o.claim_expires_at
         else null
       end asc,
-      o.outbox_seq asc
+      o.commit_seq asc
     limit ${input.limit}
     for update of o skip locked
   `);
@@ -1000,9 +970,7 @@ function settleClaimCaptureStatement(
 ): SQL {
   return captureStatement(input.scopeUuid, sql`
     o.scope_uuid = ${input.scopeUuid}
-    and o.outbox_seq = ${input.outboxSeq}
-    order by o.outbox_seq asc
-    limit 1
+    and o.commit_seq = ${input.commitSeq}
     for update of o
   `);
 }
@@ -1017,7 +985,6 @@ function captureStatement(
         scope_uuid,
         last_commit_seq,
         oldest_available_commit_seq,
-        last_outbox_seq,
         clock_timestamp() as database_now
       from fx_system_scope_clock
       where scope_uuid = ${scopeUuid}
@@ -1025,7 +992,7 @@ function captureStatement(
     ),
     candidate as materialized (
       select o.*
-      from fx_system_outbox as o
+      from fx_system_commit_wake as o
       cross join clock_snapshot as clock
       where ${candidateSelection}
     )
@@ -1033,20 +1000,16 @@ function captureStatement(
       clock.scope_uuid::text as "clockScopeUuid",
       clock.last_commit_seq::text as "lastCommitSeqText",
       clock.oldest_available_commit_seq::text as "oldestAvailableCommitSeqText",
-      clock.last_outbox_seq::text as "lastOutboxSeqText",
       floor(extract(epoch from clock.database_now) * 1000)::bigint::text
         as "databaseNowEpochMillisecondsText",
       wake.scope_uuid::text as "wakeScopeUuid",
-      wake.outbox_seq::text as "outboxSeqText",
       wake.epoch_uuid::text as "wakeEpochUuid",
       wake.commit_seq::text as "wakeCommitSeqText",
-      wake.event_kind as "eventKind",
       wake.delivery_state as "deliveryState",
       floor(extract(epoch from wake.created_at) * 1000)::bigint::text
         as "createdAtEpochMillisecondsText",
       floor(extract(epoch from wake.next_attempt_at) * 1000)::bigint::text
         as "nextAttemptAtEpochMillisecondsText",
-      wake.attempt_count::text as "attemptCountText",
       wake.claim_fence::text as "claimFenceText",
       wake.claim_owner::text as "claimOwner",
       floor(extract(epoch from wake.claimed_at) * 1000)::bigint::text
@@ -1078,7 +1041,7 @@ function captureStatement(
     left join fx_system_commit as header
       on header.scope_uuid = wake.scope_uuid
       and header.commit_seq = wake.commit_seq
-    order by wake.outbox_seq asc nulls last
+    order by wake.commit_seq asc nulls last
   `;
 }
 
@@ -1102,90 +1065,84 @@ function materializeClaimSnapshot(
   CapturedCommitWakeSnapshotV1,
   CommitWakeScopeNotFoundErrorV1 | CommitWakeCorruptionErrorV1
 > {
-  if (rawRows.length === 0) {
-    return Result.fail(new CommitWakeScopeNotFoundErrorV1({
-      operation,
-      scopeUuid: expectedScopeUuid,
-    }));
-  }
-  const first = asNonArrayRecord(rawRows[0]);
-  const clock = decodeClock(first, expectedScopeUuid);
-  if (clock === null) {
-    return Result.fail(corruption(
-      operation,
-      expectedScopeUuid,
-      "scopeClockInvalid",
-    ));
-  }
-
-  const wakes: CapturedCommitWakeV1[] = [];
-  for (const rawRow of rawRows) {
-    const row = asNonArrayRecord(rawRow);
-    if (!sameClockRow(row, clock)) {
-      return Result.fail(corruption(
+  return Result.gen(function* () {
+    if (rawRows.length === 0) {
+      return yield* Result.fail(new CommitWakeScopeNotFoundErrorV1({
+        operation,
+        scopeUuid: expectedScopeUuid,
+      }));
+    }
+    const first = asNonArrayRecord(rawRows[0]);
+    const clock = decodeClock(first, expectedScopeUuid);
+    if (clock === null) {
+      return yield* Result.fail(corruption(
         operation,
         expectedScopeUuid,
         "scopeClockInvalid",
       ));
     }
-    if (row === null) {
-      return Result.fail(corruption(
+
+    const wakes: CapturedCommitWakeV1[] = [];
+    for (const rawRow of rawRows) {
+      const row = asNonArrayRecord(rawRow);
+      if (!sameClockRow(row, clock)) {
+        return yield* Result.fail(corruption(
+          operation,
+          expectedScopeUuid,
+          "scopeClockInvalid",
+        ));
+      }
+      if (row === null) {
+        return yield* Result.fail(corruption(
+          operation,
+          expectedScopeUuid,
+          "wakeRowInvalid",
+        ));
+      }
+      const wakeScopeUuid = nullableStringField(row, "wakeScopeUuid");
+      if (wakeScopeUuid === undefined) {
+        return yield* Result.fail(corruption(
+          operation,
+          expectedScopeUuid,
+          "wakeRowInvalid",
+        ));
+      }
+      if (wakeScopeUuid === null) continue;
+      const wake = decodeStoredWake(row, expectedScopeUuid);
+      if (wake === null) {
+        return yield* Result.fail(corruption(
+          operation,
+          expectedScopeUuid,
+          "wakeRowInvalid",
+        ));
+      }
+      const headerEpoch = decodeNullableEpochUuid(
+        nullableStringField(row, "retainedHeaderEpochUuid"),
+      );
+      if (headerEpoch === undefined) {
+        return yield* Result.fail(corruption(
+          operation,
+          expectedScopeUuid,
+          "wakeRowInvalid",
+          wake.commitSeq,
+        ));
+      }
+      yield* validateCommitCorrelation(
         operation,
-        expectedScopeUuid,
-        "outboxRowInvalid",
-      ));
+        clock,
+        wake,
+        headerEpoch,
+      );
+      wakes.push(Object.freeze({
+        wake,
+        retainedHeaderEpochUuid: headerEpoch,
+      }));
     }
-    const wakeScopeUuid = nullableStringField(row, "wakeScopeUuid");
-    if (wakeScopeUuid === undefined) {
-      return Result.fail(corruption(
-        operation,
-        expectedScopeUuid,
-        "outboxRowInvalid",
-      ));
-    }
-    if (wakeScopeUuid === null) continue;
-    const wake = decodeStoredWake(row, expectedScopeUuid);
-    if (wake === null) {
-      return Result.fail(corruption(
-        operation,
-        expectedScopeUuid,
-        "outboxRowInvalid",
-      ));
-    }
-    const headerEpoch = decodeNullableEpochUuid(
-      nullableStringField(row, "retainedHeaderEpochUuid"),
-    );
-    if (headerEpoch === undefined) {
-      return Result.fail(corruption(
-        operation,
-        expectedScopeUuid,
-        "outboxRowInvalid",
-        wake.outboxSeq,
-        wake.commitSeq,
-      ));
-    }
-    const correlation = validateCommitCorrelation(
-      operation,
+    return Object.freeze({
       clock,
-      wake,
-      headerEpoch,
-    );
-    if (Result.isFailure(correlation)) {
-      // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
-      return correlation as Result.Result<
-        CapturedCommitWakeSnapshotV1,
-        CommitWakeCorruptionErrorV1 | CommitWakeScopeNotFoundErrorV1
-      >;
-    }
-    wakes.push(Object.freeze({
-      wake,
-      retainedHeaderEpochUuid: headerEpoch,
-    }));
-  }
-  return Result.succeed(Object.freeze({
-    clock,
-    wakes: Object.freeze(wakes),
-  }));
+      wakes: Object.freeze(wakes),
+    });
+  });
 }
 
 function decodeClock(
@@ -1202,10 +1159,6 @@ function decodeClock(
     stringField(row, "oldestAvailableCommitSeqText"),
     false,
   );
-  const lastOutbox = parsePersistedBigInt(
-    stringField(row, "lastOutboxSeqText"),
-    false,
-  );
   const now = parseEpochMilliseconds(
     stringField(row, "databaseNowEpochMillisecondsText"),
   );
@@ -1214,7 +1167,6 @@ function decodeClock(
     scope.success !== expectedScopeUuid ||
     lastCommit === null ||
     floor === null ||
-    lastOutbox === null ||
     floor > lastCommit ||
     now === null
   ) {
@@ -1224,7 +1176,6 @@ function decodeClock(
     scopeUuid: scope.success,
     lastCommitSeq: CommitSeqSchema.make(lastCommit),
     oldestAvailableCommitSeq: CommitSeqSchema.make(floor),
-    lastOutboxSeq: OutboxSeqSchema.make(lastOutbox),
     databaseNowEpochMilliseconds: now,
   });
 }
@@ -1239,7 +1190,6 @@ function sameClockRow(
     stringField(row, "lastCommitSeqText") === String(clock.lastCommitSeq) &&
     stringField(row, "oldestAvailableCommitSeqText") ===
       String(clock.oldestAvailableCommitSeq) &&
-    stringField(row, "lastOutboxSeqText") === String(clock.lastOutboxSeq) &&
     stringField(row, "databaseNowEpochMillisecondsText") ===
       String(clock.databaseNowEpochMilliseconds)
   );
@@ -1251,17 +1201,9 @@ function decodeStoredWake(
 ): StoredCommitWakeV1 | null {
   const scope = decodeScopeUuidResult(stringField(row, "wakeScopeUuid"));
   const epoch = decodeScopeEpochUuidResult(stringField(row, "wakeEpochUuid"));
-  const outboxSeq = parsePersistedBigInt(
-    stringField(row, "outboxSeqText"),
-    true,
-  );
   const commitSeq = parsePersistedBigInt(
     stringField(row, "wakeCommitSeqText"),
     true,
-  );
-  const attemptCount = parsePersistedBigInt(
-    stringField(row, "attemptCountText"),
-    false,
   );
   const claimFence = parsePersistedBigInt(
     stringField(row, "claimFenceText"),
@@ -1300,11 +1242,8 @@ function decodeStoredWake(
     Result.isFailure(scope) ||
     scope.success !== expectedScopeUuid ||
     Result.isFailure(epoch) ||
-    outboxSeq === null ||
     commitSeq === null ||
-    attemptCount === null ||
     claimFence === null ||
-    attemptCount !== claimFence ||
     createdAt === null ||
     nextAttemptAt === undefined ||
     claimedAt === undefined ||
@@ -1318,10 +1257,8 @@ function decodeStoredWake(
     return null;
   }
 
-  const eventKind = stringField(row, "eventKind");
   const deliveryState = stringField(row, "deliveryState");
   if (
-    eventKind !== COMMIT_WAKE_OUTBOX_EVENT_KIND_V1 ||
     !isDeliveryState(deliveryState)
   ) {
     return null;
@@ -1344,14 +1281,11 @@ function decodeStoredWake(
 
   const wake: StoredCommitWakeV1 = Object.freeze({
     scopeUuid: scope.success,
-    outboxSeq: OutboxSeqSchema.make(outboxSeq),
     epochUuid: epoch.success,
     commitSeq: CommitSeqSchema.make(commitSeq),
-    eventKind,
     deliveryState,
     createdAtEpochMilliseconds: createdAt,
     nextAttemptAtEpochMilliseconds: nextAttemptAt,
-    attemptCount,
     claimFence,
     claimOwner: claimOwner === null ? null : claimOwner.success,
     claimedAtEpochMilliseconds: claimedAt,
@@ -1376,34 +1310,34 @@ function isValidStoredState(wake: StoredCommitWakeV1): boolean {
         noClaim &&
         wake.deliveredAtEpochMilliseconds === null &&
         wake.deadLetteredAtEpochMilliseconds === null &&
-        (wake.attemptCount === 0n
+        (wake.claimFence === 0n
           ? wake.nextAttemptAtEpochMilliseconds ===
               wake.createdAtEpochMilliseconds && wake.lastFailure === null
           : wake.lastFailure !== null &&
             wake.nextAttemptAtEpochMilliseconds >=
               wake.lastFailure.failedAtEpochMilliseconds);
     case "claimed":
-      return wake.attemptCount >= 1n &&
+      return wake.claimFence >= 1n &&
         wake.nextAttemptAtEpochMilliseconds === null &&
         wake.claimOwner !== null &&
         wake.claimedAtEpochMilliseconds !== null &&
         wake.claimExpiresAtEpochMilliseconds !== null &&
         wake.deliveredAtEpochMilliseconds === null &&
         wake.deadLetteredAtEpochMilliseconds === null &&
-        (wake.attemptCount === 1n
+        (wake.claimFence === 1n
           ? wake.lastFailure === null
           : wake.lastFailure !== null);
     case "delivered":
-      return wake.attemptCount >= 1n &&
+      return wake.claimFence >= 1n &&
         wake.nextAttemptAtEpochMilliseconds === null &&
         noClaim &&
         wake.deliveredAtEpochMilliseconds !== null &&
         wake.deadLetteredAtEpochMilliseconds === null &&
-        (wake.attemptCount === 1n
+        (wake.claimFence === 1n
           ? wake.lastFailure === null
           : wake.lastFailure !== null);
     case "dead_lettered":
-      return wake.attemptCount >= 1n &&
+      return wake.claimFence >= 1n &&
         wake.nextAttemptAtEpochMilliseconds === null &&
         noClaim &&
         wake.deliveredAtEpochMilliseconds === null &&
@@ -1420,21 +1354,11 @@ function validateCommitCorrelation(
   wake: StoredCommitWakeV1,
   retainedHeaderEpochUuid: ScopeEpochUuidV1 | null,
 ): Result.Result<void, CommitWakeCorruptionErrorV1> {
-  if (wake.outboxSeq > clock.lastOutboxSeq) {
-    return Result.fail(corruption(
-      operation,
-      clock.scopeUuid,
-      "outboxSeqAheadOfClock",
-      wake.outboxSeq,
-      wake.commitSeq,
-    ));
-  }
   if (wake.commitSeq > clock.lastCommitSeq) {
     return Result.fail(corruption(
       operation,
       clock.scopeUuid,
       "commitSeqAheadOfClock",
-      wake.outboxSeq,
       wake.commitSeq,
     ));
   }
@@ -1446,7 +1370,6 @@ function validateCommitCorrelation(
       operation,
       clock.scopeUuid,
       "missingRetainedHeader",
-      wake.outboxSeq,
       wake.commitSeq,
     ));
   }
@@ -1458,7 +1381,6 @@ function validateCommitCorrelation(
       operation,
       clock.scopeUuid,
       "retainedHeaderEpochMismatch",
-      wake.outboxSeq,
       wake.commitSeq,
     ));
   }
@@ -1514,14 +1436,12 @@ function corruption(
   operation: CommitWakeOperationV1,
   scopeUuid: ScopeUuidV1,
   reason: CommitWakeCorruptionReasonV1,
-  outboxSeq?: OutboxSeq,
   commitSeq?: CommitSeq,
 ): CommitWakeCorruptionErrorV1 {
   return new CommitWakeCorruptionErrorV1({
     operation,
     reason,
     scopeUuid,
-    ...(outboxSeq === undefined ? {} : { outboxSeq }),
     ...(commitSeq === undefined ? {} : { commitSeq }),
   });
 }

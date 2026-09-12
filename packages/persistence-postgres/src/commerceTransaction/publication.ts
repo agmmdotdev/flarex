@@ -47,9 +47,8 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   }
   const clock = { record: state.clock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
   const now = yield* publishCommerceAtoms(() => readScopePublicationDatabaseTime(state.tx, scope.scopeId, {}));
-  const allocation = yield* Effect.fromResult(allocateScopePublicationResult(clock, "publish", now))
+  const allocation = yield* Effect.fromResult(allocateScopePublicationResult(clock, now))
     .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
-  if (allocation.outboxSeq === null) return yield* Effect.fail(commerceError("storedCorruption"));
   const contribution: ScopePublicationContribution = {
     authorityPins: { scopeId: scope.scopeId, requestKey: identity.requestKey, functionPath: identity.expectedFunctionPath },
     rowIntents: [], identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
@@ -57,7 +56,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
     relationalFacts: facts,
     ...(events === undefined ? {} : { events: yield* consumeCommerceEvents(events.closure, events.admission, lifetime) }),
   };
-  const kernel: ScopePublicationKernel = { clock, ...allocation, outboxSeq: allocation.outboxSeq, relationAdjacencyChanges: [] };
+  const kernel: ScopePublicationKernel = { clock, ...allocation, relationAdjacencyChanges: [] };
   // The existing owner bridges its Promise-based publication kernel once.
   yield* publishCommerceAtoms(signal => writeScopePublicationPrefix(state.tx, contribution, kernel, {}, signal));
   if (state.bootstrap) {

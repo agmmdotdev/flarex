@@ -1728,16 +1728,16 @@ making its request key reusable. A late retry after payload expiry returns
 committed-key, commit-feed, outbox-delivery, reconnect, and Payload-version
 retention are separate policies.
 
-S09-B owns one private `deployment_sync_commit_wake_v1` row per committed
-scope-local token, keyed by `(scope_uuid, outbox_seq)` and uniquely correlated
-to `(scope_uuid, event_kind, commit_seq)`. `last_outbox_seq` remains the sole
-scope-lifetime allocation head; S09-B adds no allocator or writer. The row has
-only a restrictive scope-clock foreign key. It deliberately has no foreign key
+The dedicated `fx_system_commit_wake` table owns one private row per committed
+scope-local token, keyed by `(scope_uuid, commit_seq)`. It uses the existing
+commit allocator; there is no independent wake sequence, scope wake head, or
+constant event-kind column. One partial due-time index supports pending and
+expired-claim selection. The row has only a restrictive scope-clock foreign key. It deliberately has no foreign key
 to compactable S08 headers, arbitrary payload, consumer group, generic cursor,
 or global surrogate identity. O07-B inserts the exact wake and advances
 the clock atomically with the data, result, outcome, and S08 header.
 
-Claims use database time, a monotonic claim fence equal to the attempt count,
+Claims use database time and one monotonic claim fence that also counts attempts,
 bounded retry scheduling, and exact owner/fence settlement. Pending and expired
 claimed rows are eligible; delivered and dead-lettered are terminal only for
 the current state machine. Failure evidence is a bounded redacted code/summary/
@@ -1745,7 +1745,7 @@ time tuple. Crash after the sink durably accepts but before acknowledgement is
 therefore at-least-once: the lease expires, a higher fence reclaims the row,
 and the sink deduplicates by the canonical commit token.
 
-Claim-time integrity captures the scope heads, inclusive retained floor,
+Claim-time integrity captures the scope commit head, inclusive retained floor,
 candidate wake, and retained S08 header in one PostgreSQL statement snapshot.
 A missing header is valid only when `commit_seq < oldest_available_commit_seq`;
 equality still requires the exact epoch-matching header. Epoch is immutable

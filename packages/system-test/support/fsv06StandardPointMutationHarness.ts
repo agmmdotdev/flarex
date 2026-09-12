@@ -1499,7 +1499,7 @@ async function durableCounts(persistence: Persistence) {
     (select count(*)::text from fx_system_commit) as commits,
     (select count(*)::text from fx_system_idempotency) as outcomes,
     (select count(*)::text from fx_system_commit_app_row_change) as feed,
-    (select count(*)::text from fx_system_outbox) as outbox`);
+    (select count(*)::text from fx_system_commit_wake) as outbox`);
   const row = rows.rows[0];
   if (row === undefined) throw new Error("FSV06 durable counts are missing.");
   return Object.freeze({
@@ -1547,8 +1547,8 @@ async function durableAgreement(
     [scopeUuid],
   );
   const outbox = await persistence.query<{ commit_seq: string }>(
-    `select commit_seq::text from fx_system_outbox
-      where scope_uuid = $1 order by outbox_seq`,
+    `select commit_seq::text from fx_system_commit_wake
+      where scope_uuid = $1 order by commit_seq`,
     [scopeUuid],
   );
   return Object.freeze({

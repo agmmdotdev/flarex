@@ -23,7 +23,7 @@ import { defineCmsCommand, makeCmsHost, type CmsCommandContext } from "../src/cm
 import { cmsError } from "../src/cmsTransaction/model";
 import type { PointCommitTransactionProofStepV1 } from "../src/pointCommitTransaction";
 import type { RelationalSession } from "../src/relationalTransaction/session";
-import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemOutbox, fxSystemScopeClocks, fxSystemTransactionSessions, fxSystemCommitAppRowChanges, fxSystemSnapshotLeases, fxSystemTransactionJournals, fxAppIndexEntryRevisions, fxAppIndexEntryCurrent, fxAppUniqueKeys, fxSystemAppSchemaCandidateValidations } from "../src/schema";
+import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemScopeClocks, fxSystemTransactionSessions, fxSystemCommitAppRowChanges, fxSystemSnapshotLeases, fxSystemTransactionJournals, fxAppIndexEntryRevisions, fxAppIndexEntryCurrent, fxAppUniqueKeys, fxSystemAppSchemaCandidateValidations } from "../src/schema";
 
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
@@ -142,7 +142,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   const host = await runEffect(makeCmsHost(input));
   const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent), revisions: await persistence.drizzle.select().from(fxAppRowRevisions),
     clock: await persistence.drizzle.select().from(fxSystemScopeClocks), commits: await persistence.drizzle.select().from(fxSystemCommits),
-    outcomes: await persistence.drizzle.select().from(fxSystemIdempotency), wakes: await persistence.drizzle.select().from(fxSystemOutbox),
+    outcomes: await persistence.drizzle.select().from(fxSystemIdempotency), wakes: await persistence.drizzle.select().from(fxSystemCommitWakes),
     facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges), sessions: await persistence.drizzle.select().from(fxSystemTransactionSessions),
     journals: await persistence.drizzle.select().from(fxSystemTransactionJournals), leases: await persistence.drizzle.select().from(fxSystemSnapshotLeases),
     indexRevisions: await persistence.drizzle.select().from(fxAppIndexEntryRevisions), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent),

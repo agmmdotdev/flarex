@@ -39,7 +39,7 @@ export async function commercePublicationScenario(fixture: CommerceHostTestFixtu
 
   // Deliberate test-only DDL fails each durable publication stage after business
   // DML. These are fixture-owned trigger names in an isolated metadata schema.
-  for (const table of ["fx_system_commit", "fx_system_commit_relational_change", "fx_system_idempotency", "fx_system_outbox", "fx_system_scope_clock"]) {
+  for (const table of ["fx_system_commit", "fx_system_commit_relational_change", "fx_system_idempotency", "fx_system_commit_wake", "fx_system_scope_clock"]) {
     await fixture.persistence.exec("create function fx_test_commerce_failure() returns trigger language plpgsql as $$ begin raise exception 'commerce publication failure'; end $$");
     try {
       await fixture.persistence.exec(`create trigger fx_test_commerce_failure before ${table === "fx_system_scope_clock" ? "update" : "insert"} on "${table}" for each row execute function fx_test_commerce_failure()`);

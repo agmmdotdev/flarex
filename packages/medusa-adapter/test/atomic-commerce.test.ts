@@ -524,7 +524,7 @@ describe("private atomic commerce command", () => {
 
   it("rolls back every publication stage after both modules have written", async () => {
     const before = await inventory();
-    for (const table of ["fx_system_commit", "fx_system_commit_relational_change", "fx_system_idempotency", "fx_system_outbox", "fx_system_scope_clock"]) {
+    for (const table of ["fx_system_commit", "fx_system_commit_relational_change", "fx_system_idempotency", "fx_system_commit_wake", "fx_system_scope_clock"]) {
       await currency.persistence.exec("create function fx_test_atomic_failure() returns trigger language plpgsql as $$ begin raise exception 'atomic publication failure'; end $$");
       try {
         await currency.persistence.exec(`create trigger fx_test_atomic_failure before ${table === "fx_system_scope_clock" ? "update" : "insert"} on "${table}" for each row execute function fx_test_atomic_failure()`);

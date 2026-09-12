@@ -14,7 +14,7 @@ import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrins
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
 import { createAppSchemaCandidateWriteGuardPort } from "../src/appSchemaCandidateValidation";
-import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemOutbox,
+import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes,
   fxSystemCommitAppRowChanges, fxSystemScopeClocks, fxAppUniqueKeys } from "../src/schema";
 import { fxSystemCommitPayloadPreferenceDeletions } from "../src/payloadPreferences/factsSchema";
 import type { PGliteFlarexPersistence } from "../src/pglite";
@@ -71,7 +71,7 @@ export async function payloadCollectionsScenario(persistence: PGliteFlarexPersis
     "compiled-preferences", candidate.sha256, beforeBinding.head)));
   const db = persistence.drizzle;
   const inventory = async () => ({ rows: await db.select().from(fxAppRowCurrent), revisions: await db.select().from(fxAppRowRevisions),
-    commits: await db.select().from(fxSystemCommits), outcomes: await db.select().from(fxSystemIdempotency), wakes: await db.select().from(fxSystemOutbox),
+    commits: await db.select().from(fxSystemCommits), outcomes: await db.select().from(fxSystemIdempotency), wakes: await db.select().from(fxSystemCommitWakes),
     facts: await db.select().from(fxSystemCommitAppRowChanges), clocks: await db.select().from(fxSystemScopeClocks), unique: await db.select().from(fxAppUniqueKeys),
     preferences: await db.select().from(table), preferenceFacts: await db.select().from(fxSystemCommitPayloadPreferenceDeletions) });
   await runEffect(Effect.scoped(Effect.gen(function* () {

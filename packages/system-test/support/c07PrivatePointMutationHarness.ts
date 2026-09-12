@@ -198,10 +198,8 @@ export interface C07DurableAgreementV1 {
   readonly commitSeqs: ReadonlyArray<string>;
   readonly changeCommitSeqs: ReadonlyArray<string>;
   readonly outcomeCommitSeqs: ReadonlyArray<string>;
-  readonly outboxSeqs: ReadonlyArray<string>;
   readonly outboxCommitSeqs: ReadonlyArray<string>;
   readonly lastCommitSeq: string;
-  readonly lastOutboxSeq: string;
 }
 
 export interface C07PrivateRegisteredRevisionMutationInputV1 {
@@ -935,7 +933,6 @@ export async function loadPrivateC07DurableAgreementV1(
     current_commit_seq: string | null;
     current_value: unknown;
     last_commit_seq: string;
-    last_outbox_seq: string;
   }>(
     `
       select
@@ -958,8 +955,7 @@ export async function loadPrivateC07DurableAgreementV1(
             and revision.row_id = current_row.row_id
             and revision.commit_seq = current_row.commit_seq
           where current_row.scope_uuid = $1 limit 1) as current_value,
-        clock.last_commit_seq::text,
-        clock.last_outbox_seq::text
+        clock.last_commit_seq::text
       from fx_system_scope_clock as clock
       where clock.scope_uuid = $1
     `,
@@ -985,11 +981,10 @@ export async function loadPrivateC07DurableAgreementV1(
     [scopeUuid],
   );
   const outbox = await persistence.query<{
-    outbox_seq: string;
     commit_seq: string;
   }>(
-    `select outbox_seq::text, commit_seq::text from fx_system_outbox
-     where scope_uuid = $1 order by outbox_seq`,
+    `select commit_seq::text from fx_system_commit_wake
+     where scope_uuid = $1 order by commit_seq`,
     [scopeUuid],
   );
   const outcomes = await persistence.query<{ commit_seq: string }>(
@@ -1011,12 +1006,10 @@ export async function loadPrivateC07DurableAgreementV1(
     outcomeCommitSeqs: Object.freeze(
       outcomes.rows.map((item) => item.commit_seq),
     ),
-    outboxSeqs: Object.freeze(outbox.rows.map((item) => item.outbox_seq)),
     outboxCommitSeqs: Object.freeze(
       outbox.rows.map((item) => item.commit_seq),
     ),
     lastCommitSeq: row.last_commit_seq,
-    lastOutboxSeq: row.last_outbox_seq,
   });
 }
 

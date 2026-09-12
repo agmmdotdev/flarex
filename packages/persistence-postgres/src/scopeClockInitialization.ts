@@ -2,7 +2,6 @@ import { Result } from "effect";
 import {
   CommitSeqSchema,
   LegacyV1StorageGenerationSchema,
-  OutboxSeqSchema,
   StorageGenerationFenceSchema,
   type ScopeEpoch,
   type ScopeId,
@@ -46,7 +45,6 @@ const initialStorageGeneration =
   LegacyV1StorageGenerationSchema.make("legacy_v1");
 const initialStorageGenerationFence = StorageGenerationFenceSchema.make(1n);
 const initialCommitSeq = CommitSeqSchema.make(0n);
-const initialOutboxSeq = OutboxSeqSchema.make(0n);
 const initialAuthorizationRevocationEpoch =
   TransactionAuthorizationRevocationEpochSchema.make(0n);
 
@@ -64,7 +62,6 @@ export async function insertInitialScopeClockInTransactionResult(
       storageGeneration: initialStorageGeneration,
       storageGenerationFence: initialStorageGenerationFence,
       lastCommitSeq: initialCommitSeq,
-      lastOutboxSeq: initialOutboxSeq,
       authorizationRevocationEpoch: initialAuthorizationRevocationEpoch,
       epoch: input.initialEpoch,
     })
@@ -94,7 +91,6 @@ export function isExactInitialScopeClock(
     clock.storageGeneration === initialStorageGeneration &&
     clock.storageGenerationFence === initialStorageGenerationFence &&
     clock.lastCommitSeq === initialCommitSeq &&
-    clock.lastOutboxSeq === initialOutboxSeq &&
     clock.epoch === input.initialEpoch
   );
 }

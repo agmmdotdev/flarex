@@ -608,7 +608,6 @@ export async function locatedTaskAuthorityV1(
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
     lastCommitSeq: clock.lastCommitSeq,
-    lastOutboxSeq: clock.lastOutboxSeq,
   });
   return Object.freeze({ authority, target });
 }

@@ -8,7 +8,7 @@ import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-pro
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 import {
-  CommitSeqSchema, OutboxSeqSchema, ScopeEpochSchema, ScopeEpochUuidV1Schema,
+  CommitSeqSchema, ScopeEpochSchema, ScopeEpochUuidV1Schema,
   ScopeUuidV1Schema, FlarexDbV1StorageGenerationSchema, decodeReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
@@ -17,7 +17,7 @@ import { ScopePublicationCorruptionError, type ScopePublicationContribution, typ
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { getScopeClock, lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
-import { fxAppRowRevisions, fxSystemCommitAppRowChanges, fxSystemCommits, fxSystemIdempotency, fxSystemOutbox, fxSystemScopeClocks } from "../src/schema";
+import { fxAppRowRevisions, fxSystemCommitAppRowChanges, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemScopeClocks } from "../src/schema";
 import { runEffect } from "./effectTestRuntime";
 
 /** Tests the private SQL publication owner, independently of participant admission limits. */
@@ -47,7 +47,7 @@ export async function scopePublicationBatchScenario(persistence: PGliteFlarexPer
       facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges).where(eq(fxSystemCommitAppRowChanges.scopeUuid, scopeUuid)).orderBy(fxSystemCommitAppRowChanges.changeOrdinal),
       headers: await persistence.drizzle.select().from(fxSystemCommits).where(eq(fxSystemCommits.scopeUuid, scopeUuid)),
       outcomes: await persistence.drizzle.select().from(fxSystemIdempotency).where(eq(fxSystemIdempotency.scopeUuid, scopeUuid)),
-      wakes: await persistence.drizzle.select().from(fxSystemOutbox).where(eq(fxSystemOutbox.scopeUuid, scopeUuid)),
+      wakes: await persistence.drizzle.select().from(fxSystemCommitWakes).where(eq(fxSystemCommitWakes.scopeUuid, scopeUuid)),
       clock: await getScopeClock(persistence.drizzle, scopeId),
     });
     const publish = (failAtBatch?: number) => {
@@ -57,7 +57,7 @@ export async function scopePublicationBatchScenario(persistence: PGliteFlarexPer
         const record = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, scopeId));
         const kernel = {
           clock: { record, scopeUuid, epochUuid }, commitSeq,
-          outboxSeq: OutboxSeqSchema.make(1n), publicationTimeMilliseconds: Date.now(),
+          publicationTimeMilliseconds: Date.now(),
           relationAdjacencyChanges: [],
         } satisfies ScopePublicationKernel;
         // Pre-existing row owner output is a fixture input to this publication-only proof.

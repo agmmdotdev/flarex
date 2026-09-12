@@ -53,10 +53,8 @@ export const publishCurrencyAnnouncement = Effect.fn(
     readScopePublicationDatabaseTime(tx, scopeId, materialization),
   );
   const allocation = yield* Effect.fromResult(
-    allocateScopePublicationResult(clock, "publish", now),
+    allocateScopePublicationResult(clock, now),
   );
-  if (allocation.outboxSeq === null)
-    return yield* Effect.fail(compositeError("storedCorruption"));
   const adjacency = yield* closed.delta.lower(allocation.commitSeq);
   const contribution: ScopePublicationContribution = {
     authorityPins: {
@@ -74,7 +72,6 @@ export const publishCurrencyAnnouncement = Effect.fn(
   const kernel: ScopePublicationKernel = {
     clock,
     ...allocation,
-    outboxSeq: allocation.outboxSeq,
     relationAdjacencyChanges: adjacency,
   };
   yield* publication((signal) =>

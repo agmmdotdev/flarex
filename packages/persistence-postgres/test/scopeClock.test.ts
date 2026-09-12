@@ -5,12 +5,10 @@ import {
   FlarexDbV1StorageGenerationSchema,
   LegacyV1StorageGenerationSchema,
   MAX_PERSISTED_SIGNED_INT64_V1,
-  OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
   type CommitSeq,
-  type OutboxSeq,
   type ScopeEpoch,
   type ScopeId,
   type StorageGeneration,
@@ -79,8 +77,6 @@ describe("scope clock", () => {
       .toEqualTypeOf<CommitSeq>();
     expectTypeOf<ScopeClockRecord["oldestAvailableCommitSeq"]>()
       .toEqualTypeOf<CommitSeq>();
-    expectTypeOf<ScopeClockRecord["lastOutboxSeq"]>()
-      .toEqualTypeOf<OutboxSeq>();
     expectTypeOf<ForbiddenScopeClockMethod>().toEqualTypeOf<never>();
     expectTypeOf<
       ReturnType<
@@ -134,7 +130,6 @@ describe("scope clock", () => {
       storageGenerationFence: StorageGenerationFenceSchema.make(1n),
       lastCommitSeq: CommitSeqSchema.make(0n),
       oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
-      lastOutboxSeq: OutboxSeqSchema.make(0n),
       epoch: ScopeEpochSchema.make("epoch-stateful-date"),
       updatedAt: source,
     });
@@ -193,17 +188,6 @@ describe("scope clock", () => {
       {
         row: { ...valid, oldestAvailableCommitSeq: 1n },
         reason: "oldest available commit sequence is outside the retained range",
-      },
-      {
-        row: { ...valid, lastOutboxSeq: 1 },
-        reason: "last outbox sequence is invalid",
-      },
-      {
-        row: {
-          ...valid,
-          lastOutboxSeq: MAX_PERSISTED_SIGNED_INT64_V1 + 1n,
-        },
-        reason: "last outbox sequence is outside the signed-bigint range",
       },
       {
         row: { ...valid, updatedAt: new Date(Number.NaN) },
@@ -368,7 +352,6 @@ describe("scope clock", () => {
         9_007_199_254_740_993n,
       ),
       lastCommitSeq: CommitSeqSchema.make(9_007_199_254_740_993n),
-      lastOutboxSeq: OutboxSeqSchema.make(9_007_199_254_740_994n),
       epoch: ScopeEpochSchema.make("epoch-large"),
       updatedAt: new Date("2026-07-10T00:00:00.000Z"),
     });
@@ -378,7 +361,6 @@ describe("scope clock", () => {
       storageGeneration: "legacy_v1",
       storageGenerationFence: 1n,
       lastCommitSeq: 0n,
-      lastOutboxSeq: 0n,
       epoch: "epoch-empty",
     });
     const largeClock = await persistence.getScopeClock(largeScopeId);
@@ -388,7 +370,6 @@ describe("scope clock", () => {
       storageGenerationFence: 9_007_199_254_740_993n,
       lastCommitSeq: 9_007_199_254_740_993n,
       oldestAvailableCommitSeq: 0n,
-      lastOutboxSeq: 9_007_199_254_740_994n,
       epoch: "epoch-large",
       updatedAt: new Date("2026-07-10T00:00:00.000Z"),
     });
@@ -416,7 +397,6 @@ describe("scope clock", () => {
         storageGeneration: "legacy_v1",
         fence: "1",
         commitSeq: "0",
-        outboxSeq: "0",
         epoch: "epoch-a",
       },
       {
@@ -425,7 +405,6 @@ describe("scope clock", () => {
         storageGeneration: "unknown_v1",
         fence: "1",
         commitSeq: "0",
-        outboxSeq: "0",
         epoch: "epoch-a",
       },
       {
@@ -434,7 +413,6 @@ describe("scope clock", () => {
         storageGeneration: "legacy_v1",
         fence: "0",
         commitSeq: "0",
-        outboxSeq: "0",
         epoch: "epoch-a",
       },
       {
@@ -443,16 +421,6 @@ describe("scope clock", () => {
         storageGeneration: "legacy_v1",
         fence: "1",
         commitSeq: "-1",
-        outboxSeq: "0",
-        epoch: "epoch-a",
-      },
-      {
-        suffix: "outbox",
-        scopeId: "scope_invalid_outbox",
-        storageGeneration: "legacy_v1",
-        fence: "1",
-        commitSeq: "0",
-        outboxSeq: "-1",
         epoch: "epoch-a",
       },
       {
@@ -461,7 +429,6 @@ describe("scope clock", () => {
         storageGeneration: "legacy_v1",
         fence: "1",
         commitSeq: "0",
-        outboxSeq: "0",
         epoch: "\u00a0\ufeff",
       },
     ] as const;
@@ -475,16 +442,14 @@ describe("scope clock", () => {
               storage_generation,
               storage_generation_fence,
               last_commit_seq,
-              last_outbox_seq,
               epoch
-            ) values ($1, $2, $3, $4, $5, $6)
+            ) values ($1, $2, $3, $4, $5)
           `,
           [
             row.scopeId,
             row.storageGeneration,
             row.fence,
             row.commitSeq,
-            row.outboxSeq,
             row.epoch,
           ],
         ),
@@ -687,7 +652,6 @@ describe("scope clock", () => {
       storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
       storageGenerationFence: StorageGenerationFenceSchema.make(1n),
       lastCommitSeq: CommitSeqSchema.make(0n),
-      lastOutboxSeq: OutboxSeqSchema.make(0n),
       epoch: ScopeEpochSchema.make("epoch-authorization-advance"),
       updatedAt: oldUpdatedAt,
     });
@@ -734,7 +698,6 @@ describe("scope clock", () => {
         storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
         storageGenerationFence: StorageGenerationFenceSchema.make(1n),
         lastCommitSeq: CommitSeqSchema.make(0n),
-        lastOutboxSeq: OutboxSeqSchema.make(0n),
         epoch: ScopeEpochSchema.make(epoch),
         updatedAt: oldUpdatedAt,
       });
@@ -794,7 +757,6 @@ describe("scope clock", () => {
         drop constraint fx_system_scope_clock_storage_generation_fence_positive_check,
         drop constraint fx_system_scope_clock_last_commit_seq_non_negative_check,
         drop constraint fx_system_scope_clock_oldest_available_commit_seq_check,
-        drop constraint fx_system_scope_clock_last_outbox_seq_non_negative_check,
         drop constraint fx_system_scope_clock_epoch_non_empty_check
     `);
 
@@ -804,7 +766,6 @@ describe("scope clock", () => {
         storageGeneration: "unknown_v1",
         fence: "1",
         commitSeq: "0",
-        outboxSeq: "0",
         epoch: "epoch-a",
       },
       {
@@ -812,7 +773,6 @@ describe("scope clock", () => {
         storageGeneration: "legacy_v1",
         fence: "0",
         commitSeq: "0",
-        outboxSeq: "0",
         epoch: "epoch-a",
       },
       {
@@ -820,15 +780,6 @@ describe("scope clock", () => {
         storageGeneration: "legacy_v1",
         fence: "1",
         commitSeq: "-1",
-        outboxSeq: "0",
-        epoch: "epoch-a",
-      },
-      {
-        suffix: "outbox",
-        storageGeneration: "legacy_v1",
-        fence: "1",
-        commitSeq: "0",
-        outboxSeq: "-1",
         epoch: "epoch-a",
       },
       {
@@ -836,7 +787,6 @@ describe("scope clock", () => {
         storageGeneration: "legacy_v1",
         fence: "1",
         commitSeq: "0",
-        outboxSeq: "0",
         epoch: "\t\n",
       },
     ] as const;
@@ -850,16 +800,14 @@ describe("scope clock", () => {
             storage_generation,
             storage_generation_fence,
             last_commit_seq,
-            last_outbox_seq,
             epoch
-          ) values ($1, $2, $3, $4, $5, $6)
+          ) values ($1, $2, $3, $4, $5)
         `,
         [
           scopeId,
           row.storageGeneration,
           row.fence,
           row.commitSeq,
-          row.outboxSeq,
           row.epoch,
         ],
       );
@@ -897,7 +845,6 @@ describe("scope clock", () => {
               FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
             storageGenerationFence: StorageGenerationFenceSchema.make(2n),
             lastCommitSeq: CommitSeqSchema.make(1n),
-            lastOutboxSeq: OutboxSeqSchema.make(1n),
             epoch: ScopeEpochSchema.make("epoch-after"),
             updatedAt: new Date("2026-07-11T00:00:00.000Z"),
           })
@@ -933,7 +880,6 @@ function validScopeClockRow() {
     storageGenerationFence: 1n,
     lastCommitSeq: 0n,
     oldestAvailableCommitSeq: 0n,
-    lastOutboxSeq: 0n,
     epoch: "epoch-clock-result-decoder",
     updatedAt: new Date("2026-07-10T00:00:00.000Z"),
   } as const;
@@ -958,7 +904,6 @@ async function insertDefaultScopeClock(
 interface ScopeClockFixture extends DefaultScopeClockFixture {
   readonly storageGenerationFence: StorageGenerationFence;
   readonly lastCommitSeq: CommitSeq;
-  readonly lastOutboxSeq: OutboxSeq;
   readonly updatedAt: Date;
 }
 
@@ -973,17 +918,15 @@ async function insertScopeClockFixture(
         storage_generation,
         storage_generation_fence,
         last_commit_seq,
-        last_outbox_seq,
         epoch,
         updated_at
-      ) values ($1, $2, $3, $4, $5, $6, $7::timestamptz)
+      ) values ($1, $2, $3, $4, $5, $6::timestamptz)
     `,
     [
       input.scopeId,
       input.storageGeneration,
       input.storageGenerationFence.toString(),
       input.lastCommitSeq.toString(),
-      input.lastOutboxSeq.toString(),
       input.epoch,
       input.updatedAt.toISOString(),
     ],

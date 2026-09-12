@@ -3,7 +3,6 @@ import { Result } from "effect";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
-  OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
@@ -130,7 +129,6 @@ describe("shared scope authority provisioning", () => {
         storageGeneration: "legacy_v1",
         storageGenerationFence: 1n,
         lastCommitSeq: 0n,
-        lastOutboxSeq: 0n,
         epoch: `epoch_${uuids.epochA}`,
       },
     });
@@ -233,7 +231,6 @@ describe("shared scope authority provisioning", () => {
           FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
         storageGenerationFence: StorageGenerationFenceSchema.make(7n),
         lastCommitSeq: CommitSeqSchema.make(11n),
-        lastOutboxSeq: OutboxSeqSchema.make(13n),
         epoch: ScopeEpochSchema.make("epoch_advanced"),
         updatedAt: advancedAt,
       })
@@ -258,7 +255,6 @@ describe("shared scope authority provisioning", () => {
         storageGeneration: "flarexdb_v1",
         storageGenerationFence: 7n,
         lastCommitSeq: 11n,
-        lastOutboxSeq: 13n,
         epoch: "epoch_advanced",
         updatedAt: advancedAt,
       },

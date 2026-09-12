@@ -153,10 +153,8 @@ describe("C07 private point-mutation correctness gate — PGlite", () => {
         commitSeqs: ["1", "2", "3"],
         changeCommitSeqs: ["1", "2", "3"],
         outcomeCommitSeqs: ["2", "3"],
-        outboxSeqs: ["1", "2"],
         outboxCommitSeqs: ["2", "3"],
         lastCommitSeq: "3",
-        lastOutboxSeq: "2",
       },
     });
     const intrinsic = await persistence.query<{

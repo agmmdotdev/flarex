@@ -96,7 +96,6 @@ export interface TrustedScopeAuthority {
     ScopeClockRecord["storageGenerationFence"];
   readonly epoch: ScopeClockRecord["epoch"];
   readonly lastCommitSeq: ScopeClockRecord["lastCommitSeq"];
-  readonly lastOutboxSeq: ScopeClockRecord["lastOutboxSeq"];
 }
 
 export interface LocatedTrustedScopeAuthority<
@@ -429,7 +428,6 @@ function trustedAuthorityResult(
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
     lastCommitSeq: clock.lastCommitSeq,
-    lastOutboxSeq: clock.lastOutboxSeq,
   }) satisfies TrustedScopeAuthority);
 }
 

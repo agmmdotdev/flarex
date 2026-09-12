@@ -182,7 +182,6 @@ function captureAuthority(
     storageGenerationFence: authority.storageGenerationFence,
     epoch: authority.epoch,
     lastCommitSeq: authority.lastCommitSeq,
-    lastOutboxSeq: authority.lastOutboxSeq,
   });
 }
 
@@ -204,7 +203,6 @@ function scopedContext(
       storageGenerationFence: clock.storageGenerationFence,
       lastCommitSeq: clock.lastCommitSeq,
       oldestAvailableCommitSeq: clock.oldestAvailableCommitSeq,
-      lastOutboxSeq: clock.lastOutboxSeq,
       epoch: clock.epoch,
       updatedAt,
     }),

@@ -42,7 +42,7 @@ import type {
 import {
   fxSystemScopeClocks,
   fxSystemCommits,
-  fxSystemOutbox,
+  fxSystemCommitWakes,
   fxSystemCommitAppRowChanges,
   fxSystemCommitRelationAdjacencyChanges,
   fxSystemIdempotency,
@@ -186,7 +186,7 @@ export async function exerciseRelationalStore<
     .select()
     .from(fxSystemScopeClocks);
   const commits = await fixture.target.drizzle.select().from(fxSystemCommits);
-  const wakes = await fixture.target.drizzle.select().from(fxSystemOutbox);
+  const wakes = await fixture.target.drizzle.select().from(fxSystemCommitWakes);
   const appFacts = await fixture.target.drizzle
     .select()
     .from(fxSystemCommitAppRowChanges);
@@ -707,7 +707,7 @@ export async function exerciseRelationalStore<
   expect(await fixture.target.drizzle.select().from(fxSystemCommits)).toEqual(
     commits,
   );
-  expect(await fixture.target.drizzle.select().from(fxSystemOutbox)).toEqual(
+  expect(await fixture.target.drizzle.select().from(fxSystemCommitWakes)).toEqual(
     wakes,
   );
   expect(

@@ -7,7 +7,6 @@ it("retains publication corruption and resource categories through both root bou
     [new ScopePublicationCorruptionError({ reason: "scopeClockInvalid" }), "storedCorruption"],
     [new ScopePublicationCorruptionError({ reason: "publicationInvariantInvalid" }), "storedCorruption"],
     [new ScopePublicationResourceError({ dimension: "commitSequence", maximum: 100n }), "resourceFailure"],
-    [new ScopePublicationResourceError({ dimension: "outboxSequence", maximum: 100n }), "resourceFailure"],
     [new ScopePublicationSqlFailure({ operation: "writeOutcome", cause: new Error("SQL failure") }), "resourceFailure"],
   ] as const;
   for (const [cause, reason] of cases) {

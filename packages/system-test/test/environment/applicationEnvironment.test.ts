@@ -324,7 +324,7 @@ describe("Standard Application system-test environment - PGlite", () => {
         (select count(*)::text from fx_system_commit) as commit_count,
         (select count(*)::text from fx_system_idempotency) as outcome_count,
         (select count(*)::text from fx_system_commit_app_row_change) as feed_count,
-        (select count(*)::text from fx_system_outbox) as outbox_count
+        (select count(*)::text from fx_system_commit_wake) as outbox_count
     `);
     expect(durableCounts.rows).toEqual([{
       current_count: "0",

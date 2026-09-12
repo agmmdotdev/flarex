@@ -5,7 +5,6 @@ import {
   FlarexDbV1StorageGenerationSchema,
   LegacyV1StorageGenerationSchema,
   MAX_PERSISTED_SIGNED_INT64_V1,
-  OutboxSeqSchema,
   InvalidScopeAuthorityUuidProjectionV1Error,
   ScopeEpochSchema,
   ScopeIdSchema,
@@ -23,7 +22,6 @@ import type {
   CommitSeq,
   FlarexDbV1StorageGeneration,
   LegacyV1StorageGeneration,
-  OutboxSeq,
   ScopeEpoch,
   ScopeId,
   SnapshotToken,
@@ -35,8 +33,6 @@ const decodeScopeId = Schema.decodeUnknownSync(ScopeIdSchema);
 const decodeScopeEpoch = Schema.decodeUnknownSync(ScopeEpochSchema);
 const decodeCommitSeq = Schema.decodeUnknownSync(CommitSeqSchema);
 const encodeCommitSeq = Schema.encodeSync(CommitSeqSchema);
-const decodeOutboxSeq = Schema.decodeUnknownSync(OutboxSeqSchema);
-const encodeOutboxSeq = Schema.encodeSync(OutboxSeqSchema);
 const decodeStorageGenerationFence = Schema.decodeUnknownSync(
   StorageGenerationFenceSchema,
 );
@@ -61,7 +57,6 @@ describe("FlarexDB storage authority contracts", () => {
 
     expectTypeOf<CommitSeq>().toMatchTypeOf<bigint>();
     expectTypeOf<bigint>().not.toMatchTypeOf<CommitSeq>();
-    expectTypeOf<CommitSeq>().not.toEqualTypeOf<OutboxSeq>();
     expectTypeOf<StorageGenerationFence>().toMatchTypeOf<bigint>();
     expectTypeOf<bigint>().not.toMatchTypeOf<StorageGenerationFence>();
     expectTypeOf<StorageGenerationFence>().not.toEqualTypeOf<CommitSeq>();
@@ -177,12 +172,9 @@ describe("FlarexDB storage authority contracts", () => {
       MAX_PERSISTED_SIGNED_INT64_V1.toString(),
     ]) {
       const commitSeq = decodeCommitSeq(value);
-      const outboxSeq = decodeOutboxSeq(value);
 
       expect(commitSeq).toBe(BigInt(value));
-      expect(outboxSeq).toBe(BigInt(value));
       expect(encodeCommitSeq(commitSeq)).toBe(value);
-      expect(encodeOutboxSeq(outboxSeq)).toBe(value);
     }
   });
 
@@ -201,13 +193,11 @@ describe("FlarexDB storage authority contracts", () => {
       (MAX_PERSISTED_SIGNED_INT64_V1 + 1n).toString(),
     ]) {
       expect(() => decodeCommitSeq(value)).toThrow();
-      expect(() => decodeOutboxSeq(value)).toThrow();
     }
   });
 
   it("rejects negative counters at the decoded type boundary", () => {
     expect(() => CommitSeqSchema.make(-1n)).toThrow();
-    expect(() => OutboxSeqSchema.make(-1n)).toThrow();
     const uncheckedNegativeCommitSeq = CommitSeqSchema.make(-1n, {
       disableChecks: true,
     });

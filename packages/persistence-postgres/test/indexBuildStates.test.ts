@@ -15,7 +15,6 @@ import {
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
-  OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
@@ -635,7 +634,6 @@ function validFencedIndexBuildReadRow(
       storageGeneration: "flarexdb_v1" as const,
       storageGenerationFence: 1n,
       lastCommitSeq: 0n,
-      lastOutboxSeq: 0n,
       epoch: "epoch-index-build-row",
       epochUuid: "00000000-0000-5000-8000-000000000002",
       updatedAt: timestamp,
@@ -730,7 +728,6 @@ async function insertClock(
     storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
     storageGenerationFence: fixture.fence,
     lastCommitSeq: fixture.lastCommitSeq,
-    lastOutboxSeq: OutboxSeqSchema.make(0n),
     epoch: fixture.epoch,
   });
 }

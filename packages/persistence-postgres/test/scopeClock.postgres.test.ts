@@ -15,7 +15,6 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
-  OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
@@ -99,7 +98,6 @@ describePostgres("real Postgres scope clock locking", () => {
               storageGenerationFence:
                 StorageGenerationFenceSchema.make(2n),
               lastCommitSeq: CommitSeqSchema.make(1n),
-              lastOutboxSeq: OutboxSeqSchema.make(1n),
               epoch: ScopeEpochSchema.make("epoch-tentative"),
               updatedAt: new Date("2026-07-11T00:00:00.000Z"),
             })
@@ -162,7 +160,6 @@ describePostgres("real Postgres scope clock locking", () => {
           storageGeneration: "legacy_v1",
           storageGenerationFence: 1n,
           lastCommitSeq: 0n,
-          lastOutboxSeq: 0n,
           epoch: "epoch-locked",
         });
       } finally {

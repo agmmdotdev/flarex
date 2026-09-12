@@ -4,13 +4,11 @@ import { eq, sql } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import {
   CommitSeqSchema,
-  OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
   StorageGenerationSchema,
   type CommitSeq,
-  type OutboxSeq,
   type ScopeEpoch,
   type ScopeId,
   type StorageGeneration,
@@ -28,9 +26,6 @@ import { fxSystemScopeClocks } from "./schema";
 
 const decodeCommitSeqResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSeqSchema),
-);
-const decodeOutboxSeqResult = Schema.decodeUnknownResult(
-  Schema.toType(OutboxSeqSchema),
 );
 const decodeScopeEpochResult = Schema.decodeUnknownResult(
   Schema.toType(ScopeEpochSchema),
@@ -51,7 +46,6 @@ export interface ScopeClockRecord {
   readonly storageGenerationFence: StorageGenerationFence;
   readonly lastCommitSeq: CommitSeq;
   readonly oldestAvailableCommitSeq: CommitSeq;
-  readonly lastOutboxSeq: OutboxSeq;
   readonly epoch: ScopeEpoch;
   readonly updatedAt: Date;
 }
@@ -366,7 +360,6 @@ interface ScopeClockRecordRow {
   readonly storageGenerationFence: unknown;
   readonly lastCommitSeq: unknown;
   readonly oldestAvailableCommitSeq: unknown;
-  readonly lastOutboxSeq: unknown;
   readonly epoch: unknown;
   readonly updatedAt: unknown;
 }
@@ -451,20 +444,6 @@ export function decodeScopeClockRecordResult(
       ));
     }
 
-    const rawLastOutboxSeq = row.lastOutboxSeq;
-    if (typeof rawLastOutboxSeq !== "bigint") {
-      return yield* Result.fail(new ScopeClockCorruptionError(
-        diagnosticScopeId,
-        "last outbox sequence is invalid",
-      ));
-    }
-    if (rawLastOutboxSeq < 0n) {
-      return yield* Result.fail(new ScopeClockCorruptionError(
-        diagnosticScopeId,
-        "last outbox sequence is negative",
-      ));
-    }
-
     const updatedAt = copyFiniteDate(row.updatedAt);
     if (updatedAt === undefined) {
       return yield* Result.fail(new ScopeClockCorruptionError(
@@ -498,11 +477,6 @@ export function decodeScopeClockRecordResult(
       diagnosticScopeId,
       "oldest available commit sequence is outside the signed-bigint range",
     );
-    const lastOutboxSeq = yield* decodeScopeClockFieldResult(
-      decodeOutboxSeqResult(rawLastOutboxSeq),
-      diagnosticScopeId,
-      "last outbox sequence is outside the signed-bigint range",
-    );
     const epoch = yield* decodeScopeClockFieldResult(
       decodeScopeEpochResult(rawEpoch),
       diagnosticScopeId,
@@ -515,7 +489,6 @@ export function decodeScopeClockRecordResult(
       storageGenerationFence,
       lastCommitSeq,
       oldestAvailableCommitSeq,
-      lastOutboxSeq,
       epoch,
       updatedAt,
     } satisfies ScopeClockRecord;

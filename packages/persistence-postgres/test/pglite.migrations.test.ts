@@ -116,6 +116,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_commit_payload_preference_deletion",
       "fx_system_commit_relation_adjacency_change",
       "fx_system_commit_relational_change",
+      "fx_system_commit_wake",
       "fx_system_data_binding_activation",
       "fx_system_data_binding_candidate",
       "fx_system_data_binding_head",
@@ -153,7 +154,6 @@ describe("createPGlitePersistence", () => {
       "fx_system_framework_schema_target_namespace",
       "fx_system_idempotency",
       "fx_system_index_build_state",
-      "fx_system_outbox",
       "fx_system_physical_definition_lifecycle",
       "fx_system_point_mutation_redelivery_scheduler",
       "fx_system_relational_physical_name_assignment",
@@ -1694,15 +1694,8 @@ describe("createPGlitePersistence", () => {
       await previousPersistence.migrate();
       await previousPersistence.query(`
         insert into fx_system_scope_clock
-          (
-            scope_id,
-            storage_generation,
-            storage_generation_fence,
-            last_commit_seq,
-            last_outbox_seq,
-            epoch
-          )
-        values ('scope_before_index_build', 'flarexdb_v1', 7, 11, 13, 'epoch-before-build')
+      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
+      values ('scope_before_index_build', 'flarexdb_v1', 7, 11, 'epoch-before-build')
       `);
       await expect(
         previousPersistence.query(
@@ -3267,12 +3260,8 @@ describe("createPGlitePersistence", () => {
       await previous.migrate();
       await previous.query(`
         insert into fx_system_scope_clock
-          (scope_id, storage_generation, storage_generation_fence,
-           last_commit_seq, last_outbox_seq, epoch)
-        values
-          ('scope_c0842000-0000-0000-0000-000000000001',
-           'flarexdb_v1', 1, 1, 0,
-           'epoch_c0842000-0000-0000-0000-000000000001');
+      (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
+      values ('scope_c0842000-0000-0000-0000-000000000001', 'flarexdb_v1', 1, 1, 'epoch_c0842000-0000-0000-0000-000000000001');
       `);
       await previous.query(`
         insert into fx_app_row_rev

@@ -21,7 +21,6 @@ import {
   insertPendingWake,
   insertWakeHeader,
   insertWakeScope,
-  outboxSeq,
   WAKE_EPOCH_A,
   WAKE_EPOCH_B,
   WAKE_OWNER_A,
@@ -34,7 +33,7 @@ describe("S09-B private commit-wake outbox", () => {
   it("keeps the replacement outbox outside the broad relational query surface", () => {
     type QueryLeak = Extract<
       keyof PGliteFlarexPersistence["drizzle"]["query"],
-      "fxSystemOutbox"
+      "fxSystemCommitWakes"
     >;
     expectTypeOf<QueryLeak>().toEqualTypeOf<never>();
   });
@@ -71,7 +70,7 @@ describe("S09-B private commit-wake outbox", () => {
     } satisfies ClaimReadyCommitWakesInputV1;
     const settleClaim = {
       scopeUuid: WAKE_SCOPE_A,
-      outboxSeq: outboxSeq(1n),
+      commitSeq: commitSeq(1n),
       claimOwner: WAKE_OWNER_A,
       claimFence: CommitWakeClaimFenceV1Schema.make(1n),
       settlement: { kind: "delivered" },
@@ -122,16 +121,16 @@ describe("S09-B private commit-wake outbox", () => {
     await expectInputFailure(
       repository.settleClaim(changed(settleClaim, [
         ["scopeUuid", "invalid"],
-        ["outboxSeq", 0n],
+        ["commitSeq", 0n],
       ])),
       "scopeUuidInvalid",
     );
     await expectInputFailure(
       repository.settleClaim(changed(settleClaim, [
-        ["outboxSeq", 0n],
+        ["commitSeq", 0n],
         ["claimOwner", "invalid"],
       ])),
-      "outboxSeqInvalid",
+      "commitSeqInvalid",
     );
     await expectInputFailure(
       repository.settleClaim(changed(settleClaim, [
@@ -176,12 +175,10 @@ describe("S09-B private commit-wake outbox", () => {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_B,
       lastCommitSeq: 1n,
-      lastOutboxSeq: 1n,
     });
     await insertWakeHeader(persistence, WAKE_SCOPE_A, WAKE_EPOCH_A, 1n);
     await insertPendingWake(persistence, {
       scopeUuid: WAKE_SCOPE_A,
-      outboxSeq: 1n,
       epochUuid: WAKE_EPOCH_A,
       commitSeq: 1n,
     });
@@ -200,13 +197,12 @@ describe("S09-B private commit-wake outbox", () => {
     expect(first.value).toMatchObject({
       epochUuid: WAKE_EPOCH_A,
       claimFence: 1n,
-      attemptCount: 1n,
       previousFailure: null,
     });
 
     const retry = await runEffect(repository.settleClaim({
       scopeUuid: WAKE_SCOPE_A,
-      outboxSeq: outboxSeq(1n),
+      commitSeq: commitSeq(1n),
       claimOwner: WAKE_OWNER_A,
       claimFence: first.value.claimFence,
       settlement: {
@@ -219,9 +215,9 @@ describe("S09-B private commit-wake outbox", () => {
     expect(retry.state).toBe("pending");
 
     await persistence.query(`
-      update fx_system_outbox
+      update fx_system_commit_wake
       set next_attempt_at = clock_timestamp()
-      where scope_uuid = '${WAKE_SCOPE_A}'::uuid and outbox_seq = 1
+      where scope_uuid = '${WAKE_SCOPE_A}'::uuid and commit_seq = 1
     `);
     const secondBatch = await runEffect(repository.claimReadyBatch({
       scopeUuid: WAKE_SCOPE_A,
@@ -234,7 +230,6 @@ describe("S09-B private commit-wake outbox", () => {
     if (secondClaim === undefined) throw new Error("Expected a retry claim.");
     expect(secondClaim).toMatchObject({
       claimFence: 2n,
-      attemptCount: 2n,
       claimOwner: WAKE_OWNER_B,
       previousFailure: {
         code: "transient_delivery",
@@ -244,7 +239,7 @@ describe("S09-B private commit-wake outbox", () => {
 
     const delivered = await runEffect(repository.settleClaim({
       scopeUuid: WAKE_SCOPE_A,
-      outboxSeq: outboxSeq(1n),
+      commitSeq: commitSeq(1n),
       claimOwner: WAKE_OWNER_B,
       claimFence: secondClaim.claimFence,
       settlement: { kind: "delivered" },
@@ -261,23 +256,20 @@ describe("S09-B private commit-wake outbox", () => {
 
     const stored = await persistence.query<{
       state: string;
-      attempt_count: string;
       claim_fence: string;
       failure_code: string | null;
       failure_summary: string | null;
     }>(`
       select
         delivery_state as state,
-        attempt_count::text,
         claim_fence::text,
         last_failure_code as failure_code,
         last_failure_summary as failure_summary
-      from fx_system_outbox
-      where scope_uuid = '${WAKE_SCOPE_A}'::uuid and outbox_seq = 1
+      from fx_system_commit_wake
+      where scope_uuid = '${WAKE_SCOPE_A}'::uuid and commit_seq = 1
     `);
     expect(stored.rows).toEqual([{
       state: "delivered",
-      attempt_count: "2",
       claim_fence: "2",
       failure_code: "transient_delivery",
       failure_summary: "temporary sink refusal",
@@ -290,12 +282,10 @@ describe("S09-B private commit-wake outbox", () => {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
       lastCommitSeq: 1n,
-      lastOutboxSeq: 1n,
     });
     await insertWakeHeader(persistence, WAKE_SCOPE_A, WAKE_EPOCH_A, 1n);
     await insertPendingWake(persistence, {
       scopeUuid: WAKE_SCOPE_A,
-      outboxSeq: 1n,
       epochUuid: WAKE_EPOCH_A,
       commitSeq: 1n,
     });
@@ -311,9 +301,9 @@ describe("S09-B private commit-wake outbox", () => {
     expect(first).toHaveLength(1);
 
     await persistence.query(`
-      update fx_system_outbox
+      update fx_system_commit_wake
       set claim_expires_at = claimed_at + interval '1 millisecond'
-      where scope_uuid = '${WAKE_SCOPE_A}'::uuid and outbox_seq = 1
+      where scope_uuid = '${WAKE_SCOPE_A}'::uuid and commit_seq = 1
     `);
     const reclaimed = await runEffect(repository.claimReadyBatch({
       scopeUuid: WAKE_SCOPE_A,
@@ -332,7 +322,7 @@ describe("S09-B private commit-wake outbox", () => {
     const staleResult = await runEffect(Effect.result(
       repository.settleClaim({
         scopeUuid: WAKE_SCOPE_A,
-        outboxSeq: outboxSeq(1n),
+        commitSeq: commitSeq(1n),
         claimOwner: WAKE_OWNER_A,
         claimFence: firstClaim.claimFence,
         settlement: { kind: "delivered" },
@@ -356,23 +346,19 @@ describe("S09-B private commit-wake outbox", () => {
       epochUuid: WAKE_EPOCH_A,
       lastCommitSeq: 3n,
       oldestAvailableCommitSeq: 2n,
-      lastOutboxSeq: 3n,
     });
     await insertPendingWake(persistence, {
       scopeUuid: WAKE_SCOPE_A,
-      outboxSeq: 1n,
       epochUuid: WAKE_EPOCH_A,
       commitSeq: 1n,
     });
     await insertPendingWake(persistence, {
       scopeUuid: WAKE_SCOPE_A,
-      outboxSeq: 2n,
       epochUuid: WAKE_EPOCH_A,
       commitSeq: 2n,
     });
     await insertPendingWake(persistence, {
       scopeUuid: WAKE_SCOPE_A,
-      outboxSeq: 3n,
       epochUuid: WAKE_EPOCH_A,
       commitSeq: 3n,
     });
@@ -430,18 +416,17 @@ describe("S09-B private commit-wake outbox", () => {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
       lastCommitSeq: 1n,
-      lastOutboxSeq: 1n,
     });
     await insertWakeHeader(persistence, WAKE_SCOPE_A, WAKE_EPOCH_A, 1n);
     await persistence.query(`
-      insert into fx_system_outbox
-        (scope_uuid, outbox_seq, epoch_uuid, commit_seq, event_kind,
-         delivery_state, next_attempt_at, attempt_count, claim_fence,
+      insert into fx_system_commit_wake
+        (scope_uuid, epoch_uuid, commit_seq,
+         delivery_state, next_attempt_at, claim_fence,
          last_failure_code, last_failed_at)
       values
-        ('${WAKE_SCOPE_A}', 1, '${WAKE_EPOCH_A}', 1,
-         'deployment_sync_commit_wake_v1', 'pending', now(),
-         9223372036854775807, 9223372036854775807,
+        ('${WAKE_SCOPE_A}', '${WAKE_EPOCH_A}', 1,
+         'pending', now(),
+         9223372036854775807,
          'transient_delivery', now())
     `);
     const repository = createCommitWakeOutboxRepositoryV1(
@@ -464,7 +449,7 @@ describe("S09-B private commit-wake outbox", () => {
 
     await persistence.query(`
       update fx_system_scope_clock
-      set last_outbox_seq = 0
+      set last_commit_seq = 0
       where scope_uuid = '${WAKE_SCOPE_A}'::uuid
     `);
     const corrupt = await runEffect(Effect.result(
@@ -479,21 +464,19 @@ describe("S09-B private commit-wake outbox", () => {
     if (Result.isFailure(corrupt)) {
       expect(corrupt.failure).toBeInstanceOf(CommitWakeCorruptionErrorV1);
       expect(corrupt.failure).toMatchObject({
-        reason: "outboxSeqAheadOfClock",
+        reason: "commitSeqAheadOfClock",
       });
     }
 
     const stored = await persistence.query<{
-      attempt_count: string;
       claim_fence: string;
       delivery_state: string;
     }>(`
-      select attempt_count::text, claim_fence::text, delivery_state
-      from fx_system_outbox
-      where scope_uuid = '${WAKE_SCOPE_A}'::uuid and outbox_seq = 1
+      select claim_fence::text, delivery_state
+      from fx_system_commit_wake
+      where scope_uuid = '${WAKE_SCOPE_A}'::uuid and commit_seq = 1
     `);
     expect(stored.rows).toEqual([{
-      attempt_count: "9223372036854775807",
       claim_fence: "9223372036854775807",
       delivery_state: "pending",
     }]);

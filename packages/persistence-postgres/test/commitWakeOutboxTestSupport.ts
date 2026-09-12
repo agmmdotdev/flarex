@@ -1,16 +1,13 @@
 import type { FlarexPersistence } from "../src";
 import {
-  COMMIT_WAKE_OUTBOX_EVENT_KIND_V1,
   CommitWakeClaimOwnerV1Schema,
   type CommitWakeClaimOwnerV1,
 } from "../src/commitWakeOutbox";
 import {
   CommitSeqSchema,
-  OutboxSeqSchema,
   ScopeEpochUuidV1Schema,
   ScopeUuidV1Schema,
   type CommitSeq,
-  type OutboxSeq,
   type ScopeEpochUuidV1,
   type ScopeUuidV1,
 } from "flarex-protocol/storage-authority";
@@ -43,7 +40,6 @@ export interface InsertWakeScopeInput {
   readonly scopeUuid: ScopeUuidV1;
   readonly epochUuid: ScopeEpochUuidV1;
   readonly lastCommitSeq: bigint;
-  readonly lastOutboxSeq: bigint;
   readonly oldestAvailableCommitSeq?: bigint;
 }
 
@@ -55,14 +51,13 @@ export async function insertWakeScope(
     `
       insert into fx_system_scope_clock
         (scope_id, storage_generation, last_commit_seq,
-         oldest_available_commit_seq, last_outbox_seq, epoch)
-      values ($1, 'flarexdb_v1', $2, $3, $4, $5)
+         oldest_available_commit_seq, epoch)
+      values ($1, 'flarexdb_v1', $2, $3, $4)
     `,
     [
       `scope_${input.scopeUuid}`,
       String(input.lastCommitSeq),
       String(input.oldestAvailableCommitSeq ?? 0n),
-      String(input.lastOutboxSeq),
       `epoch_${input.epochUuid}`,
     ],
   );
@@ -88,33 +83,26 @@ export async function insertPendingWake(
   persistence: WakeSqlPersistence,
   input: Readonly<{
     scopeUuid: ScopeUuidV1;
-    outboxSeq: bigint;
     epochUuid: ScopeEpochUuidV1;
     commitSeq: bigint;
   }>,
 ): Promise<void> {
   await persistence.query(
     `
-      insert into fx_system_outbox
-        (scope_uuid, outbox_seq, epoch_uuid, commit_seq, event_kind)
-      values ($1::uuid, $2, $3::uuid, $4, $5)
+      insert into fx_system_commit_wake
+        (scope_uuid, epoch_uuid, commit_seq)
+      values ($1::uuid, $2::uuid, $3)
     `,
     [
       input.scopeUuid,
-      String(input.outboxSeq),
       input.epochUuid,
       String(input.commitSeq),
-      COMMIT_WAKE_OUTBOX_EVENT_KIND_V1,
     ],
   );
 }
 
 export function commitSeq(value: bigint): CommitSeq {
   return CommitSeqSchema.make(value);
-}
-
-export function outboxSeq(value: bigint): OutboxSeq {
-  return OutboxSeqSchema.make(value);
 }
 
 export function claimOwner(value: string): CommitWakeClaimOwnerV1 {

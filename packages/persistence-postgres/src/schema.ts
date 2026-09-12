@@ -158,7 +158,6 @@ import type {
 import type {
   CommitSeq,
   FlarexDbV1StorageGeneration,
-  OutboxSeq,
   ScopeEpoch,
   ScopeEpochUuidV1,
   ScopeId,
@@ -301,9 +300,6 @@ type TransactionJournalDependencyKindV1 =
   | "missing_tombstone";
 
 type IdempotencyResultState = "available" | "expired";
-
-export type CommitWakeOutboxEventKindV1 =
-  "deployment_sync_commit_wake_v1";
 
 export type CommitWakeOutboxDeliveryStateV1 =
   | "pending"
@@ -1572,10 +1568,6 @@ export const fxSystemScopeClocks = pgTable(
       .$type<CommitSeq>()
       .notNull()
       .default(sql`0`),
-    lastOutboxSeq: bigint("last_outbox_seq", { mode: "bigint" })
-      .$type<OutboxSeq>()
-      .notNull()
-      .default(sql`0`),
     authorizationRevocationEpoch: bigint("authorization_revocation_epoch", {
       mode: "bigint",
     })
@@ -1617,10 +1609,6 @@ export const fxSystemScopeClocks = pgTable(
     check(
       "fx_system_scope_clock_oldest_available_commit_seq_check",
       sql`${table.oldestAvailableCommitSeq} >= 0 and ${table.oldestAvailableCommitSeq} <= ${table.lastCommitSeq}`,
-    ),
-    check(
-      "fx_system_scope_clock_last_outbox_seq_non_negative_check",
-      sql`${table.lastOutboxSeq} >= 0`,
     ),
     check(
       "fx_system_scope_clock_authorization_revocation_epoch_non_negative_check",
@@ -1824,19 +1812,13 @@ export const fxSystemIdempotency = pgTable(
  * dispatcher. The commit token is correlated by the private repository rather
  * than foreign-keyed to compactable feed history.
  */
-export const fxSystemOutbox = pgTable(
-  "fx_system_outbox",
+export const fxSystemCommitWakes = pgTable(
+  "fx_system_commit_wake",
   {
     scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
-    outboxSeq: bigint("outbox_seq", { mode: "bigint" })
-      .$type<OutboxSeq>()
-      .notNull(),
     epochUuid: uuid("epoch_uuid").$type<ScopeEpochUuidV1>().notNull(),
     commitSeq: bigint("commit_seq", { mode: "bigint" })
       .$type<CommitSeq>()
-      .notNull(),
-    eventKind: text("event_kind")
-      .$type<CommitWakeOutboxEventKindV1>()
       .notNull(),
     deliveryState: text("delivery_state")
       .$type<CommitWakeOutboxDeliveryStateV1>()
@@ -1847,9 +1829,6 @@ export const fxSystemOutbox = pgTable(
       .defaultNow(),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
       .defaultNow(),
-    attemptCount: bigint("attempt_count", { mode: "bigint" })
-      .notNull()
-      .default(sql`0`),
     claimFence: bigint("claim_fence", { mode: "bigint" })
       .notNull()
       .default(sql`0`),
@@ -1864,20 +1843,15 @@ export const fxSystemOutbox = pgTable(
     deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
   },
   (table) => [
-    primaryKey({ columns: [table.scopeUuid, table.outboxSeq] }),
-    unique("fx_system_outbox_commit_event_unique").on(
-      table.scopeUuid,
-      table.eventKind,
-      table.commitSeq,
-    ),
+    primaryKey({ columns: [table.scopeUuid, table.commitSeq] }),
     foreignKey({
-      name: "fx_system_outbox_scope_clock_fk",
+      name: "fx_system_commit_wake_scope_clock_fk",
       columns: [table.scopeUuid],
       foreignColumns: [fxSystemScopeClocks.scopeUuid],
     })
       .onUpdate("restrict")
       .onDelete("restrict"),
-    index("fx_system_outbox_claimable_idx")
+    index("fx_system_commit_wake_claimable_idx")
       .on(
         table.scopeUuid,
         sql`(
@@ -1887,41 +1861,23 @@ export const fxSystemOutbox = pgTable(
             else null
           end
         )`,
-        table.outboxSeq,
+        table.commitSeq,
       )
       .where(sql`${table.deliveryState} in ('pending', 'claimed')`),
-    index("fx_system_outbox_commit_token_idx").on(
-      table.scopeUuid,
-      table.commitSeq,
-      table.epochUuid,
-      table.outboxSeq,
-    ),
     check(
-      "fx_system_outbox_outbox_seq_check",
-      sql`${table.outboxSeq} >= 1`,
-    ),
-    check(
-      "fx_system_outbox_commit_seq_check",
+      "fx_system_commit_wake_commit_seq_check",
       sql`${table.commitSeq} >= 1`,
     ),
     check(
-      "fx_system_outbox_event_kind_check",
-      sql`${table.eventKind} = 'deployment_sync_commit_wake_v1'`,
-    ),
-    check(
-      "fx_system_outbox_delivery_state_check",
+      "fx_system_commit_wake_delivery_state_check",
       sql`${table.deliveryState} in ('pending', 'claimed', 'delivered', 'dead_lettered')`,
     ),
     check(
-      "fx_system_outbox_attempt_fence_check",
-      sql`
-        ${table.attemptCount} >= 0
-        and ${table.claimFence} >= 0
-        and ${table.attemptCount} = ${table.claimFence}
-      `,
+      "fx_system_commit_wake_claim_fence_check",
+      sql`${table.claimFence} >= 0`,
     ),
     check(
-      "fx_system_outbox_failure_evidence_check",
+      "fx_system_commit_wake_failure_evidence_check",
       sql`
         (
           (
@@ -1952,7 +1908,7 @@ export const fxSystemOutbox = pgTable(
       `,
     ),
     check(
-      "fx_system_outbox_state_shape_check",
+      "fx_system_commit_wake_state_shape_check",
       sql`
         (
           (
@@ -1967,7 +1923,7 @@ export const fxSystemOutbox = pgTable(
             and ${table.deadLetteredAt} is null
             and (
               (
-                ${table.attemptCount} = 0
+                ${table.claimFence} = 0
                 and ${table.nextAttemptAt} = ${table.createdAt}
                 and ${table.lastFailureCode} is null
                 and ${table.lastFailureSummary} is null
@@ -1975,7 +1931,7 @@ export const fxSystemOutbox = pgTable(
               )
               or
               (
-                ${table.attemptCount} >= 1
+                ${table.claimFence} >= 1
                 and ${table.lastFailureCode} is not null
                 and ${table.lastFailedAt} is not null
                 and ${table.nextAttemptAt} >= ${table.lastFailedAt}
@@ -1985,7 +1941,7 @@ export const fxSystemOutbox = pgTable(
           or
           (
             ${table.deliveryState} = 'claimed'
-            and ${table.attemptCount} >= 1
+            and ${table.claimFence} >= 1
             and ${table.nextAttemptAt} is null
             and ${table.claimOwner} is not null
             and ${table.claimedAt} is not null
@@ -1998,14 +1954,14 @@ export const fxSystemOutbox = pgTable(
             and ${table.deadLetteredAt} is null
             and (
               (
-                ${table.attemptCount} = 1
+                ${table.claimFence} = 1
                 and ${table.lastFailureCode} is null
                 and ${table.lastFailureSummary} is null
                 and ${table.lastFailedAt} is null
               )
               or
               (
-                ${table.attemptCount} > 1
+                ${table.claimFence} > 1
                 and ${table.lastFailureCode} is not null
                 and ${table.lastFailedAt} is not null
               )
@@ -2014,7 +1970,7 @@ export const fxSystemOutbox = pgTable(
           or
           (
             ${table.deliveryState} = 'delivered'
-            and ${table.attemptCount} >= 1
+            and ${table.claimFence} >= 1
             and ${table.nextAttemptAt} is null
             and ${table.claimOwner} is null
             and ${table.claimedAt} is null
@@ -2025,14 +1981,14 @@ export const fxSystemOutbox = pgTable(
             and ${table.deadLetteredAt} is null
             and (
               (
-                ${table.attemptCount} = 1
+                ${table.claimFence} = 1
                 and ${table.lastFailureCode} is null
                 and ${table.lastFailureSummary} is null
                 and ${table.lastFailedAt} is null
               )
               or
               (
-                ${table.attemptCount} > 1
+                ${table.claimFence} > 1
                 and ${table.lastFailureCode} is not null
                 and ${table.lastFailedAt} is not null
               )
@@ -2041,7 +1997,7 @@ export const fxSystemOutbox = pgTable(
           or
           (
             ${table.deliveryState} = 'dead_lettered'
-            and ${table.attemptCount} >= 1
+            and ${table.claimFence} >= 1
             and ${table.nextAttemptAt} is null
             and ${table.claimOwner} is null
             and ${table.claimedAt} is null
@@ -2061,7 +2017,7 @@ export const fxSystemOutbox = pgTable(
       `,
     ),
     check(
-      "fx_system_outbox_created_at_check",
+      "fx_system_commit_wake_created_at_check",
       sql`isfinite(${table.createdAt})`,
     ),
   ],
