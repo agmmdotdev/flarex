@@ -1,6 +1,6 @@
 # Typed Physical Assignment Verification
 
-Status: proposed; shared-owner implementation approval pending.
+Status: candidate withdrawn; no runtime or type-contract change retained.
 
 ## Outcome, Owners And Non-Goals
 
@@ -148,7 +148,49 @@ Reject a type assertion, digest-only trust, global verified-object registry,
 second cache, adapter fast path, or new restoration certificate. The minimal
 correction preserves evidence already established by the existing owner.
 
+## Disposition And Remaining Boundary
+
+The experiment used a fixed shared-runtime checkpoint after record 69 was
+implemented. Its candidate preserved the concrete assignment type in the
+existing verifier and cache entry and removed only the three caller guards.
+Focused adversarial checks established cold validation, exact-byte warm reuse,
+both retention limits, cancellation cleanup and fresh stored-projection
+rejection. The two-driver repository witness changed from two structural checks
+per warm read to zero, while still issuing a fresh restored reference. The
+concrete result type also passed the persistence typecheck.
+
+That deterministic work reduction did not establish the agreed reproducible
+meaningful installation benefit. Two clean candidate installation/cold-reopen
+runs per driver were compared with unchanged baseline runs before and after
+the candidate. PGlite showed a modest reduction, but PostgreSQL candidate and
+baseline timings overlapped. An additional candidate launch that briefly
+overlapped the tail of typechecking was excluded from the comparison. All clean
+timing runs were serialized and used the same inventory assertion, seventeen
+tables, 106 steps and unchanged deadline. Numerical receipts belong in Git;
+the local experiment is retained under
+`work/validation/typed-assignment-verification/`.
+
+The candidate and its candidate-specific tests were removed. The four runtime
+files match the accepted baseline: the verifier and assignment entry still
+return/store `JsonObject`, and all three caller guards remain. There is no new
+cache, decoder, authority, schema, deadline or retained overload. Broader
+candidate regressions and significant-code reviews were not pursued after
+withdrawal; passing focused correctness checks does not override the performance
+acceptance gate.
+
+The unchanged core completed both installation/cold-reopen control runs on both
+drivers. This is bounded inventory evidence, not a diagnosis or resolution of
+the earlier intermittent timeouts. Native ShippingProfile operation assertions
+were filtered, and Link/connected-workflow completion remains unproved. Record
+66 must reassess its shared-installation gate on the current core before
+resuming those proofs; another speculative core abstraction is not a prerequisite
+established by this experiment. Synthetic-row elimination and wider verifier
+changes remain separate, unapproved boundaries.
+
 ## Validation And Completion Gates
+
+These were the approved candidate's gates. The reproducible-benefit gate was
+not met, so the withdrawal branch applies rather than implementation completion.
 
 Before implementation, establish a stable shared-worktree checkpoint including
 the disposition of record 69. Do not attribute a moving neighbor's change to
