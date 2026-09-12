@@ -16,7 +16,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@electric-sql/pglite": "0.5.4",
+    "@electric-sql/pglite": "catalog:",
     "@medusajs/framework": "workspace:*",
     "ulid": "2.4.0"
   },

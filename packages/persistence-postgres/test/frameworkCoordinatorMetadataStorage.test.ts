@@ -327,7 +327,7 @@ describe("framework coordinator metadata storage - PGlite", () => {
       );
       await expectSqlFailure(insertCollisionDomain(persistence, {
         targetNamespaceStorageId,
-        owner: "payload",
+        owner: "unsupported",
         lineageId: "invalid_owner",
       }), "23514", "fx_framework_migration_collision_identity_check");
       await expectSqlFailure(insertCollisionDomain(persistence, {
@@ -372,12 +372,12 @@ describe("framework coordinator metadata storage - PGlite", () => {
         `delete from ${COLLISION_DOMAIN_TABLE}
           where collision_storage_id = $1`,
         [collisionStorageId],
-      ), "23503", "fx_relational_name_assignment_collision_fk");
+      ), "23001", "fx_relational_name_assignment_collision_fk");
       await expectSqlFailure(persistence.query(
         `delete from ${TARGET_NAMESPACE_TABLE}
           where target_namespace_storage_id = $1`,
         [targetNamespaceStorageId],
-      ), "23503", "fx_framework_migration_collision_target_fk");
+      ), "23001", "fx_framework_migration_collision_target_fk");
 
       const beforeClose = await storedRootCounts(persistence);
       expect(beforeClose).toEqual({

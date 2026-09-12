@@ -116,7 +116,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
-    "@electric-sql/pglite": "^0.3.14",
+    "@electric-sql/pglite": "catalog:",
     "@types/node": "catalog:",
     "@types/pg": "^8.20.0",
     "@typescript/typescript6": "catalog:",

@@ -232,15 +232,15 @@ describe("framework schema artifact storage - PGlite", () => {
       await expectSqlFailure(persistence.query(
         `delete from ${ARTIFACT_TABLE} where artifact_storage_id = $1`,
         [dependencyStorageId],
-      ), "23503", "fx_framework_artifact_dependency_target_fk");
+      ), "23001", "fx_framework_artifact_dependency_target_fk");
       await expectSqlFailure(persistence.query(
         `delete from ${ARTIFACT_TABLE} where artifact_storage_id = $1`,
         [artifactStorageId],
-      ), "23503", "fx_framework_artifact_dependency_parent_fk");
+      ), "23001", "fx_framework_artifact_dependency_parent_fk");
       await expectSqlFailure(persistence.query(
         "delete from deployments where deployment_id = $1",
         ["deployment_framework_artifacts"],
-      ), "23503", "fx_framework_artifact_deployment_fk");
+      ), "23001", "fx_framework_artifact_deployment_fk");
 
       await expectExactTrimContract(persistence);
       await expectUtf8ByteLimits(persistence);

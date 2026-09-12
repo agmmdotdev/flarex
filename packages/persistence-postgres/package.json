@@ -248,7 +248,7 @@
     "test:framework-scalar-store:postgres": "node ../../scripts/run-test-lane.mjs framework-scalar-store-postgres"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.3.14",
+    "@electric-sql/pglite": "catalog:",
     "@flarex/analysis": "workspace:*",
     "@flarex/durable-task": "workspace:*",
     "@flarex/managed-schema": "workspace:*",

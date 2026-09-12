@@ -2062,7 +2062,7 @@
     {
       "target": "packages/medusa-test-utils/package.json",
       "classification": "authored",
-      "targetSha256": "840cf44568589655854825e1e274915a61e4df8d4fbe827d15de8237850e669e"
+      "targetSha256": "9d46fbd98db7dc19ac827e9957b84ec0d88dd28afc65b371ddf00e85aa881dec"
     },
     {
       "source": "third_party/medusa/upstream/packages/medusa-test-utils/src/mock-event-bus-service.ts",
@@ -3518,7 +3518,7 @@
       "path": "packages/medusa-test-utils",
       "name": "@medusajs/test-utils",
       "dependencies": {
-        "@electric-sql/pglite": "0.5.4",
+        "@electric-sql/pglite": "catalog:",
         "@medusajs/framework": "workspace:*",
         "ulid": "2.4.0"
       },

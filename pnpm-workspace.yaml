@@ -4,6 +4,7 @@ packages:
 
 catalog:
   "@cloudflare/workers-types": "^4.20260613.0"
+  "@electric-sql/pglite": "^0.5.8"
   "@typescript/typescript6": "^6.0.2"
   "@types/node": "^24.0.0"
   "effect": "4.0.0-rc.112"
