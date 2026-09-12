@@ -687,6 +687,13 @@
       "when": 1789209185469,
       "tag": "0097_unique_physical_coverage",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1789215205650,
+      "tag": "0098_index_membership_history",
+      "breakpoints": true
     }
   ]
 }

@@ -3738,10 +3738,9 @@ export const fxAppRowCurrent = pgTable(
 /**
  * Immutable target-local history for one physical ordered-index position.
  *
- * Each revision is tied to the exact same-commit authoritative app-row
- * revision. A tombstone removes only this encoded-key/row position; C08 later
- * owns deriving those revisions from final row bodies inside the existing
- * commit transaction.
+ * Membership transitions reference the stable authoritative row identity.
+ * Row bodies evolve independently; a tombstone removes only this encoded-key/row
+ * position. The existing commit transaction derives changes from final bodies.
  */
 export const fxAppIndexEntryRevisions = pgTable(
   "fx_app_index_entry_rev",
@@ -3761,12 +3760,6 @@ export const fxAppIndexEntryRevisions = pgTable(
     commitSeq: bigint("commit_seq", { mode: "bigint" })
       .$type<CommitSeq>()
       .notNull(),
-    prevCommitSeq: bigint("prev_commit_seq", { mode: "bigint" }).$type<
-      CommitSeq
-    >(),
-    writeEpochUuid: uuid("write_epoch_uuid")
-      .$type<ScopeEpochUuidV1>()
-      .notNull(),
     isTombstone: boolean("is_tombstone").notNull(),
   },
   (table) => [
@@ -3781,20 +3774,12 @@ export const fxAppIndexEntryRevisions = pgTable(
       ],
     }),
     foreignKey({
-      name: "fx_app_index_entry_rev_row_revision_fk",
-      columns: [
-        table.scopeUuid,
-        table.tableId,
-        table.rowId,
-        table.writeEpochUuid,
-        table.commitSeq,
-      ],
+      name: "fx_app_index_entry_rev_row_identity_fk",
+      columns: [table.scopeUuid, table.tableId, table.rowId],
       foreignColumns: [
-        fxAppRowRevisions.scopeUuid,
-        fxAppRowRevisions.tableId,
-        fxAppRowRevisions.rowId,
-        fxAppRowRevisions.writeEpochUuid,
-        fxAppRowRevisions.commitSeq,
+        fxAppRowCurrent.scopeUuid,
+        fxAppRowCurrent.tableId,
+        fxAppRowCurrent.rowId,
       ],
     })
       .onUpdate("restrict")
@@ -3847,10 +3832,6 @@ export const fxAppIndexEntryRevisions = pgTable(
       "fx_app_index_entry_rev_commit_seq_check",
       sql`${table.commitSeq} >= 1`,
     ),
-    check(
-      "fx_app_index_entry_rev_prev_commit_seq_check",
-      sql`${table.prevCommitSeq} is null or (${table.prevCommitSeq} >= 1 and ${table.prevCommitSeq} < ${table.commitSeq})`,
-    ),
   ],
 );
 
@@ -3858,8 +3839,8 @@ export const fxAppIndexEntryRevisions = pgTable(
  * Epoch-independent live pointer for one ordered-index position.
  *
  * The row contains no duplicated value or lifecycle evidence. Tombstones
- * remove this range-facing pointer while immutable history retains chain-head
- * provenance for later key reuse.
+ * remove this range-facing pointer. Its sequence identifies the latest live
+ * membership transition, independently of the current row body.
  */
 export const fxAppIndexEntryCurrent = pgTable(
   "fx_app_index_entry_current",

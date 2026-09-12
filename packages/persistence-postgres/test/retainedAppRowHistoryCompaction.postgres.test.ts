@@ -28,118 +28,115 @@ import { setFlarexActivationClock } from
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("real PostgreSQL O11-D retained app-row history compaction", () => {
-  it("pages one hot identity and uses bounded owner indexes", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
-      const locator = sharedLocator("o11d-app-row-history-postgres");
-      const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
-        "deployment_retained_app_row_compaction_postgres",
-      );
-      const provisioned = await createPostgresSharedScopeAuthorityProvisioner(
-        persistence,
-        { physicalLocator: locator, randomUuid: uuidFactory() },
-      ).ensure({
-        deploymentId,
-        projectId: "project_retained_app_row_compaction_postgres",
-      });
-      const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
-      await setFlarexActivationClock(persistence, scopeId);
-      await seedPopulatedAppRowHistory(persistence, scopeId);
+describePostgres(
+  "real PostgreSQL O11-D retained app-row history compaction",
+  () => {
+    it("pages one hot identity and uses bounded owner indexes", async () => {
+      await withTemporaryPostgresPersistence(async (persistence) => {
+        const locator = sharedLocator("o11d-app-row-history-postgres");
+        const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+          "deployment_retained_app_row_compaction_postgres",
+        );
+        const provisioned = await createPostgresSharedScopeAuthorityProvisioner(
+          persistence,
+          { physicalLocator: locator, randomUuid: uuidFactory() },
+        ).ensure({
+          deploymentId,
+          projectId: "project_retained_app_row_compaction_postgres",
+        });
+        const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
+        await setFlarexActivationClock(persistence, scopeId);
+        await seedPopulatedAppRowHistory(persistence, scopeId);
 
-      await expect(incomingForeignKeys(
-        persistence,
-        "fx_app_row_rev",
-      )).resolves.toEqual([
-        "fx_app_index_entry_rev_row_revision_fk",
-        "fx_app_row_current_revision_fk",
-        "fx_commit_preference_deletion_content_fk",
-        "fx_system_commit_app_row_change_revision_fk",
-      ]);
-      const queries = new Map<
-        RetainedAppRowHistoryCompactionQuery["name"],
-        RetainedAppRowHistoryCompactionQuery
-      >();
-      const cleanup = createRetainedAppRowHistoryCompactionPort({
-        authority: {
-          scopeMetadata: persistence,
-          provisioningReceipts: {
-            getScopeAuthorityProvisioningReceipt: async () => {
-              throw new Error("Shared scope must not read split receipts.");
+        await expect(
+          incomingForeignKeys(persistence, "fx_app_row_rev"),
+        ).resolves.toEqual([
+          "fx_app_row_current_revision_fk",
+          "fx_commit_preference_deletion_content_fk",
+          "fx_system_commit_app_row_change_revision_fk",
+        ]);
+        const queries = new Map<
+          RetainedAppRowHistoryCompactionQuery["name"],
+          RetainedAppRowHistoryCompactionQuery
+        >();
+        const cleanup = createRetainedAppRowHistoryCompactionPort({
+          authority: {
+            scopeMetadata: persistence,
+            provisioningReceipts: {
+              getScopeAuthorityProvisioningReceipt: async () => {
+                throw new Error("Shared scope must not read split receipts.");
+              },
+            },
+            scopeClockTargets: {
+              resolve: async (physicalLocator) =>
+                createPostgresLocatedRetainedHistoryFloorTarget(
+                  persistence,
+                  physicalLocator,
+                ),
             },
           },
-          scopeClockTargets: {
-            resolve: async physicalLocator =>
-              createPostgresLocatedRetainedHistoryFloorTarget(
-                persistence,
-                physicalLocator,
-              ),
-          },
-        },
-        observeQuery: query => queries.set(query.name, query),
-      });
+          observeQuery: (query) => queries.set(query.name, query),
+        });
 
-      const first = await runEffect(compactRetainedAppRowHistoryPageEffect(
-        cleanup,
-        deploymentId,
-        { kind: "start" },
-      ));
-      expect(first).toMatchObject({
-        disposition: "deleted",
-        rootCommitSeq: 1n,
-        anchorCommitSeq: 300n,
-        deletedRevisionCount: 128,
-        continuation: { kind: "exact" },
-      });
-      if (first.disposition === "exhausted") {
-        throw new Error("Expected the populated app-row identity.");
-      }
+        const first = await runEffect(
+          compactRetainedAppRowHistoryPageEffect(cleanup, deploymentId, {
+            kind: "start",
+          }),
+        );
+        expect(first).toMatchObject({
+          disposition: "deleted",
+          rootCommitSeq: 1n,
+          anchorCommitSeq: 300n,
+          deletedRevisionCount: 128,
+          continuation: { kind: "exact" },
+        });
+        if (first.disposition === "exhausted") {
+          throw new Error("Expected the populated app-row identity.");
+        }
 
-      const plans = await explainPlans(persistence, queries);
-      expect(plans.identityDirectory).toMatch(
-        /fx_app_row_rev_.*_pk/,
-      );
-      expect(plans.anchor).toMatch(/fx_app_row_rev_.*_pk/);
-      expect(plans.candidateDirectory).toMatch(/fx_app_row_rev_.*_pk/);
-      expect(plans.revisionDeletion).toMatch(
-        /fx_app_row_rev_(?:change_provenance_unique|.*_pk)/,
-      );
+        const plans = await explainPlans(persistence, queries);
+        expect(plans.identityDirectory).toMatch(/fx_app_row_rev_.*_pk/);
+        expect(plans.anchor).toMatch(/fx_app_row_rev_.*_pk/);
+        expect(plans.candidateDirectory).toMatch(/fx_app_row_rev_.*_pk/);
+        expect(plans.revisionDeletion).toMatch(
+          /fx_app_row_rev_(?:change_provenance_unique|.*_pk)/,
+        );
 
-      let cursor: RetainedAppRowHistoryCursor = first.continuation;
-      const second = await runEffect(compactRetainedAppRowHistoryPageEffect(
-        cleanup,
-        deploymentId,
-        cursor,
-      ));
-      expect(second).toMatchObject({
-        disposition: "deleted",
-        deletedRevisionCount: 128,
-        continuation: { kind: "exact" },
+        let cursor: RetainedAppRowHistoryCursor = first.continuation;
+        const second = await runEffect(
+          compactRetainedAppRowHistoryPageEffect(cleanup, deploymentId, cursor),
+        );
+        expect(second).toMatchObject({
+          disposition: "deleted",
+          deletedRevisionCount: 128,
+          continuation: { kind: "exact" },
+        });
+        if (second.disposition === "exhausted") {
+          throw new Error("Expected the second hot-identity page.");
+        }
+        cursor = second.continuation;
+        const third = await runEffect(
+          compactRetainedAppRowHistoryPageEffect(cleanup, deploymentId, cursor),
+        );
+        expect(third).toMatchObject({
+          disposition: "deleted",
+          deletedRevisionCount: 42,
+          continuation: { kind: "after" },
+        });
+        await expect(
+          readPopulatedCounts(persistence, scopeId),
+        ).resolves.toEqual({
+          hotRevisions: 2,
+          hotRoot: 1,
+          hotAnchor: 1,
+          hotCurrent: 1,
+          unrelatedRevisions: 4_096,
+          unrelatedCurrent: 4_096,
+        });
       });
-      if (second.disposition === "exhausted") {
-        throw new Error("Expected the second hot-identity page.");
-      }
-      cursor = second.continuation;
-      const third = await runEffect(compactRetainedAppRowHistoryPageEffect(
-        cleanup,
-        deploymentId,
-        cursor,
-      ));
-      expect(third).toMatchObject({
-        disposition: "deleted",
-        deletedRevisionCount: 42,
-        continuation: { kind: "after" },
-      });
-      await expect(readPopulatedCounts(persistence, scopeId)).resolves.toEqual({
-        hotRevisions: 2,
-        hotRoot: 1,
-        hotAnchor: 1,
-        hotCurrent: 1,
-        unrelatedRevisions: 4_096,
-        unrelatedCurrent: 4_096,
-      });
-    });
-  }, 120_000);
-});
+    }, 120_000);
+  },
+);
 
 async function seedPopulatedAppRowHistory(
   persistence: PostgresFlarexPersistence,
@@ -212,7 +209,7 @@ async function incomingForeignKeys(
      order by constraint_row.conname`,
     [tableName],
   );
-  return Object.freeze(result.rows.map(row => row.conname));
+  return Object.freeze(result.rows.map((row) => row.conname));
 }
 
 async function readPopulatedCounts(
@@ -280,11 +277,10 @@ async function explainPlans(
     RetainedAppRowHistoryCompactionQuery["name"],
     RetainedAppRowHistoryCompactionQuery
   >,
-): Promise<Readonly<Record<
-  RetainedAppRowHistoryCompactionQuery["name"],
-  string
->>> {
-  return withPostgresSequentialScansDisabled(persistence, async client =>
+): Promise<
+  Readonly<Record<RetainedAppRowHistoryCompactionQuery["name"], string>>
+> {
+  return withPostgresSequentialScansDisabled(persistence, async (client) =>
     Object.freeze({
       identityDirectory: await explainObserved(
         client,
@@ -299,7 +295,7 @@ async function explainPlans(
         client,
         requireQuery(queries, "revisionDeletion"),
       ),
-    })
+    }),
   );
 }
 
@@ -312,10 +308,9 @@ async function explainObserved(
   }>,
   query: RetainedAppRowHistoryCompactionQuery,
 ): Promise<string> {
-  const result = await client.query(
-    `explain (format json) ${query.sql}`,
-    [...query.params],
-  );
+  const result = await client.query(`explain (format json) ${query.sql}`, [
+    ...query.params,
+  ]);
   return JSON.stringify(result.rows);
 }
 

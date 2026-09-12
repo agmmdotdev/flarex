@@ -1,18 +1,5 @@
-import {
-  bytesEqual,
-  encodeBytesToLowercaseHex,
-  isUint8Array,
-  isUint8ArrayWithByteLength,
-  uint8ArrayByteLength,
-} from "@flarex/utils/bytes";
-import {
-  asc,
-  desc,
-  eq,
-  inArray,
-  sql,
-  type SQL,
-} from "drizzle-orm";
+import { bytesEqual, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Option, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
@@ -61,8 +48,7 @@ import {
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 import { fxAppIndexEntryRevisions } from "./schema";
-import { LocatedReadCommittedTransactionFailureV1 } from
-  "./transactionSessionAttemptKernel";
+import { LocatedReadCommittedTransactionFailureV1 } from "./transactionSessionAttemptKernel";
 
 export const MAX_RETAINED_INDEX_HISTORY_PAGE_REVISIONS = 128;
 
@@ -94,14 +80,8 @@ const decodeCursorResult = Schema.decodeUnknownResult(
 const decodeCommitSeqResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSeqSchema),
 );
-const decodeIndexDefinitionIdResult = Schema.decodeUnknownResult(
-  Schema.toType(CatalogIndexDefinitionIdSchema),
-);
 const decodeOrderedKeyBytesResult = Schema.decodeUnknownResult(
   Schema.toType(OrderedIndexKeyBytesHexV1Schema),
-);
-const decodeTableIdResult = Schema.decodeUnknownResult(
-  Schema.toType(CatalogTableIdSchema),
 );
 
 export type RetainedIndexHistoryIdentity =
@@ -111,10 +91,7 @@ export type RetainedIndexHistoryCursor =
 
 export interface RetainedIndexHistoryCompactionQuery {
   readonly name:
-    | "identityDirectory"
-    | "anchor"
-    | "candidateDirectory"
-    | "revisionDeletion";
+    "identityDirectory" | "anchor" | "candidateDirectory" | "revisionDeletion";
   readonly sql: string;
   readonly params: ReadonlyArray<unknown>;
 }
@@ -124,12 +101,8 @@ export interface RetainedIndexHistoryCompactionPort {
 }
 
 interface RetainedIndexHistoryCompactionPortState {
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
-    LocatedRetainedHistoryFloorTarget
-  >;
-  readonly observeQuery?: (
-    query: RetainedIndexHistoryCompactionQuery,
-  ) => void;
+  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedRetainedHistoryFloorTarget>;
+  readonly observeQuery?: (query: RetainedIndexHistoryCompactionQuery) => void;
 }
 
 const portStates = new WeakMap<
@@ -139,23 +112,20 @@ const portStates = new WeakMap<
 
 /** Private, production-inert O11-D ordered-index cleanup authority. */
 export function createRetainedIndexHistoryCompactionPort(input: {
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
-    LocatedRetainedHistoryFloorTarget
-  >;
-  readonly observeQuery?: (
-    query: RetainedIndexHistoryCompactionQuery,
-  ) => void;
+  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedRetainedHistoryFloorTarget>;
+  readonly observeQuery?: (query: RetainedIndexHistoryCompactionQuery) => void;
 }): RetainedIndexHistoryCompactionPort {
   const observeQuery = input.observeQuery;
   const port = Object.freeze({
     [retainedIndexHistoryCompactionPortBrand]: true as const,
   });
-  portStates.set(port, Object.freeze({
-    authority: captureTrustedScopeAuthorityResolutionPorts(input.authority),
-    ...(observeQuery === undefined
-      ? {}
-      : { observeQuery }),
-  }));
+  portStates.set(
+    port,
+    Object.freeze({
+      authority: captureTrustedScopeAuthorityResolutionPorts(input.authority),
+      ...(observeQuery === undefined ? {} : { observeQuery }),
+    }),
+  );
   return port;
 }
 
@@ -180,8 +150,7 @@ export type RetainedIndexHistoryCompactionResult =
     }>;
 
 export type GuardedRetainedIndexHistoryCompactionResult =
-  | RetainedIndexHistoryCompactionResult
-  | RetainedHistoryPageGuardChangedResult;
+  RetainedIndexHistoryCompactionResult | RetainedHistoryPageGuardChangedResult;
 
 export class RetainedIndexHistoryCompactionError extends Data.TaggedError(
   "RetainedIndexHistoryCompactionError",
@@ -197,15 +166,13 @@ export class RetainedIndexHistoryCompactionError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-export class RetainedIndexHistoryCompactionPersistenceError extends
-  Data.TaggedError("RetainedIndexHistoryCompactionPersistenceError")<{
-    readonly operation:
-      | "identityDirectory"
-      | "anchor"
-      | "candidateDirectory"
-      | "revisionDeletion";
-    readonly cause: unknown;
-  }> {}
+export class RetainedIndexHistoryCompactionPersistenceError extends Data.TaggedError(
+  "RetainedIndexHistoryCompactionPersistenceError",
+)<{
+  readonly operation:
+    "identityDirectory" | "anchor" | "candidateDirectory" | "revisionDeletion";
+  readonly cause: unknown;
+}> {}
 
 export type CompactRetainedIndexHistoryPageError =
   | RetainedIndexHistoryCompactionError
@@ -261,17 +228,22 @@ const compactRetainedIndexHistoryPageWithExpectationEffect = Effect.fn(
 > {
   const state = portStates.get(port);
   if (state === undefined) {
-    return yield* Effect.fail(new RetainedIndexHistoryCompactionError({
-      reason: "invalidPort",
-      deploymentId,
-    }));
+    return yield* Effect.fail(
+      new RetainedIndexHistoryCompactionError({
+        reason: "invalidPort",
+        deploymentId,
+      }),
+    );
   }
   const cursor = yield* decodeCursorResult(cursorInput).pipe(
-    Result.mapError(cause => new RetainedIndexHistoryCompactionError({
-      reason: "invalidCursor",
-      deploymentId,
-      cause,
-    })),
+    Result.mapError(
+      (cause) =>
+        new RetainedIndexHistoryCompactionError({
+          reason: "invalidCursor",
+          deploymentId,
+          cause,
+        }),
+    ),
     Effect.fromResult,
   );
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
@@ -279,25 +251,22 @@ const compactRetainedIndexHistoryPageWithExpectationEffect = Effect.fn(
     state.authority,
   );
   if (!isLocatedRetainedHistoryFloorTargetInternal(located.target)) {
-    return yield* Effect.fail(new RetainedIndexHistoryCompactionError({
-      reason: "invalidTarget",
-      deploymentId,
-      scopeId: located.authority.scopeId,
-    }));
+    return yield* Effect.fail(
+      new RetainedIndexHistoryCompactionError({
+        reason: "invalidTarget",
+        deploymentId,
+        scopeId: located.authority.scopeId,
+      }),
+    );
   }
   return yield* runLocatedReadCommittedEffect(
     located.target,
     {
       rollbackMessage: "rollback:retained-index-history-compaction",
-      cleanupDefect: failure => failure,
+      cleanupDefect: (failure) => failure,
     },
-    tx => compactInTransaction(
-      tx,
-      located.authority,
-      state,
-      cursor,
-      expectation,
-    ),
+    (tx) =>
+      compactInTransaction(tx, located.authority, state, cursor, expectation),
   );
 });
 
@@ -329,29 +298,28 @@ const compactInTransaction = Effect.fn(
     return guardChanged.value;
   }
   const scopeUuid = yield* projectScopeIdUuidV1Result(clock.scopeId).pipe(
-    Result.mapError(cause => compactionError(
-      authority,
-      "storedEvidenceInvalid",
-      cause,
-    )),
+    Result.mapError((cause) =>
+      compactionError(authority, "storedEvidenceInvalid", cause),
+    ),
     Effect.fromResult,
   );
-  const identityQuery = tx.select(revisionSelection()).from(
-    fxAppIndexEntryRevisions,
-  ).where(identitySelectionWhere(scopeUuid.scopeUuid, cursor)).orderBy(
-    asc(fxAppIndexEntryRevisions.indexDefinitionId),
-    asc(fxAppIndexEntryRevisions.encodedKey),
-    asc(fxAppIndexEntryRevisions.rowId),
-    asc(fxAppIndexEntryRevisions.commitSeq),
-  ).limit(1).for("update");
+  const identityQuery = tx
+    .select(revisionSelection())
+    .from(fxAppIndexEntryRevisions)
+    .where(identitySelectionWhere(scopeUuid.scopeUuid, cursor))
+    .orderBy(
+      asc(fxAppIndexEntryRevisions.indexDefinitionId),
+      asc(fxAppIndexEntryRevisions.encodedKey),
+      asc(fxAppIndexEntryRevisions.rowId),
+      asc(fxAppIndexEntryRevisions.commitSeq),
+    )
+    .limit(1)
+    .for("update");
   observeDrizzleQuery("identityDirectory", identityQuery, state.observeQuery);
   const identityRows = yield* queryEffect("identityDirectory", identityQuery);
   if (identityRows.length === 0) {
     if (cursor.kind === "exact") {
-      return yield* Effect.fail(compactionError(
-        authority,
-        "storedEvidenceInvalid",
-      ));
+      return advancedResult(authority, clock, cursor.identity, null, 0);
     }
     return Object.freeze({
       status: "compacted" as const,
@@ -362,116 +330,123 @@ const compactInTransaction = Effect.fn(
     });
   }
   if (identityRows.length !== 1) {
-    return yield* Effect.fail(compactionError(
-      authority,
-      "storedEvidenceInvalid",
-    ));
+    return yield* Effect.fail(
+      compactionError(authority, "storedEvidenceInvalid"),
+    );
   }
-  const first = yield* Effect.fromResult(decodeRevisionResult(
-    authority,
-    identityRows[0],
-  ));
+  const first = yield* Effect.fromResult(
+    decodeRevisionResult(authority, identityRows[0]),
+  );
   const identity = first.identity;
 
-  const anchorQuery = tx.select(revisionSelection()).from(
-    fxAppIndexEntryRevisions,
-  ).where(sql`${identityWhere(scopeUuid.scopeUuid, identity)} and
-    ${fxAppIndexEntryRevisions.commitSeq} <= ${clock.oldestAvailableCommitSeq}`
-  ).orderBy(
-    desc(fxAppIndexEntryRevisions.commitSeq),
-  ).limit(1).for("update");
+  const anchorQuery = tx
+    .select({
+      ...revisionSelection(),
+      hasNewer: sql<boolean>`exists(select 1 from fx_app_index_entry_rev as newer
+      where newer.scope_uuid = ${scopeUuid.scopeUuid} and newer.index_definition_id = ${identity.indexDefinitionId}
+        and newer.encoded_key = ${orderedIndexKeyBytesHexV1ToBytes(identity.encodedKey)}
+        and newer.row_id = ${orderedIndexRowIdHexV1ToBytes(identity.rowId)}
+        and newer.commit_seq > ${clock.oldestAvailableCommitSeq})`,
+      hasCurrent: sql<boolean>`exists(select 1 from fx_app_index_entry_current as pointer
+      where pointer.scope_uuid = ${scopeUuid.scopeUuid} and pointer.index_definition_id = ${identity.indexDefinitionId}
+        and pointer.encoded_key = ${orderedIndexKeyBytesHexV1ToBytes(identity.encodedKey)}
+        and pointer.row_id = ${orderedIndexRowIdHexV1ToBytes(identity.rowId)})`,
+    })
+    .from(fxAppIndexEntryRevisions)
+    .where(
+      sql`${identityWhere(scopeUuid.scopeUuid, identity)} and
+    ${fxAppIndexEntryRevisions.commitSeq} <= ${clock.oldestAvailableCommitSeq}`,
+    )
+    .orderBy(desc(fxAppIndexEntryRevisions.commitSeq))
+    .limit(1)
+    .for("update");
   observeDrizzleQuery("anchor", anchorQuery, state.observeQuery);
   const anchorRows = yield* queryEffect("anchor", anchorQuery);
   if (anchorRows.length === 0) {
-    if (
-      first.commitSeq <= clock.oldestAvailableCommitSeq ||
-      first.prevCommitSeq !== null
-    ) {
-      return yield* Effect.fail(compactionError(
-        authority,
-        "storedEvidenceInvalid",
-      ));
+    if (first.commitSeq <= clock.oldestAvailableCommitSeq) {
+      return yield* Effect.fail(
+        compactionError(authority, "storedEvidenceInvalid"),
+      );
     }
     return advancedResult(authority, clock, identity, null, 0);
   }
   if (anchorRows.length !== 1) {
-    return yield* Effect.fail(compactionError(
-      authority,
-      "storedEvidenceInvalid",
-    ));
+    return yield* Effect.fail(
+      compactionError(authority, "storedEvidenceInvalid"),
+    );
   }
-  const anchor = yield* Effect.fromResult(decodeRevisionResult(
-    authority,
-    anchorRows[0],
-  ));
-  yield* Effect.fromResult(requireSameIdentityEvidenceResult(
-    authority,
-    first,
-    anchor,
-  ));
+  const anchor = yield* Effect.fromResult(
+    decodeRevisionResult(authority, anchorRows[0]),
+  );
+  yield* Effect.fromResult(
+    requireSameIdentityEvidenceResult(authority, first, anchor),
+  );
   if (
     anchor.commitSeq > clock.oldestAvailableCommitSeq ||
     first.commitSeq > anchor.commitSeq
   ) {
-    return yield* Effect.fail(compactionError(
-      authority,
-      "storedEvidenceInvalid",
-    ));
+    return yield* Effect.fail(
+      compactionError(authority, "storedEvidenceInvalid"),
+    );
   }
 
-  const candidateQuery = tx.select(revisionSelection()).from(
-    fxAppIndexEntryRevisions,
-  ).where(sql`${identityWhere(scopeUuid.scopeUuid, identity)} and
-    ${fxAppIndexEntryRevisions.commitSeq} < ${anchor.commitSeq}`
-  ).orderBy(asc(fxAppIndexEntryRevisions.commitSeq)).limit(
-    MAX_RETAINED_INDEX_HISTORY_PAGE_REVISIONS + 1,
-  ).for("update");
-  observeDrizzleQuery(
-    "candidateDirectory",
-    candidateQuery,
-    state.observeQuery,
+  const terminal = yield* Effect.fromResult(
+    decodeTerminalEvidence(anchorRows[0]).pipe(
+      Result.mapError((cause) =>
+        compactionError(authority, "storedEvidenceInvalid", cause),
+      ),
+    ),
   );
+  const pruneTerminal =
+    anchor.isTombstone && !terminal.hasNewer && !terminal.hasCurrent;
+  const candidateBound = pruneTerminal
+    ? sql`${fxAppIndexEntryRevisions.commitSeq} <= ${anchor.commitSeq}`
+    : sql`${fxAppIndexEntryRevisions.commitSeq} < ${anchor.commitSeq}`;
+  const candidateQuery = tx
+    .select(revisionSelection())
+    .from(fxAppIndexEntryRevisions)
+    .where(
+      sql`${identityWhere(scopeUuid.scopeUuid, identity)} and
+    ${candidateBound}`,
+    )
+    .orderBy(asc(fxAppIndexEntryRevisions.commitSeq))
+    .limit(MAX_RETAINED_INDEX_HISTORY_PAGE_REVISIONS + 1)
+    .for("update");
+  observeDrizzleQuery("candidateDirectory", candidateQuery, state.observeQuery);
   const candidateRows = yield* queryEffect(
     "candidateDirectory",
     candidateQuery,
   );
-  const candidates = yield* Effect.fromResult(decodeCandidatesResult(
-    authority,
-    anchor,
-    candidateRows,
-  ));
+  const candidates = yield* Effect.fromResult(
+    decodeCandidatesResult(authority, anchor, candidateRows, pruneTerminal),
+  );
   const deletable = candidates.slice(
     0,
     MAX_RETAINED_INDEX_HISTORY_PAGE_REVISIONS,
   );
   if (deletable.length === 0) {
-    return advancedResult(
-      authority,
-      clock,
-      identity,
-      anchor.commitSeq,
-      0,
-    );
+    return advancedResult(authority, clock, identity, anchor.commitSeq, 0);
   }
 
-  const deletion = tx.delete(fxAppIndexEntryRevisions).where(
-    sql`${identityWhere(scopeUuid.scopeUuid, identity)} and ${inArray(
-      fxAppIndexEntryRevisions.commitSeq,
-      deletable.map(revision => revision.commitSeq),
-    )}`,
-  ).returning({ commitSeq: fxAppIndexEntryRevisions.commitSeq });
+  const deletion = tx
+    .delete(fxAppIndexEntryRevisions)
+    .where(
+      sql`${identityWhere(scopeUuid.scopeUuid, identity)} and ${inArray(
+        fxAppIndexEntryRevisions.commitSeq,
+        deletable.map((revision) => revision.commitSeq),
+      )}`,
+    )
+    .returning({ commitSeq: fxAppIndexEntryRevisions.commitSeq });
   observeDrizzleQuery("revisionDeletion", deletion, state.observeQuery);
   const deletedRows = yield* queryEffect("revisionDeletion", deletion);
-  yield* Effect.fromResult(requireExactDeletionResult(
-    authority,
-    deletable,
-    deletedRows,
-  ));
+  yield* Effect.fromResult(
+    requireExactDeletionResult(authority, deletable, deletedRows),
+  );
 
-  const continuation = candidates.length >
-      MAX_RETAINED_INDEX_HISTORY_PAGE_REVISIONS
-    ? exactCursor(identity)
-    : afterCursor(identity);
+  const continuation =
+    candidates.length > MAX_RETAINED_INDEX_HISTORY_PAGE_REVISIONS
+      ? exactCursor(identity)
+      : afterCursor(identity);
   return Object.freeze({
     status: "compacted" as const,
     disposition: "deleted" as const,
@@ -479,11 +454,22 @@ const compactInTransaction = Effect.fn(
     scopeId: authority.scopeId,
     retainedFloor: clock.oldestAvailableCommitSeq,
     identity,
-    anchorCommitSeq: anchor.commitSeq,
+    anchorCommitSeq:
+      deletable.at(-1)?.commitSeq === anchor.commitSeq
+        ? null
+        : anchor.commitSeq,
     deletedRevisionCount: deletable.length,
     continuation,
   });
 });
+
+const TerminalEvidenceSchema = Schema.Struct({
+  hasNewer: Schema.Boolean,
+  hasCurrent: Schema.Boolean,
+});
+const decodeTerminalEvidence = Schema.decodeUnknownResult(
+  TerminalEvidenceSchema,
+);
 
 interface DecodedRevision {
   readonly identity: RetainedIndexHistoryIdentity;
@@ -491,7 +477,7 @@ interface DecodedRevision {
   readonly physicalSpecSha256: Uint8Array;
   readonly keySha256: Uint8Array;
   readonly commitSeq: CommitSeq;
-  readonly prevCommitSeq: CommitSeq | null;
+  readonly isTombstone: boolean;
 }
 
 function revisionSelection() {
@@ -504,7 +490,6 @@ function revisionSelection() {
     keySha256: fxAppIndexEntryRevisions.keySha256,
     rowId: fxAppIndexEntryRevisions.rowId,
     commitSeq: fxAppIndexEntryRevisions.commitSeq,
-    prevCommitSeq: fxAppIndexEntryRevisions.prevCommitSeq,
     isTombstone: fxAppIndexEntryRevisions.isTombstone,
   } as const;
 }
@@ -518,9 +503,7 @@ function identitySelectionWhere(
   }
   const exact = identityWhere(scopeUuid, cursor.identity);
   if (cursor.kind === "exact") return exact;
-  const keyBytes = orderedIndexKeyBytesHexV1ToBytes(
-    cursor.identity.encodedKey,
-  );
+  const keyBytes = orderedIndexKeyBytesHexV1ToBytes(cursor.identity.encodedKey);
   const rowIdBytes = orderedIndexRowIdHexV1ToBytes(cursor.identity.rowId);
   return sql`${fxAppIndexEntryRevisions.scopeUuid} = ${scopeUuid} and (
       ${fxAppIndexEntryRevisions.indexDefinitionId},
@@ -539,118 +522,76 @@ function identityWhere(
 ): SQL {
   return sql`${fxAppIndexEntryRevisions.scopeUuid} = ${scopeUuid}
     and ${fxAppIndexEntryRevisions.indexDefinitionId} = ${identity.indexDefinitionId}
-    and ${fxAppIndexEntryRevisions.encodedKey} = ${
-      orderedIndexKeyBytesHexV1ToBytes(identity.encodedKey)
-    }
-    and ${fxAppIndexEntryRevisions.rowId} = ${
-      orderedIndexRowIdHexV1ToBytes(identity.rowId)
-    }`;
+    and ${fxAppIndexEntryRevisions.encodedKey} = ${orderedIndexKeyBytesHexV1ToBytes(
+      identity.encodedKey,
+    )}
+    and ${fxAppIndexEntryRevisions.rowId} = ${orderedIndexRowIdHexV1ToBytes(
+      identity.rowId,
+    )}`;
 }
+
+const StoredCompactionRevisionSchema = Schema.Struct({
+  indexDefinitionId: Schema.toType(CatalogIndexDefinitionIdSchema),
+  tableId: Schema.toType(CatalogTableIdSchema),
+  keyCodecVersion: Schema.Literal(ORDERED_INDEX_KEY_CODEC_VERSION_V1),
+  physicalSpecSha256: Schema.Uint8Array.check(
+    Schema.makeFilter((value) => value.byteLength === 32),
+  ),
+  keySha256: Schema.Uint8Array.check(
+    Schema.makeFilter((value) => value.byteLength === 32),
+  ),
+  encodedKey: Schema.Uint8Array.check(
+    Schema.makeFilter(
+      (value) =>
+        value.byteLength > 0 &&
+        value.byteLength <= MAX_ORDERED_INDEX_KEY_BYTES_V1,
+    ),
+  ),
+  rowId: Schema.Uint8Array.check(
+    Schema.makeFilter((value) => value.byteLength === 16),
+  ),
+  commitSeq: Schema.toType(CommitSeqSchema).check(
+    Schema.makeFilter((value) => value >= 1n),
+  ),
+  isTombstone: Schema.Boolean,
+});
+const decodeStoredCompactionRevision = Schema.decodeUnknownResult(
+  StoredCompactionRevisionSchema,
+);
 
 function decodeRevisionResult(
   authority: TrustedScopeAuthority,
-  row: Readonly<{
-    readonly indexDefinitionId: unknown;
-    readonly tableId: unknown;
-    readonly keyCodecVersion: unknown;
-    readonly physicalSpecSha256: unknown;
-    readonly encodedKey: unknown;
-    readonly keySha256: unknown;
-    readonly rowId: unknown;
-    readonly commitSeq: unknown;
-    readonly prevCommitSeq: unknown;
-    readonly isTombstone: unknown;
-  }>,
+  raw: unknown,
 ): Result.Result<DecodedRevision, RetainedIndexHistoryCompactionError> {
   return Result.gen(function* () {
-    const indexDefinitionId = yield* decodeIndexDefinitionIdResult(
-      row.indexDefinitionId,
-    ).pipe(Result.mapError(cause => compactionError(
-      authority,
-      "storedEvidenceInvalid",
-      cause,
-    )));
-    const tableId = yield* decodeTableIdResult(row.tableId).pipe(
-      Result.mapError(cause => compactionError(
-        authority,
-        "storedEvidenceInvalid",
-        cause,
-      )),
-    );
-    const encodedKeyByteLength = uint8ArrayByteLength(row.encodedKey);
-    if (
-      row.keyCodecVersion !== ORDERED_INDEX_KEY_CODEC_VERSION_V1 ||
-      !isUint8ArrayWithByteLength(row.physicalSpecSha256, 32) ||
-      !isUint8Array(row.encodedKey) ||
-      encodedKeyByteLength === undefined ||
-      encodedKeyByteLength === 0 ||
-      encodedKeyByteLength > MAX_ORDERED_INDEX_KEY_BYTES_V1 ||
-      !isUint8ArrayWithByteLength(row.keySha256, 32) ||
-      typeof row.isTombstone !== "boolean"
-    ) {
-      return yield* Result.fail(compactionError(
-        authority,
-        "storedEvidenceInvalid",
-      ));
-    }
-    const encodedKeyBytes = row.encodedKey;
-    const encodedKeyText = yield* Result.try({
-      try: () => encodeBytesToLowercaseHex(encodedKeyBytes),
-      catch: cause => compactionError(
-        authority,
-        "storedEvidenceInvalid",
-        cause,
+    const row = yield* decodeStoredCompactionRevision(raw).pipe(
+      Result.mapError((cause) =>
+        compactionError(authority, "storedEvidenceInvalid", cause),
       ),
-    });
-    const encodedKey = yield* decodeOrderedKeyBytesResult(encodedKeyText).pipe(
-      Result.mapError(cause => compactionError(
-        authority,
-        "storedEvidenceInvalid",
-        cause,
-      )),
+    );
+    const encodedKey = yield* decodeOrderedKeyBytesResult(
+      encodeBytesToLowercaseHex(row.encodedKey),
+    ).pipe(
+      Result.mapError((cause) =>
+        compactionError(authority, "storedEvidenceInvalid", cause),
+      ),
     );
     const rowId = yield* orderedIndexRowIdHexV1FromBytesResult(row.rowId).pipe(
-      Result.mapError(cause => compactionError(
-        authority,
-        "storedEvidenceInvalid",
-        cause,
-      )),
-    );
-    const commitSeq = yield* decodeCommitSeqResult(row.commitSeq).pipe(
-      Result.mapError(cause => compactionError(
-        authority,
-        "storedEvidenceInvalid",
-        cause,
-      )),
-      Result.filterOrFail(
-        value => value >= 1n,
-        () => compactionError(authority, "storedEvidenceInvalid"),
+      Result.mapError((cause) =>
+        compactionError(authority, "storedEvidenceInvalid", cause),
       ),
     );
-    const prevCommitSeq = row.prevCommitSeq === null
-      ? null
-      : yield* decodeCommitSeqResult(row.prevCommitSeq).pipe(
-          Result.mapError(cause => compactionError(
-            authority,
-            "storedEvidenceInvalid",
-            cause,
-          )),
-          Result.filterOrFail(
-            value => value >= 1n && value < commitSeq,
-            () => compactionError(authority, "storedEvidenceInvalid"),
-          ),
-        );
     return Object.freeze({
       identity: Object.freeze({
-        indexDefinitionId,
+        indexDefinitionId: row.indexDefinitionId,
         encodedKey,
         rowId,
       }),
-      tableId,
+      tableId: row.tableId,
       physicalSpecSha256: new Uint8Array(row.physicalSpecSha256),
       keySha256: new Uint8Array(row.keySha256),
-      commitSeq,
-      prevCommitSeq,
+      commitSeq: row.commitSeq,
+      isTombstone: row.isTombstone,
     });
   });
 }
@@ -659,47 +600,42 @@ function decodeCandidatesResult(
   authority: TrustedScopeAuthority,
   anchor: DecodedRevision,
   rows: ReadonlyArray<Parameters<typeof decodeRevisionResult>[1]>,
+  pruneTerminal: boolean,
 ): Result.Result<
   ReadonlyArray<DecodedRevision>,
   RetainedIndexHistoryCompactionError
 > {
   return Result.gen(function* () {
     if (rows.length > MAX_RETAINED_INDEX_HISTORY_PAGE_REVISIONS + 1) {
-      return yield* Result.fail(compactionError(
-        authority,
-        "storedEvidenceInvalid",
-      ));
+      return yield* Result.fail(
+        compactionError(authority, "storedEvidenceInvalid"),
+      );
     }
     const candidates: DecodedRevision[] = [];
     for (const row of rows) {
       const candidate = yield* decodeRevisionResult(authority, row);
-      yield* requireSameIdentityEvidenceResult(
-        authority,
-        anchor,
-        candidate,
-      );
+      yield* requireSameIdentityEvidenceResult(authority, anchor, candidate);
       if (
-        candidate.commitSeq >= anchor.commitSeq ||
+        (pruneTerminal
+          ? candidate.commitSeq > anchor.commitSeq
+          : candidate.commitSeq >= anchor.commitSeq) ||
         (candidates.length > 0 &&
-          candidate.prevCommitSeq !== candidates.at(-1)?.commitSeq)
+          candidate.commitSeq <= candidates[candidates.length - 1]!.commitSeq)
       ) {
-        return yield* Result.fail(compactionError(
-          authority,
-          "storedEvidenceInvalid",
-        ));
+        return yield* Result.fail(
+          compactionError(authority, "storedEvidenceInvalid"),
+        );
       }
       candidates.push(candidate);
     }
-    const last = candidates.at(-1);
     if (
+      pruneTerminal &&
       candidates.length <= MAX_RETAINED_INDEX_HISTORY_PAGE_REVISIONS &&
-      last !== undefined &&
-      anchor.prevCommitSeq !== last.commitSeq
+      candidates.at(-1)?.commitSeq !== anchor.commitSeq
     ) {
-      return yield* Result.fail(compactionError(
-        authority,
-        "storedEvidenceInvalid",
-      ));
+      return yield* Result.fail(
+        compactionError(authority, "storedEvidenceInvalid"),
+      );
     }
     return Object.freeze(candidates);
   });
@@ -711,12 +647,12 @@ function requireSameIdentityEvidenceResult(
   actual: DecodedRevision,
 ): Result.Result<void, RetainedIndexHistoryCompactionError> {
   return expected.identity.indexDefinitionId ===
-      actual.identity.indexDefinitionId &&
-      expected.identity.encodedKey === actual.identity.encodedKey &&
-      expected.identity.rowId === actual.identity.rowId &&
-      expected.tableId === actual.tableId &&
-      bytesEqual(expected.physicalSpecSha256, actual.physicalSpecSha256) &&
-      bytesEqual(expected.keySha256, actual.keySha256)
+    actual.identity.indexDefinitionId &&
+    expected.identity.encodedKey === actual.identity.encodedKey &&
+    expected.identity.rowId === actual.identity.rowId &&
+    expected.tableId === actual.tableId &&
+    bytesEqual(expected.physicalSpecSha256, actual.physicalSpecSha256) &&
+    bytesEqual(expected.keySha256, actual.keySha256)
     ? Result.succeed(undefined)
     : Result.fail(compactionError(authority, "storedEvidenceInvalid"));
 }
@@ -728,37 +664,30 @@ function requireExactDeletionResult(
 ): Result.Result<void, RetainedIndexHistoryCompactionError> {
   return Result.gen(function* () {
     if (actual.length !== expected.length) {
-      return yield* Result.fail(compactionError(
-        authority,
-        "storedEvidenceInvalid",
-      ));
+      return yield* Result.fail(
+        compactionError(authority, "storedEvidenceInvalid"),
+      );
     }
-    const expectedSequences = new Set(expected.map(row => row.commitSeq));
+    const expectedSequences = new Set(expected.map((row) => row.commitSeq));
     for (const row of actual) {
       const commitSeq = yield* decodeCommitSeqResult(row.commitSeq).pipe(
-        Result.mapError(cause => compactionError(
-          authority,
-          "storedEvidenceInvalid",
-          cause,
-        )),
+        Result.mapError((cause) =>
+          compactionError(authority, "storedEvidenceInvalid", cause),
+        ),
         Result.filterOrFail(
-          value => value >= 1n,
+          (value) => value >= 1n,
           () => compactionError(authority, "storedEvidenceInvalid"),
         ),
       );
       if (!expectedSequences.delete(commitSeq)) {
-        return yield* Result.fail(compactionError(
-          authority,
-          "storedEvidenceInvalid",
-        ));
+        return yield* Result.fail(
+          compactionError(authority, "storedEvidenceInvalid"),
+        );
       }
     }
     return expectedSequences.size === 0
       ? undefined
-      : yield* Result.fail(compactionError(
-          authority,
-          "storedEvidenceInvalid",
-        ));
+      : yield* Result.fail(compactionError(authority, "storedEvidenceInvalid"));
   });
 }
 
@@ -771,9 +700,8 @@ function advancedResult(
 ): RetainedIndexHistoryCompactionResult {
   return Object.freeze({
     status: "compacted" as const,
-    disposition: deletedRevisionCount === 0
-      ? "advanced" as const
-      : "deleted" as const,
+    disposition:
+      deletedRevisionCount === 0 ? ("advanced" as const) : ("deleted" as const),
     deploymentId: authority.deploymentId,
     scopeId: authority.scopeId,
     retainedFloor: clock.oldestAvailableCommitSeq,
@@ -801,9 +729,9 @@ function requireExactAuthority(
   clock: ScopeClockRecord,
 ): Effect.Effect<void, RetainedIndexHistoryCompactionError> {
   return clock.storageGeneration === "flarexdb_v1" &&
-      clock.storageGeneration === authority.storageGeneration &&
-      clock.storageGenerationFence === authority.storageGenerationFence &&
-      clock.epoch === authority.epoch
+    clock.storageGeneration === authority.storageGeneration &&
+    clock.storageGenerationFence === authority.storageGenerationFence &&
+    clock.epoch === authority.epoch
     ? Effect.void
     : Effect.fail(compactionError(authority, "staleAuthority"));
 }
@@ -812,13 +740,16 @@ function queryEffect<Value>(
   operation: RetainedIndexHistoryCompactionPersistenceError["operation"],
   query: PromiseLike<Value>,
 ): Effect.Effect<Value, RetainedIndexHistoryCompactionPersistenceError> {
-  return Effect.uninterruptible(Effect.tryPromise({
-    try: () => query,
-    catch: cause => new RetainedIndexHistoryCompactionPersistenceError({
-      operation,
-      cause,
+  return Effect.uninterruptible(
+    Effect.tryPromise({
+      try: () => query,
+      catch: (cause) =>
+        new RetainedIndexHistoryCompactionPersistenceError({
+          operation,
+          cause,
+        }),
     }),
-  }));
+  );
 }
 
 function compactionError(

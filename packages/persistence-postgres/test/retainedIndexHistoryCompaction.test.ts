@@ -1,7 +1,7 @@
+import { verifyTerminalMembershipCompaction } from "./membershipCompactionScenario";
+import { createHash } from "node:crypto";
 import { Effect, Result } from "effect";
-import {
-  decodeCatalogIndexDefinitionId,
-} from "flarex-protocol/catalog";
+import { decodeCatalogIndexDefinitionId } from "flarex-protocol/catalog";
 import {
   appIndexPhysicalSpecSha256HexV1ToBytes,
   canonicalAppIndexPhysicalSpecBytesHexV1ToBytes,
@@ -17,10 +17,8 @@ import {
   CommitSeqSchema,
   ScopeEpochSchema,
   decodeReplacementScopeIdV1,
-} from
-  "flarex-protocol/storage-authority";
-import { TransactionGrantDeploymentIdV1Schema } from
-  "flarex-protocol/transaction-grant";
+} from "flarex-protocol/storage-authority";
+import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -28,12 +26,8 @@ import {
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
-import {
-  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
-} from "../src/appIndexEntries";
-import {
-  locateAppIndexDefinitionByIdEffect,
-} from "../src/appIndexDefinitions";
+import { appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult } from "../src/appIndexEntries";
+import { locateAppIndexDefinitionByIdEffect } from "../src/appIndexDefinitions";
 import {
   compactRetainedIndexHistoryPageEffect,
   createRetainedIndexHistoryCompactionPort,
@@ -43,21 +37,15 @@ import {
   type RetainedIndexHistoryCursor,
   type RetainedIndexHistoryCompactionResult,
 } from "../src/retainedIndexHistoryCompaction";
-import {
-  createLocatedRetainedHistoryFloorTargetInternal,
-} from "../src/retainedHistoryFloorObservation";
-import type { ScopePhysicalLocator } from
-  "../src/scopeMetadataTypes";
-import {
-  createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../src/transactionSessionActivation";
+import { createLocatedRetainedHistoryFloorTargetInternal } from "../src/retainedHistoryFloorObservation";
+import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from "../src/transactionSessionActivation";
 import {
   LocatedReadCommittedTransactionFailureV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "../src/transactionSessionAttemptKernel";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
-import { setFlarexActivationClock } from
-  "./transactionSessionActivationTestSupport";
+import { setFlarexActivationClock } from "./transactionSessionActivationTestSupport";
 
 const physicalLocator = Object.freeze({
   kind: "shared_database" as const,
@@ -96,13 +84,15 @@ describe("O11-D retained ordered-index history compaction", () => {
     return { deploymentId, scopeId };
   }
 
-  function port(options: {
-    readonly targetCopy?: boolean;
-    readonly runReadCommitted?: RunLocatedReadCommittedTransactionV1;
-    readonly observeQuery?: (
-      query: RetainedIndexHistoryCompactionQuery,
-    ) => void;
-  } = {}): RetainedIndexHistoryCompactionPort {
+  function port(
+    options: {
+      readonly targetCopy?: boolean;
+      readonly runReadCommitted?: RunLocatedReadCommittedTransactionV1;
+      readonly observeQuery?: (
+        query: RetainedIndexHistoryCompactionQuery,
+      ) => void;
+    } = {},
+  ): RetainedIndexHistoryCompactionPort {
     return createRetainedIndexHistoryCompactionPort({
       authority: {
         scopeMetadata: persistence,
@@ -131,6 +121,19 @@ describe("O11-D retained ordered-index history compaction", () => {
     });
   }
 
+  it("prunes terminal membership and replays the exact final-page cursor", async () => {
+    const context = await provision("terminal_replay");
+    await verifyTerminalMembershipCompaction({
+      persistence,
+      db: persistence.drizzle,
+      ...context,
+      runReadCommitted: createDefaultLocatedReadCommittedTransactionRunnerV1(
+        persistence.drizzle,
+      ),
+      port: (runner) => port({ runReadCommitted: runner }),
+    });
+  });
+
   it("deletes only pre-anchor revisions and advances across identities", async () => {
     const context = await provision("identity_walk");
     await seedIdentityHistory(persistence, context.scopeId, {
@@ -153,13 +156,13 @@ describe("O11-D retained ordered-index history compaction", () => {
     });
     await setClock(persistence, context.scopeId, 3n, 2n);
     const queries: RetainedIndexHistoryCompactionQuery["name"][] = [];
-    const cleanup = port({ observeQuery: query => queries.push(query.name) });
+    const cleanup = port({ observeQuery: (query) => queries.push(query.name) });
 
-    const first = await runEffect(compactRetainedIndexHistoryPageEffect(
-      cleanup,
-      context.deploymentId,
-      { kind: "start" },
-    ));
+    const first = await runEffect(
+      compactRetainedIndexHistoryPageEffect(cleanup, context.deploymentId, {
+        kind: "start",
+      }),
+    );
     expect(first).toMatchObject({
       disposition: "deleted",
       anchorCommitSeq: 2n,
@@ -169,11 +172,13 @@ describe("O11-D retained ordered-index history compaction", () => {
     if (first.disposition === "exhausted") {
       throw new Error("Expected the first ordered-index identity.");
     }
-    const second = await runEffect(compactRetainedIndexHistoryPageEffect(
-      cleanup,
-      context.deploymentId,
-      first.continuation,
-    ));
+    const second = await runEffect(
+      compactRetainedIndexHistoryPageEffect(
+        cleanup,
+        context.deploymentId,
+        first.continuation,
+      ),
+    );
     expect(second).toMatchObject({
       disposition: "advanced",
       anchorCommitSeq: 1n,
@@ -182,11 +187,13 @@ describe("O11-D retained ordered-index history compaction", () => {
     if (second.disposition === "exhausted") {
       throw new Error("Expected the second ordered-index identity.");
     }
-    const third = await runEffect(compactRetainedIndexHistoryPageEffect(
-      cleanup,
-      context.deploymentId,
-      second.continuation,
-    ));
+    const third = await runEffect(
+      compactRetainedIndexHistoryPageEffect(
+        cleanup,
+        context.deploymentId,
+        second.continuation,
+      ),
+    );
     expect(third).toMatchObject({
       disposition: "advanced",
       anchorCommitSeq: null,
@@ -195,11 +202,15 @@ describe("O11-D retained ordered-index history compaction", () => {
     if (third.disposition === "exhausted") {
       throw new Error("Expected the post-floor ordered-index identity.");
     }
-    await expect(runEffect(compactRetainedIndexHistoryPageEffect(
-      cleanup,
-      context.deploymentId,
-      third.continuation,
-    ))).resolves.toMatchObject({ disposition: "exhausted" });
+    await expect(
+      runEffect(
+        compactRetainedIndexHistoryPageEffect(
+          cleanup,
+          context.deploymentId,
+          third.continuation,
+        ),
+      ),
+    ).resolves.toMatchObject({ disposition: "exhausted" });
     expect(queries).toEqual([
       "identityDirectory",
       "anchor",
@@ -212,12 +223,12 @@ describe("O11-D retained ordered-index history compaction", () => {
       "anchor",
       "identityDirectory",
     ]);
-    await expect(readIndexHistory(persistence, context.scopeId)).resolves
-      .toEqual([
-        "11:2", "11:3", "22:1", "33:3",
-      ]);
-    await expect(readIndexCurrent(persistence, context.scopeId)).resolves
-      .toEqual(["11:3", "22:1", "33:3"]);
+    await expect(
+      readIndexHistory(persistence, context.scopeId),
+    ).resolves.toEqual(["11:2", "11:3", "22:1", "33:3"]);
+    await expect(
+      readIndexCurrent(persistence, context.scopeId),
+    ).resolves.toEqual(["11:3", "22:1", "33:3"]);
   });
 
   it("pages one hot identity without deleting its inclusive anchor", async () => {
@@ -241,9 +252,9 @@ describe("O11-D retained ordered-index history compaction", () => {
     for (let page = 0; page < 3; page += 1) {
       const result: RetainedIndexHistoryCompactionResult = await runEffect(
         compactRetainedIndexHistoryPageEffect(
-        cleanup,
-        context.deploymentId,
-        cursor,
+          cleanup,
+          context.deploymentId,
+          cursor,
         ),
       );
       expect(result.disposition).toBe("deleted");
@@ -255,18 +266,24 @@ describe("O11-D retained ordered-index history compaction", () => {
     }
     expect(deletions).toEqual([128, 128, 43]);
     expect(cursor.kind).toBe("after");
-    await expect(runEffect(compactRetainedIndexHistoryPageEffect(
-      cleanup,
-      context.deploymentId,
-      cursor,
-    ))).resolves.toMatchObject({ disposition: "exhausted" });
-    await expect(readIndexHistory(persistence, context.scopeId)).resolves
-      .toEqual([`44:${revisionCount}`]);
-    await expect(readIndexCurrent(persistence, context.scopeId)).resolves
-      .toEqual([`44:${revisionCount}`]);
+    await expect(
+      runEffect(
+        compactRetainedIndexHistoryPageEffect(
+          cleanup,
+          context.deploymentId,
+          cursor,
+        ),
+      ),
+    ).resolves.toMatchObject({ disposition: "exhausted" });
+    await expect(
+      readIndexHistory(persistence, context.scopeId),
+    ).resolves.toEqual([`44:${revisionCount}`]);
+    await expect(
+      readIndexCurrent(persistence, context.scopeId),
+    ).resolves.toEqual([`44:${revisionCount}`]);
   });
 
-  it("preserves the retained anchor as the real writer's chain head", async () => {
+  it("preserves the retained membership transition for the real writer", async () => {
     const context = await provision("writer_compatibility");
     const definitionCanonical = await canonicalizeAppIndexPhysicalSpecV1(
       APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
@@ -291,11 +308,13 @@ describe("O11-D retained ordered-index history compaction", () => {
       currentCommit: 2,
     });
     await setClock(persistence, context.scopeId, 2n, 2n);
-    await expect(runEffect(compactRetainedIndexHistoryPageEffect(
-      port(),
-      context.deploymentId,
-      { kind: "start" },
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffect(
+        compactRetainedIndexHistoryPageEffect(port(), context.deploymentId, {
+          kind: "start",
+        }),
+      ),
+    ).resolves.toMatchObject({
       disposition: "deleted",
       anchorCommitSeq: 2n,
       deletedRevisionCount: 1,
@@ -312,19 +331,22 @@ describe("O11-D retained ordered-index history compaction", () => {
        from fx_system_scope_clock where scope_id = $1`,
       [context.scopeId, testRowIdHex],
     );
-    const located = await runEffect(locateAppIndexDefinitionByIdEffect(
-      persistence.drizzle,
-      context.scopeId,
-      decodeCatalogIndexDefinitionId(1),
-    ));
-    if (located === null) throw new Error("Expected the installed index owner.");
+    const located = await runEffect(
+      locateAppIndexDefinitionByIdEffect(
+        persistence.drizzle,
+        context.scopeId,
+        decodeCatalogIndexDefinitionId(1),
+      ),
+    );
+    if (located === null)
+      throw new Error("Expected the installed index owner.");
     const epochRows = await persistence.query<{ epoch: string }>(
       `select epoch from fx_system_scope_clock where scope_id = $1`,
       [context.scopeId],
     );
     const epoch = epochRows.rows[0]?.epoch;
     if (epoch === undefined) throw new Error("Expected the scope epoch.");
-    const appended = await persistence.drizzle.transaction(tx =>
+    const appended = await persistence.drizzle.transaction((tx) =>
       appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(tx, {
         kind: "tombstone",
         scopeId: context.scopeId,
@@ -333,33 +355,41 @@ describe("O11-D retained ordered-index history compaction", () => {
         rowId: decodeOrderedIndexRowIdHexV1(testRowIdHex),
         writeEpoch: ScopeEpochSchema.make(epoch),
         commitSeq: CommitSeqSchema.make(3n),
-        prevCommitSeq: CommitSeqSchema.make(2n),
-      })
+      }),
     );
     expect(Result.isSuccess(appended)).toBe(true);
-    await expect(readIndexHistory(persistence, context.scopeId)).resolves
-      .toEqual([`${key}:2`, `${key}:3`]);
-    await expect(readIndexCurrent(persistence, context.scopeId)).resolves
-      .toEqual([]);
+    await expect(
+      readIndexHistory(persistence, context.scopeId),
+    ).resolves.toEqual([`${key}:2`, `${key}:3`]);
+    await expect(
+      readIndexCurrent(persistence, context.scopeId),
+    ).resolves.toEqual([]);
   });
 
-  it("rejects missing anchors and stable-evidence drift without mutation", async () => {
+  it("accepts post-floor membership and rejects stable-evidence drift without mutation", async () => {
     const missingAnchor = await provision("missing_anchor");
     await seedIdentityHistory(persistence, missingAnchor.scopeId, {
       keyHex: "55",
       rowIdHex: rowIdHex(5),
       commits: [3],
-      previousCommitOverride: 2,
       currentCommit: 3,
     });
     await setClock(persistence, missingAnchor.scopeId, 3n, 2n);
-    await expect(runEffectFailure(compactRetainedIndexHistoryPageEffect(
-      port(),
-      missingAnchor.deploymentId,
-      { kind: "start" },
-    ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
-    await expect(readIndexHistory(persistence, missingAnchor.scopeId)).resolves
-      .toEqual(["55:3"]);
+    await expect(
+      runEffect(
+        compactRetainedIndexHistoryPageEffect(
+          port(),
+          missingAnchor.deploymentId,
+          { kind: "start" },
+        ),
+      ),
+    ).resolves.toMatchObject({
+      disposition: "advanced",
+      deletedRevisionCount: 0,
+    });
+    await expect(
+      readIndexHistory(persistence, missingAnchor.scopeId),
+    ).resolves.toEqual(["55:3"]);
 
     const evidenceDrift = await provision("evidence_drift");
     await seedIdentityHistory(persistence, evidenceDrift.scopeId, {
@@ -373,13 +403,18 @@ describe("O11-D retained ordered-index history compaction", () => {
       currentCommit: 2,
     });
     await setClock(persistence, evidenceDrift.scopeId, 2n, 2n);
-    await expect(runEffectFailure(compactRetainedIndexHistoryPageEffect(
-      port(),
-      evidenceDrift.deploymentId,
-      { kind: "start" },
-    ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
-    await expect(readIndexHistory(persistence, evidenceDrift.scopeId)).resolves
-      .toEqual(["66:1", "66:2"]);
+    await expect(
+      runEffectFailure(
+        compactRetainedIndexHistoryPageEffect(
+          port(),
+          evidenceDrift.deploymentId,
+          { kind: "start" },
+        ),
+      ),
+    ).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
+    await expect(
+      readIndexHistory(persistence, evidenceDrift.scopeId),
+    ).resolves.toEqual(["66:1", "66:2"]);
   });
 
   it("lets the current-pointer FK block deletion and rolls back late failure", async () => {
@@ -391,13 +426,16 @@ describe("O11-D retained ordered-index history compaction", () => {
       currentCommit: 1,
     });
     await setClock(persistence, blocked.scopeId, 2n, 2n);
-    await expect(runEffectFailure(compactRetainedIndexHistoryPageEffect(
-      port(),
-      blocked.deploymentId,
-      { kind: "start" },
-    ))).resolves.toMatchObject({ operation: "revisionDeletion" });
-    await expect(readIndexHistory(persistence, blocked.scopeId)).resolves
-      .toEqual(["77:1", "77:2"]);
+    await expect(
+      runEffectFailure(
+        compactRetainedIndexHistoryPageEffect(port(), blocked.deploymentId, {
+          kind: "start",
+        }),
+      ),
+    ).resolves.toMatchObject({ operation: "revisionDeletion" });
+    await expect(
+      readIndexHistory(persistence, blocked.scopeId),
+    ).resolves.toEqual(["77:1", "77:2"]);
 
     const rollback = await provision("late_rollback");
     await seedIdentityHistory(persistence, rollback.scopeId, {
@@ -410,74 +448,96 @@ describe("O11-D retained ordered-index history compaction", () => {
     const base = createDefaultLocatedReadCommittedTransactionRunnerV1(
       persistence.drizzle,
     );
-    const rollbackRunner: RunLocatedReadCommittedTransactionV1 = work =>
-      base(async tx => {
+    const rollbackRunner: RunLocatedReadCommittedTransactionV1 = (work) =>
+      base(async (tx) => {
         await work(tx);
         throw new Error("late ordered-index compaction rollback");
       });
-    await expect(runEffectFailure(compactRetainedIndexHistoryPageEffect(
-      port({ runReadCommitted: rollbackRunner }),
-      rollback.deploymentId,
-      { kind: "start" },
-    ))).resolves.toMatchObject({ issue: { kind: "callbackRolledBack" } });
-    await expect(readIndexHistory(persistence, rollback.scopeId)).resolves
-      .toEqual(["88:1", "88:2"]);
+    await expect(
+      runEffectFailure(
+        compactRetainedIndexHistoryPageEffect(
+          port({ runReadCommitted: rollbackRunner }),
+          rollback.deploymentId,
+          { kind: "start" },
+        ),
+      ),
+    ).resolves.toMatchObject({ issue: { kind: "callbackRolledBack" } });
+    await expect(
+      readIndexHistory(persistence, rollback.scopeId),
+    ).resolves.toEqual(["88:1", "88:2"]);
   });
 
   it("rejects copied authority and cold-replays a committed uncertain page", async () => {
     const observerCapture = await provision("observer_capture");
     let observerReads = 0;
     const observedQueries: RetainedIndexHistoryCompactionQuery["name"][] = [];
-    const input = Object.defineProperty({
-      authority: {
-        scopeMetadata: persistence,
-        provisioningReceipts: {
-          getScopeAuthorityProvisioningReceipt: async () => {
-            throw new Error("Shared scope must not read split receipts.");
+    const input = Object.defineProperty(
+      {
+        authority: {
+          scopeMetadata: persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => {
+              throw new Error("Shared scope must not read split receipts.");
+            },
+          },
+          scopeClockTargets: {
+            resolve: async (locator: ScopePhysicalLocator) =>
+              createLocatedRetainedHistoryFloorTargetInternal(
+                persistence.drizzle,
+                locator,
+                createDefaultLocatedReadCommittedTransactionRunnerV1(
+                  persistence.drizzle,
+                ),
+              ),
           },
         },
-        scopeClockTargets: {
-          resolve: async (locator: ScopePhysicalLocator) =>
-            createLocatedRetainedHistoryFloorTargetInternal(
-              persistence.drizzle,
-              locator,
-              createDefaultLocatedReadCommittedTransactionRunnerV1(
-                persistence.drizzle,
-              ),
-            ),
+      },
+      "observeQuery",
+      {
+        enumerable: true,
+        get: () => {
+          observerReads += 1;
+          return (query: RetainedIndexHistoryCompactionQuery) => {
+            observedQueries.push(query.name);
+          };
         },
       },
-    }, "observeQuery", {
-      enumerable: true,
-      get: () => {
-        observerReads += 1;
-        return (query: RetainedIndexHistoryCompactionQuery) => {
-          observedQueries.push(query.name);
-        };
-      },
-    });
-    const capturedObserverPort = createRetainedIndexHistoryCompactionPort(input);
+    );
+    const capturedObserverPort =
+      createRetainedIndexHistoryCompactionPort(input);
     expect(observerReads).toBe(1);
-    await expect(runEffect(compactRetainedIndexHistoryPageEffect(
-      capturedObserverPort,
-      observerCapture.deploymentId,
-      { kind: "start" },
-    ))).resolves.toMatchObject({ disposition: "exhausted" });
+    await expect(
+      runEffect(
+        compactRetainedIndexHistoryPageEffect(
+          capturedObserverPort,
+          observerCapture.deploymentId,
+          { kind: "start" },
+        ),
+      ),
+    ).resolves.toMatchObject({ disposition: "exhausted" });
     expect(observedQueries).toEqual(["identityDirectory"]);
 
     const copiedPort = await provision("copied_port");
-    await expect(runEffectFailure(compactRetainedIndexHistoryPageEffect(
-      { ...port() },
-      copiedPort.deploymentId,
-      { kind: "start" },
-    ))).resolves.toMatchObject({ reason: "invalidPort" });
+    await expect(
+      runEffectFailure(
+        compactRetainedIndexHistoryPageEffect(
+          { ...port() },
+          copiedPort.deploymentId,
+          { kind: "start" },
+        ),
+      ),
+    ).resolves.toMatchObject({ reason: "invalidPort" });
 
     const copiedTarget = await provision("copied_target");
-    await expect(runEffectFailure(compactRetainedIndexHistoryPageEffect(
-      port({ targetCopy: true }),
-      copiedTarget.deploymentId,
-      { kind: "start" },
-    ))).resolves.toMatchObject({ reason: "invalidTarget" });
+    await expect(
+      runEffectFailure(
+        compactRetainedIndexHistoryPageEffect(
+          port({ targetCopy: true }),
+          copiedTarget.deploymentId,
+          { kind: "start" },
+        ),
+      ),
+    ).resolves.toMatchObject({ reason: "invalidTarget" });
 
     const uncertain = await provision("uncertain");
     await seedIdentityHistory(persistence, uncertain.scopeId, {
@@ -491,30 +551,39 @@ describe("O11-D retained ordered-index history compaction", () => {
       persistence.drizzle,
     );
     let loseFirstResponse = true;
-    const uncertainRunner: RunLocatedReadCommittedTransactionV1 = async work => {
+    const uncertainRunner: RunLocatedReadCommittedTransactionV1 = async (
+      work,
+    ) => {
       const result = await base(work);
       if (loseFirstResponse) {
         loseFirstResponse = false;
-        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-          kind: "decisionUncertain" as const,
-          settlementCause: new Error("lost ordered-index cleanup response"),
-        }));
+        throw new LocatedReadCommittedTransactionFailureV1(
+          Object.freeze({
+            kind: "decisionUncertain" as const,
+            settlementCause: new Error("lost ordered-index cleanup response"),
+          }),
+        );
       }
       return result;
     };
     const cleanup = port({ runReadCommitted: uncertainRunner });
-    await expect(runEffectFailure(compactRetainedIndexHistoryPageEffect(
-      cleanup,
-      uncertain.deploymentId,
-      { kind: "start" },
-    ))).resolves.toMatchObject({ issue: { kind: "decisionUncertain" } });
-    await expect(readIndexHistory(persistence, uncertain.scopeId)).resolves
-      .toEqual(["99:2"]);
-    await expect(runEffect(compactRetainedIndexHistoryPageEffect(
-      cleanup,
-      uncertain.deploymentId,
-      { kind: "start" },
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffectFailure(
+        compactRetainedIndexHistoryPageEffect(cleanup, uncertain.deploymentId, {
+          kind: "start",
+        }),
+      ),
+    ).resolves.toMatchObject({ issue: { kind: "decisionUncertain" } });
+    await expect(
+      readIndexHistory(persistence, uncertain.scopeId),
+    ).resolves.toEqual(["99:2"]);
+    await expect(
+      runEffect(
+        compactRetainedIndexHistoryPageEffect(cleanup, uncertain.deploymentId, {
+          kind: "start",
+        }),
+      ),
+    ).resolves.toMatchObject({
       disposition: "advanced",
       deletedRevisionCount: 0,
       anchorCommitSeq: 2n,
@@ -526,8 +595,8 @@ interface SeedIdentityHistoryInput {
   readonly keyHex: string;
   readonly rowIdHex: string;
   readonly commits: ReadonlyArray<number>;
-  readonly currentCommit: number;
-  readonly previousCommitOverride?: number;
+  readonly currentCommit: number | null;
+  readonly tombstoneCommits?: ReadonlySet<number>;
   readonly physicalSpecSha256HexByCommit?: ReadonlyMap<number, string>;
 }
 
@@ -538,7 +607,7 @@ async function seedIdentityHistory(
 ): Promise<void> {
   let previousCommit: number | null = null;
   for (const commit of input.commits) {
-    const storedPrevious = input.previousCommitOverride ?? previousCommit;
+    const storedPrevious = previousCommit;
     await persistence.query(
       `insert into fx_app_row_rev
          (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
@@ -551,17 +620,22 @@ async function seedIdentityHistory(
        from fx_system_scope_clock where scope_id = $1`,
       [scopeId, commit, input.rowIdHex, storedPrevious],
     );
-    const physicalSpecSha256Hex = input.physicalSpecSha256HexByCommit?.get(
-      commit,
-    ) ?? "11".repeat(32);
+    if (previousCommit === null)
+      await persistence.query(
+        `insert into fx_app_row_current (scope_uuid, table_id, row_id, commit_seq)
+       select scope_uuid, 1, decode($2, 'hex'), $3 from fx_system_scope_clock where scope_id = $1`,
+        [scopeId, input.rowIdHex, commit],
+      );
+    const physicalSpecSha256Hex =
+      input.physicalSpecSha256HexByCommit?.get(commit) ?? "11".repeat(32);
     await persistence.query(
       `insert into fx_app_index_entry_rev
          (scope_uuid, index_definition_id, table_id, key_codec_version,
           physical_spec_sha256, encoded_key, key_sha256, row_id,
-          commit_seq, prev_commit_seq, write_epoch_uuid, is_tombstone)
+          commit_seq, is_tombstone)
        select scope_uuid, 1, 1, 1, decode($5, 'hex'),
-              decode($3, 'hex'), decode(repeat('22', 32), 'hex'),
-              decode($4, 'hex'), $2::bigint, $6::bigint, epoch_uuid, false
+              decode($3, 'hex'), decode($7, 'hex'),
+              decode($4, 'hex'), $2::bigint, $6::boolean
        from fx_system_scope_clock where scope_id = $1`,
       [
         scopeId,
@@ -569,18 +643,22 @@ async function seedIdentityHistory(
         input.keyHex,
         input.rowIdHex,
         physicalSpecSha256Hex,
-        storedPrevious,
+        input.tombstoneCommits?.has(commit) ?? false,
+        createHash("sha256")
+          .update(Buffer.from(input.keyHex, "hex"))
+          .digest("hex"),
       ],
     );
     previousCommit = commit;
   }
-  await persistence.query(
-    `insert into fx_app_index_entry_current
+  if (input.currentCommit !== null)
+    await persistence.query(
+      `insert into fx_app_index_entry_current
        (scope_uuid, index_definition_id, encoded_key, row_id, commit_seq)
      select scope_uuid, 1, decode($2, 'hex'), decode($3, 'hex'), $4
      from fx_system_scope_clock where scope_id = $1`,
-    [scopeId, input.keyHex, input.rowIdHex, input.currentCommit],
-  );
+      [scopeId, input.keyHex, input.rowIdHex, input.currentCommit],
+    );
 }
 
 async function setClock(
@@ -612,7 +690,7 @@ async function readIndexHistory(
      ) order by encoded_key, row_id, commit_seq`,
     [scopeId],
   );
-  return result.rows.map(row => `${row.key_hex}:${row.commit_seq}`);
+  return result.rows.map((row) => `${row.key_hex}:${row.commit_seq}`);
 }
 
 async function readIndexCurrent(
@@ -630,7 +708,7 @@ async function readIndexCurrent(
      ) order by encoded_key, row_id`,
     [scopeId],
   );
-  return result.rows.map(row => `${row.key_hex}:${row.commit_seq}`);
+  return result.rows.map((row) => `${row.key_hex}:${row.commit_seq}`);
 }
 
 function rowIdHex(value: number): string {

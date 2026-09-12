@@ -37,9 +37,7 @@ import {
   locateAppIndexDefinitionByIdEffect,
   type LocatedAppIndexDefinitionV1,
 } from "../src/appIndexDefinitions";
-import {
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
-} from "../src/appRows";
+import { appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult } from "../src/appRows";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect } from "./effectTestRuntime";
 import {
@@ -65,6 +63,7 @@ const rowA = decodeAppRowIdHexV1("5300000000000000000000000000000a");
 const rowB = decodeAppRowIdHexV1("5300000000000000000000000000000b");
 const keyA = key("a");
 const keyB = key("b");
+const keyC = key("c");
 const physicalSpec = APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1;
 const deploymentId = "deployment_s10_postgres";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
@@ -75,35 +74,58 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
       await insertClock(persistence);
       await persistence.drizzle.transaction(async (tx) => {
         await appendRow(tx, rowA, 1n, null, "a");
-        expect(Result.isSuccess(await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-          tx,
-          indexEntry(rowA, keyA, 1n, null),
-        ))).toBe(true);
+        expect(
+          Result.isSuccess(
+            await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+              tx,
+              indexEntry(rowA, keyA, 1n),
+            ),
+          ),
+        ).toBe(true);
         await appendRow(tx, rowB, 2n, null, "b");
-        expect(Result.isSuccess(await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-          tx,
-          indexEntry(rowB, keyB, 2n, null),
-        ))).toBe(true);
+        expect(
+          Result.isSuccess(
+            await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+              tx,
+              indexEntry(rowB, keyB, 2n),
+            ),
+          ),
+        ).toBe(true);
       });
 
       const snapshot = await persistence.drizzle.transaction((tx) =>
-        runEffect(scanAppIndexAtSnapshotInTransactionEffect(tx, {
-          scopeId,
-          definition: locatedDefinition,
-          bounds: {},
-          snapshotCommitSeq: CommitSeqSchema.make(2n),
-          limit: 10,
-        }))
+        runEffect(
+          scanAppIndexAtSnapshotInTransactionEffect(tx, {
+            scopeId,
+            definition: locatedDefinition,
+            bounds: {},
+            snapshotCommitSeq: CommitSeqSchema.make(2n),
+            limit: 10,
+          }),
+        ),
       );
-      expect(snapshot.entries.map((entry) => [entry.encodedKey, entry.rowId]))
-        .toEqual([[keyA, rowA], [keyB, rowB]]);
+      expect(
+        snapshot.entries.map((entry) => [entry.encodedKey, entry.rowId]),
+      ).toEqual([
+        [keyA, rowA],
+        [keyB, rowB],
+      ]);
 
-      await persistence.drizzle.transaction((tx) =>
-        appendRow(tx, rowA, 3n, 1n, "a-next")
-      );
+      await persistence.drizzle.transaction(async (tx) => {
+        await appendRow(tx, rowA, 3n, 1n, "a-next");
+        const released =
+          await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+            tx,
+            {
+              ...indexEntry(rowA, keyA, 3n),
+              kind: "tombstone",
+            },
+          );
+        expect(Result.isSuccess(released)).toBe(true);
+      });
       const attempts = await Promise.all([
-        appendConcurrent(persistence, rowA, keyA),
-        appendConcurrent(persistence, rowA, keyA),
+        appendConcurrent(persistence, rowA, keyC),
+        appendConcurrent(persistence, rowA, keyC),
       ]);
       expect(attempts.filter(Result.isSuccess)).toHaveLength(1);
       const failure = attempts.find(Result.isFailure);
@@ -111,28 +133,43 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
         AppIndexEntryRevisionAlreadyExistsError,
       );
       const current = await persistence.drizzle.transaction((tx) =>
-        runEffect(scanCurrentAppIndexInTransactionEffect(tx, {
-          scopeId,
-          definition: locatedDefinition,
-          bounds: {},
-          limit: 10,
-        }))
+        runEffect(
+          scanCurrentAppIndexInTransactionEffect(tx, {
+            scopeId,
+            definition: locatedDefinition,
+            bounds: {},
+            limit: 10,
+          }),
+        ),
       );
-      expect(current.entries.map((entry) => entry.commitSeq)).toEqual([3n, 2n]);
+      expect(current.entries.map((entry) => entry.commitSeq)).toEqual([2n, 3n]);
 
-      expect((await indexPlans(persistence)).snapshot).toMatch(/fx_app_index_entry_rev_range_idx/);
+      expect((await indexPlans(persistence)).snapshot).toMatch(
+        /fx_app_index_entry_rev_range_idx/,
+      );
       await seedCurrentLookupPlanHistory(persistence);
       const plans = await indexPlans(persistence);
-      expect(plans.current).toMatch(
-        /fx_app_index_entry_current_pk/,
-      );
+      expect(plans.current).toMatch(/fx_app_index_entry_current_pk/);
       // Either complete-key index can serve the point lookup. Assert all join keys
       // are index conditions; a whole revision scan plus Join Filter is not this proof.
-      expect(plans.current).toMatch(/Index Scan using fx_app_index_entry_rev_(?:pk|commit_range_idx)/);
-      const revisionCondition = plans.current.split("\n").find(line =>
-        line.includes("Index Cond:") && line.includes("current_entry.commit_seq"));
+      expect(plans.current).toMatch(
+        /Index Scan using fx_app_index_entry_rev_(?:pk|commit_range_idx)/,
+      );
+      const revisionCondition = plans.current
+        .split("\n")
+        .find(
+          (line) =>
+            line.includes("Index Cond:") &&
+            line.includes("current_entry.commit_seq"),
+        );
       expect(revisionCondition).toBeDefined();
-      for (const field of ["scope_uuid", "index_definition_id", "encoded_key", "row_id", "commit_seq"]) {
+      for (const field of [
+        "scope_uuid",
+        "index_definition_id",
+        "encoded_key",
+        "row_id",
+        "commit_seq",
+      ]) {
         expect(revisionCondition).toContain(field);
       }
       for (const field of ["encoded_key", "row_id", "commit_seq"]) {
@@ -174,11 +211,15 @@ async function seedLocatedDefinition(
     `insert into fx_control_scope
        (id, deployment_id, isolation_kind, physical_locator_json)
      values ($1, $2, 'shared_database', $3)`,
-    [scopeId, deploymentId, {
-      kind: "shared_database",
-      databaseKey: "s10_postgres",
-      schemaName: "public",
-    }],
+    [
+      scopeId,
+      deploymentId,
+      {
+        kind: "shared_database",
+        databaseKey: "s10_postgres",
+        schemaName: "public",
+      },
+    ],
   );
   await persistence.query(
     `insert into fx_control_index_definition
@@ -197,12 +238,15 @@ async function seedLocatedDefinition(
       appIndexPhysicalSpecSha256HexV1ToBytes(canonical.sha256Hex),
     ],
   );
-  const located = await runEffect(locateAppIndexDefinitionByIdEffect(
-    persistence.drizzle,
-    scopeId,
-    indexDefinitionId,
-  ));
-  if (located === null) throw new Error("Expected located S10 index definition");
+  const located = await runEffect(
+    locateAppIndexDefinitionByIdEffect(
+      persistence.drizzle,
+      scopeId,
+      indexDefinitionId,
+    ),
+  );
+  if (located === null)
+    throw new Error("Expected located S10 index definition");
   locatedDefinition = located;
 }
 
@@ -222,23 +266,19 @@ async function appendRow(
     fields: { title },
   });
   Result.getOrThrow(
-    await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-      tx,
-      {
-        kind: "live",
-        scopeId,
-        tableId,
-        rowId,
-        writeEpoch: epoch,
-        commitSeq: CommitSeqSchema.make(commitSeq),
-        prevCommitSeq: prevCommitSeq === null
-          ? null
-          : CommitSeqSchema.make(prevCommitSeq),
-        schemaVersionId,
-        creationTime,
-        document,
-      },
-    ),
+    await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(tx, {
+      kind: "live",
+      scopeId,
+      tableId,
+      rowId,
+      writeEpoch: epoch,
+      commitSeq: CommitSeqSchema.make(commitSeq),
+      prevCommitSeq:
+        prevCommitSeq === null ? null : CommitSeqSchema.make(prevCommitSeq),
+      schemaVersionId,
+      creationTime,
+      document,
+    }),
   );
 }
 
@@ -250,8 +290,8 @@ async function appendConcurrent(
   return persistence.drizzle.transaction((tx) =>
     appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
       tx,
-      indexEntry(rowId, encodedKey, 3n, 1n),
-    )
+      indexEntry(rowId, encodedKey, 3n),
+    ),
   );
 }
 
@@ -259,7 +299,6 @@ function indexEntry(
   rowId: typeof rowA,
   encodedKey: OrderedIndexKeyHexV1,
   commitSeq: bigint,
-  prevCommitSeq: bigint | null,
 ) {
   return {
     kind: "live" as const,
@@ -269,9 +308,6 @@ function indexEntry(
     rowId,
     writeEpoch: epoch,
     commitSeq: CommitSeqSchema.make(commitSeq),
-    prevCommitSeq: prevCommitSeq === null
-      ? null
-      : CommitSeqSchema.make(prevCommitSeq),
   };
 }
 
@@ -288,8 +324,8 @@ async function seedCurrentLookupPlanHistory(
   );
   await persistence.query(
     `insert into fx_app_index_entry_rev
-    (scope_uuid,index_definition_id,table_id,key_codec_version,physical_spec_sha256,encoded_key,key_sha256,row_id,commit_seq,prev_commit_seq,write_epoch_uuid,is_tombstone)
-    select scope_uuid,index_definition_id,table_id,key_codec_version,physical_spec_sha256,encoded_key,key_sha256,row_id,n,n-1,write_epoch_uuid,is_tombstone
+    (scope_uuid,index_definition_id,table_id,key_codec_version,physical_spec_sha256,encoded_key,key_sha256,row_id,commit_seq,is_tombstone)
+    select scope_uuid,index_definition_id,table_id,key_codec_version,physical_spec_sha256,encoded_key,key_sha256,row_id,n,is_tombstone
     from fx_app_index_entry_rev cross join generate_series(4,1003) as n where row_id=decode($1,'hex') and commit_seq=3`,
     [rowA],
   );

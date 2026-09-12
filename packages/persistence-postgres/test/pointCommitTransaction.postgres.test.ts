@@ -1,3 +1,4 @@
+import { readOrderedMembershipStorage } from "./orderedMembershipStorageScenario";
 import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
@@ -9,7 +10,10 @@ import {
   closeAppUniqueConstraintSetV1InTransactionEffect,
   prepareAppUniqueConstraintSetClosureV1Effect,
 } from "../src/appUniqueConstraintSetClosureV1";
-import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
+import {
+  captureSessionStorage,
+  expectSessionPayloadScrubbed,
+} from "./terminalSessionStorageScenario";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -68,27 +72,19 @@ import {
   decodeReplacementScopeIdV1,
   projectScopeEpochUuidV1,
 } from "flarex-protocol/storage-authority";
-import {
-  TransactionGrantDeploymentIdV1Schema,
-} from "flarex-protocol/transaction-grant";
-import {
-  TransactionRequestKeyV1Schema,
-} from "flarex-protocol/transaction-session";
+import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
+import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
 
-import {
-  appendAppRowRevisionAndAdvanceCurrentInTransaction,
-} from "../src/appRows";
+import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from "../src/appRows";
 import {
   createAppSchemaCandidateValidationPortForPointCommitAuthority,
   createAppSchemaCandidateWriteGuardPort,
   installAppSchemaCandidateValidationEffect,
   loadAppSchemaCandidateValidationEffect,
 } from "../src/appSchemaCandidateValidation";
-import {
-  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
-} from "../src/appIndexEntries";
+import { appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult } from "../src/appIndexEntries";
 import {
   buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
@@ -97,17 +93,14 @@ import {
 import {
   createAppDeveloperIndexDefinitionPortV1,
   lowerAppDeveloperIndexKeyV1,
-} from
-  "../src/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from
-  "../src/appUniqueConstraintCommitV1";
+} from "../src/appDeveloperIndexCommitV1";
+import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
 import {
   ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
   prepareAppUniqueConstraintDefinitionBindingV1Effect,
 } from "../src/appUniqueConstraintDefinitions";
 import { AppUniqueKeyConflictError } from "../src/appUniqueKeys";
-import { reconcilePublishedIndexBuildsV1Effect } from
-  "../src/indexBuildReconciliation";
+import { reconcilePublishedIndexBuildsV1Effect } from "../src/indexBuildReconciliation";
 import {
   createPointCommitFinishingTransitionPortV1,
   createPointMutationAttemptReplacementPortV1,
@@ -228,10 +221,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
       await entered.promise;
 
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toEqual(before);
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toEqual(before);
       const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
         interruptionSettled = true;
         return exit;
@@ -241,25 +233,29 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       release.resolve();
       await interruption;
       expect(interruptionSettled).toBe(true);
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toEqual(before);
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toEqual(before);
 
       const steps: string[] = [];
       const queries = new Map<
         PointCommitSqlOperationV1,
-        Readonly<{ readonly sql: string; readonly params: ReadonlyArray<unknown> }>
+        Readonly<{
+          readonly sql: string;
+          readonly params: ReadonlyArray<unknown>;
+        }>
       >();
-      const result = await runEffect(createPort(persistence, {
-        afterTransactionStep: (event) => {
-          steps.push(event.step);
-          return Promise.resolve();
-        },
-        observeQuery: (query) => {
-          queries.set(query.name, query);
-        },
-      }).prove(attempt.command));
+      const result = await runEffect(
+        createPort(persistence, {
+          afterTransactionStep: (event) => {
+            steps.push(event.step);
+            return Promise.resolve();
+          },
+          observeQuery: (query) => {
+            queries.set(query.name, query);
+          },
+        }).prove(attempt.command),
+      );
       expect(result).toEqual({ kind: "wouldCommit" });
       expect(Object.isFrozen(result)).toBe(true);
       expect(steps).toEqual([
@@ -288,10 +284,12 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "lockLease",
         "lockJournalRoot",
       ] as const) {
-        expect(await explainObserved(persistence, requireObservedQuery(
-          queries,
-          name,
-        ))).toContain("Index Scan");
+        expect(
+          await explainObserved(
+            persistence,
+            requireObservedQuery(queries, name),
+          ),
+        ).toContain("Index Scan");
       }
       await expectSequentialScansEnabled(persistence);
     });
@@ -331,21 +329,25 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       const entered = deferredSignal();
       const release = deferredSignal();
       const order: string[] = [];
-      const firstPromise = runEffect(createPort(persistence, {
-        afterTransactionStep: async (event) => {
-          if (event.step !== "clockLocked") return;
-          order.push("first-clock");
-          entered.resolve();
-          await release.promise;
-        },
-      }).prove(first.command));
+      const firstPromise = runEffect(
+        createPort(persistence, {
+          afterTransactionStep: async (event) => {
+            if (event.step !== "clockLocked") return;
+            order.push("first-clock");
+            entered.resolve();
+            await release.promise;
+          },
+        }).prove(first.command),
+      );
       await entered.promise;
-      const secondPromise = runEffect(createPort(persistence, {
-        afterTransactionStep: (event) => {
-          if (event.step === "clockLocked") order.push("second-clock");
-          return Promise.resolve();
-        },
-      }).prove(second.command));
+      const secondPromise = runEffect(
+        createPort(persistence, {
+          afterTransactionStep: (event) => {
+            if (event.step === "clockLocked") order.push("second-clock");
+            return Promise.resolve();
+          },
+        }).prove(second.command),
+      );
       await waitForBlockedPointCommit(persistence, 1);
 
       await withTimeout(
@@ -357,14 +359,15 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       release.resolve();
       await Promise.all([firstPromise, secondPromise]);
       expect(order).toEqual(["first-clock", "second-clock"]);
-      expect(await durableState(
-        persistence,
-        first.command.sealIdentity.scopeUuid,
-      )).toMatchObject({ revisions: "0", last_commit_seq: "0" });
-      expect(await durableState(
-        persistence,
-        independent.command.sealIdentity.scopeUuid,
-      )).toMatchObject({ revisions: "0", last_commit_seq: "0" });
+      expect(
+        await durableState(persistence, first.command.sealIdentity.scopeUuid),
+      ).toMatchObject({ revisions: "0", last_commit_seq: "0" });
+      expect(
+        await durableState(
+          persistence,
+          independent.command.sealIdentity.scopeUuid,
+        ),
+      ).toMatchObject({ revisions: "0", last_commit_seq: "0" });
     });
   }, 120_000);
 
@@ -384,26 +387,30 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
       const entered = deferredSignal();
       const release = deferredSignal();
-      const proof = runEffect(createPort(persistence, {
-        afterTransactionStep: async (event) => {
-          if (event.step !== "clockLocked") return;
-          entered.resolve();
-          await release.promise;
-        },
-      }).prove(attempt.command));
+      const proof = runEffect(
+        createPort(persistence, {
+          afterTransactionStep: async (event) => {
+            if (event.step !== "clockLocked") return;
+            entered.resolve();
+            await release.promise;
+          },
+        }).prove(attempt.command),
+      );
       await entered.promise;
       let revocationSettled = false;
-      const revocation = persistence.query(
-        `
+      const revocation = persistence
+        .query(
+          `
           update fx_system_scope_clock
           set authorization_revocation_epoch =
             authorization_revocation_epoch + 1
           where scope_uuid = $1
         `,
-        [attempt.command.sealIdentity.scopeUuid],
-      ).then(() => {
-        revocationSettled = true;
-      });
+          [attempt.command.sealIdentity.scopeUuid],
+        )
+        .then(() => {
+          revocationSettled = true;
+        });
       try {
         await waitForBlockedPointCommit(persistence, 1);
         expect(revocationSettled).toBe(false);
@@ -418,21 +425,16 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
       expect(failure).toBeInstanceOf(PointCommitStaleAuthorityV1Error);
       expect(failure).toMatchObject({ reason: "revocationEpochChanged" });
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toMatchObject({ revisions: "0", last_commit_seq: "0" });
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toMatchObject({ revisions: "0", last_commit_seq: "0" });
     });
   }, 120_000);
 
   it("observes a competing committed row after the clock wait as an OCC conflict", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96300000");
-      const scope = await createScope(
-        persistence,
-        randomUuid,
-        "occ_race",
-      );
+      const scope = await createScope(persistence, randomUuid, "occ_race");
       const attempt = await createAttempt(
         persistence,
         randomUuid,
@@ -456,10 +458,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       await writer;
       const failure = await proofFailure;
       expect(failure).toBeInstanceOf(PointCommitConflictV1Error);
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toMatchObject({
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toMatchObject({
         revisions: "1",
         current_rows: "1",
         commit_headers: "1",
@@ -494,10 +495,12 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         attempt,
         "22".repeat(16),
       );
-      const failure = await runFailure(createPort(
-        persistence,
-        await prepareDeveloperIndexForPostgres(persistence, scope),
-      ).prove(attempt.command));
+      const failure = await runFailure(
+        createPort(
+          persistence,
+          await prepareDeveloperIndexForPostgres(persistence, scope),
+        ).prove(attempt.command),
+      );
       expect(failure).toBeInstanceOf(PointCommitConflictV1Error);
       expect(failure).toMatchObject({
         conflict: {
@@ -517,10 +520,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         attempt.command,
       );
       expect(plan).toContain("fx_app_index_entry_rev_commit_range_idx");
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toMatchObject({
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toMatchObject({
         revisions: "1",
         current_rows: "1",
         commit_headers: "1",
@@ -529,45 +531,80 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     });
   }, 120_000);
 
-  it.each([0, 1, 128])("publishes %i admitted native row facts in one batch", async (count) => {
-    await withPostgresPersistence(async (persistence) => {
-      const randomUuid = uuidFactory((0x96b00000 + count).toString(16));
-      const label = `publish_batch_${count}`;
-      const scope = await createScope(persistence, randomUuid, label);
-      const attempt = await createAttempt(persistence, randomUuid, scope, label, count);
-      const parameters: number[] = [];
-      let steps = 0;
-      const publisher = createPublisher(persistence, {
-        observeQuery: (query) => {
-          if (query.name === "writeCommitChange") parameters.push(query.params.length);
-        },
-        afterTransactionStep: async (event) => {
-          if (event.step === "commitChangeWritten") steps += 1;
-        },
+  it.each([0, 1, 128])(
+    "publishes %i admitted native row facts in one batch",
+    async (count) => {
+      await withPostgresPersistence(async (persistence) => {
+        const randomUuid = uuidFactory((0x96b00000 + count).toString(16));
+        const label = `publish_batch_${count}`;
+        const scope = await createScope(persistence, randomUuid, label);
+        const attempt = await createAttempt(
+          persistence,
+          randomUuid,
+          scope,
+          label,
+          count,
+        );
+        const parameters: number[] = [];
+        let steps = 0;
+        const publisher = createPublisher(persistence, {
+          observeQuery: (query) => {
+            if (query.name === "writeCommitChange")
+              parameters.push(query.params.length);
+          },
+          afterTransactionStep: async (event) => {
+            if (event.step === "commitChangeWritten") steps += 1;
+          },
+        });
+        await expect(
+          runEffect(publisher.publish(attempt.publicationCommand)),
+        ).resolves.toMatchObject({ kind: "published" });
+        const expectedBatches =
+          count === 0
+            ? []
+            : Array.from(
+                { length: Math.ceil(count / 500) },
+                (_, index) => Math.min(500, count - index * 500) * 6,
+              );
+        expect(parameters).toEqual(expectedBatches);
+        expect(steps).toBe(expectedBatches.length);
+        const facts = await persistence.drizzle
+          .select()
+          .from(fxSystemCommitAppRowChanges)
+          .where(
+            eq(
+              fxSystemCommitAppRowChanges.scopeUuid,
+              attempt.command.sealIdentity.scopeUuid,
+            ),
+          )
+          .orderBy(fxSystemCommitAppRowChanges.changeOrdinal);
+        expect(facts.map((fact) => fact.changeOrdinal)).toEqual(
+          Array.from({ length: count }, (_, ordinal) => ordinal),
+        );
+        expect(
+          new Set(facts.map((fact) => Buffer.from(fact.rowId).toString("hex")))
+            .size,
+        ).toBe(count);
+        expect(
+          await durableState(
+            persistence,
+            attempt.command.sealIdentity.scopeUuid,
+          ),
+        ).toMatchObject({
+          revisions: String(count),
+          commit_changes: String(count),
+          commit_headers: "1",
+          outcomes: "1",
+          wakes: "1",
+        });
+        await expect(
+          runEffect(publisher.publish(attempt.publicationCommand)),
+        ).resolves.toMatchObject({ kind: "replayed" });
+        expect(parameters).toEqual(expectedBatches);
       });
-      await expect(runEffect(publisher.publish(attempt.publicationCommand)))
-        .resolves.toMatchObject({ kind: "published" });
-      const expectedBatches = count === 0 ? [] : Array.from(
-        { length: Math.ceil(count / 500) },
-        (_, index) => Math.min(500, count - index * 500) * 6,
-      );
-      expect(parameters).toEqual(expectedBatches);
-      expect(steps).toBe(expectedBatches.length);
-      const facts = await persistence.drizzle.select().from(fxSystemCommitAppRowChanges)
-        .where(eq(fxSystemCommitAppRowChanges.scopeUuid, attempt.command.sealIdentity.scopeUuid))
-        .orderBy(fxSystemCommitAppRowChanges.changeOrdinal);
-      expect(facts.map(fact => fact.changeOrdinal)).toEqual(
-        Array.from({ length: count }, (_, ordinal) => ordinal),
-      );
-      expect(new Set(facts.map(fact => Buffer.from(fact.rowId).toString("hex"))).size).toBe(count);
-      expect(await durableState(persistence, attempt.command.sealIdentity.scopeUuid))
-        .toMatchObject({ revisions: String(count), commit_changes: String(count),
-          commit_headers: "1", outcomes: "1", wakes: "1" });
-      await expect(runEffect(publisher.publish(attempt.publicationCommand)))
-        .resolves.toMatchObject({ kind: "replayed" });
-      expect(parameters).toEqual(expectedBatches);
-    });
-  }, 120_000);
+    },
+    120_000,
+  );
 
   it("publishes material and zero-row successes with complete atomic evidence", async () => {
     await withPostgresPersistence(async (persistence) => {
@@ -583,20 +620,28 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         materialScope,
         "publish_material",
       );
-      const payloadBefore = await captureSessionStorage(persistence, material.anchor);
+      const payloadBefore = await captureSessionStorage(
+        persistence,
+        material.anchor,
+      );
       const published = await runEffect(
         createPublisher(persistence).publish(material.publicationCommand),
       );
-      expectSessionPayloadScrubbed(payloadBefore, await captureSessionStorage(persistence, material.anchor));
+      expectSessionPayloadScrubbed(
+        payloadBefore,
+        await captureSessionStorage(persistence, material.anchor),
+      );
       expect(published).toMatchObject({
         kind: "published",
         token: { commitSeq: 1n },
         successfulResult: { valueJson: { ok: true } },
       });
-      expect(await durableState(
-        persistence,
-        material.command.sealIdentity.scopeUuid,
-      )).toEqual({
+      expect(
+        await durableState(
+          persistence,
+          material.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual({
         revisions: "1",
         current_rows: "1",
         commit_headers: "1",
@@ -605,11 +650,13 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         wakes: "1",
         last_commit_seq: "1",
       });
-      expect(await terminalPublicationState(
-        persistence,
-        material.command.sealIdentity.scopeUuid,
-        material.anchor.sessionId,
-      )).toEqual({
+      expect(
+        await terminalPublicationState(
+          persistence,
+          material.command.sealIdentity.scopeUuid,
+          material.anchor.sessionId,
+        ),
+      ).toEqual({
         lifecycle: "committed",
         leases: "0",
         journals: "0",
@@ -633,10 +680,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       await runEffect(
         createPublisher(persistence).publish(zero.publicationCommand),
       );
-      expect(await durableState(
-        persistence,
-        zero.command.sealIdentity.scopeUuid,
-      )).toEqual({
+      expect(
+        await durableState(persistence, zero.command.sealIdentity.scopeUuid),
+      ).toEqual({
         revisions: "0",
         current_rows: "0",
         commit_headers: "1",
@@ -645,11 +691,13 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         wakes: "1",
         last_commit_seq: "1",
       });
-      expect(await terminalPublicationState(
-        persistence,
-        zero.command.sealIdentity.scopeUuid,
-        zero.anchor.sessionId,
-      )).toMatchObject({ change_count: 0, lifecycle: "committed" });
+      expect(
+        await terminalPublicationState(
+          persistence,
+          zero.command.sealIdentity.scopeUuid,
+          zero.anchor.sessionId,
+        ),
+      ).toMatchObject({ change_count: 0, lifecycle: "committed" });
     });
   }, 120_000);
 
@@ -687,43 +735,50 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         attempt.command.sealIdentity.scopeUuid,
       );
       expect(beforeSidecars).toEqual({
-        revisions: [{
-          tableId: "1",
-          rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
-          commitSeq: "1",
-          isTombstone: false,
-        }],
-        current: [{
-          tableId: "1",
-          rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
-          commitSeq: "1",
-        }],
+        revisions: [
+          {
+            tableId: "1",
+            rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
+            commitSeq: "1",
+            isTombstone: false,
+          },
+        ],
+        current: [
+          {
+            tableId: "1",
+            rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
+            commitSeq: "1",
+          },
+        ],
       });
       let intrinsicWrites = 0;
-      const failure = await runFailure(createPublisher(persistence, {
-        ...intrinsicOptions,
-        afterTransactionStep: (event) => {
-          if (event.step === "intrinsicIndexEntryWritten") {
-            intrinsicWrites += 1;
-            if (intrinsicWrites === 2) {
-              throw new PointCommitCorruptionV1Error({
-                reason: "publicationInvariantInvalid",
-              });
+      const failure = await runFailure(
+        createPublisher(persistence, {
+          ...intrinsicOptions,
+          afterTransactionStep: (event) => {
+            if (event.step === "intrinsicIndexEntryWritten") {
+              intrinsicWrites += 1;
+              if (intrinsicWrites === 2) {
+                throw new PointCommitCorruptionV1Error({
+                  reason: "publicationInvariantInvalid",
+                });
+              }
             }
-          }
-          return Promise.resolve();
-        },
-      }).publish(attempt.publicationCommand));
+            return Promise.resolve();
+          },
+        }).publish(attempt.publicationCommand),
+      );
       expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
       expect(intrinsicWrites).toBe(2);
-      expect(await intrinsicIndexState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toEqual(beforeSidecars);
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toEqual({
+      expect(
+        await intrinsicIndexState(
+          persistence,
+          attempt.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(beforeSidecars);
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toEqual({
         revisions: "1",
         current_rows: "1",
         commit_headers: "0",
@@ -733,18 +788,19 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         last_commit_seq: "1",
       });
 
-      await expect(runEffect(
-        createPublisher(persistence, intrinsicOptions).publish(
-          attempt.publicationCommand,
+      await expect(
+        runEffect(
+          createPublisher(persistence, intrinsicOptions).publish(
+            attempt.publicationCommand,
+          ),
         ),
-      )).resolves.toMatchObject({
+      ).resolves.toMatchObject({
         kind: "published",
         token: { commitSeq: 2n },
       });
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toEqual({
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toEqual({
         revisions: "3",
         current_rows: "2",
         commit_headers: "1",
@@ -753,31 +809,39 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         wakes: "1",
         last_commit_seq: "2",
       });
-      expect(await intrinsicIndexState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toEqual({
-        revisions: [{
-          tableId: "1",
-          rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
-          commitSeq: "1",
-          isTombstone: false,
-        }, {
-          tableId: "1",
-          rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
-          commitSeq: "2",
-          isTombstone: true,
-        }, {
-          tableId: "1",
-          rowIdHex: liveIntent.rowId.replaceAll("-", ""),
-          commitSeq: "2",
-          isTombstone: false,
-        }].sort(compareIntrinsicIndexRows),
-        current: [{
-          tableId: "1",
-          rowIdHex: liveIntent.rowId.replaceAll("-", ""),
-          commitSeq: "2",
-        }],
+      expect(
+        await intrinsicIndexState(
+          persistence,
+          attempt.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual({
+        revisions: [
+          {
+            tableId: "1",
+            rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
+            commitSeq: "1",
+            isTombstone: false,
+          },
+          {
+            tableId: "1",
+            rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
+            commitSeq: "2",
+            isTombstone: true,
+          },
+          {
+            tableId: "1",
+            rowIdHex: liveIntent.rowId.replaceAll("-", ""),
+            commitSeq: "2",
+            isTombstone: false,
+          },
+        ].sort(compareIntrinsicIndexRows),
+        current: [
+          {
+            tableId: "1",
+            rowIdHex: liveIntent.rowId.replaceAll("-", ""),
+            commitSeq: "2",
+          },
+        ],
       });
       const changes = await persistence.query<{
         change_ordinal: number;
@@ -799,6 +863,178 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
     });
   }, 120_000);
+
+  it("retains both index tuples on a body update and conflicts through the returned-row dependency", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96418100");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "membership_body",
+        true,
+      );
+      const options = {
+        ...(await prepareDeveloperIndexForPostgres(persistence, scope)),
+        ...(await enableIntrinsicIndexForPostgres(persistence, scope)),
+      };
+      const inserted = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "membership_insert",
+      );
+      await runEffect(
+        createPublisher(persistence, options).publish(
+          inserted.publicationCommand,
+        ),
+      );
+      const intent = inserted.command.rowIntents[0];
+      if (intent?.kind !== "live") throw new Error("Expected inserted row.");
+      const reader = await createIndexedAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "membership_reader",
+      );
+      expect(reader.command.rowIntents).toEqual([]);
+      expect(reader.command.dependencies).toHaveLength(1);
+      expect(reader.command.dependencies[0]?.dependency.observed).toMatchObject(
+        { kind: "present", revisionCommitSeq: 1n },
+      );
+      expect(reader.command.indexRangeDependencies).toHaveLength(1);
+      const before = await readOrderedMembershipStorage(
+        persistence.drizzle,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      expect(before.current).toHaveLength(2);
+      const changed = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "membership_body_change",
+        {
+          kind: "patch",
+          documentId: intent.documentId,
+          patch: { category: "updated-body" },
+        },
+      );
+      const steps: string[] = [];
+      await runEffect(
+        createPublisher(persistence, {
+          ...options,
+          afterTransactionStep: (event) => {
+            steps.push(event.step);
+            return Promise.resolve();
+          },
+        }).publish(changed.publicationCommand),
+      );
+      expect(steps).not.toContain("intrinsicIndexEntryWritten");
+      expect(steps).not.toContain("developerIndexEntryWritten");
+      expect(
+        await readOrderedMembershipStorage(
+          persistence.drizzle,
+          inserted.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(before);
+      const conflict = await runFailure(
+        createPort(persistence, options).prove(reader.command),
+      );
+      expect(conflict).toBeInstanceOf(PointCommitConflictV1Error);
+      expect(conflict).toMatchObject({
+        conflict: { kind: "appRowPoint", documentId: intent.documentId },
+      });
+      const fresh = await createIndexedAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "membership_fresh",
+      );
+      expect(fresh.command.dependencies[0]?.dependency.observed).toMatchObject({
+        kind: "present",
+        revisionCommitSeq: 2n,
+      });
+      expect(JSON.stringify(fresh.queryResult)).toContain("updated-body");
+    });
+  }, 120_000);
+
+  it.each([
+    "missingPointer",
+    "tombstonePointer",
+    "keyDigest",
+    "physicalSpec",
+  ] as const)(
+    "fails a body-only update closed on damaged membership: %s",
+    async (damage) => {
+      await withPostgresPersistence(async (persistence) => {
+        const randomUuid = uuidFactory("96418200");
+        const scope = await createScope(
+          persistence,
+          randomUuid,
+          `membership_corrupt_${damage}`,
+          true,
+        );
+        const options = {
+          ...(await prepareDeveloperIndexForPostgres(persistence, scope)),
+          ...(await enableIntrinsicIndexForPostgres(persistence, scope)),
+        };
+        const inserted = await createAttempt(
+          persistence,
+          randomUuid,
+          scope,
+          "membership_corrupt_insert",
+        );
+        await runEffect(
+          createPublisher(persistence, options).publish(
+            inserted.publicationCommand,
+          ),
+        );
+        const intent = inserted.command.rowIntents[0];
+        if (intent?.kind !== "live") throw new Error("Expected inserted row.");
+        const changed = await createAttempt(
+          persistence,
+          randomUuid,
+          scope,
+          "membership_corrupt_update",
+          {
+            kind: "patch",
+            documentId: intent.documentId,
+            patch: { category: "change" },
+          },
+        );
+        const scopeUuid = inserted.command.sealIdentity.scopeUuid;
+        const before = await durableState(persistence, scopeUuid);
+        if (damage === "missingPointer")
+          await persistence.query(
+            "delete from fx_app_index_entry_current where scope_uuid=$1",
+            [scopeUuid],
+          );
+        if (damage === "tombstonePointer")
+          await persistence.query(
+            "update fx_app_index_entry_rev set is_tombstone=true where scope_uuid=$1",
+            [scopeUuid],
+          );
+        if (damage === "keyDigest")
+          await persistence.query(
+            "update fx_app_index_entry_rev set key_sha256=$2 where scope_uuid=$1",
+            [scopeUuid, new Uint8Array(32)],
+          );
+        if (damage === "physicalSpec")
+          await persistence.query(
+            "update fx_app_index_entry_rev set physical_spec_sha256=$2 where scope_uuid=$1",
+            [scopeUuid, new Uint8Array(32)],
+          );
+        expect(
+          await runFailure(
+            createPublisher(persistence, options).publish(
+              changed.publicationCommand,
+            ),
+          ),
+        ).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+        expect(await durableState(persistence, scopeUuid)).toEqual(before);
+      });
+    },
+    120_000,
+  );
 
   it("maintains developer-index key moves and rolls both entry changes back", async () => {
     await withPostgresPersistence(async (persistence) => {
@@ -871,26 +1107,30 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         { kind: "patch", documentId, name: "moved_name" },
       );
       let developerWrites = 0;
-      const failure = await runFailure(createPublisher(persistence, {
-        ...developerOptions,
-        afterTransactionStep: (event) => {
-          if (event.step === "developerIndexEntryWritten") {
-            developerWrites += 1;
-            if (developerWrites === 2) {
-              throw new PointCommitCorruptionV1Error({
-                reason: "publicationInvariantInvalid",
-              });
+      const failure = await runFailure(
+        createPublisher(persistence, {
+          ...developerOptions,
+          afterTransactionStep: (event) => {
+            if (event.step === "developerIndexEntryWritten") {
+              developerWrites += 1;
+              if (developerWrites === 2) {
+                throw new PointCommitCorruptionV1Error({
+                  reason: "publicationInvariantInvalid",
+                });
+              }
             }
-          }
-          return Promise.resolve();
-        },
-      }).publish(moved.publicationCommand));
+            return Promise.resolve();
+          },
+        }).publish(moved.publicationCommand),
+      );
       expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
       expect(developerWrites).toBe(2);
-      expect(await developerIndexState(
-        persistence,
-        inserted.command.sealIdentity.scopeUuid,
-      )).toEqual(beforeMove);
+      expect(
+        await developerIndexState(
+          persistence,
+          inserted.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(beforeMove);
 
       await runEffect(
         createPublisher(persistence, developerOptions).publish(
@@ -902,7 +1142,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         inserted.command.sealIdentity.scopeUuid,
       );
       expect(afterMove.revisions).toHaveLength(3);
-      expect(afterMove.revisions.filter((row) => row.isTombstone)).toHaveLength(1);
+      expect(afterMove.revisions.filter((row) => row.isTombstone)).toHaveLength(
+        1,
+      );
       expect(afterMove.current).toHaveLength(1);
       expect(afterMove.current[0]?.commitSeq).toBe("2");
       expect(afterMove.current[0]?.encodedKeyHex).not.toBe(
@@ -929,13 +1171,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         persistence,
         inserted.command.sealIdentity.scopeUuid,
       );
-      expect(afterSameKey.revisions).toHaveLength(4);
-      expect(afterSameKey.revisions.filter((row) => row.isTombstone)).toHaveLength(1);
-      expect(afterSameKey.current).toHaveLength(1);
-      expect(afterSameKey.current[0]).toMatchObject({
-        encodedKeyHex: afterMove.current[0]?.encodedKeyHex,
-        commitSeq: "3",
-      });
+      expect(afterSameKey).toEqual(afterMove);
 
       const deleted = await createAttempt(
         persistence,
@@ -953,8 +1189,10 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         persistence,
         inserted.command.sealIdentity.scopeUuid,
       );
-      expect(afterDelete.revisions).toHaveLength(5);
-      expect(afterDelete.revisions.filter((row) => row.isTombstone)).toHaveLength(2);
+      expect(afterDelete.revisions).toHaveLength(4);
+      expect(
+        afterDelete.revisions.filter((row) => row.isTombstone),
+      ).toHaveLength(2);
       expect(afterDelete.current).toEqual([]);
     });
   }, 120_000);
@@ -978,9 +1216,11 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         scope,
         "developer_build_validation_first",
       );
-      await runEffect(createPublisher(persistence, developerOptions).publish(
-        first.publicationCommand,
-      ));
+      await runEffect(
+        createPublisher(persistence, developerOptions).publish(
+          first.publicationCommand,
+        ),
+      );
       const firstIntent = first.command.rowIntents[0];
       if (firstIntent?.kind !== "live") {
         throw new Error("Expected first developer validation-reset insert.");
@@ -991,9 +1231,11 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         scope,
         "developer_build_validation_second",
       );
-      await runEffect(createPublisher(persistence, developerOptions).publish(
-        second.publicationCommand,
-      ));
+      await runEffect(
+        createPublisher(persistence, developerOptions).publish(
+          second.publicationCommand,
+        ),
+      );
 
       const developerIndexes = developerOptions.developerIndexes;
       if (developerIndexes === undefined) {
@@ -1036,21 +1278,22 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       } as const;
       let reachedCursor = false;
       for (let step = 0; step < 8; step += 1) {
-        const result = await runEffect(buildAppDeveloperOrderedIndexV1Effect(
-          buildPorts,
-          buildInput,
-        ));
+        const result = await runEffect(
+          buildAppDeveloperOrderedIndexV1Effect(buildPorts, buildInput),
+        );
         if (result.lifecycle === "validating" && result.cursorRowId !== null) {
           reachedCursor = true;
           break;
         }
       }
       expect(reachedCursor).toBe(true);
-      expect(await developerIndexBuildCursor(
-        persistence,
-        scope,
-        definition.indexDefinitionId,
-      )).not.toBeNull();
+      expect(
+        await developerIndexBuildCursor(
+          persistence,
+          scope,
+          definition.indexDefinitionId,
+        ),
+      ).not.toBeNull();
 
       const changed = await createAttempt(
         persistence,
@@ -1063,68 +1306,158 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           name: "changed-behind-validation-cursor",
         },
       );
-      await runEffect(createPublisher(persistence, developerOptions).publish(
-        changed.publicationCommand,
-      ));
-      expect(await developerIndexBuildCursor(
-        persistence,
-        scope,
-        definition.indexDefinitionId,
-      )).toBeNull();
+      await runEffect(
+        createPublisher(persistence, developerOptions).publish(
+          changed.publicationCommand,
+        ),
+      );
+      expect(
+        await developerIndexBuildCursor(
+          persistence,
+          scope,
+          definition.indexDefinitionId,
+        ),
+      ).toBeNull();
 
       let enabled = false;
       for (let step = 0; step < 8; step += 1) {
-        const result = await runEffect(buildAppDeveloperOrderedIndexV1Effect(
-          buildPorts,
-          buildInput,
-        ));
+        const result = await runEffect(
+          buildAppDeveloperOrderedIndexV1Effect(buildPorts, buildInput),
+        );
         if (result.lifecycle === "enabled") {
           enabled = true;
           break;
         }
       }
       expect(enabled).toBe(true);
-      expect((await developerIndexState(
-        persistence,
-        changed.command.sealIdentity.scopeUuid,
-      )).current).toHaveLength(2);
+      expect(
+        (
+          await developerIndexState(
+            persistence,
+            changed.command.sealIdentity.scopeUuid,
+          )
+        ).current,
+      ).toHaveLength(2);
     });
   }, 120_000);
 
-  it.each(["unchanged", "missing", "digest", "differentCanonicalKey"] as const)("authenticates %s unique ownership before omitting a PostgreSQL write", async mode => {
-    await withPostgresPersistence(async persistence => {
-      const randomUuid = uuidFactory("96418e00");
-      const scope = await createScope(persistence, randomUuid, `unique_noop_${mode}`);
-      const options = await prepareUniqueConstraintForPostgres(persistence, scope);
-      const inserted = await createAttempt(persistence, randomUuid, scope, "unique_noop_insert");
-      await runEffect(createPublisher(persistence, options).publish(inserted.publicationCommand));
-      const row = inserted.command.rowIntents[0];
-      if (row?.kind !== "live") throw new Error("Expected inserted row.");
-      const next = await createAttempt(persistence, randomUuid, scope, "unique_noop_update", { kind: "patch", documentId: row.documentId, patch: { category: "non-key" } });
-      const scopeUuid = next.command.sealIdentity.scopeUuid;
-      if (mode === "missing") await persistence.query("delete from fx_app_unique_key where scope_uuid = $1", [scopeUuid]);
-      else if (mode === "digest") await persistence.query("update fx_app_unique_key set canonical_key_sha256 = decode(repeat('ff',32),'hex') where scope_uuid = $1", [scopeUuid]);
-      else if (mode === "differentCanonicalKey") {
-        const key = Result.getOrThrow(canonicalizeAppUniqueKeyV1Result({ sparse: false, localeKey: null, values: [orderedIndexValueFromFlarexValueV1("foreign-key")] }));
-        if (key.kind !== "claim") throw new Error("Expected canonical key.");
-        const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(key.canonicalKeyBytes)));
-        await persistence.query("update fx_app_unique_key set encoded_key = $2, canonical_key_sha256 = $3 where scope_uuid = $1", [scopeUuid, key.canonicalKeyBytes, digest]);
-      }
-      const before = await durableState(persistence, scopeUuid);
-      const claims = await persistence.query("select *, xmin::text tuple_version from fx_app_unique_key where scope_uuid = $1", [scopeUuid]);
-      const builds = await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1", [scope.scopeId]);
-      let writes = 0;
-      const publisher = createPublisher(persistence, { ...options, afterTransactionStep: async event => { if (event.step === "uniqueKeyWritten") writes += 1; } });
-      if (mode === "unchanged") await runEffect(publisher.publish(next.publicationCommand));
-      else {
-        expect(await runFailure(publisher.publish(next.publicationCommand))).toMatchObject({ _tag: "PointCommitCorruptionV1Error", reason: "uniqueKeyTransitionInvalid" });
-        expect(await durableState(persistence, scopeUuid)).toEqual(before);
-        expect((await persistence.query("select * from fx_system_unique_constraint_build where scope_id = $1", [scope.scopeId])).rows).toEqual(builds.rows);
-      }
-      expect(writes).toBe(0);
-      expect((await persistence.query("select *, xmin::text tuple_version from fx_app_unique_key where scope_uuid = $1", [scopeUuid])).rows).toEqual(claims.rows);
-    });
-  }, 120_000);
+  it.each(["unchanged", "missing", "digest", "differentCanonicalKey"] as const)(
+    "authenticates %s unique ownership before omitting a PostgreSQL write",
+    async (mode) => {
+      await withPostgresPersistence(async (persistence) => {
+        const randomUuid = uuidFactory("96418e00");
+        const scope = await createScope(
+          persistence,
+          randomUuid,
+          `unique_noop_${mode}`,
+        );
+        const options = await prepareUniqueConstraintForPostgres(
+          persistence,
+          scope,
+        );
+        const inserted = await createAttempt(
+          persistence,
+          randomUuid,
+          scope,
+          "unique_noop_insert",
+        );
+        await runEffect(
+          createPublisher(persistence, options).publish(
+            inserted.publicationCommand,
+          ),
+        );
+        const row = inserted.command.rowIntents[0];
+        if (row?.kind !== "live") throw new Error("Expected inserted row.");
+        const next = await createAttempt(
+          persistence,
+          randomUuid,
+          scope,
+          "unique_noop_update",
+          {
+            kind: "patch",
+            documentId: row.documentId,
+            patch: { category: "non-key" },
+          },
+        );
+        const scopeUuid = next.command.sealIdentity.scopeUuid;
+        if (mode === "missing")
+          await persistence.query(
+            "delete from fx_app_unique_key where scope_uuid = $1",
+            [scopeUuid],
+          );
+        else if (mode === "digest")
+          await persistence.query(
+            "update fx_app_unique_key set canonical_key_sha256 = decode(repeat('ff',32),'hex') where scope_uuid = $1",
+            [scopeUuid],
+          );
+        else if (mode === "differentCanonicalKey") {
+          const key = Result.getOrThrow(
+            canonicalizeAppUniqueKeyV1Result({
+              sparse: false,
+              localeKey: null,
+              values: [orderedIndexValueFromFlarexValueV1("foreign-key")],
+            }),
+          );
+          if (key.kind !== "claim") throw new Error("Expected canonical key.");
+          const digest = new Uint8Array(
+            await crypto.subtle.digest(
+              "SHA-256",
+              Uint8Array.from(key.canonicalKeyBytes),
+            ),
+          );
+          await persistence.query(
+            "update fx_app_unique_key set encoded_key = $2, canonical_key_sha256 = $3 where scope_uuid = $1",
+            [scopeUuid, key.canonicalKeyBytes, digest],
+          );
+        }
+        const before = await durableState(persistence, scopeUuid);
+        const claims = await persistence.query(
+          "select *, xmin::text tuple_version from fx_app_unique_key where scope_uuid = $1",
+          [scopeUuid],
+        );
+        const builds = await persistence.query(
+          "select * from fx_system_unique_constraint_build where scope_id = $1",
+          [scope.scopeId],
+        );
+        let writes = 0;
+        const publisher = createPublisher(persistence, {
+          ...options,
+          afterTransactionStep: async (event) => {
+            if (event.step === "uniqueKeyWritten") writes += 1;
+          },
+        });
+        if (mode === "unchanged")
+          await runEffect(publisher.publish(next.publicationCommand));
+        else {
+          expect(
+            await runFailure(publisher.publish(next.publicationCommand)),
+          ).toMatchObject({
+            _tag: "PointCommitCorruptionV1Error",
+            reason: "uniqueKeyTransitionInvalid",
+          });
+          expect(await durableState(persistence, scopeUuid)).toEqual(before);
+          expect(
+            (
+              await persistence.query(
+                "select * from fx_system_unique_constraint_build where scope_id = $1",
+                [scope.scopeId],
+              )
+            ).rows,
+          ).toEqual(builds.rows);
+        }
+        expect(writes).toBe(0);
+        expect(
+          (
+            await persistence.query(
+              "select *, xmin::text tuple_version from fx_app_unique_key where scope_uuid = $1",
+              [scopeUuid],
+            )
+          ).rows,
+        ).toEqual(claims.rows);
+      });
+    },
+    120_000,
+  );
 
   it("maintains unique claims and atomically rejects PostgreSQL conflicts", async () => {
     await withPostgresPersistence(async (persistence) => {
@@ -1139,21 +1472,22 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         scope,
       );
       await setValidatingUniqueSetBuild(persistence, scope);
-      await setValidatingUniqueSetBuild(
-        persistence,
-        scope,
-        1001,
-      );
+      await setValidatingUniqueSetBuild(persistence, scope, 1001);
       const inserted = await createAttempt(
         persistence,
         randomUuid,
         scope,
         "unique_key_insert",
       );
-      await runEffect(createPublisher(persistence, uniqueOptions).publish(
-        inserted.publicationCommand,
-      ));
-      expect(await uniqueSetBuildCursors(persistence, scope)).toEqual(["ff".repeat(16), "ff".repeat(16)]);
+      await runEffect(
+        createPublisher(persistence, uniqueOptions).publish(
+          inserted.publicationCommand,
+        ),
+      );
+      expect(await uniqueSetBuildCursors(persistence, scope)).toEqual([
+        "ff".repeat(16),
+        "ff".repeat(16),
+      ]);
       const insertIntent = inserted.command.rowIntents[0];
       if (insertIntent?.kind !== "live") {
         throw new Error("Expected a PostgreSQL C08-B2 insert intent.");
@@ -1177,40 +1511,45 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
       let uniqueWrites = 0;
       await setValidatingUniqueSetBuild(persistence, scope);
-      await setValidatingUniqueSetBuild(
-        persistence,
-        scope,
-        1001,
+      await setValidatingUniqueSetBuild(persistence, scope, 1001);
+      const failure = await runFailure(
+        createPublisher(persistence, {
+          ...uniqueOptions,
+          afterTransactionStep: (event) => {
+            if (event.step === "uniqueKeyWritten") {
+              uniqueWrites += 1;
+            }
+            if (event.step === "uniqueConstraintCoverageAdvanced") {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+            return Promise.resolve();
+          },
+        }).publish(moved.publicationCommand),
       );
-      const failure = await runFailure(createPublisher(persistence, {
-        ...uniqueOptions,
-        afterTransactionStep: (event) => {
-          if (event.step === "uniqueKeyWritten") {
-            uniqueWrites += 1;
-          }
-          if (event.step === "uniqueConstraintCoverageAdvanced") {
-            throw new PointCommitCorruptionV1Error({
-              reason: "publicationInvariantInvalid",
-            });
-          }
-          return Promise.resolve();
-        },
-      }).publish(moved.publicationCommand));
       expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
       expect(uniqueWrites).toBe(2);
-      expect(await uniqueKeyState(
-        persistence,
-        inserted.command.sealIdentity.scopeUuid,
-      )).toEqual(beforeMove);
+      expect(
+        await uniqueKeyState(
+          persistence,
+          inserted.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(beforeMove);
       expect(await uniqueSetBuildCursors(persistence, scope)).toEqual([
         "ff".repeat(16),
         "ff".repeat(16),
       ]);
 
-      await runEffect(createPublisher(persistence, uniqueOptions).publish(
-        moved.publicationCommand,
-      ));
-      expect(await uniqueSetBuildCursors(persistence, scope)).toEqual(["ff".repeat(16), "ff".repeat(16)]);
+      await runEffect(
+        createPublisher(persistence, uniqueOptions).publish(
+          moved.publicationCommand,
+        ),
+      );
+      expect(await uniqueSetBuildCursors(persistence, scope)).toEqual([
+        "ff".repeat(16),
+        "ff".repeat(16),
+      ]);
       const afterMove = await uniqueKeyState(
         persistence,
         inserted.command.sealIdentity.scopeUuid,
@@ -1236,19 +1575,25 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "unique_key_conflict",
         "duplicate",
       );
-      expect(await runFailure(
-        createPublisher(persistence, conflictOptions).publish(
-          conflict.publicationCommand,
+      expect(
+        await runFailure(
+          createPublisher(persistence, conflictOptions).publish(
+            conflict.publicationCommand,
+          ),
         ),
-      )).toBeInstanceOf(AppUniqueKeyConflictError);
-      expect(await uniqueKeyState(
-        persistence,
-        conflict.command.sealIdentity.scopeUuid,
-      )).toEqual([]);
-      expect(await durableState(
-        persistence,
-        conflict.command.sealIdentity.scopeUuid,
-      )).toEqual({
+      ).toBeInstanceOf(AppUniqueKeyConflictError);
+      expect(
+        await uniqueKeyState(
+          persistence,
+          conflict.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual([]);
+      expect(
+        await durableState(
+          persistence,
+          conflict.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual({
         revisions: "0",
         current_rows: "0",
         commit_headers: "0",
@@ -1270,8 +1615,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         true,
       );
       const proofOptions = Object.freeze({
-        ...await prepareDeveloperIndexForPostgres(persistence, scope),
-        ...await prepareUniqueConstraintForPostgres(persistence, scope),
+        ...(await prepareDeveloperIndexForPostgres(persistence, scope)),
+        ...(await prepareUniqueConstraintForPostgres(persistence, scope)),
       });
       const inserted = await createAttempt(
         persistence,
@@ -1280,9 +1625,11 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "o09b_combined_seed",
         { kind: "insert", name: "o09b-seeded" },
       );
-      await runEffect(createPublisher(persistence, proofOptions).publish(
-        inserted.publicationCommand,
-      ));
+      await runEffect(
+        createPublisher(persistence, proofOptions).publish(
+          inserted.publicationCommand,
+        ),
+      );
       const insertIntent = inserted.command.rowIntents[0];
       if (insertIntent?.kind !== "live") {
         throw new Error("Expected an O09-B inserted document.");
@@ -1312,26 +1659,28 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
       const sidecarSteps: PointCommitTransactionProofStepV1[] = [];
       let uniqueWrites = 0;
-      const failure = await runFailure(createPublisher(persistence, {
-        ...proofOptions,
-        afterTransactionStep: (event) => {
-          if (
-            event.step === "developerIndexEntryWritten" ||
-            event.step === "uniqueKeyWritten"
-          ) {
-            sidecarSteps.push(event.step);
-          }
-          if (event.step === "uniqueKeyWritten") {
-            uniqueWrites += 1;
-            if (uniqueWrites === 2) {
-              throw new PointCommitCorruptionV1Error({
-                reason: "publicationInvariantInvalid",
-              });
+      const failure = await runFailure(
+        createPublisher(persistence, {
+          ...proofOptions,
+          afterTransactionStep: (event) => {
+            if (
+              event.step === "developerIndexEntryWritten" ||
+              event.step === "uniqueKeyWritten"
+            ) {
+              sidecarSteps.push(event.step);
             }
-          }
-          return Promise.resolve();
-        },
-      }).publish(moved.publicationCommand));
+            if (event.step === "uniqueKeyWritten") {
+              uniqueWrites += 1;
+              if (uniqueWrites === 2) {
+                throw new PointCommitCorruptionV1Error({
+                  reason: "publicationInvariantInvalid",
+                });
+              }
+            }
+            return Promise.resolve();
+          },
+        }).publish(moved.publicationCommand),
+      );
       expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
       expect(sidecarSteps).toEqual([
         "developerIndexEntryWritten",
@@ -1339,22 +1688,30 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "uniqueKeyWritten",
         "uniqueKeyWritten",
       ]);
-      expect(await developerIndexState(
-        persistence,
-        inserted.command.sealIdentity.scopeUuid,
-      )).toEqual(beforeDeveloper);
-      expect(await uniqueKeyState(
-        persistence,
-        inserted.command.sealIdentity.scopeUuid,
-      )).toEqual(beforeUnique);
-      expect(await durableState(
-        persistence,
-        inserted.command.sealIdentity.scopeUuid,
-      )).toEqual(beforeDurable);
+      expect(
+        await developerIndexState(
+          persistence,
+          inserted.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(beforeDeveloper);
+      expect(
+        await uniqueKeyState(
+          persistence,
+          inserted.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(beforeUnique);
+      expect(
+        await durableState(
+          persistence,
+          inserted.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(beforeDurable);
 
-      await runEffect(createPublisher(persistence, proofOptions).publish(
-        moved.publicationCommand,
-      ));
+      await runEffect(
+        createPublisher(persistence, proofOptions).publish(
+          moved.publicationCommand,
+        ),
+      );
       const afterDeveloper = await developerIndexState(
         persistence,
         inserted.command.sealIdentity.scopeUuid,
@@ -1386,8 +1743,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
       const sidecarSteps: PointCommitTransactionProofStepV1[] = [];
       const proofOptions = Object.freeze({
-        ...await prepareDeveloperIndexForPostgres(persistence, scope),
-        ...await prepareUniqueConstraintForPostgres(persistence, scope),
+        ...(await prepareDeveloperIndexForPostgres(persistence, scope)),
+        ...(await prepareUniqueConstraintForPostgres(persistence, scope)),
       });
       const first = await createAttempt(
         persistence,
@@ -1436,14 +1793,15 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         firstPublisher.publish(first.publicationCommand),
       );
       const entry = await Promise.race([
-        entered.promise.then(() => ({ kind: "entered" } as const)),
+        entered.promise.then(() => ({ kind: "entered" }) as const),
         firstPromise.then(
-          () => ({ kind: "settled", status: "fulfilled" } as const),
-          (cause: unknown) => ({
-            kind: "settled",
-            status: "rejected",
-            cause,
-          } as const),
+          () => ({ kind: "settled", status: "fulfilled" }) as const,
+          (cause: unknown) =>
+            ({
+              kind: "settled",
+              status: "rejected",
+              cause,
+            }) as const,
         ),
       ]);
       if (entry.kind === "settled") {
@@ -1491,18 +1849,17 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       if (winnerIntent?.kind !== "live") {
         throw new Error("Missing the O09-B winning document.");
       }
-      const winnerDeveloper = await developerIndexState(
-        persistence,
-        scopeUuid,
-      );
+      const winnerDeveloper = await developerIndexState(persistence, scopeUuid);
       const winnerUnique = await uniqueKeyState(persistence, scopeUuid);
       expect(winnerDeveloper).toMatchObject({
         revisions: [{ rowIdHex: pointRowIdHex(winnerIntent.documentId) }],
         current: [{ rowIdHex: pointRowIdHex(winnerIntent.documentId) }],
       });
-      expect(winnerUnique).toMatchObject([{
-        rowIdHex: pointRowIdHex(winnerIntent.documentId),
-      }]);
+      expect(winnerUnique).toMatchObject([
+        {
+          rowIdHex: pointRowIdHex(winnerIntent.documentId),
+        },
+      ]);
       const winnerDeveloperKey = winnerDeveloper.current[0]?.encodedKeyHex;
       const winnerUniqueKey = winnerUnique[0]?.encodedKeyHex;
       if (winnerDeveloperKey === undefined || winnerUniqueKey === undefined) {
@@ -1566,23 +1923,29 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         scopeUuid,
       );
       expect(afterReuseDeveloper.revisions).toHaveLength(3);
-      expect(afterReuseDeveloper.revisions.map((row) => row.commitSeq).sort())
-        .toEqual(["1", "2", "3"]);
-      expect(afterReuseDeveloper.revisions.filter((row) => row.isTombstone))
-        .toHaveLength(1);
+      expect(
+        afterReuseDeveloper.revisions.map((row) => row.commitSeq).sort(),
+      ).toEqual(["1", "2", "3"]);
+      expect(
+        afterReuseDeveloper.revisions.filter((row) => row.isTombstone),
+      ).toHaveLength(1);
       expect(afterReuseDeveloper).toMatchObject({
-        current: [{
-          rowIdHex: pointRowIdHex(reusedIntent.documentId),
-          commitSeq: "3",
-        }],
+        current: [
+          {
+            rowIdHex: pointRowIdHex(reusedIntent.documentId),
+            commitSeq: "3",
+          },
+        ],
       });
       expect(afterReuseDeveloper.current[0]?.encodedKeyHex).not.toBe(
         winnerDeveloperKey,
       );
-      expect(await uniqueKeyState(persistence, scopeUuid)).toMatchObject([{
-        encodedKeyHex: winnerUniqueKey,
-        rowIdHex: pointRowIdHex(reusedIntent.documentId),
-      }]);
+      expect(await uniqueKeyState(persistence, scopeUuid)).toMatchObject([
+        {
+          encodedKeyHex: winnerUniqueKey,
+          rowIdHex: pointRowIdHex(reusedIntent.documentId),
+        },
+      ]);
       expect(await durableState(persistence, scopeUuid)).toEqual({
         revisions: "3",
         current_rows: "2",
@@ -1628,10 +1991,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         observed: 258,
         maximum: 256,
       });
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toEqual({
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toEqual({
         revisions: "0",
         current_rows: "0",
         commit_headers: "0",
@@ -1663,11 +2025,13 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "developer_index_action_seed",
         65,
       );
-      await runEffect(createPublisher(persistence, developerOptions).publish(
-        inserted.publicationCommand,
-      ));
-      const documentIds = inserted.command.rowIntents.map((intent) =>
-        intent.documentId
+      await runEffect(
+        createPublisher(persistence, developerOptions).publish(
+          inserted.publicationCommand,
+        ),
+      );
+      const documentIds = inserted.command.rowIntents.map(
+        (intent) => intent.documentId,
       );
       const before = await durableState(
         persistence,
@@ -1698,26 +2062,32 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         observed: 260,
         maximum: 256,
       });
-      expect(await durableState(
-        persistence,
-        inserted.command.sealIdentity.scopeUuid,
-      )).toEqual(before);
-      expect(await developerIndexState(
-        persistence,
-        inserted.command.sealIdentity.scopeUuid,
-      )).toEqual(beforeIndexes);
+      expect(
+        await durableState(
+          persistence,
+          inserted.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(before);
+      expect(
+        await developerIndexState(
+          persistence,
+          inserted.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(beforeIndexes);
     });
   }, 120_000);
 
   it("keeps the exact material-row ceiling operable and rejects plus one", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96420000");
-      const profile: Array<Readonly<{
-        rowCount: number;
-        preCommitKernelMilliseconds: number;
-        settlementInclusiveMilliseconds: number;
-        publicationMilliseconds: number;
-      }>> = [];
+      const profile: Array<
+        Readonly<{
+          rowCount: number;
+          preCommitKernelMilliseconds: number;
+          settlementInclusiveMilliseconds: number;
+          publicationMilliseconds: number;
+        }>
+      > = [];
 
       for (const rowCount of [1, 8, 32, 64, 127, 128] as const) {
         const label = `material_profile_${rowCount}`;
@@ -1736,39 +2106,47 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         let clockLockedAt: number | undefined;
         let beforeCommitAt: number | undefined;
         const publicationStartedAt = performance.now();
-        const published = await runEffect(createPublisher(persistence, {
-          ...intrinsicOptions,
-          afterTransactionStep: (event) => {
-            if (event.step === "clockLocked") {
-              clockLockedAt = performance.now();
-            } else if (event.step === "beforeCommit") {
-              beforeCommitAt = performance.now();
-            }
-            return Promise.resolve();
-          },
-        }).publish(attempt.publicationCommand));
+        const published = await runEffect(
+          createPublisher(persistence, {
+            ...intrinsicOptions,
+            afterTransactionStep: (event) => {
+              if (event.step === "clockLocked") {
+                clockLockedAt = performance.now();
+              } else if (event.step === "beforeCommit") {
+                beforeCommitAt = performance.now();
+              }
+              return Promise.resolve();
+            },
+          }).publish(attempt.publicationCommand),
+        );
         const publicationSettledAt = performance.now();
-        const publicationMilliseconds = publicationSettledAt - publicationStartedAt;
+        const publicationMilliseconds =
+          publicationSettledAt - publicationStartedAt;
         if (clockLockedAt === undefined || beforeCommitAt === undefined) {
           throw new Error("Missing O09-A PostgreSQL lock-window evidence.");
         }
         const preCommitKernelMilliseconds = beforeCommitAt - clockLockedAt;
-        const settlementInclusiveMilliseconds = publicationSettledAt - clockLockedAt;
-        profile.push(Object.freeze({
-          rowCount,
-          preCommitKernelMilliseconds,
-          settlementInclusiveMilliseconds,
-          publicationMilliseconds,
-        }));
+        const settlementInclusiveMilliseconds =
+          publicationSettledAt - clockLockedAt;
+        profile.push(
+          Object.freeze({
+            rowCount,
+            preCommitKernelMilliseconds,
+            settlementInclusiveMilliseconds,
+            publicationMilliseconds,
+          }),
+        );
         expect(published).toMatchObject({
           kind: "published",
           token: { commitSeq: 1n },
         });
         expect(settlementInclusiveMilliseconds).toBeLessThan(30_000);
-        expect(await durableState(
-          persistence,
-          attempt.command.sealIdentity.scopeUuid,
-        )).toEqual({
+        expect(
+          await durableState(
+            persistence,
+            attempt.command.sealIdentity.scopeUuid,
+          ),
+        ).toEqual({
           revisions: rowCount.toString(),
           current_rows: rowCount.toString(),
           commit_headers: "1",
@@ -1777,16 +2155,20 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           wakes: "1",
           last_commit_seq: "1",
         });
-        const expectedSidecars = attempt.command.rowIntents.map((intent) => ({
-          tableId: intent.tableId.toString(),
-          rowIdHex: intent.rowId.replaceAll("-", ""),
-          commitSeq: "1",
-          isTombstone: false,
-        })).sort(compareIntrinsicIndexRows);
-        expect(await intrinsicIndexState(
-          persistence,
-          attempt.command.sealIdentity.scopeUuid,
-        )).toEqual({
+        const expectedSidecars = attempt.command.rowIntents
+          .map((intent) => ({
+            tableId: intent.tableId.toString(),
+            rowIdHex: intent.rowId.replaceAll("-", ""),
+            commitSeq: "1",
+            isTombstone: false,
+          }))
+          .sort(compareIntrinsicIndexRows);
+        expect(
+          await intrinsicIndexState(
+            persistence,
+            attempt.command.sealIdentity.scopeUuid,
+          ),
+        ).toEqual({
           revisions: expectedSidecars,
           current: expectedSidecars.map(({ isTombstone: _, ...row }) => row),
         });
@@ -1815,16 +2197,15 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           firstIntent,
         ]),
       });
-      await expect(runFailure(
-        createPublisher(persistence).publish(oversized),
-      )).resolves.toMatchObject({
+      await expect(
+        runFailure(createPublisher(persistence).publish(oversized)),
+      ).resolves.toMatchObject({
         _tag: "PointCommitCorruptionV1Error",
         reason: "commandInvalid",
       });
-      expect(await durableState(
-        persistence,
-        atLimit.command.sealIdentity.scopeUuid,
-      )).toEqual(emptyDurableState());
+      expect(
+        await durableState(persistence, atLimit.command.sealIdentity.scopeUuid),
+      ).toEqual(emptyDurableState());
 
       if (process.env.FLAREX_PRINT_POINT_COMMIT_PROFILE === "1") {
         console.info("O09-A PostgreSQL material-row profile", profile);
@@ -1855,13 +2236,15 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
       const attempts: Array<PreparedAttempt> = [];
       for (let index = 0; index < 8; index += 1) {
-        attempts.push(await createAttempt(
-          persistence,
-          randomUuid,
-          contendedScope,
-          `material_contention_${index}`,
-          MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
-        ));
+        attempts.push(
+          await createAttempt(
+            persistence,
+            randomUuid,
+            contendedScope,
+            `material_contention_${index}`,
+            MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
+          ),
+        );
       }
       const independent = await createAttempt(
         persistence,
@@ -1879,21 +2262,25 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       const publicationStartedAt = performance.now();
       const contendedPublications = attempts.map((attempt, index) => {
         let clockLockedAt: number | undefined;
-        return runEffect(createPublisher(persistence, {
-          ...contendedIntrinsic,
-          afterTransactionStep: (event) => {
-            if (event.step === "clockLocked") {
-              clockLockedAt = performance.now();
-            } else if (event.step === "beforeCommit") {
-              if (clockLockedAt === undefined) {
-                throw new Error("Missing contended O09-A clock-lock evidence.");
+        return runEffect(
+          createPublisher(persistence, {
+            ...contendedIntrinsic,
+            afterTransactionStep: (event) => {
+              if (event.step === "clockLocked") {
+                clockLockedAt = performance.now();
+              } else if (event.step === "beforeCommit") {
+                if (clockLockedAt === undefined) {
+                  throw new Error(
+                    "Missing contended O09-A clock-lock evidence.",
+                  );
+                }
+                preCommitKernelMilliseconds[index] =
+                  performance.now() - clockLockedAt;
               }
-              preCommitKernelMilliseconds[index] =
-                performance.now() - clockLockedAt;
-            }
-            return Promise.resolve();
-          },
-        }).publish(attempt.publicationCommand)).then((result) => {
+              return Promise.resolve();
+            },
+          }).publish(attempt.publicationCommand),
+        ).then((result) => {
           if (clockLockedAt === undefined) {
             throw new Error("Missing settled O09-A clock-lock evidence.");
           }
@@ -1903,22 +2290,30 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         });
       });
       const independentStartedAt = performance.now();
-      const independentPublication = runEffect(createPublisher(persistence, {
-        ...independentIntrinsic,
-      }).publish(independent.publicationCommand)).then((result) => Object.freeze({
-        result,
-        elapsedMilliseconds: performance.now() - independentStartedAt,
-      }));
+      const independentPublication = runEffect(
+        createPublisher(persistence, {
+          ...independentIntrinsic,
+        }).publish(independent.publicationCommand),
+      ).then((result) =>
+        Object.freeze({
+          result,
+          elapsedMilliseconds: performance.now() - independentStartedAt,
+        }),
+      );
       const [contendedResults, independentResult] = await Promise.all([
         Promise.all(contendedPublications),
         independentPublication,
       ]);
-      const contendedElapsedMilliseconds = performance.now() - publicationStartedAt;
-      if (preCommitKernelMilliseconds.some((value) =>
-        typeof value !== "number" || !Number.isFinite(value)
-      ) || settlementInclusiveMilliseconds.some((value) =>
-        typeof value !== "number" || !Number.isFinite(value)
-      )) {
+      const contendedElapsedMilliseconds =
+        performance.now() - publicationStartedAt;
+      if (
+        preCommitKernelMilliseconds.some(
+          (value) => typeof value !== "number" || !Number.isFinite(value),
+        ) ||
+        settlementInclusiveMilliseconds.some(
+          (value) => typeof value !== "number" || !Number.isFinite(value),
+        )
+      ) {
         throw new Error("Incomplete contended O09-A lock-window evidence.");
       }
       const sortedPreCommitKernel = preCommitKernelMilliseconds
@@ -1952,7 +2347,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
 
       expect(contendedResults).toHaveLength(8);
-      expect(contendedResults.every((result) => result.kind === "published")).toBe(true);
+      expect(
+        contendedResults.every((result) => result.kind === "published"),
+      ).toBe(true);
       expect(independentResult.result).toMatchObject({ kind: "published" });
       expect(settlementP50).toBeLessThan(30_000);
       expect(settlementP95).toBeLessThan(30_000);
@@ -1965,10 +2362,12 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       if (firstContendedAttempt === undefined) {
         throw new Error("Missing first contended O09-A attempt.");
       }
-      expect(await durableState(
-        persistence,
-        firstContendedAttempt.command.sealIdentity.scopeUuid,
-      )).toEqual({
+      expect(
+        await durableState(
+          persistence,
+          firstContendedAttempt.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual({
         revisions: (8 * MAX_POINT_COMMIT_MATERIAL_ROWS_V1).toString(),
         current_rows: (8 * MAX_POINT_COMMIT_MATERIAL_ROWS_V1).toString(),
         commit_headers: "8",
@@ -1977,8 +2376,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         wakes: "8",
         last_commit_seq: "8",
       });
-      const expectedContendedSidecars = contendedResults.flatMap(
-        (result, attemptIndex) => {
+      const expectedContendedSidecars = contendedResults
+        .flatMap((result, attemptIndex) => {
           if (result.kind !== "published") {
             throw new Error("Expected a published contended O09-A outcome.");
           }
@@ -1992,21 +2391,25 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
             commitSeq: result.token.commitSeq.toString(),
             isTombstone: false,
           }));
-        },
-      ).sort(compareIntrinsicIndexRows);
-      expect(await intrinsicIndexState(
-        persistence,
-        firstContendedAttempt.command.sealIdentity.scopeUuid,
-      )).toEqual({
+        })
+        .sort(compareIntrinsicIndexRows);
+      expect(
+        await intrinsicIndexState(
+          persistence,
+          firstContendedAttempt.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual({
         revisions: expectedContendedSidecars,
         current: expectedContendedSidecars.map(
           ({ isTombstone: _, ...row }) => row,
         ),
       });
-      expect(await durableState(
-        persistence,
-        independent.command.sealIdentity.scopeUuid,
-      )).toEqual({
+      expect(
+        await durableState(
+          persistence,
+          independent.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual({
         revisions: MAX_POINT_COMMIT_MATERIAL_ROWS_V1.toString(),
         current_rows: MAX_POINT_COMMIT_MATERIAL_ROWS_V1.toString(),
         commit_headers: "1",
@@ -2018,18 +2421,20 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       if (independentResult.result.kind !== "published") {
         throw new Error("Expected a published independent O09-A outcome.");
       }
-      const expectedIndependentSidecars = independent.command.rowIntents.map(
-        (intent) => ({
+      const expectedIndependentSidecars = independent.command.rowIntents
+        .map((intent) => ({
           tableId: intent.tableId.toString(),
           rowIdHex: intent.rowId.replaceAll("-", ""),
           commitSeq: independentResult.result.token.commitSeq.toString(),
           isTombstone: false,
-        }),
-      ).sort(compareIntrinsicIndexRows);
-      expect(await intrinsicIndexState(
-        persistence,
-        independent.command.sealIdentity.scopeUuid,
-      )).toEqual({
+        }))
+        .sort(compareIntrinsicIndexRows);
+      expect(
+        await intrinsicIndexState(
+          persistence,
+          independent.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual({
         revisions: expectedIndependentSidecars,
         current: expectedIndependentSidecars.map(
           ({ isTombstone: _, ...row }) => row,
@@ -2067,13 +2472,15 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
       const entered = deferredSignal();
       const release = deferredSignal();
-      const first = runEffect(createPublisher(persistence, {
-        afterTransactionStep: async (event) => {
-          if (event.step !== "clockLocked") return;
-          entered.resolve();
-          await release.promise;
-        },
-      }).publish(attempt.publicationCommand));
+      const first = runEffect(
+        createPublisher(persistence, {
+          afterTransactionStep: async (event) => {
+            if (event.step !== "clockLocked") return;
+            entered.resolve();
+            await release.promise;
+          },
+        }).publish(attempt.publicationCommand),
+      );
       await entered.promise;
       const second = runEffect(
         createPublisher(persistence).publish(attempt.publicationCommand),
@@ -2086,10 +2493,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "replayed",
       ]);
       expect(results[0]?.token).toEqual(results[1]?.token);
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toMatchObject({
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toMatchObject({
         revisions: "1",
         commit_headers: "1",
         outcomes: "1",
@@ -2101,21 +2507,16 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         createPort(persistence).prove(attempt.command),
       );
       expect(lateProof).toBeInstanceOf(PointCommitStaleAuthorityV1Error);
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toMatchObject({ commit_headers: "1", outcomes: "1", wakes: "1" });
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toMatchObject({ commit_headers: "1", outcomes: "1", wakes: "1" });
     });
   }, 120_000);
 
   it("serializes distinct same-scope publications into dense paired heads", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96600000");
-      const scope = await createScope(
-        persistence,
-        randomUuid,
-        "dense_publish",
-      );
+      const scope = await createScope(persistence, randomUuid, "dense_publish");
       const first = await createAttempt(
         persistence,
         randomUuid,
@@ -2129,21 +2530,20 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "dense_publish_b",
       );
       const results = await Promise.all([
-        runEffect(createPublisher(persistence).publish(
-          first.publicationCommand,
-        )),
-        runEffect(createPublisher(persistence).publish(
-          second.publicationCommand,
-        )),
+        runEffect(
+          createPublisher(persistence).publish(first.publicationCommand),
+        ),
+        runEffect(
+          createPublisher(persistence).publish(second.publicationCommand),
+        ),
       ]);
       expect(results.map((result) => result.token.commitSeq).sort()).toEqual([
         1n,
         2n,
       ]);
-      expect(await durableState(
-        persistence,
-        first.command.sealIdentity.scopeUuid,
-      )).toEqual({
+      expect(
+        await durableState(persistence, first.command.sealIdentity.scopeUuid),
+      ).toEqual({
         revisions: "2",
         current_rows: "2",
         commit_headers: "2",
@@ -2184,23 +2584,29 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         scope,
         "publish_rollback",
       );
-      const payloadBefore = await captureSessionStorage(persistence, attempt.anchor);
-      const failure = await runFailure(createPublisher(persistence, {
-        afterTransactionStep: (event) => {
-          if (event.step === "clockAdvanced") {
-            throw new PointCommitCorruptionV1Error({
-              reason: "publicationInvariantInvalid",
-            });
-          }
-          return Promise.resolve();
-        },
-      }).publish(attempt.publicationCommand));
-      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
-      expect(await captureSessionStorage(persistence, attempt.anchor)).toEqual(payloadBefore);
-      expect(await durableState(
+      const payloadBefore = await captureSessionStorage(
         persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toEqual({
+        attempt.anchor,
+      );
+      const failure = await runFailure(
+        createPublisher(persistence, {
+          afterTransactionStep: (event) => {
+            if (event.step === "clockAdvanced") {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+            return Promise.resolve();
+          },
+        }).publish(attempt.publicationCommand),
+      );
+      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+      expect(await captureSessionStorage(persistence, attempt.anchor)).toEqual(
+        payloadBefore,
+      );
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toEqual({
         revisions: "0",
         current_rows: "0",
         commit_headers: "0",
@@ -2235,13 +2641,12 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           persistence.drizzle,
           scope.ports,
         );
-      await runEffect(installAppSchemaCandidateValidationEffect(
-        candidateValidation,
-        {
+      await runEffect(
+        installAppSchemaCandidateValidationEffect(candidateValidation, {
           deploymentId: scope.deploymentId,
           schemaVersionId: candidateSchemaVersionId,
-        },
-      ));
+        }),
+      );
       const guard = createAppSchemaCandidateWriteGuardPort({
         candidateValidation,
         pointCommitAuthority: scope.ports,
@@ -2262,18 +2667,22 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           return Promise.resolve();
         },
       });
-      await expect(runEffect(publisher.prove(attempt.command))).resolves
-        .toEqual({ kind: "wouldCommit" });
-      await expect(runEffect(loadAppSchemaCandidateValidationEffect(
-        candidateValidation,
-        {
-          deploymentId: scope.deploymentId,
-          schemaVersionId: candidateSchemaVersionId,
+      await expect(
+        runEffect(publisher.prove(attempt.command)),
+      ).resolves.toEqual({ kind: "wouldCommit" });
+      await expect(
+        runEffect(
+          loadAppSchemaCandidateValidationEffect(candidateValidation, {
+            deploymentId: scope.deploymentId,
+            schemaVersionId: candidateSchemaVersionId,
+          }),
+        ),
+      ).resolves.toMatchObject({
+        head: {
+          frame: {
+            kind: "app_schema_candidate_validation_progress",
+          },
         },
-      ))).resolves.toMatchObject({
-        head: { frame: {
-          kind: "app_schema_candidate_validation_progress",
-        } },
       });
       expect(candidateFailureSteps).toBe(1);
       const trigger = await installCommitSqlStateTrigger(
@@ -2283,30 +2692,33 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "m03_b_candidate_guard_40001",
       );
       try {
-        await expect(runFailure(publisher.publish(attempt.publicationCommand)))
-          .resolves.toMatchObject({
-            _tag: "PointCommitConfirmedPreDecisionRollbackV1Error",
-            operation: "writeCommitHeader",
-            sqlState: "40001",
-          });
+        await expect(
+          runFailure(publisher.publish(attempt.publicationCommand)),
+        ).resolves.toMatchObject({
+          _tag: "PointCommitConfirmedPreDecisionRollbackV1Error",
+          operation: "writeCommitHeader",
+          sqlState: "40001",
+        });
       } finally {
         await dropCommitTrigger(persistence, trigger);
       }
-      await expect(runEffect(loadAppSchemaCandidateValidationEffect(
-        candidateValidation,
-        {
-          deploymentId: scope.deploymentId,
-          schemaVersionId: candidateSchemaVersionId,
+      await expect(
+        runEffect(
+          loadAppSchemaCandidateValidationEffect(candidateValidation, {
+            deploymentId: scope.deploymentId,
+            schemaVersionId: candidateSchemaVersionId,
+          }),
+        ),
+      ).resolves.toMatchObject({
+        head: {
+          frame: {
+            kind: "app_schema_candidate_validation_progress",
+          },
         },
-      ))).resolves.toMatchObject({
-        head: { frame: {
-          kind: "app_schema_candidate_validation_progress",
-        } },
       });
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toMatchObject({
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toMatchObject({
         revisions: "0",
         current_rows: "0",
         commit_headers: "0",
@@ -2314,44 +2726,49 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         outcomes: "0",
         last_commit_seq: "0",
       });
-      await expect(runEffect(publisher.publish(attempt.publicationCommand)))
-        .resolves.toMatchObject({ kind: "published", token: { commitSeq: 1n } });
-      const failed = await runEffect(loadAppSchemaCandidateValidationEffect(
-        candidateValidation,
-        {
+      await expect(
+        runEffect(publisher.publish(attempt.publicationCommand)),
+      ).resolves.toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+      const failed = await runEffect(
+        loadAppSchemaCandidateValidationEffect(candidateValidation, {
           deploymentId: scope.deploymentId,
           schemaVersionId: candidateSchemaVersionId,
-        },
-      ));
+        }),
+      );
       expect(failed).toMatchObject({
-        head: { frame: {
-          kind: "app_schema_candidate_validation_failure_evidence",
-          observedFailureCount: 1n,
-          entries: [{
-            source: "pointCommit",
-            reason: "candidateTableRemoved",
-            observedCommitSeq: 1n,
-          }],
-        } },
+        head: {
+          frame: {
+            kind: "app_schema_candidate_validation_failure_evidence",
+            observedFailureCount: 1n,
+            entries: [
+              {
+                source: "pointCommit",
+                reason: "candidateTableRemoved",
+                observedCommitSeq: 1n,
+              },
+            ],
+          },
+        },
       });
       if (failed.status !== "present") {
         throw new Error("Missing failed PostgreSQL candidate head.");
       }
-      await expect(runEffect(publisher.publish(attempt.publicationCommand)))
-        .resolves.toMatchObject({ kind: "replayed", token: { commitSeq: 1n } });
-      await expect(runEffect(loadAppSchemaCandidateValidationEffect(
-        candidateValidation,
-        {
-          deploymentId: scope.deploymentId,
-          schemaVersionId: candidateSchemaVersionId,
-        },
-      ))).resolves.toMatchObject({
+      await expect(
+        runEffect(publisher.publish(attempt.publicationCommand)),
+      ).resolves.toMatchObject({ kind: "replayed", token: { commitSeq: 1n } });
+      await expect(
+        runEffect(
+          loadAppSchemaCandidateValidationEffect(candidateValidation, {
+            deploymentId: scope.deploymentId,
+            schemaVersionId: candidateSchemaVersionId,
+          }),
+        ),
+      ).resolves.toMatchObject({
         head: { frameSha256Hex: failed.head.frameSha256Hex },
       });
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toMatchObject({
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toMatchObject({
         revisions: "1",
         current_rows: "1",
         commit_headers: "1",
@@ -2367,11 +2784,7 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
   it("confirms a server 40001 only after rollback and leaves no sequence gap", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("97400000");
-      const scope = await createScope(
-        persistence,
-        randomUuid,
-        "cd0_40001",
-      );
+      const scope = await createScope(persistence, randomUuid, "cd0_40001");
       const attempt = await createAttempt(
         persistence,
         randomUuid,
@@ -2395,24 +2808,27 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
           operation: "writeCommitHeader",
           sqlState: "40001",
         });
-        expect(await durableState(
-          persistence,
-          attempt.command.sealIdentity.scopeUuid,
-        )).toEqual(emptyDurableState());
+        expect(
+          await durableState(
+            persistence,
+            attempt.command.sealIdentity.scopeUuid,
+          ),
+        ).toEqual(emptyDurableState());
       } finally {
         await dropCommitTrigger(persistence, trigger);
       }
 
-      await expect(runEffect(
-        createPublisher(persistence).publish(attempt.publicationCommand),
-      )).resolves.toMatchObject({
+      await expect(
+        runEffect(
+          createPublisher(persistence).publish(attempt.publicationCommand),
+        ),
+      ).resolves.toMatchObject({
         kind: "published",
         token: { commitSeq: 1n },
       });
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toMatchObject({
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toMatchObject({
         commit_headers: "1",
         outcomes: "1",
         wakes: "1",
@@ -2452,20 +2868,24 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
         second.command.sealIdentity.scopeUuid,
       );
       const results = await Promise.all([
-        runEffect(Effect.result(
-          createPublisher(persistence).publish(first.publicationCommand),
-        )),
-        runEffect(Effect.result(
-          createPublisher(persistence).publish(second.publicationCommand),
-        )),
+        runEffect(
+          Effect.result(
+            createPublisher(persistence).publish(first.publicationCommand),
+          ),
+        ),
+        runEffect(
+          Effect.result(
+            createPublisher(persistence).publish(second.publicationCommand),
+          ),
+        ),
       ]);
       await dropCommitTrigger(persistence, trigger);
 
       const succeededIndexes = results.flatMap((result, index) =>
-        Result.isSuccess(result) ? [index] : []
+        Result.isSuccess(result) ? [index] : [],
       );
       const failedIndexes = results.flatMap((result, index) =>
-        Result.isFailure(result) ? [index] : []
+        Result.isFailure(result) ? [index] : [],
       );
       expect(succeededIndexes).toHaveLength(1);
       expect(failedIndexes).toHaveLength(1);
@@ -2485,21 +2905,24 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
       const attempts = [first, second] as const;
       const victim = attempts[failedIndex];
       if (victim === undefined) throw new Error("Missing deadlock victim.");
-      expect(await durableState(
-        persistence,
-        victim.command.sealIdentity.scopeUuid,
-      )).toEqual(emptyDurableState());
-      await expect(runEffect(
-        createPublisher(persistence).publish(victim.publicationCommand),
-      )).resolves.toMatchObject({
+      expect(
+        await durableState(persistence, victim.command.sealIdentity.scopeUuid),
+      ).toEqual(emptyDurableState());
+      await expect(
+        runEffect(
+          createPublisher(persistence).publish(victim.publicationCommand),
+        ),
+      ).resolves.toMatchObject({
         kind: "published",
         token: { commitSeq: 1n },
       });
       for (const attempt of attempts) {
-        expect(await durableState(
-          persistence,
-          attempt.command.sealIdentity.scopeUuid,
-        )).toMatchObject({
+        expect(
+          await durableState(
+            persistence,
+            attempt.command.sealIdentity.scopeUuid,
+          ),
+        ).toMatchObject({
           commit_headers: "1",
           outcomes: "1",
           wakes: "1",
@@ -2512,11 +2935,7 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
   it("preserves rollback and release failures and quarantines their clients", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("97600000");
-      const scope = await createScope(
-        persistence,
-        randomUuid,
-        "cd0_cleanup",
-      );
+      const scope = await createScope(persistence, randomUuid, "cd0_cleanup");
       const rollbackAttempt = await createAttempt(
         persistence,
         randomUuid,
@@ -2538,7 +2957,7 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
             installClientQueryFault(client, (statement, forward) =>
               statement === "rollback"
                 ? Promise.reject(rollbackCause)
-                : forward()
+                : forward(),
             );
           },
         }).publish(rollbackAttempt.publicationCommand),
@@ -2550,10 +2969,12 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
         transactionCause: expect.objectContaining({ cause: rollbackCause }),
       });
       await expectDifferentPoolClient(persistence, rollbackClientPid);
-      expect(await durableState(
-        persistence,
-        rollbackAttempt.command.sealIdentity.scopeUuid,
-      )).toEqual(emptyDurableState());
+      expect(
+        await durableState(
+          persistence,
+          rollbackAttempt.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(emptyDurableState());
 
       const releaseAttempt = await createAttempt(
         persistence,
@@ -2591,10 +3012,12 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
         releaseCause,
       });
       await expectDifferentPoolClient(persistence, releaseClientPid);
-      expect(await durableState(
-        persistence,
-        releaseAttempt.command.sealIdentity.scopeUuid,
-      )).toEqual(emptyDurableState());
+      expect(
+        await durableState(
+          persistence,
+          releaseAttempt.command.sealIdentity.scopeUuid,
+        ),
+      ).toEqual(emptyDurableState());
     });
   }, 120_000);
 
@@ -2615,30 +3038,34 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
       const lostResponse = new Error("forwarded COMMIT response lost");
       const replayed = await runEffect(
         createPublisherWithRunner(persistence, {
-          afterAcquire: (client) => installClientQueryFault(
-            client,
-            (statement, forward) => statement === "commit"
-              ? Promise.resolve(forward()).then(() => {
-                  throw lostResponse;
-                })
-              : forward(),
-          ),
+          afterAcquire: (client) =>
+            installClientQueryFault(client, (statement, forward) =>
+              statement === "commit"
+                ? Promise.resolve(forward()).then(() => {
+                    throw lostResponse;
+                  })
+                : forward(),
+            ),
         }).publish(committed.publicationCommand),
       );
       expect(replayed).toMatchObject({
         kind: "replayed",
         token: { commitSeq: 1n },
       });
-      await expect(runEffect(
-        createPublisher(persistence).publish(committed.publicationCommand),
-      )).resolves.toMatchObject({
+      await expect(
+        runEffect(
+          createPublisher(persistence).publish(committed.publicationCommand),
+        ),
+      ).resolves.toMatchObject({
         kind: "replayed",
         token: { commitSeq: 1n },
       });
-      expect(await durableState(
-        persistence,
-        committed.command.sealIdentity.scopeUuid,
-      )).toMatchObject({
+      expect(
+        await durableState(
+          persistence,
+          committed.command.sealIdentity.scopeUuid,
+        ),
+      ).toMatchObject({
         commit_headers: "1",
         outcomes: "1",
         wakes: "1",
@@ -2653,12 +3080,12 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
       );
       const missingFailure = await runFailure(
         createPublisherWithRunner(persistence, {
-          afterAcquire: (client) => installClientQueryFault(
-            client,
-            (statement, forward) => statement === "commit"
-              ? Promise.reject(new Error("COMMIT not forwarded"))
-              : forward(),
-          ),
+          afterAcquire: (client) =>
+            installClientQueryFault(client, (statement, forward) =>
+              statement === "commit"
+                ? Promise.reject(new Error("COMMIT not forwarded"))
+                : forward(),
+            ),
         }).publish(missing.publicationCommand),
       );
       expect(missingFailure).toBeInstanceOf(
@@ -2667,25 +3094,25 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
       expect(missingFailure).toMatchObject({
         outcomeCheck: { kind: "missing" },
       });
-      expect(await durableState(
-        persistence,
-        missing.command.sealIdentity.scopeUuid,
-      )).toMatchObject({
+      expect(
+        await durableState(persistence, missing.command.sealIdentity.scopeUuid),
+      ).toMatchObject({
         commit_headers: "1",
         outcomes: "1",
         wakes: "1",
         last_commit_seq: "1",
       });
-      await expect(runEffect(
-        createPublisher(persistence).publish(missing.publicationCommand),
-      )).resolves.toMatchObject({
+      await expect(
+        runEffect(
+          createPublisher(persistence).publish(missing.publicationCommand),
+        ),
+      ).resolves.toMatchObject({
         kind: "published",
         token: { commitSeq: 2n },
       });
-      expect(await durableState(
-        persistence,
-        missing.command.sealIdentity.scopeUuid,
-      )).toMatchObject({
+      expect(
+        await durableState(persistence, missing.command.sealIdentity.scopeUuid),
+      ).toMatchObject({
         commit_headers: "2",
         outcomes: "2",
         wakes: "2",
@@ -2697,11 +3124,7 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
   it("holds interruption until a forwarded COMMIT response settles", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("97800000");
-      const scope = await createScope(
-        persistence,
-        randomUuid,
-        "cd0_interrupt",
-      );
+      const scope = await createScope(persistence, randomUuid, "cd0_interrupt");
       const attempt = await createAttempt(
         persistence,
         randomUuid,
@@ -2712,16 +3135,16 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
       const release = deferredSignal();
       const fiber = Effect.runFork(
         createPublisherWithRunner(persistence, {
-          afterAcquire: (client) => installClientQueryFault(
-            client,
-            (statement, forward) => statement === "commit"
-              ? Promise.resolve(forward()).then(async () => {
-                  committed.resolve();
-                  await release.promise;
-                  throw new Error("forwarded COMMIT response lost");
-                })
-              : forward(),
-          ),
+          afterAcquire: (client) =>
+            installClientQueryFault(client, (statement, forward) =>
+              statement === "commit"
+                ? Promise.resolve(forward()).then(async () => {
+                    committed.resolve();
+                    await release.promise;
+                    throw new Error("forwarded COMMIT response lost");
+                  })
+                : forward(),
+            ),
         }).publish(attempt.publicationCommand),
       );
       await committed.promise;
@@ -2734,17 +3157,20 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
       expect(interruptionSettled).toBe(false);
       release.resolve();
       await interruption;
-      expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
-      await expect(runEffect(
-        createPublisher(persistence).publish(attempt.publicationCommand),
-      )).resolves.toMatchObject({
+      expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(
+        true,
+      );
+      await expect(
+        runEffect(
+          createPublisher(persistence).publish(attempt.publicationCommand),
+        ),
+      ).resolves.toMatchObject({
         kind: "replayed",
         token: { commitSeq: 1n },
       });
-      expect(await durableState(
-        persistence,
-        attempt.command.sealIdentity.scopeUuid,
-      )).toMatchObject({
+      expect(
+        await durableState(persistence, attempt.command.sealIdentity.scopeUuid),
+      ).toMatchObject({
         commit_headers: "1",
         outcomes: "1",
         wakes: "1",
@@ -2772,22 +3198,27 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
       const steps: string[] = [];
       const queries = new Map<
         PointMutationAttemptReplacementSqlOperationV1,
-        Readonly<{ readonly sql: string; readonly params: ReadonlyArray<unknown> }>
+        Readonly<{
+          readonly sql: string;
+          readonly params: ReadonlyArray<unknown>;
+        }>
       >();
-      const first = runEffect(createReplacementPort(persistence, {
-        leaseDurationMilliseconds: 300_000,
-        afterReplacementStep: async (event) => {
-          steps.push(event.step);
-          if (event.step !== "clockLocked") return;
-          entered.resolve();
-          await release.promise;
-        },
-        observeQuery: (query) => queries.set(query.name, query),
-      }).replace(command));
+      const first = runEffect(
+        createReplacementPort(persistence, {
+          leaseDurationMilliseconds: 300_000,
+          afterReplacementStep: async (event) => {
+            steps.push(event.step);
+            if (event.step !== "clockLocked") return;
+            entered.resolve();
+            await release.promise;
+          },
+          observeQuery: (query) => queries.set(query.name, query),
+        }).replace(command),
+      );
       await entered.promise;
-      const second = runEffect(createReplacementPort(persistence).replace(
-        command,
-      ));
+      const second = runEffect(
+        createReplacementPort(persistence).replace(command),
+      );
       try {
         await waitForBlockedPointCommit(persistence, 1);
       } finally {
@@ -2816,11 +3247,13 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
         "sessionRunning",
         "beforeCommit",
       ]);
-      expect(await replacementState(
-        persistence,
-        command.sealIdentity.scopeUuid,
-        command.authorityPins.sessionId,
-      )).toMatchObject({
+      expect(
+        await replacementState(
+          persistence,
+          command.sealIdentity.scopeUuid,
+          command.authorityPins.sessionId,
+        ),
+      ).toMatchObject({
         lifecycle: "running",
         attempt_fence: "2",
         lease_fence: "2",
@@ -2846,10 +3279,12 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
         "deleteRetryLease",
         "advanceAttemptFence",
       ] as const) {
-        expect(await explainObserved(
-          persistence,
-          requireObservedQuery(queries, name),
-        )).toContain("Index");
+        expect(
+          await explainObserved(
+            persistence,
+            requireObservedQuery(queries, name),
+          ),
+        ).toContain("Index");
       }
       const later = await createAttempt(
         persistence,
@@ -2857,12 +3292,16 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
         scope,
         "replace_once_later_commit",
       );
-      await runEffect(createPublisher(persistence).publish(
-        later.publicationCommand,
-      ));
-      await expect(runEffect(createReplacementPort(persistence, {
-        leaseDurationMilliseconds: 1,
-      }).replace(command))).resolves.toMatchObject({
+      await runEffect(
+        createPublisher(persistence).publish(later.publicationCommand),
+      );
+      await expect(
+        runEffect(
+          createReplacementPort(persistence, {
+            leaseDurationMilliseconds: 1,
+          }).replace(command),
+        ),
+      ).resolves.toMatchObject({
         kind: "alreadyReplaced",
         attemptFence: 2n,
       });
@@ -2902,27 +3341,31 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
       const entered = deferredSignal();
       const release = deferredSignal();
       let interruptedSettled = false;
-      const firstFiber = Effect.runFork(createReplacementPort(persistence, {
-        afterReplacementStep: async (event) => {
-          if (event.step !== "beforeCommit") return;
-          entered.resolve();
-          await release.promise;
-        },
-        leaseDurationMilliseconds: 300_000,
-      }).replace(replacementCommand(first.command)));
+      const firstFiber = Effect.runFork(
+        createReplacementPort(persistence, {
+          afterReplacementStep: async (event) => {
+            if (event.step !== "beforeCommit") return;
+            entered.resolve();
+            await release.promise;
+          },
+          leaseDurationMilliseconds: 300_000,
+        }).replace(replacementCommand(first.command)),
+      );
       await entered.promise;
-      const secondPromise = runEffect(createReplacementPort(persistence)
-        .replace(replacementCommand(
-          second.command,
-          CommitSeqSchema.make(2n),
-        )));
+      const secondPromise = runEffect(
+        createReplacementPort(persistence).replace(
+          replacementCommand(second.command, CommitSeqSchema.make(2n)),
+        ),
+      );
       let interruption: Promise<unknown> | undefined;
       try {
         await waitForBlockedPointCommit(persistence, 1);
         await withTimeout(
-          runEffect(createReplacementPort(persistence).replace(
-            replacementCommand(independent.command),
-          )),
+          runEffect(
+            createReplacementPort(persistence).replace(
+              replacementCommand(independent.command),
+            ),
+          ),
           5_000,
           "independent O08-A scope",
         );
@@ -2941,9 +3384,13 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
       await interruption;
       expect(interruptedSettled).toBe(true);
       await expect(secondPromise).resolves.toMatchObject({ kind: "replaced" });
-      await expect(runEffect(createReplacementPort(persistence).replace(
-        replacementCommand(first.command),
-      ))).resolves.toMatchObject({ kind: "alreadyReplaced" });
+      await expect(
+        runEffect(
+          createReplacementPort(persistence).replace(
+            replacementCommand(first.command),
+          ),
+        ),
+      ).resolves.toMatchObject({ kind: "alreadyReplaced" });
     });
   }, 120_000);
 
@@ -2961,18 +3408,22 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
       await installCompetingPointRow(persistence, replacementFirst.command);
       const replacementEntered = deferredSignal();
       const replacementRelease = deferredSignal();
-      const replacement = runEffect(createReplacementPort(persistence, {
-        leaseDurationMilliseconds: 300_000,
-        afterReplacementStep: async (event) => {
-          if (event.step !== "beforeCommit") return;
-          replacementEntered.resolve();
-          await replacementRelease.promise;
-        },
-      }).replace(replacementCommand(replacementFirst.command)));
+      const replacement = runEffect(
+        createReplacementPort(persistence, {
+          leaseDurationMilliseconds: 300_000,
+          afterReplacementStep: async (event) => {
+            if (event.step !== "beforeCommit") return;
+            replacementEntered.resolve();
+            await replacementRelease.promise;
+          },
+        }).replace(replacementCommand(replacementFirst.command)),
+      );
       await replacementEntered.promise;
-      const latePublication = runFailure(createPublisher(persistence).publish(
-        replacementFirst.publicationCommand,
-      ));
+      const latePublication = runFailure(
+        createPublisher(persistence).publish(
+          replacementFirst.publicationCommand,
+        ),
+      );
       try {
         await waitForBlockedPointCommit(persistence, 1);
       } finally {
@@ -2992,16 +3443,21 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
       );
       const publicationEntered = deferredSignal();
       const publicationRelease = deferredSignal();
-      const publication = runEffect(createPublisher(persistence, {
-        afterTransactionStep: async (event) => {
-          if (event.step !== "clockLocked") return;
-          publicationEntered.resolve();
-          await publicationRelease.promise;
-        },
-      }).publish(publicationFirst.publicationCommand));
+      const publication = runEffect(
+        createPublisher(persistence, {
+          afterTransactionStep: async (event) => {
+            if (event.step !== "clockLocked") return;
+            publicationEntered.resolve();
+            await publicationRelease.promise;
+          },
+        }).publish(publicationFirst.publicationCommand),
+      );
       await publicationEntered.promise;
-      const lateReplacement = runFailure(createReplacementPort(persistence)
-        .replace(replacementCommand(publicationFirst.command)));
+      const lateReplacement = runFailure(
+        createReplacementPort(persistence).replace(
+          replacementCommand(publicationFirst.command),
+        ),
+      );
       try {
         await waitForBlockedPointCommit(persistence, 1);
       } finally {
@@ -3023,17 +3479,16 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
       await installCompetingPointRow(persistence, abortRace.command);
       const abortEntered = deferredSignal();
       const abortRelease = deferredSignal();
-      const replacementBeforeAbort = runEffect(createReplacementPort(
-        persistence,
-        {
+      const replacementBeforeAbort = runEffect(
+        createReplacementPort(persistence, {
           leaseDurationMilliseconds: 300_000,
           afterReplacementStep: async (event) => {
             if (event.step !== "clockLocked") return;
             abortEntered.resolve();
             await abortRelease.promise;
           },
-        },
-      ).replace(replacementCommand(abortRace.command)));
+        }).replace(replacementCommand(abortRace.command)),
+      );
       await abortEntered.promise;
       const abort = runFailure(
         createPointMutationSessionAttemptTerminalizationPersistenceV1(
@@ -3078,7 +3533,8 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
         ],
       );
       const createdAt = created.rows[0]?.created_at;
-      if (!(createdAt instanceof Date)) throw new Error("Missing session time.");
+      if (!(createdAt instanceof Date))
+        throw new Error("Missing session time.");
       const expiresAtMilliseconds = createdAt.getTime() + 1;
       const expiresAt = new Date(expiresAtMilliseconds);
       await persistence.query(
@@ -3114,17 +3570,16 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
       });
       const expiryEntered = deferredSignal();
       const expiryRelease = deferredSignal();
-      const expiredReplacement = runFailure(createReplacementPort(
-        persistence,
-        {
+      const expiredReplacement = runFailure(
+        createReplacementPort(persistence, {
           leaseDurationMilliseconds: 300_000,
           afterReplacementStep: async (event) => {
             if (event.step !== "clockLocked") return;
             expiryEntered.resolve();
             await expiryRelease.promise;
           },
-        },
-      ).replace(expiredCommand));
+        }).replace(expiredCommand),
+      );
       await expiryEntered.promise;
       const expiry = runEffect(
         createPointMutationSessionAttemptTerminalizationPersistenceV1(
@@ -3155,7 +3610,11 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
   it("rolls every replacement mutation phase back on PostgreSQL", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96b00000");
-      const scope = await createScope(persistence, randomUuid, "replace_rollback");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "replace_rollback",
+      );
       const phases = [
         "sessionEnteredRetrying",
         "journalDeleted",
@@ -3180,25 +3639,29 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
           attempt.command.sealIdentity.scopeUuid,
           attempt.anchor.sessionId,
         );
-        const failure = await runFailure(createReplacementPort(persistence, {
-          leaseDurationMilliseconds: 300_000,
-          afterReplacementStep: (event) => {
-            if (event.step === phase) {
-              throw new PointMutationAttemptReplacementCorruptionV1Error({
-                reason: "replacementMutationInvalid",
-              });
-            }
-            return Promise.resolve();
-          },
-        }).replace(replacementCommand(attempt.command)));
+        const failure = await runFailure(
+          createReplacementPort(persistence, {
+            leaseDurationMilliseconds: 300_000,
+            afterReplacementStep: (event) => {
+              if (event.step === phase) {
+                throw new PointMutationAttemptReplacementCorruptionV1Error({
+                  reason: "replacementMutationInvalid",
+                });
+              }
+              return Promise.resolve();
+            },
+          }).replace(replacementCommand(attempt.command)),
+        );
         expect(failure).toBeInstanceOf(
           PointMutationAttemptReplacementCorruptionV1Error,
         );
-        expect(await replacementState(
-          persistence,
-          attempt.command.sealIdentity.scopeUuid,
-          attempt.anchor.sessionId,
-        )).toEqual(before);
+        expect(
+          await replacementState(
+            persistence,
+            attempt.command.sealIdentity.scopeUuid,
+            attempt.anchor.sessionId,
+          ),
+        ).toEqual(before);
       }
     });
   }, 120_000);
@@ -3249,25 +3712,20 @@ async function createScope(
   });
   const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
   await setFlarexActivationClock(persistence, scopeId);
-  const developerIndexCount = developerIndex === true
-    ? 1
-    : developerIndex === false
-      ? 0
-      : developerIndex;
+  const developerIndexCount =
+    developerIndex === true ? 1 : developerIndex === false ? 0 : developerIndex;
   await persistence.publishAppSchemaV1({
     deploymentId,
     schemaVersionId,
     version: CatalogSchemaVersionSchema.make(1),
     tables: [appTable("users")],
     indexes: Array.from({ length: developerIndexCount }, (_, index) => ({
-        tableLogicalName: "users",
-        descriptor: `byName${index}`,
-        fields: [
-          ["name", "profile.alias"],
-          ["alias"],
-          ["category"],
-        ][index] ?? ["name"],
-      })),
+      tableLogicalName: "users",
+      descriptor: `byName${index}`,
+      fields: [["name", "profile.alias"], ["alias"], ["category"]][index] ?? [
+        "name",
+      ],
+    })),
   });
   return Object.freeze({
     deploymentId,
@@ -3289,42 +3747,39 @@ async function createAttempt(
     | "mixed"
     | "duplicate"
     | Readonly<{
-      readonly kind: "insert";
-      readonly name: string;
-    }>
+        readonly kind: "insert";
+        readonly name: string;
+      }>
     | Readonly<{
-      readonly kind: "patch" | "delete";
-      readonly documentId: ReturnType<typeof appDocumentIdV1FromRowIdentity>;
-      readonly name?: string;
-      readonly patch?: Readonly<Record<string, string>>;
-    }>
+        readonly kind: "patch" | "delete";
+        readonly documentId: ReturnType<typeof appDocumentIdV1FromRowIdentity>;
+        readonly name?: string;
+        readonly patch?: Readonly<Record<string, string>>;
+      }>
     | Readonly<{
-      readonly kind: "bulkPatch";
-      readonly documentIds: ReadonlyArray<
-        ReturnType<typeof appDocumentIdV1FromRowIdentity>
-      >;
-    }> = true,
+        readonly kind: "bulkPatch";
+        readonly documentIds: ReadonlyArray<
+          ReturnType<typeof appDocumentIdV1FromRowIdentity>
+        >;
+      }> = true,
 ): Promise<PreparedAttempt> {
-  const seededDocumentId = materialWrite === "mixed"
-    ? await seedCommittedUser(persistence, scope)
-    : null;
+  const seededDocumentId =
+    materialWrite === "mixed"
+      ? await seedCommittedUser(persistence, scope)
+      : null;
   const activation = await activatePointMutationSession(
-    createPointMutationSessionActivationPersistenceV1(
-      scope.ports,
-      { leaseDurationMilliseconds: 300_000, randomUuid },
-    ),
-    pointMutationSessionActivationFixture(
-      scope.deploymentId,
-      scope.scopeId,
-      {
-        evidence: {
-          schemaVersionId: scope.schemaVersionId,
-          requestKey: TransactionRequestKeyV1Schema.make(
-            `request:o06:postgres:${label}`,
-          ),
-        },
+    createPointMutationSessionActivationPersistenceV1(scope.ports, {
+      leaseDurationMilliseconds: 300_000,
+      randomUuid,
+    }),
+    pointMutationSessionActivationFixture(scope.deploymentId, scope.scopeId, {
+      evidence: {
+        schemaVersionId: scope.schemaVersionId,
+        requestKey: TransactionRequestKeyV1Schema.make(
+          `request:o06:postgres:${label}`,
+        ),
       },
-    ),
+    }),
   );
   const store = createSessionJournalStorePersistenceV1(scope.ports, {
     grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -3343,15 +3798,17 @@ async function createAttempt(
       schemaVersionId: scope.schemaVersionId,
     }),
   );
-  const materialWriteCount = typeof materialWrite === "number"
-    ? materialWrite
-    : materialWrite === true
-      ? 1
-      : materialWrite === "duplicate"
-        ? 2
-      : 0;
+  const materialWriteCount =
+    typeof materialWrite === "number"
+      ? materialWrite
+      : materialWrite === true
+        ? 1
+        : materialWrite === "duplicate"
+          ? 2
+          : 0;
   if (
-    materialWriteCount > 0 || materialWrite === "mixed" ||
+    materialWriteCount > 0 ||
+    materialWrite === "mixed" ||
     typeof materialWrite === "object"
   ) {
     const table = await runEffect(
@@ -3372,9 +3829,10 @@ async function createAttempt(
         kind: "insert",
         syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
         fields: {
-          name: materialWrite === "duplicate"
-            ? `${label}_duplicate`
-            : `${label}_${index}`,
+          name:
+            materialWrite === "duplicate"
+              ? `${label}_duplicate`
+              : `${label}_${index}`,
         },
       });
     }
@@ -3392,14 +3850,22 @@ async function createAttempt(
         fields: { name: materialWrite.name },
       });
     } else if (
-      typeof materialWrite === "object" && materialWrite.kind === "bulkPatch"
+      typeof materialWrite === "object" &&
+      materialWrite.kind === "bulkPatch"
     ) {
-      for (let index = 0; index < materialWrite.documentIds.length; index += 1) {
+      for (
+        let index = 0;
+        index < materialWrite.documentIds.length;
+        index += 1
+      ) {
         const documentId = materialWrite.documentIds[index];
-        if (documentId === undefined) throw new Error("Missing bulk-patch document ID.");
+        if (documentId === undefined)
+          throw new Error("Missing bulk-patch document ID.");
         await runPointOperation(store, table, {
           kind: "patch",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
+          syscallSequence: CommitSyscallSequenceV1Schema.make(
+            BigInt(index + 1),
+          ),
           documentId,
           patch: {
             name: `${label}_name_${index}`,
@@ -3408,18 +3874,22 @@ async function createAttempt(
         });
       }
     } else if (typeof materialWrite === "object") {
-      await runPointOperation(store, table, materialWrite.kind === "patch"
-        ? {
-          kind: "patch",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          documentId: materialWrite.documentId,
-          patch: materialWrite.patch ?? { name: materialWrite.name },
-        }
-        : {
-          kind: "delete",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          documentId: materialWrite.documentId,
-        });
+      await runPointOperation(
+        store,
+        table,
+        materialWrite.kind === "patch"
+          ? {
+              kind: "patch",
+              syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+              documentId: materialWrite.documentId,
+              patch: materialWrite.patch ?? { name: materialWrite.name },
+            }
+          : {
+              kind: "delete",
+              syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+              documentId: materialWrite.documentId,
+            },
+      );
     }
   }
   const prepared = await prepareSeal(store, attempt);
@@ -3448,12 +3918,14 @@ async function createAttempt(
       ),
     ),
   );
-  const loaded = await runEffect(loader.loadFinishingEffect({
-    deploymentId: activation.anchor.deploymentId,
-    scopeId: activation.anchor.scopeId,
-    sessionId: activation.anchor.sessionId,
-    attemptFence: activation.anchor.attemptFence,
-  }));
+  const loaded = await runEffect(
+    loader.loadFinishingEffect({
+      deploymentId: activation.anchor.deploymentId,
+      scopeId: activation.anchor.scopeId,
+      sessionId: activation.anchor.sessionId,
+      attemptFence: activation.anchor.attemptFence,
+    }),
+  );
   if (loaded.kind !== "loaded") {
     throw new Error(`Expected O06 stored evidence, received ${loaded.kind}.`);
   }
@@ -3488,53 +3960,65 @@ async function createIndexedAttempt(
     persistence.drizzle,
   );
   await prepareDeveloperIndexForPostgres(persistence, scope);
-  const definitions = await runEffect(developerIndexes.locate({
-    deploymentId: scope.deploymentId,
-    scopeId: scope.scopeId,
-    schemaVersionId: scope.schemaVersionId,
-    tableIds: Object.freeze([decodeCatalogTableId(1)]),
-    maximumDefinitions: 1,
-  }));
+  const definitions = await runEffect(
+    developerIndexes.locate({
+      deploymentId: scope.deploymentId,
+      scopeId: scope.scopeId,
+      schemaVersionId: scope.schemaVersionId,
+      tableIds: Object.freeze([decodeCatalogTableId(1)]),
+      maximumDefinitions: 1,
+    }),
+  );
   const definition = definitions?.[0];
   if (definitions?.length !== 1 || definition === undefined) {
     throw new Error("Missing PostgreSQL O10 developer-index definition.");
   }
-  const clock = await persistence.getScopeClock(scope.scopeId);
-  if (clock === null) throw new Error("Missing PostgreSQL O10 scope clock.");
-  await persistence.drizzle.update(fxSystemIndexBuildStates).set({
-    storageGeneration:
-      FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-    storageGenerationFence: clock.storageGenerationFence,
-    epoch: clock.epoch,
-    startCommitSeq: CommitSeqSchema.make(0n),
-    lifecycle: "enabled",
-    coveredThroughCommitSeq: clock.lastCommitSeq,
-    firstReadableCommitSeq: clock.lastCommitSeq,
-    cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
-    backfillCursorRowId: null,
-    attemptFence: IndexBuildAttemptFenceSchema.make(1n),
-  }).where(eq(
-    fxSystemIndexBuildStates.scopeId,
-    scope.scopeId,
-  ));
+  const target = createPostgresLocatedIndexBuildReconciliationTargetV1(
+    persistence,
+    scope.physicalLocator,
+  );
+  let enabled = false;
+  for (let step = 0; step < 16; step += 1) {
+    const built = await runEffect(
+      buildAppDeveloperOrderedIndexV1Effect(
+        {
+          controlDb: persistence.drizzle,
+          authority: {
+            scopeMetadata: persistence,
+            provisioningReceipts: {
+              getScopeAuthorityProvisioningReceipt: async () => null,
+            },
+            scopeClockTargets: { resolve: async () => target },
+          },
+        },
+        {
+          deploymentId: scope.deploymentId,
+          indexDefinitionId: definition.indexDefinitionId,
+          pageSize: 16,
+        },
+      ),
+    );
+    if (built.lifecycle === "enabled") {
+      enabled = true;
+      break;
+    }
+  }
+  if (!enabled)
+    throw new Error("Indexed attempt requires a completed physical build.");
 
   const activation = await activatePointMutationSession(
-    createPointMutationSessionActivationPersistenceV1(
-      scope.ports,
-      { leaseDurationMilliseconds: 300_000, randomUuid },
-    ),
-    pointMutationSessionActivationFixture(
-      scope.deploymentId,
-      scope.scopeId,
-      {
-        evidence: {
-          schemaVersionId: scope.schemaVersionId,
-          requestKey: TransactionRequestKeyV1Schema.make(
-            `request:o10:postgres:${label}`,
-          ),
-        },
+    createPointMutationSessionActivationPersistenceV1(scope.ports, {
+      leaseDurationMilliseconds: 300_000,
+      randomUuid,
+    }),
+    pointMutationSessionActivationFixture(scope.deploymentId, scope.scopeId, {
+      evidence: {
+        schemaVersionId: scope.schemaVersionId,
+        requestKey: TransactionRequestKeyV1Schema.make(
+          `request:o10:postgres:${label}`,
+        ),
       },
-    ),
+    }),
   );
   const store = createSessionJournalStorePersistenceV1(scope.ports, {
     grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -3545,29 +4029,33 @@ async function createIndexedAttempt(
       developerIndexes,
     ),
   });
-  const attempt = await runEffect(store.openAttemptEffect({
-    selector: {
-      deploymentId: scope.deploymentId,
-      scopeId: scope.scopeId,
-      sessionId: activation.anchor.sessionId,
-      attemptFence: activation.anchor.attemptFence,
-    },
-    executionClaim: executionClaimForAnchor(activation.anchor),
-    snapshotToken: activation.anchor.snapshotToken,
-    schemaVersionId: scope.schemaVersionId,
-  }));
+  const attempt = await runEffect(
+    store.openAttemptEffect({
+      selector: {
+        deploymentId: scope.deploymentId,
+        scopeId: scope.scopeId,
+        sessionId: activation.anchor.sessionId,
+        attemptFence: activation.anchor.attemptFence,
+      },
+      executionClaim: executionClaimForAnchor(activation.anchor),
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId: scope.schemaVersionId,
+    }),
+  );
   const table = await runEffect(
     store.resolvePointTableEffect(attempt, "users"),
   );
   const index = await runEffect(
     store.resolveDeveloperIndexEffect(table, "byName0"),
   );
-  await runEffect(store.runIndexedQueryEffect(index, {
-    kind: "indexRange",
-    syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-    bounds: Object.freeze({}),
-    limit: 16,
-  }));
+  const queryResult = await runEffect(
+    store.runIndexedQueryEffect(index, {
+      kind: "indexRange",
+      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      bounds: Object.freeze({}),
+      limit: 16,
+    }),
+  );
   const prepared = await prepareSeal(store, attempt);
   const journal = await runEffect(
     canonicalizeSessionJournalV1Effect(prepared.journal),
@@ -3594,14 +4082,18 @@ async function createIndexedAttempt(
       ),
     ),
   );
-  const loaded = await runEffect(loader.loadFinishingEffect({
-    deploymentId: activation.anchor.deploymentId,
-    scopeId: activation.anchor.scopeId,
-    sessionId: activation.anchor.sessionId,
-    attemptFence: activation.anchor.attemptFence,
-  }));
+  const loaded = await runEffect(
+    loader.loadFinishingEffect({
+      deploymentId: activation.anchor.deploymentId,
+      scopeId: activation.anchor.scopeId,
+      sessionId: activation.anchor.sessionId,
+      attemptFence: activation.anchor.attemptFence,
+    }),
+  );
   if (loaded.kind !== "loaded") {
-    throw new Error(`Expected finishing O10 evidence, received ${loaded.kind}.`);
+    throw new Error(
+      `Expected finishing O10 evidence, received ${loaded.kind}.`,
+    );
   }
   const command = await pointCommitCommandFromStoredAttemptV1(
     authority,
@@ -3618,6 +4110,7 @@ async function createIndexedAttempt(
     authority,
     command: Object.freeze({ ...command, indexRangeDependencies }),
     definition,
+    queryResult,
   });
 }
 
@@ -3639,11 +4132,9 @@ async function commitCompetingIndexedUser(
   const clock = await persistence.getScopeClock(scope.scopeId);
   if (clock === null) throw new Error("Missing PostgreSQL O10 conflict clock.");
   const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
-  const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(
-    attempt.definition,
-    document,
-    creationTime,
-  ));
+  const encodedKey = Result.getOrThrow(
+    lowerAppDeveloperIndexKeyV1(attempt.definition, document, creationTime),
+  );
   await persistence.drizzle.transaction(async (tx) => {
     await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live",
@@ -3673,7 +4164,6 @@ async function commitCompetingIndexedUser(
           rowId: decodeOrderedIndexRowIdHexV1(rowId),
           writeEpoch: clock.epoch,
           commitSeq,
-          prevCommitSeq: null,
         },
       ),
     );
@@ -3691,7 +4181,9 @@ async function commitCompetingIndexedUser(
       tableId,
       rowId: appRowIdHexV1ToBytes(rowId),
     });
-    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
+    await tx
+      .update(fxSystemScopeClocks)
+      .set({ lastCommitSeq: commitSeq })
       .where(eq(fxSystemScopeClocks.scopeId, scope.scopeId));
   });
   return Object.freeze({ encodedKey, rowId });
@@ -3707,11 +4199,14 @@ async function seedCommittedUser(
   const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
   const clock = await persistence.getScopeClock(scope.scopeId);
   if (clock === null) throw new Error("Missing PostgreSQL O09-A scope clock.");
-  const document = await canonicalizeFlarexValueV1({
-    _id: documentId,
-    _creationTime: creationTime,
-    name: "seeded",
-  }, "appDocument");
+  const document = await canonicalizeFlarexValueV1(
+    {
+      _id: documentId,
+      _creationTime: creationTime,
+      name: "seeded",
+    },
+    "appDocument",
+  );
   await persistence.drizzle.transaction(async (tx) => {
     await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live",
@@ -3730,9 +4225,12 @@ async function seedCommittedUser(
         sha256: document.sha256,
       },
     });
-    await tx.update(fxSystemScopeClocks).set({
-      lastCommitSeq: CommitSeqSchema.make(1n),
-    }).where(eq(fxSystemScopeClocks.scopeId, scope.scopeId));
+    await tx
+      .update(fxSystemScopeClocks)
+      .set({
+        lastCommitSeq: CommitSeqSchema.make(1n),
+      })
+      .where(eq(fxSystemScopeClocks.scopeId, scope.scopeId));
   });
   return documentId;
 }
@@ -3740,10 +4238,9 @@ async function seedCommittedUser(
 async function enableIntrinsicIndexForPostgres(
   persistence: PostgresFlarexPersistence,
   scope: ScopeScenario,
-): Promise<Pick<
-  PointCommitTransactionProofOptionsV1,
-  "intrinsicCreationTimeIndexes"
->> {
+): Promise<
+  Pick<PointCommitTransactionProofOptionsV1, "intrinsicCreationTimeIndexes">
+> {
   const target = createPostgresLocatedIndexBuildReconciliationTargetV1(
     persistence,
     scope.physicalLocator,
@@ -3761,19 +4258,20 @@ async function enableIntrinsicIndexForPostgres(
       scopeClockTargets: { resolve: async () => target },
     },
   } as const;
-  await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
-    deploymentId: scope.deploymentId,
-    schemaVersionId: scope.schemaVersionId,
-  }));
+  await runEffect(
+    reconcilePublishedIndexBuildsV1Effect(ports, {
+      deploymentId: scope.deploymentId,
+      schemaVersionId: scope.schemaVersionId,
+    }),
+  );
   for (let step = 0; step < 8; step += 1) {
-    const advanced = await runEffect(buildIntrinsicCreationTimeIndexV1Effect(
-      ports,
-      {
+    const advanced = await runEffect(
+      buildIntrinsicCreationTimeIndexV1Effect(ports, {
         deploymentId: scope.deploymentId,
         indexDefinitionId: decodeCatalogIndexDefinitionId(1),
         pageSize: 8,
-      },
-    ));
+      }),
+    );
     if (advanced.lifecycle === "enabled") break;
   }
   return Object.freeze({
@@ -3790,22 +4288,27 @@ async function prepareDeveloperIndexForPostgres(
     persistence,
     scope.physicalLocator,
   );
-  await runEffect(reconcilePublishedIndexBuildsV1Effect({
-    controlDb: persistence.drizzle,
-    authority: {
-      scopeMetadata: {
-        getScopeMetadataByDeploymentId: (deploymentId: string) =>
-          persistence.getScopeMetadataByDeploymentId(deploymentId),
+  await runEffect(
+    reconcilePublishedIndexBuildsV1Effect(
+      {
+        controlDb: persistence.drizzle,
+        authority: {
+          scopeMetadata: {
+            getScopeMetadataByDeploymentId: (deploymentId: string) =>
+              persistence.getScopeMetadataByDeploymentId(deploymentId),
+          },
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => null,
+          },
+          scopeClockTargets: { resolve: async () => target },
+        },
       },
-      provisioningReceipts: {
-        getScopeAuthorityProvisioningReceipt: async () => null,
+      {
+        deploymentId: scope.deploymentId,
+        schemaVersionId: scope.schemaVersionId,
       },
-      scopeClockTargets: { resolve: async () => target },
-    },
-  }, {
-    deploymentId: scope.deploymentId,
-    schemaVersionId: scope.schemaVersionId,
-  }));
+    ),
+  );
   return Object.freeze({
     developerIndexes: createAppDeveloperIndexDefinitionPortV1(
       persistence.drizzle,
@@ -3830,54 +4333,72 @@ async function developerIndexBuildCursor(
 async function prepareUniqueConstraintForPostgres(
   persistence: PostgresFlarexPersistence,
   scope: ScopeScenario,
-): Promise<Required<Pick<
-  PointCommitTransactionProofOptionsV1,
-  "uniqueConstraints"
->>> {
+): Promise<
+  Required<Pick<PointCommitTransactionProofOptionsV1, "uniqueConstraints">>
+> {
   const prepared = await runEffect(
-    prepareAppUniqueConstraintDefinitionBindingV1Effect(
-      persistence.drizzle,
-      {
-        deploymentId: scope.deploymentId,
-        schemaVersionId: scope.schemaVersionId,
-        tableId: decodeCatalogTableId(1),
-        descriptor: SchemaManifestAppIndexDescriptorSchema.make(
-          "unique_name",
-        ),
-        physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
-          kind: "appUniqueConstraint",
-          specVersion: 1,
-          orderedFields: ["name"],
-          sparse: false,
-          localePolicy: { kind: "none" },
-          keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
-          keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
-        }),
-      },
-    ),
+    prepareAppUniqueConstraintDefinitionBindingV1Effect(persistence.drizzle, {
+      deploymentId: scope.deploymentId,
+      schemaVersionId: scope.schemaVersionId,
+      tableId: decodeCatalogTableId(1),
+      descriptor: SchemaManifestAppIndexDescriptorSchema.make("unique_name"),
+      physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+        kind: "appUniqueConstraint",
+        specVersion: 1,
+        orderedFields: ["name"],
+        sparse: false,
+        localePolicy: { kind: "none" },
+        keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+        keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+      }),
+    }),
   );
   await persistence.drizzle.transaction((tx) =>
     runEffect(
       ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
-    )
+    ),
   );
-  const input = { deploymentId: scope.deploymentId, schemaVersionId: scope.schemaVersionId };
-  const closure = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(persistence.drizzle, input));
-  await persistence.drizzle.transaction(tx => runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure)));
+  const input = {
+    deploymentId: scope.deploymentId,
+    schemaVersionId: scope.schemaVersionId,
+  };
+  const closure = await runEffect(
+    prepareAppUniqueConstraintSetClosureV1Effect(persistence.drizzle, input),
+  );
+  await persistence.drizzle.transaction((tx) =>
+    runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure)),
+  );
   const buildPorts = {
     controlDb: persistence.drizzle,
     authority: {
       scopeMetadata: persistence,
-      provisioningReceipts: { getScopeAuthorityProvisioningReceipt: async () => null },
-      scopeClockTargets: { resolve: async (locator: ScopePhysicalLocator) =>
-        createLocatedAppUniqueConstraintSetBuildTargetV1(persistence.drizzle, locator) },
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => null,
+      },
+      scopeClockTargets: {
+        resolve: async (locator: ScopePhysicalLocator) =>
+          createLocatedAppUniqueConstraintSetBuildTargetV1(
+            persistence.drizzle,
+            locator,
+          ),
+      },
     },
   };
-  await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts, input));
+  await runEffect(
+    reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts, input),
+  );
   let enabled = false;
   for (let step = 0; step < 16; step += 1) {
-    const advanced = await runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(buildPorts, { ...input, pageSize: 16 }));
-    if (advanced.lifecycle === "enabled") { enabled = true; break; }
+    const advanced = await runEffect(
+      advanceAppUniqueConstraintSetBackfillV1Effect(buildPorts, {
+        ...input,
+        pageSize: 16,
+      }),
+    );
+    if (advanced.lifecycle === "enabled") {
+      enabled = true;
+      break;
+    }
   }
   if (!enabled) throw new Error("Expected PostgreSQL unique build to enable.");
   return Object.freeze({
@@ -3887,15 +4408,28 @@ async function prepareUniqueConstraintForPostgres(
   });
 }
 
-async function setValidatingUniqueSetBuild(persistence: PostgresFlarexPersistence, scope: ScopeScenario, definitionId = 1000) {
-  await persistence.query(`insert into fx_system_unique_constraint_build (scope_id, unique_constraint_definition_id, storage_generation, storage_generation_fence, epoch, start_commit_seq, covered_through_commit_seq, lifecycle, cursor_row_id, attempt_fence)
+async function setValidatingUniqueSetBuild(
+  persistence: PostgresFlarexPersistence,
+  scope: ScopeScenario,
+  definitionId = 1000,
+) {
+  await persistence.query(
+    `insert into fx_system_unique_constraint_build (scope_id, unique_constraint_definition_id, storage_generation, storage_generation_fence, epoch, start_commit_seq, covered_through_commit_seq, lifecycle, cursor_row_id, attempt_fence)
     select scope_id, $2, storage_generation, storage_generation_fence, epoch, last_commit_seq, last_commit_seq, 'validating', decode(repeat('ff',16),'hex'), 1 from fx_system_scope_clock where scope_id = $1
-    on conflict (scope_id, unique_constraint_definition_id) do nothing`, [scope.scopeId, definitionId]);
+    on conflict (scope_id, unique_constraint_definition_id) do nothing`,
+    [scope.scopeId, definitionId],
+  );
 }
 
-async function uniqueSetBuildCursors(persistence: PostgresFlarexPersistence, scope: ScopeScenario) {
-  const result = await persistence.query<{cursor_row_hex: string | null}>(`select encode(cursor_row_id, 'hex') cursor_row_hex from fx_system_unique_constraint_build where scope_id = $1 and unique_constraint_definition_id >= 1000 order by unique_constraint_definition_id`, [scope.scopeId]);
-  return result.rows.map(row => row.cursor_row_hex);
+async function uniqueSetBuildCursors(
+  persistence: PostgresFlarexPersistence,
+  scope: ScopeScenario,
+) {
+  const result = await persistence.query<{ cursor_row_hex: string | null }>(
+    `select encode(cursor_row_id, 'hex') cursor_row_hex from fx_system_unique_constraint_build where scope_id = $1 and unique_constraint_definition_id >= 1000 order by unique_constraint_definition_id`,
+    [scope.scopeId],
+  );
+  return result.rows.map((row) => row.cursor_row_hex);
 }
 
 function createPort(
@@ -4063,19 +4597,16 @@ async function dropCommitTrigger(
 
 function installClientQueryFault(
   client: PoolClient,
-  fault: (
-    statement: string,
-    forward: () => unknown,
-  ) => unknown,
+  fault: (statement: string, forward: () => unknown) => unknown,
 ): void {
   const originalQuery = client.query;
   const installed = Reflect.set(
     client,
     "query",
-    (...args: ReadonlyArray<unknown>): unknown => fault(
-      postgresStatementText(args[0]),
-      () => Reflect.apply(originalQuery, client, args),
-    ),
+    (...args: ReadonlyArray<unknown>): unknown =>
+      fault(postgresStatementText(args[0]), () =>
+        Reflect.apply(originalQuery, client, args),
+      ),
   );
   if (!installed) throw new Error("Failed to install the client query fault.");
 }
@@ -4184,10 +4715,9 @@ function createReplacementPort(
 
 function replacementCommand(
   command: PointCommitTransactionCommandV1,
-  currentCommitSeq: ReturnType<typeof CommitSeqSchema.make> =
-    CommitSeqSchema.make(
-      command.authorityPins.snapshotToken.commitSeq + 1n,
-    ),
+  currentCommitSeq: ReturnType<
+    typeof CommitSeqSchema.make
+  > = CommitSeqSchema.make(command.authorityPins.snapshotToken.commitSeq + 1n),
 ): PointMutationAttemptReplacementCommandV1 {
   return Object.freeze({
     authorityPins: command.authorityPins,
@@ -4214,12 +4744,7 @@ async function installCompetingPointRow(
   const locked = deferredSignal();
   const release = deferredSignal();
   release.resolve();
-  const commit = commitCompetingPointRow(
-    persistence,
-    command,
-    locked,
-    release,
-  );
+  const commit = commitCompetingPointRow(persistence, command, locked, release);
   await locked.promise;
   await commit;
 }
@@ -4278,18 +4803,12 @@ async function commitCompetingPointRow(
   if (clock === null) throw new Error("Missing competing-writer scope clock.");
   const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
   const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
-  const document = await canonicalizeFlarexValueV1(
-    intent.value,
-    "appDocument",
-  );
+  const document = await canonicalizeFlarexValueV1(intent.value, "appDocument");
   await persistence.drizzle.transaction(async (tx) => {
     await tx
       .select({ scopeUuid: fxSystemScopeClocks.scopeUuid })
       .from(fxSystemScopeClocks)
-      .where(eq(
-        fxSystemScopeClocks.scopeUuid,
-        command.sealIdentity.scopeUuid,
-      ))
+      .where(eq(fxSystemScopeClocks.scopeUuid, command.sealIdentity.scopeUuid))
       .limit(1)
       .for("update");
     locked.resolve();
@@ -4328,10 +4847,7 @@ async function commitCompetingPointRow(
     await tx
       .update(fxSystemScopeClocks)
       .set({ lastCommitSeq: commitSeq })
-      .where(eq(
-        fxSystemScopeClocks.scopeUuid,
-        command.sealIdentity.scopeUuid,
-      ));
+      .where(eq(fxSystemScopeClocks.scopeUuid, command.sealIdentity.scopeUuid));
   });
 }
 
@@ -4456,19 +4972,27 @@ async function developerIndexState(
     [scopeUuid],
   );
   return Object.freeze({
-    revisions: Object.freeze(revisions.rows.map((row) => Object.freeze({
-      indexDefinitionId: row.index_definition_id,
-      encodedKeyHex: row.encoded_key_hex,
-      rowIdHex: row.row_id_hex,
-      commitSeq: row.commit_seq,
-      isTombstone: row.is_tombstone,
-    }))),
-    current: Object.freeze(current.rows.map((row) => Object.freeze({
-      indexDefinitionId: row.index_definition_id,
-      encodedKeyHex: row.encoded_key_hex,
-      rowIdHex: row.row_id_hex,
-      commitSeq: row.commit_seq,
-    }))),
+    revisions: Object.freeze(
+      revisions.rows.map((row) =>
+        Object.freeze({
+          indexDefinitionId: row.index_definition_id,
+          encodedKeyHex: row.encoded_key_hex,
+          rowIdHex: row.row_id_hex,
+          commitSeq: row.commit_seq,
+          isTombstone: row.is_tombstone,
+        }),
+      ),
+    ),
+    current: Object.freeze(
+      current.rows.map((row) =>
+        Object.freeze({
+          indexDefinitionId: row.index_definition_id,
+          encodedKeyHex: row.encoded_key_hex,
+          rowIdHex: row.row_id_hex,
+          commitSeq: row.commit_seq,
+        }),
+      ),
+    ),
   });
 }
 
@@ -4493,12 +5017,18 @@ async function uniqueKeyState(
      order by constraint_id, encoded_key, row_id`,
     [scopeUuid],
   );
-  return Object.freeze(rows.rows.map((row) => Object.freeze({
-    constraintId: row.constraint_id,
-    encodedKeyHex: row.encoded_key_hex,
-    rowIdHex: row.row_id_hex,
-    tableId: row.table_id, localeKey: row.locale_key, keySha256Hex: row.key_sha256_hex,
-  })));
+  return Object.freeze(
+    rows.rows.map((row) =>
+      Object.freeze({
+        constraintId: row.constraint_id,
+        encodedKeyHex: row.encoded_key_hex,
+        rowIdHex: row.row_id_hex,
+        tableId: row.table_id,
+        localeKey: row.locale_key,
+        keySha256Hex: row.key_sha256_hex,
+      }),
+    ),
+  );
 }
 
 function compareIntrinsicIndexRows(
@@ -4513,7 +5043,8 @@ function compareIntrinsicIndexRows(
     readonly commitSeq: string;
   }>,
 ): number {
-  const identityOrder = left.tableId.localeCompare(right.tableId) ||
+  const identityOrder =
+    left.tableId.localeCompare(right.tableId) ||
     left.rowIdHex.localeCompare(right.rowIdHex);
   if (identityOrder !== 0) return identityOrder;
   const leftCommitSeq = BigInt(left.commitSeq);
@@ -4663,10 +5194,9 @@ async function explainObserved(
   }>,
 ): Promise<string> {
   return withPostgresSequentialScansDisabled(persistence, async (client) => {
-    const result = await client.query(
-      `explain (format json) ${query.sql}`,
-      [...query.params],
-    );
+    const result = await client.query(`explain (format json) ${query.sql}`, [
+      ...query.params,
+    ]);
     return JSON.stringify(result.rows);
   });
 }
@@ -4715,17 +5245,20 @@ async function explainIndexRangeOccLookup(
   if (dependency === undefined) {
     throw new Error("Missing O10 index-range dependency.");
   }
-  const lower = dependency.lower === null
-    ? null
-    : orderedIndexBoundHexV1ToBytes(dependency.lower.encodedKey);
-  const upper = dependency.upper === null
-    ? null
-    : dependency.upper.kind === "key"
-      ? orderedIndexBoundHexV1ToBytes(dependency.upper.encodedKey)
-      : orderedIndexKeyBytesHexV1ToBytes(dependency.upper.encodedKey);
-  const upperRowId = dependency.upper?.kind === "position"
-    ? orderedIndexRowIdHexV1ToBytes(dependency.upper.rowId)
-    : null;
+  const lower =
+    dependency.lower === null
+      ? null
+      : orderedIndexBoundHexV1ToBytes(dependency.lower.encodedKey);
+  const upper =
+    dependency.upper === null
+      ? null
+      : dependency.upper.kind === "key"
+        ? orderedIndexBoundHexV1ToBytes(dependency.upper.encodedKey)
+        : orderedIndexKeyBytesHexV1ToBytes(dependency.upper.encodedKey);
+  const upperRowId =
+    dependency.upper?.kind === "position"
+      ? orderedIndexRowIdHexV1ToBytes(dependency.upper.rowId)
+      : null;
   const clock = await persistence.getScopeClock(command.authorityPins.scopeId);
   if (clock === null) throw new Error("Missing O10 scope clock.");
   return withPostgresSequentialScansDisabled(persistence, async (client) => {

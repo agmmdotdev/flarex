@@ -10,9 +10,7 @@ import {
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
-import {
-  createLocatedRetainedHistoryFloorTargetInternal,
-} from "../src/retainedHistoryFloorObservation";
+import { createLocatedRetainedHistoryFloorTargetInternal } from "../src/retainedHistoryFloorObservation";
 import {
   createRetainedHistoryMaintenancePort,
   inspectRetainedHistoryMaintenanceContinuationEffect,
@@ -23,9 +21,7 @@ import {
   type RetainedHistoryMaintenanceReceipt,
 } from "../src/retainedHistoryMaintenance";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
-import {
-  createDefaultLocatedReadCommittedTransactionRunnerV1,
-} from "../src/transactionSessionActivation";
+import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from "../src/transactionSessionActivation";
 import {
   LocatedReadCommittedTransactionFailureV1,
   type RunLocatedReadCommittedTransactionV1,
@@ -71,40 +67,44 @@ describe("O11-E retained-history maintenance", () => {
     return { deploymentId, scopeId };
   }
 
-  function maintenance(options: {
-    readonly policy?: RetainedHistoryMaintenancePolicy;
-    readonly runReadCommitted?: RunLocatedReadCommittedTransactionV1;
-    readonly beforeResolve?: (resolutionCount: number) => Promise<void>;
-  } = {}) {
+  function maintenance(
+    options: {
+      readonly policy?: RetainedHistoryMaintenancePolicy;
+      readonly runReadCommitted?: RunLocatedReadCommittedTransactionV1;
+      readonly beforeResolve?: (resolutionCount: number) => Promise<void>;
+    } = {},
+  ) {
     let resolutionCount = 0;
-    return Result.getOrThrow(createRetainedHistoryMaintenancePort({
-      authority: {
-        scopeMetadata: persistence,
-        provisioningReceipts: {
-          getScopeAuthorityProvisioningReceipt: async () => {
-            throw new Error("Shared scope must not read split receipts.");
+    return Result.getOrThrow(
+      createRetainedHistoryMaintenancePort({
+        authority: {
+          scopeMetadata: persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => {
+              throw new Error("Shared scope must not read split receipts.");
+            },
+          },
+          scopeClockTargets: {
+            resolve: async (locator: ScopePhysicalLocator) => {
+              resolutionCount += 1;
+              await options.beforeResolve?.(resolutionCount);
+              return createLocatedRetainedHistoryFloorTargetInternal(
+                persistence.drizzle,
+                locator,
+                options.runReadCommitted ??
+                  createDefaultLocatedReadCommittedTransactionRunnerV1(
+                    persistence.drizzle,
+                  ),
+              );
+            },
           },
         },
-        scopeClockTargets: {
-          resolve: async (locator: ScopePhysicalLocator) => {
-            resolutionCount += 1;
-            await options.beforeResolve?.(resolutionCount);
-            return createLocatedRetainedHistoryFloorTargetInternal(
-              persistence.drizzle,
-              locator,
-              options.runReadCommitted ??
-                createDefaultLocatedReadCommittedTransactionRunnerV1(
-                  persistence.drizzle,
-                ),
-            );
-          },
+        policy: options.policy ?? {
+          maximumPages: 32,
+          maximumElapsedMilliseconds: 30_000,
         },
-      },
-      policy: options.policy ?? {
-        maximumPages: 32,
-        maximumElapsedMilliseconds: 30_000,
-      },
-    }));
+      }),
+    );
   }
 
   it("resumes exact dependency order under a one-page count budget", async () => {
@@ -116,9 +116,13 @@ describe("O11-E retained-history maintenance", () => {
     let continuation: RetainedHistoryMaintenanceContinuation | null = null;
     const phases: string[] = [];
 
-    const first = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, continuation,
-    ));
+    const first = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        cleanup,
+        context.deploymentId,
+        continuation,
+      ),
+    );
     expect(first).toMatchObject({
       status: "maintenancePaused",
       stopReason: "pageBudget",
@@ -131,20 +135,34 @@ describe("O11-E retained-history maintenance", () => {
     continuation = first.continuation;
     if (continuation === null) throw new Error("Missing commit continuation.");
     phases.push(continuation.phase);
-    await expect(readConnectedHistory(persistence, context.scopeId)).resolves
-      .toEqual({ commits: ["3"], changes: [], indexes: ["1", "2", "3"], appRows: ["1", "2", "3"] });
+    await expect(
+      readConnectedHistory(persistence, context.scopeId),
+    ).resolves.toEqual({
+      commits: ["3"],
+      changes: [],
+      indexes: ["1", "2", "3"],
+      appRows: ["1", "2", "3"],
+    });
 
-    const second = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, continuation,
-    ));
+    const second = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        cleanup,
+        context.deploymentId,
+        continuation,
+      ),
+    );
     expect(second.continuation).toMatchObject({ phase: "indexHistory" });
     continuation = second.continuation;
     if (continuation === null) throw new Error("Missing index continuation.");
     phases.push(continuation.phase);
 
-    const third = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, continuation,
-    ));
+    const third = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        cleanup,
+        context.deploymentId,
+        continuation,
+      ),
+    );
     expect(third).toMatchObject({
       deletedIndexRevisionCount: 2,
       continuation: { phase: "indexHistory" },
@@ -152,20 +170,34 @@ describe("O11-E retained-history maintenance", () => {
     continuation = third.continuation;
     if (continuation === null) throw new Error("Missing index continuation.");
     phases.push(continuation.phase);
-    await expect(readConnectedHistory(persistence, context.scopeId)).resolves
-      .toEqual({ commits: ["3"], changes: [], indexes: ["3"], appRows: ["1", "2", "3"] });
+    await expect(
+      readConnectedHistory(persistence, context.scopeId),
+    ).resolves.toEqual({
+      commits: ["3"],
+      changes: [],
+      indexes: ["3"],
+      appRows: ["1", "2", "3"],
+    });
 
-    const fourth = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, continuation,
-    ));
+    const fourth = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        cleanup,
+        context.deploymentId,
+        continuation,
+      ),
+    );
     expect(fourth.continuation).toMatchObject({ phase: "appRowHistory" });
     continuation = fourth.continuation;
     if (continuation === null) throw new Error("Missing row continuation.");
     phases.push(continuation.phase);
 
-    const fifth = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, continuation,
-    ));
+    const fifth = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        cleanup,
+        context.deploymentId,
+        continuation,
+      ),
+    );
     expect(fifth).toMatchObject({
       deletedAppRowRevisionCount: 1,
       continuation: { phase: "appRowHistory" },
@@ -174,9 +206,13 @@ describe("O11-E retained-history maintenance", () => {
     if (continuation === null) throw new Error("Missing row continuation.");
     phases.push(continuation.phase);
 
-    const completed = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, continuation,
-    ));
+    const completed = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        cleanup,
+        context.deploymentId,
+        continuation,
+      ),
+    );
     expect(completed).toMatchObject({
       status: "maintenanceComplete",
       stopReason: "exhausted",
@@ -185,11 +221,20 @@ describe("O11-E retained-history maintenance", () => {
       continuation: null,
     });
     expect(phases).toEqual([
-      "commitHistory", "indexHistory", "indexHistory",
-      "appRowHistory", "appRowHistory",
+      "commitHistory",
+      "indexHistory",
+      "indexHistory",
+      "appRowHistory",
+      "appRowHistory",
     ]);
-    await expect(readConnectedHistory(persistence, context.scopeId)).resolves
-      .toEqual({ commits: ["3"], changes: [], indexes: ["3"], appRows: ["1", "3"] });
+    await expect(
+      readConnectedHistory(persistence, context.scopeId),
+    ).resolves.toEqual({
+      commits: ["3"],
+      changes: [],
+      indexes: ["3"],
+      appRows: ["1", "3"],
+    });
   });
 
   it("exports and restores owned continuation evidence across port reconstruction", async () => {
@@ -198,11 +243,13 @@ describe("O11-E retained-history maintenance", () => {
     const firstPort = maintenance({
       policy: { maximumPages: 1, maximumElapsedMilliseconds: 30_000 },
     });
-    const first = await runEffect(runRetainedHistoryMaintenanceEffect(
-      firstPort,
-      context.deploymentId,
-      null,
-    ));
+    const first = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        firstPort,
+        context.deploymentId,
+        null,
+      ),
+    );
     if (first.continuation === null) {
       throw new Error("Expected a paused retained-history continuation.");
     }
@@ -238,11 +285,15 @@ describe("O11-E retained-history maintenance", () => {
       retainedFloor: 3n,
       phase: "commitHistory",
     });
-    await expect(runEffect(runRetainedHistoryMaintenanceEffect(
-      reconstructedPort,
-      context.deploymentId,
-      restored,
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffect(
+        runRetainedHistoryMaintenanceEffect(
+          reconstructedPort,
+          context.deploymentId,
+          restored,
+        ),
+      ),
+    ).resolves.toMatchObject({
       status: "maintenancePaused",
       continuation: { phase: "indexHistory" },
     });
@@ -271,25 +322,45 @@ describe("O11-E retained-history maintenance", () => {
     const issuer = maintenance({
       policy: { maximumPages: 1, maximumElapsedMilliseconds: 30_000 },
     });
-    const first = await runEffect(runRetainedHistoryMaintenanceEffect(
-      issuer, context.deploymentId, null,
-    ));
+    const first = await runEffect(
+      runRetainedHistoryMaintenanceEffect(issuer, context.deploymentId, null),
+    );
     const continuation = first.continuation;
     if (continuation === null) throw new Error("Missing continuation.");
-    await expect(runEffectFailure(runRetainedHistoryMaintenanceEffect(
-      { ...issuer }, context.deploymentId, null,
-    ))).resolves.toMatchObject({ reason: "invalidPort" });
-    await expect(runEffectFailure(runRetainedHistoryMaintenanceEffect(
-      issuer,
-      context.deploymentId,
-      { ...continuation },
-    ))).resolves.toMatchObject({ reason: "invalidContinuation" });
-    await expect(runEffectFailure(runRetainedHistoryMaintenanceEffect(
-      maintenance(), context.deploymentId, continuation,
-    ))).resolves.toMatchObject({ reason: "continuationIssuerMismatch" });
-    await expect(runEffectFailure(runRetainedHistoryMaintenanceEffect(
-      issuer, "deployment_foreign", continuation,
-    ))).resolves.toMatchObject({ reason: "continuationDeploymentMismatch" });
+    await expect(
+      runEffectFailure(
+        runRetainedHistoryMaintenanceEffect(
+          { ...issuer },
+          context.deploymentId,
+          null,
+        ),
+      ),
+    ).resolves.toMatchObject({ reason: "invalidPort" });
+    await expect(
+      runEffectFailure(
+        runRetainedHistoryMaintenanceEffect(issuer, context.deploymentId, {
+          ...continuation,
+        }),
+      ),
+    ).resolves.toMatchObject({ reason: "invalidContinuation" });
+    await expect(
+      runEffectFailure(
+        runRetainedHistoryMaintenanceEffect(
+          maintenance(),
+          context.deploymentId,
+          continuation,
+        ),
+      ),
+    ).resolves.toMatchObject({ reason: "continuationIssuerMismatch" });
+    await expect(
+      runEffectFailure(
+        runRetainedHistoryMaintenanceEffect(
+          issuer,
+          "deployment_foreign",
+          continuation,
+        ),
+      ),
+    ).resolves.toMatchObject({ reason: "continuationDeploymentMismatch" });
   });
 
   it("drops a continuation when the scope authority fence changes", async () => {
@@ -297,9 +368,9 @@ describe("O11-E retained-history maintenance", () => {
     const cleanup = maintenance({
       policy: { maximumPages: 1, maximumElapsedMilliseconds: 30_000 },
     });
-    const first = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, null,
-    ));
+    const first = await runEffect(
+      runRetainedHistoryMaintenanceEffect(cleanup, context.deploymentId, null),
+    );
     const continuation = first.continuation;
     if (continuation === null) throw new Error("Missing continuation.");
 
@@ -309,9 +380,13 @@ describe("O11-E retained-history maintenance", () => {
        where scope_id = $1`,
       [context.scopeId],
     );
-    const reset = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, continuation,
-    ));
+    const reset = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        cleanup,
+        context.deploymentId,
+        continuation,
+      ),
+    );
     expect(reset).toMatchObject({
       status: "maintenancePaused",
       stopReason: "authorityChanged",
@@ -319,9 +394,15 @@ describe("O11-E retained-history maintenance", () => {
       continuation: null,
     });
 
-    await expect(runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, null,
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffect(
+        runRetainedHistoryMaintenanceEffect(
+          cleanup,
+          context.deploymentId,
+          null,
+        ),
+      ),
+    ).resolves.toMatchObject({
       status: "maintenancePaused",
       stopReason: "pageBudget",
       pagesExecuted: 1,
@@ -335,7 +416,9 @@ describe("O11-E retained-history maintenance", () => {
       persistence.drizzle,
     );
     let changeFence = true;
-    const changingRunner: RunLocatedReadCommittedTransactionV1 = async work => {
+    const changingRunner: RunLocatedReadCommittedTransactionV1 = async (
+      work,
+    ) => {
       const result = await base(work);
       if (changeFence) {
         changeFence = false;
@@ -349,11 +432,13 @@ describe("O11-E retained-history maintenance", () => {
       return result;
     };
 
-    const reset = await runEffect(runRetainedHistoryMaintenanceEffect(
-      maintenance({ runReadCommitted: changingRunner }),
-      context.deploymentId,
-      null,
-    ));
+    const reset = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        maintenance({ runReadCommitted: changingRunner }),
+        context.deploymentId,
+        null,
+      ),
+    );
     expect(reset).toMatchObject({
       status: "maintenancePaused",
       stopReason: "authorityChanged",
@@ -366,7 +451,7 @@ describe("O11-E retained-history maintenance", () => {
   it("rejects authority replacement under the next owner page lock", async () => {
     const context = await provision("authority_change_under_lock");
     const cleanup = maintenance({
-      beforeResolve: async resolutionCount => {
+      beforeResolve: async (resolutionCount) => {
         if (resolutionCount === 4) {
           await persistence.query(
             `update fx_system_scope_clock
@@ -381,11 +466,9 @@ describe("O11-E retained-history maintenance", () => {
       },
     });
 
-    const reset = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup,
-      context.deploymentId,
-      null,
-    ));
+    const reset = await runEffect(
+      runRetainedHistoryMaintenanceEffect(cleanup, context.deploymentId, null),
+    );
     expect(reset).toMatchObject({
       status: "maintenancePaused",
       stopReason: "authorityChanged",
@@ -400,13 +483,15 @@ describe("O11-E retained-history maintenance", () => {
     const context = await provision("time_budget");
     await seedConnectedHistory(persistence, context.scopeId);
     const clock = steppingClock([0n, 2_000_000n]);
-    const receipt = await runEffect(runRetainedHistoryMaintenanceEffect(
-      maintenance({
-        policy: { maximumPages: 32, maximumElapsedMilliseconds: 1 },
-      }),
-      context.deploymentId,
-      null,
-    ).pipe(Effect.provideService(Clock.Clock, clock)));
+    const receipt = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        maintenance({
+          policy: { maximumPages: 32, maximumElapsedMilliseconds: 1 },
+        }),
+        context.deploymentId,
+        null,
+      ).pipe(Effect.provideService(Clock.Clock, clock)),
+    );
     expect(receipt).toMatchObject({
       status: "maintenancePaused",
       stopReason: "timeBudget",
@@ -424,7 +509,9 @@ describe("O11-E retained-history maintenance", () => {
       persistence.drizzle,
     );
     let transactionCount = 0;
-    const advancingRunner: RunLocatedReadCommittedTransactionV1 = async work => {
+    const advancingRunner: RunLocatedReadCommittedTransactionV1 = async (
+      work,
+    ) => {
       transactionCount += 1;
       if (transactionCount === 2) {
         await setClock(persistence, context.scopeId, 3n, 3n);
@@ -433,9 +520,9 @@ describe("O11-E retained-history maintenance", () => {
     };
     const cleanup = maintenance({ runReadCommitted: advancingRunner });
 
-    const advanced = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, null,
-    ));
+    const advanced = await runEffect(
+      runRetainedHistoryMaintenanceEffect(cleanup, context.deploymentId, null),
+    );
     expect(advanced).toMatchObject({
       status: "maintenancePaused",
       stopReason: "floorAdvanced",
@@ -445,9 +532,15 @@ describe("O11-E retained-history maintenance", () => {
     });
     const continuation = advanced.continuation;
     if (continuation === null) throw new Error("Missing reset continuation.");
-    await expect(runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, continuation,
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffect(
+        runRetainedHistoryMaintenanceEffect(
+          cleanup,
+          context.deploymentId,
+          continuation,
+        ),
+      ),
+    ).resolves.toMatchObject({
       status: "maintenanceComplete",
       stopReason: "exhausted",
       retainedFloor: 3n,
@@ -466,9 +559,9 @@ describe("O11-E retained-history maintenance", () => {
     for (let page = 0; page < 8; page += 1) {
       const receipt: RetainedHistoryMaintenanceReceipt = await runEffect(
         runRetainedHistoryMaintenanceEffect(
-        cleanup,
-        context.deploymentId,
-        continuation,
+          cleanup,
+          context.deploymentId,
+          continuation,
         ),
       );
       continuation = receipt.continuation;
@@ -491,11 +584,13 @@ describe("O11-E retained-history maintenance", () => {
     });
 
     await setClock(persistence, context.scopeId, 3n, 3n);
-    const reset = await runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup,
-      context.deploymentId,
-      continuation,
-    ));
+    const reset = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        cleanup,
+        context.deploymentId,
+        continuation,
+      ),
+    );
     expect(reset).toMatchObject({
       status: "maintenancePaused",
       stopReason: "floorAdvanced",
@@ -505,17 +600,18 @@ describe("O11-E retained-history maintenance", () => {
       deletedAppRowRevisionCount: 0,
       continuation: { phase: "commitHistory", retainedFloor: 3n },
     });
-    await expect(readConnectedHistory(persistence, context.scopeId)).resolves
-      .toEqual(beforeAdvance);
+    await expect(
+      readConnectedHistory(persistence, context.scopeId),
+    ).resolves.toEqual(beforeAdvance);
 
     continuation = reset.continuation;
     const resumedPhases: string[] = [];
     for (let page = 0; page < 8 && continuation !== null; page += 1) {
       const receipt: RetainedHistoryMaintenanceReceipt = await runEffect(
         runRetainedHistoryMaintenanceEffect(
-        cleanup,
-        context.deploymentId,
-        continuation,
+          cleanup,
+          context.deploymentId,
+          continuation,
         ),
       );
       continuation = receipt.continuation;
@@ -529,13 +625,14 @@ describe("O11-E retained-history maintenance", () => {
       "appRowHistory",
       "complete",
     ]);
-    await expect(readConnectedHistory(persistence, context.scopeId)).resolves
-      .toEqual({
-        commits: ["3"],
-        changes: [],
-        indexes: ["3"],
-        appRows: ["1", "3"],
-      });
+    await expect(
+      readConnectedHistory(persistence, context.scopeId),
+    ).resolves.toEqual({
+      commits: ["3"],
+      changes: [],
+      indexes: ["3"],
+      appRows: ["1", "3"],
+    });
   });
 
   it("fails closed when the retained floor regresses", async () => {
@@ -545,7 +642,9 @@ describe("O11-E retained-history maintenance", () => {
       persistence.drizzle,
     );
     let transactionCount = 0;
-    const regressingRunner: RunLocatedReadCommittedTransactionV1 = async work => {
+    const regressingRunner: RunLocatedReadCommittedTransactionV1 = async (
+      work,
+    ) => {
       transactionCount += 1;
       if (transactionCount === 2) {
         await setClock(persistence, context.scopeId, 3n, 1n);
@@ -553,11 +652,15 @@ describe("O11-E retained-history maintenance", () => {
       return base(work);
     };
 
-    await expect(runEffectFailure(runRetainedHistoryMaintenanceEffect(
-      maintenance({ runReadCommitted: regressingRunner }),
-      context.deploymentId,
-      null,
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffectFailure(
+        runRetainedHistoryMaintenanceEffect(
+          maintenance({ runReadCommitted: regressingRunner }),
+          context.deploymentId,
+          null,
+        ),
+      ),
+    ).resolves.toMatchObject({
       reason: "retainedFloorRegressed",
       expectedRetainedFloor: 2n,
       actualRetainedFloor: 1n,
@@ -571,40 +674,67 @@ describe("O11-E retained-history maintenance", () => {
       persistence.drizzle,
     );
     let loseFirstResponse = true;
-    const uncertainRunner: RunLocatedReadCommittedTransactionV1 = async work => {
+    const uncertainRunner: RunLocatedReadCommittedTransactionV1 = async (
+      work,
+    ) => {
       const result = await base(work);
       if (loseFirstResponse) {
         loseFirstResponse = false;
-        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-          kind: "decisionUncertain" as const,
-          settlementCause: new Error("lost maintenance page response"),
-        }));
+        throw new LocatedReadCommittedTransactionFailureV1(
+          Object.freeze({
+            kind: "decisionUncertain" as const,
+            settlementCause: new Error("lost maintenance page response"),
+          }),
+        );
       }
       return result;
     };
     const cleanup = maintenance({ runReadCommitted: uncertainRunner });
-    await expect(runEffectFailure(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, null,
-    ))).resolves.toMatchObject({ issue: { kind: "decisionUncertain" } });
-    await expect(readConnectedHistory(persistence, context.scopeId)).resolves
-      .toMatchObject({ commits: ["3"], changes: [] });
+    await expect(
+      runEffectFailure(
+        runRetainedHistoryMaintenanceEffect(
+          cleanup,
+          context.deploymentId,
+          null,
+        ),
+      ),
+    ).resolves.toMatchObject({ issue: { kind: "decisionUncertain" } });
+    await expect(
+      readConnectedHistory(persistence, context.scopeId),
+    ).resolves.toMatchObject({ commits: ["3"], changes: [] });
 
-    await expect(runEffect(runRetainedHistoryMaintenanceEffect(
-      cleanup, context.deploymentId, null,
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffect(
+        runRetainedHistoryMaintenanceEffect(
+          cleanup,
+          context.deploymentId,
+          null,
+        ),
+      ),
+    ).resolves.toMatchObject({
       status: "maintenanceComplete",
       stopReason: "exhausted",
       continuation: null,
     });
-    await expect(readConnectedHistory(persistence, context.scopeId)).resolves
-      .toEqual({ commits: ["3"], changes: [], indexes: ["3"], appRows: ["1", "3"] });
+    await expect(
+      readConnectedHistory(persistence, context.scopeId),
+    ).resolves.toEqual({
+      commits: ["3"],
+      changes: [],
+      indexes: ["3"],
+      appRows: ["1", "3"],
+    });
   });
 
   it("completes an empty cycle in exact owner order", async () => {
     const context = await provision("empty");
-    const receipt = await runEffect(runRetainedHistoryMaintenanceEffect(
-      maintenance(), context.deploymentId, null,
-    ));
+    const receipt = await runEffect(
+      runRetainedHistoryMaintenanceEffect(
+        maintenance(),
+        context.deploymentId,
+        null,
+      ),
+    );
     expect(receipt).toMatchObject({
       status: "maintenanceComplete",
       stopReason: "exhausted",
@@ -635,16 +765,21 @@ async function seedConnectedHistory(
        from fx_system_scope_clock where scope_id = $1`,
       [scopeId, rowId, commitSeq],
     );
+    if (commitSeq === 1)
+      await persistence.query(
+        `insert into fx_app_row_current (scope_uuid, table_id, row_id, commit_seq)
+       select scope_uuid, 1, decode($2, 'hex'), 1 from fx_system_scope_clock where scope_id = $1`,
+        [scopeId, rowId],
+      );
     await persistence.query(
       `insert into fx_app_index_entry_rev
          (scope_uuid, index_definition_id, table_id, key_codec_version,
           physical_spec_sha256, encoded_key, key_sha256, row_id,
-          commit_seq, prev_commit_seq, write_epoch_uuid, is_tombstone)
+          commit_seq, is_tombstone)
        select scope_uuid, 1, 1, 1, decode(repeat('22', 32), 'hex'),
               decode('33', 'hex'), decode(repeat('44', 32), 'hex'),
               decode($2, 'hex'), $3::bigint,
-              case when $3::bigint = 1 then null else $3::bigint - 1 end,
-              epoch_uuid, false
+              false
        from fx_system_scope_clock where scope_id = $1`,
       [scopeId, rowId, commitSeq],
     );
@@ -652,7 +787,8 @@ async function seedConnectedHistory(
   await persistence.query(
     `insert into fx_app_row_current (scope_uuid, table_id, row_id, commit_seq)
      select scope_uuid, 1, decode($2, 'hex'), 3
-     from fx_system_scope_clock where scope_id = $1`,
+     from fx_system_scope_clock where scope_id = $1
+     on conflict (scope_uuid, table_id, row_id) do update set commit_seq = excluded.commit_seq`,
     [scopeId, rowId],
   );
   await persistence.query(
@@ -687,39 +823,45 @@ async function seedConnectedHistory(
 async function readConnectedHistory(
   persistence: PGliteFlarexPersistence,
   scopeId: string,
-): Promise<Readonly<{
-  readonly commits: ReadonlyArray<string>;
-  readonly changes: ReadonlyArray<string>;
-  readonly indexes: ReadonlyArray<string>;
-  readonly appRows: ReadonlyArray<string>;
-}>> {
+): Promise<
+  Readonly<{
+    readonly commits: ReadonlyArray<string>;
+    readonly changes: ReadonlyArray<string>;
+    readonly indexes: ReadonlyArray<string>;
+    readonly appRows: ReadonlyArray<string>;
+  }>
+> {
   const [commits, changes, indexes, appRows] = await Promise.all([
     persistence.query<{ value: string }>(
       `select commit_seq::text as value from fx_system_commit
        where scope_uuid = (select scope_uuid from fx_system_scope_clock where scope_id = $1)
-       order by commit_seq`, [scopeId],
+       order by commit_seq`,
+      [scopeId],
     ),
     persistence.query<{ value: string }>(
       `select commit_seq::text as value from fx_system_commit_app_row_change
        where scope_uuid = (select scope_uuid from fx_system_scope_clock where scope_id = $1)
-       order by commit_seq`, [scopeId],
+       order by commit_seq`,
+      [scopeId],
     ),
     persistence.query<{ value: string }>(
       `select commit_seq::text as value from fx_app_index_entry_rev
        where scope_uuid = (select scope_uuid from fx_system_scope_clock where scope_id = $1)
-       order by commit_seq`, [scopeId],
+       order by commit_seq`,
+      [scopeId],
     ),
     persistence.query<{ value: string }>(
       `select commit_seq::text as value from fx_app_row_rev
        where scope_uuid = (select scope_uuid from fx_system_scope_clock where scope_id = $1)
-       order by commit_seq`, [scopeId],
+       order by commit_seq`,
+      [scopeId],
     ),
   ]);
   return Object.freeze({
-    commits: Object.freeze(commits.rows.map(row => row.value)),
-    changes: Object.freeze(changes.rows.map(row => row.value)),
-    indexes: Object.freeze(indexes.rows.map(row => row.value)),
-    appRows: Object.freeze(appRows.rows.map(row => row.value)),
+    commits: Object.freeze(commits.rows.map((row) => row.value)),
+    changes: Object.freeze(changes.rows.map((row) => row.value)),
+    indexes: Object.freeze(indexes.rows.map((row) => row.value)),
+    appRows: Object.freeze(appRows.rows.map((row) => row.value)),
   });
 }
 

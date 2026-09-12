@@ -460,7 +460,6 @@ describe("C03 Postgres SessionJournalStore", () => {
                 rowId: decodeOrderedIndexRowIdHexV1(seed.rowId),
                 writeEpoch: clock.epoch,
                 commitSeq: CommitSeqSchema.make(1n),
-                prevCommitSeq: null,
               },
             )
           ),

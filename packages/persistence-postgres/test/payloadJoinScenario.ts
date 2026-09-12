@@ -2,8 +2,9 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { preparePayloadRelationRevision } from "./payloadRelationFixture";
 import { dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
-import { eq } from "drizzle-orm";
-import { fxAppRowCurrent } from "../src/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { fxAppRowCurrent, fxAppRowRevisions } from "../src/schema";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import type { AppRelationEdgeQueryObservation } from "../src/appRelationEdges";
 import { expect, vi } from "vitest";
@@ -27,12 +28,17 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
   const { fixture } = input;
   const inventory = async () => {
     const value = await input.inventory();
-    if (!isNonArrayRecord(value) || !Array.isArray(value.rows)) throw new Error("Missing inventory rows");
+    if (!isNonArrayRecord(value) || !Array.isArray(value.rows) || !Array.isArray(value.revisions)) throw new Error("Missing inventory rows");
     const rowKey = (row: unknown) => {
       if (!isNonArrayRecord(row) || !(row.rowId instanceof Uint8Array) || typeof row.tableId !== "number") throw new Error("Invalid inventory row");
       return row.tableId + "/" + Buffer.from(row.rowId).toString("hex");
     };
-    return { ...value, rows: value.rows.toSorted((a: unknown, b: unknown) => rowKey(a).localeCompare(rowKey(b))) };
+    const revisionKey = (row: unknown) => {
+      if (!isNonArrayRecord(row) || typeof row.commitSeq !== "bigint") throw new Error("Invalid inventory revision");
+      return rowKey(row) + "/" + row.commitSeq;
+    };
+    return { ...value, rows: value.rows.toSorted((a: unknown, b: unknown) => rowKey(a).localeCompare(rowKey(b))),
+      revisions: value.revisions.toSorted((a: unknown, b: unknown) => revisionKey(a).localeCompare(revisionKey(b))) };
   };
   const relationReads = createApplicationRelationReadPort(fixture.control.drizzle, fixture.pointCommitAuthority, fixture.relationCommit, fixture.fold);
   const hostInput = { ...input.hostInput, relationReads,
@@ -125,12 +131,36 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
       const source = sources[0];
       if (source === undefined) throw new Error("Missing source");
       const sourceRow = Result.getOrThrow(decodeAppDocumentIdentityV1Result(ordered[0] ?? source));
-      const missingRows = await input.persistence.drizzle.delete(fxAppRowCurrent).where(eq(fxAppRowCurrent.rowId, appRowIdHexV1ToBytes(sourceRow.rowId))).returning();
-      expect(missingRows).toHaveLength(1);
+      await expect(input.persistence.drizzle.delete(fxAppRowCurrent).where(eq(fxAppRowCurrent.rowId, appRowIdHexV1ToBytes(sourceRow.rowId))))
+        .rejects.toMatchObject({ cause: { message: expect.stringMatching(/fx_app_(unique_key|index_entry_rev)_row_identity_fk/) } });
+      expect(await inventory()).toEqual(beforeReads);
+      const [body] = await input.persistence.drizzle.select().from(fxAppRowRevisions)
+        .where(eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(sourceRow.rowId)));
+      if (body === undefined || body.valueBytes === null) throw new Error("Missing source body");
+      const bodyIdentity = and(eq(fxAppRowRevisions.scopeUuid, body.scopeUuid), eq(fxAppRowRevisions.tableId, body.tableId),
+        eq(fxAppRowRevisions.rowId, body.rowId), eq(fxAppRowRevisions.commitSeq, body.commitSeq));
+      // Preserve the body-corruption witness without bypassing the stable-identity constraint.
+      await input.persistence.drizzle.update(fxAppRowRevisions).set({ valueBytes: sql`decode('ff', 'hex')` }).where(bodyIdentity);
       try {
         expect(await runEffectFailure(host.read(conformance.runtime.commands.findByID, { collection: "posts", id: target, depth: 1 }))).toMatchObject({ reason: "storedCorruption" });
-      } finally { await input.persistence.drizzle.insert(fxAppRowCurrent).values(missingRows); }
+      } finally { await input.persistence.drizzle.update(fxAppRowRevisions).set({ valueBytes: body.valueBytes }).where(bodyIdentity); }
       expect(await inventory()).toEqual(beforeReads);
+      // Reject both the developer-head read and the later intrinsic-head read.
+      for (const rejectAt of [1, 2]) {
+        let membershipQueries = 0;
+        const failingMembershipHost = await runEffect(makeCmsHost(composition, { afterAdmission: tx => Effect.sync(() => {
+          const execute = tx.execute.bind(tx);
+          vi.spyOn(tx, "execute").mockImplementation(statement => {
+            const text = typeof statement === "string" ? statement : new PgDialect().sqlToQuery(statement.getSQL()).sql;
+            if (text.includes("with requested(ordinal") && ++membershipQueries === rejectAt) return execute(sql`select 1 / 0`);
+            return execute(statement);
+          });
+        }) }));
+        expect(await runEffectFailure(failingMembershipHost.run(failingMembershipHost.newRequestKey(), conformance.runtime.commands.update,
+          { collection: "posts", id: source, data: { score: 8 } }))).toMatchObject({ reason: "statementFailure" });
+        expect(membershipQueries).toBe(rejectAt);
+        expect(await inventory()).toEqual(beforeReads);
+      }
       await update(source, { relatedPosts: [other, target] });
       expect(object(await read(target)).referencedByMany).toEqual(page.referencedByMany);
       await update(source, { relatedPost: null, relatedPosts: [] });

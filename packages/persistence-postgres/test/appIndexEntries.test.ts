@@ -28,13 +28,16 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { Result } from "effect";
-import { describe, expect, it } from "vitest";
+import { Effect, Result } from "effect";
+import { sql } from "drizzle-orm";
+import { describe, expect, it, vi } from "vitest";
 
 import {
-  AppIndexEntryRevisionChainConflictError,
-  AppIndexEntryParentRevisionError,
+  AppIndexEntryTransitionConflictError,
+  AppIndexEntryParentRowError,
   AppIndexEntryStorageCorruptionError,
+  AppIndexEntryReadPersistenceError,
+  readAppIndexMembershipHeadsInTransactionEffect,
   InvalidAppIndexEntryInputError,
   appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
   scanAppIndexAtSnapshotInTransactionEffect,
@@ -79,23 +82,50 @@ const deploymentId = "deployment_s10_pglite";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describe("S10 app-index revision and current storage", () => {
+  it.each(["membership", "range"] as const)("preserves %s query construction defects and classifies SQL rejections", async (kind) => {
+    const persistence = await indexPersistence();
+    const defect = new Error("query construction defect");
+    for (const mode of ["construction", "rejection"] as const) {
+      await persistence.drizzle.transaction(async tx => {
+        const execute = tx.execute.bind(tx);
+        const spy = vi.spyOn(tx, "execute").mockImplementation(() => {
+          // The reader is the only execute caller in this transaction.
+          if (mode === "construction") throw defect;
+          return execute(sql`select 1 / 0`);
+        });
+        try {
+          const reading = kind === "membership"
+            ? readAppIndexMembershipHeadsInTransactionEffect(tx, { scopeId, positions: [{ definition: locatedDefinition, encodedKey: keyA, rowId: rowA }] }).pipe(Effect.asVoid)
+            : scanCurrentAppIndexInTransactionEffect(tx, { scopeId, definition: locatedDefinition, bounds: {}, limit: 10 }).pipe(Effect.asVoid);
+          const exit = await runEffect(Effect.exit(reading));
+          if (mode === "construction") {
+            expect(exit).toMatchObject({ _tag: "Failure", cause: { reasons: [{ _tag: "Die", defect }] } });
+          } else {
+            expect(exit).toMatchObject({ _tag: "Failure", cause: { reasons: [{ _tag: "Fail", error: expect.any(AppIndexEntryReadPersistenceError) }] } });
+          }
+          expect(spy).toHaveBeenCalledOnce();
+        } finally { spy.mockRestore(); }
+      });
+    }
+  });
+
   it("preserves ordered history, exact bounds, composite pagination, movement, and tombstones", async () => {
     const persistence = await indexPersistence();
     await commitRowAndEntries(persistence, await liveRow(rowA, 1n, null, "a"), [
-      liveEntry(rowA, keyA, 1n, null),
+      liveEntry(rowA, keyA, 1n),
     ]);
     await persistence.drizzle.transaction(async (tx) => {
       await appendRow(tx, await liveRow(rowB, 2n, null, "b"));
-      await appendEntry(tx, liveEntry(rowB, keyB, 2n, null));
+      await appendEntry(tx, liveEntry(rowB, keyB, 2n));
       await appendRow(tx, await liveRow(rowC, 2n, null, "b-tie"));
-      await appendEntry(tx, liveEntry(rowC, keyB, 2n, null));
+      await appendEntry(tx, liveEntry(rowC, keyB, 2n));
     });
     await commitRowAndEntries(persistence, await liveRow(rowA, 3n, 1n, "c"), [
-      tombstoneEntry(rowA, keyA, 3n, 1n),
-      liveEntry(rowA, keyC, 3n, null),
+      tombstoneEntry(rowA, keyA, 3n),
+      liveEntry(rowA, keyC, 3n),
     ]);
     await commitRowAndEntries(persistence, tombstoneRow(rowB, 4n, 2n), [
-      tombstoneEntry(rowB, keyB, 4n, 2n),
+      tombstoneEntry(rowB, keyB, 4n),
     ]);
 
     const snapshotTwo = await snapshot(persistence, 2n, 10);
@@ -109,8 +139,9 @@ describe("S10 app-index revision and current storage", () => {
       2n,
       2n,
     ]);
-    expect(snapshotTwo.entries.every((entry) => entry.keySha256.byteLength === 32))
-      .toBe(true);
+    expect(
+      snapshotTwo.entries.every((entry) => entry.keySha256.byteLength === 32),
+    ).toBe(true);
 
     const bounded = await snapshot(persistence, 2n, 10, {
       startInclusive: decodeOrderedIndexBoundHexV1(keyB),
@@ -148,12 +179,14 @@ describe("S10 app-index revision and current storage", () => {
       [keyC, rowA],
     ]);
     const current = await persistence.drizzle.transaction((tx) =>
-      runEffect(scanCurrentAppIndexInTransactionEffect(tx, {
-        scopeId,
-        definition: locatedDefinition,
-        bounds: {},
-        limit: 10,
-      }))
+      runEffect(
+        scanCurrentAppIndexInTransactionEffect(tx, {
+          scopeId,
+          definition: locatedDefinition,
+          bounds: {},
+          limit: 10,
+        }),
+      ),
     );
     expect(positions(current.entries)).toEqual([
       [keyB, rowC],
@@ -175,21 +208,16 @@ describe("S10 app-index revision and current storage", () => {
       { revisions: "6", current: "2", tombstones: "2" },
     ]);
 
-    const tombstoneHeadConflict = await persistence.drizzle.transaction(
-      async (tx) => {
-        await appendRow(tx, await liveRow(rowA, 5n, 3n, "reuse-stale"));
-        const result = await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+    // Reusing an absent membership creates a new transition without a predecessor.
+    await persistence.drizzle.transaction(async (tx) => {
+      await appendRow(tx, await liveRow(rowA, 5n, 3n, "reuse"));
+      const result =
+        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
           tx,
-          liveEntry(rowA, keyA, 5n, 1n),
+          liveEntry(rowA, keyA, 5n),
         );
-        if (Result.isFailure(result)) return result.failure;
-        throw new Error("Expected tombstone history-head conflict");
-      },
-    );
-    expect(tombstoneHeadConflict).toBeInstanceOf(
-      AppIndexEntryRevisionChainConflictError,
-    );
-    expect(tombstoneHeadConflict).toMatchObject({ actualHeadCommitSeq: 3n });
+      expect(Result.isSuccess(result)).toBe(true);
+    });
 
     await persistence.query(
       `insert into fx_app_index_entry_current
@@ -201,12 +229,14 @@ describe("S10 app-index revision and current storage", () => {
        limit 1`,
     );
     const contradictoryCurrent = await persistence.drizzle.transaction((tx) =>
-      runEffectFailure(scanCurrentAppIndexInTransactionEffect(tx, {
-        scopeId,
-        definition: locatedDefinition,
-        bounds: {},
-        limit: 10,
-      }))
+      runEffectFailure(
+        scanCurrentAppIndexInTransactionEffect(tx, {
+          scopeId,
+          definition: locatedDefinition,
+          bounds: {},
+          limit: 10,
+        }),
+      ),
     );
     expect(contradictoryCurrent).toBeInstanceOf(
       AppIndexEntryStorageCorruptionError,
@@ -214,25 +244,28 @@ describe("S10 app-index revision and current storage", () => {
     expect(contradictoryCurrent.message).toMatch(/tombstone/);
   });
 
-  it("rejects a stale chain without leaving an index revision", async () => {
+  it("rejects a redundant live membership without leaving a revision", async () => {
     const persistence = await indexPersistence();
     await commitRowAndEntries(persistence, await liveRow(rowA, 1n, null, "a"), [
-      liveEntry(rowA, keyA, 1n, null),
+      liveEntry(rowA, keyA, 1n),
     ]);
-    await commitRowAndEntries(persistence, await liveRow(rowA, 3n, 1n, "a2"), [
-      liveEntry(rowA, keyA, 3n, 1n),
-    ]);
+    await commitRowAndEntries(
+      persistence,
+      await liveRow(rowA, 3n, 1n, "a2"),
+      [],
+    );
 
     const failure = await persistence.drizzle.transaction(async (tx) => {
       await appendRow(tx, await liveRow(rowA, 5n, 3n, "stale"));
-      const result = await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        liveEntry(rowA, keyA, 5n, 1n),
-      );
+      const result =
+        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+          tx,
+          liveEntry(rowA, keyA, 5n),
+        );
       if (Result.isFailure(result)) return result.failure;
       throw new Error("Expected stale index-entry pointer conflict");
     });
-    expect(failure).toBeInstanceOf(AppIndexEntryRevisionChainConflictError);
+    expect(failure).toBeInstanceOf(AppIndexEntryTransitionConflictError);
     const stored = await persistence.query<{ count: string }>(
       `select count(*)::text as count from fx_app_index_entry_rev
        where commit_seq = 5`,
@@ -240,23 +273,69 @@ describe("S10 app-index revision and current storage", () => {
     expect(stored.rows).toEqual([{ count: "0" }]);
   });
 
+  it.each([
+    "missingPointer",
+    "tombstonePointer",
+    "keyDigest",
+    "physicalSpec",
+  ] as const)(
+    "authenticates unchanged membership before omission: %s",
+    async (corruption) => {
+      const persistence = await indexPersistence();
+      await commitRowAndEntries(
+        persistence,
+        await liveRow(rowA, 1n, null, "a"),
+        [liveEntry(rowA, keyA, 1n)],
+      );
+      if (corruption === "missingPointer")
+        await persistence.query("delete from fx_app_index_entry_current");
+      if (corruption === "tombstonePointer")
+        await persistence.query(
+          "update fx_app_index_entry_rev set is_tombstone=true",
+        );
+      if (corruption === "keyDigest")
+        await persistence.query(
+          "update fx_app_index_entry_rev set key_sha256=$1",
+          [new Uint8Array(32)],
+        );
+      if (corruption === "physicalSpec")
+        await persistence.query(
+          "update fx_app_index_entry_rev set physical_spec_sha256=$1",
+          [new Uint8Array(32)],
+        );
+      const failure = await persistence.drizzle.transaction((tx) =>
+        runEffectFailure(
+          readAppIndexMembershipHeadsInTransactionEffect(tx, {
+            scopeId,
+            positions: [
+              { definition: locatedDefinition, encodedKey: keyA, rowId: rowA },
+            ],
+          }),
+        ),
+      );
+      expect(failure).toBeInstanceOf(AppIndexEntryStorageCorruptionError);
+    },
+  );
+
   it("fails closed when stored canonical-key bytes and digest diverge", async () => {
     const persistence = await indexPersistence();
     await commitRowAndEntries(persistence, await liveRow(rowA, 1n, null, "a"), [
-      liveEntry(rowA, keyA, 1n, null),
+      liveEntry(rowA, keyA, 1n),
     ]);
     await persistence.query(
       `update fx_app_index_entry_rev set key_sha256 = $1`,
       [new Uint8Array(32)],
     );
     const failure = await persistence.drizzle.transaction((tx) =>
-      runEffectFailure(scanAppIndexAtSnapshotInTransactionEffect(tx, {
-        scopeId,
-        definition: locatedDefinition,
-        bounds: {},
-        snapshotCommitSeq: CommitSeqSchema.make(1n),
-        limit: 10,
-      }))
+      runEffectFailure(
+        scanAppIndexAtSnapshotInTransactionEffect(tx, {
+          scopeId,
+          definition: locatedDefinition,
+          bounds: {},
+          snapshotCommitSeq: CommitSeqSchema.make(1n),
+          limit: 10,
+        }),
+      ),
     );
     expect(failure).toBeInstanceOf(AppIndexEntryStorageCorruptionError);
     expect(failure.message).toMatch(/digest does not match/);
@@ -275,31 +354,35 @@ describe("S10 app-index revision and current storage", () => {
       [malformedBytes, malformedDigest],
     );
     const malformedFailure = await persistence.drizzle.transaction((tx) =>
-      runEffectFailure(scanAppIndexAtSnapshotInTransactionEffect(tx, {
-        scopeId,
-        definition: locatedDefinition,
-        bounds: {},
-        snapshotCommitSeq: CommitSeqSchema.make(1n),
-        limit: 10,
-      }))
+      runEffectFailure(
+        scanAppIndexAtSnapshotInTransactionEffect(tx, {
+          scopeId,
+          definition: locatedDefinition,
+          bounds: {},
+          snapshotCommitSeq: CommitSeqSchema.make(1n),
+          limit: 10,
+        }),
+      ),
     );
-    expect(malformedFailure).toBeInstanceOf(AppIndexEntryStorageCorruptionError);
+    expect(malformedFailure).toBeInstanceOf(
+      AppIndexEntryStorageCorruptionError,
+    );
     expect(malformedFailure.message).toMatch(/physical specification/);
-
   });
 
   it("rejects malformed keys, live entries over row tombstones, and accepts empty ranges", async () => {
     const persistence = await indexPersistence();
     await persistence.drizzle.transaction(async (tx) => {
       await appendRow(tx, tombstoneRow(rowA, 1n, null));
-      const liveOverTombstone = await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        liveEntry(rowA, keyA, 1n, null),
-      );
+      const liveOverTombstone =
+        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+          tx,
+          liveEntry(rowA, keyA, 1n),
+        );
       expect(Result.isFailure(liveOverTombstone)).toBe(true);
       if (Result.isFailure(liveOverTombstone)) {
         expect(liveOverTombstone.failure).toBeInstanceOf(
-          AppIndexEntryParentRevisionError,
+          AppIndexEntryParentRowError,
         );
       }
     });
@@ -319,23 +402,25 @@ describe("S10 app-index revision and current storage", () => {
           Object.defineProperty(forgedDefinition, symbol, descriptor);
         }
       }
-      const forged = await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        { ...liveEntry(rowB, keyB, 2n, null), definition: forgedDefinition },
-      );
+      const forged =
+        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+          tx,
+          { ...liveEntry(rowB, keyB, 2n), definition: forgedDefinition },
+        );
       expect(Result.isFailure(forged)).toBe(true);
       if (Result.isFailure(forged)) {
         expect(forged.failure).toMatchObject({
           issue: "invalidLocatedDefinition",
         });
       }
-      const malformed = await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        {
-          ...liveEntry(rowB, keyB, 2n, null),
-          encodedKey: `${keyB}00` as OrderedIndexKeyHexV1,
-        },
-      );
+      const malformed =
+        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+          tx,
+          {
+            ...liveEntry(rowB, keyB, 2n),
+            encodedKey: `${keyB}00` as OrderedIndexKeyHexV1,
+          },
+        );
       expect(Result.isFailure(malformed)).toBe(true);
     });
 
@@ -346,29 +431,33 @@ describe("S10 app-index revision and current storage", () => {
     expect(empty).toMatchObject({ entries: [], isDone: true });
 
     const invalidCursor = await persistence.drizzle.transaction((tx) =>
-      runEffectFailure(scanAppIndexAtSnapshotInTransactionEffect(tx, {
-        scopeId,
-        definition: locatedDefinition,
-        bounds: {},
-        after: {
-          encodedKey: `${keyB}00` as OrderedIndexKeyHexV1,
-          rowId: rowB,
-        },
-        snapshotCommitSeq: CommitSeqSchema.make(2n),
-        limit: 10,
-      }))
+      runEffectFailure(
+        scanAppIndexAtSnapshotInTransactionEffect(tx, {
+          scopeId,
+          definition: locatedDefinition,
+          bounds: {},
+          after: {
+            encodedKey: `${keyB}00` as OrderedIndexKeyHexV1,
+            rowId: rowB,
+          },
+          snapshotCommitSeq: CommitSeqSchema.make(2n),
+          limit: 10,
+        }),
+      ),
     );
     expect(invalidCursor).toBeInstanceOf(InvalidAppIndexEntryInputError);
     expect(invalidCursor).toMatchObject({ issue: "invalidCursor" });
 
     const crossScope = await persistence.drizzle.transaction((tx) =>
-      runEffectFailure(scanAppIndexAtSnapshotInTransactionEffect(tx, {
-        scopeId: otherScopeId,
-        definition: locatedDefinition,
-        bounds: {},
-        snapshotCommitSeq: CommitSeqSchema.make(2n),
-        limit: 10,
-      }))
+      runEffectFailure(
+        scanAppIndexAtSnapshotInTransactionEffect(tx, {
+          scopeId: otherScopeId,
+          definition: locatedDefinition,
+          bounds: {},
+          snapshotCommitSeq: CommitSeqSchema.make(2n),
+          limit: 10,
+        }),
+      ),
     );
     expect(crossScope).toBeInstanceOf(InvalidAppIndexEntryInputError);
     expect(crossScope).toMatchObject({ issue: "invalidLocatedDefinition" });
@@ -407,11 +496,15 @@ async function seedLocatedDefinition(
     `insert into fx_control_scope
        (id, deployment_id, isolation_kind, physical_locator_json)
      values ($1, $2, 'shared_database', $3)`,
-    [scopeId, deploymentId, {
-      kind: "shared_database",
-      databaseKey: "s10_pglite",
-      schemaName: "public",
-    }],
+    [
+      scopeId,
+      deploymentId,
+      {
+        kind: "shared_database",
+        databaseKey: "s10_pglite",
+        schemaName: "public",
+      },
+    ],
   );
   await persistence.query(
     `insert into fx_control_index_definition
@@ -430,12 +523,15 @@ async function seedLocatedDefinition(
       appIndexPhysicalSpecSha256HexV1ToBytes(canonical.sha256Hex),
     ],
   );
-  const located = await runEffect(locateAppIndexDefinitionByIdEffect(
-    persistence.drizzle,
-    scopeId,
-    indexDefinitionId,
-  ));
-  if (located === null) throw new Error("Expected located S10 index definition");
+  const located = await runEffect(
+    locateAppIndexDefinitionByIdEffect(
+      persistence.drizzle,
+      scopeId,
+      indexDefinitionId,
+    ),
+  );
+  if (located === null)
+    throw new Error("Expected located S10 index definition");
   locatedDefinition = located;
 }
 
@@ -490,14 +586,16 @@ async function snapshot(
   >[1]["after"],
 ) {
   return persistence.drizzle.transaction((tx) =>
-    runEffect(scanAppIndexAtSnapshotInTransactionEffect(tx, {
-      scopeId,
-      definition: locatedDefinition,
-      bounds,
-      ...(after === undefined ? {} : { after }),
-      snapshotCommitSeq: CommitSeqSchema.make(commitSeq),
-      limit,
-    }))
+    runEffect(
+      scanAppIndexAtSnapshotInTransactionEffect(tx, {
+        scopeId,
+        definition: locatedDefinition,
+        bounds,
+        ...(after === undefined ? {} : { after }),
+        snapshotCommitSeq: CommitSeqSchema.make(commitSeq),
+        limit,
+      }),
+    ),
   );
 }
 
@@ -514,9 +612,8 @@ async function liveRow(
     rowId,
     writeEpoch: epoch,
     commitSeq: CommitSeqSchema.make(commitSeq),
-    prevCommitSeq: prevCommitSeq === null
-      ? null
-      : CommitSeqSchema.make(prevCommitSeq),
+    prevCommitSeq:
+      prevCommitSeq === null ? null : CommitSeqSchema.make(prevCommitSeq),
     schemaVersionId,
     creationTime,
     document: await canonicalDocument(rowId, title),
@@ -535,9 +632,8 @@ function tombstoneRow(
     rowId,
     writeEpoch: epoch,
     commitSeq: CommitSeqSchema.make(commitSeq),
-    prevCommitSeq: prevCommitSeq === null
-      ? null
-      : CommitSeqSchema.make(prevCommitSeq),
+    prevCommitSeq:
+      prevCommitSeq === null ? null : CommitSeqSchema.make(prevCommitSeq),
     schemaVersionId,
     creationTime,
   };
@@ -547,18 +643,16 @@ function liveEntry(
   rowId: OrderedIndexRowIdHexV1,
   encodedKey: OrderedIndexKeyHexV1,
   commitSeq: bigint,
-  prevCommitSeq: bigint | null,
 ): AppendAppIndexEntryRevisionV1Input {
-  return entry("live", rowId, encodedKey, commitSeq, prevCommitSeq);
+  return entry("live", rowId, encodedKey, commitSeq);
 }
 
 function tombstoneEntry(
   rowId: OrderedIndexRowIdHexV1,
   encodedKey: OrderedIndexKeyHexV1,
   commitSeq: bigint,
-  prevCommitSeq: bigint,
 ): AppendAppIndexEntryRevisionV1Input {
-  return entry("tombstone", rowId, encodedKey, commitSeq, prevCommitSeq);
+  return entry("tombstone", rowId, encodedKey, commitSeq);
 }
 
 function entry(
@@ -566,7 +660,6 @@ function entry(
   rowId: OrderedIndexRowIdHexV1,
   encodedKey: OrderedIndexKeyHexV1,
   commitSeq: bigint,
-  prevCommitSeq: bigint | null,
 ): AppendAppIndexEntryRevisionV1Input {
   return {
     kind,
@@ -576,9 +669,6 @@ function entry(
     rowId,
     writeEpoch: epoch,
     commitSeq: CommitSeqSchema.make(commitSeq),
-    prevCommitSeq: prevCommitSeq === null
-      ? null
-      : CommitSeqSchema.make(prevCommitSeq),
   };
 }
 
@@ -588,10 +678,7 @@ function key(value: string): OrderedIndexKeyHexV1 {
   ]);
 }
 
-function canonicalDocument(
-  rowId: OrderedIndexRowIdHexV1,
-  title: string,
-) {
+function canonicalDocument(rowId: OrderedIndexRowIdHexV1, title: string) {
   return canonicalizeAppDocumentV1({
     tableId,
     rowId,

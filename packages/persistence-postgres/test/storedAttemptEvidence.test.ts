@@ -1,8 +1,12 @@
 /// <reference types="@cloudflare/workers-types" />
+import { readOrderedMembershipStorage } from "./orderedMembershipStorageScenario";
 
 import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
 
-import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
+import {
+  captureSessionStorage,
+  expectSessionPayloadScrubbed,
+} from "./terminalSessionStorageScenario";
 
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq } from "drizzle-orm";
@@ -50,9 +54,7 @@ import {
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
-import {
-  makeGrantRetentionPolicyV1Result,
-} from "flarex-protocol/grant-retention-policy";
+import { makeGrantRetentionPolicyV1Result } from "flarex-protocol/grant-retention-policy";
 import {
   INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
   IndexBuildAttemptFenceSchema,
@@ -113,12 +115,7 @@ import {
   canonicalizeFlarexValueV1,
   isCanonicalFlarexRuntimeObjectV1,
 } from "flarex-protocol/value";
-import {
-  beforeAll,
-  describe,
-  expect,
-  it,
-} from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   createPointMutationSessionActivationV1,
@@ -226,9 +223,7 @@ import type {
   ScopePhysicalLocator,
   SharedDatabaseScopePhysicalLocator,
 } from "../src/scopeMetadataTypes";
-import {
-  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
-} from "../src/appIndexEntries";
+import { appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult } from "../src/appIndexEntries";
 import {
   createAppDeveloperIndexDefinitionPortV1,
   lowerAppDeveloperIndexKeyV1,
@@ -343,6 +338,7 @@ import {
 } from "../src/committedPointOutcome";
 import {
   pointCommitCommandFromStoredAttemptV1,
+  pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
 } from "./pointCommitTransactionTestSupport";
 import {
@@ -465,9 +461,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     seal,
     selector: (current) => selectorFromAnchor(current.anchor),
     createFinishingTransitionPort: () =>
-      createPointCommitFinishingTransitionPortV1(
-        resolutionPorts(persistence),
-      ),
+      createPointCommitFinishingTransitionPortV1(resolutionPorts(persistence)),
     setLifecycle: (current, lifecycle) =>
       setLifecycle(current.anchor.sessionId, lifecycle),
     deleteLease: deleteScenarioLease,
@@ -521,10 +515,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       [current.anchor.sessionId],
     );
 
-    await expect(runEffect(
-      current.loader.loadEffect(current.authority),
-    )).resolves
-      .toMatchObject({ kind: "corrupt", reason: "pointEvidenceOverflow" });
+    await expect(
+      runEffect(current.loader.loadEffect(current.authority)),
+    ).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "pointEvidenceOverflow",
+    });
   });
 
   it("detaches journal, result, and point bytes from driver-owned rows", async () => {
@@ -683,7 +679,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const loader = createStoredCommitAuthorityEvidenceLoaderV1(
       resolutionPorts(persistence),
     );
-    await expect(runEffect(loader.loadEffect(authority))).resolves.toMatchObject({
+    await expect(
+      runEffect(loader.loadEffect(authority)),
+    ).resolves.toMatchObject({
       kind: "corrupt",
       reason: "sessionEvidenceInvalid",
     });
@@ -710,26 +708,32 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ) {
       throw new Error("Expected the transient insert to complete.");
     }
-    await expect(runPointOperation(current.store, table, {
-      kind: "delete",
-      syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
-      documentId: insertedThenDeleted.outcome.documentId,
-    })).resolves.toMatchObject({ kind: "completed" });
-    await expect(runPointOperation(current.store, table, {
-      kind: "insert",
-      syscallSequence: CommitSyscallSequenceV1Schema.make(3n),
-      fields: { name: "material" },
-    })).resolves.toMatchObject({
+    await expect(
+      runPointOperation(current.store, table, {
+        kind: "delete",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+        documentId: insertedThenDeleted.outcome.documentId,
+      }),
+    ).resolves.toMatchObject({ kind: "completed" });
+    await expect(
+      runPointOperation(current.store, table, {
+        kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(3n),
+        fields: { name: "material" },
+      }),
+    ).resolves.toMatchObject({
       kind: "completed",
       outcome: { kind: "inserted" },
     });
     const envelope = await seal(current);
-    const loadedAttempt = await runEffect(current.loading.load({
-      deploymentId: current.anchor.deploymentId,
-      scopeId: current.anchor.scopeId,
-      sessionId: current.anchor.sessionId,
-      attemptFence: current.anchor.attemptFence.toString(),
-    }));
+    const loadedAttempt = await runEffect(
+      current.loading.load({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        sessionId: current.anchor.sessionId,
+        attemptFence: current.anchor.attemptFence.toString(),
+      }),
+    );
     const storedEvidence = await runEffect(
       current.loader.loadEffect(current.authority),
     );
@@ -737,16 +741,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       throw new Error("Expected stored insert/delete evidence to load.");
     }
     expect(storedEvidence.evidence.points).toHaveLength(2);
-    expect(storedEvidence.evidence.points).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        dependencyKind: "missing_no_visible_revision",
-        overlayKind: "deleted",
-      }),
-      expect.objectContaining({
-        dependencyKind: "missing_no_visible_revision",
-        overlayKind: "live",
-      }),
-    ]));
+    expect(storedEvidence.evidence.points).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dependencyKind: "missing_no_visible_revision",
+          overlayKind: "deleted",
+        }),
+        expect.objectContaining({
+          dependencyKind: "missing_no_visible_revision",
+          overlayKind: "live",
+        }),
+      ]),
+    );
     storedSqlClosed = false;
     let authoritySqlClosed = false;
     let schemaDecodeAfterSqlClose = false;
@@ -801,10 +807,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const authority = await runEffect(
       authentication.deriveAuthority(loadedAttempt, current.executionScope),
     );
-    const stored = await runEffect(authentication.authenticate(
-      authority,
-      encodeEnvelope(envelope),
-    ));
+    const stored = await runEffect(
+      authentication.authenticate(authority, encodeEnvelope(envelope)),
+    );
     const commitAuthority = await runEffect(
       authentication.authenticateCommitAuthority(stored),
     );
@@ -812,9 +817,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const verified = await runEffect(
       authentication.verifyCommitInput(commitAuthority),
     );
-    const prepared = await runEffect(
-      authentication.planPointCommit(verified),
-    );
+    const prepared = await runEffect(authentication.planPointCommit(verified));
     const finishing = await runEffect(
       authentication.enterPointCommitFinishing(prepared),
     );
@@ -878,11 +881,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           `,
           [current.anchor.sessionId],
         );
-        await expect(runPointOperation(current.store, table, {
-          kind: "insert",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          fields: { name: "published" },
-        })).resolves.toMatchObject({
+        await expect(
+          runPointOperation(current.store, table, {
+            kind: "insert",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+            fields: { name: "published" },
+          }),
+        ).resolves.toMatchObject({
           kind: "completed",
           outcome: { kind: "inserted" },
         });
@@ -914,13 +919,20 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(promotedRow.lease_expires_at.getTime()).toBe(
       promotedRow.hard_expires_at.getTime(),
     );
-    expect(promotedRow.authorization_grant_expires_at.getTime())
-      .toBeGreaterThan(promotedRow.hard_expires_at.getTime());
-    const payloadBefore = await captureSessionStorage(persistence, prepared.current.anchor);
+    expect(
+      promotedRow.authorization_grant_expires_at.getTime(),
+    ).toBeGreaterThan(promotedRow.hard_expires_at.getTime());
+    const payloadBefore = await captureSessionStorage(
+      persistence,
+      prepared.current.anchor,
+    );
     const published = await runEffect(
       prepared.authentication.publishPointCommit(prepared.plan),
     );
-    const terminalStorage = await captureSessionStorage(persistence, prepared.current.anchor);
+    const terminalStorage = await captureSessionStorage(
+      persistence,
+      prepared.current.anchor,
+    );
     expectSessionPayloadScrubbed(payloadBefore, terminalStorage);
     expect(published).toMatchObject({
       kind: "published",
@@ -957,15 +969,19 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const replayed = await runEffect(
       prepared.authentication.publishPointCommit(prepared.plan),
     );
-    expect(await captureSessionStorage(persistence, prepared.current.anchor)).toEqual(terminalStorage);
+    expect(
+      await captureSessionStorage(persistence, prepared.current.anchor),
+    ).toEqual(terminalStorage);
     expect(replayed).toMatchObject({
       kind: "replayed",
       token: published.token,
       successfulResult: { valueJson: { ok: true } },
     });
-    expect(replayed.kind === "replayed"
-      ? replayed.successfulResult.canonicalBytes
-      : new Uint8Array()).not.toEqual(callerBytes);
+    expect(
+      replayed.kind === "replayed"
+        ? replayed.successfulResult.canonicalBytes
+        : new Uint8Array(),
+    ).not.toEqual(callerBytes);
     expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
       revisions: "1",
       commit_headers: "1",
@@ -980,22 +996,28 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const table = await runEffect(
       current.store.resolvePointTableEffect(current.attempt, "users"),
     );
-    await expect(runPointOperation(current.store, table, {
-      kind: "insert",
-      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-      fields: { name: "conflicted" },
-    })).resolves.toMatchObject({
+    await expect(
+      runPointOperation(current.store, table, {
+        kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+        fields: { name: "conflicted" },
+      }),
+    ).resolves.toMatchObject({
       kind: "completed",
       outcome: { kind: "inserted" },
     });
     const envelope = await seal(current);
-    const loadedAttempt = await runEffect(current.loading.load({
-      deploymentId: current.anchor.deploymentId,
-      scopeId: current.anchor.scopeId,
-      sessionId: current.anchor.sessionId,
-      attemptFence: current.anchor.attemptFence.toString(),
-    }));
-    const stored = await runEffect(current.loader.loadEffect(current.authority));
+    const loadedAttempt = await runEffect(
+      current.loading.load({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        sessionId: current.anchor.sessionId,
+        attemptFence: current.anchor.attemptFence.toString(),
+      }),
+    );
+    const stored = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
     if (stored.kind !== "loaded") {
       throw new Error("Expected stored O08-B1 evidence.");
     }
@@ -1005,17 +1027,19 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       ),
       claimFence: TransactionExecutionClaimFenceV1Schema.make(1n),
     });
-    const authentication = createO08B1Authentication(current, {}, {
-      randomExecutionClaimOwner: () => replacementExecutionClaim.claimOwner,
-    });
-    const authority = await runEffect(authentication.deriveAuthority(
-      loadedAttempt,
-      current.executionScope,
-    ));
-    const authenticated = await runEffect(authentication.authenticate(
-      authority,
-      encodeEnvelope(envelope),
-    ));
+    const authentication = createO08B1Authentication(
+      current,
+      {},
+      {
+        randomExecutionClaimOwner: () => replacementExecutionClaim.claimOwner,
+      },
+    );
+    const authority = await runEffect(
+      authentication.deriveAuthority(loadedAttempt, current.executionScope),
+    );
+    const authenticated = await runEffect(
+      authentication.authenticate(authority, encodeEnvelope(envelope)),
+    );
     const commitAuthority = await runEffect(
       authentication.authenticateCommitAuthority(authenticated),
     );
@@ -1352,9 +1376,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   it("keeps the genuine B2a attempt live across runner and publication work", async () => {
     let renewals = 0;
     const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
-      run: () => Effect.sleep("25 millis").pipe(
-        Effect.as(Object.freeze({ ok: true })),
-      ),
+      run: () =>
+        Effect.sleep("25 millis").pipe(Effect.as(Object.freeze({ ok: true }))),
     });
     const prepared = await prepareO08B1Conflict(
       "o08b2a_pglite_liveness",
@@ -1381,11 +1404,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     if (authorized.kind !== "authorized") {
       throw new Error("Expected an authorized liveness handoff.");
     }
-    await expect(runEffect(
-      prepared.authentication.executeAuthorizedPointMutationOccRerun(
-        authorized.rerun,
+    await expect(
+      runEffect(
+        prepared.authentication.executeAuthorizedPointMutationOccRerun(
+          authorized.rerun,
+        ),
       ),
-    )).resolves.toMatchObject({ kind: "published" });
+    ).resolves.toMatchObject({ kind: "published" });
     expect(renewals).toBeGreaterThanOrEqual(2);
   });
 
@@ -1901,9 +1926,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     const selector = selectorInputFromAnchor(current.anchor);
 
-    await expect(runEffect(
-      authentication.redispatchExactPointMutationAttempt(selector),
-    )).resolves.toMatchObject({
+    await expect(
+      runEffect(authentication.redispatchExactPointMutationAttempt(selector)),
+    ).resolves.toMatchObject({
       kind: "published",
       token: { commitSeq: 1n },
       successfulResult: { valueJson: { ok: true } },
@@ -1920,9 +1945,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
     expect(contexts[0]?.randomSeed).toEqual(new Uint8Array(32).fill(1));
 
-    await expect(runEffect(
-      authentication.redispatchExactPointMutationAttempt(selector),
-    )).resolves.toMatchObject({
+    await expect(
+      runEffect(authentication.redispatchExactPointMutationAttempt(selector)),
+    ).resolves.toMatchObject({
       kind: "replayed",
       token: { commitSeq: 1n },
     });
@@ -1939,16 +1964,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
        where scope_uuid = $1`,
       [projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid],
     );
-    await expect(runEffect(
-      authentication.redispatchExactPointMutationAttempt(selector),
-    )).resolves.toMatchObject({
+    await expect(
+      runEffect(authentication.redispatchExactPointMutationAttempt(selector)),
+    ).resolves.toMatchObject({
       kind: "expired",
       token: { commitSeq: 1n },
     });
     expect(runnerCalls).toBe(1);
-    expect(await o06DurableState(
-      projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
-    )).toEqual({
+    expect(
+      await o06DurableState(
+        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+      ),
+    ).toEqual({
       revisions: "0",
       current_rows: "0",
       commit_headers: "1",
@@ -1981,9 +2008,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ordinaryInvokeCalls += 1;
         throw new Error("The exact-runtime binding must not use Fetch.");
       },
-    }) satisfies PointMutationExactRuntimeArtifactHostBindingV1 & Readonly<{
-      readonly fetch: () => Promise<never>;
-    }>;
+    }) satisfies PointMutationExactRuntimeArtifactHostBindingV1 &
+      Readonly<{
+        readonly fetch: () => Promise<never>;
+      }>;
     const runner = makePointMutationExactRuntimeBindingRunnerV1(binding);
 
     const initial = await prepareO08B1Conflict(
@@ -2002,13 +2030,17 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ),
     );
     if (authorized.kind !== "authorized") {
-      throw new Error("Expected the P02c.3 initial-shaped handoff to authorize.");
+      throw new Error(
+        "Expected the P02c.3 initial-shaped handoff to authorize.",
+      );
     }
-    await expect(runEffect(
-      initial.authentication.executeAuthorizedPointMutationOccRerun(
-        authorized.rerun,
+    await expect(
+      runEffect(
+        initial.authentication.executeAuthorizedPointMutationOccRerun(
+          authorized.rerun,
+        ),
       ),
-    )).resolves.toMatchObject({
+    ).resolves.toMatchObject({
       kind: "published",
       successfulResult: { valueJson: { ok: true } },
     });
@@ -2023,11 +2055,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         randomOwner: () => "92000000-0000-4000-8000-000000000020",
       },
     );
-    await expect(runEffect(
-      redeliveryGraph.redispatchExactPointMutationAttempt(
-        selectorInputFromAnchor(redelivery.anchor),
+    await expect(
+      runEffect(
+        redeliveryGraph.redispatchExactPointMutationAttempt(
+          selectorInputFromAnchor(redelivery.anchor),
+        ),
       ),
-    )).resolves.toMatchObject({
+    ).resolves.toMatchObject({
       kind: "published",
       successfulResult: { valueJson: { ok: true } },
     });
@@ -2069,8 +2103,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const journalTargets: unknown[] = [];
     let disposedResponses = 0;
     let current:
-      | Awaited<ReturnType<typeof c04b2ActivatedInitialScenario>>
-      | undefined;
+      Awaited<ReturnType<typeof c04b2ActivatedInitialScenario>> | undefined;
     const binding = Object.freeze({
       run: async (
         request: PointMutationExactRuntimeRequestV1,
@@ -2096,9 +2129,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           if (!isCanonicalFlarexRuntimeObjectV1(inserted.document)) {
             throw new Error("Expected the inserted document projection.");
           }
-          const identity = decodeAppDocumentIdentityV1(
-            inserted.documentId,
-          );
+          const identity = decodeAppDocumentIdentityV1(inserted.documentId);
           await commitCompetingLiveIntent(
             current.anchor.scopeId,
             current.schemaVersionId,
@@ -2121,23 +2152,24 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     }) satisfies PointMutationExactRuntimeArtifactHostBindingV1;
     const runner = makePointMutationExactRuntimeBindingRunnerV1(binding);
     current = await c04b2ActivatedInitialScenario("p02c4b_initial_exact");
-    const execution = createInitialPointMutationExecution(
-      current,
-      runner,
-    );
+    const execution = createInitialPointMutationExecution(current, runner);
 
-    await expect(runFailure(
-      execution.executeInitialPointMutationAttempt(
-        Object.freeze({ ...current.activated }),
+    await expect(
+      runFailure(
+        execution.executeInitialPointMutationAttempt(
+          Object.freeze({ ...current.activated }),
+        ),
       ),
-    )).resolves.toMatchObject({
+    ).resolves.toMatchObject({
       _tag: "InvalidActivatedPointMutationSessionV1Error",
     });
     expect(bindingRequests).toHaveLength(0);
 
-    await expect(runEffect(
-      execution.executeInitialPointMutationAttempt(current.activated),
-    )).resolves.toMatchObject({
+    await expect(
+      runEffect(
+        execution.executeInitialPointMutationAttempt(current.activated),
+      ),
+    ).resolves.toMatchObject({
       kind: "published",
       successfulResult: { valueJson: { ok: true } },
     });
@@ -2170,9 +2202,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       [projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid],
     );
     expect(sessions.rows).toEqual([{ session_count: "1" }]);
-    await expect(runFailure(
-      execution.executeInitialPointMutationAttempt(current.activated),
-    )).resolves.toMatchObject({
+    await expect(
+      runFailure(
+        execution.executeInitialPointMutationAttempt(current.activated),
+      ),
+    ).resolves.toMatchObject({
       _tag: "InvalidPointMutationExecutionClaimV1Error",
       reason: "consumed",
     });
@@ -2198,11 +2232,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       authentication,
     );
 
-    const page = await runEffect(redelivery.sweepEffect({
-      deploymentId: current.anchor.deploymentId,
-      scopeId: current.anchor.scopeId,
-      limit: 100,
-    }));
+    const page = await runEffect(
+      redelivery.sweepEffect({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        limit: 100,
+      }),
+    );
     expect(page.items).toHaveLength(1);
     expect(page.items[0]).toMatchObject({
       candidate: {
@@ -2217,11 +2253,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(page.items[0]?.disposition).not.toHaveProperty("successfulResult");
     expect(runnerCalls).toBe(1);
 
-    await expect(runEffect(redelivery.sweepEffect({
-      deploymentId: current.anchor.deploymentId,
-      scopeId: current.anchor.scopeId,
-      limit: 100,
-    }))).resolves.toMatchObject({ items: [], continuation: null });
+    await expect(
+      runEffect(
+        redelivery.sweepEffect({
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+          limit: 100,
+        }),
+      ),
+    ).resolves.toMatchObject({ items: [], continuation: null });
     expect(runnerCalls).toBe(1);
   });
 
@@ -2275,18 +2315,23 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       }),
     );
-    const scopeCandidates = Object.freeze([first, second].map((current) =>
-      Object.freeze({
-        deploymentId: current.anchor.deploymentId,
-        scopeId: current.anchor.scopeId,
-      })
-    ));
+    const scopeCandidates = Object.freeze(
+      [first, second].map((current) =>
+        Object.freeze({
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+        }),
+      ),
+    );
     const multiScope = createPointMutationMultiScopeRedeliveryV1(
       Object.freeze({
-        discoverEffect: () => Effect.succeed(Object.freeze({
-          candidates: scopeCandidates,
-          continuation: null,
-        })),
+        discoverEffect: () =>
+          Effect.succeed(
+            Object.freeze({
+              candidates: scopeCandidates,
+              continuation: null,
+            }),
+          ),
       }),
       redelivery,
     );
@@ -2316,9 +2361,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       kind: "failed",
       error: injectedFailure,
     });
-    expect(partial.scopes[1]?.kind === "failed"
-      ? partial.scopes[1].error
-      : undefined).toBe(injectedFailure);
+    expect(
+      partial.scopes[1]?.kind === "failed"
+        ? partial.scopes[1].error
+        : undefined,
+    ).toBe(injectedFailure);
     expect(partial.continuation).toBeNull();
     expect(firstRunnerCalls).toBe(1);
     expect(secondRunnerCalls).toBe(0);
@@ -2336,17 +2383,19 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       throw new Error("Expected the restarted scheduler run to complete.");
     }
     const recovered = recoveredRun.batches[0]!;
-    expect(recovered.scopes.map((scope) =>
-      scope.kind === "processed"
-        ? scope.page.items[0]?.disposition.kind
-        : scope.kind
-    )).toEqual([undefined, "published"]);
+    expect(
+      recovered.scopes.map((scope) =>
+        scope.kind === "processed"
+          ? scope.page.items[0]?.disposition.kind
+          : scope.kind,
+      ),
+    ).toEqual([undefined, "published"]);
     expect(firstRunnerCalls).toBe(1);
     expect(secondRunnerCalls).toBe(1);
     for (const current of [first, second]) {
-      await expect(o06DurableState(
-        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
-      )).resolves.toEqual({
+      await expect(
+        o06DurableState(projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid),
+      ).resolves.toEqual({
         revisions: "0",
         current_rows: "0",
         commit_headers: "1",
@@ -2373,11 +2422,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       createPointMutationExecutionClaimVaultV1(),
       runner,
     );
-    await expect(runEffect(
-      liveAuthentication.redispatchExactPointMutationAttempt(
-        selectorInputFromAnchor(live.anchor),
+    await expect(
+      runEffect(
+        liveAuthentication.redispatchExactPointMutationAttempt(
+          selectorInputFromAnchor(live.anchor),
+        ),
       ),
-    )).resolves.toEqual({ kind: "busy" });
+    ).resolves.toEqual({ kind: "busy" });
 
     for (const state of ["dirtyOpen", "failedRoot"] as const) {
       const current = await c04b2Scenario(`o08_b2b2a_${state}`);
@@ -2408,9 +2459,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             resolutionPorts(persistence),
             {
               durationMilliseconds: 60_000,
-              randomOwner: () => state === "dirtyOpen"
-                ? "92000000-0000-4000-8000-000000000021"
-                : "92000000-0000-4000-8000-000000000022",
+              randomOwner: () =>
+                state === "dirtyOpen"
+                  ? "92000000-0000-4000-8000-000000000021"
+                  : "92000000-0000-4000-8000-000000000022",
             },
           ),
           executionClaims.issuer,
@@ -2418,27 +2470,32 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       const acquisition = Object.freeze({
         acquireEffect: Effect.fn("Test.captureAbortOnlyClaim")((input) =>
           baseAcquisition.acquireEffect(input).pipe(
-            Effect.tap((result) => Effect.sync(() => {
-              if (result.kind === "acquired" && result.mode === "abortOnly") {
-                capturedAbortOnlyClaim = result.executionClaim;
-              }
-            })),
-          )
+            Effect.tap((result) =>
+              Effect.sync(() => {
+                if (result.kind === "acquired" && result.mode === "abortOnly") {
+                  capturedAbortOnlyClaim = result.executionClaim;
+                }
+              }),
+            ),
+          ),
         ),
       } satisfies PointMutationExecutionClaimDispatchAcquisitionV1);
       const attemptLoading: PointMutationSessionAttemptLoadingV1 =
         Object.freeze({
-          load: Effect.fn("Test.requireSynchronousAbortOnlyAdmission")((input) =>
-            Effect.sync(() => {
-              expect(capturedAbortOnlyClaim).toBeDefined();
-              expect(executionClaims.abortOnlyAdmission.admit(
-                capturedAbortOnlyClaim,
-              )).toMatchObject({
-                _tag: "Failure",
-                failure: { reason: "consumed" },
-              });
-              admittedBeforeAttemptLoad = true;
-            }).pipe(Effect.flatMap(() => current.loading.load(input)))
+          load: Effect.fn("Test.requireSynchronousAbortOnlyAdmission")(
+            (input) =>
+              Effect.sync(() => {
+                expect(capturedAbortOnlyClaim).toBeDefined();
+                expect(
+                  executionClaims.abortOnlyAdmission.admit(
+                    capturedAbortOnlyClaim,
+                  ),
+                ).toMatchObject({
+                  _tag: "Failure",
+                  failure: { reason: "consumed" },
+                });
+                admittedBeforeAttemptLoad = true;
+              }).pipe(Effect.flatMap(() => current.loading.load(input))),
           ),
         });
       const authentication = createB2b2aRedispatchAuthentication(
@@ -2465,10 +2522,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       }
       expect(Date.parse(closed.terminalizedAt)).not.toBeNaN();
       expect(admittedBeforeAttemptLoad).toBe(true);
-      await expect(o08DispositionState(
-        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
-        current.anchor.sessionId,
-      )).resolves.toEqual({
+      await expect(
+        o08DispositionState(
+          projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+          current.anchor.sessionId,
+        ),
+      ).resolves.toEqual({
         lifecycle: "aborted",
         leases: "0",
         journals: "0",
@@ -2477,9 +2536,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         write_events: "0",
         claims: "0",
       });
-      await expect(o06DurableState(
-        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
-      )).resolves.toEqual({
+      await expect(
+        o06DurableState(projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid),
+      ).resolves.toEqual({
         revisions: "0",
         current_rows: "0",
         commit_headers: "0",
@@ -2488,18 +2547,22 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         wakes: "0",
         last_commit_seq: "0",
       });
-      await expect(runEffect(
-        pointMutationAttemptDiscovery(persistence).discoverEffect({
-          deploymentId: current.anchor.deploymentId,
-          scopeId: current.anchor.scopeId,
-          limit: 100,
-        }),
-      )).resolves.toMatchObject({ candidates: [] });
-      await expect(runFailure(
-        authentication.redispatchExactPointMutationAttempt(
-          selectorInputFromAnchor(current.anchor),
+      await expect(
+        runEffect(
+          pointMutationAttemptDiscovery(persistence).discoverEffect({
+            deploymentId: current.anchor.deploymentId,
+            scopeId: current.anchor.scopeId,
+            limit: 100,
+          }),
         ),
-      )).resolves.toMatchObject({
+      ).resolves.toMatchObject({ candidates: [] });
+      await expect(
+        runFailure(
+          authentication.redispatchExactPointMutationAttempt(
+            selectorInputFromAnchor(current.anchor),
+          ),
+        ),
+      ).resolves.toMatchObject({
         _tag: "PointMutationExecutionClaimAcquisitionStaleV1Error",
         reason: "lifecycle",
       });
@@ -2509,9 +2572,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
   it("routes directly proven lease or authorization expiry through durable expiry", async () => {
     for (const expiry of ["lease", "authorization"] as const) {
-      const current = await c04b2Scenario(
-        `o08_b2b2a_${expiry}_expiry`,
-      );
+      const current = await c04b2Scenario(`o08_b2b2a_${expiry}_expiry`);
       if (expiry === "lease") {
         await persistence.query(
           `update fx_system_snapshot_lease as lease
@@ -2548,19 +2609,23 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           run: () => Effect.die(new Error("expired attempts must not run")),
         }),
       );
-      await expect(runEffect(
-        authentication.redispatchExactPointMutationAttempt(
-          selectorInputFromAnchor(current.anchor),
+      await expect(
+        runEffect(
+          authentication.redispatchExactPointMutationAttempt(
+            selectorInputFromAnchor(current.anchor),
+          ),
         ),
-      )).resolves.toMatchObject({
+      ).resolves.toMatchObject({
         kind: "closed",
         reason: "authorityExpired",
         lifecycle: "expired",
       });
-      await expect(o08DispositionState(
-        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
-        current.anchor.sessionId,
-      )).resolves.toEqual({
+      await expect(
+        o08DispositionState(
+          projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+          current.anchor.sessionId,
+        ),
+      ).resolves.toEqual({
         lifecycle: "expired",
         leases: "0",
         journals: "0",
@@ -2604,21 +2669,23 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       }),
     );
 
-    await expect(runFailure(
-      authentication.redispatchExactPointMutationAttempt(
-        selectorInputFromAnchor(current.anchor),
+    await expect(
+      runFailure(
+        authentication.redispatchExactPointMutationAttempt(
+          selectorInputFromAnchor(current.anchor),
+        ),
       ),
-    )).resolves.toMatchObject({
+    ).resolves.toMatchObject({
       _tag: "PointMutationExecutionClaimAcquisitionCorruptionV1Error",
       reason: "leaseInvalid",
     });
     expect(runnerCalls).toBe(0);
-    await expect(o08DispositionState(
-      scopeUuid,
-      current.anchor.sessionId,
-    )).resolves.toEqual(dispositionBefore);
-    await expect(executionClaimState(current.anchor.sessionId)).resolves
-      .toEqual(claimBefore);
+    await expect(
+      o08DispositionState(scopeUuid, current.anchor.sessionId),
+    ).resolves.toEqual(dispositionBefore);
+    await expect(
+      executionClaimState(current.anchor.sessionId),
+    ).resolves.toEqual(claimBefore);
   });
 
   it("finishes sealed running and durable finishing attempts without rerunning user code", async () => {
@@ -2639,33 +2706,33 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       runner,
       { randomOwner: () => "92000000-0000-4000-8000-000000000002" },
     );
-    await expect(runEffect(
-      sealedAuthentication.redispatchExactPointMutationAttempt(
-        selectorInputFromAnchor(sealed.anchor),
+    await expect(
+      runEffect(
+        sealedAuthentication.redispatchExactPointMutationAttempt(
+          selectorInputFromAnchor(sealed.anchor),
+        ),
       ),
-    )).resolves.toMatchObject({
+    ).resolves.toMatchObject({
       kind: "published",
       token: { commitSeq: 1n },
     });
 
-    const finishing = await prepareO07BRunningScenario(
-      "o08_b2b2a_finishing",
-    );
+    const finishing = await prepareO07BRunningScenario("o08_b2b2a_finishing");
     await runEffect(
-      finishing.authentication.enterPointCommitFinishing(
-        finishing.runningPlan,
-      ),
+      finishing.authentication.enterPointCommitFinishing(finishing.runningPlan),
     );
     const finishingAuthentication = createB2b2aRedispatchAuthentication(
       finishing.current,
       createPointMutationExecutionClaimVaultV1(),
       runner,
     );
-    await expect(runEffect(
-      finishingAuthentication.redispatchExactPointMutationAttempt(
-        selectorInputFromAnchor(finishing.current.anchor),
+    await expect(
+      runEffect(
+        finishingAuthentication.redispatchExactPointMutationAttempt(
+          selectorInputFromAnchor(finishing.current.anchor),
+        ),
       ),
-    )).resolves.toMatchObject({
+    ).resolves.toMatchObject({
       kind: "published",
       token: { commitSeq: 1n },
     });
@@ -2685,8 +2752,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         points: "0",
         write_events: "0",
       });
-      await expect(executionClaimState(current.anchor.sessionId)).resolves
-        .toBeNull();
+      await expect(
+        executionClaimState(current.anchor.sessionId),
+      ).resolves.toBeNull();
     }
   });
 
@@ -2695,40 +2763,39 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       "o08_b2b2a_finishing_race",
     );
     await runEffect(
-      finishing.authentication.enterPointCommitFinishing(
-        finishing.runningPlan,
-      ),
+      finishing.authentication.enterPointCommitFinishing(finishing.runningPlan),
     );
     const claims = createPointMutationExecutionClaimVaultV1();
-    const baseAcquisition = createPointMutationExecutionClaimDispatchAcquisitionV1(
-      createPointMutationExecutionClaimAcquisitionV1(
-        resolutionPorts(persistence),
-        { durationMilliseconds: 60_000 },
-      ),
-      claims.issuer,
-    );
+    const baseAcquisition =
+      createPointMutationExecutionClaimDispatchAcquisitionV1(
+        createPointMutationExecutionClaimAcquisitionV1(
+          resolutionPorts(persistence),
+          { durationMilliseconds: 60_000 },
+        ),
+        claims.issuer,
+      );
     const competingRecovery = createO07BAuthentication(finishing.current);
     const callerSelector = {
       ...selectorInputFromAnchor(finishing.current.anchor),
     };
     const acquisition: PointMutationExecutionClaimDispatchAcquisitionV1 =
       Object.freeze({
-        acquireEffect: Effect.fn(
-          "TestB2b2a.finishRecoveryRaceAcquisition",
-          )((input: unknown) =>
+        acquireEffect: Effect.fn("TestB2b2a.finishRecoveryRaceAcquisition")(
+          (input: unknown) =>
             baseAcquisition.acquireEffect(input).pipe(
               Effect.tap((result) =>
                 result.kind === "finishing"
                   ? Effect.gen(function* () {
                       callerSelector.sessionId =
                         "42000000-0000-4000-8000-000000008099";
-                      yield* competingRecovery.resumePointCommit(input).pipe(
-                        Effect.orDie,
-                      );
+                      yield* competingRecovery
+                        .resumePointCommit(input)
+                        .pipe(Effect.orDie);
                     })
                   : Effect.void,
               ),
-            )),
+            ),
+        ),
       });
     let runnerCalls = 0;
     const authentication = createB2b2aRedispatchAuthentication(
@@ -2743,11 +2810,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       { acquisition },
     );
 
-    await expect(runEffect(
-      authentication.redispatchExactPointMutationAttempt(
-        callerSelector,
+    await expect(
+      runEffect(
+        authentication.redispatchExactPointMutationAttempt(callerSelector),
       ),
-    )).resolves.toMatchObject({
+    ).resolves.toMatchObject({
       kind: "replayed",
       token: { commitSeq: 1n },
     });
@@ -2928,12 +2995,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
     );
     const fiber = Effect.runFork(
-      prepared.authentication.authorizePointMutationOccRerun(
-        prepared.conflict,
-      ).pipe(Effect.provideService(Random.Random, {
-        nextDoubleUnsafe: () => 0,
-        nextIntUnsafe: () => 0,
-      })),
+      prepared.authentication
+        .authorizePointMutationOccRerun(prepared.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
     );
     await entered.promise;
     let interruptionSettled = false;
@@ -2950,10 +3019,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await interruption;
     expect(interruptionSettled).toBe(true);
     expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
-    expect(await o08B1AttemptState(
-      prepared.scopeUuid,
-      prepared.current.anchor.sessionId,
-    )).toEqual({
+    expect(
+      await o08B1AttemptState(
+        prepared.scopeUuid,
+        prepared.current.anchor.sessionId,
+      ),
+    ).toEqual({
       lifecycle: "running",
       attempt_fence: "2",
       lease_count: "1",
@@ -2963,11 +3034,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       point_count: "0",
       event_count: "0",
     });
-    expect(await runFailure(
-      prepared.authentication.authorizePointMutationOccRerun(
-        prepared.conflict,
+    expect(
+      await runFailure(
+        prepared.authentication.authorizePointMutationOccRerun(
+          prepared.conflict,
+        ),
       ),
-    )).toMatchObject({
+    ).toMatchObject({
       _tag: "InvalidPointMutationOccConflictV1Error",
       reason: "alreadyConsumed",
     });
@@ -2979,49 +3052,101 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const createAuthentication = () => createO07BAuthentication(current);
     const authentication = createAuthentication();
     const selector = {
-      deploymentId: current.anchor.deploymentId, scopeId: current.anchor.scopeId,
-      sessionId: current.anchor.sessionId, attemptFence: current.anchor.attemptFence.toString(),
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      sessionId: current.anchor.sessionId,
+      attemptFence: current.anchor.attemptFence.toString(),
     };
     const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
     const loaded = await runEffect(current.loading.load(selector));
-    const authority = await runEffect(authentication.deriveAuthority(loaded, current.executionScope));
+    const authority = await runEffect(
+      authentication.deriveAuthority(loaded, current.executionScope),
+    );
     const setSequence = async (lastSyscallSequence: bigint) => {
-      const changed = await persistence.drizzle.update(fxSystemTransactionJournals)
-        .set({ lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(lastSyscallSequence) }).where(and(
-          eq(fxSystemTransactionJournals.scopeUuid, scopeUuid),
-          eq(fxSystemTransactionJournals.sessionId, current.anchor.sessionId),
-          eq(fxSystemTransactionJournals.attemptFence, current.anchor.attemptFence),
-        )).returning({ sequence: fxSystemTransactionJournals.lastSyscallSequence });
+      const changed = await persistence.drizzle
+        .update(fxSystemTransactionJournals)
+        .set({
+          lastSyscallSequence:
+            CommitFinalSyscallSequenceV1Schema.make(lastSyscallSequence),
+        })
+        .where(
+          and(
+            eq(fxSystemTransactionJournals.scopeUuid, scopeUuid),
+            eq(fxSystemTransactionJournals.sessionId, current.anchor.sessionId),
+            eq(
+              fxSystemTransactionJournals.attemptFence,
+              current.anchor.attemptFence,
+            ),
+          ),
+        )
+        .returning({
+          sequence: fxSystemTransactionJournals.lastSyscallSequence,
+        });
       expect(changed).toEqual([{ sequence: lastSyscallSequence }]);
     };
     await setSequence(1n);
     for (const candidate of [
       envelope,
-      { ...envelope, finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n) },
+      {
+        ...envelope,
+        finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n),
+      },
     ]) {
-      expect(await runFailure(authentication.authenticate(authority, encodeEnvelope(candidate))))
-        .toMatchObject({ _tag: "StoredAttemptStorageCorruptionV1Error", reason: "journalCounterMismatch" });
+      expect(
+        await runFailure(
+          authentication.authenticate(authority, encodeEnvelope(candidate)),
+        ),
+      ).toMatchObject({
+        _tag: "StoredAttemptStorageCorruptionV1Error",
+        reason: "journalCounterMismatch",
+      });
     }
     await setSequence(0n);
-    const stored = await runEffect(authentication.authenticate(authority, encodeEnvelope(envelope)));
-    const commitAuthority = await runEffect(authentication.authenticateCommitAuthority(stored));
-    const verified = await runEffect(authentication.verifyCommitInput(commitAuthority));
+    const stored = await runEffect(
+      authentication.authenticate(authority, encodeEnvelope(envelope)),
+    );
+    const commitAuthority = await runEffect(
+      authentication.authenticateCommitAuthority(stored),
+    );
+    const verified = await runEffect(
+      authentication.verifyCommitInput(commitAuthority),
+    );
     const running = await runEffect(authentication.planPointCommit(verified));
-    const finishing = await runEffect(authentication.enterPointCommitFinishing(running));
+    const finishing = await runEffect(
+      authentication.enterPointCommitFinishing(running),
+    );
     const before = await o06DurableState(scopeUuid);
     await setSequence(1n);
-    expect(await runFailure(createAuthentication().reconstructPointCommitFinishing(selector)))
-      .toMatchObject({ _tag: "StoredAttemptStorageCorruptionV1Error", reason: "journalCounterMismatch" });
-    expect(await runFailure(authentication.publishPointCommit(finishing)))
-      .toMatchObject({ _tag: "PointCommitCorruptionV1Error", reason: "journalRootInvalid" });
+    expect(
+      await runFailure(
+        createAuthentication().reconstructPointCommitFinishing(selector),
+      ),
+    ).toMatchObject({
+      _tag: "StoredAttemptStorageCorruptionV1Error",
+      reason: "journalCounterMismatch",
+    });
+    expect(
+      await runFailure(authentication.publishPointCommit(finishing)),
+    ).toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "journalRootInvalid",
+    });
     expect(await o06DurableState(scopeUuid)).toEqual(before);
-    expect(await o07bTerminalState(scopeUuid, current.anchor.sessionId)).toMatchObject({ lifecycle: "finishing", leases: "1", journals: "1" });
+    expect(
+      await o07bTerminalState(scopeUuid, current.anchor.sessionId),
+    ).toMatchObject({ lifecycle: "finishing", leases: "1", journals: "1" });
     await setSequence(0n);
-    expect(await runEffect(createAuthentication().resumePointCommit(selector)))
-      .toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+    expect(
+      await runEffect(createAuthentication().resumePointCommit(selector)),
+    ).toMatchObject({ kind: "published", token: { commitSeq: 1n } });
     expect(await o06DurableState(scopeUuid)).toMatchObject({
-      revisions: "0", current_rows: "0", commit_headers: "1",
-      commit_changes: "0", outcomes: "1", wakes: "1", last_commit_seq: "1",
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "1",
+      commit_changes: "0",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "1",
     });
   });
 
@@ -3051,25 +3176,27 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       "published",
       "replayed",
     ]);
-    expect(outcomes).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        kind: "published",
-        token: expect.objectContaining({
-          scopeUuid: prepared.scopeUuid,
-          commitSeq: 1n,
+    expect(outcomes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "published",
+          token: expect.objectContaining({
+            scopeUuid: prepared.scopeUuid,
+            commitSeq: 1n,
+          }),
         }),
-      }),
-      expect.objectContaining({
-        kind: "replayed",
-        token: expect.objectContaining({
-          scopeUuid: prepared.scopeUuid,
-          commitSeq: 1n,
+        expect.objectContaining({
+          kind: "replayed",
+          token: expect.objectContaining({
+            scopeUuid: prepared.scopeUuid,
+            commitSeq: 1n,
+          }),
         }),
-      }),
-    ]));
-    expect(await runFailure(
-      createRecoveryExecutor().resumePointCommit(selector),
-    )).toMatchObject({
+      ]),
+    );
+    expect(
+      await runFailure(createRecoveryExecutor().resumePointCommit(selector)),
+    ).toMatchObject({
       _tag: "StoredAttemptAlreadyCommittedV1Error",
     });
     expect(await o06DurableState(prepared.scopeUuid)).toEqual({
@@ -3089,10 +3216,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       async (target, work) => {
         publicationTransactions += 1;
         if (publicationTransactions === 1) {
-          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-            kind: "decisionUncertain",
-            settlementCause: new Error("O08-D COMMIT was not forwarded"),
-          }));
+          throw new LocatedReadCommittedTransactionFailureV1(
+            Object.freeze({
+              kind: "decisionUncertain",
+              settlementCause: new Error("O08-D COMMIT was not forwarded"),
+            }),
+          );
         }
         return target[RUN_LOCATED_READ_COMMITTED_V1](work);
       },
@@ -3120,10 +3249,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       wakes: "1",
       last_commit_seq: "1",
     });
-    expect(await o07bTerminalState(
-      prepared.scopeUuid,
-      prepared.current.anchor.sessionId,
-    )).toMatchObject({ lifecycle: "committed", leases: "0", journals: "0" });
+    expect(
+      await o07bTerminalState(
+        prepared.scopeUuid,
+        prepared.current.anchor.sessionId,
+      ),
+    ).toMatchObject({ lifecycle: "committed", leases: "0", journals: "0" });
   });
 
   it("replays a forwarded lost response and terminates a second not-forwarded response without duplicate evidence", async () => {
@@ -3135,15 +3266,19 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       portsWithReadCommittedOverride(async (target, work) => {
         forwardedTransactions += 1;
         await target[RUN_LOCATED_READ_COMMITTED_V1](work);
-        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-          kind: "decisionUncertain",
-          settlementCause: new Error("O08-D forwarded COMMIT response lost"),
-        }));
+        throw new LocatedReadCommittedTransactionFailureV1(
+          Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error("O08-D forwarded COMMIT response lost"),
+          }),
+        );
       }),
     );
-    await expect(runEffect(
-      forwarded.authentication.finishPointCommit(forwarded.runningPlan),
-    )).resolves.toMatchObject({
+    await expect(
+      runEffect(
+        forwarded.authentication.finishPointCommit(forwarded.runningPlan),
+      ),
+    ).resolves.toMatchObject({
       kind: "replayed",
       token: { commitSeq: 1n },
     });
@@ -3162,12 +3297,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       {},
       portsWithReadCommittedOverride(async () => {
         missingTransactions += 1;
-        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-          kind: "decisionUncertain",
-          settlementCause: new Error(
-            `O08-D not-forwarded response ${missingTransactions}`,
-          ),
-        }));
+        throw new LocatedReadCommittedTransactionFailureV1(
+          Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error(
+              `O08-D not-forwarded response ${missingTransactions}`,
+            ),
+          }),
+        );
       }),
     );
     const failure = await runFailure(
@@ -3190,48 +3327,54 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       wakes: "0",
       last_commit_seq: "0",
     });
-    expect(await o07bTerminalState(
-      missing.scopeUuid,
-      missing.current.anchor.sessionId,
-    )).toMatchObject({ lifecycle: "finishing", leases: "1", journals: "1" });
+    expect(
+      await o07bTerminalState(
+        missing.scopeUuid,
+        missing.current.anchor.sessionId,
+      ),
+    ).toMatchObject({ lifecycle: "finishing", leases: "1", journals: "1" });
   });
 
   it("uses the final O07-A lookup when a concurrent recovery commits after the stale missing observation", async () => {
     let prepared:
-      | Awaited<ReturnType<typeof prepareO07BRunningScenario>>
-      | undefined;
+      Awaited<ReturnType<typeof prepareO07BRunningScenario>> | undefined;
     let resolutionCalls = 0;
     let competitorResult: PointCommitPublicationResultV1 | undefined;
     const publisherPorts = portsWithReadCommittedOverride(
       async () => {
-        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-          kind: "decisionUncertain",
-          settlementCause: new Error("O08-D stale missing response"),
-        }));
+        throw new LocatedReadCommittedTransactionFailureV1(
+          Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error("O08-D stale missing response"),
+          }),
+        );
       },
-      (target, input) => target[
-        RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1
-      ](input).pipe(Effect.flatMap((observed) => {
-        resolutionCalls += 1;
-        if (resolutionCalls !== 2) return Effect.succeed(observed);
-        if (prepared === undefined) {
-          return Effect.die(new Error("O08-D scenario was not initialized."));
-        }
-        const selector = {
-          deploymentId: prepared.current.anchor.deploymentId,
-          scopeId: prepared.current.anchor.scopeId,
-          sessionId: prepared.current.anchor.sessionId,
-          attemptFence: prepared.current.anchor.attemptFence.toString(),
-        };
-        return Effect.promise(async () => {
-          competitorResult = await runEffect(
-            createO07BAuthentication(prepared!.current).resumePointCommit(
-              selector,
-            ),
-          );
-          return observed;
-        });
-      })),
+      (target, input) =>
+        target[RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1](input).pipe(
+          Effect.flatMap((observed) => {
+            resolutionCalls += 1;
+            if (resolutionCalls !== 2) return Effect.succeed(observed);
+            if (prepared === undefined) {
+              return Effect.die(
+                new Error("O08-D scenario was not initialized."),
+              );
+            }
+            const selector = {
+              deploymentId: prepared.current.anchor.deploymentId,
+              scopeId: prepared.current.anchor.scopeId,
+              sessionId: prepared.current.anchor.sessionId,
+              attemptFence: prepared.current.anchor.attemptFence.toString(),
+            };
+            return Effect.promise(async () => {
+              competitorResult = await runEffect(
+                createO07BAuthentication(prepared!.current).resumePointCommit(
+                  selector,
+                ),
+              );
+              return observed;
+            });
+          }),
+        ),
     );
     prepared = await prepareO07BRunningScenario(
       "o08d_pglite_concurrent_recovery",
@@ -3271,10 +3414,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       {},
       portsWithReadCommittedOverride(
         async () => {
-          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-            kind: "decisionUncertain",
-            settlementCause: new Error("O08-D lookup response lost"),
-          }));
+          throw new LocatedReadCommittedTransactionFailureV1(
+            Object.freeze({
+              kind: "decisionUncertain",
+              settlementCause: new Error("O08-D lookup response lost"),
+            }),
+          );
         },
         (target, input) => {
           lookupCalls += 1;
@@ -3284,58 +3429,61 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       ),
     );
-    expect(await runFailure(
-      lookupFailed.authentication.finishPointCommit(
-        lookupFailed.runningPlan,
+    expect(
+      await runFailure(
+        lookupFailed.authentication.finishPointCommit(lookupFailed.runningPlan),
       ),
-    )).toMatchObject({
+    ).toMatchObject({
       _tag: "PointCommitUncertainOutcomeUnresolvedV1Error",
       stage: "postSettlementOutcomeLookup",
       secondary: { kind: "outcomeLookupFailed", error: lookupFailure },
     });
-    expect(await o07bTerminalState(
-      lookupFailed.scopeUuid,
-      lookupFailed.current.anchor.sessionId,
-    )).toMatchObject({ lifecycle: "finishing", leases: "1", journals: "1" });
+    expect(
+      await o07bTerminalState(
+        lookupFailed.scopeUuid,
+        lookupFailed.current.anchor.sessionId,
+      ),
+    ).toMatchObject({ lifecycle: "finishing", leases: "1", journals: "1" });
 
     const runCommittedMutationCase = async (
       label: string,
       mutation: "expired" | "mismatch" | "corrupt" | "missing",
     ) => {
       let prepared:
-        | Awaited<ReturnType<typeof prepareO07BRunningScenario>>
-        | undefined;
+        Awaited<ReturnType<typeof prepareO07BRunningScenario>> | undefined;
       let resolutionCalls = 0;
       const publisherPorts = portsWithReadCommittedOverride(
         async () => {
-          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-            kind: "decisionUncertain",
-            settlementCause: new Error(`O08-D ${mutation} stale missing`),
-          }));
+          throw new LocatedReadCommittedTransactionFailureV1(
+            Object.freeze({
+              kind: "decisionUncertain",
+              settlementCause: new Error(`O08-D ${mutation} stale missing`),
+            }),
+          );
         },
-        (target, input) => target[
-          RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1
-        ](input).pipe(Effect.flatMap((observed) => {
-          resolutionCalls += 1;
-          if (resolutionCalls !== 2) return Effect.succeed(observed);
-          if (prepared === undefined) {
-            return Effect.die(new Error("O08-D case was not initialized."));
-          }
-          const selector = {
-            deploymentId: prepared.current.anchor.deploymentId,
-            scopeId: prepared.current.anchor.scopeId,
-            sessionId: prepared.current.anchor.sessionId,
-            attemptFence: prepared.current.anchor.attemptFence.toString(),
-          };
-          return Effect.promise(async () => {
-            await runEffect(
-              createO07BAuthentication(prepared!.current).resumePointCommit(
-                selector,
-              ),
-            );
-            if (mutation === "expired") {
-              await persistence.query(
-                `
+        (target, input) =>
+          target[RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1](input).pipe(
+            Effect.flatMap((observed) => {
+              resolutionCalls += 1;
+              if (resolutionCalls !== 2) return Effect.succeed(observed);
+              if (prepared === undefined) {
+                return Effect.die(new Error("O08-D case was not initialized."));
+              }
+              const selector = {
+                deploymentId: prepared.current.anchor.deploymentId,
+                scopeId: prepared.current.anchor.scopeId,
+                sessionId: prepared.current.anchor.sessionId,
+                attemptFence: prepared.current.anchor.attemptFence.toString(),
+              };
+              return Effect.promise(async () => {
+                await runEffect(
+                  createO07BAuthentication(prepared!.current).resumePointCommit(
+                    selector,
+                  ),
+                );
+                if (mutation === "expired") {
+                  await persistence.query(
+                    `
                   update fx_system_idempotency
                   set result_state = 'expired',
                     result_value_codec_version = null,
@@ -3345,36 +3493,37 @@ describe("C04A bounded stored-attempt evidence loader", () => {
                     result_expired_at = clock_timestamp()
                   where scope_uuid = $1
                 `,
-                [prepared!.scopeUuid],
-              );
-            } else if (mutation === "mismatch") {
-              await persistence.query(
-                `
+                    [prepared!.scopeUuid],
+                  );
+                } else if (mutation === "mismatch") {
+                  await persistence.query(
+                    `
                   update fx_system_idempotency
                   set identity_access_policy_sha256 =
                     decode(repeat('aa', 32), 'hex')
                   where scope_uuid = $1
                 `,
-                [prepared!.scopeUuid],
-              );
-            } else if (mutation === "corrupt") {
-              await persistence.query(
-                `
+                    [prepared!.scopeUuid],
+                  );
+                } else if (mutation === "corrupt") {
+                  await persistence.query(
+                    `
                   update fx_system_idempotency
                   set result_sha256 = decode(repeat('00', 32), 'hex')
                   where scope_uuid = $1
                 `,
-                [prepared!.scopeUuid],
-              );
-            } else {
-              await persistence.query(
-                `delete from fx_system_idempotency where scope_uuid = $1`,
-                [prepared!.scopeUuid],
-              );
-            }
-            return observed;
-          });
-        })),
+                    [prepared!.scopeUuid],
+                  );
+                } else {
+                  await persistence.query(
+                    `delete from fx_system_idempotency where scope_uuid = $1`,
+                    [prepared!.scopeUuid],
+                  );
+                }
+                return observed;
+              });
+            }),
+          ),
       );
       prepared = await prepareO07BRunningScenario(
         label,
@@ -3473,9 +3622,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
   it("keeps candidate failure in the real point-commit transaction", async () => {
     let candidateValidation:
-      ReturnType<
-        typeof createAppSchemaCandidateValidationPortForPointCommitAuthority
-      > | undefined;
+      | ReturnType<
+          typeof createAppSchemaCandidateValidationPortForPointCommitAuthority
+        >
+      | undefined;
     let candidateSchemaVersionId:
       ReturnType<typeof CatalogSchemaVersionIdSchema.make> | undefined;
     const pointCommitAuthority = resolutionPorts(persistence);
@@ -3504,13 +3654,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             persistence.drizzle,
             pointCommitAuthority,
           );
-        await runEffect(installAppSchemaCandidateValidationEffect(
-          candidateValidation,
-          {
+        await runEffect(
+          installAppSchemaCandidateValidationEffect(candidateValidation, {
             deploymentId: current.anchor.deploymentId,
             schemaVersionId: candidateSchemaVersionId,
-          },
-        ));
+          }),
+        );
         return Object.freeze({
           candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({
             candidateValidation,
@@ -3524,42 +3673,53 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       running.authentication.enterPointCommitFinishing(running.runningPlan),
     );
     const prepared = Object.freeze({ ...running, plan });
-    if (candidateValidation === undefined || candidateSchemaVersionId === undefined) {
+    if (
+      candidateValidation === undefined ||
+      candidateSchemaVersionId === undefined
+    ) {
       throw new Error("Candidate guard fixture was not prepared.");
     }
-    await expect(runEffect(loadAppSchemaCandidateValidationEffect(
-      candidateValidation,
-      {
-        deploymentId: prepared.current.anchor.deploymentId,
-        schemaVersionId: candidateSchemaVersionId,
-      },
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffect(
+        loadAppSchemaCandidateValidationEffect(candidateValidation, {
+          deploymentId: prepared.current.anchor.deploymentId,
+          schemaVersionId: candidateSchemaVersionId,
+        }),
+      ),
+    ).resolves.toMatchObject({
       status: "present",
-      head: { frame: {
-        kind: "app_schema_candidate_validation_progress",
-      } },
+      head: {
+        frame: {
+          kind: "app_schema_candidate_validation_progress",
+        },
+      },
     });
 
-    await expect(runEffect(
-      prepared.authentication.publishPointCommit(prepared.plan),
-    )).resolves.toMatchObject({ kind: "published", token: { commitSeq: 1n } });
-    await expect(runEffect(loadAppSchemaCandidateValidationEffect(
-      candidateValidation,
-      {
-        deploymentId: prepared.current.anchor.deploymentId,
-        schemaVersionId: candidateSchemaVersionId,
-      },
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffect(prepared.authentication.publishPointCommit(prepared.plan)),
+    ).resolves.toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+    await expect(
+      runEffect(
+        loadAppSchemaCandidateValidationEffect(candidateValidation, {
+          deploymentId: prepared.current.anchor.deploymentId,
+          schemaVersionId: candidateSchemaVersionId,
+        }),
+      ),
+    ).resolves.toMatchObject({
       status: "present",
-      head: { frame: {
-        kind: "app_schema_candidate_validation_failure_evidence",
-        observedFailureCount: 1n,
-        entries: [{
-          source: "pointCommit",
-          reason: "candidateTableRemoved",
-          observedCommitSeq: 1n,
-        }],
-      } },
+      head: {
+        frame: {
+          kind: "app_schema_candidate_validation_failure_evidence",
+          observedFailureCount: 1n,
+          entries: [
+            {
+              source: "pointCommit",
+              reason: "candidateTableRemoved",
+              observedCommitSeq: 1n,
+            },
+          ],
+        },
+      },
     });
     expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
       revisions: "1",
@@ -3580,18 +3740,21 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         if (loseCommittedResponse) {
           loseCommittedResponse = false;
           injected = true;
-          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-            kind: "decisionUncertain",
-            settlementCause: new Error("lost M03-B commit response"),
-          }));
+          throw new LocatedReadCommittedTransactionFailureV1(
+            Object.freeze({
+              kind: "decisionUncertain",
+              settlementCause: new Error("lost M03-B commit response"),
+            }),
+          );
         }
         return result;
       },
     );
     let candidateValidation:
-      ReturnType<
-        typeof createAppSchemaCandidateValidationPortForPointCommitAuthority
-      > | undefined;
+      | ReturnType<
+          typeof createAppSchemaCandidateValidationPortForPointCommitAuthority
+        >
+      | undefined;
     let candidateSchemaVersionId:
       ReturnType<typeof CatalogSchemaVersionIdSchema.make> | undefined;
     const running = await prepareO07BRunningScenario(
@@ -3619,21 +3782,22 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             persistence.drizzle,
             pointCommitAuthority,
           );
-        await runEffect(installAppSchemaCandidateValidationEffect(
-          candidateValidation,
-          {
+        await runEffect(
+          installAppSchemaCandidateValidationEffect(candidateValidation, {
             deploymentId: current.anchor.deploymentId,
             schemaVersionId: candidateSchemaVersionId,
-          },
-        ));
+          }),
+        );
         return Object.freeze({
           candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({
             candidateValidation,
             pointCommitAuthority,
           }),
-          afterTransactionStep: (event: Readonly<{
-            readonly step: PointCommitTransactionProofStepV1;
-          }>) => {
+          afterTransactionStep: (
+            event: Readonly<{
+              readonly step: PointCommitTransactionProofStepV1;
+            }>,
+          ) => {
             if (event.step === "beforeCommit") loseCommittedResponse = true;
             return Promise.resolve();
           },
@@ -3644,23 +3808,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const plan = await runEffect(
       running.authentication.enterPointCommitFinishing(running.runningPlan),
     );
-    await expect(runEffect(running.authentication.publishPointCommit(plan)))
-      .resolves.toMatchObject({ kind: "replayed", token: { commitSeq: 1n } });
+    await expect(
+      runEffect(running.authentication.publishPointCommit(plan)),
+    ).resolves.toMatchObject({ kind: "replayed", token: { commitSeq: 1n } });
     expect(injected).toBe(true);
-    if (candidateValidation === undefined || candidateSchemaVersionId === undefined) {
+    if (
+      candidateValidation === undefined ||
+      candidateSchemaVersionId === undefined
+    ) {
       throw new Error("Candidate uncertainty fixture was not prepared.");
     }
-    await expect(runEffect(loadAppSchemaCandidateValidationEffect(
-      candidateValidation,
-      {
-        deploymentId: running.current.anchor.deploymentId,
-        schemaVersionId: candidateSchemaVersionId,
+    await expect(
+      runEffect(
+        loadAppSchemaCandidateValidationEffect(candidateValidation, {
+          deploymentId: running.current.anchor.deploymentId,
+          schemaVersionId: candidateSchemaVersionId,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      head: {
+        frame: {
+          kind: "app_schema_candidate_validation_failure_evidence",
+          entries: [{ source: "pointCommit", observedCommitSeq: 1n }],
+        },
       },
-    ))).resolves.toMatchObject({
-      head: { frame: {
-        kind: "app_schema_candidate_validation_failure_evidence",
-        entries: [{ source: "pointCommit", observedCommitSeq: 1n }],
-      } },
     });
     expect(await o06DurableState(running.scopeUuid)).toMatchObject({
       revisions: "1",
@@ -3671,9 +3842,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   });
 
   it("rejects malformed successful-result evidence before database I/O", async () => {
-    const prepared = await prepareO06Scenario(
-      "o07b_result_evidence",
-      () => Promise.resolve(),
+    const prepared = await prepareO06Scenario("o07b_result_evidence", () =>
+      Promise.resolve(),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -3683,18 +3853,22 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       resolutionPorts(persistence),
       { observeQuery: (query) => observedQueries.push(query.name) },
     );
-    const failure = await runFailure(publisher.publish(Object.freeze({
-      ...prepared.command,
-      successfulResult: Object.freeze({
-        valueCodecVersion: result.evidence.valueCodecVersion,
-        value: result.valueJson,
-        canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(
-          new Uint8Array(result.canonicalBytes.byteLength + 1),
-        ),
-        semanticSizeBytes: result.semanticSizeBytes,
-        sha256Hex: result.evidence.sha256Hex,
-      }),
-    })));
+    const failure = await runFailure(
+      publisher.publish(
+        Object.freeze({
+          ...prepared.command,
+          successfulResult: Object.freeze({
+            valueCodecVersion: result.evidence.valueCodecVersion,
+            value: result.valueJson,
+            canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(
+              new Uint8Array(result.canonicalBytes.byteLength + 1),
+            ),
+            semanticSizeBytes: result.semanticSizeBytes,
+            sha256Hex: result.evidence.sha256Hex,
+          }),
+        }),
+      ),
+    );
     expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
     expect(failure).toMatchObject({ reason: "successfulResultInvalid" });
     expect(observedQueries).toEqual([]);
@@ -3710,9 +3884,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   });
 
   it("captures result insertion bytes once before locking the scope clock", async () => {
-    const prepared = await prepareO06Scenario(
-      "o07b_result_capture",
-      () => Promise.resolve(),
+    const prepared = await prepareO06Scenario("o07b_result_capture", () =>
+      Promise.resolve(),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -3728,24 +3901,28 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       },
     );
-    const published = await runEffect(publisher.publish(Object.freeze({
-      ...prepared.command,
-      successfulResult: Object.freeze({
-        valueCodecVersion: result.evidence.valueCodecVersion,
-        value: result.valueJson,
-        get canonicalBytes() {
-          if (clockLocked) {
-            throw new Error("Result bytes were read after the scope lock.");
-          }
-          byteReads += 1;
-          return CanonicalSuccessfulResultBytesV1Schema.make(
-            new Uint8Array(result.canonicalBytes),
-          );
-        },
-        semanticSizeBytes: result.semanticSizeBytes,
-        sha256Hex: result.evidence.sha256Hex,
-      }),
-    })));
+    const published = await runEffect(
+      publisher.publish(
+        Object.freeze({
+          ...prepared.command,
+          successfulResult: Object.freeze({
+            valueCodecVersion: result.evidence.valueCodecVersion,
+            value: result.valueJson,
+            get canonicalBytes() {
+              if (clockLocked) {
+                throw new Error("Result bytes were read after the scope lock.");
+              }
+              byteReads += 1;
+              return CanonicalSuccessfulResultBytesV1Schema.make(
+                new Uint8Array(result.canonicalBytes),
+              );
+            },
+            semanticSizeBytes: result.semanticSizeBytes,
+            sha256Hex: result.evidence.sha256Hex,
+          }),
+        }),
+      ),
+    );
     expect(published.kind).toBe("published");
     expect(clockLocked).toBe(true);
     expect(byteReads).toBe(1);
@@ -3782,9 +3959,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     try {
       const failure = await runFailure(
-        createPointCommitPublisherPortV1(
-          resolutionPorts(persistence),
-        ).publish(command),
+        createPointCommitPublisherPortV1(resolutionPorts(persistence)).publish(
+          command,
+        ),
       );
       expect(failure).toBeInstanceOf(
         PointCommitConfirmedPreDecisionRollbackV1Error,
@@ -3819,22 +3996,25 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const availablePublisher = createPointCommitPublisherPortV1(
       portsWithReadCommittedOverride(async (target, work) => {
         await target[RUN_LOCATED_READ_COMMITTED_V1](work);
-        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-          kind: "decisionUncertain",
-          settlementCause: availableCause,
-        }));
+        throw new LocatedReadCommittedTransactionFailureV1(
+          Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: availableCause,
+          }),
+        );
       }),
     );
-    await expect(runEffect(availablePublisher.publish(
-      await publicationCommand(available.command),
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffect(
+        availablePublisher.publish(await publicationCommand(available.command)),
+      ),
+    ).resolves.toMatchObject({
       kind: "replayed",
       token: { commitSeq: 1n },
     });
 
-    const expired = await prepareO06Scenario(
-      "o08_cd0_uncertain_expired",
-      () => Promise.resolve(),
+    const expired = await prepareO06Scenario("o08_cd0_uncertain_expired", () =>
+      Promise.resolve(),
     );
     const expiredPublisher = createPointCommitPublisherPortV1(
       portsWithReadCommittedOverride(async (target, work) => {
@@ -3852,37 +4032,40 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           `,
           [expired.evidence.scopeUuid],
         );
-        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-          kind: "decisionUncertain",
-          settlementCause: new Error("lost response after result expiry"),
-        }));
+        throw new LocatedReadCommittedTransactionFailureV1(
+          Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error("lost response after result expiry"),
+          }),
+        );
       }),
     );
-    await expect(runEffect(expiredPublisher.publish(
-      await publicationCommand(expired.command),
-    ))).resolves.toMatchObject({
+    await expect(
+      runEffect(
+        expiredPublisher.publish(await publicationCommand(expired.command)),
+      ),
+    ).resolves.toMatchObject({
       kind: "expired",
       token: { commitSeq: 1n },
     });
 
-    const missing = await prepareO06Scenario(
-      "o08_cd0_uncertain_missing",
-      () => Promise.resolve(),
+    const missing = await prepareO06Scenario("o08_cd0_uncertain_missing", () =>
+      Promise.resolve(),
     );
     const missingCause = new Error("commit response missing before send");
     const missingFailure = await runFailure(
       createPointCommitPublisherPortV1(
         portsWithReadCommittedOverride(async () => {
-          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-            kind: "decisionUncertain",
-            settlementCause: missingCause,
-          }));
+          throw new LocatedReadCommittedTransactionFailureV1(
+            Object.freeze({
+              kind: "decisionUncertain",
+              settlementCause: missingCause,
+            }),
+          );
         }),
       ).publish(await publicationCommand(missing.command)),
     );
-    expect(missingFailure).toBeInstanceOf(
-      PointCommitDecisionUncertainV1Error,
-    );
+    expect(missingFailure).toBeInstanceOf(PointCommitDecisionUncertainV1Error);
     expect(missingFailure).toMatchObject({
       phase: "commitOrRelease",
       outcomeCheck: { kind: "missing" },
@@ -3901,10 +4084,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       createPointCommitPublisherPortV1(
         portsWithReadCommittedOverride(
           async () => {
-            throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-              kind: "decisionUncertain",
-              settlementCause: new Error("commit settlement unknown"),
-            }));
+            throw new LocatedReadCommittedTransactionFailureV1(
+              Object.freeze({
+                kind: "decisionUncertain",
+                settlementCause: new Error("commit settlement unknown"),
+              }),
+            );
           },
           (target, input) => {
             lookupCount += 1;
@@ -3924,9 +4109,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   });
 
   it("keeps cleanup and pre-transaction SQLSTATE failures ordinary", async () => {
-    const cleanup = await prepareO06Scenario(
-      "o08_cd0_cleanup_ordinary",
-      () => Promise.resolve(),
+    const cleanup = await prepareO06Scenario("o08_cd0_cleanup_ordinary", () =>
+      Promise.resolve(),
     );
     const callbackCause = Object.assign(new Error("callback failed"), {
       code: "40001",
@@ -3935,11 +4119,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const cleanupFailure = await runFailure(
       createPointCommitPublisherPortV1(
         portsWithReadCommittedOverride(async () => {
-          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
-            kind: "callbackCleanupFailed",
-            callbackCause,
-            transactionCause: rollbackCause,
-          }));
+          throw new LocatedReadCommittedTransactionFailureV1(
+            Object.freeze({
+              kind: "callbackCleanupFailed",
+              callbackCause,
+              transactionCause: rollbackCause,
+            }),
+          );
         }),
       ).publish(await publicationCommand(cleanup.command)),
     );
@@ -4012,10 +4198,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         wakes: "1",
         last_commit_seq: "1",
       });
-      expect(await o07bTerminalState(
-        prepared.scopeUuid,
-        prepared.current.anchor.sessionId,
-      )).toMatchObject({
+      expect(
+        await o07bTerminalState(
+          prepared.scopeUuid,
+          prepared.current.anchor.sessionId,
+        ),
+      ).toMatchObject({
         lifecycle: "committed",
         leases: "0",
         journals: "0",
@@ -4064,10 +4252,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         wakes: "0",
         last_commit_seq: "0",
       });
-      expect(await o07bTerminalState(
-        prepared.scopeUuid,
-        prepared.current.anchor.sessionId,
-      )).toMatchObject({
+      expect(
+        await o07bTerminalState(
+          prepared.scopeUuid,
+          prepared.current.anchor.sessionId,
+        ),
+      ).toMatchObject({
         lifecycle: "finishing",
         leases: "1",
         journals: "1",
@@ -4095,14 +4285,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         set epoch = $2, updated_at = clock_timestamp()
         where scope_uuid = $1
       `,
-      [
-        prepared.scopeUuid,
-        nextEpoch,
-      ],
+      [prepared.scopeUuid, nextEpoch],
     );
-    await expect(runEffect(
-      prepared.authentication.publishPointCommit(prepared.plan),
-    )).resolves.toMatchObject({ kind: "replayed", token: { commitSeq: 1n } });
+    await expect(
+      runEffect(prepared.authentication.publishPointCommit(prepared.plan)),
+    ).resolves.toMatchObject({ kind: "replayed", token: { commitSeq: 1n } });
 
     await persistence.query(
       `delete from fx_system_idempotency where scope_uuid = $1`,
@@ -4118,87 +4305,37 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   it("rolls back a native row-fact batch and resumes with dense ordinals", async () => {
     const parameters: number[] = [];
     let steps = 0;
-    const prepared = await prepareO07BScenario("publication_batches", async (current, table) => {
-      for (let index = 0; index < 128; index += 1) {
-        await runPointOperation(current.store, table, {
-          kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
-          fields: { name: `batch row ${index}` },
-        });
-      }
-    }, {
-      observeQuery: (query) => {
-        if (query.name === "writeCommitChange") parameters.push(query.params.length);
-      },
-      afterTransactionStep: async (event) => {
-        if (event.step === "commitChangeWritten" && ++steps === 1) {
-          throw new PointCommitCorruptionV1Error({ reason: "publicationInvariantInvalid" });
+    const prepared = await prepareO07BScenario(
+      "publication_batches",
+      async (current, table) => {
+        for (let index = 0; index < 128; index += 1) {
+          await runPointOperation(current.store, table, {
+            kind: "insert",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(
+              BigInt(index + 1),
+            ),
+            fields: { name: `batch row ${index}` },
+          });
         }
       },
-    });
-    await expect(runFailure(prepared.authentication.publishPointCommit(prepared.plan)))
-      .resolves.toBeInstanceOf(PointCommitCorruptionV1Error);
-    expect(parameters).toEqual([768]);
-    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
-      revisions: "0", current_rows: "0", commit_headers: "0", commit_changes: "0",
-      outcomes: "0", wakes: "0", last_commit_seq: "0",
-    });
-    parameters.length = 0;
-    const recovered = createO07BAuthentication(prepared.current, {
-      observeQuery: (query) => {
-        if (query.name === "writeCommitChange") parameters.push(query.params.length);
-      },
-    });
-    const selector = {
-      deploymentId: prepared.current.anchor.deploymentId,
-      scopeId: prepared.current.anchor.scopeId,
-      sessionId: prepared.current.anchor.sessionId,
-      attemptFence: prepared.current.anchor.attemptFence.toString(),
-    };
-    await expect(runEffect(recovered.resumePointCommit(selector)))
-      .resolves.toMatchObject({ kind: "published" });
-    expect(parameters).toEqual([768]);
-    const facts = await persistence.drizzle.select().from(fxSystemCommitAppRowChanges)
-      .where(eq(fxSystemCommitAppRowChanges.scopeUuid, prepared.scopeUuid))
-      .orderBy(fxSystemCommitAppRowChanges.changeOrdinal);
-    expect(facts.map(fact => fact.changeOrdinal)).toEqual(
-      Array.from({ length: 128 }, (_, ordinal) => ordinal),
-    );
-    expect(new Set(facts.map(fact => Buffer.from(fact.rowId).toString("hex"))).size).toBe(128);
-    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
-      revisions: "128", commit_changes: "128", commit_headers: "1", outcomes: "1", wakes: "1",
-    });
-    await expect(runEffect(prepared.authentication.publishPointCommit(prepared.plan)))
-      .resolves.toMatchObject({ kind: "replayed" });
-    expect(parameters).toEqual([768]);
-  }, 120_000);
-
-  it.each(["wakeWritten", "sessionCommitted"] as const)("rolls back every publication atom after %s", async (failureStep) => {
-    const prepared = await prepareO07BScenario(
-      `o07b_late_rollback_${failureStep}`,
-      async (current, table) => {
-        await runPointOperation(current.store, table, {
-          kind: "insert",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          fields: { name: "rolled back" },
-        });
-      },
       {
-        afterTransactionStep: (event) => {
-          if (event.step === failureStep) {
+        observeQuery: (query) => {
+          if (query.name === "writeCommitChange")
+            parameters.push(query.params.length);
+        },
+        afterTransactionStep: async (event) => {
+          if (event.step === "commitChangeWritten" && ++steps === 1) {
             throw new PointCommitCorruptionV1Error({
               reason: "publicationInvariantInvalid",
             });
           }
-          return Promise.resolve();
         },
       },
     );
-    const payloadBefore = await captureSessionStorage(persistence, prepared.current.anchor);
-    const failure = await runFailure(
-      prepared.authentication.publishPointCommit(prepared.plan),
-    );
-    expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
-    expect(await captureSessionStorage(persistence, prepared.current.anchor)).toEqual(payloadBefore);
+    await expect(
+      runFailure(prepared.authentication.publishPointCommit(prepared.plan)),
+    ).resolves.toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(parameters).toEqual([768]);
     expect(await o06DurableState(prepared.scopeUuid)).toEqual({
       revisions: "0",
       current_rows: "0",
@@ -4208,35 +4345,128 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       wakes: "0",
       last_commit_seq: "0",
     });
-    expect(await o07bTerminalState(
-      prepared.scopeUuid,
-      prepared.current.anchor.sessionId,
-    )).toMatchObject({
-      lifecycle: "finishing",
-      leases: "1",
-      journals: "1",
+    parameters.length = 0;
+    const recovered = createO07BAuthentication(prepared.current, {
+      observeQuery: (query) => {
+        if (query.name === "writeCommitChange")
+          parameters.push(query.params.length);
+      },
     });
-
-    const recovered = createO07BAuthentication(prepared.current);
-    const published = await runEffect(recovered.resumePointCommit({
+    const selector = {
       deploymentId: prepared.current.anchor.deploymentId,
       scopeId: prepared.current.anchor.scopeId,
       sessionId: prepared.current.anchor.sessionId,
       attemptFence: prepared.current.anchor.attemptFence.toString(),
-    }));
-    expectSessionPayloadScrubbed(payloadBefore, await captureSessionStorage(persistence, prepared.current.anchor));
-    expect(published).toMatchObject({
-      kind: "published",
-      token: { scopeUuid: prepared.scopeUuid, commitSeq: 1n },
-    });
+    };
+    await expect(
+      runEffect(recovered.resumePointCommit(selector)),
+    ).resolves.toMatchObject({ kind: "published" });
+    expect(parameters).toEqual([768]);
+    const facts = await persistence.drizzle
+      .select()
+      .from(fxSystemCommitAppRowChanges)
+      .where(eq(fxSystemCommitAppRowChanges.scopeUuid, prepared.scopeUuid))
+      .orderBy(fxSystemCommitAppRowChanges.changeOrdinal);
+    expect(facts.map((fact) => fact.changeOrdinal)).toEqual(
+      Array.from({ length: 128 }, (_, ordinal) => ordinal),
+    );
+    expect(
+      new Set(facts.map((fact) => Buffer.from(fact.rowId).toString("hex")))
+        .size,
+    ).toBe(128);
     expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
-      revisions: "1",
+      revisions: "128",
+      commit_changes: "128",
       commit_headers: "1",
       outcomes: "1",
       wakes: "1",
-      last_commit_seq: "1",
     });
-  });
+    await expect(
+      runEffect(prepared.authentication.publishPointCommit(prepared.plan)),
+    ).resolves.toMatchObject({ kind: "replayed" });
+    expect(parameters).toEqual([768]);
+  }, 120_000);
+
+  it.each(["wakeWritten", "sessionCommitted"] as const)(
+    "rolls back every publication atom after %s",
+    async (failureStep) => {
+      const prepared = await prepareO07BScenario(
+        `o07b_late_rollback_${failureStep}`,
+        async (current, table) => {
+          await runPointOperation(current.store, table, {
+            kind: "insert",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+            fields: { name: "rolled back" },
+          });
+        },
+        {
+          afterTransactionStep: (event) => {
+            if (event.step === failureStep) {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+            return Promise.resolve();
+          },
+        },
+      );
+      const payloadBefore = await captureSessionStorage(
+        persistence,
+        prepared.current.anchor,
+      );
+      const failure = await runFailure(
+        prepared.authentication.publishPointCommit(prepared.plan),
+      );
+      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+      expect(
+        await captureSessionStorage(persistence, prepared.current.anchor),
+      ).toEqual(payloadBefore);
+      expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+        revisions: "0",
+        current_rows: "0",
+        commit_headers: "0",
+        commit_changes: "0",
+        outcomes: "0",
+        wakes: "0",
+        last_commit_seq: "0",
+      });
+      expect(
+        await o07bTerminalState(
+          prepared.scopeUuid,
+          prepared.current.anchor.sessionId,
+        ),
+      ).toMatchObject({
+        lifecycle: "finishing",
+        leases: "1",
+        journals: "1",
+      });
+
+      const recovered = createO07BAuthentication(prepared.current);
+      const published = await runEffect(
+        recovered.resumePointCommit({
+          deploymentId: prepared.current.anchor.deploymentId,
+          scopeId: prepared.current.anchor.scopeId,
+          sessionId: prepared.current.anchor.sessionId,
+          attemptFence: prepared.current.anchor.attemptFence.toString(),
+        }),
+      );
+      expectSessionPayloadScrubbed(
+        payloadBefore,
+        await captureSessionStorage(persistence, prepared.current.anchor),
+      );
+      expect(published).toMatchObject({
+        kind: "published",
+        token: { scopeUuid: prepared.scopeUuid, commitSeq: 1n },
+      });
+      expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+        revisions: "1",
+        commit_headers: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+      });
+    },
+  );
 
   it("publishes mixed multi-row sidecars atomically and rolls them back together", async () => {
     let insertedDocumentId: string | null = null;
@@ -4247,11 +4477,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         if (current.seededDocumentId === null) {
           throw new Error("Expected the O09-A seeded delete document.");
         }
-        await expect(runPointOperation(current.store, table, {
-          kind: "delete",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          documentId: current.seededDocumentId,
-        })).resolves.toMatchObject({
+        await expect(
+          runPointOperation(current.store, table, {
+            kind: "delete",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+            documentId: current.seededDocumentId,
+          }),
+        ).resolves.toMatchObject({
           kind: "completed",
           outcome: { kind: "unit" },
         });
@@ -4269,7 +4501,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         insertedDocumentId = inserted.outcome.documentId;
       },
       async (current) => ({
-        ...await enableIntrinsicIndexForO06(current),
+        ...(await enableIntrinsicIndexForO06(current)),
         afterTransactionStep: (event) => {
           if (event.step === "intrinsicIndexEntryWritten") {
             intrinsicWrites += 1;
@@ -4292,21 +4524,27 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     }
     const before = await intrinsicIndexState(prepared.scopeUuid);
     expect(before).toEqual({
-      revisions: [{
-        tableId: "1",
-        rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
-        commitSeq: "1",
-        isTombstone: false,
-      }],
-      current: [{
-        tableId: "1",
-        rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
-        commitSeq: "1",
-      }],
+      revisions: [
+        {
+          tableId: "1",
+          rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
+          commitSeq: "1",
+          isTombstone: false,
+        },
+      ],
+      current: [
+        {
+          tableId: "1",
+          rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
+          commitSeq: "1",
+        },
+      ],
     });
-    expect(await runFailure(
-      prepared.authentication.publishPointCommit(prepared.plan),
-    )).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(
+      await runFailure(
+        prepared.authentication.publishPointCommit(prepared.plan),
+      ),
+    ).toBeInstanceOf(PointCommitCorruptionV1Error);
     expect(intrinsicWrites).toBe(2);
     expect(await intrinsicIndexState(prepared.scopeUuid)).toEqual(before);
     expect(await o06DurableState(prepared.scopeUuid)).toEqual({
@@ -4323,12 +4561,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       prepared.current,
       prepared.proofOptions,
     );
-    const published = await runEffect(recovered.resumePointCommit({
-      deploymentId: prepared.current.anchor.deploymentId,
-      scopeId: prepared.current.anchor.scopeId,
-      sessionId: prepared.current.anchor.sessionId,
-      attemptFence: prepared.current.anchor.attemptFence.toString(),
-    }));
+    const published = await runEffect(
+      recovered.resumePointCommit({
+        deploymentId: prepared.current.anchor.deploymentId,
+        scopeId: prepared.current.anchor.scopeId,
+        sessionId: prepared.current.anchor.sessionId,
+        attemptFence: prepared.current.anchor.attemptFence.toString(),
+      }),
+    );
     expect(published).toMatchObject({
       kind: "published",
       token: { scopeUuid: prepared.scopeUuid, commitSeq: 2n },
@@ -4342,48 +4582,59 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       wakes: "1",
       last_commit_seq: "2",
     });
-    const expectedRevisions = [{
-      tableId: "1",
-      rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
-      commitSeq: "1",
-      isTombstone: false,
-    }, {
-      tableId: "1",
-      rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
-      commitSeq: "2",
-      isTombstone: true,
-    }, {
-      tableId: "1",
-      rowIdHex: pointRowIdHex(insertedDocumentId),
-      commitSeq: "2",
-      isTombstone: false,
-    }].sort(compareIntrinsicIndexRows);
-    expect(await intrinsicIndexState(prepared.scopeUuid)).toEqual({
-      revisions: expectedRevisions,
-      current: [{
+    const expectedRevisions = [
+      {
+        tableId: "1",
+        rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
+        commitSeq: "1",
+        isTombstone: false,
+      },
+      {
+        tableId: "1",
+        rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
+        commitSeq: "2",
+        isTombstone: true,
+      },
+      {
         tableId: "1",
         rowIdHex: pointRowIdHex(insertedDocumentId),
         commitSeq: "2",
-      }],
+        isTombstone: false,
+      },
+    ].sort(compareIntrinsicIndexRows);
+    expect(await intrinsicIndexState(prepared.scopeUuid)).toEqual({
+      revisions: expectedRevisions,
+      current: [
+        {
+          tableId: "1",
+          rowIdHex: pointRowIdHex(insertedDocumentId),
+          commitSeq: "2",
+        },
+      ],
     });
-    const changes = await persistence.drizzle.select({
-      changeOrdinal: fxSystemCommitAppRowChanges.changeOrdinal,
-      rowId: fxSystemCommitAppRowChanges.rowId,
-    }).from(fxSystemCommitAppRowChanges).where(eq(
-      fxSystemCommitAppRowChanges.scopeUuid,
-      prepared.scopeUuid,
-    )).orderBy(asc(fxSystemCommitAppRowChanges.changeOrdinal));
+    const changes = await persistence.drizzle
+      .select({
+        changeOrdinal: fxSystemCommitAppRowChanges.changeOrdinal,
+        rowId: fxSystemCommitAppRowChanges.rowId,
+      })
+      .from(fxSystemCommitAppRowChanges)
+      .where(eq(fxSystemCommitAppRowChanges.scopeUuid, prepared.scopeUuid))
+      .orderBy(asc(fxSystemCommitAppRowChanges.changeOrdinal));
     const expectedRowIds = [
       pointRowIdHex(prepared.current.seededDocumentId),
       pointRowIdHex(insertedDocumentId),
     ].sort();
-    expect(changes.map(({ changeOrdinal, rowId }) => ({
-      changeOrdinal,
-      rowIdHex: encodeBytesToLowercaseHex(rowId),
-    }))).toEqual(expectedRowIds.map((rowIdHex, changeOrdinal) => ({
-      changeOrdinal,
-      rowIdHex,
-    })));
+    expect(
+      changes.map(({ changeOrdinal, rowId }) => ({
+        changeOrdinal,
+        rowIdHex: encodeBytesToLowercaseHex(rowId),
+      })),
+    ).toEqual(
+      expectedRowIds.map((rowIdHex, changeOrdinal) => ({
+        changeOrdinal,
+        rowIdHex,
+      })),
+    );
   });
 
   it("maintains developer-index insert, key move, delete, and atomic rollback", async () => {
@@ -4405,9 +4656,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       false,
       true,
     );
-    await runEffect(
-      inserted.authentication.publishPointCommit(inserted.plan),
-    );
+    await runEffect(inserted.authentication.publishPointCommit(inserted.plan));
     if (insertedDocumentId === null) {
       throw new Error("Missing C08-A inserted document ID.");
     }
@@ -4461,26 +4710,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           tableId: decodeCatalogTableId(1),
           rowId: decodeAppRowIdHexV1("00".repeat(16)),
         });
-        await expect(runPointOperation(current.store, table, {
-          kind: "get",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          documentId: unrelatedDocumentId,
-        })).resolves.toMatchObject({
+        await expect(
+          runPointOperation(current.store, table, {
+            kind: "get",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+            documentId: unrelatedDocumentId,
+          }),
+        ).resolves.toMatchObject({
           kind: "completed",
           outcome: { kind: "missing" },
         });
-        await expect(runPointOperation(current.store, table, {
-          kind: "patch",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
-          documentId: current.seededDocumentId,
-          patch: { name: "moved" },
-        })).resolves.toMatchObject({
+        await expect(
+          runPointOperation(current.store, table, {
+            kind: "patch",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+            documentId: current.seededDocumentId,
+            patch: { name: "moved" },
+          }),
+        ).resolves.toMatchObject({
           kind: "completed",
           outcome: { kind: "unit" },
         });
       },
       async (current) => ({
-        ...await prepareDeveloperIndexForO06(current, true),
+        ...(await prepareDeveloperIndexForO06(current, true)),
         afterTransactionStep: (event) => {
           if (event.step === "developerIndexEntryWritten") {
             developerWrites += 1;
@@ -4501,9 +4754,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       revisions: [{ commitSeq: "1", isTombstone: false }],
       current: [{ commitSeq: "1" }],
     });
-    expect(await runFailure(
-      moved.authentication.publishPointCommit(moved.plan),
-    )).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(
+      await runFailure(moved.authentication.publishPointCommit(moved.plan)),
+    ).toBeInstanceOf(PointCommitCorruptionV1Error);
     expect(developerWrites).toBe(2);
     expect(await developerIndexState(moved.scopeUuid)).toEqual(beforeMove);
 
@@ -4511,15 +4764,19 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       moved.current,
       moved.proofOptions,
     );
-    await runEffect(recovered.resumePointCommit({
-      deploymentId: moved.current.anchor.deploymentId,
-      scopeId: moved.current.anchor.scopeId,
-      sessionId: moved.current.anchor.sessionId,
-      attemptFence: moved.current.anchor.attemptFence.toString(),
-    }));
+    await runEffect(
+      recovered.resumePointCommit({
+        deploymentId: moved.current.anchor.deploymentId,
+        scopeId: moved.current.anchor.scopeId,
+        sessionId: moved.current.anchor.sessionId,
+        attemptFence: moved.current.anchor.attemptFence.toString(),
+      }),
+    );
     const afterMove = await developerIndexState(moved.scopeUuid);
     expect(afterMove.revisions).toHaveLength(3);
-    expect(afterMove.revisions.filter((row) => row.isTombstone)).toHaveLength(1);
+    expect(afterMove.revisions.filter((row) => row.isTombstone)).toHaveLength(
+      1,
+    );
     expect(afterMove.current).toHaveLength(1);
     expect(afterMove.current[0]?.commitSeq).toBe("2");
     expect(afterMove.current[0]?.encodedKeyHex).not.toBe(
@@ -4532,11 +4789,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         if (current.seededDocumentId === null) {
           throw new Error("Expected a C08-A seeded delete document.");
         }
-        await expect(runPointOperation(current.store, table, {
-          kind: "delete",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          documentId: current.seededDocumentId,
-        })).resolves.toMatchObject({
+        await expect(
+          runPointOperation(current.store, table, {
+            kind: "delete",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+            documentId: current.seededDocumentId,
+          }),
+        ).resolves.toMatchObject({
           kind: "completed",
           outcome: { kind: "unit" },
         });
@@ -4548,14 +4807,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await runEffect(deleted.authentication.publishPointCommit(deleted.plan));
     const afterDelete = await developerIndexState(deleted.scopeUuid);
     expect(afterDelete.revisions).toHaveLength(2);
-    expect(afterDelete.revisions.filter((row) => row.isTombstone)).toHaveLength(1);
+    expect(afterDelete.revisions.filter((row) => row.isTombstone)).toHaveLength(
+      1,
+    );
     expect(afterDelete.current).toEqual([]);
   });
 
   it("resets a developer validation cursor in the real point commit and revalidates exactly", async () => {
-    let buildPorts: Parameters<
-      typeof buildAppDeveloperOrderedIndexV1Effect
-    >[0] | undefined;
+    let buildPorts:
+      Parameters<typeof buildAppDeveloperOrderedIndexV1Effect>[0] | undefined;
     let buildInput: BuildAppDeveloperOrderedIndexV1Input | undefined;
     const prepared = await prepareO07BScenario(
       "c08_developer_build_validation_reset",
@@ -4577,13 +4837,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         if (developerIndexes === undefined) {
           throw new Error("Missing developer validation-reset locator.");
         }
-        const definitions = await runEffect(developerIndexes.locate({
-          deploymentId: current.anchor.deploymentId,
-          scopeId: current.anchor.scopeId,
-          schemaVersionId: current.schemaVersionId,
-          tableIds: Object.freeze([decodeCatalogTableId(1)]),
-          maximumDefinitions: 1,
-        }));
+        const definitions = await runEffect(
+          developerIndexes.locate({
+            deploymentId: current.anchor.deploymentId,
+            scopeId: current.anchor.scopeId,
+            schemaVersionId: current.schemaVersionId,
+            tableIds: Object.freeze([decodeCatalogTableId(1)]),
+            maximumDefinitions: 1,
+          }),
+        );
         const definition = definitions?.[0];
         if (definitions?.length !== 1 || definition === undefined) {
           throw new Error("Missing developer validation-reset definition.");
@@ -4611,33 +4873,40 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           pageSize: 1,
         };
         for (let step = 0; step < 8; step += 1) {
-          const result = await runEffect(buildAppDeveloperOrderedIndexV1Effect(
-            buildPorts,
-            buildInput,
-          ));
-          if (result.lifecycle === "validating" && result.cursorRowId !== null) {
+          const result = await runEffect(
+            buildAppDeveloperOrderedIndexV1Effect(buildPorts, buildInput),
+          );
+          if (
+            result.lifecycle === "validating" &&
+            result.cursorRowId !== null
+          ) {
             return proofOptions;
           }
         }
-        throw new Error("Developer build did not reach a non-null validation cursor.");
+        throw new Error(
+          "Developer build did not reach a non-null validation cursor.",
+        );
       },
       true,
       true,
     );
     if (buildPorts === undefined || buildInput === undefined) {
-      throw new Error("Developer validation-reset build inputs were not captured.");
+      throw new Error(
+        "Developer validation-reset build inputs were not captured.",
+      );
     }
-    expect(await developerBuildCursor(prepared.current, buildInput)).not.toBeNull();
+    expect(
+      await developerBuildCursor(prepared.current, buildInput),
+    ).not.toBeNull();
 
     await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
     expect(await developerBuildCursor(prepared.current, buildInput)).toBeNull();
 
     let enabled = false;
     for (let step = 0; step < 8; step += 1) {
-      const result = await runEffect(buildAppDeveloperOrderedIndexV1Effect(
-        buildPorts,
-        buildInput,
-      ));
+      const result = await runEffect(
+        buildAppDeveloperOrderedIndexV1Effect(buildPorts, buildInput),
+      );
       if (result.lifecycle === "enabled") {
         enabled = true;
         break;
@@ -4650,19 +4919,21 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   });
 
   it("derives indexed planning from the exact publisher and keeps same-key updates linear", async () => {
-    await expect(prepareO07BScenario(
-      "c08a_unfaceted_publisher",
-      async (current, table) => {
-        await runPointOperation(current.store, table, {
-          kind: "insert",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          fields: { name: "unfaceted" },
-        });
-      },
-      {},
-      false,
-      true,
-    )).rejects.toMatchObject({
+    await expect(
+      prepareO07BScenario(
+        "c08a_unfaceted_publisher",
+        async (current, table) => {
+          await runPointOperation(current.store, table, {
+            kind: "insert",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+            fields: { name: "unfaceted" },
+          });
+        },
+        {},
+        false,
+        true,
+      ),
+    ).rejects.toMatchObject({
       issue: { reason: "developerIndexMaintenance", tableId: 1 },
     });
 
@@ -4717,19 +4988,70 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           patch: { category: "non-indexed-change" },
         });
       },
-      (current) => prepareDeveloperIndexForO06(current, true),
+      async (current) => ({
+        ...(await prepareDeveloperIndexForO06(current, true)),
+        ...(await enableIntrinsicIndexForO06(current)),
+      }),
       true,
       true,
     );
-    const before = await developerIndexState(sameKey.scopeUuid);
+    const stale = await prepareMembershipIndexedReader(
+      sameKey.current,
+      "stale",
+    );
+    expect(stale.command.rowIntents).toEqual([]);
+    expect(stale.command.indexRangeDependencies).toHaveLength(1);
+    expect(stale.command.dependencies).toHaveLength(1);
+    expect(stale.command.dependencies[0]?.dependency.observed).toMatchObject({
+      kind: "present",
+      revisionCommitSeq: 1n,
+    });
+    const before = await readOrderedMembershipStorage(
+      persistence.drizzle,
+      sameKey.scopeUuid,
+    );
+    expect(before.current).toHaveLength(2);
     await runEffect(sameKey.authentication.publishPointCommit(sameKey.plan));
-    const after = await developerIndexState(sameKey.scopeUuid);
-    expect(after.revisions).toHaveLength(2);
-    expect(after.revisions.filter((row) => row.isTombstone)).toEqual([]);
-    expect(after.current).toHaveLength(1);
-    expect(after.current[0]).toMatchObject({
-      encodedKeyHex: before.current[0]?.encodedKeyHex,
-      commitSeq: "2",
+    expect(
+      await readOrderedMembershipStorage(
+        persistence.drizzle,
+        sameKey.scopeUuid,
+      ),
+    ).toEqual(before);
+    expect(await o06DurableState(sameKey.scopeUuid)).toMatchObject({
+      revisions: "2",
+      commit_headers: "1",
+      last_commit_seq: "2",
+    });
+    expect(
+      await runFailure(
+        createPointCommitRollbackProofPortV1(
+          resolutionPorts(persistence),
+        ).prove(stale.command),
+      ),
+    ).toMatchObject({
+      conflict: {
+        kind: "appRowPoint",
+        documentId: sameKey.current.seededDocumentId,
+      },
+      snapshotCommitSeq: 1n,
+      currentCommitSeq: 2n,
+    });
+    const fresh = await prepareMembershipIndexedReader(
+      sameKey.current,
+      "fresh",
+    );
+    expect(fresh.command.dependencies[0]?.dependency.observed).toMatchObject({
+      kind: "present",
+      revisionCommitSeq: 2n,
+    });
+    expect(fresh.queryResult).toMatchObject({
+      kind: "completed",
+      outcome: {
+        kind: "indexRangePage",
+        documents: [{ category: "non-indexed-change" }],
+        isDone: true,
+      },
     });
   });
 
@@ -4747,9 +5069,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       false,
       true,
     );
-    await expect(runEffect(
-      oversized.authentication.publishPointCommit(oversized.plan),
-    )).rejects.toMatchObject({
+    await expect(
+      runEffect(oversized.authentication.publishPointCommit(oversized.plan)),
+    ).rejects.toMatchObject({
       reason: "entryKeyLimitExceeded",
       maximum: 2_048,
     });
@@ -4767,7 +5089,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         for (let index = 0; index < 86; index += 1) {
           await runPointOperation(current.store, table, {
             kind: "insert",
-            syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
+            syscallSequence: CommitSyscallSequenceV1Schema.make(
+              BigInt(index + 1),
+            ),
             fields: { name: `name-${index}` },
           });
         }
@@ -4776,9 +5100,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       false,
       3,
     );
-    await expect(runEffect(
-      ceiling.authentication.publishPointCommit(ceiling.plan),
-    )).rejects.toMatchObject({
+    await expect(
+      runEffect(ceiling.authentication.publishPointCommit(ceiling.plan)),
+    ).rejects.toMatchObject({
       reason: "entryRevisionLimitExceeded",
       observed: 258,
       maximum: 256,
@@ -4810,10 +5134,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         insertedDocumentId = result.outcome.documentId;
       },
       async (current) => {
-        const {
-          uniqueConstraints,
-          uniqueConstraintEligibility,
-        } = await prepareUniqueConstraintForO06(current);
+        const { uniqueConstraints, uniqueConstraintEligibility } =
+          await prepareUniqueConstraintForO06(current);
         return {
           get uniqueConstraints() {
             optionReads += 1;
@@ -4849,32 +5171,36 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     if (insertedDocumentId === null) {
       throw new Error("Missing the C08-B2 inserted document ID.");
     }
-    expect(await uniqueKeyState(prepared.scopeUuid)).toMatchObject([{
-      rowIdHex: pointRowIdHex(insertedDocumentId),
-    }]);
+    expect(await uniqueKeyState(prepared.scopeUuid)).toMatchObject([
+      {
+        rowIdHex: pointRowIdHex(insertedDocumentId),
+      },
+    ]);
   });
 
   it("rejects a B2-only point-commit composition before durable writes", async () => {
     let currentScopeUuid: string | null = null;
-    await expect(prepareO07BScenario(
-      "c08b1_unique_eligibility_missing",
-      async (current, table) => {
-        currentScopeUuid = projectScopeIdUuidV1(
-          current.anchor.scopeId,
-        ).scopeUuid;
-        await runPointOperation(current.store, table, {
-          kind: "insert",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          fields: { name: "missing-eligibility" },
-        });
-      },
-      async (current) => {
-        const prepared = await prepareUniqueConstraintForO06(current);
-        return Object.freeze({
-          uniqueConstraints: prepared.uniqueConstraints,
-        });
-      },
-    )).rejects.toMatchObject({
+    await expect(
+      prepareO07BScenario(
+        "c08b1_unique_eligibility_missing",
+        async (current, table) => {
+          currentScopeUuid = projectScopeIdUuidV1(
+            current.anchor.scopeId,
+          ).scopeUuid;
+          await runPointOperation(current.store, table, {
+            kind: "insert",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+            fields: { name: "missing-eligibility" },
+          });
+        },
+        async (current) => {
+          const prepared = await prepareUniqueConstraintForO06(current);
+          return Object.freeze({
+            uniqueConstraints: prepared.uniqueConstraints,
+          });
+        },
+      ),
+    ).rejects.toMatchObject({
       issue: { reason: "uniqueConstraintEligibilityUnavailable", tableId: 1 },
     });
     if (currentScopeUuid === null) {
@@ -4893,42 +5219,78 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const noMaterial = await prepareO07BScenario(
       "c08b1_unique_eligibility_no_material",
       undefined,
-      (current) => prepareUniqueConstraintForO06(
-        current,
-        false,
-        false,
-        true,
-      ),
+      (current) => prepareUniqueConstraintForO06(current, false, false, true),
     );
-    await expect(runEffect(
-      noMaterial.authentication.publishPointCommit(noMaterial.plan),
-    )).resolves.toMatchObject({ kind: "published" });
+    await expect(
+      runEffect(noMaterial.authentication.publishPointCommit(noMaterial.plan)),
+    ).resolves.toMatchObject({ kind: "published" });
   });
 
   it("leaves unselected candidate progress untouched even beyond the historical directory ceiling", async () => {
-    const prepared = await prepareO07BScenario("unique_unselected_directory", async (current, table) => {
-      await runPointOperation(current.store, table, {kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(1n), fields: {name: "valid-active-write"}});
-    }, async current => {
-      await seedUnselectedUniqueBuilds(current, MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE + 1);
-      return {};
-    });
+    const prepared = await prepareO07BScenario(
+      "unique_unselected_directory",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "valid-active-write" },
+        });
+      },
+      async (current) => {
+        await seedUnselectedUniqueBuilds(
+          current,
+          MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE + 1,
+        );
+        return {};
+      },
+    );
     const before = await uniqueBuildStates(prepared.current);
     await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
     expect(await uniqueBuildStates(prepared.current)).toEqual(before);
-    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({revisions: "1", current_rows: "1", commit_headers: "1", outcomes: "1", last_commit_seq: "1"});
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "1",
+      current_rows: "1",
+      commit_headers: "1",
+      outcomes: "1",
+      last_commit_seq: "1",
+    });
   });
 
   it("rolls back active unique coverage together with row and claim publication", async () => {
-    const prepared = await prepareO07BScenario("unique_coverage_rollback", async (current, table) => {
-      await runPointOperation(current.store, table, {kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(1n), fields: {name: "rollback-active-coverage"}});
-    }, async current => ({...await prepareUniqueConstraintForO06(current, false), afterTransactionStep: async event => {
-      if (event.step === "uniqueConstraintCoverageAdvanced") throw new PointCommitCorruptionV1Error({reason: "publicationInvariantInvalid"});
-    }}));
+    const prepared = await prepareO07BScenario(
+      "unique_coverage_rollback",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "rollback-active-coverage" },
+        });
+      },
+      async (current) => ({
+        ...(await prepareUniqueConstraintForO06(current, false)),
+        afterTransactionStep: async (event) => {
+          if (event.step === "uniqueConstraintCoverageAdvanced")
+            throw new PointCommitCorruptionV1Error({
+              reason: "publicationInvariantInvalid",
+            });
+        },
+      }),
+    );
     const before = await uniqueBuildStates(prepared.current);
-    expect(await runFailure(prepared.authentication.publishPointCommit(prepared.plan))).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(
+      await runFailure(
+        prepared.authentication.publishPointCommit(prepared.plan),
+      ),
+    ).toBeInstanceOf(PointCommitCorruptionV1Error);
     expect(await uniqueBuildStates(prepared.current)).toEqual(before);
     expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
-    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({revisions: "0", current_rows: "0", commit_headers: "0", outcomes: "0", last_commit_seq: "0"});
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      outcomes: "0",
+      last_commit_seq: "0",
+    });
   });
 
   it("rejects structurally copied unique locator authority before transaction", async () => {
@@ -4943,19 +5305,21 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
       async (current) => {
         const exact = await prepareUniqueConstraintForO06(current);
-        const definitions = await runEffect(exact.uniqueConstraints.locate({
-          deploymentId: current.anchor.deploymentId,
-          scopeId: current.anchor.scopeId,
-          schemaVersionId: current.schemaVersionId,
-          tableIds: Object.freeze([decodeCatalogTableId(1)]),
-          maximumDefinitions: 32,
-        }));
+        const definitions = await runEffect(
+          exact.uniqueConstraints.locate({
+            deploymentId: current.anchor.deploymentId,
+            scopeId: current.anchor.scopeId,
+            schemaVersionId: current.schemaVersionId,
+            tableIds: Object.freeze([decodeCatalogTableId(1)]),
+            maximumDefinitions: 32,
+          }),
+        );
         if (definitions === null) {
           throw new Error("Missing exact C08-B2 definitions.");
         }
-        const copied = Object.freeze(definitions.map((definition) =>
-          Object.freeze({ ...definition })
-        ));
+        const copied = Object.freeze(
+          definitions.map((definition) => Object.freeze({ ...definition })),
+        );
         return Object.freeze({
           uniqueConstraints: Object.freeze({
             locate: () => Effect.succeed(copied),
@@ -4963,9 +5327,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         });
       },
     );
-    await expect(runEffect(
-      prepared.authentication.publishPointCommit(prepared.plan),
-    )).rejects.toMatchObject({
+    await expect(
+      runEffect(prepared.authentication.publishPointCommit(prepared.plan)),
+    ).rejects.toMatchObject({
       reason: "definitionPortInvalid",
     });
     expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
@@ -4996,9 +5360,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       (current) => prepareUniqueConstraintForO06(current),
     );
 
-    expect(await runFailure(
-      prepared.authentication.publishPointCommit(prepared.plan),
-    )).toBeInstanceOf(AppUniqueKeyConflictError);
+    expect(
+      await runFailure(
+        prepared.authentication.publishPointCommit(prepared.plan),
+      ),
+    ).toBeInstanceOf(AppUniqueKeyConflictError);
     expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
     expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
       revisions: "0",
@@ -5027,7 +5393,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         });
       },
       async (current) => ({
-        ...await prepareUniqueConstraintForO06(current, true),
+        ...(await prepareUniqueConstraintForO06(current, true)),
         afterTransactionStep: (event) => {
           if (event.step === "uniqueKeyWritten") {
             uniqueWrites += 1;
@@ -5045,9 +5411,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const before = await uniqueKeyState(prepared.scopeUuid);
     expect(before).toHaveLength(1);
 
-    expect(await runFailure(
-      prepared.authentication.publishPointCommit(prepared.plan),
-    )).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(
+      await runFailure(
+        prepared.authentication.publishPointCommit(prepared.plan),
+      ),
+    ).toBeInstanceOf(PointCommitCorruptionV1Error);
     expect(uniqueWrites).toBe(2);
     expect(await uniqueKeyState(prepared.scopeUuid)).toEqual(before);
 
@@ -5055,12 +5423,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       prepared.current,
       prepared.proofOptions,
     );
-    await runEffect(recovered.resumePointCommit({
-      deploymentId: prepared.current.anchor.deploymentId,
-      scopeId: prepared.current.anchor.scopeId,
-      sessionId: prepared.current.anchor.sessionId,
-      attemptFence: prepared.current.anchor.attemptFence.toString(),
-    }));
+    await runEffect(
+      recovered.resumePointCommit({
+        deploymentId: prepared.current.anchor.deploymentId,
+        scopeId: prepared.current.anchor.scopeId,
+        sessionId: prepared.current.anchor.sessionId,
+        attemptFence: prepared.current.anchor.attemptFence.toString(),
+      }),
+    );
     const after = await uniqueKeyState(prepared.scopeUuid);
     expect(after).toHaveLength(1);
     expect(after[0]?.encodedKeyHex).not.toBe(before[0]?.encodedKeyHex);
@@ -5083,8 +5453,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         });
       },
       async (current) => ({
-        ...await prepareDeveloperIndexForO06(current, true),
-        ...await prepareUniqueConstraintForO06(current, true),
+        ...(await prepareDeveloperIndexForO06(current, true)),
+        ...(await prepareUniqueConstraintForO06(current, true)),
         afterTransactionStep: (event) => {
           if (
             event.step === "developerIndexEntryWritten" ||
@@ -5110,9 +5480,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const beforeUnique = await uniqueKeyState(prepared.scopeUuid);
     const beforeDurable = await o06DurableState(prepared.scopeUuid);
 
-    expect(await runFailure(
-      prepared.authentication.publishPointCommit(prepared.plan),
-    )).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(
+      await runFailure(
+        prepared.authentication.publishPointCommit(prepared.plan),
+      ),
+    ).toBeInstanceOf(PointCommitCorruptionV1Error);
     expect(sidecarSteps).toEqual([
       "developerIndexEntryWritten",
       "developerIndexEntryWritten",
@@ -5129,12 +5501,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       prepared.current,
       prepared.proofOptions,
     );
-    await runEffect(recovered.resumePointCommit({
-      deploymentId: prepared.current.anchor.deploymentId,
-      scopeId: prepared.current.anchor.scopeId,
-      sessionId: prepared.current.anchor.sessionId,
-      attemptFence: prepared.current.anchor.attemptFence.toString(),
-    }));
+    await runEffect(
+      recovered.resumePointCommit({
+        deploymentId: prepared.current.anchor.deploymentId,
+        scopeId: prepared.current.anchor.scopeId,
+        sessionId: prepared.current.anchor.sessionId,
+        attemptFence: prepared.current.anchor.attemptFence.toString(),
+      }),
+    );
     const afterDeveloper = await developerIndexState(prepared.scopeUuid);
     const afterUnique = await uniqueKeyState(prepared.scopeUuid);
     expect(afterDeveloper.revisions).toHaveLength(3);
@@ -5157,27 +5531,71 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
-  it.each(["missing", "digest", "differentCanonicalKey"] as const)("rejects %s corruption before omitting an unchanged unique key", async mode => {
-    const prepared = await prepareO07BScenario(`unique_noop_corruption_${mode}`, async (current, table) => {
-      if (current.seededDocumentId === null) throw new Error("Missing seeded unique row.");
-      await runPointOperation(current.store, table, {kind: "patch", syscallSequence: CommitSyscallSequenceV1Schema.make(1n), documentId: current.seededDocumentId, patch: {category: "unchanged-unique-key"}});
-    }, current => prepareUniqueConstraintForO06(current, true), true);
-    if (mode === "missing") await persistence.query("delete from fx_app_unique_key where scope_uuid = $1", [prepared.scopeUuid]);
-    else if (mode === "digest") await persistence.query("update fx_app_unique_key set canonical_key_sha256 = decode(repeat('ff',32),'hex') where scope_uuid = $1", [prepared.scopeUuid]);
-    else {
-      const key = Result.getOrThrow(canonicalizeAppUniqueKeyV1Result({sparse: false, localeKey: null, values: [orderedIndexValueFromFlarexValueV1("foreign-current-key")]}));
-      if (key.kind !== "claim") throw new Error("Expected a concrete replacement key.");
-      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(key.canonicalKeyBytes)));
-      await persistence.query("update fx_app_unique_key set encoded_key = $2, canonical_key_sha256 = $3 where scope_uuid = $1", [prepared.scopeUuid, key.canonicalKeyBytes, digest]);
-    }
-    const before = await o06DurableState(prepared.scopeUuid);
-    const claims = await uniqueKeyState(prepared.scopeUuid);
-    const builds = await uniqueBuildStates(prepared.current);
-    expect(await runFailure(prepared.authentication.publishPointCommit(prepared.plan))).toMatchObject({_tag: "PointCommitCorruptionV1Error", reason: "uniqueKeyTransitionInvalid"});
-    expect(await o06DurableState(prepared.scopeUuid)).toEqual(before);
-    expect(await uniqueKeyState(prepared.scopeUuid)).toEqual(claims);
-    expect(await uniqueBuildStates(prepared.current)).toEqual(builds);
-  });
+  it.each(["missing", "digest", "differentCanonicalKey"] as const)(
+    "rejects %s corruption before omitting an unchanged unique key",
+    async (mode) => {
+      const prepared = await prepareO07BScenario(
+        `unique_noop_corruption_${mode}`,
+        async (current, table) => {
+          if (current.seededDocumentId === null)
+            throw new Error("Missing seeded unique row.");
+          await runPointOperation(current.store, table, {
+            kind: "patch",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+            documentId: current.seededDocumentId,
+            patch: { category: "unchanged-unique-key" },
+          });
+        },
+        (current) => prepareUniqueConstraintForO06(current, true),
+        true,
+      );
+      if (mode === "missing")
+        await persistence.query(
+          "delete from fx_app_unique_key where scope_uuid = $1",
+          [prepared.scopeUuid],
+        );
+      else if (mode === "digest")
+        await persistence.query(
+          "update fx_app_unique_key set canonical_key_sha256 = decode(repeat('ff',32),'hex') where scope_uuid = $1",
+          [prepared.scopeUuid],
+        );
+      else {
+        const key = Result.getOrThrow(
+          canonicalizeAppUniqueKeyV1Result({
+            sparse: false,
+            localeKey: null,
+            values: [orderedIndexValueFromFlarexValueV1("foreign-current-key")],
+          }),
+        );
+        if (key.kind !== "claim")
+          throw new Error("Expected a concrete replacement key.");
+        const digest = new Uint8Array(
+          await crypto.subtle.digest(
+            "SHA-256",
+            Uint8Array.from(key.canonicalKeyBytes),
+          ),
+        );
+        await persistence.query(
+          "update fx_app_unique_key set encoded_key = $2, canonical_key_sha256 = $3 where scope_uuid = $1",
+          [prepared.scopeUuid, key.canonicalKeyBytes, digest],
+        );
+      }
+      const before = await o06DurableState(prepared.scopeUuid);
+      const claims = await uniqueKeyState(prepared.scopeUuid);
+      const builds = await uniqueBuildStates(prepared.current);
+      expect(
+        await runFailure(
+          prepared.authentication.publishPointCommit(prepared.plan),
+        ),
+      ).toMatchObject({
+        _tag: "PointCommitCorruptionV1Error",
+        reason: "uniqueKeyTransitionInvalid",
+      });
+      expect(await o06DurableState(prepared.scopeUuid)).toEqual(before);
+      expect(await uniqueKeyState(prepared.scopeUuid)).toEqual(claims);
+      expect(await uniqueBuildStates(prepared.current)).toEqual(builds);
+    },
+  );
 
   it("preserves same-key claims, releases deletes, and omits sparse keys", async () => {
     let uniqueWrites = 0;
@@ -5194,7 +5612,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           patch: { category: "non-unique-change" },
         });
       },
-      async current => ({...await prepareUniqueConstraintForO06(current, true), afterTransactionStep: async event => { if (event.step === "uniqueKeyWritten") uniqueWrites += 1; }}),
+      async (current) => ({
+        ...(await prepareUniqueConstraintForO06(current, true)),
+        afterTransactionStep: async (event) => {
+          if (event.step === "uniqueKeyWritten") uniqueWrites += 1;
+        },
+      }),
       true,
     );
     const sameKeyBefore = await uniqueKeyState(sameKey.scopeUuid);
@@ -5249,10 +5672,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     let secondDocumentId: ReturnType<
       typeof appDocumentIdV1FromRowIdentity
     > | null = null;
-    let uniqueOptions: Required<Pick<
-      PointCommitTransactionProofOptionsV1,
-      "uniqueConstraints"
-    >> | null = null;
+    let uniqueOptions: Required<
+      Pick<PointCommitTransactionProofOptionsV1, "uniqueConstraints">
+    > | null = null;
     const prepared = await prepareO07BScenario(
       "c08b2_unique_swap",
       async (current, table) => {
@@ -5285,28 +5707,25 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
       true,
     );
-    if (
-      prepared.current.seededDocumentId === null ||
-      secondDocumentId === null
-    ) throw new Error("Missing C08-B2 swap document identities.");
+    if (prepared.current.seededDocumentId === null || secondDocumentId === null)
+      throw new Error("Missing C08-B2 swap document identities.");
     const before = await uniqueKeyState(prepared.scopeUuid);
     expect(before).toHaveLength(2);
-    const beforeByRow = new Map(before.map((row) => [
-      row.rowIdHex,
-      row.encodedKeyHex,
-    ]));
+    const beforeByRow = new Map(
+      before.map((row) => [row.rowIdHex, row.encodedKeyHex]),
+    );
 
     await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
     const after = await uniqueKeyState(prepared.scopeUuid);
     expect(after).toHaveLength(2);
     const firstRowId = pointRowIdHex(prepared.current.seededDocumentId);
     const secondRowId = pointRowIdHex(secondDocumentId);
-    expect(after.find((row) => row.rowIdHex === firstRowId)?.encodedKeyHex).toBe(
-      beforeByRow.get(secondRowId),
-    );
-    expect(after.find((row) => row.rowIdHex === secondRowId)?.encodedKeyHex).toBe(
-      beforeByRow.get(firstRowId),
-    );
+    expect(
+      after.find((row) => row.rowIdHex === firstRowId)?.encodedKeyHex,
+    ).toBe(beforeByRow.get(secondRowId));
+    expect(
+      after.find((row) => row.rowIdHex === secondRowId)?.encodedKeyHex,
+    ).toBe(beforeByRow.get(firstRowId));
   });
 
   it("refuses oversized unique keys and fan-out above the private ceiling", async () => {
@@ -5321,9 +5740,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
       (current) => prepareUniqueConstraintForO06(current),
     );
-    await expect(runEffect(
-      oversized.authentication.publishPointCommit(oversized.plan),
-    )).rejects.toMatchObject({ reason: "keyInvalid" });
+    await expect(
+      runEffect(oversized.authentication.publishPointCommit(oversized.plan)),
+    ).rejects.toMatchObject({ reason: "keyInvalid" });
     expect(await uniqueKeyState(oversized.scopeUuid)).toEqual([]);
     expect(await o06DurableState(oversized.scopeUuid)).toMatchObject({
       revisions: "0",
@@ -5339,16 +5758,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         for (let index = 0; index < 33; index += 1) {
           await runPointOperation(current.store, table, {
             kind: "insert",
-            syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
+            syscallSequence: CommitSyscallSequenceV1Schema.make(
+              BigInt(index + 1),
+            ),
             fields: { name: `unique-${index}` },
           });
         }
       },
       (current) => prepareUniqueConstraintForO06(current),
     );
-    await expect(runEffect(
-      prepared.authentication.publishPointCommit(prepared.plan),
-    )).rejects.toMatchObject({
+    await expect(
+      runEffect(prepared.authentication.publishPointCommit(prepared.plan)),
+    ).rejects.toMatchObject({
       reason: "mutationLimitExceeded",
       observed: 33,
       maximum: 32,
@@ -5377,9 +5798,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const failure = await runFailure(
       prepared.authentication.publishPointCommit(prepared.plan),
     );
-    expect(failure).toBeInstanceOf(
-      CommittedPointOutcomeRequestKeyReuseErrorV1,
-    );
+    expect(failure).toBeInstanceOf(CommittedPointOutcomeRequestKeyReuseErrorV1);
     expect(failure).toMatchObject({
       mismatches: ["identityAccessPolicySha256"],
     });
@@ -5394,11 +5813,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const live = await prepareO06Scenario(
       "o06_live_rollback",
       async (current, table) => {
-        await expect(runPointOperation(current.store, table, {
-          kind: "insert",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          fields: { name: "live" },
-        })).resolves.toMatchObject({
+        await expect(
+          runPointOperation(current.store, table, {
+            kind: "insert",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+            fields: { name: "live" },
+          }),
+        ).resolves.toMatchObject({
           kind: "completed",
           outcome: { kind: "inserted" },
         });
@@ -5437,11 +5858,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         if (current.seededDocumentId === null) {
           throw new Error("Missing seeded delete document.");
         }
-        await expect(runPointOperation(current.store, table, {
-          kind: "delete",
-          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          documentId: current.seededDocumentId,
-        })).resolves.toMatchObject({
+        await expect(
+          runPointOperation(current.store, table, {
+            kind: "delete",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+            documentId: current.seededDocumentId,
+          }),
+        ).resolves.toMatchObject({
           kind: "completed",
           outcome: { kind: "unit" },
         });
@@ -5546,17 +5969,19 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             throw new Error("Running input must fail before authority I/O.");
           },
         },
-      }).prove(Object.freeze({
-        ...current.command,
-        session: Object.freeze({
-          ...current.command.session,
-          lifecycle: "running",
+      }).prove(
+        Object.freeze({
+          ...current.command,
+          session: Object.freeze({
+            ...current.command.session,
+            lifecycle: "running",
+          }),
+          sealIdentity: Object.freeze({
+            ...current.command.sealIdentity,
+            lifecycle: "running",
+          }),
         }),
-        sealIdentity: Object.freeze({
-          ...current.command.sealIdentity,
-          lifecycle: "running",
-        }),
-      })),
+      ),
     );
     expect(runningFailure).toMatchObject({
       _tag: "PointCommitStaleAuthorityV1Error",
@@ -5573,13 +5998,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       [current.evidence.scopeUuid],
     );
     const generationFailure = await runFailure(
-      createPointCommitRollbackProofPortV1(
-        resolutionPorts(persistence),
-      ).prove(current.command),
+      createPointCommitRollbackProofPortV1(resolutionPorts(persistence)).prove(
+        current.command,
+      ),
     );
-    expect(generationFailure).toBeInstanceOf(
-      PointCommitStaleAuthorityV1Error,
-    );
+    expect(generationFailure).toBeInstanceOf(PointCommitStaleAuthorityV1Error);
     expect(generationFailure).toMatchObject({ reason: "generationChanged" });
 
     const mismatchedScopeId = decodeReplacementScopeIdV1(
@@ -5614,9 +6037,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       }).prove(current.command),
     );
-    expect(invalidClockFailure).toBeInstanceOf(
-      PointCommitCorruptionV1Error,
-    );
+    expect(invalidClockFailure).toBeInstanceOf(PointCommitCorruptionV1Error);
     expect(invalidClockFailure).toMatchObject({ reason: "scopeClockInvalid" });
 
     const targetFailure = Object.assign(new Error("target offline"), {
@@ -5703,9 +6124,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
     const invalidDependency = Object.freeze({
       ...prepared.command,
-      dependencies: Object.freeze([
-        Object.freeze(orderedDependency),
-      ]),
+      dependencies: Object.freeze([Object.freeze(orderedDependency)]),
     }) as unknown as PointCommitTransactionCommandV1;
     await expect(
       runFailure(proof.prove(invalidDependency)),
@@ -5742,17 +6161,17 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       });
     }
 
-    const sparseDependencies = new Array(
-      prepared.command.dependencies.length,
-    );
+    const sparseDependencies = new Array(prepared.command.dependencies.length);
     const sparseCommand = Object.freeze({
       ...prepared.command,
       dependencies: Object.freeze(sparseDependencies),
     }) as PointCommitTransactionCommandV1;
-    await expect(runFailure(proof.prove(sparseCommand))).resolves.toMatchObject({
-      _tag: "PointCommitCorruptionV1Error",
-      reason: "commandInvalid",
-    });
+    await expect(runFailure(proof.prove(sparseCommand))).resolves.toMatchObject(
+      {
+        _tag: "PointCommitCorruptionV1Error",
+        reason: "commandInvalid",
+      },
+    );
 
     const rowIntent = prepared.command.rowIntents[0];
     if (rowIntent?.kind !== "live") {
@@ -5776,11 +6195,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         applicationExecutionAuthoritySha256: new Uint8Array(32),
       }),
     }) as unknown as PointCommitTransactionCommandV1;
-    await expect(runFailure(proof.prove(mixedLegacyPins))).resolves
-      .toMatchObject({
-        _tag: "PointCommitCorruptionV1Error",
-        reason: "commandInvalid",
-      });
+    await expect(
+      runFailure(proof.prove(mixedLegacyPins)),
+    ).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
 
     const mixedLegacySession = Object.freeze({
       ...prepared.command,
@@ -5791,17 +6211,20 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         applicationExecutionAuthoritySha256: new Uint8Array(32),
       }),
     }) as unknown as PointCommitTransactionCommandV1;
-    await expect(runFailure(proof.prove(mixedLegacySession))).resolves
-      .toMatchObject({
-        _tag: "PointCommitCorruptionV1Error",
-        reason: "commandInvalid",
-      });
+    await expect(
+      runFailure(proof.prove(mixedLegacySession)),
+    ).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
     const oversizedRowIntents = Object.freeze({
       ...prepared.command,
-      rowIntents: Object.freeze(Array.from(
-        { length: MAX_POINT_COMMIT_MATERIAL_ROWS_V1 + 1 },
-        () => rowIntent,
-      )),
+      rowIntents: Object.freeze(
+        Array.from(
+          { length: MAX_POINT_COMMIT_MATERIAL_ROWS_V1 + 1 },
+          () => rowIntent,
+        ),
+      ),
     });
     await expect(
       runFailure(proof.prove(oversizedRowIntents)),
@@ -5810,19 +6233,27 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       reason: "commandInvalid",
     });
     const sparseRowIntents = new Array(1);
-    await expect(runFailure(proof.prove(Object.freeze({
-      ...prepared.command,
-      rowIntents: Object.freeze(sparseRowIntents),
-    })))).resolves.toMatchObject({
+    await expect(
+      runFailure(
+        proof.prove(
+          Object.freeze({
+            ...prepared.command,
+            rowIntents: Object.freeze(sparseRowIntents),
+          }),
+        ),
+      ),
+    ).resolves.toMatchObject({
       _tag: "PointCommitCorruptionV1Error",
       reason: "commandInvalid",
     });
     const invalidCanonicalValue = Object.freeze({
       ...prepared.command,
-      rowIntents: Object.freeze([Object.freeze({
-        ...rowIntent,
-        value: Object.freeze({ invalid: 1n << 70n }),
-      })]),
+      rowIntents: Object.freeze([
+        Object.freeze({
+          ...rowIntent,
+          value: Object.freeze({ invalid: 1n << 70n }),
+        }),
+      ]),
     }) as PointCommitTransactionCommandV1;
     await expect(
       runFailure(proof.prove(invalidCanonicalValue)),
@@ -5833,10 +6264,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
     const invalidCanonicalBytes = Object.freeze({
       ...prepared.command,
-      rowIntents: Object.freeze([Object.freeze({
-        ...rowIntent,
-        canonicalBytes: Object.create(Uint8Array.prototype) as Uint8Array,
-      })]),
+      rowIntents: Object.freeze([
+        Object.freeze({
+          ...rowIntent,
+          canonicalBytes: Object.create(Uint8Array.prototype) as Uint8Array,
+        }),
+      ]),
     });
     await expect(
       runFailure(proof.prove(invalidCanonicalBytes)),
@@ -5853,11 +6286,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       ...prepared.command,
       dependencies: Object.freeze(iteratorDependencies),
     });
-    await expect(runEffect(
-      createPointCommitRollbackProofPortV1(
-        resolutionPorts(persistence),
-      ).prove(overriddenIterator),
-    )).resolves.toEqual({ kind: "wouldCommit" });
+    await expect(
+      runEffect(
+        createPointCommitRollbackProofPortV1(
+          resolutionPorts(persistence),
+        ).prove(overriddenIterator),
+      ),
+    ).resolves.toEqual({ kind: "wouldCommit" });
 
     const lengthMutatingDependencies = Array.from(
       prepared.command.dependencies,
@@ -5874,17 +6309,21 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       ...prepared.command,
       dependencies: lengthMutatingDependencies,
     });
-    await expect(runEffect(
-      createPointCommitRollbackProofPortV1(
-        resolutionPorts(persistence),
-      ).prove(lengthMutatingCommand),
-    )).resolves.toEqual({ kind: "wouldCommit" });
+    await expect(
+      runEffect(
+        createPointCommitRollbackProofPortV1(
+          resolutionPorts(persistence),
+        ).prove(lengthMutatingCommand),
+      ),
+    ).resolves.toEqual({ kind: "wouldCommit" });
 
     const defect = new Error("command session getter defect");
     const defectiveCommand = { ...prepared.command };
     Object.defineProperty(defectiveCommand, "session", {
       enumerable: true,
-      get: () => { throw defect; },
+      get: () => {
+        throw defect;
+      },
     });
     const exit = await Effect.runPromiseExit(
       proof.prove(defectiveCommand as PointCommitTransactionCommandV1),
@@ -5958,9 +6397,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await commitCompetingPointRow(conflict.command);
     const conflictBefore = await o06DurableState(conflict.evidence.scopeUuid);
     const conflictFailure = await runFailure(
-      createPointCommitRollbackProofPortV1(
-        resolutionPorts(persistence),
-      ).prove(conflict.command),
+      createPointCommitRollbackProofPortV1(resolutionPorts(persistence)).prove(
+        conflict.command,
+      ),
     );
     expect(conflictFailure).toBeInstanceOf(PointCommitConflictV1Error);
     expect(await o06DurableState(conflict.evidence.scopeUuid)).toEqual(
@@ -5986,9 +6425,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       [exhausted.evidence.scopeUuid, MAX_PERSISTED_SIGNED_INT64_V1],
     );
     const exhaustedFailure = await runFailure(
-      createPointCommitRollbackProofPortV1(
-        resolutionPorts(persistence),
-      ).prove(exhausted.command),
+      createPointCommitRollbackProofPortV1(resolutionPorts(persistence)).prove(
+        exhausted.command,
+      ),
     );
     expect(exhaustedFailure).toBeInstanceOf(
       PointCommitResourceExhaustionV1Error,
@@ -6067,16 +6506,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       currentCommitSeq: CommitSeqSchema.make(overflowCommitSeq),
     });
     expect(await o06DurableState(overflow.scopeUuid)).toEqual(overflowBefore);
-    await expect(runEffect(
-      overflow.authentication.authorizePointMutationOccRerun(
-        overflowFailure,
-      ).pipe(
-        Effect.provideService(Random.Random, {
-          nextDoubleUnsafe: () => 0,
-          nextIntUnsafe: () => 0,
-        }),
+    await expect(
+      runEffect(
+        overflow.authentication
+          .authorizePointMutationOccRerun(overflowFailure)
+          .pipe(
+            Effect.provideService(Random.Random, {
+              nextDoubleUnsafe: () => 0,
+              nextIntUnsafe: () => 0,
+            }),
+          ),
       ),
-    )).resolves.toMatchObject({
+    ).resolves.toMatchObject({
       kind: "authorized",
       backoffUpperBoundMilliseconds: 100,
       backoffMilliseconds: 0,
@@ -6096,11 +6537,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           fields: { name: "middle" },
         });
         const endExclusive = decodeOrderedIndexBoundHexV1(
-          Result.getOrThrow(lowerAppDeveloperIndexKeyV1(
-            definition,
-            boundaryDocument,
-            boundaryCreationTime,
-          )),
+          Result.getOrThrow(
+            lowerAppDeveloperIndexKeyV1(
+              definition,
+              boundaryDocument,
+              boundaryCreationTime,
+            ),
+          ),
         );
         await runO10IndexedQuery(
           current,
@@ -6117,9 +6560,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       "zulu",
       "44".repeat(16),
     );
-    await expect(runEffect(
-      outside.authentication.publishPointCommit(outside.plan),
-    )).resolves.toMatchObject({ kind: "published" });
+    await expect(
+      runEffect(outside.authentication.publishPointCommit(outside.plan)),
+    ).resolves.toMatchObject({ kind: "published" });
     expect(await o06DurableState(outside.scopeUuid)).toMatchObject({
       revisions: "1",
       commit_headers: "2",
@@ -6213,8 +6656,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
                   } catch (callbackCause) {
                     const originalCallbackCause =
                       callbackCause instanceof
-                          LocatedReadCommittedTransactionFailureV1 &&
-                        callbackCause.issue.kind === "callbackRolledBack"
+                        LocatedReadCommittedTransactionFailureV1 &&
+                      callbackCause.issue.kind === "callbackRolledBack"
                         ? callbackCause.issue.callbackCause
                         : callbackCause;
                     throw new LocatedReadCommittedTransactionFailureV1(
@@ -6241,8 +6684,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       LocatedReadCommittedTransactionFailureV1,
     );
     if (
-      !(rollbackFailure.cause instanceof
-        LocatedReadCommittedTransactionFailureV1)
+      !(
+        rollbackFailure.cause instanceof
+        LocatedReadCommittedTransactionFailureV1
+      )
     ) {
       throw new Error("Expected the located transaction failure wrapper.");
     }
@@ -6285,9 +6730,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       }).prove(current.command),
     );
-    expect(missingSentinelFailure).toBeInstanceOf(
-      PointCommitCorruptionV1Error,
-    );
+    expect(missingSentinelFailure).toBeInstanceOf(PointCommitCorruptionV1Error);
     expect(missingSentinelFailure).toMatchObject({
       reason: "rollbackSentinelMissing",
     });
@@ -6331,7 +6774,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
     );
 
-    await expect(runEffect(loader.loadEffect(authority))).resolves.toMatchObject({
+    await expect(
+      runEffect(loader.loadEffect(authority)),
+    ).resolves.toMatchObject({
       kind: "corrupt",
       reason: "schemaArtifactInvalid",
     });
@@ -6411,7 +6856,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     const measurement = measured.rows[0];
     if (measurement === undefined) throw new Error("Missing size measurement.");
-    const exactArgsBytes = Number(measurement.args_bytes) +
+    const exactArgsBytes =
+      Number(measurement.args_bytes) +
       MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1 -
       Number(measurement.total);
     await persistence.query(
@@ -6435,8 +6881,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       resolutionPorts(persistence),
       { observeQuery: (query) => exactQueries.push(query.name) },
     );
-    await expect(runEffect(exactLoader.loadEffect(exactAuthority))).resolves
-      .toMatchObject({
+    await expect(
+      runEffect(exactLoader.loadEffect(exactAuthority)),
+    ).resolves.toMatchObject({
       kind: "loaded",
     });
     expect(exactQueries).toContain("authorityPayload");
@@ -6462,8 +6909,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       resolutionPorts(persistence),
       { observeQuery: (query) => overflowQueries.push(query.name) },
     );
-    await expect(runEffect(overflowLoader.loadEffect(overflowAuthority))).resolves
-      .toMatchObject({ kind: "corrupt", reason: "evidenceLimitExceeded" });
+    await expect(
+      runEffect(overflowLoader.loadEffect(overflowAuthority)),
+    ).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "evidenceLimitExceeded",
+    });
     expect(overflowQueries).not.toContain("authorityPayload");
     expect(overflowQueries).not.toContain("schemaPayload");
     expect(overflowQueries).not.toContain("stableBindings");
@@ -6475,13 +6926,21 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     work: () => Promise<void>,
   ): Promise<void> {
     const before = await captureSessionStorage(persistence, current.anchor);
-    const definition = (await persistence.query<{ definition: string }>(
-      "select pg_get_constraintdef(oid) as definition from pg_constraint where conrelid = 'fx_system_tx_session'::regclass and conname = 'fx_system_tx_session_execution_authority_check'",
-    )).rows[0]?.definition;
-    if (definition === undefined) throw new Error("Missing session authority constraint.");
-    await persistence.exec("alter table fx_system_tx_session drop constraint fx_system_tx_session_execution_authority_check");
+    const definition = (
+      await persistence.query<{ definition: string }>(
+        "select pg_get_constraintdef(oid) as definition from pg_constraint where conrelid = 'fx_system_tx_session'::regclass and conname = 'fx_system_tx_session_execution_authority_check'",
+      )
+    ).rows[0]?.definition;
+    if (definition === undefined)
+      throw new Error("Missing session authority constraint.");
+    await persistence.exec(
+      "alter table fx_system_tx_session drop constraint fx_system_tx_session_execution_authority_check",
+    );
     try {
-      const terminal = lifecycle === "committed" || lifecycle === "aborted" || lifecycle === "expired";
+      const terminal =
+        lifecycle === "committed" ||
+        lifecycle === "aborted" ||
+        lifecycle === "expired";
       await persistence.query(
         `update fx_system_tx_session set execution_authority_generation = 'application_v1',
           lifecycle = $1, package_id = null, artifact_runtime = null, artifact_id = null,
@@ -6494,13 +6953,25 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           application_execution_authority_canonical_bytes = case when $5 then null else $2::bytea end,
           application_execution_authority_sha256 = case when $5 then null else $3::bytea end
           where session_id = $4`,
-        [lifecycle, new Uint8Array([1]), new Uint8Array(32), current.anchor.sessionId, terminal],
+        [
+          lifecycle,
+          new Uint8Array([1]),
+          new Uint8Array(32),
+          current.anchor.sessionId,
+          terminal,
+        ],
       );
       await work();
     } finally {
-      await persistence.drizzle.update(fxSystemTransactionSessions).set(before)
-        .where(eq(fxSystemTransactionSessions.sessionId, current.anchor.sessionId));
-      await persistence.exec(`alter table fx_system_tx_session add constraint fx_system_tx_session_execution_authority_check ${definition}`);
+      await persistence.drizzle
+        .update(fxSystemTransactionSessions)
+        .set(before)
+        .where(
+          eq(fxSystemTransactionSessions.sessionId, current.anchor.sessionId),
+        );
+      await persistence.exec(
+        `alter table fx_system_tx_session add constraint fx_system_tx_session_execution_authority_check ${definition}`,
+      );
     }
   }
 
@@ -6568,27 +7039,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
     const ports = resolutionPorts(persistence);
     const activation = await activatePointMutationSession(
-      createPointMutationSessionActivationPersistenceV1(
-        ports,
-        { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid },
-      ),
-      pointMutationSessionActivationFixture(
-        deploymentId,
-        scopeId,
-        { evidence: { schemaVersionId } },
-      ),
+      createPointMutationSessionActivationPersistenceV1(ports, {
+        leaseDurationMilliseconds: 60_000,
+        randomUuid: nextUuid,
+      }),
+      pointMutationSessionActivationFixture(deploymentId, scopeId, {
+        evidence: { schemaVersionId },
+      }),
     );
     if (activation.status !== "created") {
       throw new Error("Expected a newly created stored-attempt scenario.");
     }
     const executionClaims = createPointMutationExecutionClaimVaultV1();
-    const executionScope = await runEffect(Effect.fromResult(
-      executionClaims.admission.admit(executionClaims.issuer.mint({
-        selector: selectorFromAnchor(activation.anchor),
-        observation: activation.executionClaim,
-        mode: "execute",
-      }), "execute"),
-    ));
+    const executionScope = await runEffect(
+      Effect.fromResult(
+        executionClaims.admission.admit(
+          executionClaims.issuer.mint({
+            selector: selectorFromAnchor(activation.anchor),
+            observation: activation.executionClaim,
+            mode: "execute",
+          }),
+          "execute",
+        ),
+      ),
+    );
     const store = createSessionJournalStorePersistenceV1(ports, {
       grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
@@ -6651,11 +7125,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
     await setFlarexActivationClock(persistence, scopeId);
     const usersTable = appTable("users");
-    const developerIndexCount = developerIndex === true
-      ? 1
-      : developerIndex === false
-        ? 0
-        : developerIndex;
+    const developerIndexCount =
+      developerIndex === true
+        ? 1
+        : developerIndex === false
+          ? 0
+          : developerIndex;
     const developerIndexFields = [
       ["name", "profile.alias"],
       ["alias"],
@@ -6667,10 +7142,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       version: CatalogSchemaVersionSchema.make(1),
       tables: [usersTable],
       indexes: Array.from({ length: developerIndexCount }, (_, index) => ({
-          tableLogicalName: "users",
-          descriptor: `byDeveloperField${index}`,
-          fields: developerIndexFields[index] ?? ["name"],
-        })),
+        tableLogicalName: "users",
+        descriptor: `byDeveloperField${index}`,
+        fields: developerIndexFields[index] ?? ["name"],
+      })),
     });
     const seededDocumentId = seedRow
       ? await seedCommittedUser(scopeId, schemaVersionId)
@@ -6714,16 +7189,16 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           kind: "indexBindings",
           sectionVersion: 1,
           indexes: Array.from({ length: developerIndexCount }, (_, index) => ({
-              logicalIndexId: decodeCatalogIndexId(index + 1),
-              tableId: 1,
-              namespace: "app",
-              descriptor: `byDeveloperField${index}`,
-              spec: {
-                kind: "developerOrdered",
-                specVersion: 1,
-                fields: [...(developerIndexFields[index] ?? ["name"])],
-              },
-            })),
+            logicalIndexId: decodeCatalogIndexId(index + 1),
+            tableId: 1,
+            namespace: "app",
+            descriptor: `byDeveloperField${index}`,
+            spec: {
+              kind: "developerOrdered",
+              specVersion: 1,
+              fields: [...(developerIndexFields[index] ?? ["name"])],
+            },
+          })),
         },
       },
     });
@@ -6743,9 +7218,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       args: {},
       requestKey,
     });
-    const prepared = inspectExecutorPreparedPointMutationStartV1(
-      preparedHandle,
-    );
+    const prepared =
+      inspectExecutorPreparedPointMutationStartV1(preparedHandle);
     const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
       policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
       auth: { kind: "anonymous" },
@@ -6788,8 +7262,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
               state: "active",
               kid,
               purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
-              issuedAtInclusiveEpochMilliseconds:
-                issuedAtMilliseconds - 1_000,
+              issuedAtInclusiveEpochMilliseconds: issuedAtMilliseconds - 1_000,
               verificationEndsAtExclusiveEpochMilliseconds:
                 expiresAtMilliseconds + 1_000,
               verify: async () => true,
@@ -6808,21 +7281,26 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       jws: grant.jws,
       expectedStart: preparedHandle,
     });
-    const admitted = await runEffect(createPointMutationStartAdmissionV1({
-      resolveCurrent: () => Effect.succeed({
-        deploymentId,
-        scopeId,
-        authorizationRevocationEpoch: revocationEpoch,
-      }),
-    }).admit(verified));
+    const admitted = await runEffect(
+      createPointMutationStartAdmissionV1({
+        resolveCurrent: () =>
+          Effect.succeed({
+            deploymentId,
+            scopeId,
+            authorizationRevocationEpoch: revocationEpoch,
+          }),
+      }).admit(verified),
+    );
     const executionClaims = createPointMutationExecutionClaimVaultV1();
-    const activated = await runEffect(createPointMutationSessionActivationV1(
-      createPointMutationSessionActivationPersistenceV1(ports, {
-        leaseDurationMilliseconds: 60_000,
-        randomUuid: nextUuid,
-      }),
-      executionClaims.issuer,
-    ).activate(admitted));
+    const activated = await runEffect(
+      createPointMutationSessionActivationV1(
+        createPointMutationSessionActivationPersistenceV1(ports, {
+          leaseDurationMilliseconds: 60_000,
+          randomUuid: nextUuid,
+        }),
+        executionClaims.issuer,
+      ).activate(admitted),
+    );
     const activation = inspectActivatedPointMutationSessionV1(activated);
     if (activation.status !== "created") {
       throw new Error("Expected a newly created C04B2 scenario.");
@@ -6893,16 +7371,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       returnsValidator,
       developerIndex,
     );
-    const executionScope = await runEffect(Effect.fromResult(
-      current.executionClaims.admission.admit(
-        current.executionClaims.issuer.mint({
-          selector: selectorFromAnchor(current.anchor),
-          observation: current.storedExecutionClaim,
-          mode: "execute",
-        }),
-        "execute",
+    const executionScope = await runEffect(
+      Effect.fromResult(
+        current.executionClaims.admission.admit(
+          current.executionClaims.issuer.mint({
+            selector: selectorFromAnchor(current.anchor),
+            observation: current.storedExecutionClaim,
+            mode: "execute",
+          }),
+          "execute",
+        ),
       ),
-    ));
+    );
     return Object.freeze({
       ...current,
       executionScope,
@@ -6954,7 +7434,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           canonicalBytes: document.canonicalBytes,
           sha256: document.sha256,
         },
-      })
+      }),
     );
     await persistence.query(
       `
@@ -7000,7 +7480,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           canonicalBytes: document.canonicalBytes,
           sha256: document.sha256,
         },
-      })
+      }),
     );
   }
 
@@ -7015,6 +7495,141 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       [current.anchor.scopeId, input.indexDefinitionId],
     );
     return result.rows[0]?.cursor_row_hex ?? null;
+  }
+
+  async function buildDeveloperIndexForQuery(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+  ) {
+    const definition = await locateDeveloperIndexDefinitionForO10(current);
+    const target = createPGliteLocatedIndexBuildReconciliationTargetV1(
+      persistence,
+      sharedLocator,
+    );
+    let enabled = false;
+    for (let step = 0; step < 16; step += 1) {
+      const built = await runEffect(
+        buildAppDeveloperOrderedIndexV1Effect(
+          {
+            controlDb: persistence.drizzle,
+            authority: {
+              scopeMetadata: persistence,
+              provisioningReceipts: {
+                getScopeAuthorityProvisioningReceipt: async () => null,
+              },
+              scopeClockTargets: { resolve: async () => target },
+            },
+          },
+          {
+            deploymentId: current.anchor.deploymentId,
+            indexDefinitionId: definition.indexDefinitionId,
+            pageSize: 16,
+          },
+        ),
+      );
+      if (built.lifecycle === "enabled") {
+        enabled = true;
+        break;
+      }
+    }
+    if (!enabled)
+      throw new Error("Membership reader requires a completed physical build.");
+  }
+
+  async function prepareMembershipIndexedReader(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    label: string,
+  ) {
+    const ports = resolutionPorts(persistence);
+    await buildDeveloperIndexForQuery(current);
+    const activation = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(ports, {
+        leaseDurationMilliseconds: 300_000,
+        randomUuid: nextUuid,
+      }),
+      pointMutationSessionActivationFixture(
+        current.anchor.deploymentId,
+        current.anchor.scopeId,
+        {
+          evidence: {
+            schemaVersionId: current.schemaVersionId,
+            requestKey: TransactionRequestKeyV1Schema.make(
+              `request:membership:${label}`,
+            ),
+          },
+        },
+      ),
+    );
+    if (activation.status !== "created")
+      throw new Error("Expected new indexed reader session.");
+    const store = createSessionJournalStorePersistenceV1(ports, {
+      grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+      randomUuid: nextUuid,
+      indexedQueries: createAppDeveloperIndexQueryPortV1(
+        persistence.drizzle,
+        ports,
+        createAppDeveloperIndexDefinitionPortV1(persistence.drizzle),
+      ),
+    });
+    const attempt = await runEffect(
+      store.openAttemptEffect({
+        selector: selectorFromAnchor(activation.anchor),
+        executionClaim: activation.executionClaim,
+        snapshotToken: activation.anchor.snapshotToken,
+        schemaVersionId: current.schemaVersionId,
+      }),
+    );
+    const table = await runEffect(
+      store.resolvePointTableEffect(attempt, "users"),
+    );
+    const index = await runEffect(
+      store.resolveDeveloperIndexEffect(table, "byDeveloperField0"),
+    );
+    const queryResult = await runEffect(
+      store.runIndexedQueryEffect(index, {
+        kind: "indexRange",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+        bounds: {},
+        limit: 16,
+      }),
+    );
+    const prepared = await prepareSeal(store, attempt);
+    const journal = await runEffect(
+      canonicalizeSessionJournalV1Effect(prepared.journal),
+    );
+    const result = await runEffect(
+      canonicalizeSuccessfulResultV1Effect({ ok: true }),
+    );
+    await completeSeal(store, prepared.preparation, journal, result);
+    const authority = authorityFromAnchor(
+      activation.anchor,
+      current.schemaVersionId,
+      activation.executionClaim,
+    );
+    const loader = createStoredAttemptEvidenceLoaderV1(ports);
+    const running = await runEffect(loader.loadEffect(authority));
+    if (running.kind !== "loaded")
+      throw new Error("Expected membership reader evidence.");
+    await runEffect(
+      createPointCommitFinishingTransitionPortV1(ports).enterFinishing(
+        await pointCommitFinishingCommandFromStoredAttemptV1(
+          authority,
+          running.evidence,
+        ),
+      ),
+    );
+    const finishing = await runEffect(
+      loader.loadFinishingEffect(selectorFromAnchor(activation.anchor)),
+    );
+    if (finishing.kind !== "loaded")
+      throw new Error("Expected sealed membership reader evidence.");
+    return {
+      queryResult,
+      command:
+        await pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(
+          authority,
+          finishing.evidence,
+        ),
+    };
   }
 
   async function prepareO06Scenario(
@@ -7035,7 +7650,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       current.loader.loadEffect(current.authority),
     );
     if (running.kind !== "loaded") {
-      throw new Error(`Expected running O06 evidence, received ${running.kind}.`);
+      throw new Error(
+        `Expected running O06 evidence, received ${running.kind}.`,
+      );
     }
     await runEffect(
       createPointCommitFinishingTransitionPortV1(
@@ -7047,9 +7664,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ),
       ),
     );
-    const loaded = await runEffect(current.loader.loadFinishingEffect(
-      selectorFromAnchor(current.anchor),
-    ));
+    const loaded = await runEffect(
+      current.loader.loadFinishingEffect(selectorFromAnchor(current.anchor)),
+    );
     if (loaded.kind !== "loaded") {
       throw new Error(`Expected O06 evidence, received ${loaded.kind}.`);
     }
@@ -7065,10 +7682,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
   async function enableIntrinsicIndexForO06(
     current: Awaited<ReturnType<typeof c04b2Scenario>>,
-  ): Promise<Pick<
-    PointCommitTransactionProofOptionsV1,
-    "intrinsicCreationTimeIndexes"
-  >> {
+  ): Promise<
+    Pick<PointCommitTransactionProofOptionsV1, "intrinsicCreationTimeIndexes">
+  > {
     const target = createPGliteLocatedIndexBuildReconciliationTargetV1(
       persistence,
       sharedLocator,
@@ -7086,10 +7702,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         scopeClockTargets: { resolve: async () => target },
       },
     } as const;
-    await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
-      deploymentId: current.anchor.deploymentId,
-      schemaVersionId: current.schemaVersionId,
-    }));
+    await runEffect(
+      reconcilePublishedIndexBuildsV1Effect(ports, {
+        deploymentId: current.anchor.deploymentId,
+        schemaVersionId: current.schemaVersionId,
+      }),
+    );
     for (let step = 0; step < 8; step += 1) {
       const advanced = await runEffect(
         buildIntrinsicCreationTimeIndexV1Effect(ports, {
@@ -7102,39 +7720,39 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     }
     return Object.freeze({
       intrinsicCreationTimeIndexes:
-        createIntrinsicCreationTimeIndexDefinitionPortV1(
-          persistence.drizzle,
-        ),
+        createIntrinsicCreationTimeIndexDefinitionPortV1(persistence.drizzle),
     });
   }
 
   async function prepareDeveloperIndexForO06(
     current: Awaited<ReturnType<typeof c04b2Scenario>>,
     seedExistingRow = false,
-  ): Promise<Pick<
-    PointCommitTransactionProofOptionsV1,
-    "developerIndexes"
-  >> {
+  ): Promise<Pick<PointCommitTransactionProofOptionsV1, "developerIndexes">> {
     const target = createPGliteLocatedIndexBuildReconciliationTargetV1(
       persistence,
       sharedLocator,
     );
-    await runEffect(reconcilePublishedIndexBuildsV1Effect({
-      controlDb: persistence.drizzle,
-      authority: {
-        scopeMetadata: {
-          getScopeMetadataByDeploymentId: (deploymentId: string) =>
-            persistence.getScopeMetadataByDeploymentId(deploymentId),
+    await runEffect(
+      reconcilePublishedIndexBuildsV1Effect(
+        {
+          controlDb: persistence.drizzle,
+          authority: {
+            scopeMetadata: {
+              getScopeMetadataByDeploymentId: (deploymentId: string) =>
+                persistence.getScopeMetadataByDeploymentId(deploymentId),
+            },
+            provisioningReceipts: {
+              getScopeAuthorityProvisioningReceipt: async () => null,
+            },
+            scopeClockTargets: { resolve: async () => target },
+          },
         },
-        provisioningReceipts: {
-          getScopeAuthorityProvisioningReceipt: async () => null,
+        {
+          deploymentId: current.anchor.deploymentId,
+          schemaVersionId: current.schemaVersionId,
         },
-        scopeClockTargets: { resolve: async () => target },
-      },
-    }, {
-      deploymentId: current.anchor.deploymentId,
-      schemaVersionId: current.schemaVersionId,
-    }));
+      ),
+    );
     const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
       persistence.drizzle,
     );
@@ -7142,13 +7760,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       if (current.seededDocumentId === null) {
         throw new Error("Missing C08-A seeded developer-index document.");
       }
-      const definitions = await runEffect(developerIndexes.locate({
-        deploymentId: current.anchor.deploymentId,
-        scopeId: current.anchor.scopeId,
-        schemaVersionId: current.schemaVersionId,
-        tableIds: Object.freeze([decodeCatalogTableId(1)]),
-        maximumDefinitions: 256,
-      }));
+      const definitions = await runEffect(
+        developerIndexes.locate({
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+          schemaVersionId: current.schemaVersionId,
+          tableIds: Object.freeze([decodeCatalogTableId(1)]),
+          maximumDefinitions: 256,
+        }),
+      );
       const definition = definitions?.[0];
       if (definitions?.length !== 1 || definition === undefined) {
         throw new Error("Missing C08-A developer-index definition.");
@@ -7173,15 +7793,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
               kind: "live",
               scopeId: current.anchor.scopeId,
               definition,
-              encodedKey: Result.getOrThrow(lowerAppDeveloperIndexKeyV1(
-                definition,
-                document,
-                creationTime,
-              )),
+              encodedKey: Result.getOrThrow(
+                lowerAppDeveloperIndexKeyV1(definition, document, creationTime),
+              ),
               rowId: decodeOrderedIndexRowIdHexV1(rowId),
               writeEpoch: clock.epoch,
               commitSeq: CommitSeqSchema.make(1n),
-              prevCommitSeq: null,
             },
           ),
         );
@@ -7196,13 +7813,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
       persistence.drizzle,
     );
-    const definitions = await runEffect(developerIndexes.locate({
-      deploymentId: current.anchor.deploymentId,
-      scopeId: current.anchor.scopeId,
-      schemaVersionId: current.schemaVersionId,
-      tableIds: Object.freeze([decodeCatalogTableId(1)]),
-      maximumDefinitions: 256,
-    }));
+    const definitions = await runEffect(
+      developerIndexes.locate({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        schemaVersionId: current.schemaVersionId,
+        tableIds: Object.freeze([decodeCatalogTableId(1)]),
+        maximumDefinitions: 256,
+      }),
+    );
     const definition = definitions?.[0];
     if (definitions?.length !== 1 || definition === undefined) {
       throw new Error("Missing O10 developer-index definition.");
@@ -7216,49 +7835,20 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     bounds: OrderedIndexBoundsV1 = Object.freeze({}),
   ): Promise<void> {
     await prepareDeveloperIndexForO06(current);
-    const definition = await locateDeveloperIndexDefinitionForO10(current);
-    const clock = await persistence.getScopeClock(current.anchor.scopeId);
-    if (clock === null) throw new Error("Missing O10 indexed-query clock.");
-    await persistence.drizzle.insert(fxSystemIndexBuildStates).values({
-      scopeId: current.anchor.scopeId,
-      indexDefinitionId: definition.indexDefinitionId,
-      storageGeneration:
-        FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-      storageGenerationFence: clock.storageGenerationFence,
-      epoch: clock.epoch,
-      startCommitSeq: CommitSeqSchema.make(0n),
-      lifecycle: "enabled",
-      cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
-      backfillCursorRowId: null,
-      attemptFence: IndexBuildAttemptFenceSchema.make(1n),
-    }).onConflictDoNothing();
-    await persistence.drizzle.update(fxSystemIndexBuildStates).set({
-      storageGeneration:
-        FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-      storageGenerationFence: clock.storageGenerationFence,
-      epoch: clock.epoch,
-      startCommitSeq: CommitSeqSchema.make(0n),
-      lifecycle: "enabled",
-      cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
-      backfillCursorRowId: null,
-      attemptFence: IndexBuildAttemptFenceSchema.make(1n),
-    }).where(and(
-      eq(fxSystemIndexBuildStates.scopeId, current.anchor.scopeId),
-      eq(
-        fxSystemIndexBuildStates.indexDefinitionId,
-        definition.indexDefinitionId,
+    await buildDeveloperIndexForQuery(current);
+    const index = await runEffect(
+      current.store.resolveDeveloperIndexEffect(table, "byDeveloperField0"),
+    );
+    await expect(
+      runEffect(
+        current.store.runIndexedQueryEffect(index, {
+          kind: "indexRange",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          bounds,
+          limit: 16,
+        }),
       ),
-    ));
-    const index = await runEffect(current.store.resolveDeveloperIndexEffect(
-      table,
-      "byDeveloperField0",
-    ));
-    await expect(runEffect(current.store.runIndexedQueryEffect(index, {
-      kind: "indexRange",
-      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-      bounds,
-      limit: 16,
-    }))).resolves.toMatchObject({
+    ).resolves.toMatchObject({
       kind: "completed",
       outcome: { kind: "indexRangePage", isDone: true },
     });
@@ -7284,11 +7874,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
     const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
     const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
-    const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(
-      definition,
-      document,
-      creationTime,
-    ));
+    const encodedKey = Result.getOrThrow(
+      lowerAppDeveloperIndexKeyV1(definition, document, creationTime),
+    );
     await persistence.drizzle.transaction(async (tx) => {
       await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
         kind: "live",
@@ -7318,7 +7906,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             rowId: decodeOrderedIndexRowIdHexV1(rowId),
             writeEpoch: clock.epoch,
             commitSeq,
-            prevCommitSeq: null,
           },
         ),
       );
@@ -7336,7 +7923,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         tableId,
         rowId: appRowIdHexV1ToBytes(rowId),
       });
-      await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
+      await tx
+        .update(fxSystemScopeClocks)
+        .set({ lastCommitSeq: commitSeq })
         .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
     });
     return Object.freeze({ encodedKey });
@@ -7347,40 +7936,36 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     seedExistingRow = false,
     sparse = false,
     eligibilityAuthorityUnavailable = false,
-  ): Promise<Required<Pick<
-    PointCommitTransactionProofOptionsV1,
-    "uniqueConstraints" | "uniqueConstraintEligibility"
-  >>> {
+  ): Promise<
+    Required<
+      Pick<
+        PointCommitTransactionProofOptionsV1,
+        "uniqueConstraints" | "uniqueConstraintEligibility"
+      >
+    >
+  > {
     const tableId = decodeCatalogTableId(1);
     const prepared = await runEffect(
-      prepareAppUniqueConstraintDefinitionBindingV1Effect(
-        persistence.drizzle,
-        {
-          deploymentId: current.anchor.deploymentId,
-          schemaVersionId: current.schemaVersionId,
-          tableId,
-          descriptor: SchemaManifestAppIndexDescriptorSchema.make(
-            "unique_name",
-          ),
-          physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
-            kind: "appUniqueConstraint",
-            specVersion: 1,
-            orderedFields: ["name"],
-            sparse,
-            localePolicy: { kind: "none" },
-            keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
-            keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
-          }),
-        },
-      ),
+      prepareAppUniqueConstraintDefinitionBindingV1Effect(persistence.drizzle, {
+        deploymentId: current.anchor.deploymentId,
+        schemaVersionId: current.schemaVersionId,
+        tableId,
+        descriptor: SchemaManifestAppIndexDescriptorSchema.make("unique_name"),
+        physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+          kind: "appUniqueConstraint",
+          specVersion: 1,
+          orderedFields: ["name"],
+          sparse,
+          localePolicy: { kind: "none" },
+          keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+          keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+        }),
+      }),
     );
     await persistence.drizzle.transaction((tx) =>
       runEffect(
-        ensureAppUniqueConstraintDefinitionBindingV1InTransaction(
-          tx,
-          prepared,
-        ),
-      )
+        ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
+      ),
     );
     const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
       persistence.drizzle,
@@ -7389,13 +7974,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       if (current.seededDocumentId === null) {
         throw new Error("Missing C08-B2 seeded unique document.");
       }
-      const definitions = await runEffect(uniqueConstraints.locate({
-        deploymentId: current.anchor.deploymentId,
-        scopeId: current.anchor.scopeId,
-        schemaVersionId: current.schemaVersionId,
-        tableIds: Object.freeze([tableId]),
-        maximumDefinitions: 32,
-      }));
+      const definitions = await runEffect(
+        uniqueConstraints.locate({
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+          schemaVersionId: current.schemaVersionId,
+          tableIds: Object.freeze([tableId]),
+          maximumDefinitions: 32,
+        }),
+      );
       const definition = definitions?.[0];
       if (definitions?.length !== 1 || definition === undefined) {
         throw new Error("Missing C08-B2 unique definition.");
@@ -7413,17 +8000,19 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         throw new Error("Missing C08-B2 seeded scope clock.");
       }
       await persistence.drizzle.transaction((tx) =>
-        runEffect(applyAppUniqueKeyMutationInTransactionEffect(tx, {
-          scopeId: current.anchor.scopeId,
-          constraintId: definition.uniqueConstraintDefinitionId,
-          tableId,
-          rowId,
-          writeEpoch: clock.epoch,
-          previous: null,
-          next: Result.getOrThrow(
-            lowerAppUniqueConstraintProjectionV1Result(definition, document),
-          ),
-        }))
+        runEffect(
+          applyAppUniqueKeyMutationInTransactionEffect(tx, {
+            scopeId: current.anchor.scopeId,
+            constraintId: definition.uniqueConstraintDefinitionId,
+            tableId,
+            rowId,
+            writeEpoch: clock.epoch,
+            previous: null,
+            next: Result.getOrThrow(
+              lowerAppUniqueConstraintProjectionV1Result(definition, document),
+            ),
+          }),
+        ),
       );
     }
     const buildPorts = {
@@ -7445,35 +8034,28 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
     } as const;
     const closure = await runEffect(
-      prepareAppUniqueConstraintSetClosureV1Effect(
-        persistence.drizzle,
-        {
-          deploymentId: current.anchor.deploymentId,
-          schemaVersionId: current.schemaVersionId,
-        },
-      ),
-    );
-    await persistence.drizzle.transaction((tx) =>
-      runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure))
-    );
-    await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
-      buildPorts,
-      {
+      prepareAppUniqueConstraintSetClosureV1Effect(persistence.drizzle, {
         deploymentId: current.anchor.deploymentId,
         schemaVersionId: current.schemaVersionId,
-      },
-    ));
+      }),
+    );
+    await persistence.drizzle.transaction((tx) =>
+      runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure)),
+    );
+    await runEffect(
+      reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts, {
+        deploymentId: current.anchor.deploymentId,
+        schemaVersionId: current.schemaVersionId,
+      }),
+    );
     let enabled = false;
     for (let step = 0; step < 16; step += 1) {
       const advanced = await runEffect(
-        advanceAppUniqueConstraintSetBackfillV1Effect(
-          buildPorts,
-          {
-            deploymentId: current.anchor.deploymentId,
-            schemaVersionId: current.schemaVersionId,
-            pageSize: 16,
-          },
-        ),
+        advanceAppUniqueConstraintSetBackfillV1Effect(buildPorts, {
+          deploymentId: current.anchor.deploymentId,
+          schemaVersionId: current.schemaVersionId,
+          pageSize: 16,
+        }),
       );
       if (advanced.lifecycle === "enabled") {
         enabled = true;
@@ -7503,14 +8085,27 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   }
 
-  async function seedUnselectedUniqueBuilds(current: Awaited<ReturnType<typeof c04b2Scenario>>, count: number) {
-    await persistence.query(`insert into fx_system_unique_constraint_build (scope_id, unique_constraint_definition_id, storage_generation, storage_generation_fence, epoch, start_commit_seq, covered_through_commit_seq, lifecycle, cursor_row_id, attempt_fence)
+  async function seedUnselectedUniqueBuilds(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    count: number,
+  ) {
+    await persistence.query(
+      `insert into fx_system_unique_constraint_build (scope_id, unique_constraint_definition_id, storage_generation, storage_generation_fence, epoch, start_commit_seq, covered_through_commit_seq, lifecycle, cursor_row_id, attempt_fence)
       select scope_id, id, storage_generation, storage_generation_fence, epoch, last_commit_seq, last_commit_seq, 'validating', decode(repeat('ff',16),'hex'), 1
-      from fx_system_scope_clock cross join generate_series(1000, $2::int + 999) id where scope_id = $1`, [current.anchor.scopeId, count]);
+      from fx_system_scope_clock cross join generate_series(1000, $2::int + 999) id where scope_id = $1`,
+      [current.anchor.scopeId, count],
+    );
   }
 
-  async function uniqueBuildStates(current: Awaited<ReturnType<typeof c04b2Scenario>>) {
-    return (await persistence.query(`select * from fx_system_unique_constraint_build where scope_id = $1 order by unique_constraint_definition_id`, [current.anchor.scopeId])).rows;
+  async function uniqueBuildStates(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+  ) {
+    return (
+      await persistence.query(
+        `select * from fx_system_unique_constraint_build where scope_id = $1 order by unique_constraint_definition_id`,
+        [current.anchor.scopeId],
+      )
+    ).rows;
   }
 
   async function seedSecondUniqueUser(
@@ -7523,13 +8118,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const rowId = decodeAppRowIdHexV1("22".repeat(16));
     const creationTime = decodeAppCreationTimeV1(2);
     const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
-    const definitions = await runEffect(uniqueConstraints.locate({
-      deploymentId: current.anchor.deploymentId,
-      scopeId: current.anchor.scopeId,
-      schemaVersionId: current.schemaVersionId,
-      tableIds: Object.freeze([tableId]),
-      maximumDefinitions: 32,
-    }));
+    const definitions = await runEffect(
+      uniqueConstraints.locate({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        schemaVersionId: current.schemaVersionId,
+        tableIds: Object.freeze([tableId]),
+        maximumDefinitions: 32,
+      }),
+    );
     const definition = definitions?.[0];
     if (definitions?.length !== 1 || definition === undefined) {
       throw new Error("Missing the second C08-B2 unique definition.");
@@ -7562,17 +8159,19 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           sha256: document.sha256,
         },
       });
-      await runEffect(applyAppUniqueKeyMutationInTransactionEffect(tx, {
-        scopeId: current.anchor.scopeId,
-        constraintId: definition.uniqueConstraintDefinitionId,
-        tableId,
-        rowId,
-        writeEpoch: clock.epoch,
-        previous: null,
-        next: Result.getOrThrow(
-          lowerAppUniqueConstraintProjectionV1Result(definition, document),
-        ),
-      }));
+      await runEffect(
+        applyAppUniqueKeyMutationInTransactionEffect(tx, {
+          scopeId: current.anchor.scopeId,
+          constraintId: definition.uniqueConstraintDefinitionId,
+          tableId,
+          rowId,
+          writeEpoch: clock.epoch,
+          previous: null,
+          next: Result.getOrThrow(
+            lowerAppUniqueConstraintProjectionV1Result(definition, document),
+          ),
+        }),
+      );
     });
     return documentId;
   }
@@ -7585,8 +8184,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ) => Promise<void>,
     options:
       | PointCommitTransactionProofOptionsV1
-      | ((current: Awaited<ReturnType<typeof c04b2Scenario>>) =>
-        Promise<PointCommitTransactionProofOptionsV1>) = {},
+      | ((
+          current: Awaited<ReturnType<typeof c04b2Scenario>>,
+        ) => Promise<PointCommitTransactionProofOptionsV1>) = {},
     seedRow = false,
     developerIndex: boolean | number = false,
   ) {
@@ -7617,34 +8217,28 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       current: Awaited<ReturnType<typeof c04b2Scenario>>,
     ) => Promise<PointCommitTransactionProofOptionsV1>,
   ) {
-    const current = await c04b2Scenario(
-      label,
-      {},
-      false,
-      undefined,
-      true,
-    );
+    const current = await c04b2Scenario(label, {}, false, undefined, true);
     const table = await runEffect(
       current.store.resolvePointTableEffect(current.attempt, "users"),
     );
     await operation(current, table);
     const proofOptions = await options(current);
     const envelope = await seal(current);
-    const loadedAttempt = await runEffect(current.loading.load({
-      deploymentId: current.anchor.deploymentId,
-      scopeId: current.anchor.scopeId,
-      sessionId: current.anchor.sessionId,
-      attemptFence: current.anchor.attemptFence.toString(),
-    }));
+    const loadedAttempt = await runEffect(
+      current.loading.load({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        sessionId: current.anchor.sessionId,
+        attemptFence: current.anchor.attemptFence.toString(),
+      }),
+    );
     const authentication = createO08B1Authentication(current, proofOptions);
-    const authority = await runEffect(authentication.deriveAuthority(
-      loadedAttempt,
-      current.executionScope,
-    ));
-    const stored = await runEffect(authentication.authenticate(
-      authority,
-      encodeEnvelope(envelope),
-    ));
+    const authority = await runEffect(
+      authentication.deriveAuthority(loadedAttempt, current.executionScope),
+    );
+    const stored = await runEffect(
+      authentication.authenticate(authority, encodeEnvelope(envelope)),
+    );
     const commitAuthority = await runEffect(
       authentication.authenticateCommitAuthority(stored),
     );
@@ -7674,10 +8268,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ) => Promise<void>,
     options:
       | PointCommitTransactionProofOptionsV1
-      | ((current: Awaited<ReturnType<typeof c04b2Scenario>>) =>
-        Promise<PointCommitTransactionProofOptionsV1>) = {},
-    publisherPorts: PointMutationSessionAuthorityResolutionPortsV1 =
-      resolutionPorts(persistence),
+      | ((
+          current: Awaited<ReturnType<typeof c04b2Scenario>>,
+        ) => Promise<PointCommitTransactionProofOptionsV1>) = {},
+    publisherPorts: PointMutationSessionAuthorityResolutionPortsV1 = resolutionPorts(
+      persistence,
+    ),
     seedRow = false,
     developerIndex: boolean | number = false,
   ) {
@@ -7692,16 +8288,17 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       current.store.resolvePointTableEffect(current.attempt, "users"),
     );
     await operation?.(current, table);
-    const proofOptions = typeof options === "function"
-      ? await options(current)
-      : options;
+    const proofOptions =
+      typeof options === "function" ? await options(current) : options;
     const envelope = await seal(current);
-    const loadedAttempt = await runEffect(current.loading.load({
-      deploymentId: current.anchor.deploymentId,
-      scopeId: current.anchor.scopeId,
-      sessionId: current.anchor.sessionId,
-      attemptFence: current.anchor.attemptFence.toString(),
-    }));
+    const loadedAttempt = await runEffect(
+      current.loading.load({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        sessionId: current.anchor.sessionId,
+        attemptFence: current.anchor.attemptFence.toString(),
+      }),
+    );
     const authentication = createO07BAuthentication(
       current,
       proofOptions,
@@ -7710,10 +8307,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const authority = await runEffect(
       authentication.deriveAuthority(loadedAttempt, current.executionScope),
     );
-    const stored = await runEffect(authentication.authenticate(
-      authority,
-      encodeEnvelope(envelope),
-    ));
+    const stored = await runEffect(
+      authentication.authenticate(authority, encodeEnvelope(envelope)),
+    );
     const commitAuthority = await runEffect(
       authentication.authenticateCommitAuthority(stored),
     );
@@ -7735,28 +8331,21 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   function createO07BAuthentication(
     current: Awaited<ReturnType<typeof c04b2Scenario>>,
     options: PointCommitTransactionProofOptionsV1 = {},
-    publisherPorts: PointMutationSessionAuthorityResolutionPortsV1 =
-      resolutionPorts(persistence),
+    publisherPorts: PointMutationSessionAuthorityResolutionPortsV1 = resolutionPorts(
+      persistence,
+    ),
   ) {
     const ports = resolutionPorts(persistence);
     return createStoredPointCommitExecutorV1(
       current.loader,
       {
-        evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(
-          ports,
-        ),
+        evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
         transactionGrantVerifier: current.verifier,
         functionMetadata: {
-          load: () =>
-            Effect.succeed(structuredClone(current.functionSnapshot)),
+          load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
         },
-        pointCommit: createPointCommitPublisherPortV1(
-          publisherPorts,
-          options,
-        ),
-        pointCommitFinishing: createPointCommitFinishingTransitionPortV1(
-          ports,
-        ),
+        pointCommit: createPointCommitPublisherPortV1(publisherPorts, options),
+        pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
       },
       current.executionClaims,
     );
@@ -7790,64 +8379,67 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
       current.executionClaims.admission,
     );
-    return createStoredPointMutationOccRerunExecutionV1(current.loader, {
-      evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
-      transactionGrantVerifier: current.verifier,
-      functionMetadata: {
-        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
-      },
-      pointCommit: createPointCommitPublisherPortV1(ports, options),
-      pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
-      pointMutationAttemptReplacement:
-        createPointMutationAttemptReplacementPortV1(ports, {
-          leaseDurationMilliseconds: 60_000,
-          ...replacementOptions,
-        }),
-      pointMutationOccRerun: {
-        attemptLoading: current.loading,
-        executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports),
-        journal: createPointMutationJournalV1(
-          current.store,
-          current.executionClaims.admission,
-          SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
-        ),
-        terminalization:
-          onAbortStarted === undefined
-            ? terminalization
-            : Object.freeze({
-                ...terminalization,
-                abort: Effect.fn("TestO08B2a.observeAbort")((
-                  attempt,
-                  executionClaim,
-                ) =>
-                  Effect.sync(onAbortStarted).pipe(
-                    Effect.flatMap(() =>
-                      terminalization.abort(attempt, executionClaim)
-                    ),
-                  ),
-                ),
-              }),
-        contextFactory: contextFactory ?? {
-          make: () =>
-            Effect.sync(() => {
-              executionSequence += 1;
-              return Object.freeze({
-                executionId: `o08-b2a-${executionSequence}`,
-                logScopeId: `o08-b2a-log-${executionSequence}`,
-                randomSeed: new Uint8Array(32).fill(executionSequence),
-              });
-            }),
+    return createStoredPointMutationOccRerunExecutionV1(
+      current.loader,
+      {
+        evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
         },
-        runner,
-        liveness: livenessOverride ??
-          createPointMutationExecutionClaimLivenessV1(ports, {
-          claimDurationMilliseconds: 60_000,
-          leaseRenewalDurationMilliseconds: 120_000,
-          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        pointCommit: createPointCommitPublisherPortV1(ports, options),
+        pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+        pointMutationAttemptReplacement:
+          createPointMutationAttemptReplacementPortV1(ports, {
+            leaseDurationMilliseconds: 60_000,
+            ...replacementOptions,
           }),
-        heartbeatIntervalMilliseconds,
+        pointMutationOccRerun: {
+          attemptLoading: current.loading,
+          executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports),
+          journal: createPointMutationJournalV1(
+            current.store,
+            current.executionClaims.admission,
+            SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
+          ),
+          terminalization:
+            onAbortStarted === undefined
+              ? terminalization
+              : Object.freeze({
+                  ...terminalization,
+                  abort: Effect.fn("TestO08B2a.observeAbort")(
+                    (attempt, executionClaim) =>
+                      Effect.sync(onAbortStarted).pipe(
+                        Effect.flatMap(() =>
+                          terminalization.abort(attempt, executionClaim),
+                        ),
+                      ),
+                  ),
+                }),
+          contextFactory: contextFactory ?? {
+            make: () =>
+              Effect.sync(() => {
+                executionSequence += 1;
+                return Object.freeze({
+                  executionId: `o08-b2a-${executionSequence}`,
+                  logScopeId: `o08-b2a-log-${executionSequence}`,
+                  randomSeed: new Uint8Array(32).fill(executionSequence),
+                });
+              }),
+          },
+          runner,
+          liveness:
+            livenessOverride ??
+            createPointMutationExecutionClaimLivenessV1(ports, {
+              claimDurationMilliseconds: 60_000,
+              leaseRenewalDurationMilliseconds: 120_000,
+              grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+            }),
+          heartbeatIntervalMilliseconds,
+        },
       },
-    }, current.executionClaims);
+      current.executionClaims,
+    );
   }
 
   function createInitialPointMutationExecution(
@@ -7860,47 +8452,51 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
       current.executionClaims.admission,
     );
-    return createPointMutationInitialExecutionV1(current.loader, {
-      evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
-      transactionGrantVerifier: current.verifier,
-      functionMetadata: {
-        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
-      },
-      pointCommit: createPointCommitPublisherPortV1(ports),
-      pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
-      pointMutationAttemptReplacement:
-        createPointMutationAttemptReplacementPortV1(ports, {
-          leaseDurationMilliseconds: 60_000,
-        }),
-      pointMutationOccRerun: {
-        attemptLoading: current.loading,
-        executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports),
-        journal: createPointMutationJournalV1(
-          current.store,
-          current.executionClaims.admission,
-          SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
-        ),
-        terminalization,
-        contextFactory: {
-          make: () =>
-            Effect.sync(() => {
-              executionSequence += 1;
-              return Object.freeze({
-                executionId: `p02c4b-${executionSequence}`,
-                logScopeId: `p02c4b-log-${executionSequence}`,
-                randomSeed: new Uint8Array(32).fill(executionSequence),
-              });
-            }),
+    return createPointMutationInitialExecutionV1(
+      current.loader,
+      {
+        evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
         },
-        runner,
-        liveness: createPointMutationExecutionClaimLivenessV1(ports, {
-          claimDurationMilliseconds: 60_000,
-          leaseRenewalDurationMilliseconds: 120_000,
-          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
-        }),
-        heartbeatIntervalMilliseconds: 20_000,
+        pointCommit: createPointCommitPublisherPortV1(ports),
+        pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+        pointMutationAttemptReplacement:
+          createPointMutationAttemptReplacementPortV1(ports, {
+            leaseDurationMilliseconds: 60_000,
+          }),
+        pointMutationOccRerun: {
+          attemptLoading: current.loading,
+          executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports),
+          journal: createPointMutationJournalV1(
+            current.store,
+            current.executionClaims.admission,
+            SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
+          ),
+          terminalization,
+          contextFactory: {
+            make: () =>
+              Effect.sync(() => {
+                executionSequence += 1;
+                return Object.freeze({
+                  executionId: `p02c4b-${executionSequence}`,
+                  logScopeId: `p02c4b-log-${executionSequence}`,
+                  randomSeed: new Uint8Array(32).fill(executionSequence),
+                });
+              }),
+          },
+          runner,
+          liveness: createPointMutationExecutionClaimLivenessV1(ports, {
+            claimDurationMilliseconds: 60_000,
+            leaseRenewalDurationMilliseconds: 120_000,
+            grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+          }),
+          heartbeatIntervalMilliseconds: 20_000,
+        },
       },
-    }, current.executionClaims);
+      current.executionClaims,
+    );
   }
 
   function createB2b2aRedispatchAuthentication(
@@ -7924,73 +8520,78 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       terminalizationPersistence,
       executionClaims.admission,
     );
-    return createStoredPointMutationCrashRedispatchV1(current.loader, {
-      evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
-      transactionGrantVerifier: current.verifier,
-      functionMetadata: {
-        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
-      },
-      pointCommit: createPointCommitPublisherPortV1(
-        ports,
-        options.pointCommit,
-      ),
-      pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
-      pointMutationAttemptReplacement:
-        createPointMutationAttemptReplacementPortV1(ports, {
-          leaseDurationMilliseconds: 60_000,
-        }),
-      pointMutationOccRerun: {
-        attemptLoading: options.attemptLoading ?? current.loading,
-        executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports, {
-          ...(options.afterExecutionEvidenceRepeatableRead === undefined
-            ? {}
-            : {
-                afterRepeatableRead:
-                  options.afterExecutionEvidenceRepeatableRead,
-              }),
-        }),
-        journal: createPointMutationJournalV1(
-          current.store,
-          executionClaims.admission,
-          SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
-        ),
-        terminalization,
-        contextFactory: options.contextFactory ?? {
-          make: () =>
-            Effect.sync(() => {
-              executionSequence += 1;
-              return Object.freeze({
-                executionId: `o08-b2b2a-${executionSequence}`,
-                logScopeId: `o08-b2b2a-log-${executionSequence}`,
-                randomSeed: new Uint8Array(32).fill(executionSequence),
-              });
-            }),
+    return createStoredPointMutationCrashRedispatchV1(
+      current.loader,
+      {
+        evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
         },
-        runner,
-        liveness: createPointMutationExecutionClaimLivenessV1(ports, {
-          claimDurationMilliseconds: 60_000,
-          leaseRenewalDurationMilliseconds: 120_000,
-          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
-        }),
-        heartbeatIntervalMilliseconds: 20_000,
-      },
-      pointMutationRedispatch: {
-        acquisition: options.acquisition ??
-          createPointMutationExecutionClaimDispatchAcquisitionV1(
-            createPointMutationExecutionClaimAcquisitionV1(ports, {
-              durationMilliseconds: 60_000,
-              ...(options.randomOwner === undefined
-                ? {}
-                : { randomOwner: options.randomOwner }),
-            }),
-            executionClaims.issuer,
-          ),
-        disposition: createPointMutationSessionAttemptDispositionV1(
-          terminalizationPersistence,
-          executionClaims.abortOnlyAdmission,
+        pointCommit: createPointCommitPublisherPortV1(
+          ports,
+          options.pointCommit,
         ),
+        pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+        pointMutationAttemptReplacement:
+          createPointMutationAttemptReplacementPortV1(ports, {
+            leaseDurationMilliseconds: 60_000,
+          }),
+        pointMutationOccRerun: {
+          attemptLoading: options.attemptLoading ?? current.loading,
+          executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports, {
+            ...(options.afterExecutionEvidenceRepeatableRead === undefined
+              ? {}
+              : {
+                  afterRepeatableRead:
+                    options.afterExecutionEvidenceRepeatableRead,
+                }),
+          }),
+          journal: createPointMutationJournalV1(
+            current.store,
+            executionClaims.admission,
+            SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
+          ),
+          terminalization,
+          contextFactory: options.contextFactory ?? {
+            make: () =>
+              Effect.sync(() => {
+                executionSequence += 1;
+                return Object.freeze({
+                  executionId: `o08-b2b2a-${executionSequence}`,
+                  logScopeId: `o08-b2b2a-log-${executionSequence}`,
+                  randomSeed: new Uint8Array(32).fill(executionSequence),
+                });
+              }),
+          },
+          runner,
+          liveness: createPointMutationExecutionClaimLivenessV1(ports, {
+            claimDurationMilliseconds: 60_000,
+            leaseRenewalDurationMilliseconds: 120_000,
+            grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+          }),
+          heartbeatIntervalMilliseconds: 20_000,
+        },
+        pointMutationRedispatch: {
+          acquisition:
+            options.acquisition ??
+            createPointMutationExecutionClaimDispatchAcquisitionV1(
+              createPointMutationExecutionClaimAcquisitionV1(ports, {
+                durationMilliseconds: 60_000,
+                ...(options.randomOwner === undefined
+                  ? {}
+                  : { randomOwner: options.randomOwner }),
+              }),
+              executionClaims.issuer,
+            ),
+          disposition: createPointMutationSessionAttemptDispositionV1(
+            terminalizationPersistence,
+            executionClaims.abortOnlyAdmission,
+          ),
+        },
       },
-    }, executionClaims);
+      executionClaims,
+    );
   }
 
   async function prepareO08B1Conflict(
@@ -8016,12 +8617,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       fields: { name: label },
     });
     const envelope = await seal(current);
-    const loadedAttempt = await runEffect(current.loading.load({
-      deploymentId: current.anchor.deploymentId,
-      scopeId: current.anchor.scopeId,
-      sessionId: current.anchor.sessionId,
-      attemptFence: current.anchor.attemptFence.toString(),
-    }));
+    const loadedAttempt = await runEffect(
+      current.loading.load({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        sessionId: current.anchor.sessionId,
+        attemptFence: current.anchor.attemptFence.toString(),
+      }),
+    );
     const actualLiveness = createPointMutationExecutionClaimLivenessV1(
       resolutionPorts(persistence),
       {
@@ -8030,18 +8633,20 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       },
     );
-    const liveness = observeLivenessRenewal === undefined
-      ? actualLiveness
-      : Object.freeze({
-          configuration: actualLiveness.configuration,
-          renewEffect: (
-            input: Parameters<
-              PointMutationExecutionClaimLivenessV1["renewEffect"]
-            >[0],
-          ) => Effect.sync(observeLivenessRenewal).pipe(
-            Effect.andThen(actualLiveness.renewEffect(input)),
-          ),
-        });
+    const liveness =
+      observeLivenessRenewal === undefined
+        ? actualLiveness
+        : Object.freeze({
+            configuration: actualLiveness.configuration,
+            renewEffect: (
+              input: Parameters<
+                PointMutationExecutionClaimLivenessV1["renewEffect"]
+              >[0],
+            ) =>
+              Effect.sync(observeLivenessRenewal).pipe(
+                Effect.andThen(actualLiveness.renewEffect(input)),
+              ),
+          });
     const authentication = createO08B1Authentication(
       current,
       {},
@@ -8055,10 +8660,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const authority = await runEffect(
       authentication.deriveAuthority(loadedAttempt, current.executionScope),
     );
-    const authenticated = await runEffect(authentication.authenticate(
-      authority,
-      encodeEnvelope(envelope),
-    ));
+    const authenticated = await runEffect(
+      authentication.authenticate(authority, encodeEnvelope(envelope)),
+    );
     const commitAuthority = await runEffect(
       authentication.authenticateCommitAuthority(authenticated),
     );
@@ -8418,19 +9022,27 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       [scopeUuid],
     );
     return Object.freeze({
-      revisions: Object.freeze(revisions.rows.map((row) => Object.freeze({
-        indexDefinitionId: row.index_definition_id,
-        encodedKeyHex: row.encoded_key_hex,
-        rowIdHex: row.row_id_hex,
-        commitSeq: row.commit_seq,
-        isTombstone: row.is_tombstone,
-      }))),
-      current: Object.freeze(current.rows.map((row) => Object.freeze({
-        indexDefinitionId: row.index_definition_id,
-        encodedKeyHex: row.encoded_key_hex,
-        rowIdHex: row.row_id_hex,
-        commitSeq: row.commit_seq,
-      }))),
+      revisions: Object.freeze(
+        revisions.rows.map((row) =>
+          Object.freeze({
+            indexDefinitionId: row.index_definition_id,
+            encodedKeyHex: row.encoded_key_hex,
+            rowIdHex: row.row_id_hex,
+            commitSeq: row.commit_seq,
+            isTombstone: row.is_tombstone,
+          }),
+        ),
+      ),
+      current: Object.freeze(
+        current.rows.map((row) =>
+          Object.freeze({
+            indexDefinitionId: row.index_definition_id,
+            encodedKeyHex: row.encoded_key_hex,
+            rowIdHex: row.row_id_hex,
+            commitSeq: row.commit_seq,
+          }),
+        ),
+      ),
     });
   }
 
@@ -8452,12 +9064,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
        order by constraint_id, encoded_key, row_id`,
       [scopeUuid],
     );
-    return Object.freeze(rows.rows.map((row) => Object.freeze({
-      constraintId: row.constraint_id,
-      encodedKeyHex: row.encoded_key_hex,
-      rowIdHex: row.row_id_hex,
-      tableId: row.table_id, localeKey: row.locale_key, keySha256Hex: row.key_sha256_hex,
-    })));
+    return Object.freeze(
+      rows.rows.map((row) =>
+        Object.freeze({
+          constraintId: row.constraint_id,
+          encodedKeyHex: row.encoded_key_hex,
+          rowIdHex: row.row_id_hex,
+          tableId: row.table_id,
+          localeKey: row.locale_key,
+          keySha256Hex: row.key_sha256_hex,
+        }),
+      ),
+    );
   }
 
   function pointRowIdHex(documentId: string): string {
@@ -8476,7 +9094,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       readonly commitSeq: string;
     }>,
   ): number {
-    const identityOrder = left.tableId.localeCompare(right.tableId) ||
+    const identityOrder =
+      left.tableId.localeCompare(right.tableId) ||
       left.rowIdHex.localeCompare(right.rowIdHex);
     if (identityOrder !== 0) return identityOrder;
     const leftCommitSeq = BigInt(left.commitSeq);
@@ -8488,10 +9107,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         : 0;
   }
 
-  async function o07bTerminalState(
-    scopeUuid: string,
-    sessionId: string,
-  ) {
+  async function o07bTerminalState(scopeUuid: string, sessionId: string) {
     const result = await persistence.query<{
       lifecycle: string;
       leases: string;
@@ -8522,10 +9138,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     return row;
   }
 
-  async function o08DispositionState(
-    scopeUuid: string,
-    sessionId: string,
-  ) {
+  async function o08DispositionState(scopeUuid: string, sessionId: string) {
     const result = await persistence.query<{
       lifecycle: string;
       leases: string;
@@ -8643,9 +9256,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     };
   }
 
-  function pointMutationAttemptDiscovery(
-    selected: PGliteFlarexPersistence,
-  ) {
+  function pointMutationAttemptDiscovery(selected: PGliteFlarexPersistence) {
     return createPointMutationAttemptDiscoveryV1({
       scopeMetadata: selected,
       provisioningReceipts: {
@@ -8907,9 +9518,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     current: Scenario,
     work: () => Promise<Result>,
   ): Promise<Result> {
-    const constraintRows = await persistence.query<Readonly<{
-      definition: string;
-    }>>(
+    const constraintRows = await persistence.query<
+      Readonly<{
+        definition: string;
+      }>
+    >(
       `select pg_get_constraintdef(oid) as definition
          from pg_constraint
         where conname = 'fx_system_tx_session_execution_authority_check'`,
@@ -9033,19 +9646,21 @@ function schedulerRun(
     target,
     { claimDurationMilliseconds: 60_000, randomUuid: () => owner },
   );
-  return Result.getOrThrow(createPointMutationRedeliverySchedulerRunV1(
-    schedulerCheckpointPort(repository),
-    multiScope,
-    Object.freeze({
-      maximumInvocations: 1,
-      maximumAttemptPages: budgets.maxAttemptPages,
-      maximumCandidateAttempts: budgets.maxCandidateAttempts,
-      scopeLimitPerInvocation: budgets.scopeLimit,
-      maximumRunMilliseconds: 10_000,
-      maximumInvocationMilliseconds: 5_000,
-      settlementReserveMilliseconds: 1_000,
-    }),
-  ));
+  return Result.getOrThrow(
+    createPointMutationRedeliverySchedulerRunV1(
+      schedulerCheckpointPort(repository),
+      multiScope,
+      Object.freeze({
+        maximumInvocations: 1,
+        maximumAttemptPages: budgets.maxAttemptPages,
+        maximumCandidateAttempts: budgets.maxCandidateAttempts,
+        scopeLimitPerInvocation: budgets.scopeLimit,
+        maximumRunMilliseconds: 10_000,
+        maximumInvocationMilliseconds: 5_000,
+        settlementReserveMilliseconds: 1_000,
+      }),
+    ),
+  );
 }
 
 function schedulerCheckpointPort(
@@ -9085,46 +9700,49 @@ async function applicationExecutionAuthority(
   scopeId: string,
   schemaVersionId: string,
 ) {
-  const target = Result.getOrThrow(canonicalizeApplicationRuntimeTargetV1({
-    format: "flarex.application-runtime-target",
-    version: 1,
-    scopeId,
-    revisionId: "revision-test",
-    candidateId: "candidate-test",
-    analysisId: "analysis-test",
-    sourceArtifactRootSha256: "1".repeat(64),
-    manifestSha256: "2".repeat(64),
-    schemaSha256: "3".repeat(64),
-    functionCatalogSha256: "4".repeat(64),
-    publicationSha256: "5".repeat(64),
-    executionModulePath: "_flarex/application.js",
-    function: {
-      path: "users:create",
-      moduleName: "users",
-      exportName: "create",
-      kind: "mutation",
-      visibility: "public",
-      args: { type: "object", value: {} },
-      returns: { type: "null" },
-      partition: null,
-      entrySha256: "6".repeat(64),
-    },
-  }));
+  const target = Result.getOrThrow(
+    canonicalizeApplicationRuntimeTargetV1({
+      format: "flarex.application-runtime-target",
+      version: 1,
+      scopeId,
+      revisionId: "revision-test",
+      candidateId: "candidate-test",
+      analysisId: "analysis-test",
+      sourceArtifactRootSha256: "1".repeat(64),
+      manifestSha256: "2".repeat(64),
+      schemaSha256: "3".repeat(64),
+      functionCatalogSha256: "4".repeat(64),
+      publicationSha256: "5".repeat(64),
+      executionModulePath: "_flarex/application.js",
+      function: {
+        path: "users:create",
+        moduleName: "users",
+        exportName: "create",
+        kind: "mutation",
+        visibility: "public",
+        args: { type: "object", value: {} },
+        returns: { type: "null" },
+        partition: null,
+        entrySha256: "6".repeat(64),
+      },
+    }),
+  );
   const ownedTargetBytes = new Uint8Array(target.canonicalBytes.byteLength);
   ownedTargetBytes.set(target.canonicalBytes);
-  const targetDigest = new Uint8Array(await crypto.subtle.digest(
-    "SHA-256",
-    ownedTargetBytes.buffer,
-  ));
-  return runEffect(canonicalizeApplicationMutationExecutionAuthorityV1({
-    format: "flarex.application-mutation-execution-authority",
-    version: 1,
-    runtimeTarget: target.target,
-    runtimeTargetSha256: bytesToHex(targetDigest),
-    activationSequence: "1",
-    activeHeadSha256: "7".repeat(64),
-    schemaVersionId,
-  }));
+  const targetDigest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", ownedTargetBytes.buffer),
+  );
+  return runEffect(
+    canonicalizeApplicationMutationExecutionAuthorityV1({
+      format: "flarex.application-mutation-execution-authority",
+      version: 1,
+      runtimeTarget: target.target,
+      runtimeTargetSha256: bytesToHex(targetDigest),
+      activationSequence: "1",
+      activeHeadSha256: "7".repeat(64),
+      schemaVersionId,
+    }),
+  );
 }
 
 function selectorFromAnchor(

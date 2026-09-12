@@ -28,7 +28,7 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real PostgreSQL O11-E retained-history maintenance", () => {
   it("completes all physical owners in foreign-key dependency order", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
       const locator = sharedLocator("o11e-maintenance-postgres");
       const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
         "deployment_retained_history_maintenance_postgres",
@@ -53,7 +53,7 @@ describePostgres("real PostgreSQL O11-E retained-history maintenance", () => {
               },
             },
             scopeClockTargets: {
-              resolve: async physicalLocator =>
+              resolve: async (physicalLocator) =>
                 createPostgresLocatedRetainedHistoryFloorTarget(
                   persistence,
                   physicalLocator,
@@ -67,11 +67,9 @@ describePostgres("real PostgreSQL O11-E retained-history maintenance", () => {
         }),
       );
 
-      const receipt = await runEffect(runRetainedHistoryMaintenanceEffect(
-        cleanup,
-        deploymentId,
-        null,
-      ));
+      const receipt = await runEffect(
+        runRetainedHistoryMaintenanceEffect(cleanup, deploymentId, null),
+      );
       expect(receipt).toMatchObject({
         status: "maintenanceComplete",
         stopReason: "exhausted",
@@ -86,15 +84,16 @@ describePostgres("real PostgreSQL O11-E retained-history maintenance", () => {
         deletedAppRowRevisionCount: 1,
         continuation: null,
       });
-      await expect(readConnectedHistory(persistence, scopeId)).resolves
-        .toEqual({
+      await expect(readConnectedHistory(persistence, scopeId)).resolves.toEqual(
+        {
           commits: ["3"],
           changes: [],
           indexes: ["3"],
           indexCurrent: ["3"],
           appRows: ["1", "3"],
           appCurrent: ["3"],
-        });
+        },
+      );
     });
   }, 120_000);
 });
@@ -117,16 +116,21 @@ async function seedConnectedHistory(
        from fx_system_scope_clock where scope_id = $1`,
       [scopeId, rowId, commitSeq],
     );
+    if (commitSeq === 1)
+      await persistence.query(
+        `insert into fx_app_row_current (scope_uuid, table_id, row_id, commit_seq)
+       select scope_uuid, 1, decode($2, 'hex'), 1 from fx_system_scope_clock where scope_id = $1`,
+        [scopeId, rowId],
+      );
     await persistence.query(
       `insert into fx_app_index_entry_rev
          (scope_uuid, index_definition_id, table_id, key_codec_version,
           physical_spec_sha256, encoded_key, key_sha256, row_id,
-          commit_seq, prev_commit_seq, write_epoch_uuid, is_tombstone)
+          commit_seq, is_tombstone)
        select scope_uuid, 1, 1, 1, decode(repeat('66', 32), 'hex'),
               decode('77', 'hex'), decode(repeat('88', 32), 'hex'),
               decode($2, 'hex'), $3::bigint,
-              case when $3::bigint = 1 then null else $3::bigint - 1 end,
-              epoch_uuid, false
+              false
        from fx_system_scope_clock where scope_id = $1`,
       [scopeId, rowId, commitSeq],
     );
@@ -134,7 +138,8 @@ async function seedConnectedHistory(
   await persistence.query(
     `insert into fx_app_row_current (scope_uuid, table_id, row_id, commit_seq)
      select scope_uuid, 1, decode($2, 'hex'), 3
-     from fx_system_scope_clock where scope_id = $1`,
+     from fx_system_scope_clock where scope_id = $1
+     on conflict (scope_uuid, table_id, row_id) do update set commit_seq = excluded.commit_seq`,
     [scopeId, rowId],
   );
   await persistence.query(
@@ -174,29 +179,25 @@ async function seedConnectedHistory(
 async function readConnectedHistory(
   persistence: PostgresFlarexPersistence,
   scopeId: string,
-): Promise<Readonly<{
-  readonly commits: ReadonlyArray<string>;
-  readonly changes: ReadonlyArray<string>;
-  readonly indexes: ReadonlyArray<string>;
-  readonly indexCurrent: ReadonlyArray<string>;
-  readonly appRows: ReadonlyArray<string>;
-  readonly appCurrent: ReadonlyArray<string>;
-}>> {
-  const [
-    commits,
-    changes,
-    indexes,
-    indexCurrent,
-    appRows,
-    appCurrent,
-  ] = await Promise.all([
-    readCommitSeqs(persistence, "fx_system_commit", scopeId),
-    readCommitSeqs(persistence, "fx_system_commit_app_row_change", scopeId),
-    readCommitSeqs(persistence, "fx_app_index_entry_rev", scopeId),
-    readCommitSeqs(persistence, "fx_app_index_entry_current", scopeId),
-    readCommitSeqs(persistence, "fx_app_row_rev", scopeId),
-    readCommitSeqs(persistence, "fx_app_row_current", scopeId),
-  ]);
+): Promise<
+  Readonly<{
+    readonly commits: ReadonlyArray<string>;
+    readonly changes: ReadonlyArray<string>;
+    readonly indexes: ReadonlyArray<string>;
+    readonly indexCurrent: ReadonlyArray<string>;
+    readonly appRows: ReadonlyArray<string>;
+    readonly appCurrent: ReadonlyArray<string>;
+  }>
+> {
+  const [commits, changes, indexes, indexCurrent, appRows, appCurrent] =
+    await Promise.all([
+      readCommitSeqs(persistence, "fx_system_commit", scopeId),
+      readCommitSeqs(persistence, "fx_system_commit_app_row_change", scopeId),
+      readCommitSeqs(persistence, "fx_app_index_entry_rev", scopeId),
+      readCommitSeqs(persistence, "fx_app_index_entry_current", scopeId),
+      readCommitSeqs(persistence, "fx_app_row_rev", scopeId),
+      readCommitSeqs(persistence, "fx_app_row_current", scopeId),
+    ]);
   return Object.freeze({
     commits,
     changes,
@@ -225,7 +226,7 @@ async function readCommitSeqs(
      ) order by commit_seq`,
     [scopeId],
   );
-  return Object.freeze(result.rows.map(row => row.value));
+  return Object.freeze(result.rows.map((row) => row.value));
 }
 
 function sharedLocator(

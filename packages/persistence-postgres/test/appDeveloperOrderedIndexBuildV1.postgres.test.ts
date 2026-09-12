@@ -55,7 +55,7 @@ describe("C08 developer ordered-index PostgreSQL environment", () => {
 
 describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
   it("proves rollback, scope-clock serialization, replay, and the validation access path", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
       const fixture = await makeFixture(persistence);
       const version = await persistence.query<{ server_version: string }>(
         "show server_version",
@@ -64,17 +64,15 @@ describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
 
       await buildStep(fixture);
       await buildStep(fixture);
-      const fault = await runEffectFailure(buildAppDeveloperOrderedIndexV1Effect(
-        fixture.ports,
-        fixture.input,
-        {
-          faultAfter: point => {
+      const fault = await runEffectFailure(
+        buildAppDeveloperOrderedIndexV1Effect(fixture.ports, fixture.input, {
+          faultAfter: (point) => {
             if (point === "afterEntryWrite") {
               throw new Error("postgres developer-index rollback");
             }
           },
-        },
-      ));
+        }),
+      );
       expect(fault).toBeInstanceOf(
         AppDeveloperOrderedIndexBuildIntegrationV1Error,
       );
@@ -86,17 +84,15 @@ describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
 
       const clockLocked = deferredSignal();
       const releaseClock = deferredSignal();
-      const first = runEffect(buildAppDeveloperOrderedIndexV1Effect(
-        fixture.ports,
-        fixture.input,
-        {
-          faultAfter: async point => {
+      const first = runEffect(
+        buildAppDeveloperOrderedIndexV1Effect(fixture.ports, fixture.input, {
+          faultAfter: async (point) => {
             if (point !== "afterScopeClockLock") return;
             clockLocked.resolve();
             await releaseClock.promise;
           },
-        },
-      ));
+        }),
+      );
       await clockLocked.promise;
       const second = buildStep(fixture);
       try {
@@ -105,7 +101,7 @@ describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
         releaseClock.resolve();
       }
       const concurrent = await Promise.all([first, second]);
-      expect(concurrent.map(result => result.lifecycle)).toEqual([
+      expect(concurrent.map((result) => result.lifecycle)).toEqual([
         "backfilling",
         "validating",
       ]);
@@ -124,7 +120,8 @@ describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
         "select scope_uuid::text from fx_system_scope_clock limit 1",
       );
       const scopeUuid = scope.rows[0]?.scope_uuid;
-      if (scopeUuid === undefined) throw new Error("Developer build scope missing.");
+      if (scopeUuid === undefined)
+        throw new Error("Developer build scope missing.");
       const plan = await persistence.query<{ "QUERY PLAN": unknown }>(
         `explain (analyze, buffers, format json)
          select distinct row_id
@@ -172,24 +169,28 @@ async function makeFixture(persistence: PostgresFlarexPersistence) {
     deploymentId,
     schemaVersionId,
     version: CatalogSchemaVersionSchema.make(1),
-    tables: [{
-      logicalName: "users",
-      definition: {
-        kind: "appDocument",
-        definitionVersion: 1,
-        documentType: {
-          type: "object",
-          value: {
-            name: { fieldType: { type: "string" }, optional: false },
+    tables: [
+      {
+        logicalName: "users",
+        definition: {
+          kind: "appDocument",
+          definitionVersion: 1,
+          documentType: {
+            type: "object",
+            value: {
+              name: { fieldType: { type: "string" }, optional: false },
+            },
           },
         },
       },
-    }],
-    indexes: [{
-      tableLogicalName: "users",
-      descriptor: "by_name",
-      fields: ["name"],
-    }],
+    ],
+    indexes: [
+      {
+        tableLogicalName: "users",
+        descriptor: "by_name",
+        fields: ["name"],
+      },
+    ],
   });
   for (let value = 1; value <= 18; value += 1) {
     await insertRow(
@@ -217,20 +218,25 @@ async function makeFixture(persistence: PostgresFlarexPersistence) {
       scopeClockTargets: { resolve: async () => target },
     },
   } as const;
-  const reconciliation = await runEffect(reconcilePublishedIndexBuildsV1Effect(
-    ports,
-    { deploymentId, schemaVersionId },
-  ));
+  const reconciliation = await runEffect(
+    reconcilePublishedIndexBuildsV1Effect(ports, {
+      deploymentId,
+      schemaVersionId,
+    }),
+  );
   if (reconciliation.status !== "reconciled") {
     throw new Error("Developer PostgreSQL fixture did not reconcile.");
   }
-  let indexDefinitionId: (typeof reconciliation.definitionIds)[number] | undefined;
+  let indexDefinitionId:
+    (typeof reconciliation.definitionIds)[number] | undefined;
   for (const candidate of reconciliation.definitionIds) {
-    const definition = await runEffect(locateAppIndexDefinitionByIdEffect(
-      persistence.drizzle,
-      scopeId,
-      candidate,
-    ));
+    const definition = await runEffect(
+      locateAppIndexDefinitionByIdEffect(
+        persistence.drizzle,
+        scopeId,
+        candidate,
+      ),
+    );
     if (definition?.access.kind === "developer") {
       indexDefinitionId = candidate;
       break;
@@ -264,7 +270,7 @@ async function waitForBlockedScopeClock(
           and query ilike '%fx_system_scope_clock%'`,
     );
     if ((result.rows[0]?.blocked ?? 0) >= 1) return;
-    await new Promise(resolve => setTimeout(resolve, 25));
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error("Timed out waiting for a blocked developer-index builder.");
 }
@@ -304,7 +310,7 @@ async function insertRow(
   const clock = await persistence.getScopeClock(scopeId);
   if (clock === null) throw new Error("Developer PostgreSQL clock missing.");
   const commitSeq = CommitSeqSchema.make(commitSeqValue);
-  await persistence.drizzle.transaction(async tx => {
+  await persistence.drizzle.transaction(async (tx) => {
     await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live",
       scopeId,
@@ -322,37 +328,39 @@ async function insertRow(
         sha256: document.sha256,
       },
     });
-    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(
-      eq(fxSystemScopeClocks.scopeId, scopeId),
-    );
+    await tx
+      .update(fxSystemScopeClocks)
+      .set({ lastCommitSeq: commitSeq })
+      .where(eq(fxSystemScopeClocks.scopeId, scopeId));
   });
 }
 
 function buildStep(fixture: Awaited<ReturnType<typeof makeFixture>>) {
-  return runEffect(buildAppDeveloperOrderedIndexV1Effect(
-    fixture.ports,
-    fixture.input,
-  ));
+  return runEffect(
+    buildAppDeveloperOrderedIndexV1Effect(fixture.ports, fixture.input),
+  );
 }
 
 function counts(
   persistence: PostgresFlarexPersistence,
   indexDefinitionId: number,
 ) {
-  return persistence.query<{
-    revisions: string;
-    current: string;
-    lifecycle: string;
-  }>(
-    `select
+  return persistence
+    .query<{
+      revisions: string;
+      current: string;
+      lifecycle: string;
+    }>(
+      `select
        (select count(*)::text from fx_app_index_entry_rev
          where index_definition_id = $1) as revisions,
        (select count(*)::text from fx_app_index_entry_current
          where index_definition_id = $1) as current,
        (select lifecycle from fx_system_index_build_state
          where index_definition_id = $1) as lifecycle`,
-    [indexDefinitionId],
-  ).then(result => result.rows[0]);
+      [indexDefinitionId],
+    )
+    .then((result) => result.rows[0]);
 }
 
 async function seedPlannerRows(
@@ -386,6 +394,12 @@ async function seedPlannerRows(
     [firstCommit, lastCommit],
   );
   await persistence.query(
+    `insert into fx_app_row_current (scope_uuid, table_id, row_id, commit_seq)
+     select scope_uuid, table_id, row_id, commit_seq from fx_app_row_rev
+     where commit_seq between $1::integer and $2::integer on conflict do nothing`,
+    [firstCommit, lastCommit],
+  );
+  await persistence.query(
     `with generated as (
        select series.value,
               decode(lpad(to_hex(series.value), 32, '0'), 'hex') as row_id,
@@ -395,12 +409,11 @@ async function seedPlannerRows(
      insert into fx_app_index_entry_rev
        (scope_uuid, index_definition_id, table_id, key_codec_version,
         physical_spec_sha256, encoded_key, key_sha256, row_id,
-        commit_seq, prev_commit_seq, write_epoch_uuid, is_tombstone)
+        commit_seq, is_tombstone)
      select template.scope_uuid, template.index_definition_id,
             template.table_id, template.key_codec_version,
             template.physical_spec_sha256, template.encoded_key,
-            template.key_sha256, generated.row_id, generated.value, null,
-            template.write_epoch_uuid, false
+            template.key_sha256, generated.row_id, generated.value, false
        from generated
        join lateral (
          select revision.*

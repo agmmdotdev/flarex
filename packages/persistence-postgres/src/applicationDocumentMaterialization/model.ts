@@ -215,7 +215,6 @@ export interface PointCommitDeveloperIndexEntryActionV1 {
   readonly definition: LocatedAppIndexDefinitionV1;
   readonly encodedKey: OrderedIndexKeyHexV1;
   readonly rowId: OrderedIndexRowIdHexV1;
-  readonly prevCommitSeq: CommitSeq | null;
 }
 
 export interface PointCommitDeveloperIndexRowPlanV1 {
@@ -265,6 +264,7 @@ export interface PointCommitUniqueKeyActionV1 {
 }
 
 export interface PointCommitDeveloperIndexPositionV1 {
+  readonly definition: LocatedAppIndexDefinitionV1;
   readonly definitionId: CatalogIndexDefinitionId;
   readonly encodedKey: OrderedIndexKeyHexV1;
   readonly rowId: OrderedIndexRowIdHexV1;

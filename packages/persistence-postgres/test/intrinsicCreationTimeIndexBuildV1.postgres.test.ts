@@ -5,8 +5,10 @@ import {
   appDocumentIdV1FromRowIdentity,
   decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
-import { decodeCatalogIndexDefinitionId, decodeCatalogTableId } from
-  "flarex-protocol/catalog";
+import {
+  decodeCatalogIndexDefinitionId,
+  decodeCatalogTableId,
+} from "flarex-protocol/catalog";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
@@ -18,9 +20,7 @@ import {
 } from "flarex-protocol/storage-authority";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 
-import {
-  appendAppRowRevisionAndAdvanceCurrentInTransaction,
-} from "../src/appRows";
+import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from "../src/appRows";
 import {
   buildIntrinsicCreationTimeIndexV1Effect,
   IntrinsicCreationTimeIndexBuildIntegrationV1Error,
@@ -56,7 +56,7 @@ describe("C08-I1 PostgreSQL acceptance environment", () => {
 
 describePostgres("real PostgreSQL C08-I1 intrinsic index builder", () => {
   it("proves rollback, concurrent bounded progress, replay, and exact contents", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
       const fixture = await makeFixture(persistence);
       const version = await persistence.query<{ server_version: string }>(
         "show server_version",
@@ -66,17 +66,13 @@ describePostgres("real PostgreSQL C08-I1 intrinsic index builder", () => {
       await buildStep(fixture);
       await buildStep(fixture);
       const failure = await runEffectFailure(
-        buildIntrinsicCreationTimeIndexV1Effect(
-          fixture.ports,
-          fixture.input,
-          {
-            faultAfter: point => {
-              if (point === "afterEntryWrite") {
-                throw new Error("postgres C08 rollback");
-              }
-            },
+        buildIntrinsicCreationTimeIndexV1Effect(fixture.ports, fixture.input, {
+          faultAfter: (point) => {
+            if (point === "afterEntryWrite") {
+              throw new Error("postgres C08 rollback");
+            }
           },
-        ),
+        }),
       );
       expect(failure).toBeInstanceOf(
         IntrinsicCreationTimeIndexBuildIntegrationV1Error,
@@ -90,7 +86,7 @@ describePostgres("real PostgreSQL C08-I1 intrinsic index builder", () => {
       const concurrent = await Promise.all(
         Array.from({ length: 8 }, () => buildStep(fixture)),
       );
-      expect(concurrent.some(result => result.lifecycle === "enabled")).toBe(
+      expect(concurrent.some((result) => result.lifecycle === "enabled")).toBe(
         true,
       );
       expect(await counts(persistence)).toEqual({
@@ -103,7 +99,7 @@ describePostgres("real PostgreSQL C08-I1 intrinsic index builder", () => {
   }, 180_000);
 
   it("uses the row-validation index for large bounded pages without planner overrides", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
       const fixture = await makeFixture(persistence);
       for (let step = 0; step < 8; step += 1) {
         if ((await buildStep(fixture)).lifecycle === "enabled") break;
@@ -176,6 +172,12 @@ async function seedPlannerRows(
     [firstCommit, lastCommit],
   );
   await persistence.query(
+    `insert into fx_app_row_current (scope_uuid, table_id, row_id, commit_seq)
+     select scope_uuid, table_id, row_id, commit_seq from fx_app_row_rev
+     where commit_seq between $1::integer and $2::integer on conflict do nothing`,
+    [firstCommit, lastCommit],
+  );
+  await persistence.query(
     `with generated as (
        select series.value,
               decode(lpad(to_hex(series.value), 32, '0'), 'hex') as row_id,
@@ -185,12 +187,11 @@ async function seedPlannerRows(
      insert into fx_app_index_entry_rev
        (scope_uuid, index_definition_id, table_id, key_codec_version,
         physical_spec_sha256, encoded_key, key_sha256, row_id,
-        commit_seq, prev_commit_seq, write_epoch_uuid, is_tombstone)
+        commit_seq, is_tombstone)
      select template.scope_uuid, template.index_definition_id,
             template.table_id, template.key_codec_version,
             template.physical_spec_sha256, template.encoded_key,
-            template.key_sha256, generated.row_id, generated.value, null,
-            template.write_epoch_uuid, false
+            template.key_sha256, generated.row_id, generated.value, false
      from generated
      join lateral (
        select revision.*
@@ -224,32 +225,39 @@ async function makeFixture(persistence: PostgresFlarexPersistence) {
     deploymentId,
     projectId: "project_c08_postgres",
   });
-  await persistence.insertScopeMetadata({ scopeId, deploymentId, physicalLocator: LOCATOR });
+  await persistence.insertScopeMetadata({
+    scopeId,
+    deploymentId,
+    physicalLocator: LOCATOR,
+  });
   await persistence.query(
     `insert into fx_system_scope_clock
       (scope_id, storage_generation, storage_generation_fence, last_commit_seq, epoch)
       values ($1, 'flarexdb_v1', 1, 0, $2)`,
-    [scopeId, ScopeEpochSchema.make(
-      "epoch_c0810000-0000-0000-0000-000000000001",
-    )],
+    [
+      scopeId,
+      ScopeEpochSchema.make("epoch_c0810000-0000-0000-0000-000000000001"),
+    ],
   );
   await persistence.publishAppSchemaV1({
     deploymentId,
     schemaVersionId,
     version: CatalogSchemaVersionSchema.make(1),
-    tables: [{
-      logicalName: "users",
-      definition: {
-        kind: "appDocument",
-        definitionVersion: 1,
-        documentType: {
-          type: "object",
-          value: {
-            name: { fieldType: { type: "string" }, optional: false },
+    tables: [
+      {
+        logicalName: "users",
+        definition: {
+          kind: "appDocument",
+          definitionVersion: 1,
+          documentType: {
+            type: "object",
+            value: {
+              name: { fieldType: { type: "string" }, optional: false },
+            },
           },
         },
       },
-    }],
+    ],
     indexes: [],
   });
   for (let value = 1; value <= 18; value += 1) {
@@ -279,10 +287,12 @@ async function makeFixture(persistence: PostgresFlarexPersistence) {
       scopeClockTargets: { resolve: async () => target },
     },
   } as const;
-  await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
-    deploymentId,
-    schemaVersionId,
-  }));
+  await runEffect(
+    reconcilePublishedIndexBuildsV1Effect(ports, {
+      deploymentId,
+      schemaVersionId,
+    }),
+  );
   return Object.freeze({
     ports,
     input: Object.freeze({
@@ -306,15 +316,18 @@ async function insertRow(
   );
   const tableId = decodeCatalogTableId(1);
   const creationTime = decodeAppCreationTimeV1(creationTimeValue);
-  const document = await canonicalizeFlarexValueV1({
-    _id: appDocumentIdV1FromRowIdentity({ tableId, rowId }),
-    _creationTime: creationTime,
-    name: `row-${rowByte}`,
-  }, "appDocument");
+  const document = await canonicalizeFlarexValueV1(
+    {
+      _id: appDocumentIdV1FromRowIdentity({ tableId, rowId }),
+      _creationTime: creationTime,
+      name: `row-${rowByte}`,
+    },
+    "appDocument",
+  );
   const clock = await persistence.getScopeClock(scopeId);
   if (clock === null) throw new Error("PostgreSQL C08 scope clock missing");
   const commitSeq = CommitSeqSchema.make(commitSeqValue);
-  await persistence.drizzle.transaction(async tx => {
+  await persistence.drizzle.transaction(async (tx) => {
     await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live",
       scopeId,
@@ -332,28 +345,30 @@ async function insertRow(
         sha256: document.sha256,
       },
     });
-    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(
-      eq(fxSystemScopeClocks.scopeId, scopeId),
-    );
+    await tx
+      .update(fxSystemScopeClocks)
+      .set({ lastCommitSeq: commitSeq })
+      .where(eq(fxSystemScopeClocks.scopeId, scopeId));
   });
 }
 
 function buildStep(fixture: Awaited<ReturnType<typeof makeFixture>>) {
-  return runEffect(buildIntrinsicCreationTimeIndexV1Effect(
-    fixture.ports,
-    fixture.input,
-  ));
+  return runEffect(
+    buildIntrinsicCreationTimeIndexV1Effect(fixture.ports, fixture.input),
+  );
 }
 
 function counts(persistence: PostgresFlarexPersistence) {
-  return persistence.query<{
-    revisions: string;
-    current: string;
-    lifecycle: string;
-  }>(
-    `select
+  return persistence
+    .query<{
+      revisions: string;
+      current: string;
+      lifecycle: string;
+    }>(
+      `select
        (select count(*)::text from fx_app_index_entry_rev) as revisions,
        (select count(*)::text from fx_app_index_entry_current) as current,
        (select lifecycle from fx_system_index_build_state limit 1) as lifecycle`,
-  ).then(result => result.rows[0]);
+    )
+    .then((result) => result.rows[0]);
 }

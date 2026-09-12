@@ -904,13 +904,17 @@ cap-plus-one control-catalog join follows the pinned schema's immutable foreign-
 key-backed bindings directly to definitions owned by touched tables. Inside the existing
 scope-clock transaction, O07-B batch-locks those exact C4 build rows, decodes
 and verifies prior canonical row evidence, lowers prior and final keys through
-the existing Ordered Index V1 physical spec, and appends the existing S10
-revision/current chains. Same-key updates advance one live chain; key movement
-tombstones the prior key and publishes the new key; deletion tombstones the
-prior key. Actions are deterministic and capped at 256 entry revisions per
-commit, enabled builds require exact prior sidecar lineage, and validating
-builds are invalidated in the same transaction. No schema, migration, active
-reader, query authority, alternate OCC/commit owner, or unique claim was added.
+the existing Ordered Index V1 physical spec. Ordered history records membership
+transitions independently of row-body revisions. Same-key updates authenticate
+the latest key/spec/digest evidence and current pointer, then omit index writes;
+key movement tombstones the prior key and inserts the new key. Deletion removes
+the prior membership. Deterministic actions remain capped at 256 transitions per
+commit. Enabled builds require the expected prior membership, and validating
+builds are invalidated in the same transaction. Returned-row point dependencies
+preserve conflicts for body-only updates; range dependencies preserve membership
+and ordering conflicts. Stable row-identity FKs replace exact body-revision links.
+See [the storage redesign](../shared-transaction-core/07-transactional-storage-redesign.md)
+for builder, floor compaction, and migration boundaries.
 PGlite and genuine PostgreSQL prove insert, same-key update, delete, dotted
 missing-path lowering, key movement, mixed unchanged/material dependency
 ordering, oversized-key refusal, fault after the second sidecar write, exact

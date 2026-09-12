@@ -13,8 +13,9 @@ bodies atomically while retaining their request identity and outcome selector.
 Slice 4 uses one canonical byte body plus digest for Application row revisions;
 the JSONB mirror and its readers/projection checks are removed. Unique claims now
 retain stable ownership without document-revision provenance or same-key refresh;
-physical constraint coverage replaces schema-set progress. Membership-only ordered
-history remains pending, and the coalesced-journal contract
+physical constraint coverage replaces schema-set progress. Ordered history now
+records membership transitions; unchanged keys retain their prior membership
+sequence while row bodies and returned-row OCC dependencies advance. The coalesced-journal contract
 remains a separate selection. Payload and Medusa operation APIs remain unchanged by these replacements;
 exported core clock/counter types lose their obsolete wake-sequence fields.
 
@@ -185,15 +186,15 @@ making those claims. Compression and TOAST prevent a fixed percentage guarantee.
 
 ### Membership History Instead Of Row-Revision Mirroring
 
-Current [materialization](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts)
-explicitly emits a live developer-index action for an unchanged key and advances
-the immutable creation-time index for each changed row. The
-[append owner](../../packages/persistence-postgres/src/appIndexEntries.ts) checks
-scope, existing revision, predecessor, and parent row before writing history and
-current state. The same-commit row FK and previous-row/index equality make this
-a coupled representation, not a removable redundant INSERT.
+The [materialization owner](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts)
+compares prior and final keys and authenticates the latest membership's complete
+key/spec/digest evidence and exact current pointer before omitting unchanged
+writes. The [append owner](../../packages/persistence-postgres/src/appIndexEntries.ts)
+accepts only monotonic live/absent transitions, checks the stable row identity,
+and retains the existing current-scope epoch fence for ordinary writes. Historical
+builders authenticate exact row/fact epochs at their existing boundary.
 
-Proposed rules:
+Implemented rules:
 
 - Insert a membership: write a live transition and current entry.
 - Delete a membership: write a tombstone and remove current entry.
@@ -214,7 +215,7 @@ already hydrate rows independently at their snapshots. Mutation queries already
 record returned-row point dependencies. Those are reuse points, not permission
 to omit phantom, empty-range, pagination, or overlay proofs.
 
-Keep the existing physical table pair, with this proposed history key:
+Keep the existing physical table pair, with this history key:
 
 ```text
 PRIMARY KEY (scope_uuid, index_definition_id, encoded_key, row_id, change_commit_seq)
@@ -270,17 +271,26 @@ returned-row dependencies; this design does not approve replacing current
 table invalidation with membership-only invalidation.
 
 Convex [index updates](../../../../crates/indexing/src/index_registry.rs) also emit a
-live index update when the key stays the same. The proposed Flarex storage is a
+live index update when the key stays the same. The implemented Flarex storage is a
 deliberate persistence divergence preserving query results and conflict safety,
 not removal of a behavior solely invented for compatibility.
 
-A reproduced candidate-only index gap blocks the membership rewrite: after the
-candidate build enables, active-schema writes can be absent from that index even
-after normal replanning and activation. The separate
-[coverage correction preflight](./08-index-coverage-correction.md) proposes the
-required index-owner freshness contract. Its new contract is not yet approved;
-row-body work remains independent. Do not fix this by enforcing candidate-only
-constraints or extra fanout against valid active-schema writes.
+The prerequisite [coverage correction](./08-index-coverage-correction.md) is
+implemented for ordered indexes and physical unique definitions. Coverage still
+owns the first-readable snapshot and candidate catch-up; a builder accepts an
+authenticated older live membership without refreshing it to the row sequence.
+Scope-clock fencing, exact row/fact authentication, and per-commit historical
+reconciliation remain with their existing owners.
+
+Migration 0098 removes membership predecessor/epoch columns and replaces the
+exact body-revision FK with the stable row-identity FK. It preserves retained old
+membership events and current pointers; no parallel reader or dual write remains.
+Compaction retains transitions newer than the floor and a needed floor anchor.
+A terminal tombstone can be pruned with its entire older prefix, in ascending
+bounded pages. Replaying an exact cursor after that final deletion advances past
+the identity, so a lost response cannot strand the directory. Row history keeps
+its own distinct retention obligations. Payload and Medusa operation APIs remain
+unchanged; this is a private persistence, builder, and materialization contract.
 
 ### Stable Unique Ownership And Existing Relation Deltas
 

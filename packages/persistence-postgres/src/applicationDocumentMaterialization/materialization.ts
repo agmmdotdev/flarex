@@ -1,4 +1,7 @@
-import { isIndexBuildSnapshotCoveredInTransactionEffect, validateIndexBuildStateFrontierResult } from "../indexBuildStates";
+import {
+  isIndexBuildSnapshotCoveredInTransactionEffect,
+  validateIndexBuildStateFrontierResult,
+} from "../indexBuildStates";
 import { sqlCall } from "../pointCommitErrors";
 import {
   runPointCommitInTransactionEffect,
@@ -51,7 +54,7 @@ import {
 
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 
 import {
@@ -114,7 +117,8 @@ import {
 } from "../appUniqueConstraintDefinitions";
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
-  prepareActiveUniqueCoverageInTransactionEffect, advanceActiveUniqueCoverageInTransactionEffect,
+  prepareActiveUniqueCoverageInTransactionEffect,
+  advanceActiveUniqueCoverageInTransactionEffect,
 } from "../appUniqueConstraintSetBuildV1";
 import {
   applyAppUniqueKeyMutationInTransactionEffect,
@@ -129,7 +133,11 @@ import {
   type AppUniqueKeyProjectionV1,
   type CanonicalAppUniqueKeyV1,
 } from "../appUniqueKeyContract";
-import { appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult } from "../appIndexEntries";
+import {
+  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
+  AppIndexEntryReadPersistenceError,
+  readAppIndexMembershipHeadsInTransactionEffect,
+} from "../appIndexEntries";
 import type {
   LocatedAppIndexDefinitionV1,
   ReadAppIndexDefinitionError,
@@ -542,7 +550,14 @@ export async function materializeApplicationDocumentRows(
   options: ApplicationDocumentMaterializationOptions,
 ): Promise<void> {
   const writeEpoch = clock.epoch;
-  const uniqueBuilds = await runUniqueCoverage(prepareActiveUniqueCoverageInTransactionEffect(tx, clock, command.authorityPins.schemaVersionId, uniqueDefinitions));
+  const uniqueBuilds = await runUniqueCoverage(
+    prepareActiveUniqueCoverageInTransactionEffect(
+      tx,
+      clock,
+      command.authorityPins.schemaVersionId,
+      uniqueDefinitions,
+    ),
+  );
   const maintainedBuilds = [...intrinsicBuilds, ...developerBuilds];
   for (const { build, definition } of maintainedBuilds) {
     if (build.lifecycle !== "enabled") continue;
@@ -660,13 +675,41 @@ export async function materializeApplicationDocumentRows(
     if (updated.length !== 1) throw corruption("developerIndexBuildInvalid");
   }
 
-  await runUniqueCoverage(advanceActiveUniqueCoverageInTransactionEffect(tx, uniqueBuilds, commitSeq, command.authorityPins.schemaVersionId));
-  if (uniqueBuilds.length > 0) await emitTransactionStep(options, command, "uniqueConstraintCoverageAdvanced");
+  await runUniqueCoverage(
+    advanceActiveUniqueCoverageInTransactionEffect(
+      tx,
+      uniqueBuilds,
+      commitSeq,
+      command.authorityPins.schemaVersionId,
+    ),
+  );
+  if (uniqueBuilds.length > 0)
+    await emitTransactionStep(
+      options,
+      command,
+      "uniqueConstraintCoverageAdvanced",
+    );
 }
 
-async function runUniqueCoverage<A>(effect: Effect.Effect<A, AppUniqueConstraintSetBuildIntegrationV1Error | import("../appUniqueConstraintSetBuildV1").AppUniqueConstraintSetBuildStateV1Error>): Promise<A> {
-  return projectPointCommitTransactionResult((await runPointCommitInTransactionEffect(effect)).pipe(Result.mapError(failure =>
-    failure instanceof AppUniqueConstraintSetBuildIntegrationV1Error ? new PointCommitSqlFailureMarkerV1("maintainUniqueConstraintCoverage", failure.cause) : corruption("uniqueConstraintBuildInvalid"))));
+async function runUniqueCoverage<A>(
+  effect: Effect.Effect<
+    A,
+    | AppUniqueConstraintSetBuildIntegrationV1Error
+    | import("../appUniqueConstraintSetBuildV1").AppUniqueConstraintSetBuildStateV1Error
+  >,
+): Promise<A> {
+  return projectPointCommitTransactionResult(
+    (await runPointCommitInTransactionEffect(effect)).pipe(
+      Result.mapError((failure) =>
+        failure instanceof AppUniqueConstraintSetBuildIntegrationV1Error
+          ? new PointCommitSqlFailureMarkerV1(
+              "maintainUniqueConstraintCoverage",
+              failure.cause,
+            )
+          : corruption("uniqueConstraintBuildInvalid"),
+      ),
+    ),
+  );
 }
 
 export async function preparePointCommitApplicationRelationPlan(
@@ -1257,9 +1300,12 @@ export async function lockPointCommitDeveloperIndexBuilds(
     ) {
       throw corruption("developerIndexBuildInvalid");
     }
-    projectPointCommitTransactionResult(validateIndexBuildStateFrontierResult(state, clock.record.lastCommitSeq).pipe(
-      Result.mapError(() => corruption("developerIndexBuildInvalid")),
-    ));
+    projectPointCommitTransactionResult(
+      validateIndexBuildStateFrontierResult(
+        state,
+        clock.record.lastCommitSeq,
+      ).pipe(Result.mapError(() => corruption("developerIndexBuildInvalid"))),
+    );
     locked.push(Object.freeze({ definition, build: state }));
   }
   return Object.freeze(locked);
@@ -1380,7 +1426,9 @@ export async function preparePointCommitDeveloperIndexActions(
       if (
         priorHead?.commitSeq !== null &&
         priorHead?.commitSeq !== undefined &&
-        (priorHead.isTombstone || priorHead.commitSeq !== plan.priorCommitSeq)
+        (priorHead.isTombstone ||
+          plan.priorCommitSeq === null ||
+          priorHead.commitSeq > plan.priorCommitSeq)
       ) {
         throw corruption("developerIndexTransitionInvalid");
       }
@@ -1390,24 +1438,26 @@ export async function preparePointCommitDeveloperIndexActions(
       ) {
         throw corruption("developerIndexTransitionInvalid");
       }
-      if (sameKey) {
+      if (sameKey && (priorHead === null || priorHead.commitSeq === null)) {
         actions.push(
           Object.freeze({
             kind: "live",
             definition: plan.definition,
             encodedKey: plan.priorKey,
             rowId: plan.rowId,
-            prevCommitSeq: priorHead?.commitSeq ?? null,
           }),
         );
-      } else if (priorHead !== null && priorHead.commitSeq !== null) {
+      } else if (
+        !sameKey &&
+        priorHead !== null &&
+        priorHead.commitSeq !== null
+      ) {
         actions.push(
           Object.freeze({
             kind: "tombstone",
             definition: plan.definition,
             encodedKey: plan.priorKey,
             rowId: plan.rowId,
-            prevCommitSeq: priorHead.commitSeq,
           }),
         );
       }
@@ -1422,7 +1472,6 @@ export async function preparePointCommitDeveloperIndexActions(
           definition: plan.definition,
           encodedKey: plan.finalKey,
           rowId: plan.rowId,
-          prevCommitSeq: finalHead?.commitSeq ?? null,
         }),
       );
     }
@@ -1510,7 +1559,8 @@ export async function preparePointCommitUniqueKeyActions(
       plan.previousCanonical?.kind === "claim" ? plan.previousCanonical : null;
     const nextClaim =
       plan.nextCanonical?.kind === "claim" ? plan.nextCanonical : null;
-    if (owner === null && previousClaim !== null) throw corruption("uniqueKeyTransitionInvalid");
+    if (owner === null && previousClaim !== null)
+      throw corruption("uniqueKeyTransitionInvalid");
     if (owner !== null) {
       if (
         plan.rowPrevCommitSeq === null ||
@@ -1583,18 +1633,39 @@ async function loadPointCommitUniqueKeyOwners(
   plans: ReadonlyArray<PointCommitUniqueKeyPlanV1>,
 ): Promise<ReadonlyMap<string, PointCommitUniqueKeyOwnerV1>> {
   const positions = uniquePointCommitUniqueKeyOwnerPositions(plans);
-  const claims = projectPointCommitTransactionResult((await runPointCommitInTransactionEffect(readAppUniqueKeyOwnersInTransactionEffect(tx, {
-    scopeId: command.authorityPins.scopeId,
-    positions: positions.map(position => {
-      const plan = plans.find(value => value.definition.uniqueConstraintDefinitionId === position.definitionId);
-      if (!plan) throw corruption("uniqueKeyTransitionInvalid");
-      return { constraintId: position.definitionId, tableId: position.tableId, rowId: position.rowId, componentCount: plan.definition.physicalSpec.orderedFields.length + 1 };
-    }),
-  }))).pipe(Result.mapError(mapPointCommitUniqueKeyFailure)));
+  const claims = projectPointCommitTransactionResult(
+    (
+      await runPointCommitInTransactionEffect(
+        readAppUniqueKeyOwnersInTransactionEffect(tx, {
+          scopeId: command.authorityPins.scopeId,
+          positions: positions.map((position) => {
+            const plan = plans.find(
+              (value) =>
+                value.definition.uniqueConstraintDefinitionId ===
+                position.definitionId,
+            );
+            if (!plan) throw corruption("uniqueKeyTransitionInvalid");
+            return {
+              constraintId: position.definitionId,
+              tableId: position.tableId,
+              rowId: position.rowId,
+              componentCount:
+                plan.definition.physicalSpec.orderedFields.length + 1,
+            };
+          }),
+        }),
+      )
+    ).pipe(Result.mapError(mapPointCommitUniqueKeyFailure)),
+  );
   const owners = new Map<string, PointCommitUniqueKeyOwnerV1>();
   for (const claim of claims) {
-    const key = uniqueKeyOwnerPosition(claim.constraintId, claim.tableId, claim.rowId);
-    if (claim.localeKey !== "" || owners.has(key)) throw corruption("uniqueKeyTransitionInvalid");
+    const key = uniqueKeyOwnerPosition(
+      claim.constraintId,
+      claim.tableId,
+      claim.rowId,
+    );
+    if (claim.localeKey !== "" || owners.has(key))
+      throw corruption("uniqueKeyTransitionInvalid");
     owners.set(key, Object.freeze({ encodedKey: claim.encodedKey }));
   }
   return owners;
@@ -1900,6 +1971,7 @@ function uniqueDeveloperIndexPositions(
         key,
         Object.freeze({
           definitionId: plan.definition.indexDefinitionId,
+          definition: plan.definition,
           encodedKey,
           rowId: plan.rowId,
         }),
@@ -1921,94 +1993,22 @@ async function loadPointCommitDeveloperIndexEntryHeads(
   command: ApplicationDocumentMaterializationCommand,
   positions: ReadonlyArray<PointCommitDeveloperIndexPositionV1>,
 ): Promise<ReadonlyMap<string, PointCommitDeveloperIndexEntryHeadV1>> {
-  if (positions.length === 0) return new Map();
-  const scopeUuid = projectPointCommitTransactionResult(
-    projectScopeIdUuidV1Result(command.authorityPins.scopeId).pipe(
-      Result.mapError(() => corruption("developerIndexTransitionInvalid")),
+  const entries = projectPointCommitTransactionResult(
+    await runPointCommitInTransactionEffect(
+      readAppIndexMembershipHeadsInTransactionEffect(tx, {
+        scopeId: command.authorityPins.scopeId,
+        positions,
+      }).pipe(Effect.mapError(failure => failure instanceof AppIndexEntryReadPersistenceError
+        ? new PointCommitSqlFailureMarkerV1("loadDeveloperIndexEntryHeads", failure.cause)
+        : failure)),
     ),
-  ).scopeUuid;
-  const values = sql.join(
-    positions.map(
-      (position, ordinal) => sql`
-    (
-      ${ordinal}::integer,
-      ${position.definitionId}::integer,
-      ${orderedIndexKeyBytesHexV1ToBytes(position.encodedKey)}::bytea,
-      ${orderedIndexRowIdHexV1ToBytes(position.rowId)}::bytea
-    )
-  `,
-    ),
-    sql`, `,
   );
-  const statement = sql`
-    with requested(ordinal, index_definition_id, encoded_key, row_id) as (
-      values ${values}
-    )
-    select
-      requested.ordinal::text as "ordinalText",
-      current_entry.commit_seq::text as "currentCommitSeqText",
-      latest.commit_seq::text as "latestCommitSeqText",
-      latest.is_tombstone as "latestIsTombstone"
-    from requested
-    left join fx_app_index_entry_current as current_entry
-      on current_entry.scope_uuid = ${scopeUuid}
-      and current_entry.index_definition_id = requested.index_definition_id
-      and current_entry.encoded_key = requested.encoded_key
-      and current_entry.row_id = requested.row_id
-    left join lateral (
-      select revision.commit_seq, revision.is_tombstone
-      from fx_app_index_entry_rev as revision
-      where revision.scope_uuid = ${scopeUuid}
-        and revision.index_definition_id = requested.index_definition_id
-        and revision.encoded_key = requested.encoded_key
-        and revision.row_id = requested.row_id
-      order by revision.commit_seq desc
-      limit 1
-    ) as latest on true
-    order by requested.ordinal asc
-  `;
-  const result = await sqlCall("loadDeveloperIndexEntryHeads", () =>
-    tx.execute(statement),
-  );
-  const rows = rowsFromDriverExecuteResult(result, () => {
-    throw corruption("developerIndexTransitionInvalid");
-  });
-  if (rows.length !== positions.length) {
-    throw corruption("developerIndexTransitionInvalid");
-  }
   const heads = new Map<string, PointCommitDeveloperIndexEntryHeadV1>();
-  for (let ordinal = 0; ordinal < positions.length; ordinal += 1) {
-    const raw = rows[ordinal];
-    const position = positions[ordinal];
-    if (!isNonArrayRecord(raw) || position === undefined) {
+  for (let index = 0; index < positions.length; index += 1) {
+    const position = positions[index];
+    if (position === undefined)
       throw corruption("developerIndexTransitionInvalid");
-    }
-    const decodedOrdinal = projectPointCommitTransactionResult(
-      parseNonNegativeIntegerTextResult(raw.ordinalText).pipe(
-        Result.mapError(() => corruption("developerIndexTransitionInvalid")),
-      ),
-    );
-    const currentCommitSeq = projectPointCommitTransactionResult(
-      parseNullableCommitSeqTextResult(raw.currentCommitSeqText).pipe(
-        Result.mapError(() => corruption("developerIndexTransitionInvalid")),
-      ),
-    );
-    const latestCommitSeq = projectPointCommitTransactionResult(
-      parseNullableCommitSeqTextResult(raw.latestCommitSeqText).pipe(
-        Result.mapError(() => corruption("developerIndexTransitionInvalid")),
-      ),
-    );
-    if (
-      decodedOrdinal !== ordinal ||
-      (latestCommitSeq === null
-        ? raw.latestIsTombstone !== null || currentCommitSeq !== null
-        : typeof raw.latestIsTombstone !== "boolean" ||
-          (raw.latestIsTombstone
-            ? currentCommitSeq !== null
-            : currentCommitSeq !== latestCommitSeq))
-    ) {
-      throw corruption("developerIndexTransitionInvalid");
-    }
+    const head = entries[index];
     heads.set(
       developerIndexPositionKey(
         position.definitionId,
@@ -2016,11 +2016,8 @@ async function loadPointCommitDeveloperIndexEntryHeads(
         position.rowId,
       ),
       Object.freeze({
-        commitSeq: latestCommitSeq,
-        // SAFETY: latestIsTombstone is a boolean persistence column and is
-        // only read here when a latest commit exists.
-        isTombstone:
-          latestCommitSeq === null ? null : (raw.latestIsTombstone as boolean),
+        commitSeq: head?.commitSeq ?? null,
+        isTombstone: head?.isTombstone ?? null,
       }),
     );
   }
@@ -2065,7 +2062,6 @@ async function writePointCommitDeveloperIndexActions(
         rowId: action.rowId,
         writeEpoch,
         commitSeq,
-        prevCommitSeq: action.prevCommitSeq,
       }),
     );
     projectPointCommitTransactionResult(appended);
@@ -2232,9 +2228,12 @@ export async function lockPointCommitIntrinsicIndexBuilds(
     ) {
       throw corruption("intrinsicIndexBuildInvalid");
     }
-    projectPointCommitTransactionResult(validateIndexBuildStateFrontierResult(state, clock.record.lastCommitSeq).pipe(
-      Result.mapError(() => corruption("intrinsicIndexBuildInvalid")),
-    ));
+    projectPointCommitTransactionResult(
+      validateIndexBuildStateFrontierResult(
+        state,
+        clock.record.lastCommitSeq,
+      ).pipe(Result.mapError(() => corruption("intrinsicIndexBuildInvalid"))),
+    );
     locked.push(Object.freeze({ definition, build: state }));
   }
   return Object.freeze(locked);
@@ -2265,64 +2264,47 @@ async function lowerTentativePointCommitIntrinsicIndex(
       Result.mapError(() => corruption("intrinsicIndexTransitionInvalid")),
     ),
   );
-  const keyBytes = orderedIndexKeyHexV1ToBytes(encodedKey);
-  const rowIdBytes = appRowIdHexV1ToBytes(rowRevision.rowId);
-  const heads = await sqlCall("writeIntrinsicIndexEntry", () =>
-    tx
-      .select({
-        commitSeq: fxAppIndexEntryRevisions.commitSeq,
-        isTombstone: fxAppIndexEntryRevisions.isTombstone,
-      })
-      .from(fxAppIndexEntryRevisions)
-      .where(
-        and(
-          eq(
-            fxAppIndexEntryRevisions.scopeUuid,
-            projectScopeIdUuidV1Result(rowRevision.scopeId).pipe(
-              Result.getOrThrow,
-            ).scopeUuid,
-          ),
-          eq(
-            fxAppIndexEntryRevisions.indexDefinitionId,
-            definition.indexDefinitionId,
-          ),
-          eq(fxAppIndexEntryRevisions.encodedKey, keyBytes),
-          eq(fxAppIndexEntryRevisions.rowId, rowIdBytes),
-        ),
-      )
-      .orderBy(desc(fxAppIndexEntryRevisions.commitSeq))
-      .limit(1),
+  const heads = projectPointCommitTransactionResult(
+    await runPointCommitInTransactionEffect(
+      readAppIndexMembershipHeadsInTransactionEffect(tx, {
+        scopeId: rowRevision.scopeId,
+        positions: [{ definition, encodedKey, rowId }],
+      }).pipe(Effect.mapError(failure => failure instanceof AppIndexEntryReadPersistenceError
+        ? new PointCommitSqlFailureMarkerV1("writeIntrinsicIndexEntry", failure.cause)
+        : failure)),
+    ),
   );
-  const head = heads[0];
+  const head = heads[0] ?? null;
   if (rowRevision.kind === "tombstone") {
-    if (head === undefined) {
-      if (build.lifecycle === "enabled") {
+    if (head === null) {
+      if (build.lifecycle === "enabled")
         throw corruption("intrinsicIndexTransitionInvalid");
-      }
       return false;
     }
     if (
       head.isTombstone ||
       rowRevision.prevCommitSeq === null ||
-      head.commitSeq !== rowRevision.prevCommitSeq
+      head.commitSeq > rowRevision.prevCommitSeq
     ) {
       throw corruption("intrinsicIndexTransitionInvalid");
     }
   } else {
     if (
-      head === undefined &&
+      head === null &&
       rowRevision.prevCommitSeq !== null &&
       build.lifecycle === "enabled"
     ) {
       throw corruption("intrinsicIndexTransitionInvalid");
     }
-    if (
-      head !== undefined &&
-      (head.isTombstone ||
+    if (head !== null) {
+      if (
+        head.isTombstone ||
         rowRevision.prevCommitSeq === null ||
-        head.commitSeq !== rowRevision.prevCommitSeq)
-    ) {
-      throw corruption("intrinsicIndexTransitionInvalid");
+        head.commitSeq > rowRevision.prevCommitSeq
+      ) {
+        throw corruption("intrinsicIndexTransitionInvalid");
+      }
+      return false;
     }
   }
   const appended = await sqlCall("writeIntrinsicIndexEntry", () =>
@@ -2334,7 +2316,6 @@ async function lowerTentativePointCommitIntrinsicIndex(
       rowId,
       writeEpoch: rowRevision.writeEpoch,
       commitSeq: rowRevision.commitSeq,
-      prevCommitSeq: head?.commitSeq ?? null,
     }),
   );
   projectPointCommitTransactionResult(appended);
