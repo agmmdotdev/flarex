@@ -131,6 +131,11 @@ A next correction must establish avoidable work in its shared owner and receive
 a new focused preflight before implementation. Do not retry measurements until
 a favorable sample appears or describe this experiment as a timeout fix.
 
+The [typed assignment-verification preflight](./70-typed-physical-assignment-verification.md)
+identifies repeated structural validation after an exact-byte verified immutable
+result. It proposes preserving that result type at the existing owner; it is
+not implemented and does not authorize broader assignment-row or ledger reuse.
+
 ## Validation, Compatibility And Completion Gates
 
 These were the approved candidate's acceptance gates. The reproducible-benefit
