@@ -82,7 +82,7 @@ export function prepareSalesChannelRepository(metadata: Metadata) {
           : { kind: "database", countAt: "afterPopulation" },
       } satisfies ReadPlan;
     });
-    return (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bridge = commerceRepositoryContext(root, owner);
       const events = commerceMutationEvents(owner);
       const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
@@ -148,5 +148,6 @@ export function prepareSalesChannelRepository(metadata: Metadata) {
       };
       return { repository, mutationEvents, bridge, refuse };
     };
+    return { table: yield* catalog.table(table.name), bind };
   });
 }

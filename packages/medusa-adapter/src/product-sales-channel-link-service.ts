@@ -18,6 +18,7 @@ import { moduleAliases } from "./local-graph/module";
 import { decodeGraphCount } from "./local-graph/query";
 import type { GraphModuleDefinition } from "./local-graph/model";
 import { QueryLimit, QueryOffset } from "./query-decoder";
+import { defineWorkflowMethod, defineWorkflowModule } from "./workflow/module";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const Ids = Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(256)).pipe(Schema.mutable)]);
@@ -26,6 +27,12 @@ const LinkInput = Schema.Struct({
   data: Schema.optionalKey(Schema.Struct({ id: Schema.optionalKey(Id) })),
 });
 const decodeLinks = commerceDecoder(Schema.Union([LinkInput, Schema.Array(LinkInput).check(Schema.isMaxLength(256)).pipe(Schema.mutable)]), "invalidInput");
+const decodeCreateArguments = commerceDecoder(Schema.Tuple([
+  Schema.Array(LinkInput).check(Schema.isMaxLength(256)),
+]), "invalidInput");
+const decodeCreatedLinks = commerceDecoder(Schema.Array(Schema.StructWithRest(
+  Schema.Struct({ id: Id, product_id: Id, sales_channel_id: Id }), [Schema.Record(Schema.String, Schema.Json)],
+)).check(Schema.isMaxLength(256)), "storedCorruption");
 const decodeEndpoint = commerceDecoder(Schema.Union([
   Schema.Struct({ product: Schema.Struct({ product_id: Ids }) }),
   Schema.Struct({ sales_channel: Schema.Struct({ sales_channel_id: Ids }) }),
@@ -120,7 +127,11 @@ export const prepareLocalProductSalesChannelLink = Effect.fn("LinkAdapter.prepar
   }] };
   const eventPolicy = (descriptor: CommerceProfileState, deliver: LocalCommerceEventPolicy["deliver"]) =>
     productSalesChannelLinkEventPolicy(serviceName, entityName, descriptor, deliver);
-  return { create, dismiss, delete: remove, restore, list, count, links, graph, withService: use, eventPolicy, prepareProfile: prepareLinkProfile,
+  const workflowCreate = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
+    encode: ([links]) => links, output: decodeCreatedLinks, moduleEvents: [entityName + ".attached"] }));
+  const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: serviceName, profile: "medusa.product-sales-channel.link" },
+    methods: { create: workflowCreate }, graph }));
+  return { create, dismiss, delete: remove, restore, list, count, links, graph, workflow, withService: use, eventPolicy, prepareProfile: prepareLinkProfile,
     commands: [create, dismiss, remove, restore, list, count, links] };
 });
 

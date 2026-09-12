@@ -32,7 +32,7 @@ remain above the existing Flarex transaction and publication owners.
 
 The user-selected next integration outcome is full Product workflow execution.
 The [Sales Channel and first stored Link preflight](./preflight/50-product-workflow-sales-channel-foundation.md)
-traces `createProductsWorkflow` and proposes the connected Sales Channel endpoint,
+traces `createProductsWorkflow` and defines the connected Sales Channel endpoint,
 ProductSalesChannel Link and native association-step milestone. Customer is a
 deferred adapter-reuse candidate, not a Product-creation prerequisite. The new
 foundation gate is complete. Its [core binding correction](./preflight/51-commerce-installation-profile-bindings.md)
@@ -51,10 +51,14 @@ by complete PGlite and ordinary-role PostgreSQL conformance. Shared assignment
 batching replaces repeated installer SQL without changing its deadline or adding
 a Medusa-specific core branch. The construction entry
 point owns native wiring without exposing repository/manager assembly to callers.
-Cross-module graph hydration and the native association step remain unadmitted.
-The [Gate C preflight](./preflight/58-native-product-sales-channel-workflow.md)
-proposes the next connected native creation/association proof using the existing
-atomic workflow host; it does not propose a core or execution-engine redesign.
+The [Gate C composition](./preflight/58-native-product-sales-channel-workflow.md)
+uses the actual native Product/Sales Channel creation and association steps.
+Its named private facade selects one channel and one to four simple Products,
+associates returned IDs, and reads pending Product, Sales Channel and Link roots
+through the existing atomic workflow host. Module-owned registrations hide
+method/repository assembly; root rollback restores pre-existing Link state rather
+than executing inverse callbacks. This gate adds no core/schema/engine changes.
+Cross-module graph hydration and full `createProductsWorkflow` remain unadmitted.
 Sales Channel's six-command profile preserves the original service and static
 cases, native metadata merging, scalar/array results, pagination and errors.
 Boundary checks retain input refusal, identity protection, replay, service

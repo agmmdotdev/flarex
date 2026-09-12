@@ -1,7 +1,12 @@
 import { Effect, Result, Schema } from "effect";
 import { SalesChannel } from "@medusajs/sales-channel/models";
 import { SalesChannelModuleService } from "@medusajs/sales-channel/services";
-import { Modules } from "@medusajs/framework/utils/portable";
+import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
+import { salesChannelStaticResources } from "@medusajs/sales-channel/static-manifest";
+import { defineWorkflowMethod, defineWorkflowModule } from "./workflow/module";
+import { moduleAliases } from "./local-graph/module";
+import { decodeGraphCount } from "./local-graph/query";
+import type { GraphModuleDefinition } from "./local-graph/model";
 import type { IEventBusModuleService, FindConfig, SalesChannelDTO, CreateSalesChannelDTO, UpdateSalesChannelDTO, FilterableSalesChannelProps } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -17,6 +22,13 @@ import { QueryLimit, QueryOffset } from "./query-decoder";
 const decodeEventOptions = commerceDecoder(Schema.Struct({ internal: Schema.Literal(true) }), "unadmittedEvent");
 const decodeEventBatch = commerceDecoder(Schema.Array(Schema.Json), "unadmittedEvent");
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+export const SimpleSalesChannelInput = Schema.Struct({ id: Schema.optionalKey(Id), name: Schema.String });
+const decodeCreateArguments = commerceDecoder(Schema.Tuple([
+  Schema.Array(SimpleSalesChannelInput).check(Schema.isMaxLength(256)),
+]), "invalidInput");
+const decodeCreatedChannels = commerceDecoder(Schema.Array(Schema.StructWithRest(
+  Schema.Struct({ id: Id, name: Schema.String }), [Schema.Record(Schema.String, Schema.Json)],
+)).check(Schema.isMaxLength(256)), "storedCorruption");
 const Create = Schema.StructWithRest(Schema.Struct({ name: Schema.String }), [Schema.Record(Schema.String, Schema.Json)]);
 const decodeCreate = commerceDecoder(Schema.Union([Create, Schema.Array(Create).check(Schema.isMaxLength(256))]), "invalidInput");
 // Native update normalization spreads data after the selected ID. Admit the
@@ -52,7 +64,7 @@ const decodeRetrieve = commerceDecoder(Schema.Struct({ id: Id, config: Schema.op
 export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.commands")(function* () {
   const metadata = yield* captureSalesChannelMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
-    const bind = yield* prepareSalesChannelRepository(metadata.frame);
+    const { bind, table } = yield* prepareSalesChannelRepository(metadata.frame);
     const module = yield* defineCommerceModule({
       name: "flarex-sales-channel-local", models: [SalesChannel],
       profile: { name: "sales-channel", capabilities: [], bind: (ctx, owner) => {
@@ -92,7 +104,17 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     const list = commands.read("salesChannelList", prepare(decodeRead), ({ service, context }, args) => service.listSalesChannels(args.filters as FilterableSalesChannelProps | undefined, args.config as FindConfig<SalesChannelDTO> | undefined, context));
     const count = commands.read("salesChannelCount", prepare(decodeRead), ({ service, context }, args) => service.listAndCountSalesChannels(args.filters as FilterableSalesChannelProps | undefined, args.config as FindConfig<SalesChannelDTO> | undefined, context));
     const retrieve = commands.read("salesChannelRetrieve", prepare(decodeRetrieve), ({ service, context }, args) => service.retrieveSalesChannel(args.id, args.config as FindConfig<SalesChannelDTO> | undefined, context));
-    return { create, update, delete: remove, list, count, retrieve,
+    const joiner = salesChannelStaticResources.joinerConfig;
+    if (joiner === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const graph: GraphModuleDefinition = { aliases: yield* moduleAliases(joiner), reads: [{
+      model: "SalesChannel", command: count, table, paths: [], orderable: table.primaryKeys,
+      uniqueOrder: table.primaryKeys, multipleOrder: false, decode: decodeGraphCount,
+    }] };
+    const createSalesChannels = yield* defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
+      encode: ([channels]) => channels, output: decodeCreatedChannels,
+      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL, objectName: "sales_channel", action: "created" })] });
+    const workflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: module.description, methods: { createSalesChannels }, graph });
+    return { create, update, delete: remove, list, count, retrieve, graph, workflow,
       commands: [create, update, remove, list, count, retrieve],
       withService: module.use,
       eventPolicy: salesChannelEventPolicy,

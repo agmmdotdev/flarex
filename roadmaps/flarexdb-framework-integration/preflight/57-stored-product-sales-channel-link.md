@@ -3,7 +3,7 @@
 Status: B3 complete for the bounded private stored-Link profile. B1 and B2 are
 complete. Full Link conformance passes on PGlite and ordinary-role PostgreSQL
 after the approved shared assignment-batch correction, without a deadline change.
-Workflow Gate C remains unapproved.
+Workflow Gate C is separately implemented under preflight 58.
 
 ## Shared Installation Timing Sensitivity
 
@@ -268,7 +268,7 @@ after the shared installation correction above.
 - Run shared graph owner and Product/Currency regressions, existing Product/Sales
   Channel/atomic storage consumers, relevant typechecks, provenance/portable/test
   guards, core/diff/staged lint, both required reviewers and one scoped commit.
-- Gate C, Pricing, Inventory/Stock Location, shipping-profile dependencies, full
+- Gate C is separately owned by preflight 58. Pricing, Inventory/Stock Location, shipping-profile dependencies, full
   Product creation, workflow pauses, remote effects and production remain closed.
   Customer is not a prerequisite for this Link or association step.
 

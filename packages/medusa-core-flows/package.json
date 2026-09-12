@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./product/create-products-step": "./src/product/steps/create-products.ts",
+    "./sales-channel/create-sales-channels-step": "./src/sales-channel/steps/create-sales-channels.ts",
+    "./sales-channel/associate-products-with-channels-step": "./src/sales-channel/steps/associate-products-with-channels.ts",
     "./product/create-product-tags": "./src/product/workflows/create-product-tags.ts",
     "./product/update-product-tags": "./src/product/workflows/update-product-tags.ts",
     "./product/delete-product-tags": "./src/product/workflows/delete-product-tags.ts",
@@ -13,6 +16,7 @@
     "./common/use-query-graph": "./src/common/steps/use-query-graph.ts"
   },
   "dependencies": {
+    "@medusajs/modules-sdk": "workspace:*",
     "@medusajs/types": "workspace:*",
     "@medusajs/utils": "workspace:*",
     "@medusajs/workflows-sdk": "workspace:*",

@@ -42,6 +42,6 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
     upsertCollections: writes.upsertCollections, upsertCategories: writes.upsertCategories });
   const graph = yield* Effect.fromResult(productGraphDefinition(metadata, commands));
   const workflow = yield* Effect.fromResult(productWorkflowModule(description, commands, graph,
-    { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent, variantUpdated: metadata.variant.updatedEvent, productUpdated: metadata.product.updatedEvent, collectionUpdated: metadata.collection.updatedEvent }));
+    { created: metadata.tag.createdEvent, updated: metadata.tag.updatedEvent, deleted: metadata.tag.deletedEvent, variantUpdated: metadata.variant.updatedEvent, productCreated: metadata.product.createdEvent, productUpdated: metadata.product.updatedEvent, collectionUpdated: metadata.collection.updatedEvent }));
   return { commands, withService, graph, workflow };
 });

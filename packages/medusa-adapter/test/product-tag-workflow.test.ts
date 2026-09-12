@@ -489,7 +489,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const retrieve = Result.getOrThrow(defineWorkflowMethod({ ...adapters, command: currencyCommands.retrieve }));
     const count = Result.getOrThrow(defineWorkflowMethod({ ...adapters, command: currencyCommands.count }));
     const assemble = async (swapped: boolean) => {
-      const module = Result.getOrThrow(defineWorkflowModule({ name: "currency", source: { ...description.source, models: [], extensions: [], capabilities: [] },
+      const module = Result.getOrThrow(defineWorkflowModule({ name: "currency", source: description.source,
         methods: { first: swapped ? count : retrieve, second: swapped ? retrieve : count }, graph: description.graph }));
       const modules = { ...installed, currency: { ...installed.currency, module } };
       const resources = Result.getOrThrow(prepareWorkflowResources({ product: { module: modules.product.module, methods: [], graph: true },
@@ -511,7 +511,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const description = workflowModuleDefinition(modules.product.module);
     if (description === undefined) throw new Error("Missing Product registration");
     const defect = new Error("graph decoder defect");
-    const module = Result.getOrThrow(defineWorkflowModule({ name: "product", source: { ...description.source, models: [], extensions: [], capabilities: [] },
+    const module = Result.getOrThrow(defineWorkflowModule({ name: "product", source: description.source,
       methods: modules.product.module.methods, refusedMethods: description.refusedMethods,
       graph: { ...description.graph, reads: description.graph.reads.map(read => ({ ...read, decode: () => { throw defect; } })) },
     }));

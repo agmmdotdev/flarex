@@ -238,7 +238,7 @@ describe("Product relationship workflows on the native transaction", () => {
       encode: value => Result.getOrThrow(original.input(value)), output: original.output, moduleEvents: ["product.product-collection.updated"],
     }));
     // Preserve the inferred method contract through its exact existing decoder.
-    const replacement = Result.getOrThrow(defineWorkflowModule({ name: "product", source: { ...source.source, models: [], extensions: [], capabilities: [] },
+    const replacement = Result.getOrThrow(defineWorkflowModule({ name: "product", source: source.source,
       methods: { ...commands.workflow.methods, updateProductCollections: narrowed }, graph: source.graph }));
     const allResources = Result.getOrThrow(prepareWorkflowResources({ product: { module: replacement,
       methods: ["listProducts", "retrieveProductCollection", "upsertProducts", "updateProductCollections"], graph: true } }, true));

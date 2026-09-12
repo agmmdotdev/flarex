@@ -871,6 +871,9 @@ importers:
 
   packages/medusa-core-flows:
     dependencies:
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
       '@medusajs/types':
         specifier: workspace:*
         version: link:../medusa-types

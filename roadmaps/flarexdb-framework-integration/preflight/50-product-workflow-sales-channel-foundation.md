@@ -4,7 +4,8 @@ Status: Gate A complete, including its shared installation-binding prerequisite
 under preflight 51. B1 shared-installation atomic admission is complete;
 B2's shared contract is complete under preflight 56. Stored Link gate B3 is
 complete under preflight 57 for its bounded private profile, including PGlite
-and ordinary-role PostgreSQL conformance; workflow gate C remains unapproved.
+and ordinary-role PostgreSQL conformance. Workflow gate C is complete under
+preflight 58 for its private bounded atomic composition.
 
 ## Outcome And Direction
 
@@ -44,12 +45,12 @@ port alone must not be reported as completion of the connected milestone.
   `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, package baseline `2.13.4`.
   The source island is comparison/promotion input, not executable root source.
 
-The current root `packages/medusa-core-flows/package.json` exports selected
-Product workflows, not full Product creation or the Sales Channel association
-step. `packages/medusa-modules-sdk` does not contain the native Link runtime.
-The private Sales Channel model/service/static closure is promoted with exact
-source and test-port guards. Link and association sources still need explicit
-promotion; their presence under `third_party` does not establish runtime availability.
+The root `packages/medusa-core-flows/package.json` exports selected Product
+workflows and the three Gate C creation/association steps, not full Product
+creation. `packages/medusa-modules-sdk` contains the bounded native Link router.
+The private Sales Channel and Link closures are promoted with exact source and
+test-port guards. Additional sources still require explicit promotion; their
+presence under `third_party` does not establish runtime availability.
 
 ### Product Creation Dependency Trace
 
@@ -271,8 +272,10 @@ not substitutes for real stored-link conformance.
 ### C. Connected Native Association Workflow
 
 The [focused Gate C preflight](./58-native-product-sales-channel-workflow.md)
-records the native dependency/compensation trace and the proposed bounded
-composition. Implementation approval is pending; B3 does not implicitly admit it.
+records the approved native dependency/compensation trace and implemented private
+composition: one channel and one to four simple Products, using returned IDs and
+the three actual native steps. It adds module-owned workflow registrations and a
+scalar Sales Channel graph without changing core/schema/engine owners.
 
 Promote the actual association step and, where useful, the native Sales Channel
 creation step. Compose a private bounded workflow using existing Product service
@@ -286,7 +289,7 @@ rollback handles transaction-covered writes; retain native compensator evidence
 without claiming general cross-commit compensation or replay safety. Arbitrary
 hooks, remote effects and suspension are excluded from this atomic root.
 
-The milestone is complete only after C; full `createProductsWorkflow` remains
+This connected milestone is complete; full `createProductsWorkflow` remains
 pending Pricing, Inventory/Stock Location, shipping-profile and transitive audits.
 
 ## Construction API And Reuse Check

@@ -1,6 +1,6 @@
 # Native Product Sales Channel Workflow: Gate C Preflight
 
-Status: proposed; implementation approval pending. Gate A and B1/B2/B3 remain
+Status: complete within the private bounded atomic profile. Gate A and B1/B2/B3 remain
 complete within their recorded private profiles. This preflight does not admit
 full `createProductsWorkflow`, production serving or a general workflow engine.
 
@@ -121,9 +121,32 @@ storage, transaction settlement or the workflow SDK execution model is proposed.
 If a connected witness demonstrates such a gap, preserve it and stop at its
 owning boundary for separate approval rather than adding consumer glue.
 
+## Implemented Private Surface
+
+`prepareProductSalesChannelWorkflow` selects the three module-owned registrations
+and the actual promoted creation/association steps. Its complete simple input is
+one Sales Channel and one to four Products, with optional caller IDs. The native
+services generate omitted IDs; association uses their returned rows. Separate
+Product, Sales Channel and Link-root queries expose pending scalar projections.
+The maximum batch remains within the existing request budget; the facade does
+not raise a limit or select an expanded execution profile.
+
+The Product and Sales Channel entry points expose selected `createProducts` and
+`createSalesChannels` workflow methods. The existing Link entry exposes only
+`create` to this composition. Sales Channel's repository preparation returns its
+existing checked read-table projection alongside its binder, so scalar graph
+registration does not rebuild table metadata. Workflow source identity now
+requires only the already consumed name/profile fields.
+
+The association promotion adds a type-only `Pick<Link, "create" | "dismiss">`
+at the portable generic resolver; it reuses the native Link owner instead of
+inventing another resource interface. Import relocation, resolver typing and
+explicit transaction-covered compensation are the only step adaptations.
+No persistence, schema, migration or workflow-engine change belongs to this gate.
+
 ## Compensation, Failure And Replay Decision
 
-Recommend the existing all-database atomic profile. Native inverse callbacks
+Use the existing all-database atomic profile. Native inverse callbacks
 remain source evidence, but are not executed by this runner. A later failure
 rolls back the whole pending transaction, including all three participants and
 their event records. This is an intentional execution difference from Medusa's

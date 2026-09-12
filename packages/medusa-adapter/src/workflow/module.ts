@@ -68,7 +68,7 @@ const decodeAliases = commerceDecoder(Schema.Array(Schema.Struct({ name: Schema.
  * commands continue to own service construction and all database operations. */
 export function defineWorkflowModule<const Methods extends Readonly<Record<string, WorkflowMethod>>>(input: {
   readonly name: string;
-  readonly source: CommerceModuleDescription;
+  readonly source: Pick<CommerceModuleDescription, "name" | "profile">;
   readonly methods: Methods;
   readonly graph: GraphModuleDefinition;
   readonly refusedMethods?: readonly string[];

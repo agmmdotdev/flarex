@@ -21,12 +21,17 @@ a thumbnail update. It emits only the actual internal Variant update event.
 The host uses one authenticated, bounded SQL transaction. It does not add a
 Task, relational journal/OCC engine, distributed lock or second commit owner.
 Product supplies business semantics; Currency reads demonstrate another admitted
-participant inside the same hook. No additional commerce module is admitted.
+participant inside the same hook. The separately approved
+[Product/Sales Channel milestone](../flarexdb-framework-integration/preflight/58-native-product-sales-channel-workflow.md)
+uses this same host for native endpoint creation, stored ProductSalesChannel Link
+association and separate pending scalar graph roots. Its private facade admits
+one channel and one to four simple Products; this does not admit full Product
+creation or arbitrary Link families.
 
 Only reviewed trusted callbacks are supported. A finite resolver and timeout
 are not a sandbox and cannot establish that arbitrary JavaScript has no external
 effects. Public application exposure, production delivery, Cloudflare deployment,
-full create-products, remote joins and Module Link remain separate gates.
+full create-products, remote joins and additional Module Links remain separate gates.
 
 ## Execution And Ownership
 
