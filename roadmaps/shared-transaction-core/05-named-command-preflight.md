@@ -30,7 +30,10 @@ runtime and process-local recovery do not establish an Action/Task API.
 
 | Source | Implemented responsibility |
 | --- | --- |
-| [Composite host](../../packages/persistence-postgres/src/crossDomainCommand/host.ts) | One fixed command, admitted domain contexts, aggregate lifetime, retained lookup, combined contribution and outer publication. |
+| [Currency announcement host](../../packages/persistence-postgres/src/crossDomainCommand/host.ts) | Explicit fixed-command inputs, required Payload content identity, physical session and admission scopes, aggregate lifetime, retained lookup and recovery. |
+| [Command request](../../packages/persistence-postgres/src/crossDomainCommand/request.ts) | Bounded getter-free capture, schema-checked three-domain envelope, private request-key contract and hashing. Captured arguments remain frozen and shared with replay evidence. |
+| [Command participants](../../packages/persistence-postgres/src/crossDomainCommand/participants.ts) | Borrowed domain contexts, three serial business steps, authenticated once-only closure consumption and combined document-delta preparation. |
+| [Command publication](../../packages/persistence-postgres/src/crossDomainCommand/publication.ts) | One sequence allocation, combined lowering and publication through the existing publisher; physical settlement stays with the session. |
 | [Composite binding](../../packages/persistence-postgres/src/crossDomainCommand/binding.ts) | Live commerce proof bound to the exact transaction, scope-clock object, frame and head; standalone CMS continues rejecting commerce bindings. |
 | [Physical session](../../packages/persistence-postgres/src/physicalSession/postgres.ts), [relational session](../../packages/persistence-postgres/src/relationalTransaction/session.ts) | Existing acquisition, physical settlement and cleanup state machines. |
 | [Document participant](../../packages/persistence-postgres/src/applicationDocumentMaterialization/participant.ts) | Shared preparation, index/head/dependency validation and combined lowering; CMS-specific closure and receipt authority stays with CMS. |
