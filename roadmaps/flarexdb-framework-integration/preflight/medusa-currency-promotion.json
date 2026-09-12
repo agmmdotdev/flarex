@@ -912,7 +912,7 @@
     {
       "target": "packages/medusa-adapter/test/currency-announcement.test.ts",
       "classification": "authored",
-      "targetSha256": "7d4a8d0d4a54d0f685a04c0ba004c47aa9902da71bf830ee4f7afb31409f81ee"
+      "targetSha256": "b8c579fcc141ded5d6e340623a6fd34a8614ef60b1f22a35cb2be5d55e98d0a8"
     },
     {
       "target": "packages/medusa-adapter/test/currency-input.json",
