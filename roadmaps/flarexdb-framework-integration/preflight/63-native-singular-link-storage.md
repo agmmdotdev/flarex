@@ -1,7 +1,7 @@
 # Native Singular-Link Storage: Preflight
 
-Status: proposed; implementation approval pending. Native batch cardinality in
-preflight 61 is implemented. This proposal does not activate Fulfillment,
+Status: implemented for fresh private scalar-Link schemas. Native batch cardinality in
+preflight 61 is implemented. This foundation does not activate Fulfillment,
 ProductShippingProfile or another Product workflow branch.
 
 ## Outcome And Recommendation
@@ -17,12 +17,12 @@ stored-service proof. It is not a general Link registry, universal CRUD layer or
 full Medusa bootstrap. ProductSalesChannel keeps its existing construction API,
 grants, identity and behavior. ShippingProfile remains the next module decision.
 
-No Flarex core capability change is proposed. Existing partial unique indexes,
+No Flarex core capability changed. Existing partial unique indexes,
 scope prefixing, active-row upsert, lifecycle writes, rollback-only failure and
 outer settlement are the required mechanisms. If their connected proof exposes
 a shared-owner defect, retain the failing witness and stop at that boundary.
 
-## Authority And Exact Evidence
+## Authority And Baseline Evidence
 
 - Accepted design `design-notes/flarex-db-accepted-design.md` and package roadmap
   16 retain Medusa-owned relationship semantics and Flarex-owned database
@@ -31,14 +31,16 @@ a shared-owner defect, retain the failing witness and stop at that boundary.
 - Pinned fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, baseline 2.13.4,
   remains the comparison source. Runtime code is the promoted `packages/medusa-*`
   implementation, not `third_party/medusa/upstream/`.
-- Native `generateEntityDefinition` in `medusa-link-modules/src/utils/` declares
-  composite endpoint primary keys and four indexes. Endpoint indexes are
-  nonunique and filtered by `deleted_at IS NULL`, regardless of cardinality.
+- The pre-correction native `generateEntityDefinition` declared composite
+  endpoint primary keys and four indexes. Endpoint indexes were nonunique and
+  filtered by `deleted_at IS NULL`, regardless of cardinality. The promoted
+  generator now derives active endpoint uniqueness from the opposite `hasMany`.
 - `Link.create` now checks conflicting incoming partners and existing active
   rows. Direct `LinkModuleService.create` and restore do not run that router
   check. Consequently router validation is not a database invariant.
-- Native `LinkModuleService.buildData` spreads extra data after endpoint keys.
-  A caller can supply `(p, a)` but replace an endpoint through `data`. The current
+- Native `LinkModuleService.buildData` previously spread extra data after
+  endpoint keys without protecting them. A caller could supply `(p, a)` but
+  replace an endpoint through `data`. The current
   ProductSalesChannel adapter admits only `data.id`, so this is not currently
   an admitted adapter bypass. It must not become the contract for future Links.
 - The pinned native Link repository creates IDs, clears deletion and upserts
@@ -53,8 +55,10 @@ a shared-owner defect, retain the failing witness and stop at that boundary.
   and maps failed database statements to `statementFailure`. This proposal does
   not promise a new core uniqueness-specific error or retry contract.
 
-These are current-source findings, not executed singular-Link storage results.
-Preflight 61's generator witness preserves the missing-uniqueness baseline.
+These baseline gaps are corrected in the promoted native owners. The original
+comparison sources are retained; changed native files are explicit `linkFork`
+adaptations. Generated-index and stored lifecycle witnesses replace the prior
+missing-uniqueness characterization.
 
 ## Cardinality And Lifecycle Decision
 
@@ -76,7 +80,7 @@ adapter checks and lowers it rather than inferring its own cardinality rule.
 Keep existing index identities for unchanged many-to-many definitions and avoid
 retaining a redundant nonunique index beside a replacement unique index.
 
-The proposed lifecycle is explicit:
+The implemented lifecycle is explicit:
 
 1. Active `(p, a)` prevents active `(p, b)`.
 2. Soft-delete `(p, a)`; attaching `(p, b)` may now succeed. The old pair remains
@@ -180,3 +184,31 @@ Completion is a tested native singular storage contract plus unchanged existing
 integration, reconciled roadmaps and one scoped implementation commit. Then
 return to preflight 59 B's Fulfillment construction/source-closure and connected
 ShippingProfile activation decision; this slice alone does not admit that module.
+
+## Implemented Boundary
+
+`link-schema`, `link-repository`, `link-service` and `link-events` hold the shared
+non-DML mechanics. Named ProductSalesChannel construction still selects its
+definition, commands, profile and workflow grants; its borrowed API and canonical
+metadata identity are unchanged. The displaced named repository/event copies
+are removed. No entity registry, alternate persistence path or core transaction
+contract was introduced.
+
+The neutral two-scalar-endpoint fixture uses actual native services and these
+same mechanics through the existing commerce host. It covers both unique
+directions, tombstone replacement, failed reattach/restore and bulk restore,
+pair upsert/replay, caught failure rollback and scope-local lifecycle. Native
+unit witnesses separately prove endpoint-extra refusal before writes/events
+and preservation of ordinary extras; arbitrary extras remain unadmitted by the
+storage adapter. The service boundary reports the existing `rollbackOnly`
+state after a failed statement; this is not a new conflict-error contract.
+
+PGlite and ordinary-role PostgreSQL prove the stored contract. PostgreSQL also
+uses test-owned sessions against the installed layout to observe the exact
+blocked backend at a unique-index transaction lock, with winner commit yielding
+`23505` and winner rollback allowing the waiter. This physical probe is distinct
+from host serialization and grants no runtime raw-SQL capability.
+
+Unchanged ProductSalesChannel and its connected native workflow retain their
+existing gates. Compound stored endpoints, custom fields, migrations of installed
+singular schemas and Fulfillment/ShippingProfile activation remain deferred.

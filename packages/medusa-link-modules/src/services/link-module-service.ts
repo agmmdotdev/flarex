@@ -91,6 +91,12 @@ export default class LinkModuleService implements ILinkModule {
     }
 
     const pk = this.primaryKey_.join(",")
+    if (Object.keys(extra).some((key) => key === pk || this.isValidKeyName(key))) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        "Link extra data cannot replace endpoint fields"
+      )
+    }
     return {
       [pk]: primaryKeyData,
       [this.foreignKey_]: foreignKeyData,

@@ -3,8 +3,8 @@
 Status: A implemented, including the approved preflight 60 shared-owner correction.
 Gate C in preflight 58 is complete. B remains unapproved; no Fulfillment/Link
 activation. [Preflight 61](./61-native-link-batch-cardinality.md) implements the
-native router correction; singular-Link storage constraints remain a B entry gate.
-[Preflight 63](./63-native-singular-link-storage.md) proposes that storage
+native router correction.
+[Preflight 63](./63-native-singular-link-storage.md) implements the singular storage
 foundation and native endpoint protection; it is not B activation approval.
 
 ## Outcome And Recommendation
@@ -166,8 +166,7 @@ refusal, using native metadata for all four cardinalities without changing
 duplicate-tuple delegation. The service boundary is a recording stub, not a stored Fulfillment
 implementation; this does not claim persisted ShippingProfile conformance.
 
-The native router correction is implemented. The generator's storage constraint
-gap still requires an explicit native-owner decision before B activation. Do not silently
+The native router and preflight 63 storage corrections are implemented. Do not silently
 deduplicate, select the last profile, serialize a bad batch into changed business
 semantics, or add an adapter-only unique index that hides the native contract.
 Same-scope root serialization addresses competing requests; it does not repair
@@ -191,10 +190,12 @@ Malformed caller Unicode remains refused as `invalidInput`, without retaining
 the old codec's misleading `invalidAuthority` classification.
 
 Native Link's separate in-batch cardinality correction is implemented in
-[preflight 61](./61-native-link-batch-cardinality.md). That router-only correction
-does not close the generator's missing cardinality-derived uniqueness or prove
-direct-service/concurrent/restore behavior. Resolve that native storage contract
-and its adapter lowering explicitly before B activation.
+[preflight 61](./61-native-link-batch-cardinality.md). The separately approved
+[preflight 63](./63-native-singular-link-storage.md) closes native scalar-Link
+active uniqueness and endpoint protection, with neutral direct-service,
+restore and physical contention proofs. It does not activate B: Fulfillment
+construction/source closure and connected ShippingProfile admission still need
+their own bounded decision.
 
 ## B. Connected Module And Workflow Direction
 

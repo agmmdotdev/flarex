@@ -1,16 +1,17 @@
 import type {
-  JoinerRelationship,
   ModuleJoinerConfig,
 } from "@medusajs/framework/types"
 import { composeTableName } from "@medusajs/utils/link/compose-link-name"
 import { compressName } from "@medusajs/utils/common/compress-name"
 import { simpleHash } from "@medusajs/utils/common/simple-hash"
 
+type LinkRelationship = NonNullable<ModuleJoinerConfig["relationships"]>[number]
+
 /** Native structural generation without ORM classes, filters or lifecycle hooks. */
 export function generateEntityDefinition(
   joinerConfig: ModuleJoinerConfig,
-  primary: JoinerRelationship,
-  foreign: JoinerRelationship
+  primary: LinkRelationship,
+  foreign: LinkRelationship
 ) {
   const fieldNames = primary.foreignKey.split(",").concat(foreign.foreignKey)
 
@@ -80,13 +81,14 @@ export function generateEntityDefinition(
       },
       {
         properties: primary.foreignKey.split(","),
+        ...(!foreign.hasMany ? { unique: true } : {}),
         name:
           "IDX_" +
           primary.foreignKey.split(",").join("_") +
           "_" +
           hashTableName,
         expression:
-          "CREATE INDEX IF NOT EXISTS " +
+          "CREATE " + (!foreign.hasMany ? "UNIQUE " : "") + "INDEX IF NOT EXISTS " +
           '"IDX_' +
           primary.foreignKey.split(",").join("_") +
           "_" +
@@ -99,9 +101,10 @@ export function generateEntityDefinition(
       },
       {
         properties: foreign.foreignKey,
+        ...(!primary.hasMany ? { unique: true } : {}),
         name: "IDX_" + foreign.foreignKey + "_" + hashTableName,
         expression:
-          "CREATE INDEX IF NOT EXISTS " +
+          "CREATE " + (!primary.hasMany ? "UNIQUE " : "") + "INDEX IF NOT EXISTS " +
           '"IDX_' +
           foreign.foreignKey +
           "_" +

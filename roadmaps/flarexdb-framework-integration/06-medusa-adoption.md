@@ -67,12 +67,16 @@ scope, null, pagination/count and resource limits. The approved
 [native batch correction](./preflight/61-native-link-batch-cardinality.md)
 rejects contradictory incoming partners from relationship metadata before any
 service create. Many-to-many behavior and exact duplicate delegation are retained,
-without a Flarex core change. Cardinality-derived storage constraints and singular-Link lifecycle
-proofs remain separate prerequisites for ShippingProfile activation.
-The proposed [singular-Link storage foundation](./preflight/63-native-singular-link-storage.md)
+without a Flarex core change.
+The implemented [singular-Link storage foundation](./preflight/63-native-singular-link-storage.md)
 derives active uniqueness from native metadata and protects tuple endpoints
 from extra-data replacement, reusing existing Flarex partial-index machinery.
-Implementation approval is pending; no singular Link is activated.
+Shared scalar-Link schema, repository, native wiring and event mechanics serve
+both the unchanged ProductSalesChannel binding and a neutral one-to-one stored
+proof. Pair identity survives soft deletion; conflicting reattach or restore
+rolls back without facts/events. Scope isolation and actual PostgreSQL unique-index
+contention are covered independently of host serialization. No core capability
+changed, and no Fulfillment or ProductShippingProfile Link is activated.
 The proposed module source closure remains broader than its
 create/scalar-read table grants; full Fulfillment remains unadmitted.
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)

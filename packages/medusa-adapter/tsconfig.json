@@ -38,7 +38,8 @@
     "vitest.product-variants.config.ts",
     "vitest.product-categories.config.ts",
     "vitest.product-internal-categories.config.ts",
-    "vitest.product-internal.config.ts"
+    "vitest.product-internal.config.ts",
+    "vitest.link-storage.config.ts"
   ],
   "exclude": [
     "test/atomic-commerce.test.ts",

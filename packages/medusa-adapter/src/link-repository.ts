@@ -12,38 +12,42 @@ import { makeReadCatalog } from "./query/catalog";
 import { compileProjection } from "./query/projection";
 import { compileWhere, type WherePolicy } from "./query/predicate";
 import { executeRead, type ReadPlan } from "./query/read";
-import type { captureProductSalesChannelLinkMetadata } from "./product-sales-channel-link-schema";
+import type { captureLinkMetadata } from "./link-schema";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-const decodeCreate = commerceDecoder(Schema.Array(Schema.Struct({
-  product_id: Id, sales_channel_id: Id, id: Schema.optionalKey(Id),
-})).check(Schema.isMaxLength(commerceLimits.catalogRows)), "invalidInput");
 const decodeRows = commerceDecoder(Schema.Array(Schema.JsonObject), "storedCorruption");
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeWhere = commerceDecoder(Schema.JsonObject, "unsupportedProfile");
 const strings = commerceDecoder(Schema.Union([Id, Schema.Array(Id).check(Schema.isMaxLength(commerceLimits.filterOperands))]), "unsupportedProfile");
 const decodeNotEqual = commerceDecoder(Id, "unsupportedProfile");
-const wherePolicy: WherePolicy = {
-  decode: decodeWhere, fields: new Map(["id", "product_id", "sales_channel_id"].map(column => [column, { column, decode: strings, decodeNotEqual }])),
+const makeWherePolicy = (columns: readonly string[]): WherePolicy => ({
+  decode: decodeWhere, fields: new Map(columns.map(column => [column, { column, decode: strings, decodeNotEqual }])),
   logical: { decodeBranches: commerceDecoder(Schema.Array(Schema.JsonObject), "unsupportedProfile"),
     nodes: commerceLimits.filterNodes, depth: commerceLimits.filterDepth, operands: commerceLimits.filterOperands,
     unwrapMembership: input => input !== null && typeof input === "object" && !Array.isArray(input)
       && Object.keys(input).length === 1 && "$in" in input ? input.$in : input },
-};
-const decodeOptions = commerceDecoder(Schema.Struct({
+});
+const readOptions = (primary: string) => commerceDecoder(Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
   populate: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(0))),
   limit: Schema.optionalKey(QueryLimit), offset: Schema.optionalKey(QueryOffset),
-  orderBy: Schema.optionalKey(Schema.Struct({ product_id: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),
+  orderBy: Schema.optionalKey(Schema.Struct({ [primary]: Schema.optionalKey(Schema.Literals(["ASC", "DESC"])) })),
   filters: Schema.optionalKey(Schema.Struct({ softDeletable: Schema.Struct({ withDeleted: Schema.Boolean }) })),
 }), "unsupportedProfile");
 
-/** Only the selected non-DML Link repository. Query and manager mechanics stay
- * shared; native services retain tuple normalization and event construction. */
-export function prepareProductSalesChannelLinkRepository(metadata: Effect.Success<ReturnType<typeof captureProductSalesChannelLinkMetadata>>["frame"]) {
+/** Several prepared Links may coexist. Each bind borrows only its command's
+ * transaction; no global service, raw database or second lifetime. */
+export function prepareLinkRepository(metadata: Effect.Success<ReturnType<typeof captureLinkMetadata>>["frame"], idPrefix: string) {
   return Result.gen(function* () {
     const table = { name: metadata.name, columns: metadata.columns.map(column => column.name),
       primaryKeys: metadata.columns.filter(column => column.primaryKey).map(column => column.name), foreignKeys: [], companions: {} };
+    const [primary, foreign] = table.primaryKeys;
+    if (table.primaryKeys.length !== 2 || primary === undefined || foreign === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const decodeCreate = commerceDecoder(Schema.Array(Schema.Struct({
+      [primary]: Id, [foreign]: Id, id: Schema.optionalKey(Id),
+    })).check(Schema.isMaxLength(commerceLimits.catalogRows)), "invalidInput");
+    const wherePolicy = makeWherePolicy(["id", primary, foreign]);
+    const decodeOptions = readOptions(primary);
     const catalog = yield* makeReadCatalog([table], new Map());
     const query = (input: unknown, maximum: number) => Result.gen(function* () {
       const envelope = yield* decodeEnvelope(input);
@@ -55,7 +59,7 @@ export function prepareProductSalesChannelLinkRepository(metadata: Effect.Succes
       const withDeleted = options.filters?.softDeletable.withDeleted ?? false;
       return { table: table.name, projection, paths: [], relationFilters: [], ordering: new Map(), withDeleted,
         query: { fields: projection.storageFields, take: options.limit ?? maximum, skip: options.offset ?? 0,
-          order: { column: "product_id", direction: options.orderBy?.product_id === "DESC" ? "desc" : "asc" },
+          order: { column: primary, direction: options.orderBy?.[primary] === "DESC" ? "desc" : "asc" },
           predicate: { kind: "and", children: [predicate, ...(withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }])] } },
         window: { kind: "database", countAt: "afterPopulation" },
       } satisfies ReadPlan;
@@ -72,7 +76,7 @@ export function prepareProductSalesChannelLinkRepository(metadata: Effect.Succes
           const selected = yield* find(ctx, { where: input, options: { filters: { softDeletable: { withDeleted: operation === "restore" } } } }, false);
           const store = yield* ctx.table(table.name);
           const rows = [...yield* store.lifecycle(ctx.manager, operation, selected.rows.map(row => ({
-            product_id: row.product_id, sales_channel_id: row.sales_channel_id,
+            [primary]: row[primary], [foreign]: row[foreign],
           })))];
           return [rows, rows.length === 0 ? {} : { LinkModel: rows }] satisfies [JsonObject[], Record<string, unknown[]>];
         })));
@@ -95,7 +99,7 @@ export function prepareProductSalesChannelLinkRepository(metadata: Effect.Succes
         create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
           const decoded = yield* Effect.fromResult(decodeCreate(captured));
-          const rows = decoded.map(row => ({ ...row, id: generateEntityId(row.id, "prodsc") }));
+          const rows = decoded.map(row => ({ ...row, id: generateEntityId(row.id, idPrefix) }));
           const store = yield* ctx.table(table.name);
           const stored = yield* store.write(ctx.manager, "upsert", rows);
           // Native create builds its events from these service-owned objects.

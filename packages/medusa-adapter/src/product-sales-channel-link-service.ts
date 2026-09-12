@@ -1,19 +1,14 @@
 import { Effect, Result, Schema } from "effect";
-import { ProductSalesChannel, LinkService, getModuleService } from "@medusajs/link-modules";
-import { Link, type DeleteEntityInput } from "@medusajs/modules-sdk/link";
-import { Modules } from "@medusajs/framework/utils/portable";
-import type { Context, FindConfig, IEventBusModuleService, ILinkModule, LoadedModule } from "@medusajs/types";
+import type { FindConfig } from "@medusajs/types";
 import { registerLocalCommerceProfile, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureProductSalesChannelLinkMetadata } from "./product-sales-channel-link-schema";
-import { prepareProductSalesChannelLinkRepository } from "./product-sales-channel-link-repository";
-import { productSalesChannelLinkEventPolicy } from "./product-sales-channel-link-events";
+import { prepareLinkService, type BoundLink } from "./link-service";
+import { linkEventPolicy } from "./link-events";
 import { prepareProductSalesChannelLinkSchema } from "./sales-channel-schema";
-import { withCommerceService } from "./commerce-service-bridge";
 import { commerceServiceCommands } from "./service-commands";
 import { commerceDecoder } from "./commerce-decoder";
-import { captureCommerceInput } from "./commerce-input";
 import { moduleAliases } from "./local-graph/module";
 import { decodeGraphCount } from "./local-graph/query";
 import type { GraphModuleDefinition } from "./local-graph/model";
@@ -48,69 +43,16 @@ const decodeRead = commerceDecoder(Schema.Struct({
     withDeleted: Schema.optionalKey(Schema.Boolean),
   })),
 }), "invalidInput");
-const decodeEventOptions = commerceDecoder(Schema.Struct({ internal: Schema.Literal(true) }), "unadmittedEvent");
-const decodeEvents = commerceDecoder(Schema.Array(Schema.Json), "unadmittedEvent");
-const decodeCascade = commerceDecoder(Schema.Tuple([Schema.Null,
-  Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Array(Id)))]), "adapterFailure");
-interface BoundLink { readonly link: Readonly<Pick<Link, "create" | "dismiss" | "delete" | "restore" | "list">>;
-  readonly service: Readonly<Pick<ILinkModule, "list" | "listAndCount">>; readonly context: Context;
-  readonly cascade: (result: unknown) => Promise<Json> }
-
-/** One prepared Link owns its repository, native services/router, read tokens
- * and event policy. Host assembly still explicitly selects all participants. */
+/** Named construction selects the supported native definition and commands. */
 export const prepareLocalProductSalesChannelLink = Effect.fn("LinkAdapter.prepare")(function* () {
   const metadata = yield* captureProductSalesChannelLinkMetadata();
-  const prepared = yield* Effect.fromResult(prepareProductSalesChannelLinkRepository(metadata.frame));
-  const joiner = structuredClone(ProductSalesChannel);
-  const serviceName = joiner.serviceName;
-  const entityName = "LinkProductSalesChannel";
-  if (serviceName === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const Service = getModuleService(joiner);
-  const use = (ctx: CommerceCommandContext, work: (service: BoundLink) => Promise<unknown>) => withCommerceService(ctx, owner => {
-    const bound = prepared.bind(ctx, owner);
-    const eventBus: IEventBusModuleService = {
-      emit: (input, options) => owner.run(bound.bridge.checked(bound.bridge.current(), Effect.gen(function* () {
-        yield* Effect.fromResult(decodeEventOptions(yield* Effect.fromResult(captureCommerceInput(options))));
-        const events = yield* Effect.fromResult(decodeEvents(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
-        for (const event of events) yield* bound.bridge.current().captureLocalEvent(event);
-      }))),
-      subscribe: () => owner.reject(commerceError("unsupportedProfile")), unsubscribe: () => owner.reject(commerceError("unsupportedProfile")),
-      releaseGroupedEvents: bound.refuse, clearGroupedEvents: bound.refuse,
-    };
-    const service = new Service({
-      baseRepository: bound.repository, linkService: new LinkService({ linkRepository: bound.repository }),
-      primaryKey: "product_id", foreignKey: "sales_channel_id", extraFields: [], entityName, serviceName,
-      [Modules.EVENT_BUS]: eventBus,
-    }, { scope: "internal" });
-    // The native router consumes loaded config values and actual bound methods.
-    // Do not overwrite the service's __joinerConfig method with a data property.
-    const loaded = { __joinerConfig: service.__joinerConfig(), __definition: {
-      key: serviceName, defaultPackage: "@medusajs/link-modules", label: entityName, isQueryable: true,
-      defaultModuleDeclaration: { scope: "internal" as const },
-    }, create: service.create.bind(service), dismiss: service.dismiss.bind(service), list: service.list.bind(service),
-      softDelete: service.softDelete.bind(service), restore: service.restore.bind(service),
-    } satisfies LoadedModule & Pick<ILinkModule, "create" | "dismiss" | "list" | "softDelete" | "restore">;
-    const router = new Link([loaded]);
-    const endpoint = (input: unknown) => owner.run(bound.bridge.checked(ctx, Effect.gen(function* () {
-      const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
-      return structuredClone(yield* Effect.fromResult(decodeEndpoint(captured)));
-    })));
-    return {
-      // Actual bound native methods, without mutable registration or routing
-      // metadata capabilities escaping into command code.
-      link: Object.freeze({ create: router.create.bind(router), dismiss: router.dismiss.bind(router),
-        // Admission precedes native traversal even for a borrowed service call.
-        delete: async (input: DeleteEntityInput, context?: Context) => router.delete(await endpoint(input), context),
-        restore: async (input: DeleteEntityInput, context?: Context) => router.restore(await endpoint(input), context), list: router.list.bind(router) }),
-      service: Object.freeze({ list: service.list.bind(service), listAndCount: service.listAndCount.bind(service) }),
-      context: { manager: ctx.manager, transactionManager: ctx.manager },
-      cascade: result => owner.run(bound.bridge.checked(ctx, Effect.gen(function* () {
-        const captured = yield* Effect.fromResult(captureCommerceInput(result, ctx.resources));
-        // Validate the entire native errors-as-data tuple before projecting it.
-        return (yield* Effect.fromResult(decodeCascade(captured)))[1];
-      }))),
-    };
-  }, work);
+  const { use: useNative, prepared, joiner, serviceName, entityName } = yield* prepareLinkService(metadata);
+  // Keep this named binding's existing borrowed API; native write access is
+  // available only to explicit internal construction, not this module facade.
+  const use = (ctx: CommerceCommandContext, work: (bound: Omit<BoundLink, "service"> & {
+    readonly service: Pick<BoundLink["service"], "list" | "listAndCount">;
+  }) => Promise<unknown>) => useNative(ctx, bound => work({ ...bound,
+    service: Object.freeze({ list: bound.service.list, listAndCount: bound.service.listAndCount }) }));
   const commands = commerceServiceCommands(use);
   const prepare = <Value>(decode: (input: unknown) => Result.Result<Value, ReturnType<typeof commerceError>>) =>
     Effect.fn("LinkCommand.prepare")((ctx: CommerceCommandContext, input: Json) => Effect.fromResult(decode(input)).pipe(
@@ -127,7 +69,7 @@ export const prepareLocalProductSalesChannelLink = Effect.fn("LinkAdapter.prepar
     uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount,
   }] };
   const eventPolicy = (descriptor: CommerceProfileState, deliver: LocalCommerceEventPolicy["deliver"]) =>
-    productSalesChannelLinkEventPolicy(serviceName, entityName, descriptor, deliver);
+    linkEventPolicy("product_sales_channel", serviceName, entityName, descriptor, deliver);
   const workflowCreate = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
     encode: ([links]) => links, output: decodeCreatedLinks, moduleEvents: [entityName + ".attached"] }));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: serviceName, profile: "medusa.product-sales-channel.link" },

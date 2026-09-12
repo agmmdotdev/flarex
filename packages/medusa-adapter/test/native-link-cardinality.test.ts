@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { Link } from "@medusajs/modules-sdk/link";
-import { generateEntityDefinition } from "@medusajs/link-modules";
+import { generateEntityDefinition, getModuleService, LinkService, ProductSalesChannel } from "@medusajs/link-modules";
 import { MedusaError } from "@medusajs/utils/common/errors";
-import type { Context, ILinkModule, LoadedModule, ModuleJoinerRelationship } from "@medusajs/types";
+import type { Context, DAL, ILinkModule, LoadedModule, ModuleJoinerRelationship } from "@medusajs/types";
+import { Modules } from "@medusajs/framework/utils/portable";
 
 // Authored router fixture matching the pinned ProductShippingProfile cardinality.
 // This does not promote Fulfillment or install a ShippingProfile storage adapter.
@@ -28,14 +29,14 @@ function router(selectedRelationships = relationships, serviceName = joiner.serv
 }
 
 describe("native Link cardinality characterization (not stored-module support)", () => {
-  it("still requires a separate native storage-constraint decision", () => {
+  it("generates active Product uniqueness without limiting profile reuse", () => {
     const generated = generateEntityDefinition(joiner, relationships[0], relationships[1]);
     expect(generated.properties).toMatchObject({ product_id: { primary: true }, shipping_profile_id: { primary: true }, id: { type: "string" } });
     expect(generated.indexes).toHaveLength(4);
-    for (const index of generated.indexes) {
-      expect(index).not.toHaveProperty("unique", true);
-      expect(index.expression ?? "").not.toMatch(/CREATE UNIQUE INDEX/i);
-    }
+    expect(generated.indexes.filter(index => "unique" in index && index.unique)).toEqual([
+      expect.objectContaining({ properties: ["product_id"], unique: true,
+        expression: expect.stringMatching(/^CREATE UNIQUE INDEX .*WHERE deleted_at IS NULL$/) }),
+    ]);
   });
 
   it("refuses two different profiles for one Product before delegation", async () => {
@@ -172,5 +173,61 @@ describe("native batch cardinality uses relationship metadata, not module names"
       await expect(link.create([compoundPair("x,y", "z", "a"), compoundPair("x", "y,z", "a")])).rejects.toMatchObject({ type: MedusaError.Types.INVALID_DATA });
       expect(create).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe("native Link storage metadata and tuple authority", () => {
+  it.each([
+    [true, true, []], [true, false, ["left_id"]], [false, true, ["right_id"]],
+    [false, false, ["left_id", "right_id"]], [undefined, undefined, ["left_id", "right_id"]],
+  ] as const)("generates endpoint uniqueness for %s/%s", (first, second, expected) => {
+    const selected = neutralRelationships(first, second);
+    const generated = generateEntityDefinition({ ...joiner, relationships: selected }, selected[0], selected[1]);
+    expect(generated.indexes.filter(index => "unique" in index && index.unique)
+      .flatMap(index => index.properties)).toEqual(expected);
+    expect(generated.properties).toMatchObject({ left_id: { primary: true }, right_id: { primary: true } });
+    expect(generated.properties.id).not.toHaveProperty("primary");
+  });
+
+  it("preserves the exact many-to-many ProductSalesChannel generated metadata", () => {
+    const [first, second] = ProductSalesChannel.relationships ?? [];
+    if (!first || !second) throw new Error("Missing native relationships");
+    const generated = generateEntityDefinition(ProductSalesChannel, first, second);
+    expect(generated).toMatchSnapshot();
+    expect(generated.indexes.every(index => !("unique" in index))).toBe(true);
+  });
+
+  function service() {
+    const unused = () => { throw new Error("Unexpected repository operation"); };
+    const create = vi.fn<DAL.RepositoryService["create"]>().mockResolvedValue([]);
+    const repository: DAL.RepositoryService = { create,
+      // Native DAL lets callers select the serialization type; this fixture's
+      // create always returns an empty row array and exercises no projection.
+      serialize: async <Output extends object | object[]>() => [] as Output,
+      getFreshManager: unused, getActiveManager: unused, transaction: unused, find: unused, findAndCount: unused,
+      update: unused, delete: unused, upsert: unused, upsertWithReplace: unused, softDelete: unused, restore: unused };
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const Service = getModuleService(joiner);
+    const native = new Service({ baseRepository: repository, linkService: new LinkService({ linkRepository: repository }),
+      primaryKey: "left_id", foreignKey: "right_id", extraFields: ["note"], entityName: "LinkNeutral", serviceName: "neutral",
+      [Modules.EVENT_BUS]: { emit, subscribe: unused, unsubscribe: unused, releaseGroupedEvents: unused, clearGroupedEvents: unused } }, { scope: "internal" });
+    return { native, create, emit, context: { manager: {}, transactionManager: {} } satisfies Context };
+  }
+
+  it.each([{ left_id: "x" }, { left_id: "different" }, { right_id: "a" }, { right_id: "different" }])(
+    "rejects reserved extra fields before repository writes or events: %j", async extra => {
+      const { native, create, emit, context } = service();
+      await expect(native.create([["valid", "valid", {}], ["x", "a", extra]], undefined, undefined, context)).rejects.toMatchObject({
+        type: MedusaError.Types.INVALID_DATA, message: "Link extra data cannot replace endpoint fields",
+      });
+      expect(create).not.toHaveBeenCalled();
+      expect(emit).not.toHaveBeenCalled();
+    });
+
+  it("preserves ordinary extra data and supplied IDs", async () => {
+    const { native, create, context } = service();
+    await native.create("x", "a", { id: "chosen", note: "native extra" }, context);
+    expect(create).toHaveBeenCalledExactlyOnceWith([{ left_id: "x", right_id: "a", id: "chosen", note: "native extra" }],
+      { transactionManager: context.transactionManager });
   });
 });

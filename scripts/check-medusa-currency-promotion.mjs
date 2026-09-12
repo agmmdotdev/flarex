@@ -119,6 +119,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-modules-sdk/src/link.ts",
       "packages/medusa-link-modules/src/utils/generate-entity.ts",
       "packages/medusa-link-modules/src/services/dynamic-service-class.ts",
+      "packages/medusa-link-modules/src/services/link-module-service.ts",
       "packages/medusa-link-modules/src/definitions/product-sales-channel.ts",
     ].includes(file.target)) throw new Error("Link adaptation outside its approved finite source closure");
     const owned = [...owners.keys()].some((owner) => file.target.startsWith(owner + "/"))

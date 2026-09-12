@@ -5,7 +5,7 @@ import { captureCommerceInput } from "./commerce-input";
 
 /** Authenticate native non-key event IDs from operation-local storage evidence,
  * never from a final-row reread: a later attach may already have replaced ID. */
-export function productSalesChannelLinkEventPolicy(serviceName: string, entityName: string, descriptor: CommerceProfileState,
+export function linkEventPolicy(tableName: string, serviceName: string, entityName: string, descriptor: CommerceProfileState,
   deliver: LocalCommerceEventPolicy["deliver"]): LocalCommerceEventPolicy {
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = Schema.decodeUnknownEffect(Schema.Struct({
@@ -29,7 +29,7 @@ export function productSalesChannelLinkEventPolicy(serviceName: string, entityNa
         : command === "linkRestore" ? operation === "restore"
           : (command === "linkDismiss" || command === "linkDelete") && operation === "softDelete";
       const id = observation.row.id;
-      if (!admitted || observation.tableId !== "product_sales_channel" || typeof id !== "string"
+      if (!admitted || observation.tableId !== tableName || typeof id !== "string"
         || (operation === "softDelete" ? typeof observation.row.deleted_at !== "string" : observation.row.deleted_at !== null)) {
         return yield* Effect.fail(commerceError("receiptMismatch"));
       }

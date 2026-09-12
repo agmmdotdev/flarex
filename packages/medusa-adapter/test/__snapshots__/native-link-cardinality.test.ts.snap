@@ -1,0 +1,66 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`native Link storage metadata and tuple authority > preserves the exact many-to-many ProductSalesChannel generated metadata 1`] = `
+{
+  "indexes": [
+    {
+      "name": "IDX_id_20b454295",
+      "properties": [
+        "id",
+      ],
+    },
+    {
+      "expression": "CREATE INDEX IF NOT EXISTS "IDX_product_id_20b454295" ON "product_sales_channel" ("product_id") WHERE deleted_at IS NULL",
+      "name": "IDX_product_id_20b454295",
+      "properties": [
+        "product_id",
+      ],
+    },
+    {
+      "expression": "CREATE INDEX IF NOT EXISTS "IDX_sales_channel_id_20b454295" ON "product_sales_channel" ("sales_channel_id") WHERE deleted_at IS NULL",
+      "name": "IDX_sales_channel_id_20b454295",
+      "properties": "sales_channel_id",
+    },
+    {
+      "name": "IDX_deleted_at_20b454295",
+      "properties": [
+        "deleted_at",
+      ],
+    },
+  ],
+  "properties": {
+    "created_at": {
+      "columnType": "timestamptz",
+      "defaultRaw": "CURRENT_TIMESTAMP",
+      "nullable": false,
+      "type": "date",
+    },
+    "deleted_at": {
+      "columnType": "timestamptz",
+      "nullable": true,
+      "type": "date",
+    },
+    "id": {
+      "nullable": false,
+      "type": "string",
+    },
+    "product_id": {
+      "nullable": false,
+      "primary": true,
+      "type": "string",
+    },
+    "sales_channel_id": {
+      "nullable": false,
+      "primary": true,
+      "type": "string",
+    },
+    "updated_at": {
+      "columnType": "timestamptz",
+      "defaultRaw": "CURRENT_TIMESTAMP",
+      "nullable": false,
+      "type": "date",
+    },
+  },
+  "tableName": "product_sales_channel",
+}
+`;

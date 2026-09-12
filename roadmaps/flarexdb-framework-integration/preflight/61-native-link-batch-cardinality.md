@@ -2,7 +2,7 @@
 
 Status: approved and implemented. Preflight 59 A and the
 preflight 60 shared-owner correction are implemented. ShippingProfile activation
-and singular Link storage support remain unapproved.
+remains unapproved. Singular storage is separately implemented in preflight 63.
 
 ## Outcome And Why Now
 
@@ -147,7 +147,8 @@ Run staged diff lint before the scoped implementation commit.
 
 Completion means the native batch defect is corrected, regressions pass,
 provenance and roadmaps agree, and one coherent implementation commit exists.
-The next decision remains singular-Link storage semantics and the bounded
-ShippingProfile foundation, not automatic B activation.
-[Preflight 63](./63-native-singular-link-storage.md) now owns the proposed storage
-and endpoint-protection correction; its implementation is not yet approved.
+The bounded ShippingProfile foundation is not automatically activated.
+[Preflight 63](./63-native-singular-link-storage.md) implements the separately
+approved native scalar-Link storage and endpoint-protection correction. The
+storage gaps described above are the baseline that motivated that correction,
+not remaining defects in the promoted scalar-Link path.
