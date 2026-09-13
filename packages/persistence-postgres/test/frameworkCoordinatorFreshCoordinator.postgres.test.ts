@@ -1,3 +1,5 @@
+import { prepareInstallationRuntime, acceptPreparedInstallation } from "../src/frameworkSchema/installation/runtime";
+import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { sql } from "drizzle-orm";
 import { setTimeout as delay } from "node:timers/promises";
@@ -181,11 +183,38 @@ native("native fresh framework migration coordinator", () => {
       const pending = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input,
         maximumStepsPerRun: 2, leaseDurationMilliseconds: 10_000 }));
       if (pending.kind !== "pending") throw new Error("Expected claim");
+      const originals = await fixture.persistence.query("select receipt_storage_id::text, encode(canonical_bytes, 'hex') as bytes from fx_system_framework_migration_step_receipt order by receipt_storage_id");
       await waitForFrameworkLeaseExpiry(fixture.persistence, fixture.input.attemptId);
       expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input,
-        attemptId: "attempt-b", leaseOwnerId: "worker-b" }))).toMatchObject({ kind: "ready" });
+        attemptId: "attempt-b", leaseOwnerId: "worker-b", maximumStepsPerRun: 0, leaseDurationMilliseconds: 10_000 })))
+        .toMatchObject({ kind: "pending", completedStepCount: 2 });
+      expect(await countNativeRows(fixture, "fx_system_framework_migration_step_receipt")).toBe(2);
+      await waitForFrameworkLeaseExpiry(fixture.persistence, "attempt-b");
+      const ready = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input,
+        attemptId: "attempt-c", leaseOwnerId: "worker-c" }));
+      expect(ready).toMatchObject({ kind: "ready" });
+      if (ready.kind !== "ready") throw new Error("Expected completed takeover");
+      const reference = installationBindingReference(ready.availability);
+      const prepared = await runEffect(prepareInstallationRuntime(fixture.persistence.drizzle, fixture.target.schema, reference));
+      const accepted = await fixture.persistence.drizzle.transaction(tx => runEffect(
+        acceptPreparedInstallation(prepared, fixture.target.schema, reference, tx),
+      ));
+      expect(accepted.readiness).toEqual(ready.readiness.readiness.frame);
       expect(await runEffectFailure(executeNextFrameworkMigrationStepEffect(pending.claim))).toMatchObject({ reason: "staleFence" });
-      expect(await countNativeRows(fixture, "fx_system_framework_migration_step_receipt")).toBe(9);
+      expect(await countNativeRows(fixture, "fx_system_framework_migration_step_receipt")).toBe(7);
+      const completed = await fixture.persistence.query("select receipt_storage_id::text, encode(canonical_bytes, 'hex') as bytes from fx_system_framework_migration_step_receipt order by receipt_storage_id");
+      expect(completed.rows.slice(0, 2)).toEqual(originals.rows);
+      const events = await fixture.persistence.query("select subject_sha256 from fx_system_framework_migration_event where event_kind = 'stepCompleted'");
+      expect(events.rows).toHaveLength(7);
+      await administrativelyRepairFrameworkMetadata(fixture.persistence.drizzle,
+        ["fx_system_framework_migration_step_receipt"], tx => tx.execute(sql`
+          update fx_system_framework_migration_step_receipt
+          set canonical_bytes = overlay(canonical_bytes placing decode('20', 'hex') from 1 for 1)
+          where receipt_storage_id = (select min(receipt_storage_id) from fx_system_framework_migration_step_receipt)
+        `));
+      await expect(fixture.persistence.drizzle.transaction(tx => runEffect(
+        acceptPreparedInstallation(prepared, fixture.target.schema, reference, tx),
+      ))).rejects.toMatchObject({ reason: "storedCorruption" });
     });
   }, 180_000);
 

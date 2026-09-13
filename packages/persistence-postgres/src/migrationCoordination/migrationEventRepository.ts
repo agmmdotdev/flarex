@@ -1,4 +1,4 @@
-import { additiveMigrationGraphLimits, withFrameworkCollisionGraphLimits } from "./additiveLimits";
+import { frameworkMigrationGraphPolicy, withFrameworkCollisionGraphLimits } from "./graphLimits";
 import { frameworkGraphDriverRowReferences, makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { and, desc, eq, lte, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
@@ -749,7 +749,7 @@ const restoreEventChain = Effect.fn(
     );
   }
   const rootDecoded = yield* decodeEventRoot(root, operation);
-  const bounded = yield* additiveMigrationGraphLimits;
+  const bounded = (yield* frameworkMigrationGraphPolicy) !== "ordinary";
   if (bounded && BigInt(rootDecoded.frame.sequence) > 128n) {
     return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
   }

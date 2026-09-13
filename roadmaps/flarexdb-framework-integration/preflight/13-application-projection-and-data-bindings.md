@@ -308,8 +308,11 @@ processes which rebuild Application, target and profile authorities from stored
 evidence. Neither runtime tokens nor an already constructed host cross the
 process boundary.
 
-Binding installation reads explicitly apply the existing bounded immutable-graph
-policy even for fresh installations. At most eight linked availability-history
+Binding installation reads apply the binding graph policy even for fresh
+installations. The [receipt storage cutover](./77-installation-progress-storage-map.md)
+separates it from additive execution: binding retains its event/availability
+ceilings and bounded fresh ancestry; actual additive plans keep their two-attempt
+limit. At most eight linked availability-history
 nodes are admitted; a ninth returns the installation owner's non-transient
 reference refusal. Tests cover cold admission at the limit, refusal beyond it,
 and historical receipt recovery with current admission refused. Ordinary

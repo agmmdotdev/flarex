@@ -1,3 +1,5 @@
+import { prepareInstallationRuntime, acceptPreparedInstallation } from "../src/frameworkSchema/installation/runtime";
+import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { sql } from "drizzle-orm";
 import { Result } from "effect";
@@ -194,20 +196,39 @@ describe("private fresh framework migration coordinator", () => {
     expect(first.kind).toBe("pending");
     if (first.kind !== "pending") throw new Error("Expected first claim");
     expect(first.completedStepCount).toBe(3);
+    const originals = await fixture.persistence.query("select receipt_storage_id::text, encode(canonical_bytes, 'hex') as bytes from fx_system_framework_migration_step_receipt order by receipt_storage_id");
     await waitForFrameworkLeaseExpiry(fixture.persistence, fixture.input.attemptId);
 
+    const idleSuccessor = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({
+      ...fixture.input, attemptId: "attempt-b", leaseOwnerId: "worker-b",
+      leaseDurationMilliseconds: 10_000, maximumStepsPerRun: 0,
+    }));
+    expect(idleSuccessor).toMatchObject({ kind: "pending", completedStepCount: 3 });
+    expect(await countRows(fixture.persistence, "fx_system_framework_migration_step_receipt")).toBe(3);
+    await waitForFrameworkLeaseExpiry(fixture.persistence, "attempt-b");
     const takeover = await runEffect(
       runFreshFrameworkMigrationCoordinatorEffect({
         ...fixture.input,
-        attemptId: "attempt-b",
-        leaseOwnerId: "worker-b",
+        attemptId: "attempt-c",
+        leaseOwnerId: "worker-c",
       }),
     );
     expect(takeover.kind).toBe("ready");
+    if (takeover.kind !== "ready") throw new Error("Expected completed takeover");
+    const reference = installationBindingReference(takeover.availability);
+    const prepared = await runEffect(prepareInstallationRuntime(fixture.persistence.drizzle, fixture.input.target.schema, reference));
+    const accepted = await fixture.persistence.drizzle.transaction(tx => runEffect(
+      acceptPreparedInstallation(prepared, fixture.input.target.schema, reference, tx),
+    ));
+    expect(accepted.readiness).toEqual(takeover.readiness.readiness.frame);
+    const completed = await fixture.persistence.query("select receipt_storage_id::text, encode(canonical_bytes, 'hex') as bytes from fx_system_framework_migration_step_receipt order by receipt_storage_id");
+    expect(completed.rows.slice(0, 3)).toEqual(originals.rows);
+    const events = await fixture.persistence.query("select subject_sha256 from fx_system_framework_migration_event where event_kind = 'stepCompleted'");
+    expect(events.rows).toHaveLength(7);
     expect(await countRows(
       fixture.persistence,
       "fx_system_framework_migration_step_receipt",
-    )).toBe(10);
+    )).toBe(7);
     expect(await runEffectFailure(
       executeNextFrameworkMigrationStepEffect(first.claim),
     )).toMatchObject({ reason: "staleFence" });
@@ -222,6 +243,7 @@ describe("private fresh framework migration coordinator", () => {
     expect(attempts.rows).toEqual([
       { attempt_id: "attempt-a", attempt_fence: "1" },
       { attempt_id: "attempt-b", attempt_fence: "2" },
+      { attempt_id: "attempt-c", attempt_fence: "3" },
     ]);
     const terminals = await fixture.persistence.query<{
       outcome_kind: string;
@@ -232,6 +254,7 @@ describe("private fresh framework migration coordinator", () => {
       order by terminal_storage_id
     `);
     expect(terminals.rows).toEqual([
+      { outcome_kind: "failed", failure_reason: "leaseLost" },
       { outcome_kind: "failed", failure_reason: "leaseLost" },
       { outcome_kind: "succeeded", failure_reason: null },
     ]);

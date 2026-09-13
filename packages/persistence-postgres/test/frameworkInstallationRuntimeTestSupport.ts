@@ -1,4 +1,7 @@
 import { eq } from "drizzle-orm";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
+import { collectInstallationEvidence, readInstallationEvidence } from "../src/frameworkSchema/installation/runtimeEvidence";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { Effect, Tracer } from "effect";
 import { expect } from "vitest";
@@ -48,6 +51,17 @@ export async function exerciseInstallationRuntime(database: FlarexMetadataDataba
   const independent = await fixture.prepare();
   expect(independent).not.toBe(fixture.prepared);
   expect(await fixture.accept(independent)).toEqual(accepted);
+  const evidence = await database.transaction(tx => runEffect(Effect.gen(function* () {
+    const coordinates = yield* collectInstallationEvidence(tx, fixture.stored);
+    return yield* readInstallationEvidence(tx, coordinates);
+  })));
+  const missingReceipts = Object.fromEntries(Object.entries(evidence).filter(([key]) => key !== "receipts"));
+  for (const rows of [[], [{}], [missingReceipts], [{ ...evidence, receipts: "invalid" }],
+    [{ ...evidence, unexpected: "0".repeat(64) }], [evidence, evidence]]) {
+    await expect(database.transaction(tx => runEffect(acceptPreparedInstallation(
+      fixture.prepared, fixture.target, fixture.reference, evidenceResultTransaction(tx, rows),
+    )))).rejects.toMatchObject({ reason: "storedCorruption" });
+  }
   // Deliberately forged capability at the public boundary under test.
   await expect(fixture.accept(Object.freeze({}) as PreparedInstallationRuntime)).rejects.toMatchObject({ reason: "invalidAuthority" });
   await expect(database.transaction(tx => runEffect(acceptPreparedInstallation(fixture.prepared, fixture.target,
@@ -115,4 +129,24 @@ export async function exerciseInstallationRuntime(database: FlarexMetadataDataba
   })));
   await expect(fixture.accept()).rejects.toMatchObject({ reason: "unavailableInstallation" });
   await expect(fixture.prepare()).rejects.toMatchObject({ reason: "unavailableInstallation" });
+}
+
+/** Fault injection at the foreign driver's result boundary. All other queries,
+ * including the accepting head lock, use the real transaction. */
+function evidenceResultTransaction(
+  transaction: FlarexMetadataTransaction,
+  rows: readonly unknown[],
+): FlarexMetadataTransaction {
+  return new Proxy(transaction, {
+    get(target, property, receiver) {
+      const member = Reflect.get(target, property, receiver);
+      if (property !== "select" || typeof member !== "function") return member;
+      return (selection: unknown) => {
+        if (isNonArrayRecord(selection) && Object.hasOwn(selection, "receiptDependencies")) {
+          return { from: () => Promise.resolve(rows) };
+        }
+        return Reflect.apply(member, target, [selection]);
+      };
+    },
+  });
 }

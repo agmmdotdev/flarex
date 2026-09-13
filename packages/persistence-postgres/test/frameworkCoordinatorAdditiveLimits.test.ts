@@ -13,7 +13,7 @@ import type { CanonicalNonNegativeInt64 } from "../src/migrationCoordination/ide
 import { fxSystemFrameworkMigrationEvents } from "../src/migrationCoordination/schema";
 import { restoreStoredFrameworkMigrationEventReferenceInTransactionEffect } from "../src/migrationCoordination/migrationEventRepository";
 import { withFrameworkGraphReadPass } from "../src/migrationCoordination/graphReadPass";
-import { withAdditiveMigrationGraphLimits } from "../src/migrationCoordination/additiveLimits";
+import { withAdditiveMigrationGraphLimits } from "../src/migrationCoordination/graphLimits";
 import { changeBaseAvailability } from "./frameworkCoordinatorAdditiveAvailabilityTestSupport";
 import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 
@@ -32,6 +32,8 @@ describe("additive cold graph limits", () => {
     const fixture = await createAdditiveFixture();
     const request = { ...fixture.input, maximumStepsPerRun: 1, leaseDurationMilliseconds: 10_000 };
     expect(await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(request))).toMatchObject({ kind: "pending", completedStepCount: 1 });
+    const originalReceipts = (await fixture.persistence.query("select * from fx_system_framework_migration_step_receipt order by receipt_storage_id")).rows;
+    expect(originalReceipts).toHaveLength(fixture.base.readiness.installation.plan.plan.frame.steps.length + 1);
     await waitForFrameworkLeaseExpiry(fixture.persistence, request.attemptId);
     expect(await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...request, maximumStepsPerRun: 0,
       attemptId: "second", leaseOwnerId: "second-worker" }))).toMatchObject({ kind: "pending", completedStepCount: 1 });
@@ -40,7 +42,7 @@ describe("additive cold graph limits", () => {
       .toMatchObject({ reason: "invalidInput", message: "Additive attempt budget is exhausted" });
     expect((await fixture.persistence.query("select * from fx_system_framework_migration_attempt_start")).rows).toHaveLength(3);
     expect((await fixture.persistence.query("select * from fx_system_framework_schema_installation")).rows).toHaveLength(1);
-    expect((await fixture.persistence.query("select * from fx_system_framework_migration_step_receipt")).rows).toHaveLength(5);
+    expect((await fixture.persistence.query("select * from fx_system_framework_migration_step_receipt order by receipt_storage_id")).rows).toEqual(originalReceipts);
   }, 180_000);
   it.each([false, true])("bounds event references before walking excess links (candidate admitted: %s)", async additive => {
     const fixture = await createAdditiveFixture();

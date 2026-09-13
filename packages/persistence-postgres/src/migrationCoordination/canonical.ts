@@ -34,6 +34,7 @@ import { FrameworkMigrationValueError } from "./errors";
 import {
   capturedAuthorityForAttempt,
   capturedAuthorityForStepReceipt,
+  capturedReceiptBelongsToAttemptPlan,
   capturedFrameworkMigrationTerminalAdmission,
   capturedPlanForAdmission,
   capturedPlanAdmissionRequirement,
@@ -626,7 +627,7 @@ export const captureFrameworkMigrationStepReceipt = Effect.fn(
     const receiptAuthority = capturedAuthorityForStepReceipt(receipt);
     if (
       receiptAuthority === undefined ||
-      receiptAuthority.attempt !== input.attempt
+      !capturedReceiptBelongsToAttemptPlan(receipt, input.attempt)
     ) {
       return yield* Effect.fail(FrameworkMigrationValueError.invalidInput(
         "captureLedgerValue",
@@ -734,8 +735,10 @@ export const captureFrameworkMigrationAttemptTerminal = Effect.fn(
       : capturedAuthorityForStepReceipt(receipt);
     if (
       receiptAuthority === undefined ||
-      receiptAuthority.attempt !== input.attempt ||
-      receiptAuthority.step !== attemptAuthority.plan.frame.steps[index]
+      receipt === undefined ||
+      !capturedReceiptBelongsToAttemptPlan(receipt, input.attempt) ||
+      receiptAuthority.step.stepId !== attemptAuthority.plan.frame.steps[index]?.stepId ||
+      receiptAuthority.step.stepSha256 !== attemptAuthority.plan.frame.steps[index]?.stepSha256
     ) {
       return yield* Effect.fail(FrameworkMigrationValueError.invalidInput(
         "captureLedgerValue",

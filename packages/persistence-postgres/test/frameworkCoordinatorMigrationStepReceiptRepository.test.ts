@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { administrativelyRepairFrameworkMetadata, withAdministrativeFrameworkMetadataRepair } from "./frameworkMetadataRepairTestSupport";
 import {
   isNonArrayRecord,
@@ -257,89 +258,49 @@ describe("framework coordinator migration-step receipt repository", () => {
     );
   }, PGLITE_TEST_TIMEOUT);
 
-  it("keeps one plan's dependency graph isolated across later attempts", async () => {
+  it("reuses original plan receipts across successors and refuses a second completion", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const values = await freshPlanRepositoryValues();
-    const stored = await persistence.drizzle.transaction(
-      async transaction => {
-        const firstAttempt = await ensureStoredAttempt(
-          transaction,
-          values,
-          "attempt-a",
-          "1",
-          null,
-        );
-        const firstValues = await completeFrameworkMigrationPlanSteps(
-          firstAttempt.plan.plan,
-          firstAttempt.attempt,
-          FIRST_COMPLETED_AT,
-        );
-        const firstReceipts = await ensureStoredReceiptGraph(
-          transaction,
-          firstAttempt,
-          firstValues,
-        );
-        const secondAttemptValue = await captureAttempt(
-          firstAttempt.admission,
-          "attempt-b",
-          "2",
-          firstAttempt,
-        );
-        const secondAttempt = await runEffect(
-          ensureFrameworkMigrationAttemptStartInTransactionEffect(
-            transaction,
-            firstAttempt.admission,
-            firstAttempt,
-            secondAttemptValue,
-          ),
-        );
-        const secondValues = await completeFrameworkMigrationPlanSteps(
-          secondAttempt.plan.plan,
-          secondAttempt.attempt,
-          SECOND_COMPLETED_AT,
-        );
-        const secondReceipts = await ensureStoredReceiptGraph(
-          transaction,
-          secondAttempt,
-          secondValues,
-        );
-        return {
-          firstAttempt,
-          firstReceipts,
-          secondAttempt,
-          secondReceipts,
-        };
-      },
-    );
-
-    const finalSecondReceipt = requiredLast(stored.secondReceipts);
-    const sidecars = await persistence.drizzle.select().from(
-      fxSystemFrameworkMigrationStepReceiptDependencies,
-    ).where(eq(
-      fxSystemFrameworkMigrationStepReceiptDependencies.receiptStorageId,
-      finalSecondReceipt.storageId,
-    )).orderBy(
-      asc(fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal),
-    );
-    const firstStorageIds = new Set(
-      stored.firstReceipts.map(receipt => receipt.storageId),
-    );
-    const secondStorageIds = new Set(
-      stored.secondReceipts.map(receipt => receipt.storageId),
-    );
-    expect(sidecars).toHaveLength(
-      finalSecondReceipt.receipt.frame.dependencyReceipts.length,
-    );
-    expect(sidecars.every(row =>
-      row.attemptStorageId === stored.secondAttempt.storageId &&
-      secondStorageIds.has(row.dependencyReceiptStorageId) &&
-      !firstStorageIds.has(row.dependencyReceiptStorageId)
-    )).toBe(true);
+    const stored = await persistence.drizzle.transaction(async transaction => {
+      const firstAttempt = await ensureStoredAttempt(transaction, values, "attempt-a", "1", null);
+      const firstValues = await completeFrameworkMigrationPlanSteps(firstAttempt.plan.plan,
+        firstAttempt.attempt, FIRST_COMPLETED_AT);
+      const firstReceipts = await ensureStoredReceiptGraph(transaction, firstAttempt, firstValues.slice(0, -1));
+      const secondAttempt = await runEffect(ensureFrameworkMigrationAttemptStartInTransactionEffect(
+        transaction, firstAttempt.admission, firstAttempt,
+        await captureAttempt(firstAttempt.admission, "attempt-b", "2", firstAttempt),
+      ));
+      const finalStep = requiredLast(secondAttempt.plan.plan.frame.steps);
+      const dependencies = firstReceipts.filter(receipt => finalStep.dependencies.some(
+        dependency => dependency.stepId === receipt.receipt.frame.stepId,
+      )).toSorted((left, right) => compareUtf16Strings(left.receipt.frame.stepId, right.receipt.frame.stepId));
+      const finalValue = await runEffect(captureFrameworkMigrationStepReceipt({
+        attempt: secondAttempt.attempt, step: finalStep,
+        dependencyReceipts: dependencies.map(receipt => receipt.receipt),
+        observedPostconditionSha256: finalStep.postconditionSha256, completedAt: SECOND_COMPLETED_AT,
+      }));
+      const finalReceipt = await runEffect(ensureFrameworkMigrationStepReceiptInTransactionEffect(
+        transaction, secondAttempt, dependencies, finalValue,
+      ));
+      const prefix = await runEffect(readFrameworkMigrationStepReceiptPrefixInTransactionEffect(transaction, secondAttempt));
+      const oldPrefix = await runEffect(readFrameworkMigrationStepReceiptPrefixInTransactionEffect(transaction, firstAttempt));
+      expect(oldPrefix.map(receipt => receipt.receipt)).toEqual(firstReceipts.map(receipt => receipt.receipt));
+      expect(prefix.map(receipt => receipt.storageId)).toEqual([...firstReceipts, finalReceipt].map(receipt => receipt.storageId));
+      return { firstAttempt, firstReceipts, secondAttempt, finalReceipt, prefix };
+    });
+    const sidecars = await persistence.drizzle.select().from(fxSystemFrameworkMigrationStepReceiptDependencies)
+      .where(eq(fxSystemFrameworkMigrationStepReceiptDependencies.receiptStorageId, stored.finalReceipt.storageId));
+    const originalIds = new Set(stored.firstReceipts.map(receipt => receipt.storageId));
+    expect(sidecars).toHaveLength(stored.finalReceipt.receipt.frame.dependencyReceipts.length);
+    expect(sidecars.every(row => row.planStorageId === stored.secondAttempt.plan.storageId &&
+      originalIds.has(row.dependencyReceiptStorageId))).toBe(true);
+    const duplicateValues = await completeFrameworkMigrationPlanSteps(stored.secondAttempt.plan.plan,
+      stored.secondAttempt.attempt, SECOND_COMPLETED_AT);
+    await expect(persistence.drizzle.transaction(transaction => ensureStoredReceiptGraph(
+      transaction, stored.secondAttempt, duplicateValues,
+    ) )).rejects.toMatchObject({ reason: "immutableConflict" });
     await expect(receiptAggregateCounts(persistence)).resolves.toEqual({
-      receipts: String(stored.firstReceipts.length * 2),
-      dependencies: String(
-        expectedReceiptDependencies(stored.firstReceipts).length * 2,
-      ),
+      receipts: String(stored.prefix.length), dependencies: String(expectedReceiptDependencies(stored.prefix).length),
     });
   }, PGLITE_TEST_TIMEOUT);
 
@@ -370,7 +331,7 @@ describe("framework coordinator migration-step receipt repository", () => {
         expected,
         "readStepReceipt",
         {
-          readByAttemptStep: () => Effect.succeed(Option.some(exactOccupant)),
+          readByPlanStep: () => Effect.succeed(Option.some(exactOccupant)),
           readByDigest: () => {
             exactDigestReads += 1;
             return Effect.succeed(Option.none());
@@ -392,7 +353,7 @@ describe("framework coordinator migration-step receipt repository", () => {
           // This trusted lookup seam represents the same-attempt/step unique
           // occupant without requiring a physically realizable constraint
           // violation.
-          readByAttemptStep: () =>
+          readByPlanStep: () =>
             Effect.succeed(Option.some(nonExactOccupant)),
           readByDigest: () => {
             conflictingDigestReads += 1;
@@ -416,7 +377,7 @@ describe("framework coordinator migration-step receipt repository", () => {
         expected,
         "readStepReceipt",
         {
-          readByAttemptStep: () => Effect.succeed(Option.none()),
+          readByPlanStep: () => Effect.succeed(Option.none()),
           // This authenticated occupant stands in for an impossible SHA-256
           // collision returned by the global digest index.
           readByDigest: () => {
@@ -1157,7 +1118,7 @@ async function storedReceiptDependencies(
   );
   return rows.map(row => ({
     receiptStorageId: row.receiptStorageId,
-    attemptStorageId: row.attemptStorageId,
+    planStorageId: row.planStorageId,
     dependencyOrdinal: row.dependencyOrdinal,
     dependencyReceiptStorageId: row.dependencyReceiptStorageId,
     dependencyStepId: row.dependencyStepId,
@@ -1181,7 +1142,7 @@ function expectedReceiptDependencies(
       }
       return {
         receiptStorageId: receipt.storageId,
-        attemptStorageId: receipt.attempt.storageId,
+        planStorageId: receipt.attempt.plan.storageId,
         dependencyOrdinal: ordinal,
         dependencyReceiptStorageId: dependency.storageId,
         dependencyStepId: reference.stepId,

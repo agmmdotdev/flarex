@@ -1,5 +1,5 @@
 import { withFrameworkMigrationPlanVerification } from "./canonical";
-import { withAdditiveMigrationGraphLimits } from "./additiveLimits";
+import { withAdditiveMigrationGraphLimits } from "./graphLimits";
 import { isStoredMigrationBaseInstallation } from "./storedValidation";
 import {
   canonicalIsoInstantFromDate,
@@ -847,13 +847,12 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
         startedEvent,
         clock.databaseNow,
       );
-      yield* carryForwardPredecessorReceipts(
+      yield* observePredecessorReceipts(
         raw,
         transaction,
         input.target,
         attempt,
         predecessorReceipts,
-        currentHead,
       );
       return Object.freeze({
         kind: "claim" as const,
@@ -869,84 +868,31 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
 });
 
 /** Re-observe receipted predecessor progress without replaying its DDL. */
-const carryForwardPredecessorReceipts = Effect.fn(
-  "FreshFrameworkMigrationCoordinator.carryForwardPredecessorReceipts",
+const observePredecessorReceipts = Effect.fn(
+  "FreshFrameworkMigrationCoordinator.observePredecessorReceipts",
 )(function* (
   raw: FlarexMetadataTransaction,
   transaction: FrameworkMigrationTransaction,
   target: FrameworkMigrationTarget,
   attempt: RestoredFrameworkMigrationAttemptStart,
   predecessorReceipts: readonly RestoredFrameworkMigrationStepReceipt[],
-  initialHead: RestoredFrameworkMigrationCollisionHead,
 ): Effect.fn.Return<void, FrameworkMigrationCoordinatorFailure> {
   if (predecessorReceipts.length === 0) return;
   const plan = attempt.plan.plan;
   const runner = yield* issueRelationalStructuralRunnerTokenEffect(target, plan);
   yield* preflightRelationalStructuralPlanEffect(runner);
-  let head = initialHead;
-  for (const predecessor of predecessorReceipts) {
-    const prefix = yield* readFrameworkMigrationStepReceiptPrefixInTransactionEffect(
-      raw,
-      attempt,
-    );
-    const step = plan.frame.steps[prefix.length];
-    if (
-      step === undefined ||
+  for (const [ordinal, predecessor] of predecessorReceipts.entries()) {
+    const step = plan.frame.steps[ordinal];
+    if (step === undefined ||
       predecessor.receipt.frame.stepId !== step.stepId ||
       predecessor.receipt.frame.stepSha256 !== step.stepSha256 ||
-      predecessor.receipt.frame.observedPostconditionSha256 !== step.postconditionSha256
-    ) {
-      return yield* Effect.fail(corruption(
-        "claim",
-        "Predecessor receipt does not match the successor plan prefix",
-      ));
+      predecessor.receipt.frame.observedPostconditionSha256 !== step.postconditionSha256) {
+      return yield* Effect.fail(corruption("claim", "Predecessor receipt does not match the successor plan prefix"));
     }
-    const observation = yield* observeRelationalStructuralStepEffect(
-      runner,
-      transaction,
-      step,
-    );
+    const observation = yield* observeRelationalStructuralStepEffect(runner, transaction, step);
     if (observation !== "exact") {
-      return yield* Effect.fail(corruption(
-        "claim",
-        "Predecessor receipted structure is absent during takeover",
-      ));
+      return yield* Effect.fail(corruption("claim", "Predecessor receipted structure is absent during takeover"));
     }
-    const dependencies = prefix.filter(receipt => step.dependencies.some(
-      dependency => dependency.stepId === receipt.receipt.frame.stepId,
-    )).toSorted((left, right) => compareUtf16Strings(
-      left.receipt.frame.stepId,
-      right.receipt.frame.stepId,
-    ));
-    const clock = yield* readDatabaseClock(raw, 1);
-    const value = yield* captureFrameworkMigrationStepReceipt({
-      attempt: attempt.attempt,
-      step,
-      dependencyReceipts: dependencies.map(receipt => receipt.receipt),
-      observedPostconditionSha256: step.postconditionSha256,
-      completedAt: clock.databaseNow,
-    });
-    const receipt = yield* ensureFrameworkMigrationStepReceiptInTransactionEffect(
-      raw,
-      attempt,
-      dependencies,
-      value,
-    );
-    const event = yield* appendEvent(
-      raw,
-      head,
-      clock.databaseNow,
-      Object.freeze({ kind: "stepCompleted", receipt }),
-      Object.freeze({ kind: "stepCompleted", stepReceiptSha256: receipt.receipt.sha256 }),
-    );
-    head = yield* advanceHead(
-      raw,
-      head,
-      attempt,
-      head.head.frame.currentAttempt,
-      event,
-      clock.databaseNow,
-    );
   }
 });
 

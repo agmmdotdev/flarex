@@ -262,7 +262,7 @@ export interface StoredFrameworkMigrationStepReceiptRow
 
 export interface StoredFrameworkMigrationStepReceiptDependencyRow {
   readonly receiptStorageId: unknown;
-  readonly attemptStorageId: unknown;
+  readonly planStorageId: unknown;
   readonly dependencyOrdinal: unknown;
   readonly dependencyReceiptStorageId: unknown;
   readonly dependencyStepId: unknown;
@@ -320,6 +320,10 @@ const restoredAdmissions = new WeakSet<
   RestoredFrameworkMigrationPlanAdmission
 >();
 const restoredAttempts = new WeakSet<RestoredFrameworkMigrationAttemptStart>();
+const restoredAttemptPredecessors = new WeakMap<
+  RestoredFrameworkMigrationAttemptStart,
+  RestoredFrameworkMigrationAttemptStart | null
+>();
 const restoredStepReceipts = new WeakSet<
   RestoredFrameworkMigrationStepReceipt
 >();
@@ -919,6 +923,7 @@ export const restoreStoredFrameworkMigrationAttemptStart = Effect.fn(
     attempt,
   });
   restoredAttempts.add(restored);
+  restoredAttemptPredecessors.set(restored, input.previousAttempt);
   return restored;
 });
 
@@ -926,6 +931,23 @@ export function isRestoredFrameworkMigrationAttemptStart(
   input: RestoredFrameworkMigrationAttemptStart,
 ): boolean {
   return restoredAttempts.has(input);
+}
+
+/** A receipt keeps its producer; only that attempt's successors may reuse it. */
+export function isRestoredFrameworkMigrationAttemptAncestor(
+  producer: RestoredFrameworkMigrationAttemptStart,
+  successor: RestoredFrameworkMigrationAttemptStart,
+): boolean {
+  if (!restoredAttempts.has(producer) || !restoredAttempts.has(successor) ||
+    producer.plan.storageId !== successor.plan.storageId ||
+    producer.admission.storageId !== successor.admission.storageId) return false;
+  let current: RestoredFrameworkMigrationAttemptStart | null | undefined = successor;
+  while (current !== null && current !== undefined) {
+    if (sameRestoredAttemptStart(producer, current)) return true;
+    if (BigInt(current.attempt.frame.attemptFence) <= BigInt(producer.attempt.frame.attemptFence)) return false;
+    current = restoredAttemptPredecessors.get(current);
+  }
+  return false;
 }
 
 export interface RestoreStoredFrameworkMigrationStepReceiptInput {
@@ -1037,11 +1059,11 @@ export const restoreStoredFrameworkMigrationStepReceipt = Effect.fn(
       !restoredStepReceipts.has(dependency) ||
       reference.stepId !== plannedDependency.stepId ||
       dependency.receipt.frame.stepSha256 !== plannedDependency.stepSha256 ||
-      dependency.attempt !== input.attempt ||
+      !isRestoredFrameworkMigrationAttemptAncestor(dependency.attempt, input.attempt) ||
       dependency.receipt.frame.stepId !== reference.stepId ||
       dependency.receipt.sha256 !== reference.stepReceiptSha256 ||
       dependencyRow.receiptStorageId !== storageId ||
-      dependencyRow.attemptStorageId !== input.attempt.storageId ||
+      dependencyRow.planStorageId !== input.plan.storageId ||
       dependencyRow.dependencyOrdinal !== index ||
       dependencyRow.dependencyReceiptStorageId !== dependency.storageId ||
       dependencyRow.dependencyStepId !== reference.stepId ||
@@ -1159,7 +1181,7 @@ export const restoreStoredFrameworkMigrationAttemptTerminal = Effect.fn(
       receipt === undefined ||
       step === undefined ||
       !restoredStepReceipts.has(receipt) ||
-      !sameRestoredAttemptStart(receipt.attempt, input.attempt) ||
+      !isRestoredFrameworkMigrationAttemptAncestor(receipt.attempt, input.attempt) ||
       receipt.receipt.frame.stepId !== step.stepId
     ) {
       return yield* corrupt();

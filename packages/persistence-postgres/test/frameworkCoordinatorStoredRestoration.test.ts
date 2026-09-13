@@ -456,7 +456,7 @@ describe("framework coordinator stored restoration", () => {
         },
         dependencyRows: launderedDependencyReceipts.map((value, index) => ({
           receiptStorageId: targetReceiptRow.receiptStorageId,
-          attemptStorageId: rows.attempt.attemptStorageId,
+          planStorageId: rows.attempt.planStorageId,
           dependencyOrdinal: index,
           dependencyReceiptStorageId: value.storageId,
           dependencyStepId: value.receipt.frame.stepId,
@@ -1026,7 +1026,7 @@ function storedRows(fresh: Awaited<ReturnType<typeof freshMigrationGraph>>) {
       }
       return {
         receiptStorageId: receiptIds.get(receipt),
-        attemptStorageId,
+        planStorageId,
         dependencyOrdinal: index,
         dependencyReceiptStorageId: receiptIds.get(dependencyReceipt),
         dependencyStepId: dependency.stepId,

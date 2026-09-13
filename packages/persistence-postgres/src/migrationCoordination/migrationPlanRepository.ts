@@ -1,6 +1,6 @@
 import { captureMigrationCanonicalValue, currentPlanVerification } from "./planVerificationScope";
 import { copyBytes } from "@flarex/utils/bytes";
-import { withAdditiveMigrationGraphLimits } from "./additiveLimits";
+import { withAdditiveMigrationGraphLimits } from "./graphLimits";
 import { reaffirmCapturedPlanAdmissionAuthority } from "./authority";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { insertFrameworkMigrationBaseEffect, restoreFrameworkMigrationBaseEffect } from "./baseRepository";

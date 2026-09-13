@@ -708,6 +708,13 @@
       "when": 1789289609305,
       "tag": "0100_framework_metadata_protection",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1789306724164,
+      "tag": "0101_framework_plan_receipts",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import {
   isNonArrayRecord,
@@ -361,17 +362,21 @@ describe("framework coordinator migration-attempt terminal repository", () => {
           "3",
           failedAttempt,
         );
-        const uncertainValues = await completeFrameworkMigrationPlanSteps(
-          uncertainAttempt.plan.plan,
-          uncertainAttempt.attempt,
-          SECOND_COMPLETED_AT,
-        );
-        const uncertainPrefixValues = requiredPrefix(uncertainValues, 1);
-        const uncertainPrefix = await ensureStoredReceiptPrefix(
-          transaction,
-          uncertainAttempt,
-          uncertainPrefixValues,
-        );
+        const nextStep = uncertainAttempt.plan.plan.frame.steps[failedPrefix.length];
+        if (nextStep === undefined) throw new Error("Missing successor step");
+        const dependencies = failedPrefix.filter(receipt => nextStep.dependencies.some(
+          dependency => dependency.stepId === receipt.receipt.frame.stepId,
+        )).toSorted((left, right) => compareUtf16Strings(left.receipt.frame.stepId, right.receipt.frame.stepId));
+        const nextValue = await runEffect(captureFrameworkMigrationStepReceipt({
+          attempt: uncertainAttempt.attempt, step: nextStep,
+          dependencyReceipts: dependencies.map(receipt => receipt.receipt),
+          observedPostconditionSha256: nextStep.postconditionSha256, completedAt: SECOND_COMPLETED_AT,
+        }));
+        const nextReceipt = await runEffect(ensureFrameworkMigrationStepReceiptInTransactionEffect(
+          transaction, uncertainAttempt, dependencies, nextValue,
+        ));
+        const uncertainPrefixValues = [...failedPrefixValues, nextValue];
+        const uncertainPrefix = [...failedPrefix, nextReceipt];
         const uncertainTerminalValue = await captureTerminal(
           uncertainAttempt,
           uncertainPrefixValues,
@@ -396,6 +401,12 @@ describe("framework coordinator migration-attempt terminal repository", () => {
       },
     );
 
+    for (const terminal of [stored.emptyTerminal, stored.failedTerminal, stored.uncertainTerminal]) {
+      const restored = await persistence.drizzle.transaction(transaction => runEffect(
+        corroborateRestoredFrameworkMigrationAttemptTerminalInTransactionEffect(transaction, terminal, "readAttemptTerminal"),
+      ));
+      expect(restored.terminal).toEqual(terminal.terminal);
+    }
     await expect(storedTerminalRows(persistence)).resolves.toEqual([
       expectedTerminalRow(stored.emptyTerminal, []),
       expectedTerminalRow(stored.failedTerminal, stored.failedPrefix),
@@ -540,7 +551,7 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     expect(absentDigestReads).toBe(1);
   }, PGLITE_TEST_TIMEOUT);
 
-  it("refuses forged, missing, shortened, reordered, and cross-attempt prerequisites", async () => {
+  it("refuses forged, missing, shortened, reordered, and off-lineage prerequisites", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const stored = await storedTerminalFixture(persistence);
     const second = await persistence.drizzle.transaction(
@@ -549,26 +560,18 @@ describe("framework coordinator migration-attempt terminal repository", () => {
           stored.attempt.admission,
           "attempt-other",
           "2",
-          stored.attempt,
+          null,
         );
         const attempt = await runEffect(
           ensureFrameworkMigrationAttemptStartInTransactionEffect(
             transaction,
             stored.attempt.admission,
-            stored.attempt,
+            null,
             attemptValue,
           ),
         );
-        const receiptValues = await completeFrameworkMigrationPlanSteps(
-          attempt.plan.plan,
-          attempt.attempt,
-          SECOND_COMPLETED_AT,
-        );
-        const receipts = await ensureStoredReceiptPrefix(
-          transaction,
-          attempt,
-          receiptValues,
-        );
+        const receiptValues = stored.receiptValues;
+        const receipts = stored.receipts;
         const terminal = await captureTerminal(
           attempt,
           receiptValues,

@@ -34,6 +34,7 @@ import type {
 } from "./model";
 import {
   isRestoredFrameworkMigrationAttemptStart,
+  isRestoredFrameworkMigrationAttemptAncestor,
   isRestoredFrameworkMigrationStepReceipt,
   type RestoredFrameworkMigrationAttemptStart,
   type RestoredFrameworkMigrationStepReceipt,
@@ -558,7 +559,7 @@ function captureValidationReceiptEvidenceResult(
         string,
         RestoredFrameworkMigrationStepReceipt
       >();
-      let commonAttempt: RestoredFrameworkMigrationAttemptStart | undefined;
+      let previousAttempt: RestoredFrameworkMigrationAttemptStart | undefined;
       for (let ordinal = 0; ordinal < receipts.length; ordinal += 1) {
         const receipt = receipts[ordinal];
         const step = plan.frame.steps[ordinal];
@@ -573,26 +574,28 @@ function captureValidationReceiptEvidenceResult(
         const attempt = receipt.attempt;
         if (
           !isRestoredFrameworkMigrationAttemptStart(attempt) ||
-          attempt.plan.plan !== plan
+          attempt.plan.plan.migrationPlanSha256 !== plan.migrationPlanSha256 ||
+          attempt.plan.plan.canonicalJson !== plan.canonicalJson
         ) {
           return undefined;
         }
-        commonAttempt ??= attempt;
         const attemptAuthority = capturedAuthorityForAttempt(attempt.attempt);
         const receiptAuthority = capturedAuthorityForStepReceipt(
           receipt.receipt,
         );
         const frame = receipt.receipt.frame;
         if (
-          attempt !== commonAttempt ||
+          (previousAttempt !== undefined && !isRestoredFrameworkMigrationAttemptAncestor(previousAttempt, attempt)) ||
           attemptAuthority === undefined ||
-          attemptAuthority.plan !== plan ||
+          attemptAuthority.plan.migrationPlanSha256 !== plan.migrationPlanSha256 ||
+          attemptAuthority.plan.canonicalJson !== plan.canonicalJson ||
           receiptAuthority === undefined ||
-          receiptAuthority.attempt !== commonAttempt.attempt ||
-          receiptAuthority.step !== step ||
+          receiptAuthority.attempt !== attempt.attempt ||
+          receiptAuthority.step.stepId !== step.stepId ||
+          receiptAuthority.step.stepSha256 !== step.stepSha256 ||
           frame.planSha256 !== plan.migrationPlanSha256 ||
-          frame.attemptId !== commonAttempt.attempt.frame.attemptId ||
-          frame.attemptFence !== commonAttempt.attempt.frame.attemptFence ||
+          frame.attemptId !== attempt.attempt.frame.attemptId ||
+          frame.attemptFence !== attempt.attempt.frame.attemptFence ||
           frame.stepId !== step.stepId ||
           frame.stepSha256 !== step.stepSha256 ||
           frame.preconditionSha256 !== step.preconditionSha256 ||
@@ -630,12 +633,13 @@ function captureValidationReceiptEvidenceResult(
             return undefined;
           }
         }
+        previousAttempt = attempt;
         orderedSha256s.push(receipt.receipt.sha256);
         receiptsByStepId.set(step.stepId, receipt);
       }
       const finalReceipt = receipts.at(-1);
       if (
-        commonAttempt === undefined ||
+        previousAttempt === undefined ||
         finalReceipt === undefined ||
         finalReceipt.receipt.frame.stepId !== plan.frame.steps.at(-1)?.stepId
       ) {

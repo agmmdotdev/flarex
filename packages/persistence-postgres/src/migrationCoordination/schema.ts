@@ -941,8 +941,8 @@ export const fxSystemFrameworkMigrationStepReceipts = pgTable(
       name: "fx_framework_migration_receipt_pk",
       columns: [table.receiptStorageId],
     }),
-    unique("fx_framework_migration_receipt_attempt_step_unique").on(
-      table.attemptStorageId,
+    unique("fx_framework_migration_receipt_plan_step_unique").on(
+      table.planStorageId,
       table.stepId,
     ),
     unique("fx_framework_migration_receipt_digest_unique").on(
@@ -950,17 +950,17 @@ export const fxSystemFrameworkMigrationStepReceipts = pgTable(
     ),
     unique("fx_framework_migration_receipt_source_unique").on(
       table.receiptStorageId,
-      table.attemptStorageId,
+      table.planStorageId,
     ),
     unique("fx_framework_migration_receipt_dependency_unique").on(
       table.receiptStorageId,
-      table.attemptStorageId,
+      table.planStorageId,
       table.stepId,
       table.stepReceiptSha256,
     ),
     unique("fx_framework_migration_receipt_terminal_unique").on(
       table.receiptStorageId,
-      table.attemptStorageId,
+      table.planStorageId,
       table.stepReceiptSha256,
     ),
     foreignKey({
@@ -1034,7 +1034,7 @@ export const fxSystemFrameworkMigrationStepReceiptDependencies = pgTable(
   {
     receiptStorageId: bigint("receipt_storage_id", { mode: "bigint" })
       .notNull(),
-    attemptStorageId: bigint("attempt_storage_id", { mode: "bigint" })
+    planStorageId: bigint("plan_storage_id", { mode: "bigint" })
       .notNull(),
     dependencyOrdinal: integer("dependency_ordinal").notNull(),
     dependencyReceiptStorageId: bigint("dependency_receipt_storage_id", {
@@ -1056,23 +1056,23 @@ export const fxSystemFrameworkMigrationStepReceiptDependencies = pgTable(
     ),
     foreignKey({
       name: "fx_framework_migration_receipt_dependency_source_fk",
-      columns: [table.receiptStorageId, table.attemptStorageId],
+      columns: [table.receiptStorageId, table.planStorageId],
       foreignColumns: [
         fxSystemFrameworkMigrationStepReceipts.receiptStorageId,
-        fxSystemFrameworkMigrationStepReceipts.attemptStorageId,
+        fxSystemFrameworkMigrationStepReceipts.planStorageId,
       ],
     }).onUpdate("restrict").onDelete("restrict"),
     foreignKey({
       name: "fx_framework_migration_receipt_dependency_target_fk",
       columns: [
         table.dependencyReceiptStorageId,
-        table.attemptStorageId,
+        table.planStorageId,
         table.dependencyStepId,
         table.dependencyStepReceiptSha256,
       ],
       foreignColumns: [
         fxSystemFrameworkMigrationStepReceipts.receiptStorageId,
-        fxSystemFrameworkMigrationStepReceipts.attemptStorageId,
+        fxSystemFrameworkMigrationStepReceipts.planStorageId,
         fxSystemFrameworkMigrationStepReceipts.stepId,
         fxSystemFrameworkMigrationStepReceipts.stepReceiptSha256,
       ],
@@ -1189,12 +1189,12 @@ export const fxSystemFrameworkMigrationAttemptTerminals = pgTable(
       name: "fx_framework_migration_terminal_last_receipt_fk",
       columns: [
         table.lastReceiptStorageId,
-        table.attemptStorageId,
+        table.planStorageId,
         table.lastStepReceiptSha256,
       ],
       foreignColumns: [
         fxSystemFrameworkMigrationStepReceipts.receiptStorageId,
-        fxSystemFrameworkMigrationStepReceipts.attemptStorageId,
+        fxSystemFrameworkMigrationStepReceipts.planStorageId,
         fxSystemFrameworkMigrationStepReceipts.stepReceiptSha256,
       ],
     }).onUpdate("restrict").onDelete("restrict"),

@@ -42,6 +42,7 @@ import {
 } from "./schema";
 import {
   isRestoredFrameworkMigrationAttemptStart,
+  isRestoredFrameworkMigrationAttemptAncestor,
   isRestoredFrameworkMigrationCollisionDomain,
   isRestoredFrameworkMigrationStepReceipt,
   restoreStoredFrameworkMigrationStepReceipt,
@@ -119,7 +120,7 @@ interface FrameworkMigrationStepReceiptDriverRow
 interface FrameworkMigrationStepReceiptDependencyDriverRow
   extends StoredFrameworkMigrationStepReceiptDependencyRow {
   readonly receiptStorageId: bigint;
-  readonly attemptStorageId: bigint;
+  readonly planStorageId: bigint;
   readonly dependencyOrdinal: number;
   readonly dependencyReceiptStorageId: bigint;
   readonly dependencyStepId: string;
@@ -142,7 +143,7 @@ interface RestoredFrameworkMigrationStepReceiptOccupant {
 }
 
 interface FrameworkMigrationStepReceiptOccupantLookups {
-  readonly readByAttemptStep: () => Effect.Effect<
+  readonly readByPlanStep: () => Effect.Effect<
     Option.Option<RestoredFrameworkMigrationStepReceiptOccupant>,
     FrameworkMigrationRepositoryError
   >;
@@ -162,6 +163,7 @@ interface ReceiptRestorationContext {
 }
 
 interface PendingReceiptRestoration {
+  readonly attempt: RestoredFrameworkMigrationAttemptStart;
   readonly row: FrameworkMigrationStepReceiptDriverRow;
   readonly decoded: DecodedFrameworkMigrationStepReceiptRoot;
   readonly dependencyRows:
@@ -173,7 +175,7 @@ interface PendingReceiptRestoration {
 
 interface FrameworkMigrationStepReceiptDependencyInsert {
   readonly receiptStorageId: bigint;
-  readonly attemptStorageId: bigint;
+  readonly planStorageId: bigint;
   readonly dependencyOrdinal: number;
   readonly dependencyReceiptStorageId: bigint;
   readonly dependencyStepId: string;
@@ -252,7 +254,7 @@ export const ensureFrameworkMigrationStepReceiptInTransactionEffect = Effect.fn(
     yield* insertReceiptDependencySidecars(
       transaction,
       receiptStorageId,
-      storedAttempt.storageId,
+      storedAttempt.plan.storageId,
       prepared.dependencies,
       storedDependencies,
       operation,
@@ -329,14 +331,14 @@ export const resolveAuthenticatedFrameworkMigrationStepReceiptOccupantsEffect =
     Option.Option<RestoredFrameworkMigrationStepReceipt>,
     FrameworkMigrationRepositoryError
   > {
-    const byAttemptStep = yield* lookups.readByAttemptStep();
-    if (Option.isSome(byAttemptStep)) {
+    const byPlanStep = yield* lookups.readByPlanStep();
+    if (Option.isSome(byPlanStep)) {
       if (stepReceiptExactlyMatches(
-        byAttemptStep.value,
+        byPlanStep.value,
         attempt,
         dependencyReceipts,
         expected,
-      )) return Option.some(byAttemptStep.value.value);
+      )) return Option.some(byPlanStep.value.value);
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.immutableConflict(operation),
       );
@@ -638,7 +640,7 @@ export const corroborateRestoredFrameworkMigrationStepReceiptPrefixInTransaction
       if (
         receipt === undefined ||
         !isRestoredFrameworkMigrationStepReceipt(receipt) ||
-        !restoredAttemptExactlyMatches(receipt.attempt, attempt) ||
+        !isRestoredFrameworkMigrationAttemptAncestor(receipt.attempt, attempt) ||
         receipt.receipt.frame.stepId !==
           attempt.plan.plan.frame.steps[ordinal]?.stepId
       ) {
@@ -696,26 +698,21 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
   FrameworkMigrationRepositoryError
 > {
   const planSteps = attempt.plan.plan.frame.steps;
-  const rows = yield* runRepositoryStatement(
+  const planRows = yield* runRepositoryStatement(
     operation,
     transaction.select(receiptReadSelection).from(
       fxSystemFrameworkMigrationStepReceipts,
     ).where(eq(
-      fxSystemFrameworkMigrationStepReceipts.attemptStorageId,
-      attempt.storageId,
+      fxSystemFrameworkMigrationStepReceipts.planStorageId,
+      attempt.plan.storageId,
     )).limit(planSteps.length + 1),
   ).pipe(Effect.map(detachDriverRows));
-  if (rows.length > planSteps.length) {
+  if (planRows.length > planSteps.length) {
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
     );
   }
 
-  if (tail === null && rows.length !== 0) {
-    return yield* Effect.fail(
-      FrameworkMigrationRepositoryError.storedCorruption(operation),
-    );
-  }
 
   const ordinalByStepId = new Map<string, number>();
   for (let ordinal = 0; ordinal < planSteps.length; ordinal += 1) {
@@ -733,19 +730,19 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
     number,
     FrameworkMigrationStepReceiptDriverRow
   >();
-  for (const row of rows) {
+  const rows: FrameworkMigrationStepReceiptDriverRow[] = [];
+  for (const row of planRows) {
     const decoded = yield* decodeReceiptRoot(row, operation);
     if (
       decoded.collisionStorageId !== attempt.collision.storageId ||
-      decoded.planStorageId !== attempt.plan.storageId ||
-      decoded.attemptStorageId !== attempt.storageId ||
-      decoded.frame.attemptId !== attempt.attempt.frame.attemptId ||
-      decoded.frame.attemptFence !== attempt.attempt.frame.attemptFence
+      decoded.planStorageId !== attempt.plan.storageId
     ) {
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.storedCorruption(operation),
       );
     }
+    if (BigInt(decoded.frame.attemptFence) > BigInt(attempt.attempt.frame.attemptFence)) continue;
+    rows.push(row);
     const ordinal = ordinalByStepId.get(decoded.frame.stepId);
     if (
       ordinal === undefined ||
@@ -758,6 +755,9 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
     }
     rowsByOrdinal.set(ordinal, row);
     context.rootsByStorageId.set(decoded.storageId, row);
+  }
+  if (tail === null && rows.length !== 0) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
   }
   if (tail !== undefined && tail !== null) {
     const tailRow = rowsByOrdinal.get(rows.length - 1);
@@ -792,7 +792,8 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
       attempt,
       context,
     );
-    if (occupant.value.receipt.frame.stepId !== planSteps[ordinal]?.stepId) {
+    if (!isRestoredFrameworkMigrationAttemptAncestor(occupant.value.attempt, attempt) ||
+      occupant.value.receipt.frame.stepId !== planSteps[ordinal]?.stepId) {
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.storedCorruption(operation),
       );
@@ -844,7 +845,7 @@ const prepareExpectedStepReceipt = Effect.fn(
       dependency === undefined ||
       reference === undefined ||
       !isRestoredFrameworkMigrationStepReceipt(dependency) ||
-      !restoredAttemptExactlyMatches(dependency.attempt, attempt) ||
+      !isRestoredFrameworkMigrationAttemptAncestor(dependency.attempt, attempt) ||
       dependency.receipt.frame.stepId !== reference.stepId ||
       dependency.receipt.sha256 !== reference.stepReceiptSha256
     ) {
@@ -964,7 +965,7 @@ const resolveExpectedStepReceipt = Effect.fn(
       expected,
       operation,
       {
-        readByAttemptStep: () => loadReceiptOccupantByAttemptStep(
+        readByPlanStep: () => loadReceiptOccupantByPlanStep(
           transaction,
           attempt,
           expected.frame.stepId,
@@ -980,8 +981,8 @@ const resolveExpectedStepReceipt = Effect.fn(
     );
 });
 
-const loadReceiptOccupantByAttemptStep = Effect.fn(
-  "FrameworkMigrationStepReceiptRepository.loadByAttemptStep",
+const loadReceiptOccupantByPlanStep = Effect.fn(
+  "FrameworkMigrationStepReceiptRepository.loadByPlanStep",
 )(function* (
   transaction: FlarexMetadataTransaction,
   preferredAttempt: RestoredFrameworkMigrationAttemptStart,
@@ -995,11 +996,11 @@ const loadReceiptOccupantByAttemptStep = Effect.fn(
     fxSystemFrameworkMigrationStepReceipts,
   ).where(and(
     eq(
-      fxSystemFrameworkMigrationStepReceipts.attemptStorageId,
-      preferredAttempt.storageId,
+      fxSystemFrameworkMigrationStepReceipts.planStorageId,
+      preferredAttempt.plan.storageId,
     ),
     eq(fxSystemFrameworkMigrationStepReceipts.stepId, stepId),
-  )).limit(1);
+  )).limit(2);
   return yield* loadReceiptOccupant(
     transaction,
     preferredAttempt,
@@ -1024,7 +1025,7 @@ const loadReceiptOccupantByDigest = Effect.fn(
   ).where(eq(
     fxSystemFrameworkMigrationStepReceipts.stepReceiptSha256,
     stepReceiptSha256,
-  )).limit(1);
+  )).limit(2);
   return yield* loadReceiptOccupant(
     transaction,
     preferredAttempt,
@@ -1047,6 +1048,9 @@ const loadReceiptOccupant = Effect.fn(
   const rows = yield* runRepositoryStatement(operation, query).pipe(
     Effect.map(detachDriverRows),
   );
+  if (rows.length > 1) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+  }
   const row = rows[0];
   if (row === undefined) return Option.none();
   return Option.some(yield* restoreReceiptDependencyClosure(
@@ -1171,7 +1175,7 @@ const restoreReceiptDependencyClosure = Effect.fn(
       );
       if (
         dependencyRow.receiptStorageId !== pending.decoded.storageId ||
-        dependencyRow.attemptStorageId !== attempt.storageId ||
+        dependencyRow.planStorageId !== pending.attempt.plan.storageId ||
         dependencyRow.dependencyOrdinal !== dependencyOrdinal ||
         dependencyRow.dependencyStepId !== reference.stepId ||
         projectedDependencySha256 !== reference.stepReceiptSha256
@@ -1201,9 +1205,9 @@ const restoreReceiptDependencyClosure = Effect.fn(
         dependencyStorageId, reference.stepReceiptSha256);
       const restoredDependency = context.restoredByStorageId.get(dependencyStorageId) ?? Option.getOrUndefined(sharedDependency);
       if (restoredDependency !== undefined) {
-        if (!restoredAttemptExactlyMatches(
+        if (!isRestoredFrameworkMigrationAttemptAncestor(
           restoredDependency.value.attempt,
-          attempt,
+          pending.attempt,
         ) ||
           restoredDependency.value.receipt.frame.stepId !== reference.stepId ||
           restoredDependency.value.receipt.sha256 !==
@@ -1246,7 +1250,8 @@ const restoreReceiptDependencyClosure = Effect.fn(
         attempt,
         operation,
       );
-      if (!registerDecodedReceiptRoot(context, decodedDependency)) {
+      if (!isRestoredFrameworkMigrationAttemptAncestor(dependencyPending.attempt, pending.attempt) ||
+        !registerDecodedReceiptRoot(context, decodedDependency)) {
         return yield* Effect.fail(
           FrameworkMigrationRepositoryError.storedCorruption(operation),
         );
@@ -1270,16 +1275,16 @@ const restoreReceiptDependencyClosure = Effect.fn(
     const restored = yield* restoreStoredFrameworkMigrationStepReceipt({
       row: pending.row,
       dependencyRows: pending.dependencyRows,
-      collision: attempt.collision,
-      plan: attempt.plan,
-      attempt,
+      collision: pending.attempt.collision,
+      plan: pending.attempt.plan,
+      attempt: pending.attempt,
       dependencyReceipts: dependencies,
     }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
     const occupant = Object.freeze({
       value: restored,
       dependencyReceipts: Object.freeze(dependencies),
     });
-    yield* readVerifiedReceiptNode(Effect.succeed(occupant), transaction, attempt,
+    yield* readVerifiedReceiptNode(Effect.succeed(occupant), transaction, pending.attempt,
       pending.decoded.storageId, restored.receipt.sha256);
     context.restoredByStorageId.set(pending.decoded.storageId, occupant);
     visiting.delete(pending.decoded.storageId);
@@ -1301,12 +1306,18 @@ const preparePendingReceiptRestoration = Effect.fn(
   transaction: FlarexMetadataTransaction,
   row: FrameworkMigrationStepReceiptDriverRow,
   decoded: DecodedFrameworkMigrationStepReceiptRoot,
-  attempt: RestoredFrameworkMigrationAttemptStart,
+  preferredAttempt: RestoredFrameworkMigrationAttemptStart,
   operation: StepReceiptAggregateRepositoryOperation,
 ): Effect.fn.Return<
   PendingReceiptRestoration,
   FrameworkMigrationRepositoryError
 > {
+  const attempt = decoded.attemptStorageId === preferredAttempt.storageId
+    ? preferredAttempt
+    : yield* restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect(
+      transaction, preferredAttempt.collision, decoded.attemptStorageId,
+      decoded.frame.attemptId, operation,
+    );
   if (
     decoded.collisionStorageId !== attempt.collision.storageId ||
     decoded.planStorageId !== attempt.plan.storageId ||
@@ -1323,9 +1334,10 @@ const preparePendingReceiptRestoration = Effect.fn(
     decoded.storageId,
     decoded.frame,
     operation,
-    attempt.storageId,
+    attempt.plan.storageId,
   );
   return {
+    attempt,
     row,
     decoded,
     dependencyRows,
@@ -1536,12 +1548,12 @@ const loadReceiptDependencySidecars = Effect.fn(
   receiptStorageId: bigint,
   frame: FrameworkMigrationStepReceiptFrame,
   operation: StepReceiptAggregateRepositoryOperation,
-  attemptStorageId: bigint,
+  planStorageId: bigint,
 ): Effect.fn.Return<
   readonly FrameworkMigrationStepReceiptDependencyDriverRow[],
   FrameworkMigrationRepositoryError
 > {
-  const batch = yield* loadAttemptReceiptSidecars(transaction, attemptStorageId, operation);
+  const batch = yield* loadPlanReceiptSidecars(transaction, planStorageId, operation);
   if (batch.length <= 4096) {
     return batch.filter(row => row.receiptStorageId === receiptStorageId)
       .slice(0, frame.dependencyReceipts.length + 1);
@@ -1563,12 +1575,12 @@ const loadReceiptDependencySidecars = Effect.fn(
 // through each receipt's owner so a corrupt sidecar owner is still returned and
 // rejected by the existing projection decoder. Oversized histories retain the
 // original bounded per-receipt query.
-const readAttemptSidecars = makeFrameworkGraphReferenceRead<readonly FrameworkMigrationStepReceiptDependencyDriverRow[]>();
-const loadAttemptReceiptSidecars = Effect.fn(
-  "FrameworkMigrationStepReceiptRepository.loadAttemptSidecars",
+const readPlanSidecars = makeFrameworkGraphReferenceRead<readonly FrameworkMigrationStepReceiptDependencyDriverRow[]>();
+const loadPlanReceiptSidecars = Effect.fn(
+  "FrameworkMigrationStepReceiptRepository.loadPlanSidecars",
 )(function* (
   transaction: FlarexMetadataTransaction,
-  attemptStorageId: bigint,
+  planStorageId: bigint,
   operation: StepReceiptAggregateRepositoryOperation,
 ): Effect.fn.Return<readonly FrameworkMigrationStepReceiptDependencyDriverRow[], FrameworkMigrationRepositoryError> {
   return yield* runRepositoryStatement(operation,
@@ -1578,18 +1590,18 @@ const loadAttemptReceiptSidecars = Effect.fn(
         fxSystemFrameworkMigrationStepReceiptDependencies.receiptStorageId,
         fxSystemFrameworkMigrationStepReceipts.receiptStorageId,
       ))
-      .where(eq(fxSystemFrameworkMigrationStepReceipts.attemptStorageId, attemptStorageId))
+      .where(eq(fxSystemFrameworkMigrationStepReceipts.planStorageId, planStorageId))
       .orderBy(asc(fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal))
       .limit(4097),
   ).pipe(Effect.map(detachDriverRows));
-}, (read, transaction, attemptStorageId) => readAttemptSidecars(read, transaction, attemptStorageId));
+}, (read, transaction, planStorageId) => readPlanSidecars(read, transaction, planStorageId));
 
 const insertReceiptDependencySidecars = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.insertDependencySidecars",
 )(function* (
   transaction: FlarexMetadataTransaction,
   receiptStorageId: bigint,
-  attemptStorageId: bigint,
+  planStorageId: bigint,
   prepared:
     readonly PreparedFrameworkMigrationStepReceiptDependency[],
   restored: readonly RestoredFrameworkMigrationStepReceipt[],
@@ -1618,7 +1630,7 @@ const insertReceiptDependencySidecars = Effect.fn(
     }
     values.push({
       receiptStorageId,
-      attemptStorageId,
+      planStorageId,
       dependencyOrdinal,
       dependencyReceiptStorageId: dependency.storageId,
       dependencyStepId: expected.stepId,
@@ -1853,8 +1865,8 @@ const receiptReadSelection = {
 const receiptDependencyReadSelection = {
   receiptStorageId:
     fxSystemFrameworkMigrationStepReceiptDependencies.receiptStorageId,
-  attemptStorageId:
-    fxSystemFrameworkMigrationStepReceiptDependencies.attemptStorageId,
+  planStorageId:
+    fxSystemFrameworkMigrationStepReceiptDependencies.planStorageId,
   dependencyOrdinal:
     fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal,
   dependencyReceiptStorageId:

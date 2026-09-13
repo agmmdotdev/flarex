@@ -7,6 +7,10 @@ serial PGlite functional gate are implemented. No target session,
 generated relational DDL, coordinator runtime, binding, adapter, genuine-
 PostgreSQL acceptance, or production activation is authorized by this record.
 
+The current [receipt storage map](./77-installation-progress-storage-map.md)
+replaces attempt-scoped completion selection with original plan receipts.
+Other storage and authority responsibilities below remain in force.
+
 Last reviewed: 2026-09-03
 
 The later [additive-upgrade contract](./12-base-backed-additive-upgrade.md)
@@ -127,8 +131,8 @@ stored frame, not to the current table name.
 | `fx_system_framework_migration_plan_admission` | immutable | Exact admitted plan and assignment set. |
 | `fx_system_framework_migration_admission_assignment` | immutable sidecar | Ordered same-collision assignment membership. |
 | `fx_system_framework_migration_attempt_start` | immutable | Attempt/fence/lease-start evidence. |
-| `fx_system_framework_migration_step_receipt` | immutable | One exact committed receipt per attempt and plan step. |
-| `fx_system_framework_migration_step_receipt_dependency` | immutable sidecar | Exact same-attempt dependency receipt tokens. |
+| `fx_system_framework_migration_step_receipt` | immutable | One exact committed receipt per plan step, retaining its original producer attempt. |
+| `fx_system_framework_migration_step_receipt_dependency` | immutable sidecar | Exact same-plan dependency receipt tokens with authenticated producer ancestry. |
 | `fx_system_framework_migration_attempt_terminal` | immutable | One exact terminal outcome per attempt. |
 | `fx_system_framework_migration_event` | immutable | Per-collision authenticated hash-chain event history. |
 | `fx_system_framework_migration_collision_head` | mutable CAS head | Current plan, attempt fence/lease, and last event for one collision lane. |
@@ -329,22 +333,19 @@ to the current attempt.
 - `dependency_count`; and
 - the common receipt frame columns and bytes.
 
-There is one receipt per `(attempt_storage_id, step_id)`. Exact composite
-foreign keys bind the plan step and the attempt. A retry in the same attempt
-accepts the exact existing receipt. A later fenced attempt may re-observe an
-already exact structural postcondition and record its own receipt chain; this
-matches the checkpoint-1 requirement that dependency receipts belong to the
-same attempt. Receipt digest is globally unique.
+There is one receipt per `(plan_storage_id, step_id)`. Exact composite foreign
+keys bind the plan step and the producing attempt. An exact replay retains the
+original receipt, and a successor reuses it only after producer-ancestry and
+postcondition verification. Receipt digest remains globally unique and includes
+the actual producing attempt/fence; takeover does not mint another receipt.
 
 `fx_system_framework_migration_step_receipt_dependency` stores source receipt
-storage ID, the shared attempt storage ID, `dependency_ordinal`, dependency
-receipt storage ID, dependency step ID, and dependency receipt digest. The
-source foreign key binds `(receipt_storage_id, attempt_storage_id)`; the target
-foreign key binds the dependency receipt, that same globally unique attempt
-storage ID, step ID, and digest. This normalized shape physically prevents
-cross-attempt evidence without repeating collision, plan, attempt ID, and fence
-on every dependency row. Repository comparison rejects gaps, duplicates, wrong
-counts, or order mismatches.
+storage ID, shared plan storage ID, `dependency_ordinal`, dependency receipt
+storage ID, dependency step ID and digest. Both endpoints reference that same
+plan. Stored restoration additionally verifies producer ancestry, exact planned
+dependencies, cardinality, order and canonical bytes. The terminal tail FK also
+uses the plan, and terminal restoration selects the contiguous prefix completed
+no later than its attempt fence. Later completions do not change an old terminal.
 
 `fx_system_framework_migration_attempt_terminal` stores:
 
@@ -795,7 +796,7 @@ The immutable step-receipt repository accepts one exact restored
 attempt, the captured receipt, and explicit restored handles for every direct
 dependency in canonical order. It corroborates the attempt and dependency
 handles through the caller's transaction before accepting a receipt. The
-repository resolves the semantic identity `(attempt_storage_id, step_id)`
+repository resolves the semantic identity `(plan_storage_id, step_id)`
 first. Only when that identity is absent does it lazily resolve a global receipt
 digest occupant for exact replay or immutable-conflict classification; a digest
 is authenticated evidence, not a replacement semantic identity.
@@ -860,7 +861,7 @@ without adding, replacing, or healing receipt rows or dependency sidecars.
 
 Focused PGlite functional evidence covers source privacy, successful full-plan
 completion, failed and decision-uncertain empty or partial prefixes, absence,
-ensure/read/exact replay, semantic-first lookup order, forged and cross-attempt
+ensure/read/exact replay, semantic-first lookup order, forged and off-lineage
 reference refusal, downstream full-prefix corroboration, immutable conflict,
 projection and prefix corruption without healing, the canonical length-first
 gate, caller rollback, and exact foreign driver-cause projection. It does not
@@ -1106,7 +1107,7 @@ matrix covers:
   foreign-key column order/actions, and index inventory;
 - database rejection for malformed digest/length/format/version, invalid enum,
   invalid range, incoherent nullable tuple, and physical-name collision, plus
-  typed repository rejection for cross-collision/cross-plan/cross-attempt
+  typed repository rejection for cross-collision/cross-plan/off-lineage
   references, duplicate immutable receipts, missing history predecessors, and
   stale CAS;
 - exact write/read/replay for every canonical aggregate;

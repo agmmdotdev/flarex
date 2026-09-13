@@ -208,7 +208,7 @@ lane passes all fifteen tests and proves:
 - typed `resourceFailure` mapping for a synchronous raw-execution exception and
   a malformed driver-result envelope;
 - validation evidence only from one complete aggregate-restored,
-  issuer-authenticated receipt chain, with cloned, mixed-attempt, and reordered
+  issuer-authenticated receipt chain, with cloned, off-lineage, and reordered
   chains rejected as invalid authority; and
 - trusted exact-numeric raw-default encoding and exact observation without
   widening the operation registry or accepting authored SQL, including
@@ -238,9 +238,9 @@ owner, and fence.
 
 Lease takeover authenticates the predecessor's complete committed prefix and
 re-observes each structural postcondition under the locked collision head. It
-atomically issues dependency-coherent successor receipts with the new claim;
-it neither replays completed DDL nor adopts structure without predecessor
-receipt evidence. Missing or changed predecessor structure rolls back the
+retains the original plan receipts and completion events while issuing the new
+claim. Only exact producer ancestry permits receipt reuse; takeover neither
+replays completed DDL nor adopts structure without predecessor receipt evidence. Missing or changed predecessor structure rolls back the
 takeover. This prefix work remains subject to the bounded-lineage scale gate.
 
 Each admitted turn restores and corroborates the stored collision head,

@@ -2,8 +2,8 @@
 
 Status: approved, implementation in progress. This is the
 recommended replacement direction for the narrower, unapproved
-[step-transition proposal](./75-migration-step-transition-proof.md). Current
-coordinator execution path remains unchanged. ShippingProfile remains
+[step-transition proposal](./75-migration-step-transition-proof.md). Normal step execution still uses full
+reconstruction; takeover now retains original plan receipts. ShippingProfile remains
 paused. Neither this document nor its examples activate future framework modules.
 
 ## Current Implementation Boundary
@@ -39,7 +39,10 @@ production target resolution or proof of protected execution privileges.
 Native migration execution now checks protected-login and metadata-guard
 requirements on every acquired ordinary or recovery connection before invoking
 coordinator work. Construction still borrows a trusted caller-owned pool and
-does not itself certify any future connection. The optimized progress model,
+does not itself certify any future connection. The [receipt storage cutover](./77-installation-progress-storage-map.md) makes
+completion unique per plan step while retaining the producing attempt and digest.
+Takeover reobserves the original prefix without cloning receipts or completion
+events; terminals retain their fence-bounded prefix. The optimized progress model,
 readable installer facade, verification reorganization and performance acceptance
 are not yet implemented. Full current reconstruction remains in force; connection
 protection is not permission to cache database authority or enable the proposed

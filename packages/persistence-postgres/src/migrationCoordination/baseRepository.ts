@@ -10,7 +10,7 @@ import type { FrameworkMigrationBaseInstallation, RelationalMigrationPlanFrame }
 import { FrameworkMigrationRepositoryError, type FrameworkMigrationRepositoryOperation } from "./repositoryErrors";
 import { fxSystemFrameworkMigrationPlans, fxSystemFrameworkMigrationPlanAdmissions } from "./schema";
 import { fxSystemFrameworkMigrationPlanSteps, fxSystemFrameworkMigrationAttemptStarts } from "./schema";
-import { withAdditiveMigrationGraphLimits } from "./additiveLimits";
+import { withAdditiveMigrationGraphLimits } from "./graphLimits";
 import type { RestoredFrameworkMigrationCollisionDomain } from "./storedRestoration";
 import { samePrivateJson, isStoredMigrationBaseInstallation } from "./storedValidation";
 

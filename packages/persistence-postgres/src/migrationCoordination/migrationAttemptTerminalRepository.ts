@@ -42,6 +42,7 @@ import {
 import { fxSystemFrameworkMigrationAttemptTerminals } from "./schema";
 import {
   isRestoredFrameworkMigrationAttemptStart,
+  isRestoredFrameworkMigrationAttemptAncestor,
   isRestoredFrameworkMigrationAttemptTerminal,
   isRestoredFrameworkMigrationCollisionDomain,
   isRestoredFrameworkMigrationStepReceipt,
@@ -515,7 +516,7 @@ const prepareExpectedAttemptTerminal = Effect.fn(
     if (
       receipt === undefined ||
       !isRestoredFrameworkMigrationStepReceipt(receipt) ||
-      !restoredAttemptExactlyMatches(receipt.attempt, attempt) ||
+      !isRestoredFrameworkMigrationAttemptAncestor(receipt.attempt, attempt) ||
       receipt.receipt.sha256 !== authority.stepReceipts[ordinal]?.sha256 ||
       receipt.receipt.canonicalJson !==
         authority.stepReceipts[ordinal]?.canonicalJson ||

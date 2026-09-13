@@ -1,3 +1,4 @@
+import { planReceiptMigrationStatements, restoreAttemptScopedReceiptFixture } from "./frameworkPlanReceiptMigrationTestSupport";
 import { fileURLToPath } from "node:url";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -26,6 +27,31 @@ const native =
 native(
   "framework installation metadata under a restricted PostgreSQL login",
   () => {
+    it("remaps populated original receipts and preserves rollback and cold replay", async () => {
+      await withNativeCoordinator(async fixture => {
+        await fixture.persistence.query("alter sequence fx_framework_migration_attempt_storage_id_seq restart with 1000");
+        expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ kind: "ready" });
+        const before = await fixture.persistence.query("select receipt_storage_id::text, encode(canonical_bytes, 'hex') as bytes from fx_system_framework_migration_step_receipt order by receipt_storage_id");
+        const attempt = await fixture.persistence.query("select attempt_storage_id::text as id from fx_system_framework_migration_attempt_start");
+        const plan = await fixture.persistence.query("select plan_storage_id::text as id from fx_system_framework_migration_plan");
+        expect(attempt.rows).not.toEqual(plan.rows);
+        await fixture.persistence.drizzle.transaction(transaction => restoreAttemptScopedReceiptFixture(statement => transaction.execute(sql.raw(statement))));
+        const statements = await planReceiptMigrationStatements();
+        const stop = new Error("Roll back receipt reference cutover");
+        await expect(fixture.persistence.drizzle.transaction(async transaction => {
+          for (const statement of statements) await transaction.execute(sql.raw(statement));
+          throw stop;
+        })).rejects.toBe(stop);
+        expect((await fixture.persistence.query("select distinct attempt_storage_id::text as id from fx_system_framework_migration_step_receipt_dependency")).rows).toEqual(attempt.rows);
+        await fixture.persistence.drizzle.transaction(async transaction => {
+          for (const statement of statements) await transaction.execute(sql.raw(statement));
+        });
+        expect((await fixture.persistence.query("select distinct plan_storage_id::text as id from fx_system_framework_migration_step_receipt_dependency")).rows).toEqual(plan.rows);
+        expect((await fixture.persistence.query("select receipt_storage_id::text, encode(canonical_bytes, 'hex') as bytes from fx_system_framework_migration_step_receipt order by receipt_storage_id")).rows).toEqual(before.rows);
+        expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ kind: "ready", replayed: true });
+      });
+    }, 180_000);
+
     it("rolls back the complete guard migration and preserves prior application data", async () => {
       await withTemporaryPostgresSchema(async (options) => {
         const pool = new Pool({

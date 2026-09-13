@@ -1,6 +1,6 @@
 import { Context, Effect, Encoding, Option } from "effect";
 import { isUint8Array } from "@flarex/utils/bytes";
-import { additiveMigrationGraphLimits } from "./additiveLimits";
+import { frameworkMigrationGraphPolicy } from "./graphLimits";
 
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { FrameworkMigrationRepositoryError } from "./repositoryErrors";
@@ -86,7 +86,7 @@ export function makeFrameworkGraphReferenceRead<Value>(): FrameworkGraphReferenc
       if (pass === undefined || state === undefined || !state.active || state.transaction !== transaction) {
         return yield* read;
       }
-      const policyReferences = [yield* additiveMigrationGraphLimits, ...references];
+      const policyReferences = [yield* frameworkMigrationGraphPolicy, ...references];
       let found = roots.get(pass);
       for (const reference of policyReferences) found = found?.children.get(reference);
       if (found !== undefined && Option.isSome(found.value)) return found.value.value;
@@ -116,7 +116,7 @@ export function makeFrameworkGraphReferenceRead<Value>(): FrameworkGraphReferenc
         return Option.none();
       }
       let found = roots.get(pass);
-      for (const reference of [yield* additiveMigrationGraphLimits, ...references]) {
+      for (const reference of [yield* frameworkMigrationGraphPolicy, ...references]) {
         found = found?.children.get(reference);
       }
       return found?.value ?? Option.none();

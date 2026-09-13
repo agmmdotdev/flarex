@@ -1,5 +1,5 @@
 import { withFrameworkGraphReadPass } from "../../migrationCoordination/graphReadPass";
-import { additiveMigrationGraphLimits } from "../../migrationCoordination/additiveLimits";
+import { frameworkMigrationGraphPolicy } from "../../migrationCoordination/graphLimits";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
@@ -213,7 +213,7 @@ export const lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect = Effe
   const row = rows[0];
   if (row === undefined) return Option.none();
   // Preserve the accepting reader's predecessor budget before graph restoration.
-  if ((yield* additiveMigrationGraphLimits) && row.availabilitySequence > 8n) {
+  if ((yield* frameworkMigrationGraphPolicy) !== "ordinary" && row.availabilitySequence > 8n) {
     return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal("readAvailabilityHead"));
   }
   return yield* restoreLockedAvailabilityByIdentity(transaction, identity, row);

@@ -1,6 +1,7 @@
+import { MAX_FRAMEWORK_BINDING_GRAPH_ROOTS } from "../../migrationCoordination/graphLimits";
 import { and, eq, getTableColumns, inArray, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
-import { Effect, Encoding } from "effect";
+import { Effect, Encoding, Schema } from "effect";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import { detachDriverRows } from "../../detachDriverRows";
 import { runDrizzleStatementEffect } from "../../drizzleStatementEffect";
@@ -29,7 +30,7 @@ import {
 } from "./schema";
 import type { RestoredFrameworkSchemaAvailabilityHead } from "./storedMetadataRestoration";
 
-const MAX_ROOTS = 64;
+
 const MAX_NAMES = 4096;
 const MAX_ROWS = 32768;
 const ROOT_KINDS = ["installation", "plan", "admission", "attempt", "terminal", "readiness", "history"] as const;
@@ -39,11 +40,33 @@ export interface InstallationEvidenceCoordinates {
   readonly roots: Readonly<Record<RootKind, readonly bigint[]>>;
   readonly namespace: bigint;
   readonly collision: bigint;
-  readonly receiptAttempts: readonly bigint[];
+  readonly receiptPlans: readonly bigint[];
   readonly physicalDatabaseIdentity: string;
   readonly schemaName: string;
   readonly names: readonly string[];
 }
+
+export const installationEvidenceDigest = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
+const InstallationEvidenceSchema = Schema.Struct({
+  namespace: installationEvidenceDigest,
+  collision: installationEvidenceDigest,
+  installation: installationEvidenceDigest,
+  plan: installationEvidenceDigest,
+  steps: installationEvidenceDigest,
+  stepDependencies: installationEvidenceDigest,
+  base: installationEvidenceDigest,
+  admission: installationEvidenceDigest,
+  admissionAssignments: installationEvidenceDigest,
+  attempt: installationEvidenceDigest,
+  terminal: installationEvidenceDigest,
+  receipts: installationEvidenceDigest,
+  receiptDependencies: installationEvidenceDigest,
+  readiness: installationEvidenceDigest,
+  history: installationEvidenceDigest,
+  names: installationEvidenceDigest,
+});
+export type InstallationEvidence = typeof InstallationEvidenceSchema.Type;
+const decodeInstallationEvidence = Schema.decodeUnknownEffect(InstallationEvidenceSchema, { onExcessProperty: "error" });
 
 const corruption = () => FrameworkMigrationRepositoryError.storedCorruption("readInstallation");
 const resource = (cause: unknown) => FrameworkMigrationRepositoryError.resourceFailure("readInstallation", cause);
@@ -67,9 +90,9 @@ export const collectInstallationEvidence = Effect.fn("InstallationRuntime.collec
   add("readiness", restored.readiness.storageId);
   add("history", restored.history.storageId);
   const spellings = new Set<string>();
-  const receiptAttempts = new Set<bigint>();
+  const receiptPlans = new Set<bigint>();
   for (let index = 0; index < pending.length; index++) {
-    if (pending.length > MAX_ROOTS) return yield* Effect.fail(resource("Installation evidence root budget exceeded"));
+    if (pending.length > MAX_FRAMEWORK_BINDING_GRAPH_ROOTS) return yield* Effect.fail(resource("Installation evidence root budget exceeded"));
     const node = pending[index];
     if (node === undefined) return yield* Effect.die(new Error("Missing queued installation evidence root"));
     switch (node.kind) {
@@ -110,7 +133,7 @@ export const collectInstallationEvidence = Effect.fn("InstallationRuntime.collec
       case "terminal": {
         const row = (yield* read(tx.select().from(terminals).where(eq(terminals.terminalStorageId, node.id)).limit(1)))[0];
         if (row === undefined) return yield* Effect.fail(corruption());
-        add("attempt", row.attemptStorageId); receiptAttempts.add(row.attemptStorageId);
+        add("attempt", row.attemptStorageId); receiptPlans.add(row.planStorageId);
         break;
       }
       case "readiness": {
@@ -135,7 +158,7 @@ export const collectInstallationEvidence = Effect.fn("InstallationRuntime.collec
     namespace: coordinate.targetNamespace.storageId, collision: coordinate.storageId,
     physicalDatabaseIdentity: coordinate.coordinate.targetNamespace.physicalDatabaseIdentity,
     schemaName: coordinate.coordinate.targetNamespace.schemaName,
-    names: Object.freeze([...spellings]), receiptAttempts: Object.freeze([...receiptAttempts]),
+    names: Object.freeze([...spellings]), receiptPlans: Object.freeze([...receiptPlans]),
   }) satisfies InstallationEvidenceCoordinates;
 });
 
@@ -164,7 +187,7 @@ export const readInstallationEvidence = Effect.fn("InstallationRuntime.readEvide
   const section = (table: PgTable, predicate: SQL | undefined) => aggregate(tx.select({ digest: installationEvidenceRowDigest(table).as("digest") })
     .from(table).where(predicate).limit(MAX_ROWS + 1));
   const selectedReceipts = tx.select({ id: receipts.receiptStorageId }).from(receipts)
-    .where(inArray(receipts.attemptStorageId, [...coordinates.receiptAttempts]));
+    .where(inArray(receipts.planStorageId, [...coordinates.receiptPlans]));
   const query = tx.select({
     namespace: section(namespaces, eq(namespaces.targetNamespaceStorageId, coordinates.namespace)),
     collision: section(collisions, eq(collisions.collisionStorageId, coordinates.collision)),
@@ -177,7 +200,7 @@ export const readInstallationEvidence = Effect.fn("InstallationRuntime.readEvide
     admissionAssignments: section(admissionAssignments, inArray(admissionAssignments.admissionStorageId, [...roots.admission])),
     attempt: section(attempts, inArray(attempts.attemptStorageId, [...roots.attempt])),
     terminal: section(terminals, inArray(terminals.terminalStorageId, [...roots.terminal])),
-    receipts: section(receipts, inArray(receipts.attemptStorageId, [...coordinates.receiptAttempts])),
+    receipts: section(receipts, inArray(receipts.planStorageId, [...coordinates.receiptPlans])),
     receiptDependencies: section(receiptDependencies, inArray(receiptDependencies.receiptStorageId, selectedReceipts)),
     readiness: section(readiness, inArray(readiness.readinessStorageId, [...roots.readiness])),
     history: section(history, inArray(history.availabilityHistoryStorageId, [...roots.history])),
@@ -186,13 +209,12 @@ export const readInstallationEvidence = Effect.fn("InstallationRuntime.readEvide
   }).from(sql`(values (1)) as installation_evidence(only_row)`);
   const rows = yield* read(query).pipe(Effect.map(detachDriverRows));
   const value = rows[0];
-  if (rows.length !== 1 || value === undefined || Object.values(value).some(digest => typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest))) {
+  if (rows.length !== 1) {
     return yield* Effect.fail(corruption());
   }
-  return Object.freeze(value);
+  return Object.freeze(yield* decodeInstallationEvidence(value).pipe(Effect.mapError(corruption)));
 });
 
-export type InstallationEvidence = Effect.Success<ReturnType<typeof readInstallationEvidence>>;
 export function installationEvidenceMatches(left: InstallationEvidence, right: InstallationEvidence): boolean {
-  return Object.entries(left).every(([key, value]) => Reflect.get(right, key) === value);
+  return Object.keys(InstallationEvidenceSchema.fields).every(key => Reflect.get(left, key) === Reflect.get(right, key));
 }

@@ -1,7 +1,7 @@
 import type { ApplicationActiveSelection } from "../../applicationActivation";
 import { verifyPayloadPreferenceBinding, type PayloadContentProfiles } from "../../payloadPreferences/binding";
 import { Effect, Option } from "effect";
-import { withAdditiveMigrationGraphLimits } from "../../migrationCoordination/additiveLimits";
+import { withBindingMigrationGraphLimits } from "../../migrationCoordination/graphLimits";
 import { withFrameworkMigrationPlanVerification } from "../../migrationCoordination/planVerificationScope";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import type { FlarexMetadataDatabase } from "../../deployments";
@@ -82,7 +82,7 @@ export const lockBindingInstallation = Effect.fn(
     return yield* Effect.fail(bindingError("unavailableInstallation"));
   }
   return value;
-}, withAdditiveMigrationGraphLimits, withFrameworkMigrationPlanVerification);
+}, withBindingMigrationGraphLimits, withFrameworkMigrationPlanVerification);
 
 export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
   function* (

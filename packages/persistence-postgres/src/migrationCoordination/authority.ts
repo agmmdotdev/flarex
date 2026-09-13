@@ -145,6 +145,22 @@ export function capturedAuthorityForStepReceipt(
   return capturedStepReceipts.get(receipt);
 }
 
+/** Immutable value compatibility only. Stored ancestry is checked by restoration. */
+export function capturedReceiptBelongsToAttemptPlan(
+  receipt: StepReceipt,
+  attempt: MigrationAttempt,
+): boolean {
+  const producer = capturedStepReceipts.get(receipt)?.attempt;
+  const source = producer === undefined ? undefined : capturedAttempts.get(producer);
+  const target = capturedAttempts.get(attempt);
+  return producer !== undefined && source !== undefined && target !== undefined &&
+    source.plan.migrationPlanSha256 === target.plan.migrationPlanSha256 &&
+    source.plan.canonicalJson === target.plan.canonicalJson &&
+    source.admission.sha256 === target.admission.sha256 &&
+    source.admission.canonicalJson === target.admission.canonicalJson &&
+    BigInt(producer.frame.attemptFence) <= BigInt(attempt.frame.attemptFence);
+}
+
 export function registerCapturedFrameworkMigrationAttemptTerminal(
   terminal: AttemptTerminal,
   authority: CapturedMigrationAttemptTerminalAuthority,

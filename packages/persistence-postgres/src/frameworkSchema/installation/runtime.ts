@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
@@ -7,7 +7,7 @@ import { runEffectTransaction } from "../../effectTransaction";
 import { runDrizzleStatementEffect } from "../../drizzleStatementEffect";
 import { frameworkSchemaTargetSnapshot, hasFrameworkSchemaTargetDatabase, type FrameworkSchemaTarget } from "../target";
 import { withFrameworkMigrationPlanVerification } from "../../migrationCoordination/planVerificationScope";
-import { withAdditiveMigrationGraphLimits } from "../../migrationCoordination/additiveLimits";
+import { withBindingMigrationGraphLimits } from "../../migrationCoordination/graphLimits";
 import { lockBindingInstallation } from "../binding/evidence";
 import { bindingError } from "../binding/errors";
 import { sameBindingValue, isSyntheticBindingReference } from "../binding/canonical";
@@ -16,7 +16,7 @@ import { capturePrivateJsonData } from "../../privateJsonData";
 import { fxSystemFrameworkSchemaAvailabilityHeads as heads } from "./schema";
 import { installationRuntimeData, type InstallationRuntimeData } from "./runtimeData";
 import { collectInstallationEvidence, readInstallationEvidence, installationEvidenceMatches, installationEvidenceRowDigest,
-  type InstallationEvidence, type InstallationEvidenceCoordinates } from "./runtimeEvidence";
+  installationEvidenceDigest, type InstallationEvidence, type InstallationEvidenceCoordinates } from "./runtimeEvidence";
 
 declare const preparedInstallationBrand: unique symbol;
 export interface PreparedInstallationRuntime { readonly [preparedInstallationBrand]: true }
@@ -56,7 +56,7 @@ export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare
       const data = installationRuntimeData(restored);
       if (measureCanonicalJsonUtf8Bytes(data, MAX_RETAINED_DATA_BYTES).kind !== "success") return yield* Effect.fail(bindingError("resourceFailure"));
       return Object.freeze({ target, reference, installationStorageId: restored.installation.storageId, headFingerprint, coordinates, evidence, data });
-    }).pipe(withAdditiveMigrationGraphLimits, withFrameworkMigrationPlanVerification,
+    }).pipe(withBindingMigrationGraphLimits, withFrameworkMigrationPlanVerification,
       Effect.timeoutOrElse({ duration: 15_000, orElse: () => Effect.fail(bindingError("resourceFailure")) })),
     cause => bindingError("resourceFailure", cause),
   );
@@ -83,13 +83,15 @@ export const acceptPreparedInstallation = Effect.fn("InstallationRuntime.accept"
   return state.data;
 });
 
+const decodeHeadFingerprint = Schema.decodeUnknownEffect(Schema.Struct({ fingerprint: installationEvidenceDigest }), { onExcessProperty: "error" });
+
 const lockHeadFingerprint = Effect.fn("InstallationRuntime.lockHead")(function* (
   tx: FlarexMetadataTransaction, installationStorageId: bigint,
 ) {
   const rows = yield* runDrizzleStatementEffect(tx.select({ fingerprint: installationEvidenceRowDigest(heads) })
-    .from(heads).where(eq(heads.installationStorageId, installationStorageId)).limit(1).for("share"), cause => bindingError("resourceFailure", cause));
+    .from(heads).where(eq(heads.installationStorageId, installationStorageId)).limit(2).for("share"), cause => bindingError("resourceFailure", cause));
   const row = rows[0];
   if (row === undefined) return yield* Effect.fail(bindingError("missingDependency"));
-  if (typeof row.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(row.fingerprint)) return yield* Effect.fail(bindingError("storedCorruption"));
-  return row.fingerprint;
+  if (rows.length !== 1) return yield* Effect.fail(bindingError("storedCorruption"));
+  return (yield* decodeHeadFingerprint(row).pipe(Effect.mapError(() => bindingError("storedCorruption")))).fingerprint;
 });

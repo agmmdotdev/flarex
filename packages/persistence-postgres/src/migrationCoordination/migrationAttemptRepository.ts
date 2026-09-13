@@ -1,4 +1,4 @@
-import { additiveMigrationGraphLimits, withFrameworkCollisionGraphLimits } from "./additiveLimits";
+import { MAX_FRAMEWORK_BINDING_GRAPH_ROOTS, frameworkMigrationGraphPolicy, withFrameworkCollisionGraphLimits } from "./graphLimits";
 import { frameworkGraphDriverRowReferences, makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import {
   epochMillisecondsFromCanonicalIsoInstant,
@@ -801,10 +801,12 @@ const restoreAttemptStartLineage = Effect.fn(
   let requiredAttemptId: string | null = null;
   let anchoredPreviousAttempt: RestoredFrameworkMigrationAttemptStart | null =
     null;
-  const bounded = yield* additiveMigrationGraphLimits;
+  const policy = yield* frameworkMigrationGraphPolicy;
+  const maximumAttempts = policy === "additive" ? 2 : policy === "binding" ? MAX_FRAMEWORK_BINDING_GRAPH_ROOTS : undefined;
+  const bounded = maximumAttempts !== undefined;
   let followed = 0;
   while (true) {
-    if (bounded && followed++ >= 2) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+    if (maximumAttempts !== undefined && followed++ >= maximumAttempts) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
     const decoded = yield* decodeAttemptStartRoot(row, operation);
     if (
       decoded.collisionStorageId !== preferredCollision.storageId ||
@@ -840,7 +842,7 @@ const restoreAttemptStartLineage = Effect.fn(
       break;
     }
     if (decoded.previousAttemptStorageId === null) break;
-    if (bounded && followed >= 2) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+    if (maximumAttempts !== undefined && followed >= maximumAttempts) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
     const previous = yield* loadAttemptStartRootByStorageId(
       transaction,
       decoded.previousAttemptStorageId,
