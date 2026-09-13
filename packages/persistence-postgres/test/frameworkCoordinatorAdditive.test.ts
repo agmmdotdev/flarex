@@ -1,3 +1,5 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
+import { sql } from "drizzle-orm";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { admitFrameworkSchemaArtifactEffect } from "../src/frameworkSchema/artifact/admission";
@@ -161,7 +163,7 @@ describe("private additive framework migration coordinator", () => {
   it("refuses missing normalized base evidence on cold replay", async () => {
     const fixture = await createAdditiveFixture();
     expect(await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ kind: "ready" });
-    await fixture.persistence.query("delete from fx_system_framework_migration_plan_base");
+    await administrativelyRepairFrameworkMetadata(fixture.persistence.drizzle, ["fx_system_framework_migration_plan_base"], async repairTransaction => repairTransaction.execute(sql.raw("delete from fx_system_framework_migration_plan_base")));
     expect(await runEffectFailure(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input)))
       .toMatchObject({ reason: "storedCorruption" });
   }, 180_000);

@@ -111,12 +111,13 @@ Payload lifecycle/data migration
 Payload and Medusa do not share a migration language. Production startup fails
 closed on schema mismatch and does not auto-apply lifecycle migrations.
 
-The proposed [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
+The approved [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 includes existing reserved preference installation as a concrete second
 structural consumer, alongside Medusa module/link schemas. It keeps Payload
 content with the Application schema owner and leaves semantic/data migrations
-unadmitted. The proposal changes no current installer, metadata protection or
-adapter capability; its progress/verification contract awaits approval.
+unadmitted. Its storage-protection foundation guards immutable metadata and seals
+root/child creation at commit. The new installer API and optimized execution path
+remain unfinished; this does not admit any new Payload adapter capability.
 
 The Payload compiler has no direct schema publication or activation authority.
 If the existing authenticated Application Analysis chain cannot admit its

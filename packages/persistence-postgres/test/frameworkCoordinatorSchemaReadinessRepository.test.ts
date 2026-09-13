@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -168,12 +169,12 @@ describe("framework coordinator schema-readiness repository", () => {
   it("rejects corrupt projections and canonical bytes without healing", async () => {
     const projectionPersistence = await createMigratedPGlitePersistence();
     const projection = await storedReadinessFixture(projectionPersistence);
-    await projectionPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(projectionPersistence.drizzle, ["fx_system_framework_schema_readiness"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaReadiness,
     ).set({ validationSha256: new Uint8Array(32).fill(0x7f) }).where(eq(
       fxSystemFrameworkSchemaReadiness.readinessStorageId,
       projection.ensured.storageId,
-    ));
+    )));
     const projectionBefore = await storedReadinessRows(projectionPersistence);
     await expectStoredCorruption(
       projectionPersistence,
@@ -192,12 +193,12 @@ describe("framework coordinator schema-readiness repository", () => {
     const corrupt = await storedReadinessFixture(corruptPersistence);
     const changedBytes = canonicalBytes(corrupt.readiness);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await corruptPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(corruptPersistence.drizzle, ["fx_system_framework_schema_readiness"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaReadiness,
     ).set({ canonicalBytes: changedBytes }).where(eq(
       fxSystemFrameworkSchemaReadiness.readinessStorageId,
       corrupt.ensured.storageId,
-    ));
+    )));
     await expectStoredCorruption(
       corruptPersistence,
       "readReadiness",
@@ -217,7 +218,7 @@ describe("framework coordinator schema-readiness repository", () => {
     const oversizedBytes = new Uint8Array(
       MAX_FRAMEWORK_SCHEMA_INSTALLATION_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await oversizedPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(oversizedPersistence.drizzle, ["fx_system_framework_schema_readiness"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaReadiness,
     ).set({
       canonicalByteLength: oversizedBytes.byteLength,
@@ -225,7 +226,7 @@ describe("framework coordinator schema-readiness repository", () => {
     }).where(eq(
       fxSystemFrameworkSchemaReadiness.readinessStorageId,
       oversized.ensured.storageId,
-    ));
+    )));
     const before = await storedReadinessRows(oversizedPersistence);
     await expectStoredCorruption(
       oversizedPersistence,

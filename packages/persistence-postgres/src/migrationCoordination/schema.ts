@@ -329,6 +329,9 @@ export const fxSystemRelationalPhysicalNameAssignments = pgTable(
 export const fxSystemFrameworkMigrationPlans = pgTable(
   "fx_system_framework_migration_plan",
   {
+    // Database-owned creation transaction seals the complete sidecar set at commit.
+    createdTransactionId: bigint("created_transaction_id", { mode: "bigint" })
+      .notNull().default(sql`txid_current()`),
     planStorageId: bigint("plan_storage_id", { mode: "bigint" })
       .generatedAlwaysAsIdentity({
         name: "fx_framework_migration_plan_storage_id_seq",
@@ -560,6 +563,8 @@ export const fxSystemFrameworkMigrationPlanStepDependencies = pgTable(
 export const fxSystemFrameworkMigrationPlanAdmissions = pgTable(
   "fx_system_framework_migration_plan_admission",
   {
+    createdTransactionId: bigint("created_transaction_id", { mode: "bigint" })
+      .notNull().default(sql`txid_current()`),
     admissionStorageId: bigint("admission_storage_id", { mode: "bigint" })
       .generatedAlwaysAsIdentity({
         name: "fx_framework_migration_admission_storage_id_seq",
@@ -893,6 +898,8 @@ export const fxSystemFrameworkMigrationAttemptStarts = pgTable(
 export const fxSystemFrameworkMigrationStepReceipts = pgTable(
   "fx_system_framework_migration_step_receipt",
   {
+    createdTransactionId: bigint("created_transaction_id", { mode: "bigint" })
+      .notNull().default(sql`txid_current()`),
     receiptStorageId: bigint("receipt_storage_id", { mode: "bigint" })
       .generatedAlwaysAsIdentity({
         name: "fx_framework_migration_receipt_storage_id_seq",

@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { eq, sql } from "drizzle-orm";
 import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
@@ -389,9 +390,9 @@ describe("framework coordinator physical-name assignment repository", () => {
       values.firstAssignment.canonicalJson,
     );
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_relational_physical_name_assignment"], async repairTransaction => repairTransaction.update(
       fxSystemRelationalPhysicalNameAssignments,
-    ).set({ canonicalBytes: changedBytes });
+    ).set({ canonicalBytes: changedBytes }));
     const corruptFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readRelationalPhysicalNameAssignmentInTransactionEffect(
@@ -412,12 +413,12 @@ describe("framework coordinator physical-name assignment repository", () => {
         drop constraint fx_relational_name_assignment_frame_check
     `);
     const oversizedBytes = new Uint8Array(20_481).fill(0x20);
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_relational_physical_name_assignment"], async repairTransaction => repairTransaction.update(
       fxSystemRelationalPhysicalNameAssignments,
     ).set({
       canonicalByteLength: oversizedBytes.byteLength,
       canonicalBytes: oversizedBytes,
-    });
+    }));
     const overLimitFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readRelationalPhysicalNameAssignmentInTransactionEffect(

@@ -1,10 +1,37 @@
 # Framework Installation Core Redesign
 
-Status: proposed for discussion, not approved for implementation. This is the
+Status: approved, implementation in progress. This is the
 recommended replacement direction for the narrower, unapproved
 [step-transition proposal](./75-migration-step-transition-proof.md). Current
-runtime and accepted storage contracts remain unchanged. ShippingProfile remains
+coordinator execution path remains unchanged. ShippingProfile remains
 paused. Neither this document nor its examples activate future framework modules.
+
+## Current Implementation Boundary
+
+The storage-protection foundation adds database guards to the existing immutable
+metadata tables. Plan, admission and receipt roots carry a database-stamped
+`created_transaction_id`. Their sidecars must be inserted in the same transaction
+as the root, so commit closes each child set without another seal flag or table.
+The stamp is bookkeeping, not a canonical identity or a verification capability.
+It is cluster-local: logical restoration into a different cluster must not be
+admitted as a protected target without administrative restamping/resealing and
+full verification. No cross-cluster logical-restore path is enabled here.
+Existing exact insert-conflict replay remains admissible because no new child row
+is inserted. Stored-value validation still owns exact completeness and content.
+
+History UPDATE/DELETE and TRUNCATE are guarded; the existing two mutable heads
+remain mutable. An administrator can disable database guards, so these mechanisms
+do not establish immutability against the metadata owner. Restricted-login
+conformance is separate from owner-role corruption injection. Fault-injection
+helpers explicitly disable only the relevant guards inside an administrative
+transaction and restore them; ordinary readers retain their corruption checks.
+
+The optimized progress model, protected-target admission, readable installer
+facade, verification reorganization and performance acceptance are not yet
+implemented. In particular, existing target construction still accepts a
+caller-owned pool and does not enforce a non-owner login. Full current
+reconstruction remains in force; the new guards are not permission to cache
+database authority or enable the proposed fast path before those gates pass.
 
 ## Outcome And Scope
 
@@ -111,13 +138,13 @@ it is not automatically an audit of every historical event. Lost commit response
 use the existing distinct recovery session and exact attempted transition. Never
 infer non-commit from a timeout or replay an operation from in-memory success alone.
 
-## Integrity Decision Required
+## Approved Integrity Contract
 
 The proposed fast path relies on enforced stable completed metadata. Current
 canonical bytes, foreign keys and append-only repository methods do not alone
 prevent a privileged SQL writer changing historical rows.
 
-Recommended contract:
+Selected contract:
 
 1. A restricted installer execution role cannot update/delete/truncate completed
    definition, receipt or event data, alter its guards, or act as metadata owner.
@@ -312,17 +339,18 @@ workspace/application data or another task's fixtures.
    roadmaps and commit coherent verified changes. Never retain a failed candidate
    behind a mode flag.
 
-## Discussion Decision
+## Approved Direction And Remaining Gates
 
-Recommend approving the architecture of protected immutable definitions/evidence,
+The user approved the architecture of protected immutable definitions/evidence,
 one durable operational progress owner, and explicit full verification, shared by
-the actual structural consumers above. The material tradeoff to decide is the
-corruption-detection/repair contract: prohibit live historical edits and verify at
+the actual structural consumers above. The selected
+corruption-detection/repair contract prohibits live historical edits and verifies at
 named boundaries instead of re-reading all history during normal progress.
 
-If immediate detection of arbitrary privileged historical edits on every normal
-call is required, say so: this proposal does not satisfy that contract, and merely
-renaming the existing verification loop cannot achieve the intended scaling.
+The target design does not promise immediate detection of arbitrary privileged
+historical edits on every normal call. Its protected-target and verification
+boundaries must be implemented before normal execution stops reconstructing that
+history. Merely renaming the existing loop cannot achieve the intended scaling.
 
 ## Evidence And Governing Sources
 

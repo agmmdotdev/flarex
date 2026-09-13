@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -581,12 +582,12 @@ describe("framework coordinator migration-attempt repository", () => {
         return { admission, first, second, secondValue };
       },
     );
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationAttemptStarts,
     ).set({ leaseExpiresAt: new Date(Date.parse(LEASE_TWO) + 1) }).where(eq(
       fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
       stored.second.storageId,
-    ));
+    )));
     const leaseFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkMigrationAttemptStartInTransactionEffect(
@@ -645,12 +646,12 @@ describe("framework coordinator migration-attempt repository", () => {
       alter table fx_system_framework_migration_attempt_start
         drop constraint fx_framework_migration_attempt_previous_fk
     `);
-    await chainPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(chainPersistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationAttemptStarts,
     ).set({ previousAttemptStorageId: 9_999n }).where(eq(
       fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
       chain.second.storageId,
-    ));
+    )));
     const chainFailure = await chainPersistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkMigrationAttemptStartInTransactionEffect(
@@ -693,12 +694,12 @@ describe("framework coordinator migration-attempt repository", () => {
     );
     const changedBytes = new TextEncoder().encode(stored.attempt.canonicalJson);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationAttemptStarts,
     ).set({ canonicalBytes: changedBytes }).where(eq(
       fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
       stored.restored.storageId,
-    ));
+    )));
     const corruptFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkMigrationAttemptStartInTransactionEffect(
@@ -721,7 +722,7 @@ describe("framework coordinator migration-attempt repository", () => {
     const oversizedBytes = new Uint8Array(
       MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationAttemptStarts,
     ).set({
       canonicalByteLength: oversizedBytes.byteLength,
@@ -729,7 +730,7 @@ describe("framework coordinator migration-attempt repository", () => {
     }).where(eq(
       fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
       stored.restored.storageId,
-    ));
+    )));
     const overLimitFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkMigrationAttemptStartInTransactionEffect(
@@ -810,7 +811,7 @@ describe("framework coordinator migration-attempt repository", () => {
       alter table fx_system_framework_migration_attempt_start
         drop constraint fx_framework_migration_attempt_previous_fk
     `);
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationAttemptStarts,
     ).set({
       previousAttemptStorageId: stored.second.storageId,
@@ -821,8 +822,8 @@ describe("framework coordinator migration-attempt repository", () => {
     }).where(eq(
       fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
       stored.first.storageId,
-    ));
-    await persistence.drizzle.update(
+    )));
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_attempt_start"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationAttemptStarts,
     ).set({
       previousAttemptStorageId: stored.first.storageId,
@@ -833,7 +834,7 @@ describe("framework coordinator migration-attempt repository", () => {
     }).where(eq(
       fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
       stored.second.storageId,
-    ));
+    )));
 
     const failure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(

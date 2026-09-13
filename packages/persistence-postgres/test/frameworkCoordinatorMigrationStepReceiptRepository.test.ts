@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata, withAdministrativeFrameworkMetadataRepair } from "./frameworkMetadataRepairTestSupport";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -92,13 +93,15 @@ describe("framework coordinator migration-step receipt repository", () => {
           expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
         }
       }), transaction));
-      const removed = await transaction.delete(fxSystemFrameworkMigrationStepReceiptDependencies)
+      const removed = await withAdministrativeFrameworkMetadataRepair(transaction,
+        ["fx_system_framework_migration_step_receipt_dependency"], async () => transaction.delete(fxSystemFrameworkMigrationStepReceiptDependencies)
         .where(and(eq(fxSystemFrameworkMigrationStepReceiptDependencies.receiptStorageId, tail.storageId),
-          eq(fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal, 0))).returning();
+          eq(fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal, 0))).returning());
       expect(removed).toHaveLength(1);
       expect(await runEffectFailure(read(tail.storageId, tail.receipt.sha256)))
         .toMatchObject({ reason: "storedCorruption" });
-      await transaction.insert(fxSystemFrameworkMigrationStepReceiptDependencies).values(removed);
+      await withAdministrativeFrameworkMetadataRepair(transaction,
+        ["fx_system_framework_migration_step_receipt_dependency"], async () => transaction.insert(fxSystemFrameworkMigrationStepReceiptDependencies).values(removed));
       expect(await runEffect(read(tail.storageId, tail.receipt.sha256))).toHaveLength(stored.receipts.length);
     });
   }, PGLITE_TEST_TIMEOUT);
@@ -639,7 +642,7 @@ describe("framework coordinator migration-step receipt repository", () => {
       requiredLast(missing.receiptValues),
       missing.receipts,
     );
-    await missingPersistence.drizzle.delete(
+    await administrativelyRepairFrameworkMetadata(missingPersistence.drizzle, ["fx_system_framework_migration_step_receipt_dependency"], async repairTransaction => repairTransaction.delete(
       fxSystemFrameworkMigrationStepReceiptDependencies,
     ).where(and(
       eq(
@@ -650,7 +653,7 @@ describe("framework coordinator migration-step receipt repository", () => {
         fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal,
         0,
       ),
-    ));
+    )));
     const missingFailure = await missingPersistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkMigrationStepReceiptInTransactionEffect(
@@ -744,12 +747,12 @@ describe("framework coordinator migration-step receipt repository", () => {
     const rootValue = requiredFirst(stored.receiptValues);
     const changedBytes = canonicalBytes(rootValue);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_step_receipt"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationStepReceipts,
     ).set({ canonicalBytes: changedBytes }).where(eq(
       fxSystemFrameworkMigrationStepReceipts.receiptStorageId,
       root.storageId,
-    ));
+    )));
     const corruptFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkMigrationStepReceiptInTransactionEffect(
@@ -772,7 +775,7 @@ describe("framework coordinator migration-step receipt repository", () => {
     const oversizedBytes = new Uint8Array(
       MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_step_receipt"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationStepReceipts,
     ).set({
       canonicalByteLength: oversizedBytes.byteLength,
@@ -780,7 +783,7 @@ describe("framework coordinator migration-step receipt repository", () => {
     }).where(eq(
       fxSystemFrameworkMigrationStepReceipts.receiptStorageId,
       root.storageId,
-    ));
+    )));
     const overLimitFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         ensureFrameworkMigrationStepReceiptInTransactionEffect(
@@ -1194,7 +1197,7 @@ async function setDependencyOrdinal(
   currentOrdinal: number,
   dependencyOrdinal: number,
 ): Promise<void> {
-  await persistence.drizzle.update(
+  await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_step_receipt_dependency"], async repairTransaction => repairTransaction.update(
     fxSystemFrameworkMigrationStepReceiptDependencies,
   ).set({ dependencyOrdinal }).where(and(
     eq(
@@ -1205,7 +1208,7 @@ async function setDependencyOrdinal(
       fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal,
       currentOrdinal,
     ),
-  ));
+  )));
 }
 
 async function expectReferenceRefusal(

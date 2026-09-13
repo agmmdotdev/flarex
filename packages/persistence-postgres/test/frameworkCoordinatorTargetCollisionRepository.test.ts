@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -259,9 +260,9 @@ describe("framework coordinator target/collision repository", () => {
 
     const changedBytes = new TextEncoder().encode(values.target.canonicalJson);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_schema_target_namespace"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaTargetNamespaces,
-    ).set({ canonicalBytes: changedBytes });
+    ).set({ canonicalBytes: changedBytes }));
     const corruptFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkSchemaTargetNamespaceInTransactionEffect(
@@ -281,12 +282,12 @@ describe("framework coordinator target/collision repository", () => {
         drop constraint fx_framework_target_namespace_frame_check
     `);
     const oversizedBytes = new Uint8Array(4_097).fill(0x20);
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_schema_target_namespace"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaTargetNamespaces,
     ).set({
       canonicalByteLength: oversizedBytes.byteLength,
       canonicalBytes: oversizedBytes,
-    });
+    }));
     const overLimitFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkSchemaTargetNamespaceInTransactionEffect(

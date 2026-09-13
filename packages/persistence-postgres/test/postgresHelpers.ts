@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
+import { sql } from "drizzle-orm";
 import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 import { afterAll, beforeAll } from "vitest";
 
@@ -570,9 +571,24 @@ export async function createFileScopedPostgresFixture(): Promise<FileScopedPostg
       const qualifiedTables = tables.rows.map(({ tablename }) =>
         `${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)}`
       );
-      await migratedPersistence.query(
-        `truncate table ${qualifiedTables.join(", ")} restart identity cascade`,
-      );
+      // Administrative teardown of this exact disposable schema. Runtime roles
+      // cannot disable these guards or truncate installed migration evidence.
+      const guarded = await migratedPersistence.query<{ tablename: string }>(`
+        select c.relname as tablename from pg_catalog.pg_trigger t
+        join pg_catalog.pg_class c on c.oid = t.tgrelid
+        join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = $1 and t.tgname = 'fx_framework_history_no_truncate'
+        order by c.relname
+      `, [schemaName]);
+      await migratedPersistence.drizzle.transaction(async transaction => {
+        for (const { tablename } of guarded.rows) {
+          await transaction.execute(sql.raw(`alter table ${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)} disable trigger fx_framework_history_no_truncate`));
+        }
+        await transaction.execute(sql.raw(`truncate table ${qualifiedTables.join(", ")} restart identity cascade`));
+        for (const { tablename } of guarded.rows) {
+          await transaction.execute(sql.raw(`alter table ${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)} enable trigger fx_framework_history_no_truncate`));
+        }
+      });
     },
     async dispose(): Promise<void> {
       if (disposed) return;

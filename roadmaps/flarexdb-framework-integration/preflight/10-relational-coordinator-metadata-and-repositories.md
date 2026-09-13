@@ -140,6 +140,15 @@ stored frame, not to the current table name.
 Only the collision head and availability head may be updated. No checkpoint-2
 operation deletes a row.
 
+The approved [installation redesign](./76-framework-installation-core-redesign.md)
+now adds database mutation/TRUNCATE guards for immutable history. Plan, admission
+and step-receipt roots also have a database-stamped `created_transaction_id`
+outside their canonical value. Their normalized children must be created in that
+same transaction; after commit the set is closed. These guards preserve exact
+insert-conflict replay but do not replace canonical/completeness validation or
+protect against an administrator able to disable them. Restricted-target
+admission and optimized progress execution remain separate unfinished gates.
+
 ## Common Column And Constraint Contract
 
 Every independently addressed immutable canonical value has a generated-always

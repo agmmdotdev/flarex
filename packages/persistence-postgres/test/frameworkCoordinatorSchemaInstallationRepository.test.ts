@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -194,14 +195,14 @@ describe("framework coordinator schema-installation repository", () => {
     const projection = await storedInstallationFixture(
       projectionPersistence,
     );
-    await projectionPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(projectionPersistence.drizzle, ["fx_system_framework_schema_installation"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaInstallations,
     ).set({ installedStructureSha256: new Uint8Array(32).fill(0x7f) }).where(
       eq(
         fxSystemFrameworkSchemaInstallations.installationStorageId,
         projection.ensured.storageId,
       ),
-    );
+    ));
     const projectionBefore = await storedInstallationRows(
       projectionPersistence,
     );
@@ -221,12 +222,12 @@ describe("framework coordinator schema-installation repository", () => {
     const corrupt = await storedInstallationFixture(corruptPersistence);
     const changedBytes = canonicalBytes(corrupt.installation);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await corruptPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(corruptPersistence.drizzle, ["fx_system_framework_schema_installation"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaInstallations,
     ).set({ canonicalBytes: changedBytes }).where(eq(
       fxSystemFrameworkSchemaInstallations.installationStorageId,
       corrupt.ensured.storageId,
-    ));
+    )));
     await expectStoredCorruption(
       corruptPersistence,
       "readInstallation",
@@ -247,7 +248,7 @@ describe("framework coordinator schema-installation repository", () => {
     const oversizedBytes = new Uint8Array(
       MAX_FRAMEWORK_SCHEMA_INSTALLATION_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await oversizedPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(oversizedPersistence.drizzle, ["fx_system_framework_schema_installation"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaInstallations,
     ).set({
       canonicalByteLength: oversizedBytes.byteLength,
@@ -255,7 +256,7 @@ describe("framework coordinator schema-installation repository", () => {
     }).where(eq(
       fxSystemFrameworkSchemaInstallations.installationStorageId,
       oversized.ensured.storageId,
-    ));
+    )));
     const before = await storedInstallationRows(oversizedPersistence);
     await expectStoredCorruption(
       oversizedPersistence,

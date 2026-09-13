@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { eq } from "drizzle-orm";
 import { Effect, Option, Tracer } from "effect";
 import { expect } from "vitest";
@@ -54,17 +55,17 @@ export async function exerciseInstallationAcceptance(database: FlarexMetadataDat
 
   // A successful previous acceptance cannot hide changed ancestor projections.
   const plan = stored.installation.plan;
-  await database.update(fxSystemFrameworkMigrationPlans).set({ locatorDatabaseKey: "tampered" })
-    .where(eq(fxSystemFrameworkMigrationPlans.planStorageId, plan.storageId));
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan"], async repairTransaction => repairTransaction.update(fxSystemFrameworkMigrationPlans).set({ locatorDatabaseKey: "tampered" })
+    .where(eq(fxSystemFrameworkMigrationPlans.planStorageId, plan.storageId)));
   await expect(accept()).rejects.toMatchObject({ reason: "storedCorruption" });
-  await database.update(fxSystemFrameworkMigrationPlans).set({ locatorDatabaseKey: plan.plan.frame.physicalLocator.databaseKey })
-    .where(eq(fxSystemFrameworkMigrationPlans.planStorageId, plan.storageId));
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan"], async repairTransaction => repairTransaction.update(fxSystemFrameworkMigrationPlans).set({ locatorDatabaseKey: plan.plan.frame.physicalLocator.databaseKey })
+    .where(eq(fxSystemFrameworkMigrationPlans.planStorageId, plan.storageId)));
   expect(Option.isSome(await accept())).toBe(true);
 
   // The natural lookup digest is insufficient: installation bytes remain checked.
   const bytes = new TextEncoder().encode(stored.installation.installation.canonicalJson);
   bytes[0] = 32;
-  await database.update(fxSystemFrameworkSchemaInstallations).set({ canonicalBytes: bytes })
-    .where(eq(fxSystemFrameworkSchemaInstallations.installationStorageId, stored.installation.storageId));
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_schema_installation"], async repairTransaction => repairTransaction.update(fxSystemFrameworkSchemaInstallations).set({ canonicalBytes: bytes })
+    .where(eq(fxSystemFrameworkSchemaInstallations.installationStorageId, stored.installation.storageId)));
   await expect(accept()).rejects.toMatchObject({ reason: "storedCorruption" });
 }

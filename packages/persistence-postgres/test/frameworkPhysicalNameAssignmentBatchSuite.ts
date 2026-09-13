@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { Effect } from "effect";
 import { expect, it, vi } from "vitest";
 
@@ -124,9 +125,9 @@ export function assignmentBatchSuite(withPersistence: WithPersistence) {
       if (stored === undefined) throw new Error("Missing stored assignment");
       const badBytes = new TextEncoder().encode(first.canonicalJson);
       badBytes[badBytes.length - 2] = 0x20;
-      await persistence.drizzle.update(assignments).set(column === "canonicalBytes"
+      await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_relational_physical_name_assignment"], tx => tx.update(assignments).set(column === "canonicalBytes"
         ? { canonicalBytes: badBytes } : { nameSha256: new Uint8Array(32) })
-        .where(eq(assignments.assignmentStorageId, stored.storageId));
+        .where(eq(assignments.assignmentStorageId, stored.storageId)));
       await expect(persistence.drizzle.transaction(transaction => runEffect(ensureAssignments(transaction, collision,
         [...values.inventory.slice(1), first])))).rejects.toMatchObject({ reason: "storedCorruption" });
       expect(await persistence.drizzle.select().from(assignments)).toHaveLength(1);

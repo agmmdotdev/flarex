@@ -1,3 +1,5 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
+import { sql } from "drizzle-orm";
 import { setTimeout as delay } from "node:timers/promises";
 import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 import { Effect, Exit } from "effect";
@@ -226,8 +228,8 @@ native("native fresh framework migration coordinator", () => {
       const pending = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun: kind === "receipt" ? 1 : 6 }));
       expect(pending.kind).toBe("pending");
       if (kind === "receipt") {
-        await fixture.persistence.query(`update fx_system_framework_migration_step_receipt
-          set canonical_bytes = set_byte(canonical_bytes, 0, (get_byte(canonical_bytes, 0) + 1) % 256)`);
+        await administrativelyRepairFrameworkMetadata(fixture.persistence.drizzle, ["fx_system_framework_migration_step_receipt"], async repairTransaction => repairTransaction.execute(sql.raw(`update fx_system_framework_migration_step_receipt
+          set canonical_bytes = set_byte(canonical_bytes, 0, (get_byte(canonical_bytes, 0) + 1) % 256)`)));
         expect(await runEffectFailure(runFreshFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ reason: "storedCorruption" });
       } else {
         const indexes = await fixture.persistence.query<{ indexname: string }>(

@@ -103,13 +103,15 @@ unchanged full-suite PGlite deadline; no runtime or verification change is
 retained. Isolated reconstruction reuse did not establish the required aggregate
 performance benefit. The installation problem and connected workflow gate remain
 unresolved. The narrower [migration step-transition proposal](./preflight/75-migration-step-transition-proof.md)
-is superseded by the proposed [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md).
-The discussion now covers protected immutable definitions/evidence, durable
+is superseded by the approved [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md).
+The redesign covers protected immutable definitions/evidence, durable
 operational progress, explicit full verification and readable construction APIs.
 It includes future supported Medusa inventories and Payload's actual structural
 lifecycle consumer while preserving Application content-schema authority.
-The metadata protection and corruption-detection contract require approval;
-no replacement implementation, schema or performance gain is established.
+Its first storage foundation guards immutable metadata and seals child sets at
+their creation transaction's commit. Protected-target admission and the new
+progress/verification execution path remain unfinished. Existing reconstruction
+still runs, and no installation speedup or connected workflow completion is claimed.
 The connected ShippingProfile slice explicitly retains the private commerce error envelope rather than claiming
 the pinned test adapter's duplicate-name message or full Fulfillment parity.
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)

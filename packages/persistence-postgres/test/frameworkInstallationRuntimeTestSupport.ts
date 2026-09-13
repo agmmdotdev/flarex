@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { Effect, Tracer } from "effect";
 import { expect } from "vitest";
 import type { FlarexMetadataDatabase } from "../src/deployments";
@@ -57,30 +58,38 @@ export async function exerciseInstallationRuntime(database: FlarexMetadataDataba
     fixture.reference, tx)))).rejects.toMatchObject({ reason: "invalidAuthority" });
 
   const planId = fixture.stored.installation.plan.storageId;
-  await database.update(plans).set({ locatorDatabaseKey: "changed-after-preparation" }).where(eq(plans.planStorageId, planId));
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan"], tx =>
+    tx.update(plans).set({ locatorDatabaseKey: "changed-after-preparation" }).where(eq(plans.planStorageId, planId)));
   await expect(fixture.accept()).rejects.toMatchObject({ reason: "storedCorruption" });
   await expect(fixture.prepare()).rejects.toMatchObject({ reason: "storedCorruption" });
-  await database.update(plans).set({ locatorDatabaseKey: fixture.reference.installation.physicalLocator.databaseKey }).where(eq(plans.planStorageId, planId));
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan"], tx =>
+    tx.update(plans).set({ locatorDatabaseKey: fixture.reference.installation.physicalLocator.databaseKey }).where(eq(plans.planStorageId, planId)));
   expect(await fixture.accept()).toEqual(accepted);
 
   const bytes = new TextEncoder().encode(fixture.stored.installation.installation.canonicalJson);
   const changed = bytes.slice(); changed[0] = 32;
-  await database.update(installations).set({ canonicalBytes: changed }).where(eq(installations.installationStorageId, fixture.stored.installation.storageId));
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_schema_installation"], tx =>
+    tx.update(installations).set({ canonicalBytes: changed }).where(eq(installations.installationStorageId, fixture.stored.installation.storageId)));
   await expect(fixture.accept()).rejects.toMatchObject({ reason: "storedCorruption" });
-  await database.update(installations).set({ canonicalBytes: bytes }).where(eq(installations.installationStorageId, fixture.stored.installation.storageId));
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_schema_installation"], tx =>
+    tx.update(installations).set({ canonicalBytes: bytes }).where(eq(installations.installationStorageId, fixture.stored.installation.storageId)));
 
   const assignment = (await database.select().from(names).where(eq(names.collisionStorageId, fixture.stored.installation.collision.storageId)).limit(1))[0];
   if (assignment === undefined) throw new Error("Missing physical name assignment fixture");
   const alteredName = Uint8Array.from(assignment.canonicalBytes); alteredName[0] = 32;
-  await database.update(names).set({ canonicalBytes: alteredName }).where(eq(names.assignmentStorageId, assignment.assignmentStorageId));
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_relational_physical_name_assignment"], tx =>
+    tx.update(names).set({ canonicalBytes: alteredName }).where(eq(names.assignmentStorageId, assignment.assignmentStorageId)));
   await expect(fixture.accept()).rejects.toMatchObject({ reason: "storedCorruption" });
-  await database.update(names).set({ canonicalBytes: assignment.canonicalBytes }).where(eq(names.assignmentStorageId, assignment.assignmentStorageId));
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_relational_physical_name_assignment"], tx =>
+    tx.update(names).set({ canonicalBytes: assignment.canonicalBytes }).where(eq(names.assignmentStorageId, assignment.assignmentStorageId)));
 
   const sidecars = await database.select().from(dependencies).where(eq(dependencies.planStorageId, planId));
   expect(sidecars.length).toBeGreaterThan(0);
-  await database.delete(dependencies).where(eq(dependencies.planStorageId, planId));
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan_step_dependency"], tx =>
+    tx.delete(dependencies).where(eq(dependencies.planStorageId, planId)));
   await expect(fixture.accept()).rejects.toMatchObject({ reason: "storedCorruption" });
-  await database.insert(dependencies).values(sidecars);
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan_step_dependency"], tx =>
+    tx.insert(dependencies).values(sidecars));
   expect(await fixture.accept()).toEqual(accepted);
   const first = sidecars[0];
   if (first === undefined) throw new Error("Missing dependency fixture");
@@ -88,11 +97,14 @@ export async function exerciseInstallationRuntime(database: FlarexMetadataDataba
   const extra = sidecars.find(row => row.dependencyStepId !== first.sourceStepId &&
     !sameSource.some(existing => existing.dependencyStepId === row.dependencyStepId));
   if (extra === undefined) throw new Error("Missing extra-dependency fixture candidate");
-  await database.insert(dependencies).values({ ...extra, sourceStepId: first.sourceStepId,
-    dependencyOrdinal: Math.max(...sameSource.map(row => row.dependencyOrdinal)) + 1 });
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan_step_dependency"], tx =>
+    tx.insert(dependencies).values({ ...extra, sourceStepId: first.sourceStepId,
+      dependencyOrdinal: Math.max(...sameSource.map(row => row.dependencyOrdinal)) + 1 }));
   await expect(fixture.accept()).rejects.toMatchObject({ reason: "storedCorruption" });
-  await database.delete(dependencies).where(eq(dependencies.planStorageId, planId));
-  await database.insert(dependencies).values(sidecars);
+  await administrativelyRepairFrameworkMetadata(database, ["fx_system_framework_migration_plan_step_dependency"], async tx => {
+    await tx.delete(dependencies).where(eq(dependencies.planStorageId, planId));
+    await tx.insert(dependencies).values(sidecars);
+  });
   expect(await fixture.accept()).toEqual(accepted);
 
   await database.transaction(tx => runEffect(Effect.gen(function* () {

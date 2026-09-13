@@ -1,3 +1,5 @@
+import { sql } from "drizzle-orm";
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { eq } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -102,14 +104,14 @@ describe("framework coordinator migration-plan repository", () => {
         for (const text of comparisons) expect(text.match(/convert_to/g)).toHaveLength(1);
       }
 
-      yield* Effect.promise(() => persistence.drizzle.update(fxSystemFrameworkMigrationPlans).set({
+      yield* Effect.promise(() => administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_plan"], async repairTransaction => repairTransaction.update(fxSystemFrameworkMigrationPlans).set({
         locatorDatabaseKey: "tampered",
-      }).where(eq(fxSystemFrameworkMigrationPlans.planStorageId, first.storageId)).then(() => undefined));
+      }).where(eq(fxSystemFrameworkMigrationPlans.planStorageId, first.storageId)).then(() => undefined)));
       yield* Effect.promise(() => expect(read()).rejects.toMatchObject({ reason: "storedCorruption" }));
-      yield* Effect.promise(() => persistence.drizzle.update(fxSystemFrameworkMigrationPlans).set({
+      yield* Effect.promise(() => administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_plan"], async repairTransaction => repairTransaction.update(fxSystemFrameworkMigrationPlans).set({
         locatorDatabaseKey: values.plan.frame.physicalLocator.databaseKey,
         canonicalBytes: new TextEncoder().encode(values.plan.canonicalJson.replace("deployment-a", "deployment-b")),
-      }).where(eq(fxSystemFrameworkMigrationPlans.planStorageId, first.storageId)).then(() => undefined));
+      }).where(eq(fxSystemFrameworkMigrationPlans.planStorageId, first.storageId)).then(() => undefined)));
       yield* Effect.promise(() => expect(read()).rejects.toMatchObject({ reason: "storedCorruption" }));
     })));
   }, PGLITE_TEST_TIMEOUT);
@@ -327,14 +329,14 @@ describe("framework coordinator migration-plan repository", () => {
     if (Number(initialCounts.dependencies) < 1) {
       throw new Error("Migration-plan fixture must contain a dependency");
     }
-    await persistence.query(`
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_plan_step_dependency"], async repairTransaction => repairTransaction.execute(sql.raw(`
       delete from fx_system_framework_migration_plan_step_dependency
        where ctid in (
          select ctid
            from fx_system_framework_migration_plan_step_dependency
           limit 1
        )
-    `);
+    `)));
     const corruptedCounts = await planAggregateCounts(persistence);
     expect(corruptedCounts).toEqual({
       ...initialCounts,
@@ -395,14 +397,14 @@ describe("framework coordinator migration-plan repository", () => {
     if (Number(initialAssignmentCount) < 1) {
       throw new Error("Migration-plan fixture must contain an assignment");
     }
-    await persistence.query(`
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_relational_physical_name_assignment"], async repairTransaction => repairTransaction.execute(sql.raw(`
       delete from fx_system_relational_physical_name_assignment
        where ctid in (
          select ctid
            from fx_system_relational_physical_name_assignment
           limit 1
        )
-    `);
+    `)));
     const missingAssignmentCount = String(Number(initialAssignmentCount) - 1);
     await expect(storedAssignmentCount(persistence)).resolves.toBe(
       missingAssignmentCount,
@@ -451,7 +453,8 @@ describe("framework coordinator migration-plan repository", () => {
       alter table fx_system_framework_migration_plan_step_dependency
         drop constraint fx_framework_migration_step_dependency_source_fk
     `);
-    await persistence.drizzle.insert(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle,
+      ["fx_system_framework_migration_plan_step_dependency"], async repairTransaction => repairTransaction.insert(
       fxSystemFrameworkMigrationPlanStepDependencies,
     ).values({
       planStorageId: restored.plan.storageId,
@@ -461,7 +464,7 @@ describe("framework coordinator migration-plan repository", () => {
       dependencyStepSha256: await runEffect(
         Effect.fromResult(Encoding.decodeHex(targetStep.stepSha256)),
       ),
-    });
+    }));
 
     const failure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
@@ -498,12 +501,12 @@ describe("framework coordinator migration-plan repository", () => {
 
     const changedBytes = new TextEncoder().encode(values.plan.canonicalJson);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await persistence.drizzle.update(fxSystemFrameworkMigrationPlans).set({
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_plan"], async repairTransaction => repairTransaction.update(fxSystemFrameworkMigrationPlans).set({
       canonicalBytes: changedBytes,
     }).where(eq(
       fxSystemFrameworkMigrationPlans.planStorageId,
       restored.plan.storageId,
-    ));
+    )));
     const corruptFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFreshRelationalMigrationPlanInTransactionEffect(
@@ -526,13 +529,13 @@ describe("framework coordinator migration-plan repository", () => {
     const oversizedBytes = new Uint8Array(
       MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await persistence.drizzle.update(fxSystemFrameworkMigrationPlans).set({
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_plan"], async repairTransaction => repairTransaction.update(fxSystemFrameworkMigrationPlans).set({
       canonicalByteLength: oversizedBytes.byteLength,
       canonicalBytes: oversizedBytes,
     }).where(eq(
       fxSystemFrameworkMigrationPlans.planStorageId,
       restored.plan.storageId,
-    ));
+    )));
     const overLimitFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFreshRelationalMigrationPlanInTransactionEffect(

@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -467,12 +468,12 @@ describe("framework coordinator schema-availability-history repository", () => {
     if (projectionRoot === undefined) {
       throw new Error("Missing projected history");
     }
-    await projectionPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(projectionPersistence.drizzle, ["fx_system_framework_schema_availability_history"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaAvailabilityHistory,
     ).set({ reasonSha256: new Uint8Array(32).fill(0x7f) }).where(eq(
       fxSystemFrameworkSchemaAvailabilityHistory.availabilityHistoryStorageId,
       projectionRoot.restored.storageId,
-    ));
+    )));
     const projectionBefore = await storedAvailabilityHistoryRows(
       projectionPersistence,
     );
@@ -511,12 +512,12 @@ describe("framework coordinator schema-availability-history repository", () => {
     if (changedEntry === undefined) throw new Error("Missing changed history");
     const changedBytes = canonicalBytes(changedEntry.history);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await changedPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(changedPersistence.drizzle, ["fx_system_framework_schema_availability_history"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaAvailabilityHistory,
     ).set({ canonicalBytes: changedBytes }).where(eq(
       fxSystemFrameworkSchemaAvailabilityHistory.availabilityHistoryStorageId,
       changedEntry.restored.storageId,
-    ));
+    )));
     const changedBefore = await storedAvailabilityHistoryRows(
       changedPersistence,
     );
@@ -551,7 +552,7 @@ describe("framework coordinator schema-availability-history repository", () => {
     const oversizedBytes = new Uint8Array(
       MAX_FRAMEWORK_SCHEMA_AVAILABILITY_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await oversizedPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(oversizedPersistence.drizzle, ["fx_system_framework_schema_availability_history"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaAvailabilityHistory,
     ).set({
       canonicalByteLength: oversizedBytes.byteLength,
@@ -559,7 +560,7 @@ describe("framework coordinator schema-availability-history repository", () => {
     }).where(eq(
       fxSystemFrameworkSchemaAvailabilityHistory.availabilityHistoryStorageId,
       oversizedEntry.restored.storageId,
-    ));
+    )));
     const oversizedBefore = await storedAvailabilityHistoryRows(
       oversizedPersistence,
     );
@@ -600,12 +601,12 @@ describe("framework coordinator schema-availability-history repository", () => {
       alter table fx_system_framework_schema_availability_history
         drop constraint fx_framework_availability_history_previous_fk
     `);
-    await cyclePersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(cyclePersistence.drizzle, ["fx_system_framework_schema_availability_history"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaAvailabilityHistory,
     ).set({ previousHistoryStorageId: cycleRoot.restored.storageId }).where(eq(
       fxSystemFrameworkSchemaAvailabilityHistory.availabilityHistoryStorageId,
       cycleSecond.restored.storageId,
-    ));
+    )));
     const cycleBefore = await storedAvailabilityHistoryRows(cyclePersistence);
     await expectStoredCorruption(
       cyclePersistence,
@@ -635,12 +636,12 @@ describe("framework coordinator schema-availability-history repository", () => {
       alter table fx_system_framework_schema_availability_history
         drop constraint fx_framework_availability_history_previous_fk
     `);
-    await brokenPersistence.drizzle.delete(
+    await administrativelyRepairFrameworkMetadata(brokenPersistence.drizzle, ["fx_system_framework_schema_availability_history"], async repairTransaction => repairTransaction.delete(
       fxSystemFrameworkSchemaAvailabilityHistory,
     ).where(eq(
       fxSystemFrameworkSchemaAvailabilityHistory.availabilityHistoryStorageId,
       brokenFirst.restored.storageId,
-    ));
+    )));
     const brokenBefore = await storedAvailabilityHistoryRows(
       brokenPersistence,
     );
@@ -679,7 +680,7 @@ describe("framework coordinator schema-availability-history repository", () => {
     const oversizedAncestorBytes = new Uint8Array(
       MAX_FRAMEWORK_SCHEMA_AVAILABILITY_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await ancestorPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(ancestorPersistence.drizzle, ["fx_system_framework_schema_availability_history"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkSchemaAvailabilityHistory,
     ).set({
       canonicalByteLength: oversizedAncestorBytes.byteLength,
@@ -687,7 +688,7 @@ describe("framework coordinator schema-availability-history repository", () => {
     }).where(eq(
       fxSystemFrameworkSchemaAvailabilityHistory.availabilityHistoryStorageId,
       ancestorFirst.restored.storageId,
-    ));
+    )));
     const ancestorBefore = await storedAvailabilityHistoryRows(
       ancestorPersistence,
     );

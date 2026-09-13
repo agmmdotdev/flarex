@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -698,12 +699,12 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     const projectionPersistence = await createMigratedPGlitePersistence();
     const projection = await storedTerminalFixture(projectionPersistence);
     const wrongRequiredStepSet = new Uint8Array(32).fill(0x7a);
-    await projectionPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(projectionPersistence.drizzle, ["fx_system_framework_migration_attempt_terminal"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationAttemptTerminals,
     ).set({ requiredStepSetSha256: wrongRequiredStepSet }).where(eq(
       fxSystemFrameworkMigrationAttemptTerminals.terminalStorageId,
       projection.terminal.storageId,
-    ));
+    )));
     await expectStoredCorruption(
       projectionPersistence,
       "readAttemptTerminal",
@@ -725,7 +726,7 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     if (earlierReceipt === undefined) {
       throw new Error("Fixture requires at least two receipts");
     }
-    await tailPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(tailPersistence.drizzle, ["fx_system_framework_migration_attempt_terminal"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationAttemptTerminals,
     ).set({
       lastReceiptStorageId: earlierReceipt.storageId,
@@ -733,7 +734,7 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     }).where(eq(
       fxSystemFrameworkMigrationAttemptTerminals.terminalStorageId,
       tail.terminal.storageId,
-    ));
+    )));
     const tailRowsBefore = await storedTerminalRows(tailPersistence);
     await expectStoredCorruption(
       tailPersistence,
@@ -791,12 +792,12 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     const corrupt = await storedTerminalFixture(corruptPersistence);
     const changedBytes = canonicalBytes(corrupt.terminalValue);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await corruptPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(corruptPersistence.drizzle, ["fx_system_framework_migration_attempt_terminal"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationAttemptTerminals,
     ).set({ canonicalBytes: changedBytes }).where(eq(
       fxSystemFrameworkMigrationAttemptTerminals.terminalStorageId,
       corrupt.terminal.storageId,
-    ));
+    )));
     await expectStoredCorruption(
       corruptPersistence,
       "readAttemptTerminal",
@@ -818,7 +819,7 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     const oversizedBytes = new Uint8Array(
       MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await oversizedPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(oversizedPersistence.drizzle, ["fx_system_framework_migration_attempt_terminal"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationAttemptTerminals,
     ).set({
       canonicalByteLength: oversizedBytes.byteLength,
@@ -826,7 +827,7 @@ describe("framework coordinator migration-attempt terminal repository", () => {
     }).where(eq(
       fxSystemFrameworkMigrationAttemptTerminals.terminalStorageId,
       oversized.terminal.storageId,
-    ));
+    )));
     const oversizedRowsBefore = await storedTerminalRows(oversizedPersistence);
     await expectStoredCorruption(
       oversizedPersistence,
@@ -1273,7 +1274,7 @@ async function setDependencyOrdinal(
   currentOrdinal: number,
   dependencyOrdinal: number,
 ): Promise<void> {
-  await persistence.drizzle.update(
+  await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_step_receipt_dependency"], async repairTransaction => repairTransaction.update(
     fxSystemFrameworkMigrationStepReceiptDependencies,
   ).set({ dependencyOrdinal }).where(and(
     eq(
@@ -1284,7 +1285,7 @@ async function setDependencyOrdinal(
       fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal,
       currentOrdinal,
     ),
-  ));
+  )));
 }
 
 async function expectReferenceRefusal(

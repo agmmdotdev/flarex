@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { installPayloadPreferenceFixture } from "./payloadPreferenceFixture";
 import { payloadJoinScenario } from "./payloadJoinScenario";
 import { projectScopeIdUuidV1Result, ScopeIdSchema, ScopeEpochSchema, StorageGenerationSchema } from "flarex-protocol/storage-authority";
@@ -128,13 +129,13 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   const installationWhere = eq(fxSystemFrameworkSchemaInstallations.installationStorageId, availability.installation.storageId);
   const originalBytes = new TextEncoder().encode(availability.installation.installation.canonicalJson);
   const changedBytes = originalBytes.slice(); changedBytes[0] = 32;
-  await persistence.drizzle.update(fxSystemFrameworkSchemaInstallations).set({ canonicalBytes: changedBytes }).where(installationWhere);
+  await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_schema_installation"], async repairTransaction => repairTransaction.update(fxSystemFrameworkSchemaInstallations).set({ canonicalBytes: changedBytes }).where(installationWhere));
   try {
     await runEffectFailure(host.read(probe, {}));
     await runEffectFailure(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target }));
     expect(calls).toBe(0);
   } finally {
-    await persistence.drizzle.update(fxSystemFrameworkSchemaInstallations).set({ canonicalBytes: originalBytes }).where(installationWhere);
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_schema_installation"], async repairTransaction => repairTransaction.update(fxSystemFrameworkSchemaInstallations).set({ canonicalBytes: originalBytes }).where(installationWhere));
   }
   const spans: string[] = [];
   const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });

@@ -1,3 +1,4 @@
+import { administrativelyRepairFrameworkMetadata, withAdministrativeFrameworkMetadataRepair } from "./frameworkMetadataRepairTestSupport";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -415,12 +416,12 @@ describe("framework coordinator migration-event repository", () => {
     if (projectionValue === undefined || projectionEntry === undefined) {
       throw new Error("Missing projected event");
     }
-    await projectionPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(projectionPersistence.drizzle, ["fx_system_framework_migration_event"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationEvents,
     ).set({ subjectSha256: new Uint8Array(32).fill(0x7f) }).where(eq(
       fxSystemFrameworkMigrationEvents.eventStorageId,
       projectionValue.storageId,
-    ));
+    )));
     const projectionBefore = await storedEventRows(projectionPersistence);
     await expectStoredCorruption(
       projectionPersistence,
@@ -446,12 +447,12 @@ describe("framework coordinator migration-event repository", () => {
     }
     const changedBytes = canonicalBytes(changedEntry.event);
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await changedPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(changedPersistence.drizzle, ["fx_system_framework_migration_event"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationEvents,
     ).set({ canonicalBytes: changedBytes }).where(eq(
       fxSystemFrameworkMigrationEvents.eventStorageId,
       changedValue.storageId,
-    ));
+    )));
     await expectStoredCorruption(
       changedPersistence,
       "readEvent",
@@ -478,7 +479,7 @@ describe("framework coordinator migration-event repository", () => {
     const oversizedBytes = new Uint8Array(
       MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await oversizedPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(oversizedPersistence.drizzle, ["fx_system_framework_migration_event"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationEvents,
     ).set({
       canonicalByteLength: oversizedBytes.byteLength,
@@ -486,7 +487,7 @@ describe("framework coordinator migration-event repository", () => {
     }).where(eq(
       fxSystemFrameworkMigrationEvents.eventStorageId,
       oversizedValue.storageId,
-    ));
+    )));
     const oversizedBefore = await storedEventRows(oversizedPersistence);
     await expectStoredCorruption(
       oversizedPersistence,
@@ -516,12 +517,12 @@ describe("framework coordinator migration-event repository", () => {
       alter table fx_system_framework_migration_event
         drop constraint fx_framework_migration_event_previous_fk
     `);
-    await cyclePersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(cyclePersistence.drizzle, ["fx_system_framework_migration_event"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationEvents,
     ).set({ previousEventStorageId: cycleValue.storageId }).where(eq(
       fxSystemFrameworkMigrationEvents.eventStorageId,
       cycleValue.storageId,
-    ));
+    )));
     await expectStoredCorruption(
       cyclePersistence,
       "readEvent",
@@ -548,7 +549,7 @@ describe("framework coordinator migration-event repository", () => {
     const oversizedAncestorBytes = new Uint8Array(
       MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await ancestorPersistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(ancestorPersistence.drizzle, ["fx_system_framework_migration_event"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationEvents,
     ).set({
       canonicalByteLength: oversizedAncestorBytes.byteLength,
@@ -556,7 +557,7 @@ describe("framework coordinator migration-event repository", () => {
     }).where(eq(
       fxSystemFrameworkMigrationEvents.eventStorageId,
       ancestorPrevious.storageId,
-    ));
+    )));
     await expectStoredCorruption(
       ancestorPersistence,
       "readEvent",
@@ -585,13 +586,15 @@ describe("framework coordinator migration-event repository", () => {
       expect((await runEffect(read)).event.sha256).toBe(tail.event.sha256);
       // Deliberate corruption exercises physical database authority between
       // completed read passes. Neither the prior success nor failure may stick.
-      await transaction.execute(kind === "plan"
+      await withAdministrativeFrameworkMetadataRepair(transaction,
+        ["fx_system_framework_migration_plan", "fx_system_framework_migration_plan_step"], async () => transaction.execute(kind === "plan"
         ? sql`update fx_system_framework_migration_plan set canonical_bytes = set_byte(canonical_bytes, 0, (get_byte(canonical_bytes, 0) + 1) % 256)`
-        : sql`update fx_system_framework_migration_plan_step set dependency_count = dependency_count + 1`);
+        : sql`update fx_system_framework_migration_plan_step set dependency_count = dependency_count + 1`));
       expect(await runEffectFailure(read)).toMatchObject({ reason: "storedCorruption" });
-      await transaction.execute(kind === "plan"
+      await withAdministrativeFrameworkMetadataRepair(transaction,
+        ["fx_system_framework_migration_plan", "fx_system_framework_migration_plan_step"], async () => transaction.execute(kind === "plan"
         ? sql`update fx_system_framework_migration_plan set canonical_bytes = set_byte(canonical_bytes, 0, (get_byte(canonical_bytes, 0) + 255) % 256)`
-        : sql`update fx_system_framework_migration_plan_step set dependency_count = dependency_count - 1`);
+        : sql`update fx_system_framework_migration_plan_step set dependency_count = dependency_count - 1`));
       expect((await runEffect(read)).event.sha256).toBe(tail.event.sha256);
     });
   }, PGLITE_TEST_TIMEOUT);

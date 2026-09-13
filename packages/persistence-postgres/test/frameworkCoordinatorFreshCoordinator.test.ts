@@ -1,3 +1,5 @@
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
+import { sql } from "drizzle-orm";
 import { Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
@@ -286,14 +288,14 @@ describe("private fresh framework migration coordinator", () => {
       maximumStepsPerRun: 1,
     }));
     expect(first.kind).toBe("pending");
-    await fixture.persistence.query(`
+    await administrativelyRepairFrameworkMetadata(fixture.persistence.drizzle, ["fx_system_framework_migration_step_receipt"], async repairTransaction => repairTransaction.execute(sql.raw(`
       update fx_system_framework_migration_step_receipt
       set canonical_bytes = set_byte(
         canonical_bytes,
         0,
         (get_byte(canonical_bytes, 0) + 1) % 256
       )
-    `);
+    `)));
     expect(await runEffectFailure(
       runFreshFrameworkMigrationCoordinatorEffect(fixture.input),
     )).toMatchObject({ reason: "storedCorruption" });

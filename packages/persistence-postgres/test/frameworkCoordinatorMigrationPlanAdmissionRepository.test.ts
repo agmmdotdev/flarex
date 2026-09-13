@@ -1,3 +1,5 @@
+import { sql } from "drizzle-orm";
+import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -460,14 +462,14 @@ describe("framework coordinator migration-plan admission repository", () => {
     if (Number(initialCounts.assignments) < 1) {
       throw new Error("Admission fixture must contain an assignment");
     }
-    await persistence.query(`
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_admission_assignment"], async repairTransaction => repairTransaction.execute(sql.raw(`
       delete from fx_system_framework_migration_admission_assignment
        where ctid in (
          select ctid
            from fx_system_framework_migration_admission_assignment
           limit 1
        )
-    `);
+    `)));
     const corruptedCounts = await admissionAggregateCounts(persistence);
 
     const readFailure = await persistence.drizzle.transaction(
@@ -556,12 +558,12 @@ describe("framework coordinator migration-plan admission repository", () => {
       stored.admission.canonicalJson,
     );
     changedBytes[changedBytes.byteLength - 2] = 0x20;
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_plan_admission"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationPlanAdmissions,
     ).set({ canonicalBytes: changedBytes }).where(eq(
       fxSystemFrameworkMigrationPlanAdmissions.admissionStorageId,
       stored.restored.storageId,
-    ));
+    )));
     const corruptFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkMigrationPlanAdmissionInTransactionEffect(
@@ -584,7 +586,7 @@ describe("framework coordinator migration-plan admission repository", () => {
     const oversizedBytes = new Uint8Array(
       MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES + 1,
     ).fill(0x20);
-    await persistence.drizzle.update(
+    await administrativelyRepairFrameworkMetadata(persistence.drizzle, ["fx_system_framework_migration_plan_admission"], async repairTransaction => repairTransaction.update(
       fxSystemFrameworkMigrationPlanAdmissions,
     ).set({
       canonicalByteLength: oversizedBytes.byteLength,
@@ -592,7 +594,7 @@ describe("framework coordinator migration-plan admission repository", () => {
     }).where(eq(
       fxSystemFrameworkMigrationPlanAdmissions.admissionStorageId,
       stored.restored.storageId,
-    ));
+    )));
     const overLimitFailure = await persistence.drizzle.transaction(
       transaction => runEffectFailure(
         readFrameworkMigrationPlanAdmissionInTransactionEffect(
