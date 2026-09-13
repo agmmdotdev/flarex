@@ -1,16 +1,17 @@
 # Prepared Definition And Explicit Audit
 
-Status: implemented within approved preflight 76. Ordinary steps still restore
-full stored history. This slice removes repeated structural-handler preparation
-within a run and establishes a source-private read-only audit; it does not enable
-the direct-dependency transition or establish linear installation complexity.
+Status: implemented within approved preflight 76. Structural-handler preparation
+is shared within a run and explicit audit owns complete stored verification.
+Record 85 supplies the protected direct-dependency normal transition; records
+84 and 86 share full graph evidence without relying on optional memo capacity.
 
 ## Immutable preparation
 
 `migrationCoordination/definition.ts` prepares the existing target-bound
 structural runner and direct dependency ordinals once per coordinator run. The
-claim retains only those immutable execution values. Every transaction still
-restores its live head, fence, lease, base availability and receipt history.
+claim retains immutable execution values and authenticated attempt lineage.
+Normal transactions freshly read locked head, fence, lease, base availability,
+event/tail and selected dependencies; they do not restore all receipt history.
 Uncertain-outcome recovery uses the same definition with a distinct recovery
 session. Stored receipt issuance continues to use the exact restored plan's
 step handles; execution uses the prepared runner's captured step handles.
@@ -40,11 +41,12 @@ closed through existing repository and structural-runner error owners.
 
 The explicit audit currently uses the full restoration owners and their existing
 graph bounds. [Receipt lookup indexes](./80-receipt-lookup-indexes.md) remove
-repeated plan-step and dependency-row scans within those readers. It is not yet
-the O(N + E) verifier, privileged-repair workflow or
-trusted installer facade. Those owners and the direct-dependency normal step
-must be completed before retiring ordinary full reconstruction. Final readiness
-continues through the existing coordinator's full validation/publication owner.
+repeated plan-step and dependency-row scans within those readers. Explicit graph
+handoff now retains the head's issued prefix and independently checks stored
+inventory. The installer facade owns preparation and batches; normal commands
+use protected progress. Final readiness retains full validation and delegates
+publication to its existing owners. No online privileged-repair workflow is
+enabled. Complete phase and frozen acceptance evidence belongs to records 88/91.
 
 Prove one runner preparation per uninterrupted run, absent/partial/settled audit
 without head mutation, corruption refusal and unreceipted DDL refusal on both

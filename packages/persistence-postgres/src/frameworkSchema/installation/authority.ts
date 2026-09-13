@@ -79,7 +79,6 @@ const capturedAvailabilityHistoryAuthorities = new WeakMap<
   AvailabilityHistory,
   CapturedFrameworkSchemaAvailabilityHistoryAuthority
 >();
-const capturedAvailabilityHeads = new WeakSet<FrameworkSchemaAvailabilityHead>();
 const capturedAvailabilityHeadAuthorities = new WeakMap<
   FrameworkSchemaAvailabilityHead,
   CapturedFrameworkSchemaAvailabilityHeadAuthority
@@ -156,13 +155,6 @@ export function registerCapturedFrameworkSchemaAvailabilityHead(
   authority: CapturedFrameworkSchemaAvailabilityHeadAuthority,
 ): void {
   capturedAvailabilityHeadAuthorities.set(head, Object.freeze({ ...authority }));
-  capturedAvailabilityHeads.add(head);
-}
-
-export function isCapturedFrameworkSchemaAvailabilityHeadAuthority(
-  head: FrameworkSchemaAvailabilityHead,
-): boolean {
-  return capturedAvailabilityHeads.has(head);
 }
 
 export function capturedAuthorityForFrameworkSchemaAvailabilityHead(

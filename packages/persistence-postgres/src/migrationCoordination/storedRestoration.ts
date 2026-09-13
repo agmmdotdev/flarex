@@ -516,12 +516,6 @@ export const restoreStoredRelationalPhysicalNameAssignment = Effect.fn(
   return restored;
 });
 
-export function isRestoredRelationalPhysicalNameAssignment(
-  input: RestoredRelationalPhysicalNameAssignment,
-): boolean {
-  return restoredAssignments.has(input);
-}
-
 export interface RestoreStoredFreshRelationalMigrationPlanInput {
   readonly baseReadiness?: RestoredFrameworkSchemaReadiness;
   readonly row: StoredFrameworkMigrationPlanRow;

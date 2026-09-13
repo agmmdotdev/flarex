@@ -1,8 +1,8 @@
 # Collision Head Progress
 
-Status: implemented within approved preflight 76. This is the
-durable progress invariant; ordinary execution retains full reconstruction until
-the connected definition, verifier and transition replacement is complete.
+Status: implemented within approved preflight 76. The protected normal command
+in record 85 now uses this durable progress invariant. Full restoration remains
+at the named finalization, takeover, recovery and verification boundaries.
 
 ## Storage and reference inventory
 
@@ -34,8 +34,10 @@ Claim, renewal, takeover and publication retain progress. Admitting the next pla
 resets the position to that plan's prefix; completion events for its base belong
 to the base. A step's DDL, receipt, completion event and head advance remain in
 one existing target transaction. Recovery restores the same durable position.
-The coordinator selects and reports the head position only after checking it
-against its current full receipt inventory. An unreceipted or unrecorded step
+The normal coordinator selects and reports fresh locked progress after checking
+its exact plan, attempt/fence/lease, event and tail. Its direct completion reads
+and atomic receipt/event/head write preserve the prefix. Named full verification
+also checks the complete independent inventory. An unreceipted or unrecorded step
 cannot silently become committed progress.
 
 ## Migration and verification
