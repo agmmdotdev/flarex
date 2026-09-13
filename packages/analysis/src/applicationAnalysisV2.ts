@@ -82,11 +82,14 @@ export type CanonicalApplicationManifestWithRelations = CanonicalApplicationMani
 /** Current schema consumers authenticate V3 references and never downgrade to V1. */
 export const verifyApplicationManifestWithRelations = Effect.fn("ApplicationAnalysis.verifyCurrentManifest")(
   function* (value: unknown): Effect.fn.Return<CanonicalApplicationManifestWithRelations, ApplicationAnalysisContractError> {
-    const canonical = yield* Effect.fromResult(canonicalizeApplicationManifest(value));
-    switch (canonical.manifest.version) {
-      case 1: return yield* Effect.fail(new ApplicationAnalysisContractError({ operation: "decodeManifest", reason: "invalidInput", path: "version" }));
-      case 2: return yield* Effect.fromResult(canonicalizeApplicationManifestV2(canonical.manifest));
-      case 3: return yield* verifyApplicationManifestV3(canonical.manifest);
+    const version = yield* Effect.fromResult(manifestVersion(value));
+    switch (version) {
+      case 1:
+        // Preserve structural/size failures before refusing an otherwise valid V1.
+        yield* Effect.fromResult(canonicalizeApplicationManifestV1(value));
+        return yield* Effect.fail(new ApplicationAnalysisContractError({ operation: "decodeManifest", reason: "invalidInput", path: "version" }));
+      case 2: return yield* Effect.fromResult(canonicalizeApplicationManifestV2(value));
+      case 3: return yield* verifyApplicationManifestV3(value);
     }
   },
 );

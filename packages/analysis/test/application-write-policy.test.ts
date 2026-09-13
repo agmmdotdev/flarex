@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { Effect, Result, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 
 import { analyzeLoadedApplicationSourcePackageEffect } from "../src/index.ts";
-import { ApplicationManifestSchema, canonicalizeApplicationManifest, makeApplicationManifest } from "../src/applicationAnalysis.ts";
+import { ApplicationManifestSchema, canonicalizeApplicationManifest, makeApplicationManifest, verifyApplicationManifestWithRelations } from "../src/applicationAnalysis.ts";
 import { verifyApplicationManifestV3 } from "../src/applicationAnalysisV3.ts";
 import { applicationSchemaPublicationFrame } from "../src/applicationPublicationFramesV2.ts";
 import { captureApplicationWritePolicyData, decodeApplicationWritePolicies } from "../src/applicationWritePolicy/capture.ts";
@@ -202,10 +202,41 @@ describe("Application write-policy evidence", () => {
     expect(Result.getOrThrow(canonicalizeApplicationManifest(manifest.manifest)).canonicalBytes).toEqual(manifest.canonicalBytes);
     expect(Result.getOrThrow(Schema.decodeUnknownResult(ApplicationManifestSchema)(manifest.manifest))).toEqual(manifest.manifest);
     expect((await Effect.runPromise(verifyApplicationManifestV3(manifest.manifest))).canonicalBytes).toEqual(manifest.canonicalBytes);
+    const input = structuredClone(manifest.manifest);
+    const encoder = vi.spyOn(TextEncoder.prototype, "encode");
+    try {
+      const verified = await Effect.runPromise(verifyApplicationManifestWithRelations(input));
+      expect(encoder.mock.calls.filter(([text]) => text === manifest.canonicalText)).toHaveLength(1);
+      expect(verified.canonicalText).toBe(manifest.canonicalText);
+      expect(verified.canonicalBytes).toEqual(manifest.canonicalBytes);
+      verified.canonicalBytes.fill(0);
+      expect(verified.canonicalBytes).toEqual(manifest.canonicalBytes);
+      expect(Reflect.set(input.sourceArtifact, "rootSha256", "9".repeat(64))).toBe(true);
+      expect(verified.manifest.sourceArtifact.rootSha256).toBe("1".repeat(64));
+      expect(Object.isFrozen(verified.manifest.schema)).toBe(true);
+      expect(Object.isFrozen(input.schema)).toBe(false);
+    } finally {
+      encoder.mockRestore();
+    }
     const incorrectSetDigest = { ...manifest.manifest, schema: { ...manifest.manifest.schema, writePolicySetSha256: "a".repeat(64) } };
     expect(await Effect.runPromise(Effect.result(verifyApplicationManifestV3(incorrectSetDigest)))).toMatchObject({
       _tag: "Failure", failure: { path: "schema.writePolicySetSha256" },
     });
+    const configMismatch = policyFixture();
+    configMismatch.tables[1]!.configSha256 = "a".repeat(64);
+    const provenanceMismatch = policyFixture();
+    provenanceMismatch.configuration.provenanceSha256 = "b".repeat(64);
+    for (const invalid of [
+      incorrectSetDigest,
+      { ...manifest.manifest, future: true },
+      ...[configMismatch, provenanceMismatch].map(writePolicies => ({
+        ...manifest.manifest, schema: { ...manifest.manifest.schema, writePolicies },
+      })),
+    ]) {
+      const expected = await Effect.runPromise(Effect.result(verifyApplicationManifestV3(invalid)));
+      expect(Result.isFailure(expected)).toBe(true);
+      expect(await Effect.runPromise(Effect.result(verifyApplicationManifestWithRelations(invalid)))).toEqual(expected);
+    }
     expect(JSON.parse(new TextDecoder().decode(Result.getOrThrow(applicationSchemaPublicationFrame(manifest.manifest))))).toMatchObject({
       version: 3, schema: { version: 3, relations: [], writePolicies: policies, writePolicySetSha256: hash(policies) },
     });

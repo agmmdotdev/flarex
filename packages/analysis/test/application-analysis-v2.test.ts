@@ -1,6 +1,6 @@
 import { Effect, Result, Schema } from "effect";
 import type { ValidatorJSON } from "flarex/values";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   analyzeLoadedApplicationSourcePackageEffect,
@@ -16,6 +16,7 @@ import {
   isApplicationManifestV2,
   makeApplicationManifest,
   makeApplicationManifestV1,
+  verifyApplicationManifestWithRelations,
 } from "../src/applicationAnalysis.ts";
 import { applicationSchemaPublicationFrameV1 } from
   "../src/applicationPublicationFramesV1.ts";
@@ -27,6 +28,60 @@ import {
 const digest = (digit: string) => digit.repeat(64);
 
 describe("Application Manifest V2", () => {
+  it("verifies current V2 with one canonical encoding and detached owned output", async () => {
+    const built = await relationManifest();
+    const input = structuredClone(built.manifest);
+    const encoder = vi.spyOn(TextEncoder.prototype, "encode");
+    try {
+      const verified = await Effect.runPromise(verifyApplicationManifestWithRelations(input));
+      expect(encoder.mock.calls.filter(([text]) => text === built.canonicalText)).toHaveLength(1);
+      expect(verified.canonicalText).toBe(built.canonicalText);
+      expect(verified.canonicalBytes).toEqual(built.canonicalBytes);
+      expect(Reflect.set(input.schema.relations[0]!.declaration.source.path[0]!, "name", "changed")).toBe(true);
+      expect(verified.manifest.schema.relations[0]?.declaration.source.path[0]?.name).toBe("author");
+      expect(Object.isFrozen(verified.manifest.schema.relations[0]?.declaration.source.path)).toBe(true);
+      verified.canonicalBytes.fill(0);
+      // V2 owns one mutable buffer per result; unlike V3 it has no copy-on-access getter.
+      expect(new TextDecoder().decode(built.canonicalBytes)).toBe(built.canonicalText);
+      expect(verified.canonicalText).toBe(built.canonicalText);
+      expect(Object.isFrozen(input)).toBe(false);
+    } finally {
+      encoder.mockRestore();
+    }
+  });
+
+  it("preserves version capture, structural refusals and first failure before V1 rejection", async () => {
+    const v1 = await Effect.runPromise(makeApplicationManifestV1(await analyze(schemaDefinition([])), sourceArtifact()));
+    const v2 = await relationManifest();
+    let getterCalls = 0;
+    const accessor = Object.defineProperty({}, "version", { get: () => { getterCalls++; return 2; } });
+    const trapFailure = new Error("version descriptor trap");
+    const trap = new Proxy({}, { getOwnPropertyDescriptor: () => { throw trapFailure; } });
+    const ordinal = structuredClone(v2.manifest);
+    Reflect.set(ordinal.schema.relations[0]!, "relationOrdinal", 2);
+    const oversizedV1 = structuredClone(v1.manifest);
+    Reflect.set(oversizedV1.schema.tables[0]!, "validator", { type: "object", value: {
+      padding: { fieldType: { type: "literal", value: "p".repeat(1_100_000) }, optional: true },
+    } });
+    expect(canonicalizeApplicationManifest(oversizedV1)).toMatchObject({
+      _tag: "Failure", failure: { reason: "manifestBytesExceeded" },
+    });
+    const cases: ReadonlyArray<unknown> = [
+      null, {}, { version: 4 }, Object.create({ version: 2 }), accessor, trap,
+      { ...v1.manifest, future: true }, oversizedV1,
+      { ...v2.manifest, future: true }, ordinal,
+    ];
+    for (const input of cases) {
+      const expected = canonicalizeApplicationManifest(input);
+      expect(Result.isFailure(expected)).toBe(true);
+      expect(await Effect.runPromise(Effect.result(verifyApplicationManifestWithRelations(input)))).toEqual(expected);
+    }
+    expect(getterCalls).toBe(0);
+    expect(await Effect.runPromise(Effect.result(verifyApplicationManifestWithRelations(v1.manifest)))).toMatchObject({
+      _tag: "Failure", failure: { operation: "decodeManifest", reason: "invalidInput", path: "version" },
+    });
+  });
+
   it("emits exact V1 for zero relations and V2 only for relation-bearing analysis", async () => {
     const zeroRelationAnalysis = await analyze(schemaDefinition([]));
     const fromUnion = await Effect.runPromise(makeApplicationManifest(

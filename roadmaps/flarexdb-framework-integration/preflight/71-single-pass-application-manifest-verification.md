@@ -1,6 +1,7 @@
 # Single-Pass Application Manifest Verification
 
-Status: proposed; shared Analysis owner correction awaits specific approval.
+Status: implemented private single-pass verification; canonical contracts,
+policy authentication and database acceptance remain unchanged.
 
 ## Outcome And Evidence
 
@@ -11,11 +12,11 @@ is the actual preference-enabled Payload Local API operation matrix on
 ordinary-role PostgreSQL. This is not a Payload adapter optimization or a
 change to authoritative database acceptance.
 
-The shared verifier currently calls `canonicalizeApplicationManifest(value)`
-to obtain a version-discriminated result. For V2 it then canonicalizes that
-owned result again; for V3 it passes the owned result to
-`verifyApplicationManifestV3`, which canonicalizes again before authenticating
-write-policy references. Both branches repeat capture, validation, bounded
+The shared verifier previously called `canonicalizeApplicationManifest(value)`
+to obtain a version-discriminated result. For V2 it then canonicalized that
+owned result again; for V3 it passed the owned result to
+`verifyApplicationManifestV3`, which canonicalized again before authenticating
+write-policy references. Both branches repeated capture, validation, bounded
 canonical encoding and byte allocation within one verifier invocation.
 
 The retained fixed-document CPU diagnostic described in
@@ -25,18 +26,19 @@ construction. Its inclusive samples overlap and predate the static Drizzle
 metadata correction. Only part of that stack is duplicate work: neither the
 sample nor the source finding establishes the eventual request-time saving.
 Numerical attribution and benchmark receipts belong in Git, not this status
-record. The current implementation must be the next frozen comparison baseline.
+record. Complete-request comparisons use the pre-correction source as the
+frozen baseline, including the already implemented static Drizzle metadata reuse.
 
 The [accepted database design](../../../design-notes/flarex-db-accepted-design.md)
 and [package boundaries](../../16-package-boundaries.md) retain Analysis as the
 manifest contract owner and Postgres as committed-state authority. Persistence
 consumers must continue obtaining and validating fresh authoritative evidence.
-No SQL call reduction is expected from this proposal.
+SQL counts are unchanged by this correction.
 
-## Proposed Change And Boundaries
+## Implementation And Boundaries
 
-Reuse the existing private `manifestVersion(value)` discriminator, then invoke
-the existing version-specific canonicalizer/verifier directly on the original
+The verifier reuses the existing private `manifestVersion(value)` discriminator,
+then invokes the existing version-specific canonicalizer/verifier on the original
 input. Its own-data-property inspection must continue refusing unsupported,
 missing, inherited and accessor versions without executing getters, with its
 existing trap-error mapping. Do not introduce another discriminator or cast a
@@ -48,13 +50,14 @@ union result merely to narrow its correlated manifest and bytes.
   returns its owned canonical result.
 - V1: retain canonicalization before the existing version refusal. An early
   version-only rejection would change which error wins for a malformed or
-  oversized V1 input and is not approved by this proposal.
+  oversized V1 input and is outside this correction.
 
 Preserve the named Effect boundary, result/error/environment contracts,
-validation and first-failure order, defensive byte copies, deep ownership,
+validation and first-failure order, byte ownership, deep ownership,
 strict field capture, canonical text/bytes, size/depth bounds and policy
 authentication. No new trusted-input public API or unchecked fast path is
-needed. The proposed runtime owner is the shared Analysis dispatcher; tests
+needed. V2 retains one mutable byte buffer per result; V3 retains fresh byte
+copies on access. The runtime owner is the shared Analysis dispatcher; tests
 remain with Analysis and the existing connected consumer harnesses.
 
 ### Retain, Replace, Delete And Defer
@@ -74,23 +77,30 @@ remain with Analysis and the existing connected consumer harnesses.
 
 Removing validation or introducing a cache is not an alternative to this
 correction. General codec redesign affects more contracts than the measured
-duplication requires. There is no proposed schema migration, identity change,
+duplication requires. There is no schema migration, identity change,
 public API change, deployment activation or expansion of Payload capabilities.
+
+Repeated serialized local comparisons support lower complete-request medians
+across the measured Payload operation matrix, with unchanged SQL counts.
+Read tails improve in both pairs, while some other tails remain mixed. This is
+a reduction of repeated synchronous manifest work, not a database-call
+optimization, deployed-performance result or removal of policy verification.
 
 ## Validation And Completion Gates
 
 Add focused tests at the shared dispatch boundary using existing real manifest
 fixture owners. Compare V2/V3 results with their authoritative version-specific
 owners, including identical canonical text/bytes, frozen owned values,
-caller-input isolation and detached byte access. Establish deterministic
-evidence that the redundant canonicalization no longer runs; do not substitute
+caller-input isolation and the version-specific byte ownership contract.
+Establish deterministic evidence that the redundant canonicalization no longer
+runs; do not substitute
 source-layout matching for a behavioral witness.
 
 Retain and extend refusals for valid/malformed/oversized V1, invalid versions,
 accessors and proxy traps, strict unknown fields, malformed relations,
 size/depth bounds and invalid policy hashes. Preserve first-error provenance;
 do not catch defects or interruption as ordinary contract failures. The
-proposal does not remove independent policy verification inside the V3 owner.
+correction does not remove independent policy verification inside the V3 owner.
 
 Run Analysis tests/typechecking, affected persistence and Payload typechecks,
 and focused consumers of this verifier: schema admission/readiness, fresh
