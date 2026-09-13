@@ -188,6 +188,12 @@ validation stay Payload-owned. Integration source references remain fixtures,
 not uploaded or deployed artifact evidence; generalized relations, arbitrary
 configuration, serving, and existing-row migration remain outside this gate.
 
+The next proposed [configurable optional-one relationship gate](./preflight/73-payload-configurable-one-relationships.md)
+connects native collection definitions to authenticated relation analysis,
+binding and request-bound cross-collection population. Its fresh proof is
+`articles.author -> authors`; implementation awaits approval. Configurable
+many/joins, existing-row upgrades and public/hosted serving remain separate.
+
 ### Runtime Lifetime And Latency Follow-Up
 
 Current composition initializes one scoped Payload instance and reuses it for
