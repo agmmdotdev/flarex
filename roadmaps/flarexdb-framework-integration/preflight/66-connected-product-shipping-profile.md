@@ -286,5 +286,7 @@ The [shared graph-restoration research and preflight](./74-shared-migration-grap
 distinguishes database initialization, server statement work, query completion
 and client processing. It identifies repeated graph reconstruction and membership
 transport as the next connected correction, within existing read-only phases.
-The proposal awaits approval and retains this fixture and all transaction,
-readiness and deadline gates. No runtime remedy is yet implemented.
+The approved candidate failed this fixture's unchanged PGlite installation
+deadline and was withdrawn. Its narrower successful reconstruction witness did
+not establish the required end-to-end benefit. This fixture and all transaction,
+readiness and deadline gates remain unchanged; no runtime remedy is retained.

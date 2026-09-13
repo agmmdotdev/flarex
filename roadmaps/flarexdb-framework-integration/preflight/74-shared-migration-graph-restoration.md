@@ -1,10 +1,37 @@
 # Shared Migration Graph Restoration
 
-Status: research complete; proposed core correction awaiting approval. No
-runtime change is implemented or authorized by this document. The connected
+Status: the approved candidate was evaluated and withdrawn after failing the
+unchanged full-suite PGlite installation deadline. No runtime or test change
+from that candidate is retained. The connected
 ShippingProfile slice in [record 66](./66-connected-product-shipping-profile.md)
 remains incomplete. This is not another approval of the withdrawn candidates in
 records 68, 70 or 72.
+
+## Current Disposition
+
+The evaluated candidate added exact root-projection reuse for plan/admission
+lookup routes, bounded admission-membership comparison in PostgreSQL, and
+read-pass-local reuse of negative additive-policy lookups. A neutral witness
+confirmed that two admission lookup routes could share one node reconstruction;
+focused owner tests exercised the candidate's admission, plan and restoration
+paths. This did not establish a material improvement for the connected claim,
+receipt, event and head restoration workload.
+
+The first full candidate PGlite run timed out during fixture installation,
+before the native test cases ran. The acceptance sequence therefore stopped;
+the three-by-three timing matrix, candidate ordinary-role PostgreSQL validation,
+and final retained-code review were not completed. The candidate and its
+supporting test edits were removed, returning the touched files to the exact
+baseline. The unchanged connected fixture remains the failing performance
+witness. No timeout, integrity check, schema, transaction or public API changed.
+
+This rejects the evaluated implementation, not every possible correction within
+the existing boundary. It establishes neither a causal slowdown nor the need
+for a new ledger or larger transaction. The installation performance problem
+remains unresolved. Further implementation needs a concrete, measured explanation
+of the aggregate reconstruction that remains, rather than assuming reduced row
+transport or an isolated cache hit meets the end-to-end requirement. The design
+and retention criteria below remain the boundary for that assessment.
 
 ## Outcome And Owners
 
