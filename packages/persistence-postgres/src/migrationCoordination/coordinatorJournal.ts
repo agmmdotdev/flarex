@@ -29,7 +29,7 @@ import {
   type RestoredFrameworkMigrationEventSubject,
 } from "./storedEventRestoration";
 import type { RestoredFrameworkMigrationAttemptStart } from "./storedRestoration";
-import { FRAMEWORK_MIGRATION_EVENT_FORMAT, FRAMEWORK_MIGRATION_EVENT_VERSION } from "./model";
+import { FRAMEWORK_MIGRATION_EVENT_FORMAT, FRAMEWORK_MIGRATION_EVENT_VERSION, type RelationalMigrationPlan } from "./model";
 import type {
   FrameworkMigrationSessionIdentity,
   FrameworkMigrationTransactionBudget,
@@ -237,7 +237,7 @@ export const readDatabaseClock = Effect.fn(
   });
 });
 
-export function eventToken(event: RestoredFrameworkMigrationEvent) {
+export function eventToken(event: Pick<RestoredFrameworkMigrationEvent, "event">) {
   return Object.freeze({
     sequence: event.event.frame.sequence,
     eventSha256: event.event.sha256,
@@ -273,6 +273,10 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 export function reserveAdditiveEvents(head: RestoredFrameworkMigrationCollisionHead, count: number): Effect.Effect<void, FrameworkMigrationCoordinatorError> {
-  return head.plan.plan.frame.version === 2 && BigInt(head.head.frame.lastEvent?.sequence ?? "0") + BigInt(count) > 128n
+  return reserveAdditiveEventCapacity(head.plan.plan, head.head.frame.lastEvent?.sequence ?? "0", count);
+}
+
+export function reserveAdditiveEventCapacity(plan: RelationalMigrationPlan, lastSequence: string, count: number): Effect.Effect<void, FrameworkMigrationCoordinatorError> {
+  return plan.frame.version === 2 && BigInt(lastSequence) + BigInt(count) > 128n
     ? Effect.fail(coordinatorError("step", "invalidInput", "Additive event budget is exhausted")) : Effect.void;
 }

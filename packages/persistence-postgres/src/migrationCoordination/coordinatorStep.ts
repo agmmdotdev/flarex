@@ -3,16 +3,20 @@
  * progress remain in one target-owned transaction.
  */
 import { Effect, Option } from "effect";
-import { captureFrameworkMigrationStepReceipt } from "./canonical";
+import { captureFrameworkMigrationEvent, encodeFrameworkMigrationStepReceiptFrame } from "./canonical";
 import {
-  ensureFrameworkMigrationStepReceiptInTransactionEffect,
+  ensureFrameworkMigrationCommittedCompletionInTransactionEffect,
+  readFrameworkMigrationDirectCompletionsInTransactionEffect,
 } from "./migrationStepReceiptRepository";
-import type { FrameworkMigrationStep } from "./model";
+import { FRAMEWORK_MIGRATION_EVENT_FORMAT, FRAMEWORK_MIGRATION_EVENT_VERSION,
+  FRAMEWORK_MIGRATION_STEP_RECEIPT_FORMAT, FRAMEWORK_MIGRATION_STEP_RECEIPT_VERSION,
+  type FrameworkMigrationStep } from "./model";
+import { appendFrameworkMigrationEventRecordInTransactionEffect } from "./migrationEventRepository";
+import { advanceFrameworkMigrationProgressRecordInTransactionEffect } from "./migrationCollisionHeadRepository";
 import {
   executeRelationalStructuralStepEffect,
   observeRelationalStructuralStepEffect,
 } from "./relationalStructuralRunner";
-import type { RestoredFrameworkMigrationStepReceipt } from "./storedRestoration";
 import {
   type FrameworkMigrationSessionIdentity,
   runFrameworkMigrationTargetTransactionEffect,
@@ -31,12 +35,13 @@ import {
   type FrameworkMigrationClaimState,
   withClaimGraphLimits,
   loadLockedClaimState,
-  renewClaimIfNeeded,
+  loadLockedClaimProgress,
+  renewLockedClaimProgressIfNeeded,
   getFrameworkMigrationClaimState,
 } from "./coordinatorClaim";
 import {
-  appendEvent,
-  advanceHead,
+  eventToken,
+  nextInt64,
   readDatabaseClock,
   ordinaryRequest,
   recoveryRequest,
@@ -76,41 +81,30 @@ function executeNextStepInternal(
       transaction,
       state.target,
       raw => Effect.gen(function* () {
-        let locked = yield* loadLockedClaimState(raw, state);
-        if (locked.head.progress.completedStepCount === locked.plan.frame.steps.length) {
+        let locked = yield* loadLockedClaimProgress(raw, state);
+        const plan = state.attempt.plan.plan;
+        if (locked.head.completedStepCount === plan.frame.steps.length) {
           return Object.freeze({
             kind: "complete" as const,
-            completedStepCount: locked.head.progress.completedStepCount,
-            requiredStepCount: locked.plan.frame.steps.length,
+            completedStepCount: locked.head.completedStepCount,
+            requiredStepCount: plan.frame.steps.length,
           });
         }
-        locked = yield* renewClaimIfNeeded(raw, state, locked);
-        const step = locked.plan.frame.steps[locked.head.progress.completedStepCount];
+        locked = yield* renewLockedClaimProgressIfNeeded(raw, state, locked);
+        const step = plan.frame.steps[locked.head.completedStepCount];
         if (step === undefined) {
-          return yield* Effect.fail(corruption(
-            "step",
-            "Migration receipt prefix exceeds its plan",
-          ));
+          return yield* Effect.fail(corruption("step", "Migration receipt prefix exceeds its plan"));
         }
         attemptedStep = step;
         const preparedStep = state.definition.steps[step.ordinal];
         if (preparedStep === undefined || preparedStep.step.stepSha256 !== step.stepSha256) {
           return yield* Effect.fail(corruption("step", "Prepared operation does not match the stored plan"));
         }
-        const dependencyReceipts: RestoredFrameworkMigrationStepReceipt[] = [];
-        for (const ordinal of preparedStep.dependencyOrdinals) {
-          const receipt = locked.receipts[ordinal];
-          if (receipt === undefined) {
-            return yield* Effect.fail(coordinatorError(
-              "step",
-              "dependencyMissing",
-              "Migration step dependency receipt is missing",
-            ));
-          }
-          dependencyReceipts.push(receipt);
-        }
+        const dependencies = yield* readFrameworkMigrationDirectCompletionsInTransactionEffect(
+          raw, state.attempt, step, locked.head.completedStepCount, state.lineage,
+        );
         const execution = yield* executeRelationalStructuralStepEffect(
-          locked.structuralRunner,
+          state.definition.runner,
           transaction,
           preparedStep.step,
         ).pipe(
@@ -125,46 +119,47 @@ function executeNextStepInternal(
         );
         if (Option.isNone(execution)) return STRUCTURE_MISMATCH_RESULT;
         const completionClock = yield* readDatabaseClock(raw, 1);
-        const receiptValue = yield* captureFrameworkMigrationStepReceipt({
-          attempt: locked.attempt.attempt,
-          step,
-          dependencyReceipts: dependencyReceipts.map(
-            dependency => dependency.receipt,
-          ),
-          observedPostconditionSha256:
-            execution.value.observedPostconditionSha256,
+        const producer = state.attempt.attempt.frame;
+        const receiptValue = yield* encodeFrameworkMigrationStepReceiptFrame({
+          format: FRAMEWORK_MIGRATION_STEP_RECEIPT_FORMAT,
+          version: FRAMEWORK_MIGRATION_STEP_RECEIPT_VERSION,
+          collision: producer.collision,
+          planSha256: producer.planSha256,
+          attemptId: producer.attemptId,
+          attemptFence: producer.attemptFence,
+          stepId: step.stepId,
+          stepSha256: step.stepSha256,
+          dependencyReceipts: dependencies.map(dependency => ({
+            stepId: dependency.step.stepId, stepReceiptSha256: dependency.sha256,
+          })),
+          preconditionSha256: step.preconditionSha256,
+          postconditionSha256: step.postconditionSha256,
+          observedPostconditionSha256: execution.value.observedPostconditionSha256,
           completedAt: completionClock.databaseNow,
         });
-        const receipt = yield*
-          ensureFrameworkMigrationStepReceiptInTransactionEffect(
-            raw,
-            locked.attempt,
-            dependencyReceipts,
-            receiptValue,
-          );
-        const completedEvent = yield* appendEvent(
-          raw,
-          locked.head,
-          completionClock.databaseNow,
-          Object.freeze({ kind: "stepCompleted", receipt }),
-          Object.freeze({
-            kind: "stepCompleted",
-            stepReceiptSha256: receipt.receipt.sha256,
-          }),
+        const completion = yield* ensureFrameworkMigrationCommittedCompletionInTransactionEffect(
+          raw, state.attempt, step, dependencies, receiptValue,
         );
-        yield* advanceHead(
-          raw,
-          locked.head,
-          locked.attempt,
-          locked.head.head.frame.currentAttempt,
-          completedEvent,
-          completionClock.databaseNow,
+        const eventValue = yield* captureFrameworkMigrationEvent({
+          format: FRAMEWORK_MIGRATION_EVENT_FORMAT,
+          version: FRAMEWORK_MIGRATION_EVENT_VERSION,
+          collision: state.collision.coordinate,
+          sequence: nextInt64(locked.lastEvent?.event.frame.sequence ?? "0"),
+          previousEvent: locked.lastEvent === null ? null : eventToken(locked.lastEvent),
+          recordedAt: completionClock.databaseNow,
+          kind: "stepCompleted",
+          stepReceiptSha256: completion.sha256,
+        });
+        const event = yield* appendFrameworkMigrationEventRecordInTransactionEffect(
+          raw, state.collision, locked.lastEvent, eventValue,
+        );
+        const head = yield* advanceFrameworkMigrationProgressRecordInTransactionEffect(
+          raw, locked.head, state.attempt, event, completion,
         );
         return Object.freeze({
           kind: "step" as const,
-          receipt,
-          completedStepCount: locked.head.progress.completedStepCount + 1,
-          requiredStepCount: locked.plan.frame.steps.length,
+          completedStepCount: head.completedStepCount,
+          requiredStepCount: plan.frame.steps.length,
         });
       }),
     ),
@@ -304,7 +299,6 @@ function recoverStepDecisionEffect(
             kind: "committed" as const,
             progress: Object.freeze({
               kind: "step" as const,
-              receipt,
               completedStepCount: locked.head.progress.completedStepCount,
               requiredStepCount: locked.plan.frame.steps.length,
             }),

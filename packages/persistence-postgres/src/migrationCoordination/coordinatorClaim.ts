@@ -9,8 +9,11 @@ import { withAdditiveMigrationGraphLimits } from "./graphLimits";
 import type { CanonicalIsoInstant } from "@flarex/time/iso-instant";
 import {
   readFrameworkMigrationClaimGraphForUpdateInTransactionEffect,
+  readFrameworkMigrationProgressRecordForUpdateInTransactionEffect,
+  advanceFrameworkMigrationProgressRecordInTransactionEffect,
+  type FrameworkMigrationProgressRecord,
 } from "./migrationCollisionHeadRepository";
-import { Effect, Option } from "effect";
+import { Effect, Option, Result } from "effect";
 import { eq } from "drizzle-orm";
 import { authenticateFrameworkMigrationBaseEffect } from "./baseRepository";
 import { fxSystemFrameworkSchemaAvailabilityHeads } from "../frameworkSchema/installation/schema";
@@ -21,8 +24,13 @@ import {
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import {
   readFrameworkMigrationStepReceiptPrefixInTransactionEffect,
+  readFrameworkMigrationCompletionTailInTransactionEffect,
+  type FrameworkMigrationCommittedCompletion,
 } from "./migrationStepReceiptRepository";
-import type { RelationalMigrationPlan } from "./model";
+import { FRAMEWORK_MIGRATION_EVENT_FORMAT, FRAMEWORK_MIGRATION_EVENT_VERSION, type RelationalMigrationPlan } from "./model";
+import { captureFrameworkMigrationEvent } from "./canonical";
+import { readFrameworkMigrationEventRecordInTransactionEffect, appendFrameworkMigrationEventRecordInTransactionEffect,
+  type FrameworkMigrationEventRecord } from "./migrationEventRepository";
 import {
   observeRelationalMigrationBaseEffect,
   type RelationalStructuralRunnerToken,
@@ -36,6 +44,7 @@ import type {
   RestoredFrameworkMigrationCollisionDomain,
   RestoredFrameworkMigrationStepReceipt,
 } from "./storedRestoration";
+import { indexRestoredFrameworkMigrationAttemptLineage, restoredFrameworkMigrationAttemptLineage } from "./storedRestoration";
 import {
   type FrameworkMigrationTarget,
   runFrameworkMigrationTargetTransactionEffect,
@@ -49,11 +58,12 @@ import {
   corruption,
 } from "./coordinatorContracts";
 import {
-  appendEvent,
-  advanceHead,
   readDatabaseClock,
   ordinaryRequest,
   reserveAdditiveEvents,
+  reserveAdditiveEventCapacity,
+  nextInt64,
+  eventToken,
 } from "./coordinatorJournal";
 
 const frameworkMigrationClaimBrand: unique symbol = Symbol(
@@ -68,6 +78,8 @@ export interface FrameworkMigrationClaimState {
   readonly definition: PreparedFrameworkMigrationDefinition;
   readonly target: FrameworkMigrationTarget;
   readonly collision: RestoredFrameworkMigrationCollisionDomain;
+  readonly attempt: RestoredFrameworkMigrationAttemptStart;
+  readonly lineage: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>;
   readonly attemptId: string;
   readonly attemptFence: string;
   readonly leaseOwnerId: string;
@@ -85,6 +97,74 @@ interface LockedClaimState {
   readonly databaseNow: CanonicalIsoInstant;
 }
 
+interface LockedClaimProgress {
+  readonly head: FrameworkMigrationProgressRecord;
+  readonly lastEvent: FrameworkMigrationEventRecord | null;
+  readonly tail: FrameworkMigrationCommittedCompletion | null;
+  readonly databaseNow: CanonicalIsoInstant;
+}
+
+export const loadLockedClaimProgress = Effect.fn("FrameworkMigrationCoordinator.loadLockedProgress")(
+  function* (raw: FlarexMetadataTransaction, state: FrameworkMigrationClaimState): Effect.fn.Return<LockedClaimProgress, FrameworkMigrationCoordinatorFailure> {
+    const selected = yield* readFrameworkMigrationProgressRecordForUpdateInTransactionEffect(raw, state.collision);
+    if (Option.isNone(selected)) return yield* Effect.fail(corruption("step", "Collision head disappeared while continuing a claim"));
+    const head = selected.value;
+    const frame = head.head.frame;
+    const plan = state.attempt.plan.plan;
+    if (frame.currentPlan.planSha256 !== state.definition.plan.migrationPlanSha256) {
+      return yield* Effect.fail(coordinatorError("step", "planConflict", "Migration collision lane contains another plan"));
+    }
+    yield* requireAdmissibleBase(raw, state.collision, plan);
+    yield* reserveAdditiveEventCapacity(plan, frame.lastEvent?.sequence ?? "0", 2);
+    const current = frame.currentAttempt;
+    if (current === null || current.attemptId !== state.attemptId || current.attemptFence !== state.attemptFence || current.leaseOwnerId !== state.leaseOwnerId) {
+      return yield* Effect.fail(coordinatorError("step", "staleFence", "Framework migration claim no longer owns the collision lane"));
+    }
+    if (head.currentPlanStorageId !== state.attempt.plan.storageId || head.currentAdmissionStorageId !== state.attempt.admission.storageId ||
+      head.currentAttemptStorageId !== state.attempt.storageId || frame.currentPlan.admissionSha256 !== state.attempt.admission.admission.sha256 ||
+      frame.attemptFence !== state.attemptFence || head.completedStepCount > plan.frame.steps.length) {
+      return yield* Effect.fail(corruption("step", "Collision head does not match its claim definition"));
+    }
+    const clock = yield* readDatabaseClock(raw, 1);
+    if (Date.parse(current.leaseExpiresAt) <= Date.parse(clock.databaseNow)) {
+      return yield* Effect.fail(coordinatorError("step", "leaseLost", "Framework migration claim lease has expired"));
+    }
+    const tail = yield* readFrameworkMigrationCompletionTailInTransactionEffect(raw, state.attempt, head.completedStepCount, head.lastReceipt, state.lineage);
+    let lastEvent: FrameworkMigrationEventRecord | null = null;
+    if (head.lastEventStorageId !== null && frame.lastEvent !== null) {
+      lastEvent = yield* readFrameworkMigrationEventRecordInTransactionEffect(raw, state.collision, head.lastEventStorageId,
+        frame.lastEvent.sequence, frame.lastEvent.eventSha256);
+      const event = lastEvent.event.frame;
+      const matches = event.kind === "stepCompleted" ? tail !== null && event.stepReceiptSha256 === tail.sha256 :
+        event.kind === "attemptStarted" ? event.attemptStartSha256 === state.attempt.attempt.sha256 :
+        event.kind === "planAdmitted" ? event.admissionSha256 === state.attempt.admission.admission.sha256 :
+        event.kind === "leaseRenewed" && event.attemptId === current.attemptId && event.attemptFence === current.attemptFence &&
+          event.leaseOwnerId === current.leaseOwnerId && event.leaseExpiresAt === current.leaseExpiresAt;
+      if (!matches) return yield* Effect.fail(corruption("step", "Collision head event does not match its operational progress"));
+    } else if (tail !== null) return yield* Effect.fail(corruption("step", "Completed progress has no event commitment"));
+    return Object.freeze({ head, lastEvent, tail, databaseNow: clock.databaseNow });
+  },
+);
+
+export const renewLockedClaimProgressIfNeeded = Effect.fn("FrameworkMigrationCoordinator.renewLockedProgress")(
+  function* (raw: FlarexMetadataTransaction, state: FrameworkMigrationClaimState, locked: LockedClaimProgress): Effect.fn.Return<
+    LockedClaimProgress, FrameworkMigrationCoordinatorFailure
+  > {
+    const current = locked.head.head.frame.currentAttempt;
+    if (current === null) return yield* Effect.fail(corruption("step", "Claim head lost its current-attempt projection"));
+    if (Date.parse(current.leaseExpiresAt) - Date.parse(locked.databaseNow) > Math.floor(state.leaseDurationMilliseconds / 2)) return locked;
+    const clock = yield* readDatabaseClock(raw, state.leaseDurationMilliseconds);
+    const value = yield* captureFrameworkMigrationEvent({ format: FRAMEWORK_MIGRATION_EVENT_FORMAT, version: FRAMEWORK_MIGRATION_EVENT_VERSION,
+      collision: state.collision.coordinate, sequence: nextInt64(locked.lastEvent?.event.frame.sequence ?? "0"),
+      previousEvent: locked.lastEvent === null ? null : eventToken(locked.lastEvent), recordedAt: clock.databaseNow,
+      kind: "leaseRenewed", attemptId: current.attemptId, attemptFence: current.attemptFence,
+      leaseOwnerId: current.leaseOwnerId, leaseExpiresAt: clock.leaseExpiresAt });
+    const lastEvent = yield* appendFrameworkMigrationEventRecordInTransactionEffect(raw, state.collision, locked.lastEvent, value);
+    const head = yield* advanceFrameworkMigrationProgressRecordInTransactionEffect(raw, locked.head, state.attempt, lastEvent, null);
+    return Object.freeze({ head, lastEvent, tail: locked.tail, databaseNow: clock.databaseNow });
+  },
+);
+
 const claimStates = new WeakMap<
   FrameworkMigrationClaim,
   FrameworkMigrationClaimState
@@ -92,25 +172,32 @@ const claimStates = new WeakMap<
 
 export function makeClaim(
   input: RunFreshFrameworkMigrationCoordinatorInput,
-  collision: RestoredFrameworkMigrationCollisionDomain,
+  attempt: RestoredFrameworkMigrationAttemptStart,
   definition: PreparedFrameworkMigrationDefinition,
-  attemptFence: string,
-): FrameworkMigrationClaim {
+): Result.Result<FrameworkMigrationClaim, FrameworkMigrationCoordinatorError> {
+  const lineage = restoredFrameworkMigrationAttemptLineage(attempt);
+  if (lineage === undefined || attempt.attempt.frame.attemptId !== input.attemptId ||
+    attempt.plan.plan.migrationPlanSha256 !== definition.plan.migrationPlanSha256 || attempt.plan.plan.canonicalJson !== definition.plan.canonicalJson) {
+    return Result.fail(coordinatorError("claim", "invalidInput", "Framework migration claim definition or attempt is invalid"));
+  }
+  indexRestoredFrameworkMigrationAttemptLineage(lineage);
   const claim = Object.freeze({
     [frameworkMigrationClaimBrand]: true,
   } satisfies FrameworkMigrationClaim);
   claimStates.set(claim, Object.freeze({
     target: input.target,
-    collision,
+    collision: attempt.collision,
+    attempt,
+    lineage: new Map(lineage.map(producer => [producer.storageId, producer])),
     definition,
     attemptId: input.attemptId,
-    attemptFence,
+    attemptFence: attempt.attempt.frame.attemptFence,
     leaseOwnerId: input.leaseOwnerId,
     leaseDurationMilliseconds: input.leaseDurationMilliseconds,
     lockTimeoutMilliseconds: input.lockTimeoutMilliseconds,
     statementTimeoutMilliseconds: input.statementTimeoutMilliseconds,
   }));
-  return claim;
+  return Result.succeed(claim);
 }
 
 export function withClaimGraphLimits<Value, Failure>(effect: Effect.Effect<Value, Failure>, claim: FrameworkMigrationClaim): Effect.Effect<Value, Failure> {
@@ -222,58 +309,6 @@ export const validateLockedClaimHead = Effect.fn(
   });
 });
 
-export const renewClaimIfNeeded = Effect.fn(
-  "FreshFrameworkMigrationCoordinator.renewIfNeeded",
-)(function* (
-  raw: FlarexMetadataTransaction,
-  state: FrameworkMigrationClaimState,
-  locked: LockedClaimState,
-): Effect.fn.Return<LockedClaimState, FrameworkMigrationCoordinatorFailure> {
-  const projection = locked.head.head.frame.currentAttempt;
-  if (projection === null) {
-    return yield* Effect.fail(corruption(
-      "step",
-      "Claim head lost its current-attempt projection",
-    ));
-  }
-  const remaining = Date.parse(projection.leaseExpiresAt) -
-    Date.parse(locked.databaseNow);
-  if (remaining > Math.floor(state.leaseDurationMilliseconds / 2)) {
-    return locked;
-  }
-  const clock = yield* readDatabaseClock(
-    raw,
-    state.leaseDurationMilliseconds,
-  );
-  const renewedEvent = yield* appendEvent(
-    raw,
-    locked.head,
-    clock.databaseNow,
-    Object.freeze({ kind: "leaseRenewed", attempt: locked.attempt }),
-    Object.freeze({
-      kind: "leaseRenewed",
-      attemptId: locked.attempt.attempt.frame.attemptId,
-      attemptFence: locked.attempt.attempt.frame.attemptFence,
-      leaseOwnerId: locked.attempt.attempt.frame.leaseOwnerId,
-      leaseExpiresAt: clock.leaseExpiresAt,
-    }),
-  );
-  const head = yield* advanceHead(
-    raw,
-    locked.head,
-    locked.attempt,
-    Object.freeze({
-      attemptId: locked.attempt.attempt.frame.attemptId,
-      attemptFence: locked.attempt.attempt.frame.attemptFence,
-      leaseOwnerId: locked.attempt.attempt.frame.leaseOwnerId,
-      leaseExpiresAt: clock.leaseExpiresAt,
-    }),
-    renewedEvent,
-    clock.databaseNow,
-  );
-  return Object.freeze({ ...locked, head, databaseNow: clock.databaseNow });
-});
-
 export const readFrameworkMigrationClaimProgressEffect = Effect.fn(
   "FreshFrameworkMigrationCoordinator.readClaimProgress",
 )(function* (
@@ -299,9 +334,9 @@ export const readFrameworkMigrationClaimProgressEffect = Effect.fn(
     transaction => withFrameworkMigrationRawTransactionEffect(
       transaction,
       state.target,
-      raw => Effect.map(loadLockedClaimState(raw, state), locked =>
+      raw => Effect.map(loadLockedClaimProgress(raw, state), locked =>
         Object.freeze({
-          completedStepCount: locked.head.progress.completedStepCount,
+          completedStepCount: locked.head.completedStepCount,
           requiredStepCount: state.definition.plan.frame.steps.length,
         })
       ),

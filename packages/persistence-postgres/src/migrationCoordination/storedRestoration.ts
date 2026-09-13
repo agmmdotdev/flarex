@@ -934,6 +934,22 @@ export function isRestoredFrameworkMigrationAttemptStart(
   return restoredAttempts.has(input);
 }
 
+/** Capture the actual issued predecessor chain once when opening a claim. This
+ * does not cache an ancestor set on every historical node. */
+export function restoredFrameworkMigrationAttemptLineage(attempt: RestoredFrameworkMigrationAttemptStart):
+  readonly RestoredFrameworkMigrationAttemptStart[] | undefined {
+  const lineage: RestoredFrameworkMigrationAttemptStart[] = [];
+  const seen = new Set<bigint>();
+  let current: RestoredFrameworkMigrationAttemptStart | null | undefined = attempt;
+  while (current !== null) {
+    if (current === undefined || !restoredAttempts.has(current) || seen.has(current.storageId)) return undefined;
+    seen.add(current.storageId);
+    lineage.push(current);
+    current = restoredAttemptPredecessors.get(current);
+  }
+  return Object.freeze(lineage);
+}
+
 interface AttemptLineagePosition {
   readonly graph: object;
   readonly start: number;
@@ -1111,15 +1127,8 @@ export const restoreStoredFrameworkMigrationStepReceipt = Effect.fn(
       !isRestoredFrameworkMigrationAttemptAncestor(dependency.attempt, input.attempt) ||
       dependency.receipt.frame.stepId !== reference.stepId ||
       dependency.receipt.sha256 !== reference.stepReceiptSha256 ||
-      dependencyRow.receiptStorageId !== storageId ||
-      dependencyRow.planStorageId !== input.plan.storageId ||
-      dependencyRow.dependencyOrdinal !== index ||
-      dependencyRow.dependencyReceiptStorageId !== dependency.storageId ||
-      dependencyRow.dependencyStepId !== reference.stepId ||
-      !(yield* storedSha256Equals(
-        dependencyRow.dependencyStepReceiptSha256,
-        reference.stepReceiptSha256,
-      ))
+      !(yield* frameworkMigrationReceiptDependencyRowMatches(dependencyRow, storageId, input.plan.storageId,
+        index, dependency.storageId, reference))
     ) {
       return yield* corrupt();
     }
@@ -1141,6 +1150,17 @@ export const restoreStoredFrameworkMigrationStepReceipt = Effect.fn(
   restoredStepReceipts.add(restored);
   return restored;
 });
+
+/** Exact sidecar/reference agreement, shared by full restoration and the
+ * protected command's validation of its newly written complete child set. */
+export const frameworkMigrationReceiptDependencyRowMatches = Effect.fn("FrameworkMigrationStepReceipt.verifyDependencyRow")(
+  function* (row: StoredFrameworkMigrationStepReceiptDependencyRow, receiptStorageId: bigint, planStorageId: bigint,
+    ordinal: number, dependencyStorageId: bigint, reference: FrameworkMigrationStepReceiptFrame["dependencyReceipts"][number]): Effect.fn.Return<boolean, FrameworkMigrationValueError> {
+    return row.receiptStorageId === receiptStorageId && row.planStorageId === planStorageId && row.dependencyOrdinal === ordinal &&
+      row.dependencyReceiptStorageId === dependencyStorageId && row.dependencyStepId === reference.stepId &&
+      (yield* storedSha256Equals(row.dependencyStepReceiptSha256, reference.stepReceiptSha256));
+  },
+);
 
 export function isRestoredFrameworkMigrationStepReceipt(
   input: RestoredFrameworkMigrationStepReceipt,

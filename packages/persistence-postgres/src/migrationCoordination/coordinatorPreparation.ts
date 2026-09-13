@@ -330,12 +330,11 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
           ) {
             return Object.freeze({
               kind: "claim" as const,
-              claim: makeClaim(
+              claim: yield* Effect.fromResult(makeClaim(
                 input,
-                currentHead.collision,
+                previousAttempt,
                 definition,
-                currentProjection.attemptFence,
-              ),
+              )),
             });
           }
           return Object.freeze({
@@ -460,12 +459,11 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
       );
       return Object.freeze({
         kind: "claim" as const,
-        claim: makeClaim(
+        claim: yield* Effect.fromResult(makeClaim(
           input,
-          attempt.collision,
+          attempt,
           definition,
-          attempt.attempt.frame.attemptFence,
-        ),
+        )),
       });
     }),
   );

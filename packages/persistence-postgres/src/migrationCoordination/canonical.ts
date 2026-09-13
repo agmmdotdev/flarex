@@ -107,7 +107,7 @@ import {
   FRAMEWORK_SCHEMA_TARGET_NAMESPACE_VERSION,
   MAX_FRAMEWORK_SCHEMA_TARGET_NAMESPACE_CANONICAL_BYTES,
 } from "./targetNamespace";
-import { isStoredMigrationNonEventFrame, isStoredFreshRelationalMigrationPlanFrame } from "./storedValidation";
+import { isStoredMigrationNonEventFrame, isStoredFreshRelationalMigrationPlanFrame, isStoredFrameworkMigrationStepReceiptFrame } from "./storedValidation";
 
 export const MAX_FRAMEWORK_MIGRATION_PLAN_STEPS = 66_000;
 export const MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES = 8_388_608;
@@ -597,6 +597,24 @@ export interface CaptureFrameworkMigrationStepReceiptInput {
   readonly observedPostconditionSha256: unknown;
   readonly completedAt: unknown;
 }
+
+/** Encode the receipt protocol without issuing captured or restored graph
+ * authority. The protected command owns the selected committed dependencies;
+ * full restoration continues to authenticate their complete stored closure. */
+export const encodeFrameworkMigrationStepReceiptFrame = Effect.fn("FrameworkMigrationStepReceipt.encode")(
+  function* (frame: unknown): Effect.fn.Return<
+    CapturedFrameworkMigrationValue<FrameworkMigrationStepReceiptFrame, FrameworkMigrationStepReceiptSha256>,
+    FrameworkMigrationValueError
+  > {
+    if (!isStoredFrameworkMigrationStepReceiptFrame(frame)) {
+      return yield* Effect.fail(FrameworkMigrationValueError.invalidInput("captureLedgerValue"));
+    }
+    const owned = Object.freeze({ ...frame, collision: copyCollision(frame.collision),
+      dependencyReceipts: Object.freeze(frame.dependencyReceipts.map(reference => Object.freeze({ ...reference }))),
+    });
+    return yield* captureLedgerValue(owned, brandStepReceiptSha256);
+  },
+);
 
 export const captureFrameworkMigrationStepReceipt = Effect.fn(
   "FrameworkMigrationStepReceipt.capture",

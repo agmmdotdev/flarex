@@ -467,29 +467,33 @@ const eventSubjectProjectionMatches = Effect.fn(
     if (input.subject.kind !== "leaseRenewed") return false;
     const attempt = input.subject.attempt;
     return isRestoredFrameworkMigrationAttemptStart(attempt) &&
-      attempt.collision === input.collision && row.subjectSha256 === null &&
+      attempt.collision === input.collision &&
       frame.attemptId === attempt.attempt.frame.attemptId &&
       frame.attemptFence === attempt.attempt.frame.attemptFence &&
-      row.leaseAttemptId === frame.attemptId &&
-      (yield* nullableNonNegativeInt64(row.leaseAttemptFence)) ===
-        frame.attemptFence && row.leaseOwnerId === frame.leaseOwnerId &&
-      storedDateMatchesCanonicalInstant(
-        row.leaseExpiresAt,
-        frame.leaseExpiresAt,
-      );
+      (yield* frameworkMigrationEventRowSubjectMatchesFrame(row, frame));
   }
-  if (
-    row.leaseAttemptId !== null || row.leaseAttemptFence !== null ||
-    row.leaseOwnerId !== null || row.leaseExpiresAt !== null
-  ) return false;
+  if (!(yield* frameworkMigrationEventRowSubjectMatchesFrame(row, frame))) return false;
   const subjectSha256 = authenticatedEventSubjectSha256(
     input.subject,
     input.collision,
   );
   return subjectSha256 !== undefined &&
-    subjectSha256 === eventFrameSubjectSha256(frame) &&
-    (yield* nullableShaEquals(row.subjectSha256, subjectSha256));
+    subjectSha256 === eventFrameSubjectSha256(frame);
 });
+
+/** Canonical/normalized agreement of one row only. Its subject and predecessor
+ * authorities remain separate full-graph or protected-command obligations. */
+export const frameworkMigrationEventRowSubjectMatchesFrame = Effect.fn("FrameworkMigrationEvent.verifyRowSubject")(
+  function* (row: StoredFrameworkMigrationEventRow, frame: FrameworkMigrationEventFrame): Effect.fn.Return<boolean, FrameworkMigrationValueError> {
+    if (frame.kind === "leaseRenewed") return row.subjectSha256 === null &&
+      row.leaseAttemptId === frame.attemptId &&
+      (yield* nullableNonNegativeInt64(row.leaseAttemptFence)) === frame.attemptFence &&
+      row.leaseOwnerId === frame.leaseOwnerId && storedDateMatchesCanonicalInstant(row.leaseExpiresAt, frame.leaseExpiresAt);
+    return row.leaseAttemptId === null && row.leaseAttemptFence === null &&
+      row.leaseOwnerId === null && row.leaseExpiresAt === null &&
+      (yield* nullableShaEquals(row.subjectSha256, eventFrameSubjectSha256(frame)));
+  },
+);
 
 function authenticatedEventSubjectSha256(
   subject: RestoredFrameworkMigrationEventSubject,

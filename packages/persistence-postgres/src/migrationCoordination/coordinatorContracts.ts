@@ -22,7 +22,6 @@ import type { RestoredFrameworkMigrationCollisionHead } from "./storedEventResto
 import type {
   RestoredFrameworkMigrationCollisionDomain,
   RestoredFrameworkMigrationPlanAdmission,
-  RestoredFrameworkMigrationStepReceipt,
   RestoredFreshRelationalMigrationPlan,
 } from "./storedRestoration";
 import type {
@@ -132,7 +131,6 @@ export const STRUCTURE_MISMATCH_RESULT = Object.freeze({
 export type ExecuteNextFrameworkMigrationStepResult =
   | Readonly<{
       readonly kind: "step";
-      readonly receipt: RestoredFrameworkMigrationStepReceipt;
       readonly completedStepCount: number;
       readonly requiredStepCount: number;
     }>

@@ -1,3 +1,4 @@
+import { assertNormalCommandWorkingSet, assertNormalCommandRollback, normalCommandAlterations } from "./frameworkNormalCommandTestSupport";
 import { assertInstallerResume, assertInstallerDeadline } from "./frameworkInstallerTestSupport";
 import { assertExplicitFrameworkVerification, assertVerificationRefusesUnreceiptedDdl } from "./frameworkMigrationVerificationTestSupport";
 import * as structuralRunner from "../src/migrationCoordination/relationalStructuralRunner";
@@ -26,6 +27,14 @@ import { ensureFrameworkMigrationCollisionDomainInTransactionEffect,
 const native = postgresUrl === null ? describe.skip : describe;
 
 native("native fresh framework migration coordinator", () => {
+  it.each([0, 4])("keeps normal command work proportional to steps and edges with %i extra tables", async extraTables => {
+    await withNativeCoordinator(fixture => assertNormalCommandWorkingSet(fixture.input), {}, extraTables);
+  }, 180_000);
+
+  it.each(normalCommandAlterations)("rolls back the normal command after an altered %s result", async alteration => {
+    await withNativeCoordinator(fixture => assertNormalCommandRollback(fixture.input, alteration));
+  }, 180_000);
+
   it("bounds continuation time and awaits cancellation cleanup", async () => {
     await withNativeCoordinator(fixture => assertInstallerDeadline(fixture.input));
   }, 180_000);

@@ -2,10 +2,11 @@
 
 Status: approved, implementation in progress. This is the
 recommended replacement direction for the narrower, unapproved
-[step-transition proposal](./75-migration-step-transition-proof.md). Normal step execution still uses full
-reconstruction; takeover now retains original plan receipts. The coordinator
+[step-transition proposal](./75-migration-step-transition-proof.md). Normal step execution now uses the
+[protected direct-dependency command](./85-protected-normal-step-command.md);
+takeover retains original plan receipts. The coordinator
 [prepares execution definitions once per run and exposes an explicit read-only audit](./79-prepared-definition-and-explicit-audit.md).
-Direct-dependency execution and linear full verification remain open. ShippingProfile remains
+Linear full verification, restart/opening consolidation and performance acceptance remain open. ShippingProfile remains
 paused. Neither this document nor its examples activate future framework modules.
 
 ## Current Implementation Boundary
@@ -54,12 +55,14 @@ call, with [explicit inspection and verification](./83-installer-inspection-and-
 through the same construction. [Evidence handoff](./84-installation-evidence-graph-and-step-transition.md)
 now shares attempt lineage, terminal prefixes and publication prerequisites within
 event restoration, while explicit verification retains the head's issued receipt
-prefix and independently checks its stored inventory. Remaining graph
-consolidation, the optimized execution model, linear full
-verification and performance acceptance remain open. Full current
-reconstruction remains in force; connection
-protection is not permission to cache database authority or enable the proposed
-fast path before those remaining gates pass.
+prefix and independently checks its stored inventory. The protected normal
+command now reads fresh locked head/event/tail projections and direct completion
+references, then validates the actual receipt, sidecars, event and guarded head
+write in one target-owned transaction. Its claim retains immutable definition and
+actual attempt lineage, never cached live progress or lease authority. Initial
+opening, finalization, uncertain recovery and explicit verification retain full
+evidence checks. Remaining graph consolidation, normal restart/cold opening,
+linear full verification and performance acceptance remain open.
 
 ### Connected validation boundaries
 

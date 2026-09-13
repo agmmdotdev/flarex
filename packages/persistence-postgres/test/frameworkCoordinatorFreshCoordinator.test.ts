@@ -1,3 +1,4 @@
+import { assertNormalCommandWorkingSet, assertNormalCommandRollback, normalCommandAlterations } from "./frameworkNormalCommandTestSupport";
 import { assertInstallerResume, assertInstallerDeadline } from "./frameworkInstallerTestSupport";
 import { assertExplicitFrameworkVerification, assertVerificationRefusesUnreceiptedDdl } from "./frameworkMigrationVerificationTestSupport";
 import * as structuralRunner from "../src/migrationCoordination/relationalStructuralRunner";
@@ -43,6 +44,16 @@ type PublicFreshCoordinatorExport = Extract<
 >;
 
 describe("private fresh framework migration coordinator", () => {
+  it.each([0, 4])("keeps normal command work proportional to steps and edges with %i extra tables", async extraTables => {
+    const fixture = await createCoordinatorFixture({ extraTables });
+    await assertNormalCommandWorkingSet(fixture.input);
+  }, TEST_TIMEOUT);
+
+  it.each(normalCommandAlterations)("rolls back the normal command after an altered %s result", async alteration => {
+    const fixture = await createCoordinatorFixture();
+    await assertNormalCommandRollback(fixture.input, alteration);
+  }, TEST_TIMEOUT);
+
   it("bounds continuation time and awaits cancellation cleanup", async () => {
     const fixture = await createCoordinatorFixture();
     await assertInstallerDeadline(fixture.input);

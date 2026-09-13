@@ -1,6 +1,6 @@
 import { frameworkMigrationGraphPolicy, withFrameworkCollisionGraphLimits } from "./graphLimits";
 import { frameworkGraphDriverRowReferences, makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
-import { and, desc, eq, lte, sql } from "drizzle-orm";
+import { and, desc, eq, lte, or, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
 import { detachDriverRows } from "../detachDriverRows";
@@ -79,6 +79,7 @@ import {
   isRestoredFrameworkMigrationEvent,
   restoreStoredFrameworkMigrationEvent,
   restoredFrameworkMigrationEventAuthority,
+  frameworkMigrationEventRowSubjectMatchesFrame,
   type RestoredFrameworkMigrationEvent,
   type RestoredFrameworkMigrationEventSubject,
   type StoredFrameworkMigrationEventRow,
@@ -143,8 +144,52 @@ interface DecodedFrameworkMigrationEventRoot {
   readonly collisionStorageId: bigint;
   readonly previousEventStorageId: bigint | null;
   readonly eventSha256: string;
+  readonly canonicalJson: string;
   readonly frame: FrameworkMigrationEventFrame;
 }
+
+/** One exact stored row, without predecessor or subject graph authority. Only
+ * the protected command may combine this with its locked committed progress. */
+export interface FrameworkMigrationEventRecord {
+  readonly storageId: bigint;
+  readonly collisionStorageId: bigint;
+  readonly previousEventStorageId: bigint | null;
+  readonly event: FrameworkMigrationEvent;
+}
+
+export const readFrameworkMigrationEventRecordInTransactionEffect = Effect.fn("FrameworkMigrationEventRepository.readRecord")(
+  function* (transaction: FlarexMetadataTransaction, collision: RestoredFrameworkMigrationCollisionDomain,
+    storageId: bigint, sequence: string, sha256: FrameworkMigrationEventSha256): Effect.fn.Return<
+      FrameworkMigrationEventRecord, FrameworkMigrationRepositoryError
+    > {
+    const operation = "readEvent" as const;
+    const selected = yield* loadEventRootByStorageId(transaction, storageId, operation);
+    if (Option.isNone(selected)) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    const record = yield* decodeEventRecord(selected.value, collision, operation);
+    if (record.storageId !== storageId || record.event.frame.sequence !== sequence || record.event.sha256 !== sha256) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    return record;
+  },
+);
+
+const decodeEventRecord = Effect.fn("FrameworkMigrationEventRepository.decodeRecord")(
+  function* (row: FrameworkMigrationEventDriverRow, collision: RestoredFrameworkMigrationCollisionDomain,
+    operation: FrameworkMigrationRepositoryOperation): Effect.fn.Return<FrameworkMigrationEventRecord, FrameworkMigrationRepositoryError> {
+    const decoded = yield* decodeEventRoot(row, operation);
+    if (!isRestoredFrameworkMigrationCollisionDomain(collision) || decoded.collisionStorageId !== collision.storageId ||
+      !sameCollisionCoordinate(decoded.frame.collision, collision.coordinate) ||
+      !(yield* frameworkMigrationEventRowSubjectMatchesFrame(row, decoded.frame).pipe(Effect.mapError(error => mapStoredValueError(operation, error))))) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    const event = yield* captureFrameworkMigrationEvent(decoded.frame).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
+    if (event.sha256 !== decoded.eventSha256 || event.canonicalJson !== decoded.canonicalJson) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    return Object.freeze({ storageId: decoded.storageId, collisionStorageId: decoded.collisionStorageId,
+      previousEventStorageId: decoded.previousEventStorageId, event });
+  },
+);
 
 interface RestoredFrameworkMigrationEventOccupant {
   readonly value: RestoredFrameworkMigrationEvent;
@@ -173,6 +218,66 @@ interface FrameworkMigrationEventOccupantLookups {
 }
 
 const UTF8 = new TextEncoder();
+
+const insertEventRoot = Effect.fn("FrameworkMigrationEventRepository.insertRoot")(
+  function* (transaction: FlarexMetadataTransaction, collisionStorageId: bigint,
+    previous: Pick<FrameworkMigrationEventRecord, "storageId" | "event"> | null,
+    event: FrameworkMigrationEvent, operation: EventRepositoryOperation): Effect.fn.Return<Option.Option<bigint>, FrameworkMigrationRepositoryError> {
+    const frame = event.frame;
+    const subject = eventFrameSubjectSha256(frame);
+    const leaseExpiresAt = frame.kind === "leaseRenewed" ? operationalFrameworkMigrationLeaseExpiryDate(frame.leaseExpiresAt) : null;
+    if (leaseExpiresAt === undefined) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+    const canonicalBytes = UTF8.encode(event.canonicalJson);
+    const rows = yield* runRepositoryStatement(operation, transaction.insert(fxSystemFrameworkMigrationEvents).values({
+      collisionStorageId, eventSequence: BigInt(frame.sequence), eventSha256: yield* decodeAuthenticatedSha256(event.sha256),
+      previousEventStorageId: previous?.storageId ?? null,
+      previousEventSequence: previous === null ? null : BigInt(previous.event.frame.sequence),
+      previousEventSha256: previous === null ? null : yield* decodeAuthenticatedSha256(previous.event.sha256),
+      eventKind: frame.kind, subjectSha256: subject === null ? null : yield* decodeAuthenticatedSha256(subject),
+      leaseAttemptId: frame.kind === "leaseRenewed" ? frame.attemptId : null,
+      leaseAttemptFence: frame.kind === "leaseRenewed" ? BigInt(frame.attemptFence) : null,
+      leaseOwnerId: frame.kind === "leaseRenewed" ? frame.leaseOwnerId : null, leaseExpiresAt,
+      frameFormat: frame.format, frameVersion: frame.version, canonicalByteLength: canonicalBytes.byteLength, canonicalBytes,
+    }).onConflictDoNothing().returning({ eventStorageId: fxSystemFrameworkMigrationEvents.eventStorageId })).pipe(Effect.map(detachDriverRows));
+    if (rows.length > 1) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    const row = rows[0];
+    return row === undefined ? Option.none() : Option.some(yield* Effect.fromResult(decodeStoredStorageIdResult(row.eventStorageId,
+      () => FrameworkMigrationRepositoryError.storedCorruption(operation))));
+  },
+);
+
+/** The protected command has already checked its live head and completion. This
+ * writes one row and verifies exact occupants without issuing a history graph. */
+export const appendFrameworkMigrationEventRecordInTransactionEffect = Effect.fn("FrameworkMigrationEventRepository.appendRecord")(
+  function* (transaction: FlarexMetadataTransaction, collision: RestoredFrameworkMigrationCollisionDomain,
+    previous: FrameworkMigrationEventRecord | null, expected: FrameworkMigrationEvent): Effect.fn.Return<
+      FrameworkMigrationEventRecord, FrameworkMigrationRepositoryError
+    > {
+    const operation = "appendEvent" as const;
+    const event = yield* captureFrameworkMigrationEvent(expected.frame).pipe(Effect.mapError(error => mapInputValueError(operation, error)));
+    if (!isRestoredFrameworkMigrationCollisionDomain(collision) || !sameCollisionCoordinate(event.frame.collision, collision.coordinate) ||
+      event.sha256 !== expected.sha256 || event.canonicalJson !== expected.canonicalJson ||
+      (previous === null ? event.frame.previousEvent !== null : previous.collisionStorageId !== collision.storageId ||
+        event.frame.previousEvent?.eventSha256 !== previous.event.sha256 || event.frame.previousEvent.sequence !== previous.event.frame.sequence ||
+        BigInt(event.frame.sequence) <= BigInt(previous.event.frame.sequence))) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+    }
+    const inserted = yield* insertEventRoot(transaction, collision.storageId, previous, event, operation);
+    const rows = yield* runRepositoryStatement(operation, transaction.select(eventReadSelection).from(fxSystemFrameworkMigrationEvents)
+      .where(or(and(eq(fxSystemFrameworkMigrationEvents.collisionStorageId, collision.storageId),
+        eq(fxSystemFrameworkMigrationEvents.eventSequence, BigInt(event.frame.sequence))),
+        eq(fxSystemFrameworkMigrationEvents.eventSha256, yield* decodeAuthenticatedSha256(event.sha256)))).limit(3))
+      .pipe(Effect.map(detachDriverRows));
+    const row = rows[0];
+    if (rows.length !== 1 || row === undefined) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    const record = yield* decodeEventRecord(row, collision, operation);
+    if (record.event.sha256 !== event.sha256 || record.event.canonicalJson !== event.canonicalJson ||
+      record.previousEventStorageId !== (previous?.storageId ?? null) || (Option.isSome(inserted) && inserted.value !== record.storageId)) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    return record;
+  },
+);
 
 const corroboratePreparedEvent = Effect.fn("FrameworkMigrationEventRepository.corroboratePrepared")(function* (
   transaction: FlarexMetadataTransaction, prepared: PreparedFrameworkMigrationEvent, operation: FrameworkMigrationRepositoryOperation,
@@ -228,56 +333,7 @@ export const appendFrameworkMigrationEventInTransactionEffect = Effect.fn(
   );
   const { storedCollision, storedPrevious, storedSubject } = yield* corroboratePreparedEvent(transaction, prepared, operation);
 
-  const lease = prepared.event.frame.kind === "leaseRenewed"
-    ? Object.freeze({
-      subjectSha256: null,
-      leaseAttemptId: prepared.event.frame.attemptId,
-      leaseAttemptFence: BigInt(prepared.event.frame.attemptFence),
-      leaseOwnerId: prepared.event.frame.leaseOwnerId,
-      leaseExpiresAt: prepared.leaseExpiresAt,
-    })
-    : Object.freeze({
-      subjectSha256: prepared.subjectSha256Bytes,
-      leaseAttemptId: null,
-      leaseAttemptFence: null,
-      leaseOwnerId: null,
-      leaseExpiresAt: null,
-    });
-  const insertedRows = yield* runRepositoryStatement(
-    operation,
-    transaction.insert(fxSystemFrameworkMigrationEvents).values({
-      collisionStorageId: storedCollision.storageId,
-      eventSequence: prepared.eventSequence,
-      eventSha256: prepared.eventSha256Bytes,
-      previousEventStorageId: storedPrevious?.storageId ?? null,
-      previousEventSequence: storedPrevious === null
-        ? null
-        : BigInt(storedPrevious.event.frame.sequence),
-      previousEventSha256: storedPrevious === null
-        ? null
-        : yield* decodeAuthenticatedSha256(storedPrevious.event.sha256),
-      eventKind: prepared.event.frame.kind,
-      ...lease,
-      frameFormat: prepared.event.frame.format,
-      frameVersion: prepared.event.frame.version,
-      canonicalByteLength: prepared.canonicalBytes.byteLength,
-      canonicalBytes: prepared.canonicalBytes,
-    }).onConflictDoNothing().returning({
-      eventStorageId: fxSystemFrameworkMigrationEvents.eventStorageId,
-    }),
-  ).pipe(Effect.map(detachDriverRows));
-  if (insertedRows.length > 1) {
-    return yield* Effect.fail(
-      FrameworkMigrationRepositoryError.storedCorruption(operation),
-    );
-  }
-  const inserted = insertedRows[0];
-  if (inserted !== undefined) {
-    yield* Effect.fromResult(decodeStoredStorageIdResult(
-      inserted.eventStorageId,
-      () => FrameworkMigrationRepositoryError.storedCorruption(operation),
-    ));
-  }
+  yield* insertEventRoot(transaction, storedCollision.storageId, storedPrevious, prepared.event, operation);
 
   const resolved = yield* resolveExpectedEvent(
     transaction,
@@ -1146,6 +1202,7 @@ const decodeEventRoot = Effect.fn(
     collisionStorageId,
     previousEventStorageId,
     eventSha256: stored.sha256Hex,
+    canonicalJson: stored.canonicalJson,
     frame,
   });
 });
