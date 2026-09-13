@@ -46,9 +46,11 @@ completion unique per plan step while retaining the producing attempt and digest
 Takeover reobserves the original prefix without cloning receipts or completion
 events; terminals retain their fence-bounded prefix. The [durable head progress](./78-collision-head-progress.md)
 now stores the completed position and original receipt tail and checks them against
-authenticated events. Its CAS advances one completion atomically. The optimized execution model,
-readable installer facade, verification reorganization and performance acceptance
-are not yet implemented. Full current reconstruction remains in force; connection
+authenticated events. Its CAS advances one completion atomically. The coordinator
+now separates [lifecycle operations](./81-coordinator-lifecycle-operations.md)
+behind its existing entry points. The optimized execution model, trusted installer
+facade, verification reorganization and performance acceptance are not yet
+implemented. Full current reconstruction remains in force; connection
 protection is not permission to cache database authority or enable the proposed
 fast path before those remaining gates pass.
 
@@ -172,12 +174,12 @@ Medusa owns module/link compilation and semantic migration meaning; Payload owns
 configuration and lifecycle meaning. Neither adapter constructs coordinator
 repositories or compensates for its cost.
 
-This is a metadata and execution-contract redesign, not just a wrapper around
-`freshCoordinator.ts`. Its 2,167 lines currently combine preparation, claims,
-takeover, receipt carry-forward, step execution, recovery and publication. Its
-step path restores a complete prefix, then receipt/event/head operations restore
-overlapping prerequisites again. The existing collision head stores the current
-attempt and event tail, but next-step selection still uses restored prefix length.
+This is a metadata and execution-contract redesign. `freshCoordinator.ts` now
+owns bounded run orchestration over separate preparation, claim, step and
+finalization operations. The step path still restores a complete prefix, then
+receipt/event/head operations restore overlapping prerequisites again. The
+collision head's completed position selects the next step, but ordinary execution
+still corroborates it against that reconstructed prefix.
 
 The nearest connected proof remains the seventeen-table Product/ShippingProfile
 installation, cold reopening and unchanged native operations. Include Payload's
