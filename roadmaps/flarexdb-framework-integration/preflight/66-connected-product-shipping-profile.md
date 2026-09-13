@@ -290,3 +290,6 @@ The approved candidate failed this fixture's unchanged PGlite installation
 deadline and was withdrawn. Its narrower successful reconstruction witness did
 not establish the required end-to-end benefit. This fixture and all transaction,
 readiness and deadline gates remain unchanged; no runtime remedy is retained.
+The receipt-aggregate follow-up also failed the unchanged installation deadline
+despite removing duplicate decoding in a neutral prefix witness. It too was
+withdrawn; native ShippingProfile completion remains blocked by this gate.

@@ -1,8 +1,9 @@
 # Shared Migration Graph Restoration
 
-Status: the approved candidate was evaluated and withdrawn after failing the
-unchanged full-suite PGlite installation deadline. No runtime or test change
-from that candidate is retained. The connected
+Status: both the membership/root-projection candidate and the receipt-aggregate
+follow-up were evaluated and withdrawn after failing the unchanged full-suite
+PGlite installation deadline. No runtime or test change from either candidate
+is retained. The connected
 ShippingProfile slice in [record 66](./66-connected-product-shipping-profile.md)
 remains incomplete. This is not another approval of the withdrawn candidates in
 records 68, 70 or 72.
@@ -33,7 +34,7 @@ of the aggregate reconstruction that remains, rather than assuming reduced row
 transport or an isolated cache hit meets the end-to-end requirement. The design
 and retention criteria below remain the boundary for that assessment.
 
-## Follow-up Attribution And Next Bounded Proof
+## Receipt-Aggregate Attribution And Disposition
 
 Installation-scoped diagnostic counters on both drivers show that the reference
 capacity is not exhausted. References are successfully reused within a pass,
@@ -56,21 +57,28 @@ There are concrete untouched repeated-work sites:
   separate evidence lifetimes. Their repeated history work must not be removed
   by silently reusing database evidence across writes.
 
-The next bounded proof should target the existing receipt/event aggregate:
-carry already decoded, owned root evidence through its prefix and closure
-operations and establish a coherent per-attempt restoration context within the
-existing read-only pass. Actual root projections, attempt/collision authority,
-dependency checks and first-failure ordering must still agree before reuse.
-Different attempts cannot share a step-ID inventory merely because their step
-names match. Cold, post-write and recovery reads remain fresh.
+The evaluated follow-up carried decoded, privately owned receipt rows through
+prefix/closure restoration and shared attempt-local contexts among event receipt
+subjects. Its neutral prefix witness removed duplicate root decoding, and its
+mixed-attempt witness retained separate inventories for repeated step names.
+The focused receipt/event corruption cases passed. This established bounded
+removed work, not an end-to-end installation improvement.
 
-This is a next implementation direction, not an implemented fix or a promised
-speedup. First demonstrate removed duplicate decoding and unchanged corruption
-refusal on a neutral aggregate, then apply the existing full-suite retention
-gate. Do not increase the cache limit, restore the failed membership candidate,
-or infer that a larger transaction/new ledger is required. Those would not
-follow from this evidence. Exact diagnostic samples belong in the local research
-artifact and Git receipt; runtime sources and native tests remain unchanged.
+The unchanged baseline and the first full candidate PGlite installation both
+timed out. The candidate therefore failed the retention gate and was removed,
+including its test additions. The comparison stopped before the complete timing
+matrix, candidate PostgreSQL lane and final retained-code review. The event
+predecessor decoder and cross-write restoration lifetimes were not redesigned.
+This result does not prove a causal regression, that all within-pass corrections
+are exhausted, or that a larger transaction/new ledger is necessary.
+
+No further runtime optimization is selected by this record. A subsequent
+preflight needs an explicit account of which committed-history proofs dominate
+and which can be eliminated without changing the authority or corruption
+contract; another local reuse mechanism is not sufficient evidence. Do not
+increase cache limits, weaken cold/post-write/recovery checks, or restore either
+withdrawn candidate. Exact measurements belong in the local research artifact
+and Git receipt. Installation performance remains unresolved.
 
 ## Outcome And Owners
 
