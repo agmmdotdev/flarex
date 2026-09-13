@@ -70,8 +70,10 @@ competing claims, uncertain recovery and explicit verification retain their full
 evidence owners. [Protected final publication](./89-protected-final-publication.md)
 performs one complete head/inventory/catalog proof and hands its prerequisites to
 the existing publication writers; exact stored occupants, event transitions and
-head CAS remain mandatory. Remaining graph consolidation, settled cold-opening
-accounting, linear full verification and performance acceptance remain open.
+head CAS remain mandatory. [Settled readiness replay](./90-settled-readiness-evidence-handoff.md)
+hands its authenticated readiness to fresh availability head/history restoration,
+removing repeated installation reconstruction. Complete phase accounting and
+frozen performance acceptance remain open.
 
 ### Connected validation boundaries
 

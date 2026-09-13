@@ -90,6 +90,9 @@ export async function assertInstallationWorkPhases(database: FlarexMetadataDatab
   const availability = publication.value.availability;
   const replay = await measure("settledReplay", () => runEffect(runFreshFrameworkMigrationCoordinatorEffect(input)));
   expect(replay.value).toMatchObject({ kind: "ready", replayed: true });
+  expect(replay.work.issued.receipts).toBe(count);
+  expect(replay.work.issued.attempts).toBe(1);
+  expect(replay.work.issued.terminals).toBe(1);
   const audit = await measure("audit", () => runEffect(verifyFrameworkMigrationEffect(input.target, state.definition.plan, input)));
   expect(audit.value).toMatchObject({ kind: "verified", complete: true, completedStepCount: count });
   expect(audit.work.issued.receipts).toBe(count);

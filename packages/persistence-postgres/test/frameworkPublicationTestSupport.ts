@@ -79,3 +79,34 @@ export async function assertPublicationRollback(database: FlarexMetadataDatabase
   expect(await runEffect(finalizeFrameworkMigrationClaimEffect(opened.claim))).toMatchObject({ kind: "ready", replayed: false });
   expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(input))).toMatchObject({ kind: "ready", replayed: true });
 }
+
+export const settledReadinessAlterations = ["headReference", "historyReference", "headBytes", "historyBytes", "missingHead", "missingHistory"] as const;
+
+export async function assertSettledReadinessRefusal(database: FlarexMetadataDatabase, input: RunFreshFrameworkMigrationCoordinatorInput,
+  alteration: typeof settledReadinessAlterations[number]) {
+  expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(input))).toMatchObject({ kind: "ready", replayed: false });
+  const beforeHead = await database.select().from(fxSystemFrameworkMigrationCollisionHeads);
+  const beforeEvents = await database.select().from(fxSystemFrameworkMigrationEvents);
+  const detach = driverRows.detachDriverRows;
+  let altered = false;
+  const rows = vi.spyOn(driverRows, "detachDriverRows").mockImplementation(value => detach(value).flatMap(row => {
+    if (altered || !("canonicalBytes" in row) || !(row.canonicalBytes instanceof Uint8Array)) return [row];
+    const head = "availabilityHeadSha256" in row;
+    const history = "previousHistoryStorageId" in row;
+    if (!((head && ["headReference", "headBytes", "missingHead"].includes(alteration)) ||
+      (history && ["historyReference", "historyBytes", "missingHistory"].includes(alteration)))) return [row];
+    altered = true;
+    if (alteration === "missingHead" || alteration === "missingHistory") return [];
+    if (alteration === "headReference" || alteration === "historyReference") return [{ ...row, readinessStorageId: 1_000_000n }];
+    const canonicalBytes = Uint8Array.from(row.canonicalBytes);
+    canonicalBytes[0] = 91;
+    return [{ ...row, canonicalBytes }];
+  }));
+  try {
+    await expect(runEffect(runFreshFrameworkMigrationCoordinatorEffect(input))).rejects.toMatchObject({ reason: "storedCorruption" });
+    expect(altered).toBe(true);
+  } finally { rows.mockRestore(); }
+  expect(await database.select().from(fxSystemFrameworkMigrationCollisionHeads)).toEqual(beforeHead);
+  expect(await database.select().from(fxSystemFrameworkMigrationEvents)).toEqual(beforeEvents);
+  expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(input))).toMatchObject({ kind: "ready", replayed: true });
+}

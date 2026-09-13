@@ -43,6 +43,7 @@ import {
 } from "./model";
 import { fxSystemFrameworkSchemaAvailabilityHeads, fxSystemFrameworkSchemaInstallations } from "./schema";
 import {
+  isRestoredFrameworkSchemaReadiness,
   isRestoredFrameworkSchemaAvailabilityHead,
   isRestoredFrameworkSchemaAvailabilityHistory,
   restoreStoredFrameworkSchemaAvailabilityHeadMetadata,
@@ -208,6 +209,24 @@ export const readFrameworkSchemaAvailabilityHeadInTransactionEffect = Effect.fn(
     storedInstallation,
     operation,
   );
+});
+
+/** Source-private read after the coordinator authenticates readiness in its
+ * current locked head. Availability remains a fresh database decision. */
+export const readFrameworkSchemaAvailabilityForReadinessInTransactionEffect = Effect.fn(
+  "FrameworkSchemaAvailabilityHeadRepository.readForReadiness",
+)(function* (
+  transaction: FlarexMetadataTransaction,
+  readiness: RestoredFrameworkSchemaReadiness,
+): Effect.fn.Return<
+  Option.Option<RestoredFrameworkSchemaAvailabilityHead>,
+  FrameworkMigrationRepositoryError
+> {
+  const operation = "readAvailabilityHead" as const;
+  if (!isRestoredFrameworkSchemaReadiness(readiness)) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+  }
+  return yield* loadRestoredAvailabilityHead(transaction, readiness.installation, operation, undefined, readiness);
 });
 
 /** The digest selects a candidate, never authority. Lock the mutable head before
@@ -477,6 +496,7 @@ const loadRestoredAvailabilityHead = Effect.fn(
   preferredInstallation: RestoredFrameworkSchemaInstallation,
   operation: FrameworkMigrationRepositoryOperation,
   preferredHistory?: RestoredFrameworkSchemaAvailabilityHistory,
+  preferredReadiness?: RestoredFrameworkSchemaReadiness,
 ): Effect.fn.Return<
   Option.Option<RestoredFrameworkSchemaAvailabilityHead>,
   FrameworkMigrationRepositoryError
@@ -493,6 +513,7 @@ const loadRestoredAvailabilityHead = Effect.fn(
     preferredInstallation,
     operation,
     preferredHistory,
+    preferredReadiness,
   ));
 });
 
@@ -504,6 +525,7 @@ const restoreAvailabilityHeadOccupant = Effect.fn(
   preferredInstallation: RestoredFrameworkSchemaInstallation,
   operation: FrameworkMigrationRepositoryOperation,
   preferredHistory?: RestoredFrameworkSchemaAvailabilityHistory,
+  preferredReadiness?: RestoredFrameworkSchemaReadiness,
 ): Effect.fn.Return<
   RestoredFrameworkSchemaAvailabilityHead,
   FrameworkMigrationRepositoryError
@@ -523,6 +545,7 @@ const restoreAvailabilityHeadOccupant = Effect.fn(
       decoded.frame.status,
       decoded.frame.historySha256,
       operation,
+      preferredReadiness,
     ).pipe(Effect.mapError(error => mapStoredRepositoryError(operation, error))));
   if (history.readiness.storageId !== decoded.readinessStorageId) {
     return yield* Effect.fail(

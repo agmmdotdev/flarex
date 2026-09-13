@@ -365,10 +365,15 @@ export const restoreStoredFrameworkSchemaAvailabilityHistoryReferenceInTransacti
       status: FrameworkSchemaAvailabilityStatus,
       historySha256: FrameworkSchemaAvailabilityHistorySha256,
       operation: FrameworkMigrationRepositoryOperation,
+      preferredReadiness?: RestoredFrameworkSchemaReadiness,
     ): Effect.fn.Return<
       RestoredFrameworkSchemaAvailabilityHistory,
       FrameworkMigrationRepositoryError
     > {
+      if (preferredReadiness !== undefined &&
+        (!isRestoredFrameworkSchemaReadiness(preferredReadiness) || preferredReadiness.installation !== preferredInstallation)) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+      }
       const row = yield* loadAvailabilityHistoryRootByStorageId(
         transaction,
         historyStorageId,
@@ -388,7 +393,7 @@ export const restoreStoredFrameworkSchemaAvailabilityHistoryReferenceInTransacti
           FrameworkMigrationRepositoryError.storedCorruption(operation),
         );
       }
-      const readiness = yield*
+      const readiness = preferredReadiness ?? (yield*
         restoreStoredFrameworkSchemaReadinessReferenceInTransactionEffect(
           transaction,
           preferredInstallation,
@@ -396,7 +401,7 @@ export const restoreStoredFrameworkSchemaAvailabilityHistoryReferenceInTransacti
           operation,
         ).pipe(Effect.mapError(error =>
           mapStoredRepositoryError(operation, error)
-        ));
+        )));
       const occupant = yield* restoreAvailabilityHistoryChain(
         transaction,
         row.value,

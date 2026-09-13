@@ -1,4 +1,4 @@
-import { assertPublicationRollback, publicationAlterations } from "./frameworkPublicationTestSupport";
+import { assertPublicationRollback, publicationAlterations, assertSettledReadinessRefusal, settledReadinessAlterations } from "./frameworkPublicationTestSupport";
 import { assertInstallationWorkPhases } from "./frameworkInstallationWorkTestSupport";
 import { assertNormalCommandWorkingSet, assertNormalCommandRollback, assertLiveClaimRestart, normalCommandAlterations } from "./frameworkNormalCommandTestSupport";
 import { assertInstallerResume, assertInstallerDeadline } from "./frameworkInstallerTestSupport";
@@ -29,6 +29,10 @@ import { ensureFrameworkMigrationCollisionDomainInTransactionEffect,
 const native = postgresUrl === null ? describe.skip : describe;
 
 native("native fresh framework migration coordinator", () => {
+  it.each(settledReadinessAlterations)("refuses settled readiness after an altered %s", async alteration => {
+    await withNativeCoordinator(fixture => assertSettledReadinessRefusal(fixture.persistence.drizzle, fixture.input, alteration));
+  }, 180_000);
+
   it.each(publicationAlterations)("rolls back final publication after an altered %s", async alteration => {
     await withNativeCoordinator(fixture => assertPublicationRollback(fixture.persistence.drizzle, fixture.input, alteration));
   }, 180_000);

@@ -16,7 +16,7 @@ import {
 } from "../frameworkSchema/installation/availabilityHistoryRepository";
 import {
   writeInitialFrameworkSchemaAvailabilityHeadInTransactionEffect,
-  readFrameworkSchemaAvailabilityHeadInTransactionEffect,
+  readFrameworkSchemaAvailabilityForReadinessInTransactionEffect,
 } from "../frameworkSchema/installation/availabilityHeadRepository";
 import {
   writeFrameworkSchemaInstallationInTransactionEffect,
@@ -442,9 +442,9 @@ export const readyFromLockedHead = Effect.fn(
     ));
   }
   const availability = yield*
-    readFrameworkSchemaAvailabilityHeadInTransactionEffect(
+    readFrameworkSchemaAvailabilityForReadinessInTransactionEffect(
       raw,
-      readiness.installation,
+      readiness,
     );
   if (Option.isNone(availability) || availability.value.head.frame.status !== "ready") {
     return yield* Effect.fail(corruption(

@@ -1,4 +1,4 @@
-import { assertPublicationRollback, publicationAlterations } from "./frameworkPublicationTestSupport";
+import { assertPublicationRollback, publicationAlterations, assertSettledReadinessRefusal, settledReadinessAlterations } from "./frameworkPublicationTestSupport";
 import { assertInstallationWorkPhases } from "./frameworkInstallationWorkTestSupport";
 import { assertNormalCommandWorkingSet, assertNormalCommandRollback, assertLiveClaimRestart, normalCommandAlterations } from "./frameworkNormalCommandTestSupport";
 import { assertInstallerResume, assertInstallerDeadline } from "./frameworkInstallerTestSupport";
@@ -46,6 +46,11 @@ type PublicFreshCoordinatorExport = Extract<
 >;
 
 describe("private fresh framework migration coordinator", () => {
+  it.each(settledReadinessAlterations)("refuses settled readiness after an altered %s", async alteration => {
+    const fixture = await createCoordinatorFixture();
+    await assertSettledReadinessRefusal(fixture.persistence.drizzle, fixture.input, alteration);
+  }, 180_000);
+
   it.each(publicationAlterations)("rolls back final publication after an altered %s", async alteration => {
     const fixture = await createCoordinatorFixture();
     await assertPublicationRollback(fixture.persistence.drizzle, fixture.input, alteration);
