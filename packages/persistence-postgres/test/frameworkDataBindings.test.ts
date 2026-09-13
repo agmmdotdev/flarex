@@ -31,7 +31,7 @@ describe("private data bindings", { timeout: 180_000 }, () => {
         physicalLocator: fixture.active.basis.authority.physicalLocator,
       }),
     );
-    const lifecycle = await exerciseBindingLifecycle(fixture, migrationTarget);
+    const lifecycle = await exerciseBindingLifecycle(fixture, migrationTarget.schema);
     const artifacts = makePGliteFrameworkSchemaArtifactAdmissionFixture(target);
     const physical = await exercisePhysicalBindings(
       fixture,

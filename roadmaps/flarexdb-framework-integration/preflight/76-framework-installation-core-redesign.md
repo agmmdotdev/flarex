@@ -26,12 +26,37 @@ conformance is separate from owner-role corruption injection. Fault-injection
 helpers explicitly disable only the relevant guards inside an administrative
 transaction and restore them; ordinary readers retain their corruption checks.
 
+Database-bound schema placement now belongs to `frameworkSchema/target.ts`.
+Runtime hosts, installation selection and data binding accept its opaque
+`FrameworkSchemaTarget`, which carries no migration driver or transaction runner.
+Trusted runtime composition can create this evidence without constructing a
+migration session. Migration construction issues its own separate authority and
+exposes only attenuated placement through `.schema`; both factories enforce the
+same exact database-object/canonical-identity binding. Persisted namespace and
+installation identities are unchanged. These source-private handles are not
+production target resolution or proof of protected execution privileges.
+
 The optimized progress model, protected-target admission, readable installer
 facade, verification reorganization and performance acceptance are not yet
 implemented. In particular, existing target construction still accepts a
 caller-owned pool and does not enforce a non-owner login. Full current
 reconstruction remains in force; the new guards are not permission to cache
 database authority or enable the proposed fast path before those gates pass.
+
+### Connected validation boundaries
+
+Offline Application fixture seeding must leave its seeded row readable. The
+fixture writes a row revision and commit fact, advances the scope clock, then
+uses the existing physical-index build owner to consume that commit. Without
+the catch-up, active reads correctly refuse `physicalBuildNotCovered`; binding
+must not bypass that refusal. This is test setup, not a replacement Application
+write path or a production readiness change.
+
+The stored-authority loader captures and checks its selected size-projection row
+before constructing the combined Application graph size record. A cardinality
+check alone does not narrow indexed access under a consumer's
+`noUncheckedIndexedAccess` setting. Missing/extra rows still fail through the
+existing materialization checks; no assertion or weakened row contract is needed.
 
 ## Outcome And Scope
 

@@ -1,7 +1,6 @@
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
-import { makePGliteFrameworkMigrationTargetEffect } from "../src/migrationCoordination/pgliteTarget";
-import { makePostgresFrameworkMigrationTargetEffect } from "../src/migrationCoordination/postgresTarget";
+import { makeFrameworkSchemaTarget } from "../src/frameworkSchema/target";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
 
 
@@ -35,8 +34,7 @@ export async function cmsHostFixture(persistence: PGliteFlarexPersistence | Post
   await runEffect(fixture.relationActivation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
   const active = await runEffect(fixture.relationActivation.readActive());
   const targetInput = { deploymentId: fixture.deploymentId, canonicalPhysicalDatabaseIdentity: "cms-host-fixture", physicalLocator: active.basis.authority.physicalLocator };
-  const target = "pool" in persistence ? await runEffect(makePostgresFrameworkMigrationTargetEffect({ ...targetInput, persistence })) :
-    await runEffect(makePGliteFrameworkMigrationTargetEffect({ ...targetInput, persistence }));
+  const target = await runEffect(makeFrameworkSchemaTarget({ ...targetInput, database: persistence.drizzle }));
   const payloadProfiles = await runEffect(compiled === undefined ? makePayloadConformanceProfiles() : makePayloadContentProfiles(compiled));
   const bindings = await runEffect(makeDataBindingHost({ database: persistence.drizzle, deploymentId: fixture.deploymentId, target,
     authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles }));

@@ -3,8 +3,7 @@ import { Effect, Result } from "effect";
 import { expect } from "vitest";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
-import { makePGliteFrameworkMigrationTargetEffect } from "../src/migrationCoordination/pgliteTarget";
-import { makePostgresFrameworkMigrationTargetEffect } from "../src/migrationCoordination/postgresTarget";
+import { makeFrameworkSchemaTarget } from "../src/frameworkSchema/target";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
 import type { DataBindingSetFrame, PayloadContentBinding } from "../src/frameworkSchema/binding/model";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
@@ -27,9 +26,7 @@ export async function frameworkContentBindingScenario(persistence: PGliteFlarexP
     canonicalPhysicalDatabaseIdentity: "content-binding-fixture",
     physicalLocator: active.basis.authority.physicalLocator,
   };
-  const target = "pool" in persistence
-    ? await runEffect(makePostgresFrameworkMigrationTargetEffect({ ...targetInput, persistence }))
-    : await runEffect(makePGliteFrameworkMigrationTargetEffect({ ...targetInput, persistence }));
+  const target = await runEffect(makeFrameworkSchemaTarget({ ...targetInput, database: persistence.drizzle }));
   const input = { database: persistence.drizzle, deploymentId: fixture.deploymentId,
     target, authority: fixture.authorityPorts, application: fixture.relationActivation };
   const host = await runEffect(makeDataBindingHost(input));

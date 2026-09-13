@@ -1,7 +1,7 @@
 import type { Json } from "flarex-protocol/json";
 import type { ApplicationBindingSelectionReader } from "../applicationActivation";
 import type { FlarexMetadataDatabase } from "../deployments";
-import type { FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
+import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
 import type { RelationalSession } from "../relationalTransaction/session";
 import type { TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
@@ -11,7 +11,7 @@ import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionA
 export interface CommerceHostConfiguration<Failure> {
   readonly database: FlarexMetadataDatabase;
   readonly session: RelationalSession;
-  readonly target: FrameworkMigrationTarget;
+  readonly target: FrameworkSchemaTarget;
   readonly deploymentId: string;
   readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly application: ApplicationBindingSelectionReader<Failure>;

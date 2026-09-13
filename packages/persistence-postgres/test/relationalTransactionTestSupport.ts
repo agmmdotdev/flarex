@@ -165,7 +165,7 @@ export async function prepareRelationalFixture<
     (${Result.getOrThrow(projectScopeIdUuidV1Result(fixture.active.basis.authority.scopeId)).scopeUuid}::uuid, 'a', 'Alpha', 'slug-a', 1), (${Result.getOrThrow(projectScopeIdUuidV1Result(fixture.active.basis.authority.scopeId)).scopeUuid}::uuid, 'b', 'Beta', 'slug-b', 2), (${Result.getOrThrow(projectScopeIdUuidV1Result(fixture.active.basis.authority.scopeId)).scopeUuid}::uuid, 'c', 'Gamma', 'slug-c', 3)`);
   return {
     fixture,
-    target,
+    target: target.schema,
     availability: ready.availability,
     reference: installationBindingReference(ready.availability),
     identity: table.identity,

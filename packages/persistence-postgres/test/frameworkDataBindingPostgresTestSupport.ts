@@ -25,7 +25,7 @@ import {
   type PostgresLocatedReadCommittedRunnerOptionsV1,
 } from "../src/postgresLocatedReadCommitted";
 import { makeApplicationActivationRepository } from "../src/applicationActivation";
-import { makePostgresFrameworkMigrationTargetEffect } from "../src/migrationCoordination/postgresTarget";
+import { makeFrameworkSchemaTarget } from "../src/frameworkSchema/target";
 import {
   makeDataBindingHost,
   dataBindingActivationRequest,
@@ -94,9 +94,9 @@ export async function reopenBindingHost(
     readiness,
     authority,
   });
-  const migrationTarget = await runEffect(
-    makePostgresFrameworkMigrationTargetEffect({
-      persistence: target,
+  const schemaTarget = await runEffect(
+    makeFrameworkSchemaTarget({
+      database: target.drizzle,
       deploymentId: frame.application.deploymentId,
       canonicalPhysicalDatabaseIdentity: "native-binding-fixture",
       physicalLocator: frame.application.physicalLocator,
@@ -105,7 +105,7 @@ export async function reopenBindingHost(
   const profiles = await runEffect(
     makeDataBindingTestProfiles(
       target.drizzle,
-      migrationTarget,
+      schemaTarget,
       commerceBindings(frame).flatMap(binding => testBindingProfiles(binding.coverage)),
     ),
   );
@@ -113,7 +113,7 @@ export async function reopenBindingHost(
     makeDataBindingHost({
       database: target.drizzle,
       deploymentId: frame.application.deploymentId,
-      target: migrationTarget,
+      target: schemaTarget,
       authority,
       application,
       testOnly: {

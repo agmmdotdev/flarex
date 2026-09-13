@@ -5,7 +5,7 @@ import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import { runEffectTransaction } from "../../effectTransaction";
 import { runDrizzleStatementEffect } from "../../drizzleStatementEffect";
-import { frameworkMigrationTargetSnapshot, hasFrameworkMigrationTargetDatabase, type FrameworkMigrationTarget } from "../../migrationCoordination/targetSession";
+import { frameworkSchemaTargetSnapshot, hasFrameworkSchemaTargetDatabase, type FrameworkSchemaTarget } from "../target";
 import { withFrameworkMigrationPlanVerification } from "../../migrationCoordination/planVerificationScope";
 import { withAdditiveMigrationGraphLimits } from "../../migrationCoordination/additiveLimits";
 import { lockBindingInstallation } from "../binding/evidence";
@@ -21,7 +21,7 @@ import { collectInstallationEvidence, readInstallationEvidence, installationEvid
 declare const preparedInstallationBrand: unique symbol;
 export interface PreparedInstallationRuntime { readonly [preparedInstallationBrand]: true }
 interface PreparedState {
-  readonly target: FrameworkMigrationTarget;
+  readonly target: FrameworkSchemaTarget;
   readonly reference: InstallationBindingReference;
   readonly installationStorageId: bigint;
   readonly headFingerprint: string;
@@ -37,10 +37,10 @@ const MAX_RETAINED_DATA_BYTES = 8_388_608;
  * The host owns the token's lifetime; releasing the host makes all state collectible.
  * Concurrent host constructions are independent, with no shared mutable cache. */
 export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare")(function* (
-  database: FlarexMetadataDatabase, target: FrameworkMigrationTarget, input: InstallationBindingReference,
+  database: FlarexMetadataDatabase, target: FrameworkSchemaTarget, input: InstallationBindingReference,
 ) {
-  const snapshot = frameworkMigrationTargetSnapshot(target);
-  if (snapshot === undefined || !hasFrameworkMigrationTargetDatabase(target, database)) return yield* Effect.fail(bindingError("invalidAuthority"));
+  const snapshot = frameworkSchemaTargetSnapshot(target);
+  if (snapshot === undefined || !hasFrameworkSchemaTargetDatabase(target, database)) return yield* Effect.fail(bindingError("invalidAuthority"));
   const captured = yield* Effect.fromResult(capturePrivateJsonData(input, 65_536, (_reason, cause) => bindingError("invalidInput", cause)));
   if (!isSyntheticBindingReference(captured.value)) return yield* Effect.fail(bindingError("invalidInput"));
   const reference = captured.value;
@@ -71,7 +71,7 @@ export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare
  * A head or evidence mismatch fails closed; it never refreshes/blesses changed
  * evidence, and never falls back to a previous successful verdict. */
 export const acceptPreparedInstallation = Effect.fn("InstallationRuntime.accept")(function* (
-  prepared: PreparedInstallationRuntime, target: FrameworkMigrationTarget,
+  prepared: PreparedInstallationRuntime, target: FrameworkSchemaTarget,
   reference: InstallationBindingReference, tx: FlarexMetadataTransaction,
 ) {
   const state = states.get(prepared);

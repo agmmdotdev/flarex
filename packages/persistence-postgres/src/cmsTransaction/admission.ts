@@ -1,4 +1,4 @@
-import { frameworkMigrationTargetSnapshot, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
+import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import { prepareInstallationRuntime, acceptPreparedInstallation, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import type { InstallationRuntimeData } from "../frameworkSchema/installation/runtimeData";
@@ -45,7 +45,7 @@ export interface CmsAdmissionState {
   readonly preferenceAvailability: InstallationRuntimeData | null;
 }
 export interface PreparedCmsPreferences {
-  readonly target: FrameworkMigrationTarget;
+  readonly target: FrameworkSchemaTarget;
   readonly installation: PreparedInstallationRuntime;
 }
 const admissions = new WeakMap<object, CmsAdmissionState>();
@@ -62,7 +62,7 @@ function cmsClockMatches(authority: TrustedScopeAuthority, clock: ScopeClockReco
 export const prepareCmsPreferences = Effect.fn("CmsAdmission.preparePreferences")(function* (
   database: FlarexMetadataDatabase, session: RelationalSession,
   authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
-  deploymentId: string, target: FrameworkMigrationTarget,
+  deploymentId: string, target: FrameworkSchemaTarget,
 ) {
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
   if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
@@ -145,7 +145,7 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
     yield* verifyAcceptedPayloadContentBinding(tx, clock, frame, binding);
     let preferenceAvailability: InstallationRuntimeData | null = null;
     if (preferences !== undefined && frame.payloadLifecycle !== null) {
-      const snapshot = frameworkMigrationTargetSnapshot(preferences.target);
+      const snapshot = frameworkSchemaTargetSnapshot(preferences.target);
       if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
         !scopePhysicalLocatorsEqual(snapshot.physicalLocator, authority.physicalLocator)) return yield* Effect.fail(cmsError("invalidAuthority"));
       const availability = yield* acceptPreparedInstallation(preferences.installation, preferences.target,

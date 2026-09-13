@@ -4,7 +4,7 @@ import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery
 import type { AppRelationEdgeQueryObservation } from "../appRelationEdges";
 import { prepareCmsRelations, makeCmsRelations, type CmsRelations } from "./relations";
 import { hasApplicationRelationReadPortAuthorityForControlDb, hasApplicationRelationReadPortAuthorityForPointCommit, type ApplicationRelationReadPort } from "../applicationRelationRead";
-import { hasFrameworkMigrationTargetDatabase, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
+import { hasFrameworkSchemaTargetDatabase, type FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { Clock, Effect, Option, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
@@ -80,7 +80,7 @@ export interface CmsHostInput<Failure> {
   readonly materialization: CmsMaterializationOptions;
   readonly relationReads?: ApplicationRelationReadPort;
   /** Exact preference binding required by the operation-specific cleanup port. */
-  readonly payloadPreferenceTarget?: FrameworkMigrationTarget;
+  readonly payloadPreferenceTarget?: FrameworkSchemaTarget;
   /** Optional closed-consumer restriction, checked under the admitted scope lock. */
   readonly expectedContentIdentity?: Readonly<{ configSha256: string; provenanceSha256: string }>;
 }
@@ -120,7 +120,7 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
     !hasApplicationRelationReadPortAuthorityForPointCommit(relationReads, pointCommitAuthority))) return yield* Effect.fail(cmsError("invalidAuthority"));
   const compositionAuthority = input.authority;
   const preferenceTarget = input.payloadPreferenceTarget;
-  if (preferenceTarget !== undefined && !hasFrameworkMigrationTargetDatabase(preferenceTarget, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
+  if (preferenceTarget !== undefined && !hasFrameworkSchemaTargetDatabase(preferenceTarget, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const expectedContentIdentity = input.expectedContentIdentity === undefined ? undefined :
     yield* decodeContentIdentity(input.expectedContentIdentity).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));

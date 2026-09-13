@@ -47,9 +47,9 @@ import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { isSyntheticBindingReference } from "../frameworkSchema/binding/canonical";
 import type { InstallationBindingReference } from "../frameworkSchema/binding/model";
 import {
-  hasFrameworkMigrationTargetDatabase,
-  type FrameworkMigrationTarget,
-} from "../migrationCoordination/targetSession";
+  hasFrameworkSchemaTargetDatabase,
+  type FrameworkSchemaTarget,
+} from "../frameworkSchema/target";
 import { capturePrivateJsonData } from "../privateJsonData";
 import {
   hasLocatedReadCommittedTargetDatabaseV1,
@@ -102,7 +102,7 @@ export interface CurrencyAnnouncementHostInput<Failure> {
     CmsHostInput<Failure>["expectedContentIdentity"]
   >;
   readonly commerce: {
-    readonly target: FrameworkMigrationTarget;
+    readonly target: FrameworkSchemaTarget;
     readonly profile: CommerceProfile;
     readonly installation: InstallationBindingReference;
   };
@@ -145,7 +145,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
     cms?.name !== "payload-create" ||
     cms.mode !== "write" ||
     !hasRelationalSessionDatabase(session, database) ||
-    !hasFrameworkMigrationTargetDatabase(commerce.target, database)
+    !hasFrameworkSchemaTargetDatabase(commerce.target, database)
   ) {
     return yield* Effect.fail(compositeError("invalidAuthority"));
   }

@@ -21,7 +21,7 @@ import { payloadPreferenceSchemaInput } from "../src/payloadPreferences/schema";
 import { captureRelationalSchemaArtifact } from "../src/relationalSchema/artifact";
 import { captureRelationalPhysicalLayout } from "../src/relationalSchema/physical/canonical";
 import { captureFreshRelationalMigrationPlan } from "../src/migrationCoordination/canonical";
-import { frameworkMigrationTargetSnapshot } from "../src/migrationCoordination/targetSession";
+import { frameworkSchemaTargetSnapshot } from "../src/frameworkSchema/target";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import { captureFrameworkSchemaAvailabilityHistory, captureFrameworkSchemaAvailabilityHead } from "../src/frameworkSchema/installation/canonical";
@@ -228,7 +228,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   await persistence.drizzle.delete(table).where(ne(table.id, record.id));
   const schema = payloadPreferenceSchemaInput();
   const malformed = await runEffect(captureRelationalSchemaArtifact({ deploymentId: fixture.deploymentId, provenance: profile.artifact.provenance, schema: { ...schema, tables: schema.tables.map(table => ({ ...table, indexes: [] })) } }));
-  const snapshot = frameworkMigrationTargetSnapshot(target);
+  const snapshot = frameworkSchemaTargetSnapshot(target);
   if (snapshot === undefined) throw new Error("Missing target snapshot");
   const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: malformed.artifact, targetNamespace: snapshot.namespace, physicalLocator: snapshot.physicalLocator }));
   await runEffectFailure(captureFreshRelationalMigrationPlan({ artifact: malformed.artifact, physicalLayout: layout }));

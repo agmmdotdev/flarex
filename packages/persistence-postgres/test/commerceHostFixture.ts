@@ -4,7 +4,8 @@ import type { Json } from "flarex-protocol/json";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
-import { frameworkMigrationTargetSnapshot, type FrameworkMigrationTargetSnapshot } from "../src/migrationCoordination/targetSession";
+import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTargetSnapshot } from "../src/frameworkSchema/target";
+import { makeFrameworkMigrationFixtureTarget } from "./frameworkMigrationFixtureTarget";
 import { runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
 import { withFrameworkMigrationPlanVerification } from "../src/migrationCoordination/canonical";
 import { prepareFrameworkSchemaArtifactAdmission, makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
@@ -43,7 +44,7 @@ export interface CommerceHostTestFixture {
 
 /** Framework-neutral setup. The adapter supplies the actual model's descriptor. */
 export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession,
-  prepare: (deploymentId: string, target: { physicalLocator: FrameworkMigrationTargetSnapshot["physicalLocator"]; targetNamespace: FrameworkMigrationTargetSnapshot["namespace"] }) => Effect.Effect<{ profile: CommerceProfile; initialization: { rows: Json | undefined } }, Failure>,
+  prepare: (deploymentId: string, target: { physicalLocator: FrameworkSchemaTargetSnapshot["physicalLocator"]; targetNamespace: FrameworkSchemaTargetSnapshot["namespace"] }) => Effect.Effect<{ profile: CommerceProfile; initialization: { rows: Json | undefined } }, Failure>,
   commands: readonly CommerceCommand[],
   controlPersistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   localPolicy?: (descriptor: CommerceProfileState) => LocalCommerceEventPolicy,
@@ -53,7 +54,7 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
   const schemaName = (await persistence.query<{ name: string }>("select current_schema() as name")).rows[0]?.name;
   if (schemaName === undefined) throw new Error("Missing fixture schema");
   const base = existing?.cms ?? await cmsHostFixture(persistence, { ...cmsOptions, controlPersistence, physicalLocator: { kind: "database_per_scope", databaseKey: "application_relation_readiness_fold_target", schemaName } });
-  const snapshot = frameworkMigrationTargetSnapshot(base.target);
+  const snapshot = frameworkSchemaTargetSnapshot(base.target);
   if (snapshot === undefined) throw new Error("Missing authenticated target");
   const prepared = await runEffect(prepare(base.fixture.deploymentId, { physicalLocator: snapshot.physicalLocator, targetNamespace: snapshot.namespace }));
   const descriptor = await runEffect(requireCommerceProfile(prepared.profile));
@@ -61,7 +62,8 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
     controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({ controlDb: persistence.drizzle, driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(persistence.pool) }),
     readTimeoutMilliseconds: 10000, attemptTimeoutMilliseconds: 10000, recoveryTimeoutMilliseconds: 10000, lockTimeoutMilliseconds: 2000 })) : makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence).repository;
   await runEffect(admitFrameworkSchemaArtifactEffect(repository, Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(descriptor.artifact))));
-  const migration = { target: base.target, artifactRepository: repository, artifactIdentity: descriptor.artifact.identity, commerceProfile: prepared.profile,
+  const migrationTarget = await makeFrameworkMigrationFixtureTarget(persistence, base.target);
+  const migration = { target: migrationTarget, artifactRepository: repository, artifactIdentity: descriptor.artifact.identity, commerceProfile: prepared.profile,
     attemptId: "commerce-install", leaseOwnerId: "commerce-test", leaseDurationMilliseconds: 120000, lockTimeoutMilliseconds: 5000, statementTimeoutMilliseconds: 30000, maximumStepsPerRun: 16 };
   const installationStarted = performance.now();
   const ready = await runEffect(Effect.gen(function* () {

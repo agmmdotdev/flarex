@@ -3,12 +3,14 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
 
 import type { FlarexMetadataDatabase } from "../deployments";
-import { isBoundedPrivateValueIdentityText } from
-  "../frameworkSchema/privateStoredValueShape";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
-import type { ScopePhysicalLocator } from "../scopeMetadataTypes";
-import { captureFrameworkSchemaTargetNamespace } from "./targetNamespace";
-import type { FrameworkSchemaTargetNamespace } from "./targetNamespace";
+import {
+  makeFrameworkSchemaTarget,
+  frameworkSchemaTargetSnapshot,
+  type FrameworkSchemaTarget,
+  type FrameworkSchemaTargetInput,
+  type FrameworkSchemaTargetSnapshot,
+} from "../frameworkSchema/target";
 
 const frameworkMigrationTargetBrand: unique symbol = Symbol(
   "FlarexDB/FrameworkMigrationTarget",
@@ -25,6 +27,8 @@ const frameworkMigrationSessionDriverBrand: unique symbol = Symbol(
 
 export interface FrameworkMigrationTarget {
   readonly [frameworkMigrationTargetBrand]: true;
+  /** Attenuated placement evidence for data hosts; never a migration runner. */
+  readonly schema: FrameworkSchemaTarget;
 }
 
 export interface FrameworkMigrationSessionIdentity {
@@ -75,7 +79,6 @@ export class FrameworkMigrationTargetCompositionError extends Data.TaggedError(
   readonly reason:
     | "invalidInput"
     | "invalidDriver"
-    | "databaseIdentityConflict"
     | "targetMismatch"
     | "sessionMismatch";
   readonly message: string;
@@ -99,17 +102,12 @@ export type FrameworkMigrationSessionFailure =
   | FrameworkMigrationSessionResourceIssue
   | FrameworkMigrationDecisionUncertainIssue;
 
-export interface FrameworkMigrationTargetInput {
-  readonly database: FlarexMetadataDatabase;
+export interface FrameworkMigrationTargetInput extends FrameworkSchemaTargetInput {
   readonly driver: FrameworkMigrationSessionDriver;
-  readonly deploymentId: string;
-  readonly canonicalPhysicalDatabaseIdentity: string;
-  readonly physicalLocator: ScopePhysicalLocator;
 }
 
-export interface FrameworkMigrationTargetSnapshot {
-  readonly namespace: FrameworkSchemaTargetNamespace;
-  readonly physicalLocator: ScopePhysicalLocator;
+export interface FrameworkMigrationTargetSnapshot
+  extends FrameworkSchemaTargetSnapshot {
   readonly capability: "postgres-transactional-relational-structure";
 }
 
@@ -163,10 +161,6 @@ const transactionStates = new WeakMap<
   FrameworkMigrationTransaction,
   FrameworkMigrationTransactionState
 >();
-const physicalDatabaseIdentities = new WeakMap<
-  FlarexMetadataDatabase,
-  string
->();
 
 export function makeFrameworkMigrationSessionDriver(
   database: FlarexMetadataDatabase,
@@ -181,19 +175,13 @@ export function makeFrameworkMigrationSessionDriver(
 
 export const makeFrameworkMigrationTargetEffect = Effect.fn(
   "FrameworkMigrationTarget.make",
-)(function* (
-  input: FrameworkMigrationTargetInput,
-): Effect.fn.Return<
-  FrameworkMigrationTarget,
-  FrameworkMigrationTargetCompositionError |
-    import("./errors").FrameworkMigrationValueError
-> {
+)(function* (input: FrameworkMigrationTargetInput) {
   const database = input.database;
   const driver = input.driver;
   const deploymentId = input.deploymentId;
   const canonicalPhysicalDatabaseIdentity =
     input.canonicalPhysicalDatabaseIdentity;
-  const physicalLocator = capturePhysicalLocator(input.physicalLocator);
+  const physicalLocator = input.physicalLocator;
   const driverState = driverStates.get(driver);
   if (
     !isWeakMapKey(database) ||
@@ -205,53 +193,24 @@ export const makeFrameworkMigrationTargetEffect = Effect.fn(
       message: "Framework migration target driver is not bound to its database",
     }));
   }
-  if (
-    !isIdentityText(canonicalPhysicalDatabaseIdentity) ||
-    !isIdentityText(deploymentId) ||
-    physicalLocator === undefined
-  ) {
-    return yield* Effect.fail(new FrameworkMigrationTargetCompositionError({
-      reason: "invalidInput",
-      message: "Framework migration target input is invalid",
-    }));
-  }
-  const existingIdentity = physicalDatabaseIdentities.get(database);
-  if (
-    existingIdentity !== undefined &&
-    existingIdentity !== canonicalPhysicalDatabaseIdentity
-  ) {
-    return yield* Effect.fail(new FrameworkMigrationTargetCompositionError({
-      reason: "databaseIdentityConflict",
-      message: "Framework migration database identity conflicts with prior binding",
-    }));
-  }
-  const namespace = yield* captureFrameworkSchemaTargetNamespace({
-    deploymentId,
-    physicalDatabaseIdentity: canonicalPhysicalDatabaseIdentity,
-    schemaName: physicalLocator.schemaName,
-  });
-  const identityAfterCapture = physicalDatabaseIdentities.get(database);
-  if (
-    identityAfterCapture !== undefined &&
-    identityAfterCapture !== canonicalPhysicalDatabaseIdentity
-  ) {
-    return yield* Effect.fail(new FrameworkMigrationTargetCompositionError({
-      reason: "databaseIdentityConflict",
-      message: "Framework migration database identity conflicts with prior binding",
-    }));
-  }
-  const target = Object.freeze({
-    [frameworkMigrationTargetBrand]: true,
-  } satisfies FrameworkMigrationTarget);
-  physicalDatabaseIdentities.set(
+  const schema = yield* makeFrameworkSchemaTarget({
     database,
+    deploymentId,
     canonicalPhysicalDatabaseIdentity,
-  );
+    physicalLocator,
+  });
+  const snapshot = frameworkSchemaTargetSnapshot(schema);
+  if (snapshot === undefined) {
+    return yield* Effect.die(new Error("New framework schema target is missing"));
+  }
+  const target: FrameworkMigrationTarget = Object.freeze({
+    [frameworkMigrationTargetBrand]: true,
+    schema,
+  } satisfies FrameworkMigrationTarget);
   targetStates.set(target, Object.freeze({
     database,
     driver,
-    namespace,
-    physicalLocator,
+    ...snapshot,
     capability: "postgres-transactional-relational-structure",
   } satisfies FrameworkMigrationTargetState));
   return target;
@@ -268,13 +227,6 @@ export function frameworkMigrationTargetSnapshot(
       physicalLocator: state.physicalLocator,
       capability: state.capability,
     });
-}
-
-/** Private composition evidence only; this does not grant migration or data access. */
-export function hasFrameworkMigrationTargetDatabase(
-  target: FrameworkMigrationTarget, database: FlarexMetadataDatabase,
-): boolean {
-  return targetStates.get(target)?.database === database;
 }
 
 export const runFrameworkMigrationTargetTransactionEffect = Effect.fn(
@@ -446,39 +398,6 @@ function captureTransactionRequest(
 
 function isPositiveBoundedInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0 && value <= 600_000;
-}
-
-function isIdentityText(value: unknown): value is string {
-  return isBoundedPrivateValueIdentityText(value);
-}
-
-function capturePhysicalLocator(
-  value: unknown,
-): ScopePhysicalLocator | undefined {
-  try {
-    if (!isNonArrayRecord(value)) {
-      return undefined;
-    }
-    const kind = value.kind;
-    const databaseKey = value.databaseKey;
-    const schemaName = value.schemaName;
-    if (
-      !isIdentityText(databaseKey) ||
-      !isBoundedPrivateValueIdentityText(schemaName, 63)
-    ) {
-      return undefined;
-    }
-    switch (kind) {
-      case "shared_database":
-      case "schema_per_scope":
-      case "database_per_scope":
-        return Object.freeze({ kind, databaseKey, schemaName });
-      default:
-        return undefined;
-    }
-  } catch {
-    return undefined;
-  }
 }
 
 function isWeakMapKey(value: unknown): value is object {

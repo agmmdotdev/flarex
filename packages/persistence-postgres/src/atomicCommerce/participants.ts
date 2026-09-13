@@ -11,7 +11,7 @@ import { validateCommerceProfileSet } from "../frameworkSchema/binding/commerceB
 import { capturePrivateJsonData } from "../privateJsonData";
 import { prepareInstallationRuntime, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import type { FlarexMetadataDatabase } from "../deployments";
-import type { FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
+import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { getAtomicCommerceParticipant, type AtomicCommerceParticipant } from "./commands";
 import { captureParticipantEvents, type ParticipantEventSelection } from "./events";
 
@@ -27,7 +27,7 @@ export interface AtomicCommerceParticipantInput {
 export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name) && name !== "initialize";
 
 export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepareParticipants")(function* (
-  database: FlarexMetadataDatabase, target: FrameworkMigrationTarget, input: readonly AtomicCommerceParticipantInput[],
+  database: FlarexMetadataDatabase, target: FrameworkSchemaTarget, input: readonly AtomicCommerceParticipantInput[],
 ) {
   // Capture all configuration before the first asynchronous suspension.
   const captured = input.map(member => ({ ...member, commands: [...member.commands], events: captureParticipantEvents(member.events),

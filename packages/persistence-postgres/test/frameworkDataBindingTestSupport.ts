@@ -21,7 +21,7 @@ import type {
   ApplicationNativeMutationFixture,
   ApplicationNativeMutationPersistence,
 } from "./fixtures/applicationNativeMutationTestFixture";
-import type { FrameworkMigrationTarget } from "../src/migrationCoordination/targetSession";
+import type { FrameworkSchemaTarget } from "../src/frameworkSchema/target";
 import type { DataBindingSetFrame } from "../src/frameworkSchema/binding/model";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
@@ -33,7 +33,7 @@ export function bindingInput<
   Persistence extends ApplicationNativeMutationPersistence,
 >(
   fixture: ApplicationNativeMutationFixture<Persistence>,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
 ) {
   return {
     database: fixture.target.drizzle,
@@ -51,7 +51,7 @@ export async function exerciseBindingLifecycle<
   Persistence extends ApplicationNativeMutationPersistence,
 >(
   fixture: ApplicationNativeMutationFixture<Persistence>,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
   competeFirst = false,
 ) {
   const input = bindingInput(fixture, target);

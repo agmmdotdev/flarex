@@ -3,7 +3,8 @@ import { Result } from "effect";
 import { pgTable, text, jsonb, timestamp, uuid } from "drizzle-orm/pg-core";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
-import type { FrameworkMigrationTarget } from "../src/migrationCoordination/targetSession";
+import type { FrameworkSchemaTarget } from "../src/frameworkSchema/target";
+import { makeFrameworkMigrationFixtureTarget } from "./frameworkMigrationFixtureTarget";
 import { capturePayloadPreferenceProfile } from "../src/payloadPreferences/binding";
 import { runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
 import { prepareFrameworkSchemaArtifactAdmission, makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
@@ -15,13 +16,14 @@ import { runEffect } from "./effectTestRuntime";
 
 /** Test orchestration only: all installation and physical naming stay with shared owners. */
 export async function installPayloadPreferenceFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
-  target: FrameworkMigrationTarget, deploymentId: string) {
+  target: FrameworkSchemaTarget, deploymentId: string) {
   const profile = await runEffect(capturePayloadPreferenceProfile(deploymentId));
   const repository = "pool" in persistence ? Result.getOrThrow(makeFrameworkSchemaArtifactRepository({ controlDb: persistence.drizzle,
     controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({ controlDb: persistence.drizzle, driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(persistence.pool) }),
     readTimeoutMilliseconds: 10000, attemptTimeoutMilliseconds: 10000, recoveryTimeoutMilliseconds: 10000, lockTimeoutMilliseconds: 2000 })) : makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence).repository;
   await runEffect(admitFrameworkSchemaArtifactEffect(repository, Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(profile.artifact))));
-  const input = { target, artifactRepository: repository, artifactIdentity: profile.artifact.identity, attemptId: "preference-install", leaseOwnerId: "preference-test",
+  const migrationTarget = await makeFrameworkMigrationFixtureTarget(persistence, target);
+  const input = { target: migrationTarget, artifactRepository: repository, artifactIdentity: profile.artifact.identity, attemptId: "preference-install", leaseOwnerId: "preference-test",
     leaseDurationMilliseconds: 120000, lockTimeoutMilliseconds: 5000, statementTimeoutMilliseconds: 30000, maximumStepsPerRun: 16 };
   const ready = await runEffect(runFreshFrameworkMigrationCoordinatorEffect(input));
   if (ready.kind !== "ready") throw new Error(`Preference installation incomplete: ${ready.kind}`);

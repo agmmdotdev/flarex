@@ -6,9 +6,9 @@ import { withFrameworkMigrationPlanVerification } from "../../migrationCoordinat
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type {
-  FrameworkMigrationTarget,
-  FrameworkMigrationTargetSnapshot,
-} from "../../migrationCoordination/targetSession";
+  FrameworkSchemaTarget,
+  FrameworkSchemaTargetSnapshot,
+} from "../target";
 import { lockFrameworkSchemaAvailabilityByIdentityInTransactionEffect } from "../installation/availabilityHeadRepository";
 import { sameBindingValue } from "./canonical";
 import { bindingError } from "./errors";
@@ -53,7 +53,7 @@ export const lockBindingInstallation = Effect.fn(
 )(function* (
   tx: FlarexMetadataTransaction,
   binding: InstallationBindingReference,
-  target: FrameworkMigrationTargetSnapshot,
+  target: FrameworkSchemaTargetSnapshot,
 ) {
   const identity = binding.installation;
   if (
@@ -89,8 +89,8 @@ export const verifyBindingLanes = Effect.fn("DataBindingEvidence.verifyLanes")(
     tx: FlarexMetadataTransaction,
     frame: DataBindingSetFrame,
     database: FlarexMetadataDatabase,
-    target: FrameworkMigrationTarget,
-    snapshot: FrameworkMigrationTargetSnapshot,
+    target: FrameworkSchemaTarget,
+    snapshot: FrameworkSchemaTargetSnapshot,
     profiles: DataBindingTestProfiles | undefined,
     selection: ApplicationActiveSelection,
     payloadProfiles: PayloadContentProfiles | undefined,

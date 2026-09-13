@@ -1,8 +1,15 @@
 import { sql } from "drizzle-orm";
 import { Cause, Effect, Exit } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import * as persistenceRoot from "../src";
+import {
+  FrameworkSchemaTargetCompositionError,
+  frameworkSchemaTargetSnapshot,
+  hasFrameworkSchemaTargetDatabase,
+  makeFrameworkSchemaTarget,
+  type FrameworkSchemaTarget,
+} from "../src/frameworkSchema/target";
 
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import type { FlarexMetadataTransaction } from
@@ -70,6 +77,7 @@ const executeProbeSqlEffect = Effect.fn(
 describe("private framework migration target sessions", () => {
   it("keeps target, session, and PGlite composition capabilities source-private", async () => {
     expect("makeFrameworkMigrationTargetEffect" in persistenceRoot).toBe(false);
+    expect("makeFrameworkSchemaTarget" in persistenceRoot).toBe(false);
     expect(
       "runFrameworkMigrationTargetTransactionEffect" in persistenceRoot,
     ).toBe(false);
@@ -82,6 +90,7 @@ describe("private framework migration target sessions", () => {
       with: { type: "json" },
     });
     const exportedPaths = Object.values(packageJson.default.exports);
+    expect(exportedPaths).not.toContain("./src/frameworkSchema/target.ts");
     expect(exportedPaths).not.toContain(
       "./src/migrationCoordination/targetSession.ts",
     );
@@ -179,9 +188,9 @@ describe("private framework migration target sessions", () => {
       physicalLocator: PHYSICAL_LOCATOR,
     }));
     expect(conflict).toMatchObject({
-      _tag: "FrameworkMigrationTargetCompositionError",
+      _tag: "FrameworkSchemaTargetCompositionError",
       reason: "databaseIdentityConflict",
-    } satisfies Partial<FrameworkMigrationTargetCompositionError>);
+    } satisfies Partial<FrameworkSchemaTargetCompositionError>);
 
     const differentlyBoundDriver = makeFrameworkMigrationSessionDriver(
       new Proxy(database, {}),
@@ -203,7 +212,74 @@ describe("private framework migration target sessions", () => {
     expect(frameworkMigrationTargetSnapshot(target)).toEqual(snapshot);
   }, PGLITE_TEST_TIMEOUT);
 
-  it("allows exactly one of two concurrent conflicting database identities", async () => {
+  it("constructs schema placement without touching SQL and keeps migration authority separate", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    let databaseReads = 0;
+    const database = new Proxy(persistence.drizzle, {
+      get() {
+        databaseReads += 1;
+        throw new Error("Schema target construction must not use the database");
+      },
+    });
+    const locator = { ...PHYSICAL_LOCATOR };
+    const input = {
+      database,
+      deploymentId: "schema-placement-deployment",
+      canonicalPhysicalDatabaseIdentity: "pglite://schema-placement",
+      physicalLocator: locator,
+    };
+    const schema = await runEffect(makeFrameworkSchemaTarget(input));
+    locator.schemaName = "changed_after_capture";
+    const snapshot = frameworkSchemaTargetSnapshot(schema);
+    expect(snapshot?.physicalLocator).toEqual(PHYSICAL_LOCATOR);
+    expect(Object.keys(schema)).toEqual([]);
+    expect(Object.isFrozen(schema)).toBe(true);
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot?.physicalLocator)).toBe(true);
+    expect(snapshot).not.toHaveProperty("capability");
+    expect(hasFrameworkSchemaTargetDatabase(schema, database)).toBe(true);
+    expect(hasFrameworkSchemaTargetDatabase(schema, persistence.drizzle)).toBe(false);
+    // A copied brand is not registered placement authority.
+    const forgedSchema = Object.freeze({ ...schema });
+    expect(frameworkSchemaTargetSnapshot(forgedSchema)).toBeUndefined();
+    expect(hasFrameworkSchemaTargetDatabase(forgedSchema, database)).toBe(false);
+    expect(hasFrameworkSchemaTargetDatabase(
+      forgedSchema, undefined as unknown as FlarexMetadataDatabase,
+    )).toBe(false);
+
+    const driver = makeFrameworkMigrationSessionDriver(database, unexpectedDriverTransaction);
+    const migration = await runEffect(makeFrameworkMigrationTargetEffect({
+      ...input,
+      physicalLocator: PHYSICAL_LOCATOR,
+      driver,
+    }));
+    expect(frameworkSchemaTargetSnapshot(migration.schema)).toEqual(snapshot);
+    expect(hasFrameworkSchemaTargetDatabase(migration.schema, database)).toBe(true);
+    expect(Object.keys(migration)).toEqual(["schema"]);
+    expect(Object.isFrozen(migration)).toBe(true);
+    expectTypeOf<FrameworkSchemaTarget>().not.toExtend<FrameworkMigrationTarget>();
+    expectTypeOf<FrameworkMigrationTarget>().not.toExtend<FrameworkSchemaTarget>();
+    // Deliberately cross the static boundary to exercise runtime rejection.
+    const rejected = await runEffectFailure(runFrameworkMigrationTargetTransactionEffect(
+      schema as unknown as FrameworkMigrationTarget,
+      ORDINARY_REQUEST,
+      () => Effect.die("Schema placement must not authorize migration work"),
+    ));
+    expect(rejected).toMatchObject({ reason: "targetMismatch" });
+    const conflict = await runEffectFailure(makeFrameworkMigrationTargetEffect({
+      ...input,
+      physicalLocator: PHYSICAL_LOCATOR,
+      canonicalPhysicalDatabaseIdentity: "pglite://conflicting-schema-placement",
+      driver,
+    }));
+    expect(conflict).toMatchObject({
+      _tag: "FrameworkSchemaTargetCompositionError",
+      reason: "databaseIdentityConflict",
+    });
+    expect(databaseReads).toBe(0);
+  }, PGLITE_TEST_TIMEOUT);
+
+  it("allows exactly one concurrent identity across schema and migration construction", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const database = persistence.drizzle;
     const driver = makeFrameworkMigrationSessionDriver(
@@ -211,9 +287,8 @@ describe("private framework migration target sessions", () => {
       unexpectedDriverTransaction,
     );
     const [left, right] = await Promise.all([
-      runEffect(Effect.exit(makeFrameworkMigrationTargetEffect({
+      runEffect(Effect.exit(makeFrameworkSchemaTarget({
         database,
-        driver,
         deploymentId: "concurrent-target-deployment",
         canonicalPhysicalDatabaseIdentity: "pglite://concurrent-left",
         physicalLocator: PHYSICAL_LOCATOR,
@@ -226,11 +301,11 @@ describe("private framework migration target sessions", () => {
         physicalLocator: PHYSICAL_LOCATOR,
       }))),
     ]);
-    const exits = [left, right] as const;
+    const exits = [Exit.map(left, () => undefined), Exit.map(right, () => undefined)] as const;
     const successes = exits.filter(Exit.isSuccess);
     const conflicts = exits.flatMap(exit => Exit.isFailure(exit)
       ? typedFailures(exit.cause).filter(
-        failure => failure instanceof FrameworkMigrationTargetCompositionError &&
+        failure => failure instanceof FrameworkSchemaTargetCompositionError &&
           failure.reason === "databaseIdentityConflict",
       )
       : []);

@@ -199,7 +199,7 @@ export async function exercisePhysicalBindings<
   baseFrame: DataBindingSetFrame,
   previousHead: DataBindingHeadToken,
 ) {
-  const input = bindingInput(fixture, target);
+  const input = bindingInput(fixture, target.schema);
   const disabled = await runEffect(makeDataBindingHost(input));
   const syntheticHost = await runEffect(
     makeDataBindingHost({ ...input, testOnly: { syntheticSelection: true } }),
@@ -246,7 +246,7 @@ export async function exercisePhysicalBindings<
   );
   const profiles = bindingProfiles(availability);
   const registry = await runEffect(
-    makeDataBindingTestProfiles(fixture.target.drizzle, target, profiles),
+    makeDataBindingTestProfiles(fixture.target.drizzle, target.schema, profiles),
   );
   const host = await runEffect(
     makeDataBindingHost({
@@ -288,7 +288,7 @@ export async function exercisePhysicalBindings<
   const uncoveredRegistry = await runEffect(
     makeDataBindingTestProfiles(
       fixture.target.drizzle,
-      target,
+      target.schema,
       uncoveredProfiles,
     ),
   );
@@ -366,7 +366,7 @@ export async function exercisePhysicalBindings<
     (await runEffect(host.withCurrent(readAdmittedDataBinding))).head,
   ).toEqual(Result.getOrThrow(second.current).head);
   const newRegistry = await runEffect(
-    makeDataBindingTestProfiles(fixture.target.drizzle, target, profiles),
+    makeDataBindingTestProfiles(fixture.target.drizzle, target.schema, profiles),
   );
   const coldHost = await runEffect(
     makeDataBindingHost({ ...input, testOnly: { profiles: newRegistry } }),

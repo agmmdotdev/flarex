@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { runEffect } from "./effectTestRuntime";
 
 import {
   createApplicationNativeMutationPGliteFixture,
@@ -42,5 +43,14 @@ describe("Application-native mutation fixture", { timeout: 180_000 }, () => {
       "_flarex/schema.js",
       "functions/users.js",
     ]);
+    await fixture.seedUserDocument("readable-seed");
+    expect((await runEffect(fixture.activation.readActive())).basis)
+      .toEqual({
+        ...fixture.active.basis,
+        authority: {
+          ...fixture.active.basis.authority,
+          lastCommitSeq: fixture.active.basis.authority.lastCommitSeq + 1n,
+        },
+      });
   });
 });

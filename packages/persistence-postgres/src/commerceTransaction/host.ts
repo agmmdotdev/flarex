@@ -17,7 +17,7 @@ import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../bound
 import { hasApplicationBindingComposition, prepareApplicationBindingSelection } from "../applicationActivation";
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
-import { hasFrameworkMigrationTargetDatabase } from "../migrationCoordination/targetSession";
+import { hasFrameworkSchemaTargetDatabase } from "../frameworkSchema/target";
 import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
 import { hasRelationalSessionDatabase, runRelationalSession } from "../relationalTransaction/session";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
@@ -65,7 +65,7 @@ export const makeLocalCommerceHost = Effect.fn("CommerceHost.makeLocal")(functio
 
 const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: CommerceHostInput<Failure>, local?: LocalComposition): Effect.fn.Return<CommerceHost, CommerceTransactionError> {
   const { database, session, target, deploymentId, application, profile } = input;
-  if (!hasRelationalSessionDatabase(session, database) || !hasFrameworkMigrationTargetDatabase(target, database) ||
+  if (!hasRelationalSessionDatabase(session, database) || !hasFrameworkSchemaTargetDatabase(target, database) ||
     !hasApplicationBindingComposition(application, input.authority)) return yield* Effect.fail(commerceError("invalidAuthority"));
   const descriptor = yield* requireCommerceProfile(profile);
   const resources = descriptor.resources;

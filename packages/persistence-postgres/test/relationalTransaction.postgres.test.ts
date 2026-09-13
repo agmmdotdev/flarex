@@ -141,7 +141,7 @@ describe.skipIf(postgresUrl === null)(
               {
                 database: persistence.drizzle,
                 session,
-                target,
+                target: target.schema,
                 deploymentId: fixture.deploymentId,
                 authority: fixture.authorityPorts,
                 commands: [hold],
@@ -233,7 +233,7 @@ describe.skipIf(postgresUrl === null)(
             makeRelationalHost({
               database: persistence.drizzle,
               session: uncertainSession,
-              target,
+              target: target.schema,
               deploymentId: fixture.deploymentId,
               authority: fixture.authorityPorts,
               commands: [tested.read],
@@ -253,7 +253,7 @@ describe.skipIf(postgresUrl === null)(
           const cleanupHost = await runEffect(
             makeRelationalHost({
               database: persistence.drizzle,
-              target,
+              target: target.schema,
               deploymentId: fixture.deploymentId,
               authority: fixture.authorityPorts,
               commands: [rejected],

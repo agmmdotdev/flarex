@@ -20,10 +20,10 @@ import {
   type LocatedReadCommittedAttemptTargetV1,
 } from "../../transactionSessionAttemptKernel";
 import {
-  frameworkMigrationTargetSnapshot,
-  hasFrameworkMigrationTargetDatabase,
-  type FrameworkMigrationTarget,
-} from "../../migrationCoordination/targetSession";
+  frameworkSchemaTargetSnapshot,
+  hasFrameworkSchemaTargetDatabase,
+  type FrameworkSchemaTarget,
+} from "../target";
 import { bindingError, type DataBindingError } from "./errors";
 import {
   captureBindingValue,
@@ -106,7 +106,7 @@ export interface DataBindingHostInput<ApplicationFailure> {
   readonly payloadProfiles?: PayloadContentProfiles;
   readonly database: FlarexMetadataDatabase;
   readonly deploymentId: string;
-  readonly target: FrameworkMigrationTarget;
+  readonly target: FrameworkSchemaTarget;
   readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly application: ApplicationBindingSelectionReader<ApplicationFailure>;
   readonly testOnly?: Readonly<{
@@ -124,10 +124,10 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
 ): Effect.fn.Return<DataBindingHost<ApplicationFailure>, DataBindingError> {
   if (
     !hasApplicationBindingComposition(input.application, input.authority) ||
-    !hasFrameworkMigrationTargetDatabase(input.target, input.database)
+    !hasFrameworkSchemaTargetDatabase(input.target, input.database)
   )
     return yield* Effect.fail(bindingError("invalidAuthority"));
-  const snapshot = frameworkMigrationTargetSnapshot(input.target);
+  const snapshot = frameworkSchemaTargetSnapshot(input.target);
   if (
     snapshot === undefined ||
     snapshot.namespace.frame.deploymentId !== input.deploymentId

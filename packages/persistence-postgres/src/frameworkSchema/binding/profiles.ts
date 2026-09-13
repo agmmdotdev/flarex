@@ -2,8 +2,8 @@ import { Effect } from "effect";
 import type { JsonObject } from "flarex-protocol/json";
 import { isExactPrivateValueRecord } from "../privateStoredValueShape";
 import type { FlarexMetadataDatabase } from "../../deployments";
-import type { FrameworkMigrationTarget } from "../../migrationCoordination/targetSession";
-import { hasFrameworkMigrationTargetDatabase } from "../../migrationCoordination/targetSession";
+import type { FrameworkSchemaTarget } from "../target";
+import { hasFrameworkSchemaTargetDatabase } from "../target";
 import {
   captureBindingValue,
   isBindingProfileReference,
@@ -22,7 +22,7 @@ export interface DataBindingTestProfiles {
 }
 interface ProfileState {
   readonly database: FlarexMetadataDatabase;
-  readonly target: FrameworkMigrationTarget;
+  readonly target: FrameworkSchemaTarget;
   readonly profiles: readonly BindingProfileReference[];
 }
 const registries = new WeakMap<object, ProfileState>();
@@ -32,11 +32,11 @@ export const makeDataBindingTestProfiles = Effect.fn(
   "DataBindingProfiles.makeTestComposition",
 )(function* (
   database: FlarexMetadataDatabase,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
   inputs: readonly unknown[],
 ) {
   if (
-    !hasFrameworkMigrationTargetDatabase(target, database) ||
+    !hasFrameworkSchemaTargetDatabase(target, database) ||
     inputs.length > 3
   )
     return yield* Effect.fail(bindingError("invalidAuthority"));
@@ -80,7 +80,7 @@ export const validateBindingProfiles = Effect.fn(
 )(function* (
   registry: DataBindingTestProfiles | undefined,
   database: FlarexMetadataDatabase,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
   binding: CommerceBinding,
   availability: RestoredFrameworkSchemaAvailabilityHead,
 ) {

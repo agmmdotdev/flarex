@@ -9,10 +9,10 @@ import {
 } from "../scopeAuthorityResolution";
 import type { TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import {
-  hasFrameworkMigrationTargetDatabase,
-  frameworkMigrationTargetSnapshot,
-} from "../migrationCoordination/targetSession";
-import type { FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
+  hasFrameworkSchemaTargetDatabase,
+  frameworkSchemaTargetSnapshot,
+} from "../frameworkSchema/target";
+import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
@@ -76,7 +76,7 @@ export function defineRelationalCommand<Input, Value, Failure>(
 export interface RelationalHostInput {
   readonly database: FlarexMetadataDatabase;
   readonly session: RelationalSession;
-  readonly target: FrameworkMigrationTarget;
+  readonly target: FrameworkSchemaTarget;
   readonly deploymentId: string;
   readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly commands: readonly object[];
@@ -200,10 +200,10 @@ export const makeRelationalHost = Effect.fn("RelationalHost.make")(function* (
   const { database, session, target, deploymentId } = input;
   const hooks =
     testHooks === undefined ? undefined : Object.freeze({ ...testHooks });
-  const snapshot = frameworkMigrationTargetSnapshot(target);
+  const snapshot = frameworkSchemaTargetSnapshot(target);
   if (
     !hasRelationalSessionDatabase(session, database) ||
-    !hasFrameworkMigrationTargetDatabase(target, database) ||
+    !hasFrameworkSchemaTargetDatabase(target, database) ||
     snapshot === undefined ||
     snapshot.namespace.frame.deploymentId !== deploymentId ||
     input.commands.length === 0 ||

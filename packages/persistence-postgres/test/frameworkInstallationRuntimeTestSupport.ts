@@ -7,7 +7,7 @@ import { prepareInstallationRuntime, acceptPreparedInstallation, type PreparedIn
 import { fxSystemFrameworkSchemaInstallations as installations } from "../src/frameworkSchema/installation/schema";
 import { fxSystemFrameworkMigrationPlans as plans, fxSystemFrameworkMigrationPlanStepDependencies as dependencies,
   fxSystemRelationalPhysicalNameAssignments as names } from "../src/migrationCoordination/schema";
-import { makeFrameworkMigrationSessionDriver, makeFrameworkMigrationTargetEffect } from "../src/migrationCoordination/targetSession";
+import { makeFrameworkSchemaTarget } from "../src/frameworkSchema/target";
 import { captureFrameworkSchemaAvailabilityHistory, captureFrameworkSchemaAvailabilityHead } from "../src/frameworkSchema/installation/canonical";
 import { appendFrameworkSchemaAvailabilityHistoryInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHistoryRepository";
 import { compareAndSwapFrameworkSchemaAvailabilityHeadInTransactionEffect } from "../src/frameworkSchema/installation/availabilityHeadRepository";
@@ -19,8 +19,7 @@ export async function createInstallationRuntimeFixture(database: FlarexMetadataD
   const stored = await createInstallationAcceptanceFixture(database);
   const identity = stored.installation.installation.frame.identity;
   // This reader fixture does not execute migrations; preparation owns its database transaction.
-  const driver = makeFrameworkMigrationSessionDriver(database, () => Effect.die(new Error("Unexpected migration driver invocation")));
-  const makeTarget = () => runEffect(makeFrameworkMigrationTargetEffect({ database, driver,
+  const makeTarget = () => runEffect(makeFrameworkSchemaTarget({ database,
     deploymentId: identity.targetNamespace.deploymentId,
     canonicalPhysicalDatabaseIdentity: identity.targetNamespace.physicalDatabaseIdentity, physicalLocator: identity.physicalLocator }));
   const target = await makeTarget();

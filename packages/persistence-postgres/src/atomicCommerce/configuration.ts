@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { hasApplicationBindingComposition } from "../applicationActivation";
-import { hasFrameworkMigrationTargetDatabase } from "../migrationCoordination/targetSession";
+import { hasFrameworkSchemaTargetDatabase } from "../frameworkSchema/target";
 import { hasRelationalSessionDatabase } from "../relationalTransaction/session";
 import { captureTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import { captureCommerceJsonData } from "../commerceTransaction/request";
@@ -53,7 +53,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
   const { database, session, target, deploymentId, application } = input;
   if (
     !hasRelationalSessionDatabase(session, database) ||
-    !hasFrameworkMigrationTargetDatabase(target, database) ||
+    !hasFrameworkSchemaTargetDatabase(target, database) ||
     !hasApplicationBindingComposition(application, input.authority)
   )
     return yield* Effect.fail(commerceError("invalidAuthority"));

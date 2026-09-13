@@ -7,7 +7,7 @@ import { readBindingCandidate, readBindingHead } from "../frameworkSchema/bindin
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import type { PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import type { CommerceProfile } from "../commerceTransaction/profile";
-import type { FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
+import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
 import type { ApplicationBindingInput } from "../applicationActivation";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
@@ -22,7 +22,7 @@ export interface AtomicCommerceInstallation {
 /** The scope clock is already locked by the existing request owner. Members are
  * captured in installation lock order and remain live through root publication. */
 export const withAtomicCommerceAdmissions = Effect.fn("AtomicCommerce.withAdmissions")(function* <Value>(
-  members: readonly AtomicCommerceInstallation[], target: FrameworkMigrationTarget,
+  members: readonly AtomicCommerceInstallation[], target: FrameworkSchemaTarget,
   selection: ApplicationBindingInput, tx: FlarexMetadataTransaction,
   authority: TrustedScopeAuthority, clock: ScopeClockRecord,
   work: (admissions: readonly CommerceAdmission[]) => Effect.Effect<Value, CommerceTransactionError>,

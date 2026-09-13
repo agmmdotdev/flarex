@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import type { TrustedScopeAuthority } from "../../scopeAuthorityResolution";
-import type { FrameworkMigrationTarget } from "../../migrationCoordination/targetSession";
+import type { FrameworkSchemaTarget } from "../target";
 import type {
   DataBindingSetFrame,
   DataBindingHeadToken,
@@ -19,7 +19,7 @@ export interface SyntheticTestSelection {
 }
 interface SelectionState {
   readonly transaction: FlarexMetadataTransaction;
-  readonly target: FrameworkMigrationTarget;
+  readonly target: FrameworkSchemaTarget;
   readonly authority: TrustedScopeAuthority;
   readonly value: Readonly<{
     frame: DataBindingSetFrame;
@@ -29,7 +29,7 @@ interface SelectionState {
 }
 interface SyntheticState {
   readonly transaction: FlarexMetadataTransaction;
-  readonly target: FrameworkMigrationTarget;
+  readonly target: FrameworkSchemaTarget;
   readonly authority: TrustedScopeAuthority;
   readonly reference: InstallationBindingReference;
   active: boolean;
@@ -42,7 +42,7 @@ export const withAdmittedDataBinding = Effect.fn(
   "DataBindingSelection.withAdmitted",
 )(function* <Value, Failure>(
   transaction: FlarexMetadataTransaction,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
   authority: TrustedScopeAuthority,
   frame: DataBindingSetFrame,
   head: DataBindingHeadToken,
@@ -82,7 +82,7 @@ export const claimAdmittedDataBindingInTransaction = Effect.fn(
 )(function* (
   selection: AdmittedDataBinding,
   transaction: FlarexMetadataTransaction,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
 ) {
   const state = selections.get(selection);
   if (
@@ -97,7 +97,7 @@ export const withSyntheticTestSelection = Effect.fn(
   "DataBindingSelection.withSyntheticTest",
 )(function* <Value, Failure>(
   transaction: FlarexMetadataTransaction,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
   authority: TrustedScopeAuthority,
   reference: InstallationBindingReference,
   work: (selection: SyntheticTestSelection) => Effect.Effect<Value, Failure>,
@@ -126,7 +126,7 @@ export const claimSyntheticTestSelectionInTransaction = Effect.fn(
 )(function* (
   selection: SyntheticTestSelection,
   transaction: FlarexMetadataTransaction,
-  target: FrameworkMigrationTarget,
+  target: FrameworkSchemaTarget,
 ) {
   const state = syntheticSelections.get(selection);
   if (

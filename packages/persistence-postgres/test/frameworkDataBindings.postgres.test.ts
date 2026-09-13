@@ -58,7 +58,7 @@ describe.skipIf(postgresUrl === null)(
         );
         const lifecycle = await exerciseBindingLifecycle(
           fixture,
-          migrationTarget,
+          migrationTarget.schema,
           true,
         );
         const repository = Result.getOrThrow(

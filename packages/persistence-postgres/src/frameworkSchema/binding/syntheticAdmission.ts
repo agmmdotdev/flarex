@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import type { JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import type { TrustedScopeAuthority } from "../../scopeAuthorityResolution";
-import type { FrameworkMigrationTargetSnapshot } from "../../migrationCoordination/targetSession";
+import type { FrameworkSchemaTargetSnapshot } from "../target";
 import { lockScopeClockForUpdateInTransactionEffect } from "../../scopeClock";
 import { captureBindingValue, isSyntheticBindingReference } from "./canonical";
 import { bindingError } from "./errors";
@@ -29,7 +29,7 @@ export const admitSyntheticBindingInTransaction = Effect.fn(
 )(function* (
   tx: FlarexMetadataTransaction,
   authority: TrustedScopeAuthority,
-  target: FrameworkMigrationTargetSnapshot,
+  target: FrameworkSchemaTargetSnapshot,
   reference: InstallationBindingReference,
 ) {
   if (reference.installation.artifact.owner !== "system")

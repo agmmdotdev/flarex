@@ -60,6 +60,15 @@ physical locator, and structural capability class. It must not expose the
 database, driver, raw transaction, session constructor, or a reusable
 repository handle.
 
+Under the approved [installation redesign](./76-framework-installation-core-redesign.md),
+runtime placement is a separate `FrameworkSchemaTarget` owned by
+`frameworkSchema/target.ts`. Its snapshot has the namespace and locator but no
+structural execution capability. A migration target exposes this narrower handle
+as `.schema`; runtime hosts and binding no longer accept migration authority.
+Both construction paths share exact database-object identity enforcement.
+Constructing placement does not query or acquire a database connection and does
+not certify installer-role protection.
+
 The same database object cannot be rebound to a conflicting canonical physical
 database identity. A driver must remain bound to the database with which it was
 constructed. Recovery must identify one prior session from the same target as
@@ -101,8 +110,7 @@ copying the PGlite lifecycle.
 
 The focused
 `packages/persistence-postgres/test/frameworkCoordinatorTargetSession.test.ts`
-PGlite lane passes all nine tests and proves, without exporting the
-implementation:
+PGlite lane covers, without exporting the implementation:
 
 - opaque frozen target snapshots and sequential plus concurrently competing
   rejection of conflicting database identity or a driver bound to another

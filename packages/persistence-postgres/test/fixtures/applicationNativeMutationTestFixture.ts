@@ -859,6 +859,12 @@ async function createApplicationNativeMutationFixture<
         .set({ lastCommitSeq: commitSeq })
         .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
     });
+    // Offline fixture seeding bypasses the Application commit materializer.
+    // Catch up through the real build owner before promising a readable seed;
+    // never forge coverage markers or relax active-read readiness checks.
+    await enablePhysicalBuilds(
+      control, authorityPorts, authority.scopeId, deploymentId, schemaVersionId,
+    );
     return Object.freeze({ documentId, name });
   };
   const corruptCandidateValidationFrameBytesForTest = async () => {

@@ -17,6 +17,7 @@ import {
   type RunFrameworkMigrationDriverTransaction,
 } from "./targetSession";
 import type { FrameworkMigrationValueError } from "./errors";
+import type { FrameworkSchemaTargetCompositionError } from "../frameworkSchema/target";
 
 export interface MakePGliteFrameworkMigrationTargetInput {
   readonly persistence: Pick<PGliteFlarexPersistence, "drizzle">;
@@ -38,7 +39,7 @@ export const makePGliteFrameworkMigrationTargetEffect = Effect.fn(
   input: MakePGliteFrameworkMigrationTargetInput,
 ): Effect.fn.Return<
   FrameworkMigrationTarget,
-  FrameworkMigrationValueError | FrameworkMigrationTargetCompositionError
+  FrameworkMigrationValueError | FrameworkMigrationTargetCompositionError | FrameworkSchemaTargetCompositionError
 > {
   const database: FlarexMetadataDatabase = input.persistence.drizzle;
   const driver = makeFrameworkMigrationSessionDriver(

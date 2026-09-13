@@ -11,7 +11,7 @@ import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import { validateCommerceProfileSet } from "../frameworkSchema/binding/commerceBinding";
 import type { InstallationBindingReference, DataBindingHeadToken } from "../frameworkSchema/binding/model";
 import { commerceBindings, bindingInstallationReference } from "../frameworkSchema/binding/model";
-import { frameworkMigrationTargetSnapshot, type FrameworkMigrationTarget } from "../migrationCoordination/targetSession";
+import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
@@ -34,7 +34,7 @@ interface AdmissionState {
 const admissions = new WeakMap<object, AdmissionState>();
 
 export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransaction")(function* <Value, Failure, Requirements>(
-  profile: CommerceProfile, target: FrameworkMigrationTarget, reference: InstallationBindingReference,
+  profile: CommerceProfile, target: FrameworkSchemaTarget, reference: InstallationBindingReference,
   selection: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
   clock: ScopeClockRecord, bootstrap: boolean, prepared: PreparedInstallationRuntime | undefined,
   work: (admission: CommerceAdmission, binding?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
@@ -49,12 +49,12 @@ export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransactio
 /** Several confined profiles may borrow one physical installation. This is an
  * owner-local transaction scope, not an exported physical authority token. */
 export const withCommerceInstallationAdmissions = Effect.fn("CommerceAdmission.withInstallation")(function* <Value, Failure, Requirements>(
-  profiles: readonly CommerceProfile[], target: FrameworkMigrationTarget, reference: InstallationBindingReference,
+  profiles: readonly CommerceProfile[], target: FrameworkSchemaTarget, reference: InstallationBindingReference,
   selection: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
   clock: ScopeClockRecord, bootstrap: boolean, prepared: PreparedInstallationRuntime | undefined,
   work: (admissions: readonly CommerceAdmission[], binding?: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
 ) {
-  const snapshot = frameworkMigrationTargetSnapshot(target);
+  const snapshot = frameworkSchemaTargetSnapshot(target);
   if (snapshot === undefined || snapshot.namespace.frame.deploymentId !== authority.deploymentId ||
     !scopePhysicalLocatorsEqual(snapshot.physicalLocator, authority.physicalLocator) ||
     clock.scopeId !== authority.scopeId || clock.epoch !== authority.epoch ||

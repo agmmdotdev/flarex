@@ -458,7 +458,8 @@ async function captureRows(
         options,
       )
     : Object.freeze([]);
-  const applicationGraphKind = scopeApplicationGraphSizeRows[0]?.kind;
+  const scopeApplicationGraphSize = scopeApplicationGraphSizeRows[0];
+  const applicationGraphKind = scopeApplicationGraphSize?.kind;
   const schemaAuthoritySizeRows = applicationSelector !== undefined &&
       applicationGraphKind === "legacy" &&
       ports.applicationControlDb !== undefined
@@ -469,13 +470,13 @@ async function captureRows(
         options,
       )
     : Object.freeze([]);
-  const applicationGraphSizeRows = scopeApplicationGraphSizeRows.length !== 1
+  const applicationGraphSizeRows = scopeApplicationGraphSizeRows.length !== 1 || scopeApplicationGraphSize === undefined
     ? Object.freeze([])
     : applicationGraphKind === "relation"
     ? scopeApplicationGraphSizeRows
     : schemaAuthoritySizeRows.length === 1
     ? Object.freeze([Object.freeze({
-        ...scopeApplicationGraphSizeRows[0],
+        ...scopeApplicationGraphSize,
         schemaBindingByteLengthText:
           schemaAuthoritySizeRows[0]?.schemaBindingByteLengthText ?? "",
       })])
