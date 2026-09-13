@@ -5,6 +5,6 @@ import { requireCompiledPayloadCollections, type CompiledPayloadCollections } fr
 /** Binding verification for one compiler-owned configuration; no storage authority. */
 export const makePayloadContentProfiles = Effect.fn("PayloadAdapter.makeContentProfiles")(function* (compiled: CompiledPayloadCollections) {
   yield* requireCompiledPayloadCollections(compiled);
-  return yield* registerPayloadContentProfiles([{ relationCount: 0, identity: compiled.contentIdentity }]).pipe(
+  return yield* registerPayloadContentProfiles([{ relationCount: compiled.configuration.profile === "payload.scalar" ? 0 : 1, identity: compiled.contentIdentity }]).pipe(
     Effect.mapError(cause => cmsError("unsupportedProfile", cause)));
 });

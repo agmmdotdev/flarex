@@ -4,10 +4,13 @@ import { verifyApplicationManifestV3 } from "@flarex/analysis/application-analys
 import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { payloadManyIds, makePayloadPopulation } from "../../payload-adapter/src/testing";
-import { payloadScalarFields } from "../../payload-adapter/src/conformanceProfile";
+import { payloadScalarFields, payloadManyConfiguration } from "../../payload-adapter/src/conformanceProfile";
 import { isOptionalPostRelationSuccessor } from "../src/applicationWriteOwnership/Successor";
 import { policyManifestFixture } from "./applicationWritePolicyFixture";
 import { payloadRelationManifest } from "./payloadRelationFixture";
+
+import { makePayloadCollectionRuntime } from "../../payload-adapter/src/collectionRuntime";
+const posts = makePayloadCollectionRuntime(payloadManyConfiguration.tables[0]!);
 
 const ids = Array.from({ length: 33 }, (_, i) => appDocumentIdV1FromRowIdentity({ tableId: CatalogTableIdSchema.make(2), rowId: decodeAppRowIdHexV1((i + 1).toString(16).padStart(32, "0")) }));
 
@@ -38,13 +41,13 @@ it("preserves old profile identities and refuses an implicit many successor", as
 });
 
 it("bounds many population across fields and roots, including repeated output copies", () => {
-  const maximum = makePayloadPopulation("payload.content-many");
+  const maximum = makePayloadPopulation("payload.content-many", posts);
   Result.getOrThrow(maximum.roots(Array.from({ length: 32 }, (_, i) => ({ id: String(i), relatedPost: ids[0] ?? null, relatedPosts: ids.slice(0, 32) }))));
-  expect(maximum.outputBytes(ids.slice(0, 32), ids.slice(0, 32).map(id => ({ id, title: "x".repeat(2000) })))).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
-  expect(makePayloadPopulation("payload.content-many").roots([{ id: "root", relatedPosts: ids.slice(0, 32), relatedPost: ids[32] ?? null }])).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
-  for (const relatedPosts of [null, ["a", "a"], [1], ids]) expect(makePayloadPopulation("payload.content-many").roots([{ id: "root", relatedPosts }])).toMatchObject({ _tag: "Failure" });
-  expect(makePayloadPopulation("payload.content-many").roots([{ id: "root" }])).toMatchObject({ _tag: "Failure" });
-  const counted = makePayloadPopulation("payload.content-many");
+  expect(maximum.outputBytes("posts", ids.slice(0, 32), ids.slice(0, 32).map(id => ({ id, title: "x".repeat(2000) })))).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+  expect(makePayloadPopulation("payload.content-many", posts).roots([{ id: "root", relatedPosts: ids.slice(0, 32), relatedPost: ids[32] ?? null }])).toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+  for (const relatedPosts of [null, ["a", "a"], [1], ids]) expect(makePayloadPopulation("payload.content-many", posts).roots([{ id: "root", relatedPosts }])).toMatchObject({ _tag: "Failure" });
+  expect(makePayloadPopulation("payload.content-many", posts).roots([{ id: "root" }])).toMatchObject({ _tag: "Failure" });
+  const counted = makePayloadPopulation("payload.content-many", posts);
   Result.getOrThrow(counted.roots([{ id: "root", relatedPost: "a", relatedPosts: ["a"] }, { id: "other", relatedPosts: ["a"] }]));
-  expect(Result.getOrThrow(counted.outputBytes(["a"], [{ id: "a", title: "xx" }])) - Result.getOrThrow(counted.outputBytes(["a"], [{ id: "a", title: "x" }]))).toBe(3);
+  expect(Result.getOrThrow(counted.outputBytes("posts", ["a"], [{ id: "a", title: "xx" }])) - Result.getOrThrow(counted.outputBytes("posts", ["a"], [{ id: "a", title: "x" }]))).toBe(3);
 });

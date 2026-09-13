@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-Status: private pinned `payload@3.88.0` scalar Local API CRUD is implemented for
-the closed headless profile with exact combined content/lifecycle admission.
+Status: private pinned `payload@3.88.0` Local API CRUD is implemented for
+compiler-owned scalar collections and one optional relationship, with exact
+combined content/lifecycle admission in the closed headless profile.
 Create, reads, count, update, defaults/validation and fixed nested-hook behavior
 use the implemented CMS host and Application publication on both drivers.
 Delete uses exact `payload-preferences` cleanup with atomic lifecycle facts.
@@ -151,7 +152,7 @@ for source reuse, typed contracts, boundary-specific validation, and removal
 evidence. This structural cleanup does not broaden the admitted profiles or
 change transaction, public-serving, or production capability status.
 
-Ordinary construction now requires compiler-owned scalar collection metadata;
+Ordinary construction requires compiler-owned collection metadata;
 it no longer installs the fixed `posts` fixture. The implemented scalar-first
 [collection configuration preflight](./preflight/54-payload-collection-configuration.md)
 separates capability contracts from concrete collection definitions and traces
@@ -162,12 +163,12 @@ prerequisite authenticates single-text unique intent, prepares the definitions
 in trusted schema publication, and refuses mismatched
 sets during readiness and activation revalidation. Existing scalar conformance
 no longer seeds its own unique definition. The private collection compiler now
-captures a closed native scalar definition set, sanitizes owned copies, and
+captures the admitted native definition set, sanitizes owned copies, and
 lowers through shared schema authoring into the existing loaded-source analysis
 input. Descriptor revision 3 records native field order, literal defaults,
 collection-to-table mapping, and managed timestamp mode as well as uniqueness.
-The private consumers use that revision; old bytes fail decoding rather
-than acquiring new semantics. No stored data is rewritten.
+The private consumers use that revision; older descriptor revisions fail
+decoding rather than acquiring new semantics. No stored data is rewritten.
 
 The two-collection integration passes generated declarations through shared
 loaded-source analysis, publication, readiness, activation, exact binding, and
@@ -185,14 +186,28 @@ which uses the same internal composition and request pipeline. No implicit
 in ordinary construction. The compiler itself still does not initialize Payload,
 install schema state, or issue runtime authority. Native configuration and field
 validation stay Payload-owned. Integration source references remain fixtures,
-not uploaded or deployed artifact evidence; generalized relations, arbitrary
-configuration, serving, and existing-row migration remain outside this gate.
+not uploaded or deployed artifact evidence; configurable many/joins, arbitrary
+configuration, serving, and existing-row migration remain outside these gates.
 
-The next proposed [configurable optional-one relationship gate](./preflight/73-payload-configurable-one-relationships.md)
+The [configurable optional-one relationship gate](./preflight/73-payload-configurable-one-relationships.md)
 connects native collection definitions to authenticated relation analysis,
-binding and request-bound cross-collection population. Its fresh proof is
-`articles.author -> authors`; implementation awaits approval. Configurable
-many/joins, existing-row upgrades and public/hosted serving remain separate.
+binding and request-bound cross-collection population. Fresh `articles.author
+-> authors` and renamed/hyphenated-target consumers use the same compiler,
+native Local API, population and authoritative relation owners. The admitted
+relationship is optional, monomorphic, nonlocalized and restrict-on-delete;
+its target must be in the same checked Payload-owned collection set. There is
+at most one relationship across that set. Existing descriptor revision-3 bytes
+and the exact `posts.relatedPost` successor exception retain their meaning.
+
+The root collection remains immutable during each request. Depth-one target
+reads require the same live request and root-observed IDs for the checked
+target table/collection; compiled membership alone grants no nested read or
+write. Target documents use their own metadata, and scalar targets gain no
+synthetic relationship field. Null clears an optional field through native
+replace semantics; omission preserves it on update. Native target integrity,
+restrict deletion, rollback, row/edge facts and preference cleanup retain one
+settlement owner. Configurable many/joins, existing-row upgrades, combined
+Commerce/CMS relations and public/hosted serving remain separate.
 
 ### Runtime Lifetime And Latency Follow-Up
 

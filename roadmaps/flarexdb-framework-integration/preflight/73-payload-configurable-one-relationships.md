@@ -1,7 +1,8 @@
 # Payload Configurable Optional-One Relationships
 
-Status: proposed; implementation awaits approval of this compiler, Analysis
-contract and request-bound target-read scope.
+Status: implemented for private fresh configurations. The compiler, Analysis
+contract and request-bound target reads share the existing relation and CMS
+owners; configurable many/joins, migrations and serving remain gated.
 
 ## Outcome And Scope
 
@@ -43,7 +44,7 @@ uploads, drafts/versions, subscriptions, public SDK/routes, deployed artifacts,
 existing-row migration, ownership transfer and cross-domain references out of
 scope. The existing fixed many/join profiles remain supported regressions, not
 additional configurable capabilities. Combined Commerce/CMS commands remain
-scalar-only; this proposal does not extend their relation admission.
+scalar-only; this gate does not extend their relation admission.
 
 ## Governing Evidence And Why Now
 
@@ -62,14 +63,15 @@ already have fixed-profile consumer proofs. The missing connection is the
 configuration-to-relation-to-runtime path, not a new relation storage engine.
 Performance work is not part of this capability.
 
-Current source evidence and affected owners:
+Preflight restrictions and their approved disposition (the optional-one
+restrictions marked for extension below are now replaced):
 
-| Owner | Current restriction | Proposed disposition |
+| Owner | Preflight restriction | Approved disposition |
 | --- | --- | --- |
 | `packages/payload-adapter/src/collections.ts` | Scalar-only native field decoder; generated declaration has no relations. | Compile the admitted optional relationship using the existing capture, native sanitation, schema-authoring and Analysis path. |
 | `packages/analysis/src/applicationWritePolicy/model.ts`, `schemaCompatibility.ts` | Optional-one name/target are fixed to `relatedPost`/`posts`; relation comparison assumes the exact fixture. | Authenticate checked field/source/target identities and compare their complete native declaration; retain exact many/join constraints. |
 | `packages/payload-adapter/src/profile.ts` | Ordinary binding registers `relationCount: 0`. | Register the actual checked zero/one count with the exact compiled identity through the existing issuer. |
-| `packages/persistence-postgres/src/cmsTransaction/admission.ts` | Zero/one/two relation counts are checked against the existing profiles. | Retain the profile/count ceiling and current acceptance; verify the newly admitted one-relation configuration still agrees exactly. |
+| `packages/persistence-postgres/src/cmsTransaction/admission.ts` | Whole-schema zero/one/two relation counts are checked against the existing profiles. | Retain the profile/count ceiling and current acceptance; verify the newly admitted one-relation configuration still agrees exactly. |
 | `packages/payload-adapter/src/inputs.ts`, `adapter.ts`, `population.ts` | Input, null removal, projection and population inspect fixed relation names; request admission permits only the root collection. | Drive optional-one translation from owned collection metadata and admit only root-evidenced, target-specific loader reads. |
 | `packages/persistence-postgres/src/cmsTransaction/documents.ts` | Existing `getMany` already accepts an admitted table name, checks each ID's table, and borrows the request lifetime. | Reuse it unchanged; no table scan, SQL bypass or new transaction for population. |
 | `packages/persistence-postgres/src/applicationWriteOwnership/Successor.ts` | Authorizes only the recorded scalar-to-optional-`posts.relatedPost` successor. | Retain that exact transition; prove this fresh-configuration expansion does not grant new migration authority. |
@@ -111,6 +113,9 @@ localization, inverse-many/null name and restrict policy. Reject both missing
 and extra declarations; a matching relation count alone is insufficient.
 
 The compiled configuration selects the existing scalar or optional-one profile.
+The optional-one profile retains the whole-schema single-relation ceiling;
+adding independent Application-owned relations is a separate capability, not
+permission to filter those declarations out of Analysis or admission.
 Its declarations flow through loaded-source Analysis, policy verification,
 manifest publication, readiness, activation and exact content/lifecycle binding.
 The compiler still initializes no Payload runtime, installs no database state
@@ -218,7 +223,7 @@ typechecks, source/compatibility guards, core/diff/staged lint and both required
 reviewers against the final owned checkpoint. Reconcile the roadmap, remove
 temporary diagnostics, stop owned resources and make one scoped verified commit.
 
-This proposed scope includes the named Analysis and adapter admission changes,
+This scope includes the named Analysis and adapter admission changes,
 not a native relation/storage correction. If a consumer witness exposes another
 shared-owner defect or requires different transaction, migration or authority
 semantics, preserve the witness and pause at that boundary for approval. Keep

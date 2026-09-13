@@ -1,10 +1,11 @@
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CollectionConfig } from "payload";
 import { analyzeLoadedApplicationSourcePackageEffect } from "@flarex/analysis";
 import { makeApplicationManifest, verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { compilePayloadCollections } from "../src/collections";
-import { payloadScalarContentIdentity, payloadScalarConfiguration } from "../src/conformanceProfile";
+import { PayloadConfigurationSchema } from "@flarex/analysis/internal/application-write-policy";
+import { payloadScalarContentIdentity, payloadScalarConfiguration, payloadRelationContentIdentity, payloadRelationConfiguration, payloadPostsCollection } from "../src/conformanceProfile";
 
 const definitions = (): CollectionConfig[] => [
   { slug: "news-items", fields: [
@@ -17,8 +18,68 @@ const definitions = (): CollectionConfig[] => [
 ];
 const compile = (input: unknown) => Effect.runPromise(compilePayloadCollections(input));
 const refusal = (input: unknown) => Effect.runPromise(Effect.result(compilePayloadCollections(input)));
+const decodeConfiguration = Schema.decodeUnknownResult(PayloadConfigurationSchema);
 
 describe("Payload collection compiler", () => {
+  it.each(["authors", "article-authors"])("compiles one native relationship with target %s through Analysis", async target => {
+    const definitions = [
+      { slug: target, fields: [{ name: "name", type: "text", required: true }] },
+      { slug: "articles", fields: [{ name: "headline", type: "text", required: true, unique: true },
+        { name: "author", type: "relationship", relationTo: target }] },
+    ];
+    const compiled = await compile(definitions);
+    const relation = compiled.schemaDefinition.relations[0]!;
+    expect(compiled.configuration.profile).toBe("payload.content-relations");
+    for (const profile of ["payload.content-many", "payload.content-joins", "payload.scalar"]) {
+      expect(decodeConfiguration({ ...compiled.configuration, profile })).toMatchObject({ _tag: "Failure" });
+    }
+    for (const changed of [{ target: "unbound" }, { required: true }, { cardinality: "many" }, { localized: true }, { onTargetDelete: "cascade" }]) {
+      expect(decodeConfiguration({ ...compiled.configuration, tables: compiled.configuration.tables.map(table => ({ ...table,
+        fields: table.fields.map(field => field.kind === "relationship" ? { ...field, ...changed } : field),
+      })) })).toMatchObject({ _tag: "Failure" });
+    }
+    expect(relation).toMatchObject({ source: { table: "articles", path: [{ kind: "field", name: "author" }], forwardName: "author" },
+      target: { table: target.replaceAll("-", "_") }, value: { cardinality: "one", required: false } });
+    const analyze = (schemaDefinition: unknown) => analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition });
+    const analysis = await Effect.runPromise(analyze(compiled.schemaDefinition));
+    const manifest = await Effect.runPromise(makeApplicationManifest(analysis, {
+      rootSha256: "1".repeat(64), executionModulePath: "_flarex/execution.js", schemaModulePath: "_flarex/schema.js",
+      modules: [{ path: "_flarex/execution.js", roles: 8, sourceSha256: "2".repeat(64), sourceByteLength: 48 },
+        { path: "_flarex/schema.js", roles: 2, sourceSha256: "3".repeat(64), sourceByteLength: 64 }],
+    }));
+    expect((await Effect.runPromise(verifyApplicationManifestV3(manifest.manifest))).canonicalText).toBe(manifest.canonicalText);
+    for (const relations of [[], [relation, relation], [{ ...relation, target: { table: "articles" } }],
+      [{ ...relation, inverse: { cardinality: "many", name: "articles" } }],
+      [{ ...relation, value: { cardinality: "one", required: true } }],
+      [{ ...relation, localized: true }], [{ ...relation, onTargetDelete: "cascade" }],
+      [{ ...relation, source: { ...relation.source, forwardName: "editor", path: [{ kind: "field", name: "editor" }] } }],
+    ]) expect(await Effect.runPromise(Effect.result(analyze({ ...compiled.schemaDefinition, relations })))).toMatchObject({ _tag: "Failure" });
+    expect((await compile(definitions.toReversed())).contentIdentity).toEqual(compiled.contentIdentity);
+    Object.assign(definitions[1]!.fields[1]!, { relationTo: "unbound", name: "changed" });
+    const native = compiled.createNativeCollections();
+    Object.assign(native[1]!.fields[1]!, { relationTo: "unbound" });
+    expect(compiled.createNativeCollections()[1]?.fields[1]).toMatchObject({ name: "author", relationTo: target });
+    expect(compiled.schemaDefinition.relations[0]).toEqual(relation);
+    expect(Object.isFrozen(relation.source.path[0])).toBe(true);
+  });
+
+  it("preserves the optional-post descriptor bytes and rejects every wider relationship shape", async () => {
+    const { access: _access, ...posts } = payloadPostsCollection("payload.content-relations");
+    const compiled = await compile([posts]);
+    expect(compiled.configuration).toEqual(payloadRelationConfiguration);
+    expect(compiled.contentIdentity).toEqual(payloadRelationContentIdentity);
+    const relationship = { name: "author", type: "relationship", relationTo: "authors" };
+    const authors = { slug: "authors", fields: [{ name: "name", type: "text", required: true }] };
+    for (const field of [
+      { ...relationship, required: true }, { ...relationship, hasMany: true }, { ...relationship, localized: true },
+      { ...relationship, relationTo: ["authors"] }, { ...relationship, relationTo: "missing" },
+      { ...relationship, defaultValue: null }, { ...relationship, filterOptions: {} },
+      { ...relationship, maxDepth: 1 }, { ...relationship, hooks: {} }, { ...relationship, unique: true },
+    ]) expect(await refusal([authors, { slug: "articles", fields: [field] }])).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(await refusal([authors, { slug: "articles", fields: [relationship, { ...relationship, name: "editor" }] }])).toMatchObject({ _tag: "Failure" });
+    expect(await refusal([{ ...authors, fields: [relationship] }, { slug: "articles", fields: [relationship] }])).toMatchObject({ _tag: "Failure" });
+  });
+
   it("feeds two native collections through the real shared analysis and manifest verifier", async () => {
     const compiled = await compile(definitions());
     expect(compiled.configuration.tables.map(table => [table.collectionSlug, table.logicalTableName])).toEqual([

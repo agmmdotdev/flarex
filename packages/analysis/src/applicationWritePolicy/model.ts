@@ -47,9 +47,9 @@ const ScalarField = Schema.Struct({
   return field.defaultValue === undefined || typeof field.defaultValue === defaultType ? undefined : "Default must match the scalar kind";
 }));
 
-const OptionalPostRelationField = Schema.Struct({
-  name: Schema.Literal("relatedPost"), kind: Schema.Literal("relationship"),
-  target: Schema.Literal("posts"), cardinality: Schema.Literal("one"),
+const OptionalRelationField = Schema.Struct({
+  name: Identity, kind: Schema.Literal("relationship"),
+  target: Identity, cardinality: Schema.Literal("one"),
   required: Schema.Literal(false), localized: Schema.Literal(false),
   onTargetDelete: Schema.Literal("restrict"),
 }).annotate(StrictStructOptions);
@@ -70,7 +70,7 @@ const ConfigurationFields = {
     logicalTableName: Identity,
     collectionSlug: PayloadCollectionSlugSchema,
     timestamps: Schema.Boolean,
-    fields: Schema.Array(Schema.Union([ScalarField, OptionalPostRelationField, ManyPostRelationField])).check(Schema.isMaxLength(64)),
+    fields: Schema.Array(Schema.Union([ScalarField, OptionalRelationField, ManyPostRelationField])).check(Schema.isMaxLength(64)),
   }).annotate(StrictStructOptions)).check(
     Schema.isMinLength(1),
     Schema.isMaxLength(APPLICATION_WRITE_POLICY_MAXIMUM_TABLES),
@@ -101,12 +101,18 @@ export const PayloadConfigurationSchema = Schema.Union([
   }
   const many = config.profile === "payload.content-many" || config.profile === "payload.content-joins";
   const relations = config.tables.flatMap(table => table.fields.filter(field => field.kind === "relationship"));
+  if (config.profile === "payload.content-relations") {
+    const relation = relations[0];
+    return relations.length === 1 && relation?.cardinality === "one" &&
+      config.tables.some(table => table.logicalTableName === relation.target)
+      ? undefined : "Expected one optional relationship targeting a configured Payload table";
+  }
   return config.profile === "payload.scalar"
     ? relations.length === 0 ? undefined : "Scalar profile cannot declare relationships"
     : config.tables.length === 1 && config.tables[0]?.logicalTableName === "posts" &&
       relations.length === (many ? 2 : 1) &&
-      relations.filter(field => field.name === "relatedPost").length === 1 &&
-      relations.filter(field => field.name === "relatedPosts").length === (many ? 1 : 0)
+      relations.filter(field => field.name === "relatedPost" && field.cardinality === "one" && field.target === "posts").length === 1 &&
+      relations.filter(field => field.name === "relatedPosts" && field.cardinality === "many").length === (many ? 1 : 0)
       ? undefined : "Expected the exact posts relationship profile";
 }));
 export type PayloadConfiguration = typeof PayloadConfigurationSchema.Type;

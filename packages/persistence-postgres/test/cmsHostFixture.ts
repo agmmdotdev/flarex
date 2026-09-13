@@ -14,7 +14,7 @@ import { analyzeLoadedApplicationSourcePackageEffect } from "@flarex/analysis";
 import { makeApplicationManifest, verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { createHash } from "node:crypto";
 
-async function compiledManifest(compiled: CompiledPayloadCollections) {
+export async function compiledPayloadManifest(compiled: CompiledPayloadCollections) {
   const analysis = await runEffect(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: compiled.schemaDefinition }));
   const result = await runEffect(makeApplicationManifest(analysis, {
     rootSha256: "1".repeat(64), executionModulePath: "_flarex/execution.js", schemaModulePath: "_flarex/schema.js",
@@ -29,7 +29,7 @@ export async function cmsHostFixture(persistence: PGliteFlarexPersistence | Post
   options: Parameters<typeof relationReadinessFixture>[0] = {}, compiled?: CompiledPayloadCollections) {
   const fixture = await relationReadinessFixture({ persistence, writePolicy: true, bindingAdmission: true, cmsIndexes: true,
     cmsFields: [{ name: "title", kind: "text", unique: true }], ...options,
-    ...(compiled === undefined ? {} : { cmsManifest: await compiledManifest(compiled) }) });
+    ...(compiled === undefined ? {} : { cmsManifest: await compiledPayloadManifest(compiled) }) });
   await prepareReadinessEvidence(fixture);
   await runEffect(fixture.fold.settle(fixture.input));
   await runEffect(fixture.relationActivation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));

@@ -54,10 +54,11 @@ const run = <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransa
 const capture = (value: unknown): Json => Result.getOrThrow(capturePrivateJsonData(value, 65_536, cmsError)).value;
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over its sanitized query decoder.
 const where = (state: RequestBridge, input: unknown) => Result.getOrThrow(state.collection.query.adapter(input));
-const payloadDocument = (value: Json, profile: PayloadContentProfile): Record<string, Json> & { id: string } => {
+const payloadDocument = (value: Json, profile: PayloadContentProfile, collection: PayloadCollectionRuntime): Record<string, Json> & { id: string } => {
   if (!isJsonObject(value) || typeof value._id !== "string") throw new Error("Invalid admitted CMS document");
   const { _id, _creationTime, ...fields } = value;
-  const document = { ...fields, ...(profile !== "payload.scalar" ? { relatedPost: fields.relatedPost ?? null } : {}), id: _id };
+  const relation = collection.oneRelationship;
+  const document = { ...fields, ...(relation === undefined ? {} : { [relation.name]: fields[relation.name] ?? null }), id: _id };
   if (payloadHasMany(profile)) {
     // Payload populates array slots in place. Give it an owned copy, never the immutable CMS value.
     // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - The foreign document projection throws typed corruption for invalid stored relation values.
@@ -74,7 +75,7 @@ const payloadFields = (profile: PayloadContentProfile, collection: PayloadCollec
       if (value !== undefined && value !== expectedId) throw new UnsupportedPayloadCapability("caller-selected identity");
       continue;
     }
-    if (key === "relatedPost" && profile !== "payload.scalar") {
+    if (key === collection.oneRelationship?.name) {
       if (value === null || value === undefined) continue;
       if (typeof value !== "string") throw new UnsupportedPayloadCapability("relation identity");
       normalized[key] = value;
@@ -104,8 +105,8 @@ const payloadFields = (profile: PayloadContentProfile, collection: PayloadCollec
 };
 
 /** Node-only, per-Payload-instance foreign Promise boundary; it owns no database. */
-export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, onCollection?: (collection: string) => void) {
-  const document = (value: Json) => payloadDocument(value, profile);
+export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, collections: readonly PayloadCollectionRuntime[], onCollection?: (collection: string) => void) {
+  const document = (collection: PayloadCollectionRuntime, value: Json) => payloadDocument(value, profile, collection);
   const fields = (state: RequestBridge, input: Record<string, unknown>, expectedId?: string, creationTimestamp?: string) => payloadFields(profile, state.collection, input, expectedId, creationTimestamp);
   const current = new AsyncLocalStorage<RequestBridge>();
   const unsupported = async (capability = "deferred adapter member"): Promise<never> => {
@@ -124,9 +125,9 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, onCol
     return state;
   };
   const admit = (args: { collection: string; req?: Partial<PayloadRequest>; locale?: string; select?: unknown; joins?: unknown;
-    returning?: boolean; draft?: boolean; draftsEnabled?: boolean }, projected = false) => {
+    returning?: boolean; draft?: boolean; draftsEnabled?: boolean }, projected = false, populationTarget?: PayloadCollectionRuntime) => {
     const state = stateFor(args.req, projected);
-    if (args.collection !== state.collection.collectionSlug || args.locale !== undefined || args.returning === false || args.draft || args.draftsEnabled ||
+    if (args.collection !== (populationTarget ?? state.collection).collectionSlug || args.locale !== undefined || args.returning === false || args.draft || args.draftsEnabled ||
       [args.select, ...(profile === "payload.content-joins" ? [] : [args.joins])].some(value => value !== undefined && (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).length !== 0))) {
       throw new UnsupportedPayloadCapability("collection or projection");
     }
@@ -155,12 +156,12 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, onCol
     const predicate = where(state, args.where);
     if (predicate._id !== undefined) {
       const value = await run(state, state.context.documents.get(state.context.context, transactionId(state), predicate._id, state.collection.logicalTableName));
-      const found = value === null || Object.entries(predicate).some(([field, expected]) => value[field] !== expected) ? null : document(value);
+      const found = value === null || Object.entries(predicate).some(([field, expected]) => value[field] !== expected) ? null : document(state.collection, value);
       await roots(state, found === null ? [] : [found], args.joins);
       return found;
     }
     const result = await run(state, state.context.documents.find(state.context.context, transactionId(state), state.collection.logicalTableName, { where: predicate, offset: 0, limit: 1 }));
-    const found = result.docs[0] === undefined ? null : document(result.docs[0]);
+    const found = result.docs[0] === undefined ? null : document(state.collection, result.docs[0]);
     await roots(state, found === null ? [] : [found], args.joins);
     return found;
   };
@@ -175,7 +176,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, onCol
       run(state, state.context.rollback(typeof id === "number" ? "invalid" : id instanceof Promise ? id.then(String) : id)); },
     create: async args => { const state = admit(args); if (args.customID !== undefined) return unsupported("custom ID");
       const timestamp = new Date(await run(state, Clock.currentTimeMillis)).toISOString();
-      return document(await run(state, state.context.documents.insert(state.context.context, transactionId(state), state.collection.logicalTableName, fields(state, args.data, undefined, timestamp)))); },
+      return document(state.collection, await run(state, state.context.documents.insert(state.context.context, transactionId(state), state.collection.logicalTableName, fields(state, args.data, undefined, timestamp)))); },
     findOne: async <T extends TypeWithID>(args: Parameters<BaseDatabaseAdapter["findOne"]>[0]) => {
       // SAFETY: Payload's caller-selected generic describes its configured collection.
       // The closed profile validates the actual wire document; no generic grants authority.
@@ -184,22 +185,26 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, onCol
     find: async <T>(args: Parameters<BaseDatabaseAdapter["find"]>[0]): Promise<PaginatedDocs<T>> => {
       const state = stateFor(args.req);
       const batch = await run(state, Effect.fromResult(payloadPopulationIds(args.where)));
-      // Pinned loader cache keys encode absent select as null before calling find.
-      admit(batch !== null && state.population !== null && args.select === null ? { ...args, select: undefined } : args);
       if (batch !== null) {
         const population = state.population;
+        const target = collections.find(collection => collection.collectionSlug === args.collection);
         if (population === null || args.pagination !== false || args.limit !== 0 || args.page !== 1 ||
+          target === undefined ||
           args.skip !== undefined || args.projection !== undefined || args.versions ||
           !(args.sort === "id" || (Array.isArray(args.sort) && args.sort.length === 1 && args.sort[0] === "id"))) return unsupported("population query");
-        await run(state, Effect.fromResult(population.admit(batch)));
-        const values = await run(state, state.context.documents.getMany(state.context.context, transactionId(state), state.collection.logicalTableName, batch));
-        const docs = values.map(value => value === null ? null : document(value));
-        const bytes = await run(state, Effect.fromResult(population.outputBytes(batch, docs)));
+        await run(state, Effect.fromResult(population.admit(target.logicalTableName, batch)));
+        // Only a root-evidenced loader batch may select a target collection. The root never changes.
+        // Pinned loader cache keys encode absent select as null before calling find.
+        admit(args.select === null ? { ...args, select: undefined } : args, false, target);
+        const values = await run(state, state.context.documents.getMany(state.context.context, transactionId(state), target.logicalTableName, batch));
+        const docs = values.map(value => value === null ? null : document(target, value));
+        const bytes = await run(state, Effect.fromResult(population.outputBytes(target.logicalTableName, batch, docs)));
         await run(state, state.context.reserveOutput(bytes));
         // SAFETY: the closed profile and outputBytes prove every configured target document is present.
         return { docs: docs as T[], totalDocs: docs.length, limit: docs.length, totalPages: 1, page: 1, pagingCounter: 1,
           hasPrevPage: false, hasNextPage: false, prevPage: null, nextPage: null };
       }
+      admit(args);
       const limit = args.limit ?? 10; const page = args.page ?? 1;
       if (!isPayloadLimit(limit) || !isPayloadPage(page) ||
         args.skip !== undefined || args.projection !== undefined || args.versions || (args.sort !== undefined && args.sort !== "id" && !(Array.isArray(args.sort) && args.sort.length === 1 && args.sort[0] === "id"))) {
@@ -209,7 +214,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, onCol
       const paginated = args.pagination !== false;
       const totalDocs = paginated ? found.total : found.docs.length;
       const totalPages = paginated ? Math.max(1, Math.ceil(totalDocs / limit)) : 1;
-      const values = await roots(state, found.docs.map(document), args.joins);
+      const values = await roots(state, found.docs.map(value => document(state.collection, value)), args.joins);
       // SAFETY: same closed Payload collection-generic boundary as findOne.
       const docs = values as T[];
       return { docs, totalDocs, limit, totalPages, page, pagingCounter: paginated ? (page - 1) * limit + 1 : 1,
@@ -219,13 +224,14 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, onCol
     updateOne: async args => { const state = admit(args); const prior = args.id === undefined ? await one(args) : null;
       const id = args.id ?? prior?.id;
       if (typeof id !== "string") return unsupported("missing update identity");
-      if (profile !== "payload.scalar" && args.data.relatedPost === null) {
+      const relation = state.collection.oneRelationship;
+      if (relation !== undefined && args.data[relation.name] === null) {
         const priorDocument = await run(state, state.context.documents.get(state.context.context, transactionId(state), id, state.collection.logicalTableName));
         if (priorDocument === null) throw new Error("Payload update lost its admitted document");
-        const { _id, _creationTime, relatedPost: _relatedPost, ...retained } = priorDocument;
-        return document(await run(state, state.context.documents.replace(state.context.context, transactionId(state), id, { ...retained, ...fields(state, args.data, id) }, state.collection.logicalTableName)));
+        const { _id, _creationTime, [relation.name]: _relation, ...retained } = priorDocument;
+        return document(state.collection, await run(state, state.context.documents.replace(state.context.context, transactionId(state), id, { ...retained, ...fields(state, args.data, id) }, state.collection.logicalTableName)));
       }
-      return document(await run(state, state.context.documents.patch(state.context.context, transactionId(state), id, fields(state, args.data, id), state.collection.logicalTableName))); },
+      return document(state.collection, await run(state, state.context.documents.patch(state.context.context, transactionId(state), id, fields(state, args.data, id), state.collection.logicalTableName))); },
     deleteOne: async args => { const state = admit(args); const prior = await one(args); if (prior === null) return unsupported("missing delete identity");
       await run(state, state.context.documents.delete(state.context.context, transactionId(state), prior.id, state.collection.logicalTableName)); return prior; },
     countGlobalVersions: deferred, countVersions: deferred, createGlobal: deferred, createGlobalVersion: deferred, createMigration: deferred,
@@ -242,7 +248,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, onCol
   const within = async <Value>(context: CmsCommandContext, collection: PayloadCollectionRuntime, request: Partial<PayloadRequest>, signal: AbortSignal, work: () => Promise<Value>, populate = false, joins: PayloadJoinQuery = { referencedBy: false, referencedByMany: false }) => {
     if (populate && (!context.standaloneRead || profile === "payload.scalar")) throw new UnsupportedPayloadCapability("population request");
     const state: RequestBridge = { context, collection, request, signal, joins, live: !signal.aborted,
-      population: populate ? makePayloadPopulation(profile) : null, semaphore: Semaphore.makeUnsafe(1) };
+      population: populate ? makePayloadPopulation(profile, collection) : null, semaphore: Semaphore.makeUnsafe(1) };
     const abort = () => { state.live = false; };
     signal.addEventListener("abort", abort, { once: true });
     try { return await current.run(state, work); } finally { state.live = false; signal.removeEventListener("abort", abort); }

@@ -5,6 +5,7 @@ import { makePayloadQuery, type PayloadCollection } from "./query";
 export function makePayloadCollectionRuntime(collection: PayloadCollection) {
   return {
     ...collection,
+    oneRelationship: collection.fields.find(field => field.kind === "relationship" && field.cardinality === "one"),
     query: makePayloadQuery(collection),
     writableNames: new Set(collection.fields.filter(field => !payloadIsManagedField(field.name)).map(field => field.name)),
   };

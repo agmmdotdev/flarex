@@ -1,7 +1,8 @@
 import { BasePayload, createLocalReq, validations, type CollectionConfig, type PayloadRequest } from "payload";
 import { Effect, Schema } from "effect";
 import { applicationSchemaDefinition, applicationTableDefinition } from "@flarex/application-schema-definition/application-schema";
-import { applicationObjectValidatorJson, applicationScalarValidatorJson } from "@flarex/application-schema-definition/validator-json";
+import { applicationIdValidatorJson, applicationObjectValidatorJson, applicationScalarValidatorJson } from "@flarex/application-schema-definition/validator-json";
+import { decodeRelationDeclarationsV1Result } from "flarex-protocol/internal/relation-declaration-v1";
 import { captureApplicationWritePolicyData, digestApplicationWritePolicyFrame, verifyApplicationWritePolicies,
   PayloadCollectionSlugSchema, payloadCollectionLogicalName,
   type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
@@ -21,6 +22,10 @@ const NativeField = Schema.Union([
   Schema.Struct({ ...common, type: Schema.Literal("number"), defaultValue: Schema.optionalKey(NumberDefault) }).annotate(strict),
   Schema.Struct({ ...common, type: Schema.Literal("checkbox"), defaultValue: Schema.optionalKey(Schema.Boolean) }).annotate(strict),
   Schema.Struct({ ...common, type: Schema.Literal("date"), defaultValue: Schema.optionalKey(Schema.String) }).annotate(strict),
+  Schema.Struct({ name: FieldName, type: Schema.Literal("relationship"), relationTo: PayloadCollectionSlugSchema,
+    required: Schema.optionalKey(Schema.Literal(false)), hasMany: Schema.optionalKey(Schema.Literal(false)),
+    localized: Schema.optionalKey(Schema.Literal(false)),
+  }).annotate(strict),
 ]);
 type NativeField = typeof NativeField.Type;
 const decodeField = Schema.decodeUnknownEffect(NativeField);
@@ -35,6 +40,10 @@ const NativeCollections = Schema.Array(Schema.Struct({
   // Slugs remain native. Only the compiler chooses the separate logical name;
   // ambiguous underscore/hyphen mappings are refused, never silently merged.
   if (new Set(collections.map(collection => payloadCollectionLogicalName(collection.slug))).size !== collections.length) return "Duplicate logical collection identity";
+  const relations = collections.flatMap(collection => collection.fields.filter(field => field.type === "relationship"));
+  if (relations.length > 1 || relations.some(field => !collections.some(collection => collection.slug === field.relationTo))) {
+    return "At most one relationship targeting a configured collection is admitted";
+  }
   return collections.some(collection => new Set(collection.fields.map(field => field.name)).size !== collection.fields.length ||
     collection.fields.filter(field => field.type === "text" && field.unique).length > 1) ? "Duplicate fields or multiple unique fields" : undefined;
 }));
@@ -50,7 +59,7 @@ function nativeCollection(collection: typeof NativeCollections.Type[number]): Co
 const validateDefault = Effect.fn("PayloadCollections.validateDefault")(function* (
   field: NativeField, req: PayloadRequest, collectionSlug: string,
 ) {
-  if (field.defaultValue === undefined) return;
+  if (field.type === "relationship" || field.defaultValue === undefined) return;
   const options = { req, collectionSlug, path: [field.name], data: {}, siblingData: {}, blockData: {}, preferences: { fields: {} }, operation: "create" as const };
   // Public native validators own default validity. No user callbacks survive capture.
   // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: invariant - The four pinned pure validators return validation messages, not operational rejections; an unexpected throw/rejection is a defect.
@@ -71,7 +80,7 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
   const captured = yield* Effect.fromResult(captureApplicationWritePolicyData(input)).pipe(
     Effect.mapError(cause => cmsError("unsupportedProfile", cause)));
   const definitions = yield* decodeCollections(captured).pipe(Effect.mapError(cause => cmsError("unsupportedProfile", cause)));
-  const config = yield* buildPayloadConfiguration(definitions.map(nativeCollection), makePayloadDatabaseAdapter("payload.scalar"));
+  const config = yield* buildPayloadConfiguration(definitions.map(nativeCollection), makePayloadDatabaseAdapter("payload.scalar", []));
   const expectedInventory = [...definitions.map(collection => collection.slug), "users", "payload-preferences", "payload-migrations"].toSorted();
   if (config.collections.map(collection => collection.slug).toSorted().join() !== expectedInventory.join() || config.globals.length !== 0) {
     return yield* Effect.fail(cmsError("unsupportedProfile", "sanitized collection inventory"));
@@ -95,12 +104,20 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
         fields.push({ name: field.name, kind: "date" });
         continue;
       }
+      const source = definition.fields[position];
+      if (field.type === "relationship") {
+        if (source?.type !== "relationship" || field.relationTo !== source.relationTo || field.required || field.hasMany || field.localized || field.defaultValue !== undefined) {
+          return yield* Effect.fail(cmsError("unsupportedProfile", "sanitized relationship semantics"));
+        }
+        fields.push({ name: field.name, kind: "relationship", target: payloadCollectionLogicalName(source.relationTo),
+          cardinality: "one", required: false, localized: false, onTargetDelete: "restrict" });
+        continue;
+      }
       const native = yield* decodeField({ name: field.name, type: field.type, required: "required" in field ? field.required : undefined,
         ...("unique" in field && field.unique === true ? { unique: true } : {}),
         ...("defaultValue" in field && field.defaultValue !== undefined ? { defaultValue: field.defaultValue } : {}),
       }).pipe(Effect.mapError(cause => cmsError("unsupportedProfile", cause)));
-      const source = definition.fields[position];
-      if (source === undefined || native.type !== source.type ||
+      if (source === undefined || source.type === "relationship" || native.type === "relationship" || native.type !== source.type ||
         (native.type === "text" && native.unique) !== (source.type === "text" && source.unique) ||
         native.defaultValue !== (source.defaultValue === undefined && source.type === "checkbox" ? false : source.defaultValue)) {
         return yield* Effect.fail(cmsError("unsupportedProfile", "sanitized field semantics"));
@@ -114,7 +131,9 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
   }
   tables.sort((left, right) => left.logicalTableName < right.logicalTableName ? -1 : left.logicalTableName > right.logicalTableName ? 1 : 0);
   const provenanceSha256 = yield* digestApplicationWritePolicyFrame(payloadScalarProvenance);
-  const configuration: PayloadConfiguration = { format: "flarex.payload-configuration", version: 3, profile: "payload.scalar", provenanceSha256, tables };
+  const relationFields = tables.flatMap(table => table.fields.filter(field => field.kind === "relationship").map(field => ({ table, field })));
+  const configuration: PayloadConfiguration = { format: "flarex.payload-configuration", version: 3,
+    profile: relationFields.length === 0 ? "payload.scalar" : "payload.content-relations", provenanceSha256, tables };
   const configSha256 = yield* digestApplicationWritePolicyFrame(configuration);
   const verified = yield* verifyApplicationWritePolicies({ format: "flarex.application-table-write-policies", version: 1,
     provenance: payloadScalarProvenance, configuration, tables: tables.map(table => ({ logicalTableName: table.logicalTableName,
@@ -123,12 +142,20 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
   // All inputs below are compiler-owned; a failure here is an invariant defect.
   const schema = applicationSchemaDefinition(Object.fromEntries(tables.map(table => [table.logicalTableName,
     applicationTableDefinition(applicationObjectValidatorJson(Object.fromEntries(table.fields.map(field => [field.name, {
-      fieldType: applicationScalarValidatorJson(field.kind === "number" ? "number" : field.kind === "boolean" ? "boolean" : "string"), optional: false,
+      fieldType: field.kind === "relationship" ? applicationIdValidatorJson(field.target) :
+        applicationScalarValidatorJson(field.kind === "number" ? "number" : field.kind === "boolean" ? "boolean" : "string"),
+      optional: field.kind === "relationship",
     }])))),
   ])));
+  const relations = yield* Effect.fromResult(decodeRelationDeclarationsV1Result(relationFields.map(({ table, field }) => ({
+    format: "flarex.relation-declaration", version: 1,
+    source: { table: table.logicalTableName, path: [{ kind: "field", name: field.name }], forwardName: field.name },
+    target: { table: field.target }, value: { cardinality: "one", required: false },
+    inverse: { cardinality: "many", name: null }, localized: false, onTargetDelete: "restrict",
+  })))).pipe(Effect.orDie);
   const schemaDefinition = Object.freeze({ tables: Object.freeze(Object.fromEntries(schema.tables.map(table => [table.logicalName,
     Object.freeze({ kind: "table", validator: Object.freeze({ isFlarexValidator: true, json: table.definition.documentType }), indexes: Object.freeze([]) }),
-  ]))), relations: Object.freeze([]), writePolicies: verified.policies });
+  ]))), relations, writePolicies: verified.policies });
   const compiled = Object.freeze({ configuration: verified.policies.configuration, schemaDefinition,
     contentIdentity: Object.freeze({ configSha256, provenanceSha256 }),
     // New owned objects on every call; native sanitation cannot mutate compiler evidence.

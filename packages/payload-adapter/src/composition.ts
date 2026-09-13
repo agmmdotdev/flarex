@@ -23,7 +23,7 @@ export const makePayloadComposition = Effect.fn("PayloadAdapter.compose")(functi
 ) {
   const profile = compiled.configuration.profile;
   const collections = compiled.configuration.tables.map(makePayloadCollectionRuntime);
-  const bridge = makePayloadDatabaseAdapter(profile, conformance?.onCollection);
+  const bridge = makePayloadDatabaseAdapter(profile, collections, conformance?.onCollection);
   let live = true;
   const native = compiled.createNativeCollections();
   if (conformance !== undefined) for (const collection of native) collection.hooks = conformance.hooks;

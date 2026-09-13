@@ -54,7 +54,8 @@ export function makePayloadInputs(profile: PayloadContentProfile, collections: r
     if (Object.keys(data).some(key => !collection.writableNames.has(key))) {
       return yield* Effect.fail(cmsError("unsupportedProfile", new UnsupportedPayloadCapability("input fields")));
     }
-    if (profile !== "payload.scalar" && data.relatedPost !== undefined) yield* decodeOneRelation(data.relatedPost).pipe(
+    const relation = collection.oneRelationship;
+    if (relation !== undefined && data[relation.name] !== undefined) yield* decodeOneRelation(data[relation.name]).pipe(
       Effect.mapError(cause => cmsError("relationInvalid", cause)));
     if (payloadHasMany(profile) && Object.hasOwn(data, "relatedPosts")) {
       const ids = yield* Effect.fromResult(payloadManyIds(data.relatedPosts));

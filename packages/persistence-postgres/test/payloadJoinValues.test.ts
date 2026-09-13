@@ -12,6 +12,10 @@ import { payloadScalarFields } from "../../payload-adapter/src/conformanceProfil
 import { payloadRelationManifest } from "./payloadRelationFixture";
 import { policyManifestFixture } from "./applicationWritePolicyFixture";
 import { runEffect } from "./effectTestRuntime";
+import { makePayloadCollectionRuntime } from "../../payload-adapter/src/collectionRuntime";
+import { payloadRelatedPostField } from "../../payload-adapter/src/contract";
+
+const posts = makePayloadCollectionRuntime(payloadJoinConfiguration.tables[0]!);
 
 it("keeps virtual metadata exact and old profiles unchanged", async () => {
   const decode = Schema.decodeUnknownResult(PayloadConfigurationSchema);
@@ -20,6 +24,11 @@ it("keeps virtual metadata exact and old profiles unchanged", async () => {
   }
   expect(decode({ ...payloadManyConfiguration, joins: [] })).toMatchObject({ _tag: "Failure" });
   expect(decode({ ...payloadJoinConfiguration, joins: [] })).toMatchObject({ _tag: "Failure" });
+  for (const configuration of [payloadManyConfiguration, payloadJoinConfiguration]) {
+    expect(decode({ ...configuration, tables: configuration.tables.map(table => ({ ...table,
+      fields: table.fields.map(field => field.name === "relatedPosts" ? { ...payloadRelatedPostField, name: "relatedPosts" } : field),
+    })) })).toMatchObject({ _tag: "Failure" });
+  }
   const scalar = (await policyManifestFixture(undefined, true, payloadScalarFields)).manifest;
   const joined = (await payloadRelationManifest(scalar, true, true)).manifest;
   for (const prior of [scalar, (await payloadRelationManifest(scalar)).manifest, (await payloadRelationManifest(scalar, true)).manifest]) {
@@ -53,13 +62,13 @@ it("refuses caller query expansion and only admits the sanitizer's empty predica
 
 it("charges combined forward and reverse references and repeated document copies", () => {
   const ids = Array.from({ length: 33 }, (_, index) => `id-${index}`);
-  const ledger = makePayloadPopulation("payload.content-joins");
+  const ledger = makePayloadPopulation("payload.content-joins", posts);
   expect(ledger.roots([{ id: "root", relatedPosts: ids.slice(0, 32), referencedBy: { docs: [ids[32] ?? ""], hasNextPage: false } }]))
     .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
-  const output = makePayloadPopulation("payload.content-joins");
+  const output = makePayloadPopulation("payload.content-joins", posts);
   Result.getOrThrow(output.roots(Array.from({ length: 32 }, () => ({ id: "root", relatedPosts: ids.slice(0, 32),
     referencedBy: { docs: ids.slice(0, 16), hasNextPage: true }, referencedByMany: { docs: ids.slice(16, 32), hasNextPage: false } }))));
-  expect(output.outputBytes(ids.slice(0, 32), ids.slice(0, 32).map(id => ({ id, title: "x".repeat(1800) }))))
+  expect(output.outputBytes("posts", ids.slice(0, 32), ids.slice(0, 32).map(id => ({ id, title: "x".repeat(1800) }))))
     .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
 });
 

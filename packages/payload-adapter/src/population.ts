@@ -8,6 +8,7 @@ import {
   type CmsTransactionError,
 } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { payloadRelatedPostsField, type PayloadContentProfile } from "./contract";
+import type { PayloadCollectionRuntime } from "./collectionRuntime";
 
 export const maximumPayloadPopulationTargets = 32;
 
@@ -31,10 +32,13 @@ export function payloadPopulationIds(input: unknown): Result.Result<readonly str
 }
 
 /** One root read owns this ledger; it is never shared across requests or writes. */
-export function makePayloadPopulation(profile: PayloadContentProfile = "payload.content-relations") {
+export function makePayloadPopulation(profile: PayloadContentProfile, collection: PayloadCollectionRuntime) {
   let registered = false;
   const references = new Map<string, number>();
   let rootBytes = 0;
+  // The admitted optional-one and fixed many/join profiles each have one target table.
+  const relation = collection.oneRelationship;
+  const targetTable = relation?.kind === "relationship" ? relation.target : undefined;
   return Object.freeze({
     roots(documents: readonly JsonObject[]): Result.Result<void, CmsTransactionError> {
       return Result.gen(function* () {
@@ -47,7 +51,7 @@ export function makePayloadPopulation(profile: PayloadContentProfile = "payload.
           if (!Array.isArray(many) || many.length > payloadRelatedPostsField.maxItems || new Set(many).size !== many.length) {
             return yield* Result.fail(cmsError("storedCorruption", "invalid many identities"));
           }
-          const single = document.relatedPost;
+          const single = relation === undefined ? undefined : document[relation.name];
           const reverse: string[] = [];
           if (profile === "payload.content-joins") for (const join of payloadJoins) {
             const value = document[join.name];
@@ -67,12 +71,13 @@ export function makePayloadPopulation(profile: PayloadContentProfile = "payload.
         if (rootBytes > cmsLimits.commandBytes) return yield* Result.fail(cmsError("limitExceeded"));
       });
     },
-    admit(ids: readonly string[]): Result.Result<void, CmsTransactionError> {
-      if (!registered || ids.some(id => !references.has(id))) return Result.fail(cmsError("invalidAuthority"));
+    admit(table: string, ids: readonly string[]): Result.Result<void, CmsTransactionError> {
+      if (!registered || table !== targetTable || ids.some(id => !references.has(id))) return Result.fail(cmsError("invalidAuthority"));
       return Result.succeed(undefined);
     },
-    outputBytes(ids: readonly string[], documents: readonly (Json | null)[]): Result.Result<number, CmsTransactionError> {
+    outputBytes(table: string, ids: readonly string[], documents: readonly (Json | null)[]): Result.Result<number, CmsTransactionError> {
       return Result.gen(function* () {
+        if (!registered || table !== targetTable) return yield* Result.fail(cmsError("invalidAuthority"));
         if (ids.length !== documents.length) return yield* Result.fail(cmsError("storedCorruption", "population batch length"));
         let bytes = rootBytes;
         for (const [index, id] of ids.entries()) {

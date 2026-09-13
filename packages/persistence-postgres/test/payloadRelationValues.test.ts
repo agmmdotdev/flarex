@@ -6,6 +6,21 @@ import { policyManifestFixture, hashPolicyFixture } from "./applicationWritePoli
 import { payloadScalarFields } from "../../payload-adapter/src/conformanceProfile";
 import { payloadRelationManifest } from "./payloadRelationFixture";
 import { isOptionalPostRelationSuccessor, admitsApplicationOwnershipSuccessor } from "../src/applicationWriteOwnership/Successor";
+import { compilePayloadCollections } from "../../payload-adapter/src/collections";
+import { compiledPayloadManifest } from "./cmsHostFixture";
+
+it("does not turn fresh configurable relationships into existing-row successor authority", async () => {
+  for (const [source, target, field] of [["articles", "authors", "author"], ["posts", "posts", "editor"], ["posts", "posts", "relatedPost"]] as const) {
+    const scalar = [{ slug: source, fields: [{ name: "title", type: "text", required: true }] },
+      ...(source === target ? [] : [{ slug: target, fields: [{ name: "name", type: "text", required: true }] }])];
+    const configured = scalar.map(collection => collection.slug === source ? { ...collection,
+      fields: [...collection.fields, { name: field, type: "relationship", relationTo: target }],
+    } : collection);
+    const before = await compiledPayloadManifest(await Effect.runPromise(compilePayloadCollections(scalar)));
+    const after = await compiledPayloadManifest(await Effect.runPromise(compilePayloadCollections(configured)));
+    expect(isOptionalPostRelationSuccessor(before.manifest, after.manifest)).toBe(source === "posts" && field === "relatedPost");
+  }
+});
 
 it("admits only the additive optional-one configuration without reinterpreting scalar bytes", async () => {
   const prior = (await policyManifestFixture(undefined, true, payloadScalarFields)).manifest;

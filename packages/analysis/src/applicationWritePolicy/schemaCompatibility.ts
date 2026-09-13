@@ -3,7 +3,7 @@ import type { ValidatorJSON } from "flarex/values";
 import { ApplicationWritePolicyError, type ApplicationWritePolicies } from "./model.ts";
 import type { AnalyzedApplicationRelation } from "../applicationRelationAnalysis.ts";
 
-/** The first profile admits exactly declared, required flat scalar fields. */
+/** Payload-owned validators and native relation declarations must agree exactly. */
 export function validateApplicationWritePolicySchema(
   policies: ApplicationWritePolicies,
   tables: ReadonlyArray<Readonly<{ readonly name: string; readonly validator: ValidatorJSON }>>,
@@ -32,9 +32,12 @@ export function validateApplicationWritePolicySchema(
   }
   const manyProfile = policies.configuration.profile === "payload.content-many" || policies.configuration.profile === "payload.content-joins";
   if (policies.configuration.profile !== "payload.scalar") {
+    const source = policies.configuration.tables.find(table => table.fields.some(field => field.kind === "relationship" && field.cardinality === "one"));
+    const field = source?.fields.find(candidate => candidate.kind === "relationship" && candidate.cardinality === "one");
     const declaration = relations[0]?.declaration;
-    if (relations.length !== (manyProfile ? 2 : 1) || declaration?.source.table !== "posts" || declaration.source.path[0].name !== "relatedPost" ||
-      declaration.source.forwardName !== "relatedPost" || declaration.target.table !== "posts" ||
+    if (field?.kind !== "relationship" || source === undefined || relations.length !== (manyProfile ? 2 : 1) ||
+      declaration?.source.table !== source.logicalTableName || declaration.source.path.length !== 1 || declaration.source.path[0].name !== field.name ||
+      declaration.source.forwardName !== field.name || declaration.target.table !== field.target ||
       declaration.value.cardinality !== "one" || declaration.value.required || declaration.localized ||
       declaration.inverse.cardinality !== "many" || declaration.inverse.name !== null || declaration.onTargetDelete !== "restrict") {
       return Result.fail(new ApplicationWritePolicyError({ reason: "configurationMismatch", path: "configuration.relations" }));
