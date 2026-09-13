@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence } from "./fixtures/applicationNativeMutationTestFixture";
-import { makePGliteFrameworkMigrationTargetEffect } from "../src/migrationCoordination/pgliteTarget";
+import { makePGliteFrameworkMigrationTargetEffect } from "./frameworkMigrationPGliteTarget";
 import { runEffect } from "./effectTestRuntime";
 import { exerciseBindingLifecycle } from "./frameworkDataBindingTestSupport";
 import {

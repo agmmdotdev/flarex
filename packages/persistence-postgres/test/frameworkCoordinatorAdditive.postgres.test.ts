@@ -17,19 +17,18 @@ native("native additive framework migration coordinator", () => {
       const pending = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...input, maximumStepsPerRun: 0 }));
       if (pending.kind !== "pending") throw new Error("Expected claim");
       const change = await fixture.persistence.drizzle.transaction(tx => runEffect(prepareBaseAvailabilityChange(tx, input.baseReadiness.installation, "withdrawn")));
-      await fixture.persistence.query("create function fx_additive_hold_receipt() returns trigger language plpgsql as $$ begin perform pg_advisory_xact_lock(764321); return new; end $$");
-      await fixture.persistence.query("create trigger fx_additive_hold_receipt after insert on fx_system_framework_migration_step_receipt for each row execute function fx_additive_hold_receipt()");
       const blocker = await fixture.persistence.pool.connect();
       const writer = await fixture.persistence.pool.connect();
       let advancing: Promise<unknown> | undefined;
       let changing: Promise<unknown> | undefined;
       try {
-        await blocker.query("select pg_advisory_lock(764321)");
+        await blocker.query("begin");
+        await blocker.query("lock table fx_system_framework_migration_step_receipt in share mode");
         const progress = runEffect(Effect.result(executeNextFrameworkMigrationStepEffect(pending.claim)));
         advancing = progress;
-        // Observe the real INSERT blocked in its trigger, after the coordinator
-        // has acquired A's availability row. No observer callback controls SQL.
-        await waitForLock(fixture, "wait_event='advisory' and query like '%insert into%fx_system_framework_migration_step_receipt%'");
+        // A real table lock stalls the receipt INSERT after A's availability
+        // lock, without replacing the protected catalog with a fixture trigger.
+        await waitForLock(fixture, "wait_event_type='Lock' and query like '%insert into%fx_system_framework_migration_step_receipt%'");
         const pid = (await writer.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0]?.pid;
         if (pid === undefined) throw new Error("Missing writer pid");
         const canonical = Buffer.from(change.head.canonicalJson);
@@ -38,17 +37,15 @@ native("native additive framework migration coordinator", () => {
           [change.stored.storageId.toString(), change.head.frame.availabilitySequence, Buffer.from(change.stored.history.sha256, "hex"),
             Buffer.from(change.head.sha256, "hex"), canonical.byteLength, canonical, change.current.installation.storageId.toString(),
             Buffer.from(change.current.head.sha256, "hex")]);
-        await waitForLock(fixture, "pid=" + pid + " and wait_event_type='Lock'");
-        await blocker.query("select pg_advisory_unlock(764321)");
+        await waitForLock(fixture, "pid=" + pid + " and wait_event_type='Lock'", fixture.persistence.pool);
+        await blocker.query("commit");
         expect(Result.getOrThrow(await progress)).toMatchObject({ kind: "step", completedStepCount: 1 });
         await changing;
         expect(await runEffectFailure(executeNextFrameworkMigrationStepEffect(pending.claim))).toMatchObject({ reason: "planConflict" });
       } finally {
-        await blocker.query("select pg_advisory_unlock_all()");
+        await blocker.query("rollback");
         await Promise.allSettled([advancing, changing]);
         blocker.release(); writer.release();
-        await fixture.persistence.query("drop trigger fx_additive_hold_receipt on fx_system_framework_migration_step_receipt");
-        await fixture.persistence.query("drop function fx_additive_hold_receipt()");
       }
     });
   }, 240_000);
@@ -142,10 +139,10 @@ native("native additive framework migration coordinator", () => {
   }, 300_000);
 });
 
-async function waitForLock(fixture: NativeCoordinatorFixture, predicate: string) {
+async function waitForLock(fixture: NativeCoordinatorFixture, predicate: string, pool = fixture.migrationPool) {
   const deadline = performance.now() + 10_000;
   while (performance.now() < deadline) {
-    const found = await fixture.persistence.query("select 1 from pg_stat_activity where datname=current_database() and application_name=current_setting('application_name') and " + predicate);
+    const found = await pool.query("select 1 from pg_stat_activity where datname=current_database() and application_name=current_setting('application_name') and " + predicate);
     if (found.rows.length > 0) return;
     await delay(10);
   }

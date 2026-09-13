@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Exit, Cause } from "effect";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence } from "./fixtures/applicationNativeMutationTestFixture";
-import { makePGliteFrameworkMigrationTargetEffect } from "../src/migrationCoordination/pgliteTarget";
+import { makePGliteFrameworkMigrationTargetEffect } from "./frameworkMigrationPGliteTarget";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "./frameworkSchemaArtifactAdmissionTestSupport";
 import { createRelationalPGliteFixture } from "./relationalPGliteWorkerTestSupport";
 import {

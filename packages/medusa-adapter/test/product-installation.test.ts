@@ -12,8 +12,8 @@ import {
 import { makeFrameworkSchemaArtifactControlSessionStarter } from "../../persistence-postgres/src/frameworkSchema/artifact/controlSession";
 import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../../persistence-postgres/src/frameworkSchema/artifact/postgresControlSession";
 import { admitFrameworkSchemaArtifactEffect } from "../../persistence-postgres/src/frameworkSchema/artifact/admission";
-import { makePGliteFrameworkMigrationTargetEffect } from "../../persistence-postgres/src/migrationCoordination/pgliteTarget";
-import { makePostgresFrameworkMigrationTargetEffect } from "../../persistence-postgres/src/migrationCoordination/postgresTarget";
+import { makePGliteFrameworkMigrationTargetEffect } from "../../persistence-postgres/test/frameworkMigrationPGliteTarget";
+import { makePostgresFrameworkMigrationFixtureTarget } from "../../persistence-postgres/test/frameworkMigrationPostgresFixture";
 import { frameworkMigrationTargetSnapshot } from "../../persistence-postgres/src/migrationCoordination/targetSession";
 import { runFreshFrameworkMigrationCoordinatorEffect } from "../../persistence-postgres/src/migrationCoordination/freshCoordinator";
 import {
@@ -72,17 +72,17 @@ async function createFixture() {
       schemaName,
     },
   } as const;
-  const target = await Effect.runPromise(
-    "pool" in persistence
-      ? makePostgresFrameworkMigrationTargetEffect({
-          ...targetInput,
-          persistence,
-        })
-      : makePGliteFrameworkMigrationTargetEffect({
+  const target = await ("pool" in persistence
+    ? makePostgresFrameworkMigrationFixtureTarget({
+        ...targetInput,
+        persistence,
+      })
+    : Effect.runPromise(
+        makePGliteFrameworkMigrationTargetEffect({
           ...targetInput,
           persistence,
         }),
-  );
+      ));
   const snapshot = frameworkMigrationTargetSnapshot(target);
   if (snapshot === undefined) throw new Error("Missing target authority");
   const prepare = () =>

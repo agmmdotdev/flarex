@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from "pg";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { PostgresFlarexPersistence } from "../postgres";
 import type { ScopePhysicalLocator } from "../scopeMetadataTypes";
+import { protectPostgresMigrationTransaction } from "./postgresTargetProtection";
 import { makePostgresMigrationConnection, type PostgresMigrationConnection,
   type PostgresMigrationConnectionOptions, type PostgresMigrationPhase } from "./postgresTargetConnection";
 import { FrameworkMigrationDecisionUncertainIssue, FrameworkMigrationSessionResourceIssue,
@@ -26,8 +27,10 @@ export interface MakePostgresFrameworkMigrationTargetInput {
   readonly options?: PostgresFrameworkMigrationOptions;
 }
 
-/** Source-private harness composition. The caller owns database/locator identity;
- * this is not a production resolver or an adapter-facing target issuer. */
+/** Source-private native composition. The caller owns database/locator identity;
+ * this is not a production resolver or an adapter-facing target issuer. Every
+ * acquired execution connection must pass protection before coordinator work;
+ * provisioning credentials cannot be used as installer credentials. */
 export const makePostgresFrameworkMigrationTargetEffect = Effect.fn(
   "FrameworkMigrationPostgresTarget.make",
 )(function* (input: MakePostgresFrameworkMigrationTargetInput) {
@@ -92,11 +95,12 @@ function makeRunTransaction(pool: Pool, options: Options): RunFrameworkMigration
         yield* command(connection, expiresAt, "begin", "begin isolation level read committed", "BEGIN");
         yield* bounded(Effect.tryPromise({
           try: () => connection.query("configure",
-            "select set_config('lock_timeout', $1, true), set_config('statement_timeout', $2, true)",
+            "select pg_catalog.set_config('lock_timeout', $1, true), pg_catalog.set_config('statement_timeout', $2, true)",
             [`${Math.min(request.lockTimeoutMilliseconds, options.transaction)}ms`,
               `${Math.min(request.statementTimeoutMilliseconds, options.transaction)}ms`]),
           catch: cause => resource("beginOrConfigure", cause),
         }), expiresAt, "beginOrConfigure");
+        yield* bounded(protectPostgresMigrationTransaction(connection), expiresAt, "beginOrConfigure");
       })));
       if (Exit.isFailure(prepared)) {
         return yield* failWithCleanup(prepared.cause, connection, options);

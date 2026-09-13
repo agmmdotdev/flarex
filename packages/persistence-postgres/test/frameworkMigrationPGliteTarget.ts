@@ -1,10 +1,10 @@
 import { Cause, Effect, Exit } from "effect";
 import { sql } from "drizzle-orm";
 
-import type { FlarexMetadataDatabase } from "../deployments";
-import type { FlarexMetadataTransaction } from "../metadataTransaction";
-import type { PGliteFlarexPersistence } from "../pglite";
-import type { ScopePhysicalLocator } from "../scopeMetadataTypes";
+import type { FlarexMetadataDatabase } from "../src/deployments";
+import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
+import type { PGliteFlarexPersistence } from "../src/pglite";
+import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   FrameworkMigrationDecisionUncertainIssue,
   FrameworkMigrationSessionResourceIssue,
@@ -15,9 +15,9 @@ import {
   type FrameworkMigrationTarget,
   type FrameworkMigrationTargetCompositionError,
   type RunFrameworkMigrationDriverTransaction,
-} from "./targetSession";
-import type { FrameworkMigrationValueError } from "./errors";
-import type { FrameworkSchemaTargetCompositionError } from "../frameworkSchema/target";
+} from "../src/migrationCoordination/targetSession";
+import type { FrameworkMigrationValueError } from "../src/migrationCoordination/errors";
+import type { FrameworkSchemaTargetCompositionError } from "../src/frameworkSchema/target";
 
 export interface MakePGliteFrameworkMigrationTargetInput {
   readonly persistence: Pick<PGliteFlarexPersistence, "drizzle">;
@@ -32,6 +32,8 @@ export interface MakePGliteFrameworkMigrationTargetInput {
  * exact Drizzle instance. Each invocation uses a fresh transaction callback
  * and opaque logical session identity. PGlite cannot resolve physical aliases,
  * prove connection exclusion, or establish genuine PostgreSQL recovery.
+ * Single-user mode cannot prove restricted-login integrity either. This factory
+ * therefore lives only in test support and never issues native protection.
  */
 export const makePGliteFrameworkMigrationTargetEffect = Effect.fn(
   "FrameworkMigrationPGliteTarget.make",

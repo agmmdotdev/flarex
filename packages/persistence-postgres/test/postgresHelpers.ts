@@ -4,6 +4,7 @@ import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 import { sql } from "drizzle-orm";
 import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 import { afterAll, beforeAll } from "vitest";
+import { closeFrameworkMigrationFixture, assertFrameworkMigrationFixtureIdle } from "./frameworkMigrationPostgresFixture";
 
 import {
   createPostgresClientPersistence,
@@ -237,6 +238,7 @@ export async function withTemporaryPostgresPersistence(
     const cleanupErrors: unknown[] = [];
     const persistenceToClose = persistence;
     if (persistenceToClose !== undefined) {
+      await recordCleanupError(cleanupErrors, () => closeFrameworkMigrationFixture(persistenceToClose));
       await recordCleanupError(cleanupErrors, () => persistenceToClose.close());
     }
     await recordCleanupError(cleanupErrors, () =>
@@ -474,10 +476,12 @@ export async function withTemporaryPostgresPersistencePair(
     const cleanupErrors: unknown[] = [];
     const controlToClose = control;
     if (controlToClose !== undefined) {
+      await recordCleanupError(cleanupErrors, () => closeFrameworkMigrationFixture(controlToClose));
       await recordCleanupError(cleanupErrors, () => controlToClose.close());
     }
     const targetToClose = target;
     if (targetToClose !== undefined) {
+      await recordCleanupError(cleanupErrors, () => closeFrameworkMigrationFixture(targetToClose));
       await recordCleanupError(cleanupErrors, () => targetToClose.close());
     }
     for (const schemaName of schemaNames) {
@@ -556,6 +560,7 @@ export async function createFileScopedPostgresFixture(): Promise<FileScopedPostg
           "File-scoped Postgres test left a checked-out or waiting pool client.",
         );
       }
+      await assertFrameworkMigrationFixtureIdle(migratedPersistence);
       const tables = await migratedPersistence.query<{ tablename: string }>(
         `
           select tablename
@@ -594,6 +599,7 @@ export async function createFileScopedPostgresFixture(): Promise<FileScopedPostg
       if (disposed) return;
       disposed = true;
       const cleanupErrors: unknown[] = [];
+      await recordCleanupError(cleanupErrors, () => closeFrameworkMigrationFixture(migratedPersistence));
       await recordCleanupError(cleanupErrors, () => migratedPersistence.close());
       await recordCleanupError(cleanupErrors, () =>
         adminPool.query(

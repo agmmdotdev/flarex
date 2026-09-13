@@ -16,7 +16,7 @@ import type { FlarexMetadataTransaction } from
   "../src/metadataTransaction";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import { makePGliteFrameworkMigrationTargetEffect } from
-  "../src/migrationCoordination/pgliteTarget";
+  "./frameworkMigrationPGliteTarget";
 import {
   FrameworkMigrationDecisionUncertainIssue,
   FrameworkMigrationSessionResourceIssue,
@@ -75,7 +75,7 @@ const executeProbeSqlEffect = Effect.fn(
 );
 
 describe("private framework migration target sessions", () => {
-  it("keeps target, session, and PGlite composition capabilities source-private", async () => {
+  it("keeps target/session capabilities private and PGlite composition test-only", async () => {
     expect("makeFrameworkMigrationTargetEffect" in persistenceRoot).toBe(false);
     expect("makeFrameworkSchemaTarget" in persistenceRoot).toBe(false);
     expect(
@@ -95,7 +95,7 @@ describe("private framework migration target sessions", () => {
       "./src/migrationCoordination/targetSession.ts",
     );
     expect(exportedPaths).not.toContain(
-      "./src/migrationCoordination/pgliteTarget.ts",
+      "./test/frameworkMigrationPGliteTarget.ts",
     );
   }, PGLITE_TEST_TIMEOUT);
 

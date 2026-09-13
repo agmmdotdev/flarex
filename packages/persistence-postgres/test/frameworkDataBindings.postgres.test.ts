@@ -5,7 +5,7 @@ import {
   withTemporaryPostgresPersistencePair,
 } from "./postgresHelpers";
 import { createApplicationNativeMutationPostgresFixture } from "./fixtures/applicationNativeMutationTestFixture";
-import { makePostgresFrameworkMigrationTargetEffect } from "../src/migrationCoordination/postgresTarget";
+import { makePostgresFrameworkMigrationFixtureTarget } from "./frameworkMigrationPostgresFixture";
 import { makeFrameworkSchemaArtifactControlSessionStarter } from "../src/frameworkSchema/artifact/controlSession";
 import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../src/frameworkSchema/artifact/postgresControlSession";
 import { makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
@@ -48,14 +48,12 @@ describe.skipIf(postgresUrl === null)(
           },
           { control, target },
         );
-        const migrationTarget = await runEffect(
-          makePostgresFrameworkMigrationTargetEffect({
+        const migrationTarget = await makePostgresFrameworkMigrationFixtureTarget({
             persistence: target,
             deploymentId: fixture.deploymentId,
             canonicalPhysicalDatabaseIdentity: "native-binding-fixture",
             physicalLocator: fixture.active.basis.authority.physicalLocator,
-          }),
-        );
+          });
         const lifecycle = await exerciseBindingLifecycle(
           fixture,
           migrationTarget.schema,

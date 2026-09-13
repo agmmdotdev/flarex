@@ -7,8 +7,8 @@ import { captureRelationalSchemaArtifact } from "../src/relationalSchema/artifac
 import { captureRelationalPhysicalLayout } from "../src/relationalSchema/physical/canonical";
 import { captureFreshRelationalMigrationPlan } from "../src/migrationCoordination/canonical";
 import { captureFrameworkSchemaTargetNamespace } from "../src/migrationCoordination/targetNamespace";
-import { makePGliteFrameworkMigrationTargetEffect } from "../src/migrationCoordination/pgliteTarget";
-import { makePostgresFrameworkMigrationTargetEffect } from "../src/migrationCoordination/postgresTarget";
+import { makePGliteFrameworkMigrationTargetEffect } from "./frameworkMigrationPGliteTarget";
+import { makePostgresFrameworkMigrationFixtureTarget } from "./frameworkMigrationPostgresFixture";
 import {
   runFrameworkMigrationTargetTransactionEffect,
   withFrameworkMigrationRawTransactionEffect,
@@ -107,11 +107,9 @@ it("verifies text-set backslashes and apostrophes and rejects changed membership
     canonicalPhysicalDatabaseIdentity: "text-set/database",
     physicalLocator,
   };
-  const target = await Effect.runPromise(
-    "pool" in persistence
-      ? makePostgresFrameworkMigrationTargetEffect({ ...input, persistence })
-      : makePGliteFrameworkMigrationTargetEffect({ ...input, persistence }),
-  );
+  const target = await ("pool" in persistence
+      ? makePostgresFrameworkMigrationFixtureTarget({ ...input, persistence })
+      : Effect.runPromise(makePGliteFrameworkMigrationTargetEffect({ ...input, persistence })));
   const token = await Effect.runPromise(
     issueRelationalStructuralRunnerTokenEffect(target, plan),
   );

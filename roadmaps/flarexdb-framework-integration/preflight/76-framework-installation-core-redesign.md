@@ -36,12 +36,14 @@ same exact database-object/canonical-identity binding. Persisted namespace and
 installation identities are unchanged. These source-private handles are not
 production target resolution or proof of protected execution privileges.
 
-The optimized progress model, protected-target admission, readable installer
-facade, verification reorganization and performance acceptance are not yet
-implemented. In particular, existing target construction still accepts a
-caller-owned pool and does not enforce a non-owner login. Full current
-reconstruction remains in force; the new guards are not permission to cache
-database authority or enable the proposed fast path before those gates pass.
+Native migration execution now checks protected-login and metadata-guard
+requirements on every acquired ordinary or recovery connection before invoking
+coordinator work. Construction still borrows a trusted caller-owned pool and
+does not itself certify any future connection. The optimized progress model,
+readable installer facade, verification reorganization and performance acceptance
+are not yet implemented. Full current reconstruction remains in force; connection
+protection is not permission to cache database authority or enable the proposed
+fast path before those remaining gates pass.
 
 ### Connected validation boundaries
 
@@ -58,7 +60,7 @@ check alone does not narrow indexed access under a consumer's
 `noUncheckedIndexedAccess` setting. Missing/extra rows still fail through the
 existing materialization checks; no assertion or weakened row contract is needed.
 
-### Protected execution profile decision (pending)
+### Protected execution profiles
 
 PGlite cannot currently prove the restricted-login integrity contract. In the
 installed PGlite 0.5.8 source, `defaultStartParams` selects PostgreSQL single-user
@@ -76,14 +78,72 @@ reset and reachable owner privileges, and verify the exact protected objects and
 guards before coordinator work. A constructor-time probe on another pooled
 connection is insufficient. Provisioning remains separately privileged.
 
-Recommended decision, not yet activated: protected installer execution is a
-native PostgreSQL capability. Keep PGlite as an explicitly functional-only
-conformance lane for the shared algorithm and guard behavior; it must not issue
-or claim native restricted-login protection. Any test-only construction needed
-for that lane must remain outside ordinary runtime construction, with no public
-`skipProtection` option, permissive fallback, or PGlite-specific weakening of
-the shared integrity rules. Confirm this execution-profile split before issuing
-protected execution authority or enabling the optimized path.
+The approved split makes protected installer execution a native PostgreSQL
+capability. PGlite remains an explicitly functional-only conformance lane for the
+shared algorithm and guard behavior, with its migration factory in test support
+and outside the shipped source tree. It does not issue native restricted-login
+protection. There is no `skipProtection` option, owner fallback, or weakening of
+shared integrity rules for a framework or test driver.
+
+`postgresTargetProtection.ts` owns the connection checks; `postgresTarget.ts`
+retains acquisition, deadlines, rollback, quarantine, settlement and excluded
+recovery-session ownership. Before work, the connection resets role/session
+authorization to reveal its authenticated login, captures its metadata namespace,
+and pins name resolution to `pg_catalog`, that namespace, then `pg_temp`.
+Metadata checks inspect the fixed protected object set, not installation rows or
+historical prefixes. Login checks also inspect reachable privileges and retained
+foreign-key dependencies in the database catalog; their cost can grow with the
+catalog and remains part of the later performance gate.
+
+The current native profile deliberately requires a login with no superuser,
+database/role-creation, replication or bypass-RLS attributes, no role memberships,
+no database CREATE or `session_replication_role` setting privilege, and no
+executable security-definer functions owned by another role, including functions
+in `pg_catalog` and functions whose namespace is no longer usable. It also rejects
+table- or column-level `REFERENCES` on any non-owned table, and existing foreign
+keys from installer-owned tables to non-owned tables even after that grant is
+revoked, because referential-integrity casts execute with the referenced table
+owner's authority. For references in the opposite direction, it admits only a
+single matching UUID or text key on both sides, its exact built-in equality
+operators, and NO ACTION/RESTRICT actions. Each text key must use the built-in
+default or C collation; current binding candidates use C while the scope root
+uses default. This retains current Application scope UUID and text-ID references
+without admitting user-defined conversions or cascading writes as another owner.
+It rejects database, protected namespace/table/function,
+extension and procedural-language ownership. Rejecting extension ownership also
+closes indirect cascading deletion through the guard language's dependencies.
+Initial timeout configuration uses qualified built-ins before protection pins
+name resolution. The installer owns its physical tables and reference roots;
+physical DDL ownership remains separate from protected metadata ownership.
+Supporting a more permissive role graph is a future explicit profile decision,
+not an implicit exception for a consumer.
+
+The checked metadata catalog must have ordinary non-partitioned, non-inherited
+tables without rewrite rules or RLS. The execution role cannot have their TRIGGER
+privilege. Guard function bodies are pinned to the guard migration by SHA-256,
+with exact language/configuration and execution properties. Trigger checks cover
+the complete expected set, enabled state, timing/events, function identity,
+arguments and absence of conditional/transition-table alterations. Parent stamp
+columns must retain their required bigint shape. These checks do not replace
+historical completeness, canonical-value, FK, physical-structure or lineage
+verification by their existing owners.
+
+Native fixtures now provision separate installer logins and reuse the real
+protected driver. Setup/corruption access stays with the fixture owner;
+application access to installer-created physical tables uses explicit grants,
+not installer-role membership. Provisioning credentials are required for that
+test lane and are never a runtime fallback. Restart workers authenticate as the
+same fixture installer without inheriting process-local authority. Fixture
+cleanup closes installer pools, returns surviving physical objects to setup for
+its schema teardown, and removes only its disposable roles and grants.
+Administrative reset checks both setup and installer pools for borrowed clients
+before truncating fixture state.
+
+These are native conformance guarantees, not a production provisioning service,
+Cloudflare/Hyperdrive deployment proof, cross-cluster restore capability, or a
+performance result. Privileged repair still requires quiescence/fencing and full
+verification; arbitrary online administrator edits remain outside the protected
+execution contract.
 
 Sources: installed PGlite source-map `src/pglite.ts`, the
 [PGlite constructor contract](https://pglite.dev/docs/api), PostgreSQL

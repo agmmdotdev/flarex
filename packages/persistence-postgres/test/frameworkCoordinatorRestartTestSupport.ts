@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { FrameworkMigrationBaseInstallation } from "../src/migrationCoordination/model";
+import { frameworkMigrationRestartEnvironment } from "./frameworkMigrationPostgresFixture";
 
 export function runWorker(schema: string, physical: string, mode: string, deadline: number, additiveBase?: FrameworkMigrationBaseInstallation): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve, reject) => {
@@ -9,7 +10,7 @@ export function runWorker(schema: string, physical: string, mode: string, deadli
       "test/frameworkCoordinatorRestartWorker.postgres.test.ts", "--no-file-parallelism", "--maxWorkers=1",
     ], { cwd: fileURLToPath(new URL("..", import.meta.url)), windowsHide: true,
       detached: process.platform !== "win32",
-      env: { ...process.env, FLAREX_FRAMEWORK_RESTART_SCHEMA: schema,
+      env: { ...process.env, ...frameworkMigrationRestartEnvironment(schema), FLAREX_FRAMEWORK_RESTART_SCHEMA: schema,
         FLAREX_FRAMEWORK_RESTART_PHYSICAL: physical, FLAREX_FRAMEWORK_RESTART_MODE: mode,
         ...(additiveBase === undefined ? {} : { FLAREX_FRAMEWORK_ADDITIVE_BASE: JSON.stringify(additiveBase) }) },
       stdio: ["ignore", "pipe", "pipe"],

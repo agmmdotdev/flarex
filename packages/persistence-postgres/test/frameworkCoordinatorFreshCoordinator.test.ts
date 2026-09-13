@@ -16,7 +16,7 @@ import {
   type RunFreshFrameworkMigrationCoordinatorInput,
 } from "../src/migrationCoordination/freshCoordinator";
 import { makePGliteFrameworkMigrationTargetEffect } from
-  "../src/migrationCoordination/pgliteTarget";
+  "./frameworkMigrationPGliteTarget";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from
   "./frameworkSchemaArtifactAdmissionTestSupport";

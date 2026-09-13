@@ -5,8 +5,8 @@ import {
   hasFrameworkSchemaTargetDatabase,
   type FrameworkSchemaTarget,
 } from "../src/frameworkSchema/target";
-import { makePGliteFrameworkMigrationTargetEffect } from "../src/migrationCoordination/pgliteTarget";
-import { makePostgresFrameworkMigrationTargetEffect } from "../src/migrationCoordination/postgresTarget";
+import { makePGliteFrameworkMigrationTargetEffect } from "./frameworkMigrationPGliteTarget";
+import { makePostgresFrameworkMigrationFixtureTarget } from "./frameworkMigrationPostgresFixture";
 import { runEffect } from "./effectTestRuntime";
 
 /** Test-only explicit migration composition. Ordinary data fixtures need no driver. */
@@ -28,9 +28,7 @@ export function makeFrameworkMigrationFixtureTarget(
     physicalLocator: snapshot.physicalLocator,
   };
   return "pool" in persistence
-    ? runEffect(
-        makePostgresFrameworkMigrationTargetEffect({ ...input, persistence }),
-      )
+    ? makePostgresFrameworkMigrationFixtureTarget({ ...input, persistence })
     : runEffect(
         makePGliteFrameworkMigrationTargetEffect({ ...input, persistence }),
       );

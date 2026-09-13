@@ -4,7 +4,7 @@ import { prepareFrameworkSchemaArtifactAdmission } from "../src/frameworkSchema/
 import { runFreshFrameworkMigrationCoordinatorEffect,
   type FrameworkMigrationReadyResult } from "../src/migrationCoordination/freshCoordinator";
 import type { FrameworkMigrationBaseInstallation } from "../src/migrationCoordination/model";
-import { makePGliteFrameworkMigrationTargetEffect } from "../src/migrationCoordination/pgliteTarget";
+import { makePGliteFrameworkMigrationTargetEffect } from "./frameworkMigrationPGliteTarget";
 import { captureRelationalSchemaArtifact } from "../src/relationalSchema/artifact";
 import { runEffect } from "./effectTestRuntime";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "./frameworkSchemaArtifactAdmissionTestSupport";

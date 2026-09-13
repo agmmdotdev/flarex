@@ -42,7 +42,7 @@ import {
   type RunFrameworkMigrationDriverTransaction,
 } from "../src/migrationCoordination/targetSession";
 import { makePGliteFrameworkMigrationTargetEffect } from
-  "../src/migrationCoordination/pgliteTarget";
+  "./frameworkMigrationPGliteTarget";
 import { captureRelationalPhysicalLayout } from
   "../src/relationalSchema/physical/canonical";
 import type {

@@ -6,6 +6,7 @@ import { executeNextFrameworkMigrationStepEffect, finalizeFrameworkMigrationClai
 import { createPostgresPersistence } from "../src/postgres";
 import { runEffect } from "./effectTestRuntime";
 import { createNativeCoordinatorFixture } from "./frameworkCoordinatorPostgresFixture";
+import { closeFrameworkMigrationFixture } from "./frameworkMigrationPostgresFixture";
 
 // Executed only by the restart acceptance parent. Each invocation is a separate
 // OS process with no inherited target/claim WeakMaps or coordinator tokens.
@@ -51,6 +52,6 @@ worker("native framework restart worker", () => {
       if (mode === "after-finalize") await runEffect(finalizeFrameworkMigrationClaimEffect(pending.claim));
       else await runEffect(executeNextFrameworkMigrationStepEffect(pending.claim));
       throw new Error("Worker did not reach its injected termination edge");
-    } finally { await persistence.close(); }
+    } finally { try { await closeFrameworkMigrationFixture(persistence); } finally { await persistence.close(); } }
   }, 180_000);
 });

@@ -16,7 +16,7 @@ const request = { kind: "ordinary", lockTimeoutMilliseconds: 300, statementTimeo
 native("native framework migration target lifecycle", () => {
   it("runs as an ordinary role, commits, and rolls back DDL with callback failure", async () => {
     await withNativeCoordinator(async fixture => {
-      const role = await fixture.persistence.query<{ rolsuper: boolean; rolcreatedb: boolean }>(
+      const role = await fixture.migrationPool.query<{ rolsuper: boolean; rolcreatedb: boolean }>(
         "select rolsuper, rolcreatedb from pg_roles where rolname = current_user");
       expect(role.rows).toEqual([{ rolsuper: false, rolcreatedb: false }]);
       const result = await runEffect(runFrameworkMigrationTargetTransactionEffect(fixture.target, request, tx =>
@@ -51,7 +51,7 @@ native("native framework migration target lifecycle", () => {
         const deadline = Date.now() + 2_000;
         let observed = false;
         while (Date.now() < deadline) {
-          const result = await fixture.persistence.query<{ count: number }>(
+          const result = await fixture.migrationPool.query<{ count: number }>(
             "select count(*)::int as count from pg_stat_activity where pid = any($1::int[]) and wait_event = 'PgSleep'", [[...pids]]);
           if (result.rows[0]?.count === 1) { observed = true; break; }
           await delay(10);
@@ -63,7 +63,7 @@ native("native framework migration target lifecycle", () => {
       const exit = await settled;
       expect(Exit.isFailure(exit)).toBe(true);
       expect(performance.now() - settlementStarted).toBeLessThan(4_000);
-      const activeRows = await fixture.persistence.query<{ count: number }>(
+      const activeRows = await fixture.migrationPool.query<{ count: number }>(
         "select count(*)::int as count from pg_stat_activity where pid = any($1::int[]) and pid <> pg_backend_pid() and state <> 'idle'", [[...pids]]);
       expect(activeRows.rows[0]?.count).toBe(0);
       // A subsequent transaction remains usable, never inherits the sleeping query.
@@ -83,7 +83,7 @@ native("native framework migration target lifecycle", () => {
 
   it("expires acquisition and destroys a client delivered after expiry", async () => {
     await withNativeCoordinator(async fixture => {
-      const pool = new Pool({ ...fixture.persistence.pool.options, max: 1 });
+      const pool = new Pool({ ...fixture.migrationPool.options, max: 1 });
       const held = await pool.connect();
       try {
         const target = await runEffect(makePostgresFrameworkMigrationTargetEffect({
@@ -143,10 +143,10 @@ native("native framework migration target lifecycle", () => {
 
   it("bounds a COMMIT blocked inside a deferred trigger and cancels its actual backend", async () => {
     await withNativeCoordinator(async fixture => {
-      await fixture.persistence.query(`create table "${fixture.physicalSchema}".commit_probe (id int)`);
-      await fixture.persistence.query(`create function "${fixture.physicalSchema}".block_commit_probe() returns trigger language plpgsql as $$
+      await fixture.migrationPool.query(`create table "${fixture.physicalSchema}".commit_probe (id int)`);
+      await fixture.migrationPool.query(`create function "${fixture.physicalSchema}".block_commit_probe() returns trigger language plpgsql as $$
         begin perform pg_advisory_xact_lock(7314502); return new; end $$`);
-      await fixture.persistence.query(`create constraint trigger block_commit_probe after insert on "${fixture.physicalSchema}".commit_probe
+      await fixture.migrationPool.query(`create constraint trigger block_commit_probe after insert on "${fixture.physicalSchema}".commit_probe
         deferrable initially deferred for each row execute function "${fixture.physicalSchema}".block_commit_probe()`);
       const blocker = await fixture.persistence.pool.connect();
       await blocker.query("select pg_advisory_lock(7314502)");
@@ -161,7 +161,7 @@ native("native framework migration target lifecycle", () => {
         });
         expect(performance.now() - start).toBeLessThan(4_000);
         expect((await fixture.persistence.query<{ count: number }>(`select count(*)::int as count from "${fixture.physicalSchema}".commit_probe`)).rows[0]?.count).toBe(0);
-        const active = await fixture.persistence.query<{ count: number }>(
+        const active = await fixture.migrationPool.query<{ count: number }>(
           "select count(*)::int as count from pg_stat_activity where $1::int = any(pg_blocking_pids(pid))", [Reflect.get(blocker, "processID")]);
         expect(active.rows[0]?.count).toBe(0);
       } finally { await blocker.query("select pg_advisory_unlock_all()"); blocker.release(); }

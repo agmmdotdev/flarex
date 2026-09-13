@@ -101,25 +101,22 @@ native("native fresh framework migration coordinator", () => {
   it("serializes concurrent first-head creation and admits exactly one live owner", async () => {
     await withNativeCoordinator(async fixture => {
       const blocker = await fixture.persistence.pool.connect();
-      await blocker.query("select pg_advisory_lock(7314501)");
-      await fixture.persistence.query(`create function "${fixture.physicalSchema}".block_first_head() returns trigger language plpgsql as $$
-        begin perform pg_advisory_xact_lock(7314501); return new; end $$`);
-      await fixture.persistence.query(`create trigger block_first_head after insert on fx_system_framework_migration_collision_domain
-        for each row execute function "${fixture.physicalSchema}".block_first_head()`);
+      await blocker.query("begin");
+      await blocker.query("lock table fx_system_framework_migration_collision_domain in share mode");
       try {
         const first = runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun: 0, lockTimeoutMilliseconds: 10_000 }));
-        await waitForNative(fixture, "select count(*)::int as count from pg_stat_activity where wait_event = 'advisory' and application_name=current_setting('application_name')", 1);
+        await waitForNative(fixture, "select count(*)::int as count from pg_stat_activity where wait_event_type = 'Lock' and application_name=current_setting('application_name')", 1);
         const second = runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input,
           attemptId: "attempt-b", leaseOwnerId: "worker-b", maximumStepsPerRun: 0, lockTimeoutMilliseconds: 10_000 }));
         await waitForNative(fixture, `select count(*)::int as count from pg_stat_activity
           where wait_event_type = 'Lock' and wait_event <> 'advisory' and datname = current_database()
-            and application_name=current_setting('application_name')`, 1);
-        await blocker.query("select pg_advisory_unlock(7314501)");
+            and application_name=current_setting('application_name')`, 2);
+        await blocker.query("commit");
         const results = await Promise.all([first, second]);
         expect(results.map(result => result.kind).sort()).toEqual(["busy", "pending"]);
         expect(await countNativeRows(fixture, "fx_system_framework_migration_collision_head")).toBe(1);
         expect(await countNativeRows(fixture, "fx_system_framework_migration_attempt_start")).toBe(1);
-      } finally { await blocker.query("select pg_advisory_unlock_all()"); blocker.release(); }
+      } finally { await blocker.query("rollback"); blocker.release(); }
     });
   }, 180_000);
 
@@ -236,7 +233,7 @@ native("native fresh framework migration coordinator", () => {
           "select indexname from pg_indexes where schemaname=$1 and indexdef not like 'CREATE UNIQUE INDEX%'", [fixture.physicalSchema]);
         const index = indexes.rows[0]?.indexname;
         if (index === undefined) throw new Error("Expected ordinary index");
-        await fixture.persistence.query(`drop index "${fixture.physicalSchema}"."${index.replaceAll('"', '""')}"`);
+        await fixture.migrationPool.query(`drop index "${fixture.physicalSchema}"."${index.replaceAll('"', '""')}"`);
         expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input))).toEqual({ kind: "not_ready", reason: "structureMismatch" });
       }
       expect(await publicationCounts(fixture)).toEqual([0, 0, 0, 0]);
@@ -255,7 +252,7 @@ async function ledger(fixture: NativeCoordinatorFixture) {
 async function waitForNative(fixture: NativeCoordinatorFixture, query: string, count: number) {
   const expires = Date.now() + 5_000;
   while (Date.now() < expires) {
-    const result = await fixture.persistence.query<{ count: number }>(query);
+    const result = await fixture.migrationPool.query<{ count: number }>(query);
     if ((result.rows[0]?.count ?? 0) >= count) return;
     await delay(20);
   }

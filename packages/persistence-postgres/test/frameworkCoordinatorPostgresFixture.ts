@@ -5,7 +5,8 @@ import { admitFrameworkSchemaArtifactEffect } from "../src/frameworkSchema/artif
 import { makeFrameworkSchemaArtifactControlSessionStarter } from "../src/frameworkSchema/artifact/controlSession";
 import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../src/frameworkSchema/artifact/postgresControlSession";
 import { makeFrameworkSchemaArtifactRepository, prepareFrameworkSchemaArtifactAdmission } from "../src/frameworkSchema/artifact/repository";
-import { makePostgresFrameworkMigrationTargetEffect, type PostgresFrameworkMigrationOptions } from "../src/migrationCoordination/postgresTarget";
+import type { PostgresFrameworkMigrationOptions } from "../src/migrationCoordination/postgresTarget";
+import { makePostgresFrameworkMigrationFixtureTarget, frameworkMigrationFixturePool } from "./frameworkMigrationPostgresFixture";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { captureRelationalSchemaArtifact } from "../src/relationalSchema/artifact";
 import { runEffect } from "./effectTestRuntime";
@@ -47,13 +48,14 @@ export async function createNativeCoordinatorFixture(
   const prepared = prepareFrameworkSchemaArtifactAdmission(captured.artifact);
   if (Result.isFailure(prepared)) throw prepared.failure;
   await runEffect(admitFrameworkSchemaArtifactEffect(repositoryResult.success, prepared.success));
-  const target = await runEffect(makePostgresFrameworkMigrationTargetEffect({
+  const target = await makePostgresFrameworkMigrationFixtureTarget({
     persistence, deploymentId: "deployment-a",
     canonicalPhysicalDatabaseIdentity: "native-framework-test/database",
     physicalLocator: { kind: "shared_database", databaseKey: "primary", schemaName: physicalSchema },
     options,
-  }));
-  return { persistence, target, physicalSchema, captured,
+  });
+  const migrationPool = await frameworkMigrationFixturePool(persistence);
+  return { persistence, target, physicalSchema, captured, migrationPool,
     input: {
       target, artifactRepository: repositoryResult.success, artifactIdentity: captured.artifact.identity,
       attemptId: "attempt-a", leaseOwnerId: "worker-a", leaseDurationMilliseconds: 120_000,
