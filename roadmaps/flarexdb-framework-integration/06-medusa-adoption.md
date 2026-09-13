@@ -103,6 +103,11 @@ unchanged full-suite PGlite deadline; no runtime or verification change is
 retained. Isolated reconstruction reuse did not establish the required aggregate
 performance benefit. The installation problem and connected workflow gate remain
 unresolved; a larger transaction or ledger redesign is not established as necessary.
+The proposed [migration step-transition proof](./preflight/75-migration-step-transition-proof.md)
+separates incoming history authentication from exact command-owned writes after
+phase attribution identified repeated head/event restoration as the main target.
+It requires an explicit cross-write evidence and corruption-detection decision;
+it is not an approved implementation or a completed lineage-scale correction.
 That slice explicitly retains the private commerce error envelope rather than claiming
 the pinned test adapter's duplicate-name message or full Fulfillment parity.
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)

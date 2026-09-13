@@ -80,6 +80,15 @@ increase cache limits, weaken cold/post-write/recovery checks, or restore either
 withdrawn candidate. Exact measurements belong in the local research artifact
 and Git receipt. Installation performance remains unresolved.
 
+Follow-up phase attribution separates complete write-side graph restoration
+from the much smaller decoder bodies. Head advancement and event persistence
+dominate the measured step phases; head preparation and fresh post-update
+restoration are distinct major costs. The proposed
+[step-transition proof decision](./75-migration-step-transition-proof.md)
+addresses that ownership boundary explicitly. It is not approved implementation,
+does not relax this record's current rule, and does not establish that a new
+ledger, snapshot mode or transaction-wide cache is necessary.
+
 ## Outcome And Owners
 
 Reduce repeated database transport and client-side reconstruction of the same
