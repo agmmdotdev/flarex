@@ -273,3 +273,8 @@ not an established remedy. Temporary tracing has been removed and the fixture
 restored unchanged. No additional core abstraction or specific optimization
 is approved by this reassessment. Exact commands and numerical receipts belong
 in Git; the existing fixture remains the failing witness.
+
+The proposed [direct exact-assignment restoration preflight](./72-direct-exact-assignment-restoration.md)
+targets the concrete synthetic-row round trip after exact SQL comparison. It
+requires fresh stored evidence and the existing pure verifier/authority issuer,
+not broader graph reuse. It awaits approval and does not clear this gate.
