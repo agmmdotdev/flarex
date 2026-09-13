@@ -156,6 +156,7 @@ const restoredCollisionHeadAuthorities = new WeakMap<
   Readonly<{
     readonly currentAttempt: RestoredFrameworkMigrationAttemptStart | null;
     readonly lastEvent: RestoredFrameworkMigrationEvent | null;
+    readonly receipts: readonly RestoredFrameworkMigrationStepReceipt[];
   }>
 >();
 
@@ -317,7 +318,8 @@ export const restoreStoredFrameworkMigrationCollisionHead = Effect.fn(
   if (head.sha256 !== stored.sha256Hex || head.canonicalJson !== stored.canonicalJson) {
     return yield* corrupt();
   }
-  const progress = yield* deriveFrameworkMigrationHeadProgress(input.plan, input.currentAttempt, input.lastEvent, frame.attemptFence);
+  const receipts = yield* deriveFrameworkMigrationHeadReceiptPrefix(input.plan, input.currentAttempt, input.lastEvent, frame.attemptFence);
+  const progress = progressForReceiptPrefix(receipts);
   // These are projections of the already authenticated event commitment, not
   // independently supplied values or another canonical head identity.
   if (row.completedStepCount !== progress.completedStepCount ||
@@ -337,6 +339,7 @@ export const restoreStoredFrameworkMigrationCollisionHead = Effect.fn(
   restoredCollisionHeadAuthorities.set(restored, Object.freeze({
     currentAttempt: input.currentAttempt,
     lastEvent: input.lastEvent,
+    receipts,
   }));
   return restored;
 });
@@ -349,11 +352,21 @@ export interface FrameworkMigrationHeadProgress {
 /** Full evidence pass over the selected event tail. Later unlinked events and
  * receipts cannot advance this head. This is not the future normal-step read. */
 export const deriveFrameworkMigrationHeadProgress = Effect.fn("FrameworkMigrationCollisionHead.deriveProgress")(
+  (plan: RestoredFreshRelationalMigrationPlan, attempt: RestoredFrameworkMigrationAttemptStart | null,
+    lastEvent: RestoredFrameworkMigrationEvent | null, attemptFence: string) =>
+    deriveFrameworkMigrationHeadReceiptPrefix(plan, attempt, lastEvent, attemptFence).pipe(Effect.map(progressForReceiptPrefix)),
+);
+
+function progressForReceiptPrefix(receipts: readonly RestoredFrameworkMigrationStepReceipt[]): FrameworkMigrationHeadProgress {
+  return Object.freeze({ completedStepCount: receipts.length, lastReceipt: receipts.at(-1) ?? null });
+}
+
+const deriveFrameworkMigrationHeadReceiptPrefix = Effect.fn("FrameworkMigrationCollisionHead.deriveReceiptPrefix")(
   function* (plan: RestoredFreshRelationalMigrationPlan,
     attempt: RestoredFrameworkMigrationAttemptStart | null,
     lastEvent: RestoredFrameworkMigrationEvent | null,
     attemptFence: string,
-  ): Effect.fn.Return<FrameworkMigrationHeadProgress, FrameworkMigrationValueError> {
+  ): Effect.fn.Return<readonly RestoredFrameworkMigrationStepReceipt[], FrameworkMigrationValueError> {
     if (!isRestoredFreshRelationalMigrationPlan(plan) ||
       (attempt !== null && (!isRestoredFrameworkMigrationAttemptStart(attempt) || attempt.plan.storageId !== plan.storageId))) {
       return yield* corrupt();
@@ -386,7 +399,7 @@ export const deriveFrameworkMigrationHeadProgress = Effect.fn("FrameworkMigratio
         receipt.receipt.frame.stepId !== step.stepId || receipt.receipt.frame.stepSha256 !== step.stepSha256 ||
         receipt.attempt.plan.plan.migrationPlanSha256 !== plan.plan.migrationPlanSha256) return yield* corrupt();
     }
-    return Object.freeze({ completedStepCount: receipts.length, lastReceipt: receipts.at(-1) ?? null });
+    return Object.freeze(receipts);
   },
 );
 
@@ -402,6 +415,7 @@ export function restoredFrameworkMigrationCollisionHeadAuthority(
 ): Readonly<{
   readonly currentAttempt: RestoredFrameworkMigrationAttemptStart | null;
   readonly lastEvent: RestoredFrameworkMigrationEvent | null;
+  readonly receipts: readonly RestoredFrameworkMigrationStepReceipt[];
 }> | undefined {
   return restoredCollisionHeadAuthorities.get(input);
 }

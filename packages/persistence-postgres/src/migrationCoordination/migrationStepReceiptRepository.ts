@@ -193,6 +193,7 @@ interface ReceiptRestorationContext {
   readonly storageIdByDigest: Map<string, bigint>;
   readonly sidecarsByPlan: Map<bigint, PlanReceiptSidecars>;
   readonly attemptsByStorageId: Map<bigint, RestoredFrameworkMigrationAttemptStart>;
+  readonly eventAttempts: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart> | undefined;
 }
 
 interface PendingReceiptRestoration {
@@ -453,7 +454,8 @@ export const restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect = 
 )(function* (transaction: FlarexMetadataTransaction,
   collision: RestoredFrameworkMigrationCollisionDomain,
   digests: readonly FrameworkMigrationStepReceiptSha256[],
-  operation: StepReceiptAggregateRepositoryOperation): Effect.fn.Return<
+  operation: StepReceiptAggregateRepositoryOperation,
+  attempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>): Effect.fn.Return<
     ReadonlyMap<FrameworkMigrationStepReceiptSha256, RestoredFrameworkMigrationStepReceipt>, FrameworkMigrationRepositoryError
   > {
   if (!isRestoredFrameworkMigrationCollisionDomain(collision)) {
@@ -462,7 +464,7 @@ export const restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect = 
   const restored = new Map<FrameworkMigrationStepReceiptSha256, RestoredFrameworkMigrationStepReceipt>();
   const pending: FrameworkMigrationStepReceiptSha256[] = [];
   for (const digest of new Set(digests)) {
-    const prior = yield* readReceiptDigestReference.peek(transaction, collision, digest);
+    const prior = attempts === undefined ? yield* readReceiptDigestReference.peek(transaction, collision, digest) : Option.none();
     if (Option.isSome(prior)) restored.set(digest, prior.value);
     else pending.push(digest);
   }
@@ -499,7 +501,7 @@ export const restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect = 
       }
       const decoded = yield* decodeReceiptRoot(row, operation);
       if (working?.planStorageId !== decoded.planStorageId) {
-        working = { planStorageId: decoded.planStorageId, context: makeReceiptRestorationContext() };
+        working = { planStorageId: decoded.planStorageId, context: makeReceiptRestorationContext(attempts) };
       }
       const occupant = yield* restoreReceiptDependencyClosure(transaction, row, collision, operation, undefined, working.context);
       if (occupant.value.receipt.sha256 !== digest) {
@@ -526,6 +528,7 @@ export const restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTrans
     lastReceiptStorageId: unknown,
     lastStepReceiptSha256: unknown,
     operation: StepReceiptAggregateRepositoryOperation,
+    eventAttempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>,
   ): Effect.fn.Return<
     readonly RestoredFrameworkMigrationStepReceipt[],
     FrameworkMigrationRepositoryError
@@ -561,6 +564,7 @@ export const restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTrans
           sha256: expectedLastSha256,
         }),
       operation,
+      eventAttempts,
     );
   });
 
@@ -678,6 +682,7 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
   attempt: RestoredFrameworkMigrationAttemptStart,
   tail: AttemptReceiptPrefixTail | null | undefined,
   operation: StepReceiptAggregateRepositoryOperation,
+  eventAttempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>,
 ): Effect.fn.Return<
   readonly RestoredFrameworkMigrationStepReceipt[],
   FrameworkMigrationRepositoryError
@@ -710,7 +715,7 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
     ordinalByStepId.set(step.stepId, ordinal);
   }
 
-  const context = makeReceiptRestorationContext();
+  const context = makeReceiptRestorationContext(eventAttempts);
   const rowsByOrdinal = new Map<
     number,
     FrameworkMigrationStepReceiptDriverRow
@@ -786,9 +791,9 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
     restored.push(occupant.value);
   }
   return Object.freeze(restored);
-}, withFrameworkGraphReadPass, (read, transaction, attempt, tail, operation) =>
-  readCompleteReceiptPrefix(read, transaction, attempt, tail === null,
-    tail?.storageId, tail?.sha256));
+}, withFrameworkGraphReadPass, (read, transaction, attempt, tail, operation, eventAttempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>) =>
+  eventAttempts === undefined ? readCompleteReceiptPrefix(read, transaction, attempt, tail === null,
+    tail?.storageId, tail?.sha256) : read);
 
 const prepareExpectedStepReceipt = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.prepareExpected",
@@ -1089,7 +1094,7 @@ const restoreReceiptDependencyClosure = Effect.fn(
       preferredAttempt.plan.storageId === rootDecoded.planStorageId &&
       preferredAttempt.attempt.frame.attemptId === rootDecoded.frame.attemptId
     ? preferredAttempt
-    : context.attemptsByStorageId.get(rootDecoded.attemptStorageId) ?? (yield*
+    : context.attemptsByStorageId.get(rootDecoded.attemptStorageId) ?? context.eventAttempts?.get(rootDecoded.attemptStorageId) ?? (yield*
       restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect(
         transaction,
         actualCollision,
@@ -1308,7 +1313,7 @@ const preparePendingReceiptRestoration = Effect.fn(
 > {
   const attempt = decoded.attemptStorageId === preferredAttempt.storageId
     ? preferredAttempt
-    : context.attemptsByStorageId.get(decoded.attemptStorageId) ?? (yield* restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect(
+    : context.attemptsByStorageId.get(decoded.attemptStorageId) ?? context.eventAttempts?.get(decoded.attemptStorageId) ?? (yield* restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect(
       transaction, preferredAttempt.collision, decoded.attemptStorageId,
       decoded.frame.attemptId, operation,
     ));
@@ -1669,7 +1674,7 @@ const insertReceiptDependencySidecars = Effect.fn(
   }
 });
 
-function makeReceiptRestorationContext(): ReceiptRestorationContext {
+function makeReceiptRestorationContext(eventAttempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>): ReceiptRestorationContext {
   return {
     rootsByStorageId: new Map(),
     restoredByStorageId: new Map(),
@@ -1677,6 +1682,7 @@ function makeReceiptRestorationContext(): ReceiptRestorationContext {
     storageIdByDigest: new Map(),
     sidecarsByPlan: new Map(),
     attemptsByStorageId: new Map(),
+    eventAttempts,
   };
 }
 

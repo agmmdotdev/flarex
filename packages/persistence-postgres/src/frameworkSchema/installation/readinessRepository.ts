@@ -322,6 +322,7 @@ export const restoreStoredFrameworkSchemaReadinessReferenceBySha256InTransaction
       preferredCollision: RestoredFrameworkMigrationCollisionDomain,
       readinessSha256: FrameworkSchemaReadinessSha256,
       operation: FrameworkMigrationRepositoryOperation,
+      installationEvidence?: ReadonlyMap<bigint, RestoredFrameworkSchemaInstallation>,
     ): Effect.fn.Return<
       RestoredFrameworkSchemaReadiness,
       FrameworkMigrationRepositoryError
@@ -341,6 +342,7 @@ export const restoreStoredFrameworkSchemaReadinessReferenceBySha256InTransaction
         row.value,
         preferredCollision,
         operation,
+        installationEvidence,
       );
     }, makeFrameworkGraphReferenceRead<RestoredFrameworkSchemaReadiness>(),
   );
@@ -477,17 +479,21 @@ const restoreReadinessOccupant = Effect.fn(
   row: FrameworkSchemaReadinessDriverRow,
   preferredCollision: RestoredFrameworkMigrationCollisionDomain,
   operation: FrameworkMigrationRepositoryOperation,
+  installationEvidence?: ReadonlyMap<bigint, RestoredFrameworkSchemaInstallation>,
 ): Effect.fn.Return<
   RestoredFrameworkSchemaReadiness,
   FrameworkMigrationRepositoryError
 > {
-  const installation = yield*
+  const installation = installationEvidence?.get(row.installationStorageId) ?? (yield*
     restoreStoredFrameworkSchemaInstallationReferenceInTransactionEffect(
       transaction,
       preferredCollision,
       row.installationStorageId,
       operation,
-    );
+    ));
+  if (installation === undefined || !isRestoredFrameworkSchemaInstallation(installation)) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+  }
   return yield* restoreStoredFrameworkSchemaReadinessMetadata({
     row,
     installation,

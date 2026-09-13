@@ -378,6 +378,7 @@ export const restoreStoredFrameworkSchemaInstallationReferenceByReceiptSha256InT
       preferredCollision: RestoredFrameworkMigrationCollisionDomain,
       installationReceiptSha256: FrameworkSchemaInstallationReceiptSha256,
       operation: FrameworkMigrationRepositoryOperation,
+      terminalEvidence?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptTerminal>,
     ): Effect.fn.Return<
       RestoredFrameworkSchemaInstallation,
       FrameworkMigrationRepositoryError
@@ -397,6 +398,7 @@ export const restoreStoredFrameworkSchemaInstallationReferenceByReceiptSha256InT
         row.value,
         preferredCollision,
         operation,
+        terminalEvidence,
       );
     }, makeFrameworkGraphReferenceRead<RestoredFrameworkSchemaInstallation>(),
   );
@@ -545,17 +547,21 @@ const restoreInstallationOccupant = Effect.fn(
   row: FrameworkSchemaInstallationDriverRow,
   preferredCollision: RestoredFrameworkMigrationCollisionDomain,
   operation: FrameworkMigrationRepositoryOperation,
+  terminalEvidence?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptTerminal>,
 ): Effect.fn.Return<
   RestoredFrameworkSchemaInstallation,
   FrameworkMigrationRepositoryError
 > {
-  const terminal = yield*
+  const terminal = terminalEvidence?.get(row.terminalStorageId) ?? (yield*
     restoreStoredFrameworkMigrationAttemptTerminalReferenceInTransactionEffect(
       transaction,
       preferredCollision,
       row.terminalStorageId,
       operation,
-    );
+    ));
+  if (terminal === undefined || !isRestoredFrameworkMigrationAttemptTerminal(terminal)) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+  }
   return yield* restoreStoredFrameworkSchemaInstallationMetadata({
     row,
     collision: terminal.attempt.collision,
@@ -563,9 +569,9 @@ const restoreInstallationOccupant = Effect.fn(
     admission: terminal.attempt.admission,
     terminal,
   }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-}, (read, transaction, row, collision) => readInstallationOccupant(
+}, (read, transaction, row, collision, _operation, terminalEvidence?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptTerminal>) => terminalEvidence === undefined ? readInstallationOccupant(
   read, transaction, collision, ...frameworkGraphDriverRowReferences({ ...row }),
-), withFrameworkGraphReadPass);
+) : read, withFrameworkGraphReadPass);
 
 const loadInstallationRootByStorageId = Effect.fn(
   "FrameworkSchemaInstallationRepository.loadByStorageId",

@@ -333,7 +333,7 @@ const restoredTerminals = new WeakSet<
 >();
 const restoredTerminalStepReceipts = new WeakMap<
   RestoredFrameworkMigrationAttemptTerminal,
-  readonly RestoredFrameworkMigrationStepReceipt[]
+  TerminalReceiptPrefix
 >();
 
 const brandAssignmentSha256 =
@@ -934,6 +934,51 @@ export function isRestoredFrameworkMigrationAttemptStart(
   return restoredAttempts.has(input);
 }
 
+interface AttemptLineagePosition {
+  readonly graph: object;
+  readonly start: number;
+  readonly end: number;
+}
+const restoredAttemptLineagePositions = new WeakMap<RestoredFrameworkMigrationAttemptStart, AttemptLineagePosition>();
+
+/** Index actual issued predecessor edges once for a complete monotone forest.
+ * Positions answer ancestry without copying ancestors into each node. They
+ * confer no authority: partial or nonmonotone inputs keep the original walk. */
+export function indexRestoredFrameworkMigrationAttemptLineage(attempts: readonly RestoredFrameworkMigrationAttemptStart[]): void {
+  const nodes = new Set(attempts);
+  if (nodes.size !== attempts.length || attempts.some(attempt => !restoredAttempts.has(attempt)) ||
+    new Set(attempts.map(attempt => attempt.storageId)).size !== attempts.length) return;
+  const children = new Map<RestoredFrameworkMigrationAttemptStart, RestoredFrameworkMigrationAttemptStart[]>();
+  const roots: RestoredFrameworkMigrationAttemptStart[] = [];
+  for (const attempt of attempts) {
+    const previous = restoredAttemptPredecessors.get(attempt);
+    if (previous === undefined) return;
+    if (previous === null) roots.push(attempt);
+    else {
+      if (!nodes.has(previous) || BigInt(previous.attempt.frame.attemptFence) >= BigInt(attempt.attempt.frame.attemptFence)) return;
+      const siblings = children.get(previous);
+      if (siblings === undefined) children.set(previous, [attempt]);
+      else siblings.push(attempt);
+    }
+  }
+  const graph = Object.freeze({});
+  const positions = new Map<RestoredFrameworkMigrationAttemptStart, AttemptLineagePosition>();
+  const stack = roots.map(attempt => ({ attempt, start: -1 }));
+  let ordinal = 0;
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (entry === undefined) return;
+    if (entry.start >= 0) {
+      positions.set(entry.attempt, Object.freeze({ graph, start: entry.start, end: ordinal }));
+    } else {
+      stack.push({ attempt: entry.attempt, start: ordinal++ });
+      for (const child of children.get(entry.attempt) ?? []) stack.push({ attempt: child, start: -1 });
+    }
+  }
+  if (positions.size !== nodes.size) return;
+  for (const [attempt, position] of positions) restoredAttemptLineagePositions.set(attempt, position);
+}
+
 /** A receipt keeps its producer; only that attempt's successors may reuse it. */
 export function isRestoredFrameworkMigrationAttemptAncestor(
   producer: RestoredFrameworkMigrationAttemptStart,
@@ -942,6 +987,11 @@ export function isRestoredFrameworkMigrationAttemptAncestor(
   if (!restoredAttempts.has(producer) || !restoredAttempts.has(successor) ||
     producer.plan.storageId !== successor.plan.storageId ||
     producer.admission.storageId !== successor.admission.storageId) return false;
+  const producerPosition = restoredAttemptLineagePositions.get(producer);
+  const successorPosition = restoredAttemptLineagePositions.get(successor);
+  if (producerPosition !== undefined && successorPosition !== undefined && producerPosition.graph === successorPosition.graph) {
+    return producerPosition.start <= successorPosition.start && producerPosition.end >= successorPosition.end;
+  }
   let current: RestoredFrameworkMigrationAttemptStart | null | undefined = successor;
   while (current !== null && current !== undefined) {
     if (sameRestoredAttemptStart(producer, current)) return true;
@@ -1098,14 +1148,101 @@ export function isRestoredFrameworkMigrationStepReceipt(
   return restoredStepReceipts.has(input);
 }
 
+export interface RestoredFrameworkMigrationReceiptPrefix {
+  readonly kind: "restoredFrameworkMigrationReceiptPrefix";
+}
+
+interface TerminalReceiptPrefix {
+  readonly plan: RestoredFreshRelationalMigrationPlan;
+  readonly receipts: readonly RestoredFrameworkMigrationStepReceipt[];
+  readonly capturedReceipts: readonly RestoredFrameworkMigrationStepReceipt["receipt"][];
+  readonly completedStepCount: number;
+  readonly requiredProducer: RestoredFrameworkMigrationAttemptStart | null;
+  readonly nextProducerFence: bigint | null;
+}
+const restoredReceiptPrefixes = new WeakMap<object, TerminalReceiptPrefix>();
+
+/** One ordered plan sequence, shared by its terminal prefixes. Every position
+ * authenticates the producer needed to reuse all receipts through that tail;
+ * later terminals do not rescan or copy the preceding receipt arrays. */
+export const restoreFrameworkMigrationReceiptPrefixes = Effect.fn("FrameworkMigrationReceiptPrefix.restore")(
+  function* (plan: RestoredFreshRelationalMigrationPlan, receipts: readonly RestoredFrameworkMigrationStepReceipt[]): Effect.fn.Return<
+    ReadonlyMap<string | null, RestoredFrameworkMigrationReceiptPrefix>, FrameworkMigrationValueError
+  > {
+    if (!restoredPlans.has(plan) || receipts.length > plan.plan.frame.steps.length) return yield* corrupt();
+    const ordinals = new Map(plan.plan.frame.steps.map((step, index) => [step.stepId, index]));
+    const ordered: RestoredFrameworkMigrationStepReceipt[] = [];
+    for (const receipt of receipts) {
+      if (!restoredStepReceipts.has(receipt) || !sameRestoredPlan(receipt.attempt.plan, plan)) return yield* corrupt();
+      const ordinal = ordinals.get(receipt.receipt.frame.stepId);
+      if (ordinal === undefined || ordinal >= receipts.length || ordered[ordinal] !== undefined) return yield* corrupt();
+      ordered[ordinal] = receipt;
+    }
+    const frozen = Object.freeze(ordered);
+    const captured = Object.freeze(frozen.map(receipt => receipt.receipt));
+    const nextProducerFences: (bigint | null)[] = [];
+    let nextProducerFence: bigint | null = null;
+    for (let index = frozen.length; index >= 0; index--) {
+      nextProducerFences[index] = nextProducerFence;
+      const receipt = frozen[index - 1];
+      if (receipt !== undefined) {
+        const fence = BigInt(receipt.attempt.attempt.frame.attemptFence);
+        nextProducerFence = nextProducerFence === null || fence < nextProducerFence ? fence : nextProducerFence;
+      }
+    }
+    const prefixes = new Map<string | null, RestoredFrameworkMigrationReceiptPrefix>();
+    const add = (tail: string | null, completedStepCount: number, requiredProducer: RestoredFrameworkMigrationAttemptStart | null) => {
+      const prefix: RestoredFrameworkMigrationReceiptPrefix = Object.freeze({ kind: "restoredFrameworkMigrationReceiptPrefix" });
+      restoredReceiptPrefixes.set(prefix, Object.freeze({ plan, receipts: frozen, capturedReceipts: captured, completedStepCount, requiredProducer,
+        nextProducerFence: nextProducerFences[completedStepCount] ?? null }));
+      prefixes.set(tail, prefix);
+    };
+    add(null, 0, null);
+    let requiredProducer: RestoredFrameworkMigrationAttemptStart | null = null;
+    for (let index = 0; index < frozen.length; index++) {
+      const receipt = frozen[index];
+      if (receipt === undefined) return yield* corrupt();
+      if (requiredProducer === null || isRestoredFrameworkMigrationAttemptAncestor(requiredProducer, receipt.attempt)) {
+        requiredProducer = receipt.attempt;
+      } else if (!isRestoredFrameworkMigrationAttemptAncestor(receipt.attempt, requiredProducer)) {
+        return yield* corrupt();
+      }
+      add(receipt.receipt.sha256, index + 1, requiredProducer);
+    }
+    return prefixes;
+  },
+);
+
 export interface RestoreStoredFrameworkMigrationAttemptTerminalInput {
   readonly row: StoredFrameworkMigrationAttemptTerminalRow;
   readonly collision: RestoredFrameworkMigrationCollisionDomain;
   readonly plan: RestoredFreshRelationalMigrationPlan;
   readonly admission: RestoredFrameworkMigrationPlanAdmission;
   readonly attempt: RestoredFrameworkMigrationAttemptStart;
-  readonly stepReceipts: readonly RestoredFrameworkMigrationStepReceipt[];
+  readonly stepReceipts: readonly RestoredFrameworkMigrationStepReceipt[] | RestoredFrameworkMigrationReceiptPrefix;
 }
+
+const terminalReceiptPrefix = Effect.fn("FrameworkMigrationAttemptTerminal.receiptPrefix")(
+  function* (input: RestoreStoredFrameworkMigrationAttemptTerminalInput): Effect.fn.Return<TerminalReceiptPrefix, FrameworkMigrationValueError> {
+    if (!Array.isArray(input.stepReceipts)) {
+      const prefix = restoredReceiptPrefixes.get(input.stepReceipts);
+      if (prefix === undefined || !sameRestoredPlan(prefix.plan, input.plan) ||
+        (prefix.requiredProducer !== null && !isRestoredFrameworkMigrationAttemptAncestor(prefix.requiredProducer, input.attempt)) ||
+        (prefix.nextProducerFence !== null && prefix.nextProducerFence <= BigInt(input.attempt.attempt.frame.attemptFence))) return yield* corrupt();
+      return prefix;
+    }
+    if (input.stepReceipts.length > input.plan.plan.frame.steps.length) return yield* corrupt();
+    for (let index = 0; index < input.stepReceipts.length; index++) {
+      const receipt = input.stepReceipts[index];
+      const step = input.plan.plan.frame.steps[index];
+      if (receipt === undefined || step === undefined || !restoredStepReceipts.has(receipt) ||
+        !isRestoredFrameworkMigrationAttemptAncestor(receipt.attempt, input.attempt) || receipt.receipt.frame.stepId !== step.stepId) return yield* corrupt();
+    }
+    const receipts: readonly RestoredFrameworkMigrationStepReceipt[] = Object.freeze([...input.stepReceipts]);
+    return Object.freeze({ plan: input.plan, receipts, capturedReceipts: Object.freeze(receipts.map(receipt => receipt.receipt)),
+      completedStepCount: receipts.length, requiredProducer: input.attempt, nextProducerFence: null });
+  },
+);
 
 export const restoreStoredFrameworkMigrationAttemptTerminal = Effect.fn(
   "FrameworkMigrationAttemptTerminal.restoreStored",
@@ -1168,31 +1305,18 @@ export const restoreStoredFrameworkMigrationAttemptTerminal = Effect.fn(
       row.admissionSha256,
       input.admission.admission.sha256,
     )) ||
-    !(yield* terminalOutcomeProjectionMatches(row, frame, input.plan)) ||
-    input.stepReceipts.length > input.plan.plan.frame.steps.length
+    !(yield* terminalOutcomeProjectionMatches(row, frame, input.plan))
   ) {
     return yield* corrupt();
   }
-  for (let index = 0; index < input.stepReceipts.length; index += 1) {
-    const receipt = input.stepReceipts[index];
-    const step = input.plan.plan.frame.steps[index];
-    if (
-      receipt === undefined ||
-      step === undefined ||
-      !restoredStepReceipts.has(receipt) ||
-      !isRestoredFrameworkMigrationAttemptAncestor(receipt.attempt, input.attempt) ||
-      receipt.receipt.frame.stepId !== step.stepId
-    ) {
-      return yield* corrupt();
-    }
-  }
+  const prefix = yield* terminalReceiptPrefix(input);
   if (
     frame.outcome.kind === "succeeded" &&
-    input.stepReceipts.length !== input.plan.plan.frame.steps.length
+    prefix.completedStepCount !== input.plan.plan.frame.steps.length
   ) {
     return yield* corrupt();
   }
-  const lastReceipt = input.stepReceipts.at(-1) ?? null;
+  const lastReceipt = prefix.completedStepCount === 0 ? null : prefix.receipts[prefix.completedStepCount - 1] ?? null;
   if (
     frame.lastStepReceiptSha256 !== (lastReceipt?.receipt.sha256 ?? null) ||
     row.lastReceiptStorageId !== (lastReceipt?.storageId ?? null) ||
@@ -1213,7 +1337,8 @@ export const restoreStoredFrameworkMigrationAttemptTerminal = Effect.fn(
     {
       admission: input.admission.admission,
       attempt: input.attempt.attempt,
-      stepReceipts: input.stepReceipts.map(receipt => receipt.receipt),
+      stepReceipts: prefix.capturedReceipts,
+      completedStepCount: prefix.completedStepCount,
     },
   );
   const restored = Object.freeze({
@@ -1224,7 +1349,7 @@ export const restoreStoredFrameworkMigrationAttemptTerminal = Effect.fn(
   restoredTerminals.add(restored);
   restoredTerminalStepReceipts.set(
     restored,
-    Object.freeze([...input.stepReceipts]),
+    prefix,
   );
   return restored;
 });
@@ -1238,7 +1363,9 @@ export function isRestoredFrameworkMigrationAttemptTerminal(
 export function restoredFrameworkMigrationAttemptTerminalStepReceipts(
   input: RestoredFrameworkMigrationAttemptTerminal,
 ): readonly RestoredFrameworkMigrationStepReceipt[] | undefined {
-  return restoredTerminalStepReceipts.get(input);
+  const prefix = restoredTerminalStepReceipts.get(input);
+  return prefix === undefined ? undefined : prefix.completedStepCount === prefix.receipts.length
+    ? prefix.receipts : Object.freeze(prefix.receipts.slice(0, prefix.completedStepCount));
 }
 
 // Measured per-row decoder hot path. The owning restore operations retain named
@@ -1449,6 +1576,11 @@ function sameRestoredAttemptStart(
     left.admission.storageId === right.admission.storageId &&
     left.attempt.sha256 === right.attempt.sha256 &&
     left.attempt.canonicalJson === right.attempt.canonicalJson;
+}
+
+function sameRestoredPlan(left: RestoredFreshRelationalMigrationPlan, right: RestoredFreshRelationalMigrationPlan): boolean {
+  return left === right || (left.storageId === right.storageId && left.collision.storageId === right.collision.storageId &&
+    left.plan.migrationPlanSha256 === right.plan.migrationPlanSha256 && left.plan.canonicalJson === right.plan.canonicalJson);
 }
 
 function mapPhysicalRestorationError(

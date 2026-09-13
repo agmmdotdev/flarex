@@ -290,7 +290,7 @@ describe("framework coordinator migration-collision-head repository", () => {
       expect(replayed).toEqual(initialized);
       expect(read).toEqual(initialized);
       expect(restoredFrameworkMigrationCollisionHeadAuthority(initialized))
-        .toEqual({ currentAttempt: null, lastEvent: null });
+        .toEqual({ currentAttempt: null, lastEvent: null, receipts: [] });
       return { ...prepared, emptyValue, initialized };
     });
 
@@ -332,6 +332,7 @@ describe("framework coordinator migration-collision-head repository", () => {
     expect(restoredFrameworkMigrationCollisionHeadAuthority(cleared)).toEqual({
       currentAttempt: null,
       lastEvent: null,
+      receipts: [],
     });
     await expect(storedCollisionHeadRow(persistence)).resolves.toEqual(
       expectedCollisionHeadRow(cleared, null, null),

@@ -16,6 +16,7 @@ import {
 import {
   isRestoredFrameworkSchemaInstallation,
   isRestoredFrameworkSchemaReadiness,
+  type RestoredFrameworkSchemaInstallation,
 } from "../frameworkSchema/installation/storedMetadataRestoration";
 import {
   decodeStoredCanonicalMetadataResult,
@@ -31,16 +32,17 @@ import {
   verifyStoredFrameworkMigrationValue,
 } from "./canonical";
 import type { FrameworkMigrationValueError } from "./errors";
-import type { FrameworkMigrationEventSha256, FrameworkMigrationStepReceiptSha256 } from "./identity";
+import type { FrameworkMigrationEventSha256, FrameworkMigrationStepReceiptSha256, FrameworkMigrationAttemptTerminalSha256 } from "./identity";
 import {
   corroborateRestoredFrameworkMigrationAttemptStartInTransactionEffect,
   operationalFrameworkMigrationLeaseExpiryDate,
-  restoreStoredFrameworkMigrationAttemptStartReferenceByIdentityInTransactionEffect,
-  restoreStoredFrameworkMigrationAttemptStartReferenceBySha256InTransactionEffect,
+  restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect,
+  type FrameworkMigrationEventAttemptSubjects,
 } from "./migrationAttemptRepository";
 import {
   corroborateRestoredFrameworkMigrationAttemptTerminalInTransactionEffect,
   restoreStoredFrameworkMigrationAttemptTerminalReferenceBySha256InTransactionEffect,
+  restoreFrameworkMigrationEventTerminalSubjectsInTransactionEffect,
 } from "./migrationAttemptTerminalRepository";
 import {
   corroborateRestoredFrameworkMigrationPlanAdmissionInTransactionEffect,
@@ -71,6 +73,7 @@ import {
   type RestoredFrameworkMigrationAttemptStart,
   type RestoredFrameworkMigrationCollisionDomain,
   type RestoredFrameworkMigrationStepReceipt,
+  type RestoredFrameworkMigrationAttemptTerminal,
 } from "./storedRestoration";
 import {
   isRestoredFrameworkMigrationEvent,
@@ -90,6 +93,11 @@ type FrameworkMigrationEvent = CapturedFrameworkMigrationValue<
   FrameworkMigrationEventFrame,
   FrameworkMigrationEventSha256
 >;
+
+interface EventPublicationEvidence {
+  readonly terminals: Map<bigint, RestoredFrameworkMigrationAttemptTerminal>;
+  readonly installations: Map<bigint, RestoredFrameworkSchemaInstallation>;
+}
 
 type EventRepositoryOperation = Extract<
   FrameworkMigrationRepositoryOperation,
@@ -841,9 +849,20 @@ const restoreEventChain = Effect.fn(
     row = previous.value;
   }
 
+  const chronologicalFrames = decodedRows.toReversed().map(decoded => decoded.frame);
+  const attempts = yield* restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect(transaction, collision,
+    chronologicalFrames.filter(frame => frame.kind === "attemptStarted" || frame.kind === "leaseRenewed"), operation);
   const receipts = yield* restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, collision,
-    decodedRows.toReversed().flatMap(decoded => decoded.frame.kind === "stepCompleted" ? [decoded.frame.stepReceiptSha256] : []),
-    operation);
+    chronologicalFrames.flatMap(frame => frame.kind === "stepCompleted" ? [frame.stepReceiptSha256] : []),
+    operation, attempts.byStorageId);
+  const terminals = anchoredPrevious === undefined || anchoredPrevious === null
+    ? yield* restoreFrameworkMigrationEventTerminalSubjectsInTransactionEffect(transaction, collision,
+      chronologicalFrames.flatMap(frame => frame.kind === "attemptTerminated" ? [frame.terminalSha256] : []),
+      attempts.byStorageId, operation)
+    : undefined;
+  const publication: EventPublicationEvidence | undefined = terminals === undefined ? undefined : {
+    terminals: new Map([...terminals.values()].map(terminal => [terminal.storageId, terminal])), installations: new Map(),
+  };
   let previous: RestoredFrameworkMigrationEvent | null =
     anchoredPrevious ?? null;
   let rootOccupant: RestoredFrameworkMigrationEventOccupant | undefined;
@@ -861,6 +880,9 @@ const restoreEventChain = Effect.fn(
       decoded.frame,
       operation,
       receipts,
+      attempts,
+      terminals,
+      publication,
     );
     const value: RestoredFrameworkMigrationEvent = yield*
       restoreStoredFrameworkMigrationEvent({
@@ -896,6 +918,9 @@ const restoreStoredEventSubject = Effect.fn(
   frame: FrameworkMigrationEventFrame,
   operation: FrameworkMigrationRepositoryOperation,
   receipts: ReadonlyMap<FrameworkMigrationStepReceiptSha256, RestoredFrameworkMigrationStepReceipt>,
+  attempts: FrameworkMigrationEventAttemptSubjects,
+  terminals: ReadonlyMap<FrameworkMigrationAttemptTerminalSha256, RestoredFrameworkMigrationAttemptTerminal> | undefined,
+  publication: EventPublicationEvidence | undefined,
 ): Effect.fn.Return<
   RestoredFrameworkMigrationEventSubject,
   FrameworkMigrationRepositoryError
@@ -912,29 +937,18 @@ const restoreStoredEventSubject = Effect.fn(
             operation,
           ),
       });
-    case "attemptStarted":
-      return Object.freeze({
-        kind: frame.kind,
-        attempt: yield*
-          restoreStoredFrameworkMigrationAttemptStartReferenceBySha256InTransactionEffect(
-            transaction,
-            collision,
-            frame.attemptStartSha256,
-            operation,
-          ),
-      });
-    case "leaseRenewed":
-      return Object.freeze({
-        kind: frame.kind,
-        attempt: yield*
-          restoreStoredFrameworkMigrationAttemptStartReferenceByIdentityInTransactionEffect(
-            transaction,
-            collision,
-            frame.attemptId,
-            frame.attemptFence,
-            operation,
-          ),
-      });
+    case "attemptStarted": {
+      const attempt = attempts.byDigest.get(frame.attemptStartSha256);
+      if (attempt === undefined) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      return Object.freeze({ kind: frame.kind, attempt });
+    }
+    case "leaseRenewed": {
+      const attempt = attempts.byIdentity.get(frame.attemptId);
+      if (attempt === undefined || attempt.attempt.frame.attemptFence !== frame.attemptFence) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      return Object.freeze({ kind: frame.kind, attempt });
+    }
     case "stepCompleted": {
       const receipt = receipts.get(frame.stepReceiptSha256);
       if (receipt === undefined) {
@@ -942,7 +956,12 @@ const restoreStoredEventSubject = Effect.fn(
       }
       return Object.freeze({ kind: frame.kind, receipt });
     }
-    case "attemptTerminated":
+    case "attemptTerminated": {
+      if (terminals !== undefined) {
+        const terminal = terminals.get(frame.terminalSha256);
+        if (terminal === undefined) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+        return Object.freeze({ kind: frame.kind, terminal });
+      }
       return Object.freeze({
         kind: frame.kind,
         terminal: yield*
@@ -953,28 +972,33 @@ const restoreStoredEventSubject = Effect.fn(
             operation,
           ),
       });
-    case "installationPublished":
-      return Object.freeze({
-        kind: frame.kind,
-        installation: yield*
+    }
+    case "installationPublished": {
+      const installation = yield*
           restoreStoredFrameworkSchemaInstallationReferenceByReceiptSha256InTransactionEffect(
             transaction,
             collision,
             frame.installationReceiptSha256,
             operation,
-          ),
-      });
-    case "readinessPublished":
-      return Object.freeze({
-        kind: frame.kind,
-        readiness: yield*
+            publication?.terminals,
+          );
+      publication?.installations.set(installation.storageId, installation);
+      publication?.terminals.set(installation.terminal.storageId, installation.terminal);
+      return Object.freeze({ kind: frame.kind, installation });
+    }
+    case "readinessPublished": {
+      const readiness = yield*
           restoreStoredFrameworkSchemaReadinessReferenceBySha256InTransactionEffect(
             transaction,
             collision,
             frame.readinessSha256,
             operation,
-          ),
-      });
+            publication?.installations,
+          );
+      publication?.installations.set(readiness.installation.storageId, readiness.installation);
+      publication?.terminals.set(readiness.installation.terminal.storageId, readiness.installation.terminal);
+      return Object.freeze({ kind: frame.kind, readiness });
+    }
   }
 });
 

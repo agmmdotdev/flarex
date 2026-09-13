@@ -51,7 +51,11 @@ now separates [lifecycle operations](./81-coordinator-lifecycle-operations.md)
 behind its existing entry points. The [trusted installer construction](./82-installer-construction-and-completion-gates.md)
 now owns fresh/additive batching and one prepared definition per installation
 call, with [explicit inspection and verification](./83-installer-inspection-and-verification.md)
-through the same construction. The optimized execution model, linear full
+through the same construction. [Evidence handoff](./84-installation-evidence-graph-and-step-transition.md)
+now shares attempt lineage, terminal prefixes and publication prerequisites within
+event restoration, while explicit verification retains the head's issued receipt
+prefix and independently checks its stored inventory. Remaining graph
+consolidation, the optimized execution model, linear full
 verification and performance acceptance remain open. Full current
 reconstruction remains in force; connection
 protection is not permission to cache database authority or enable the proposed

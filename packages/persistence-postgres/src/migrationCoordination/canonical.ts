@@ -764,6 +764,7 @@ export const captureFrameworkMigrationAttemptTerminal = Effect.fn(
       admission: attemptAuthority.admission,
       attempt: input.attempt,
       stepReceipts: input.stepReceipts,
+      completedStepCount: input.stepReceipts.length,
     },
   );
   return terminal;

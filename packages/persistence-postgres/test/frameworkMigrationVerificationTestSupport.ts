@@ -15,6 +15,7 @@ import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { installerFixture } from "./frameworkInstallerTestSupport";
 import * as eventRepository from "../src/migrationCoordination/migrationEventRepository";
+import * as receiptRepository from "../src/migrationCoordination/migrationStepReceiptRepository";
 import { inspectFrameworkMigrationEffect } from "../src/migrationCoordination/inspect";
 import { captureFrameworkSchemaTargetNamespace } from "../src/migrationCoordination/targetNamespace";
 
@@ -41,7 +42,14 @@ export async function assertExplicitFrameworkVerification(database: FlarexMetada
   const foreignPlan = await runEffect(captureFreshRelationalMigrationPlan({ artifact, physicalLayout: foreignLayout }));
   expect(await runEffectFailure(inspectFrameworkMigrationEffect(input.target, foreignPlan, input)))
     .toMatchObject({ reason: "targetMismatch" });
-  const verify = () => runEffect(installer.verify(input));
+  const verify = async () => {
+    const prefix = vi.spyOn(receiptRepository, "readFrameworkMigrationStepReceiptPrefixInTransactionEffect");
+    try {
+      const report = await runEffect(installer.verify(input));
+      expect(prefix).not.toHaveBeenCalled();
+      return report;
+    } finally { prefix.mockRestore(); }
+  };
   const inspect = async () => {
     const history = vi.spyOn(eventRepository, "restoreStoredFrameworkMigrationEventReferenceInTransactionEffect");
     try {

@@ -48,6 +48,7 @@ export interface CapturedMigrationAttemptTerminalAuthority {
   readonly admission: PlanAdmission;
   readonly attempt: MigrationAttempt;
   readonly stepReceipts: readonly StepReceipt[];
+  readonly completedStepCount: number;
 }
 
 const capturedPlans = new WeakMap<RelationalMigrationPlan, ReadonlyMap<string, FrameworkMigrationStep>>();
@@ -178,7 +179,8 @@ export function registerCapturedFrameworkMigrationAttemptTerminal(
   capturedTerminals.set(terminal, Object.freeze({
     admission: authority.admission,
     attempt: authority.attempt,
-    stepReceipts: Object.freeze([...authority.stepReceipts]),
+    stepReceipts: Object.isFrozen(authority.stepReceipts) ? authority.stepReceipts : Object.freeze([...authority.stepReceipts]),
+    completedStepCount: authority.completedStepCount,
   }));
 }
 

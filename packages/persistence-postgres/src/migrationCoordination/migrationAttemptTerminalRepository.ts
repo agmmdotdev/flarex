@@ -21,6 +21,7 @@ import type { FrameworkMigrationValueError } from "./errors";
 import type { FrameworkMigrationAttemptTerminalSha256 } from "./identity";
 import {
   corroborateRestoredFrameworkMigrationAttemptStartInTransactionEffect,
+  restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect,
   restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect,
 } from "./migrationAttemptRepository";
 import {
@@ -47,12 +48,14 @@ import {
   isRestoredFrameworkMigrationCollisionDomain,
   isRestoredFrameworkMigrationStepReceipt,
   restoreStoredFrameworkMigrationAttemptTerminal,
+  restoreFrameworkMigrationReceiptPrefixes,
   restoredFrameworkMigrationAttemptTerminalStepReceipts,
   type RestoredFrameworkMigrationAttemptStart,
   type RestoredFrameworkMigrationAttemptTerminal,
   type RestoredFrameworkMigrationCollisionDomain,
   type RestoredFrameworkMigrationStepReceipt,
   type StoredFrameworkMigrationAttemptTerminalRow,
+  type RestoredFrameworkMigrationReceiptPrefix,
 } from "./storedRestoration";
 import { isStoredFrameworkMigrationAttemptTerminalFrame } from
   "./storedValidation";
@@ -430,6 +433,69 @@ export const restoreStoredFrameworkMigrationAttemptTerminalReferenceInTransactio
     )).value;
   }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptTerminal>());
 
+/** Resolve terminal subjects from the event graph's authenticated attempts.
+ * One receipt inventory per plan supplies all fence-bounded terminal prefixes. */
+export const restoreFrameworkMigrationEventTerminalSubjectsInTransactionEffect = Effect.fn(
+  "FrameworkMigrationAttemptTerminalRepository.restoreEventSubjects",
+)(function* (transaction: FlarexMetadataTransaction, collision: RestoredFrameworkMigrationCollisionDomain,
+  digests: readonly FrameworkMigrationAttemptTerminalSha256[],
+  attempts: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>,
+  operation: AttemptTerminalAggregateRepositoryOperation,
+): Effect.fn.Return<ReadonlyMap<FrameworkMigrationAttemptTerminalSha256, RestoredFrameworkMigrationAttemptTerminal>, FrameworkMigrationRepositoryError> {
+  if (!isRestoredFrameworkMigrationCollisionDomain(collision)) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+  const roots: { digest: FrameworkMigrationAttemptTerminalSha256; row: FrameworkMigrationAttemptTerminalDriverRow;
+    decoded: DecodedFrameworkMigrationAttemptTerminalRoot }[] = [];
+  for (const digest of new Set(digests)) {
+    const row = yield* loadAttemptTerminalRootByDigest(transaction, digest, operation);
+    roots.push({ digest, row, decoded: yield* decodeAttemptTerminalRoot(row, operation) });
+  }
+  // Event subjects are not a prerequisite inventory. Sparse histories still
+  // follow their actual terminal -> attempt edges. Assemble missing lineages
+  // together so each producer does not independently reread its ancestors.
+  const missing = roots.filter(({ decoded }) => !attempts.has(decoded.attemptStorageId));
+  const resolvedAttempts = missing.length === 0 ? attempts : (yield* restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect(
+    transaction, collision, [
+      ...[...attempts.values()].map(attempt => ({ kind: "storedAttempt" as const, attemptStorageId: attempt.storageId, attemptId: attempt.attempt.frame.attemptId })),
+      ...missing.map(({ decoded }) => ({ kind: "storedAttempt" as const, attemptStorageId: decoded.attemptStorageId, attemptId: decoded.frame.attemptId })),
+    ], operation)).byStorageId;
+  const prefixes = new Map<bigint, ReadonlyMap<string | null, RestoredFrameworkMigrationReceiptPrefix>>();
+  const prepared: { digest: FrameworkMigrationAttemptTerminalSha256; row: FrameworkMigrationAttemptTerminalDriverRow;
+    decoded: DecodedFrameworkMigrationAttemptTerminalRoot; attempt: RestoredFrameworkMigrationAttemptStart }[] = [];
+  const latestByPlan = new Map<bigint, (typeof prepared)[number]>();
+  for (const { digest, row, decoded } of roots) {
+    const attempt = resolvedAttempts.get(decoded.attemptStorageId);
+    if (attempt === undefined || !isRestoredFrameworkMigrationAttemptStart(attempt) ||
+      attempt.collision !== collision || decoded.collisionStorageId !== collision.storageId ||
+      attempt.plan.storageId !== decoded.planStorageId || attempt.admission.storageId !== decoded.admissionStorageId) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    const value = { digest, row, decoded, attempt };
+    prepared.push(value);
+    const latest = latestByPlan.get(attempt.plan.storageId);
+    if (latest === undefined || BigInt(attempt.attempt.frame.attemptFence) > BigInt(latest.attempt.attempt.frame.attemptFence)) {
+      latestByPlan.set(attempt.plan.storageId, value);
+    }
+  }
+  for (const { row, attempt } of latestByPlan.values()) {
+    const receipts = yield* restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTransactionEffect(transaction, attempt,
+      row.lastReceiptStorageId, row.lastStepReceiptSha256, operation, resolvedAttempts);
+    const planPrefixes = yield* restoreFrameworkMigrationReceiptPrefixes(attempt.plan, receipts)
+      .pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
+    prefixes.set(attempt.plan.storageId, planPrefixes);
+  }
+  const restored = new Map<FrameworkMigrationAttemptTerminalSha256, RestoredFrameworkMigrationAttemptTerminal>();
+  for (const { digest, row, decoded, attempt } of prepared) {
+    const planPrefixes = prefixes.get(attempt.plan.storageId);
+    const prefix = planPrefixes?.get(decoded.frame.lastStepReceiptSha256);
+    if (prefix === undefined) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    const terminal = yield* restoreStoredFrameworkMigrationAttemptTerminal({ row, collision, plan: attempt.plan,
+      admission: attempt.admission, attempt, stepReceipts: prefix }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
+    if (terminal.terminal.sha256 !== digest) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    restored.set(digest, terminal);
+  }
+  return restored;
+});
+
 /** Source-private restoration of a committed terminal digest reference. */
 export const restoreStoredFrameworkMigrationAttemptTerminalReferenceBySha256InTransactionEffect =
   Effect.fn(
@@ -448,26 +514,7 @@ export const restoreStoredFrameworkMigrationAttemptTerminalReferenceBySha256InTr
         FrameworkMigrationRepositoryError.storedCorruption(operation),
       );
     }
-    const terminalSha256Bytes = yield* Effect.fromResult(
-      Encoding.decodeHex(terminalSha256),
-    ).pipe(Effect.mapError(() =>
-      FrameworkMigrationRepositoryError.storedCorruption(operation)
-    ));
-    const rows = yield* runRepositoryStatement(
-      operation,
-      transaction.select(attemptTerminalReadSelection).from(
-        fxSystemFrameworkMigrationAttemptTerminals,
-      ).where(eq(
-        fxSystemFrameworkMigrationAttemptTerminals.attemptTerminalSha256,
-        terminalSha256Bytes,
-      )).limit(2),
-    ).pipe(Effect.map(detachDriverRows));
-    const row = rows[0];
-    if (row === undefined || rows.length !== 1) {
-      return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.storedCorruption(operation),
-      );
-    }
+    const row = yield* loadAttemptTerminalRootByDigest(transaction, terminalSha256, operation);
     const occupant = yield* restoreAttemptTerminalOccupant(
       transaction,
       row,
@@ -500,7 +547,7 @@ const prepareExpectedAttemptTerminal = Effect.fn(
     authority === undefined ||
     authority.admission !== attempt.admission.admission ||
     authority.attempt !== attempt.attempt ||
-    authority.stepReceipts.length !== stepReceipts.length ||
+    authority.completedStepCount !== stepReceipts.length ||
     !attemptTerminalFrameMatchesAttemptAndReceipts(
       terminal.frame,
       attempt,
@@ -875,6 +922,34 @@ const resolveAttemptTerminalOccupantCollision = Effect.fn(
   }
   return collision.value;
 });
+
+const loadAttemptTerminalRootByDigest = Effect.fn("FrameworkMigrationAttemptTerminalRepository.loadByDigest")(
+  function* (transaction: FlarexMetadataTransaction, terminalSha256: FrameworkMigrationAttemptTerminalSha256,
+    operation: AttemptTerminalAggregateRepositoryOperation,
+  ): Effect.fn.Return<FrameworkMigrationAttemptTerminalDriverRow, FrameworkMigrationRepositoryError> {
+    const terminalSha256Bytes = yield* Effect.fromResult(
+      Encoding.decodeHex(terminalSha256),
+    ).pipe(Effect.mapError(() =>
+      FrameworkMigrationRepositoryError.storedCorruption(operation)
+    ));
+    const rows = yield* runRepositoryStatement(
+      operation,
+      transaction.select(attemptTerminalReadSelection).from(
+        fxSystemFrameworkMigrationAttemptTerminals,
+      ).where(eq(
+        fxSystemFrameworkMigrationAttemptTerminals.attemptTerminalSha256,
+        terminalSha256Bytes,
+      )).limit(2),
+    ).pipe(Effect.map(detachDriverRows));
+    const row = rows[0];
+    if (row === undefined || rows.length !== 1) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return row;
+  },
+);
 
 const loadAttemptTerminalRootByStorageId = Effect.fn(
   "FrameworkMigrationAttemptTerminalRepository.loadByStorageId",

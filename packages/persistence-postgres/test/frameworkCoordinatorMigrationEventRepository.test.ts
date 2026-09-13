@@ -6,7 +6,9 @@ import {
 import type { CanonicalIsoInstant } from "@flarex/time/iso-instant";
 import { asc, eq, sql } from "drizzle-orm";
 import { Brand, Effect, Encoding, Option } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as storedValues from "../src/migrationCoordination/storedRestoration";
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../src/migrationCoordination/graphReadPass";
 
 import * as persistenceRoot from "../src";
 
@@ -69,6 +71,49 @@ type FrameworkMigrationEventCommon = Pick<
 >;
 
 describe("framework coordinator migration-event repository", () => {
+  it.each([4, 5, 6])("restores standalone subject %i through its stored prerequisite edges", async index => {
+    const persistence = await createMigratedPGlitePersistence();
+    const values = await createSuccessfulTerminalPlanValues();
+    const stored = await persistence.drizzle.transaction(async transaction => {
+      const graph = await storeSuccessfulReadinessGraphInTransaction(transaction, values);
+      const entry = (await captureEventChain(graph))[index];
+      if (entry === undefined) throw new Error("Missing event subject");
+      const event = await runEffect(captureFrameworkMigrationEvent({ ...entry.event.frame, previousEvent: null }));
+      const appended = await runEffect(appendFrameworkMigrationEventInTransactionEffect(transaction, graph.collision, null, entry.subject, event));
+      return { graph, appended };
+    });
+    const restored = await persistence.drizzle.transaction(transaction => runEffect(
+      restoreStoredFrameworkMigrationEventReferenceInTransactionEffect(transaction, stored.graph.collision,
+        stored.appended.storageId, stored.appended.event.frame.sequence, stored.appended.event.sha256, "readEvent"),
+    ));
+    expect(restored.event.canonicalJson).toBe(stored.appended.event.canonicalJson);
+    expect(restoredFrameworkMigrationEventAuthority(restored)?.subject.kind).toBe(stored.appended.event.frame.kind);
+  }, PGLITE_TEST_TIMEOUT);
+
+  it("hands terminal and publication evidence forward with the optional memo exhausted", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const stored = await storedEventFixture(persistence, 7);
+    const tail = stored.restored.at(-1);
+    if (tail === undefined) throw new Error("Missing event tail");
+    const attempts = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptStart");
+    const terminals = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptTerminal");
+    try {
+      const restored = await persistence.drizzle.transaction(transaction => runEffect(Effect.gen(function* () {
+        const fill = makeFrameworkGraphReferenceRead<number>();
+        for (let index = 0; index < 512; index++) yield* fill(Effect.succeed(index), transaction, index);
+        return yield* restoreStoredFrameworkMigrationEventReferenceInTransactionEffect(transaction, stored.graph.collision,
+          tail.storageId, tail.event.frame.sequence, tail.event.sha256, "readEvent");
+      }).pipe(read => withFrameworkGraphReadPass(read, transaction))));
+      expect(restored.event.canonicalJson).toBe(tail.event.canonicalJson);
+      expect(attempts).toHaveBeenCalledTimes(1);
+      expect(terminals).toHaveBeenCalledTimes(1);
+      const terminalInput = terminals.mock.calls[0]?.[0];
+      if (terminalInput === undefined) throw new Error("Missing terminal restoration");
+      expect(await runEffectFailure(storedValues.restoreStoredFrameworkMigrationAttemptTerminal({ ...terminalInput,
+        stepReceipts: { kind: "restoredFrameworkMigrationReceiptPrefix" } }))).toMatchObject({ reason: "storedStateCorrupt" });
+    } finally { attempts.mockRestore(); terminals.mockRestore(); }
+  }, PGLITE_TEST_TIMEOUT);
+
   it("keeps the event transaction kernel and authority source-private", async () => {
     expect(
       "appendFrameworkMigrationEventInTransactionEffect" in persistenceRoot,

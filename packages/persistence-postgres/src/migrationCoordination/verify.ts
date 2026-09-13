@@ -2,8 +2,7 @@ import { Effect, Option } from "effect";
 import { prepareFrameworkMigrationDefinition } from "./definition";
 import type { RelationalMigrationPlan } from "./model";
 import { readFrameworkMigrationCollisionHeadForUpdateInTransactionEffect } from "./migrationCollisionHeadRepository";
-import { readFrameworkMigrationStepReceiptPrefixInTransactionEffect,
-  verifyFrameworkMigrationReceiptInventoryInTransactionEffect } from "./migrationStepReceiptRepository";
+import { verifyFrameworkMigrationReceiptInventoryInTransactionEffect } from "./migrationStepReceiptRepository";
 import { verifyRelationalStructuralPrefixEffect } from "./relationalStructuralRunner";
 import { FrameworkMigrationRepositoryError } from "./repositoryErrors";
 import { restoredFrameworkMigrationCollisionHeadAuthority,
@@ -44,11 +43,11 @@ export const verifyFrameworkMigrationEffect = Effect.fn("FrameworkMigration.veri
           if (head.plan.plan.migrationPlanSha256 !== plan.migrationPlanSha256 || head.plan.plan.canonicalJson !== plan.canonicalJson) {
             return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal("readCollisionHead"));
           }
-          // A settled no-work successor can retain an ancestor's tail. Head
-          // restoration has authenticated that producer against its terminal.
-          const attempt = restoredFrameworkMigrationCollisionHeadAuthority(head)?.currentAttempt ?? head.progress.lastReceipt?.attempt;
-          const receipts = attempt === undefined ? [] :
-            yield* readFrameworkMigrationStepReceiptPrefixInTransactionEffect(raw, attempt);
+          // Head restoration already authenticated the event-linked ordered
+          // prefix, including original producers across no-work successors.
+          const graph = restoredFrameworkMigrationCollisionHeadAuthority(head);
+          if (graph === undefined) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption("readCollisionHead"));
+          const receipts = graph.receipts;
           yield* verifyFrameworkMigrationReceiptProgress(head, receipts);
           yield* verifyFrameworkMigrationReceiptInventoryInTransactionEffect(raw, head.plan, receipts);
           yield* verifyRelationalStructuralPrefixEffect(definition.runner, transaction, receipts.length);

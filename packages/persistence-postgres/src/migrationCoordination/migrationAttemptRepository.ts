@@ -35,6 +35,7 @@ import {
   FRAMEWORK_MIGRATION_ATTEMPT_START_VERSION,
   type CapturedFrameworkMigrationValue,
   type FrameworkMigrationAttemptStartFrame,
+  type FrameworkMigrationEventFrame,
 } from "./model";
 import {
   FrameworkMigrationRepositoryError,
@@ -45,6 +46,7 @@ import {
   isRestoredFrameworkMigrationAttemptStart,
   isRestoredFrameworkMigrationCollisionDomain,
   isRestoredFrameworkMigrationPlanAdmission,
+  indexRestoredFrameworkMigrationAttemptLineage,
   restoreStoredFrameworkMigrationAttemptStart,
   type RestoredFrameworkMigrationAttemptStart,
   type RestoredFrameworkMigrationCollisionDomain,
@@ -119,6 +121,103 @@ interface CachedFrameworkMigrationPlanAdmission {
   readonly admissionSha256: string;
   readonly planStorageId: bigint;
   readonly value: RestoredFrameworkMigrationPlanAdmission;
+}
+
+type AttemptEventReference =
+  | Pick<Extract<FrameworkMigrationEventFrame, { kind: "attemptStarted" }>, "kind" | "attemptStartSha256">
+  | Readonly<{ kind: "leaseRenewed"; attemptId: string; attemptFence: string }>
+  | Readonly<{ kind: "storedAttempt"; attemptStorageId: bigint; attemptId: string }>;
+
+export interface FrameworkMigrationEventAttemptSubjects {
+  readonly byStorageId: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>;
+  readonly byDigest: ReadonlyMap<string, RestoredFrameworkMigrationAttemptStart>;
+  readonly byIdentity: ReadonlyMap<string, RestoredFrameworkMigrationAttemptStart>;
+}
+
+interface AttemptLineageAssembly {
+  readonly nodes: Map<bigint, Readonly<{ occupant: RestoredFrameworkMigrationAttemptStartOccupant; depth: number }>>;
+  readonly admissions: Map<bigint, CachedFrameworkMigrationPlanAdmission>;
+}
+
+/** One explicit event graph, including shared predecessor lineages. This owns
+ * its successful nodes independently of the optional reference memo. */
+export const restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect = Effect.fn(
+  "FrameworkMigrationAttemptStartRepository.restoreEventSubjects",
+)(function* (transaction: FlarexMetadataTransaction,
+  collision: RestoredFrameworkMigrationCollisionDomain,
+  references: readonly AttemptEventReference[],
+  operation: AttemptStartAggregateRepositoryOperation,
+): Effect.fn.Return<FrameworkMigrationEventAttemptSubjects, FrameworkMigrationRepositoryError> {
+  if (!isRestoredFrameworkMigrationCollisionDomain(collision)) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+  }
+  const assembly: AttemptLineageAssembly = { nodes: new Map(), admissions: new Map() };
+  const byStorageId = new Map<bigint, RestoredFrameworkMigrationAttemptStart>();
+  const byDigest = new Map<string, RestoredFrameworkMigrationAttemptStart>();
+  const byIdentity = new Map<string, RestoredFrameworkMigrationAttemptStart>();
+  const selectedDigests = new Set<string>();
+  // Start with the newest references so one lineage supplies earlier subjects.
+  for (const reference of references.toReversed()) {
+    const known = reference.kind === "attemptStarted"
+      ? byDigest.get(reference.attemptStartSha256) : reference.kind === "storedAttempt"
+        ? byStorageId.get(reference.attemptStorageId) : byIdentity.get(reference.attemptId);
+    if (known !== undefined) {
+      if (!attemptMatchesSubjectReference(known, reference)) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      // Attempt identity is unique, but its digest column is not. Even when a
+      // predecessor supplied this node, corroborate the digest's full occupant
+      // cardinality once; a second corrupt row must not be hidden by the graph.
+      if (reference.kind === "attemptStarted" && !selectedDigests.has(reference.attemptStartSha256)) {
+        const digest = yield* Effect.fromResult(Encoding.decodeHex(reference.attemptStartSha256)).pipe(Effect.mapError(() =>
+          FrameworkMigrationRepositoryError.storedCorruption(operation)));
+        const rows = yield* runRepositoryStatement(operation, transaction.select({
+          attemptStorageId: fxSystemFrameworkMigrationAttemptStarts.attemptStorageId,
+        }).from(fxSystemFrameworkMigrationAttemptStarts).where(and(
+          eq(fxSystemFrameworkMigrationAttemptStarts.collisionStorageId, collision.storageId),
+          eq(fxSystemFrameworkMigrationAttemptStarts.attemptStartSha256, digest),
+        )).limit(2));
+        if (rows.length !== 1 || rows[0]?.attemptStorageId !== known.storageId) {
+          return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+        }
+        selectedDigests.add(reference.attemptStartSha256);
+      }
+      continue;
+    }
+    const row = yield* loadAttemptStartSubjectRoot(transaction, collision, reference, operation);
+    const occupant = yield* restoreAttemptStartLineage(transaction, row, collision, operation, undefined, undefined, assembly);
+    if (!attemptMatchesSubjectReference(occupant.value, reference)) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    if (reference.kind === "attemptStarted") selectedDigests.add(reference.attemptStartSha256);
+    // Each newly issued node is indexed once; do not recopy the graph for each
+    // subject or lease event. The lineage owner retains the exact predecessor.
+    let current: RestoredFrameworkMigrationAttemptStartOccupant | undefined = occupant;
+    while (current !== undefined && !byStorageId.has(current.value.storageId)) {
+      const value = current.value;
+      const sameIdentity = byIdentity.get(value.attempt.frame.attemptId);
+      const sameDigest = byDigest.get(value.attempt.sha256);
+      if ((sameIdentity !== undefined && sameIdentity.storageId !== value.storageId) ||
+        (sameDigest !== undefined && sameDigest.storageId !== value.storageId)) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      byStorageId.set(value.storageId, value);
+      byDigest.set(value.attempt.sha256, value);
+      byIdentity.set(value.attempt.frame.attemptId, value);
+      current = current.previousAttempt === null ? undefined : assembly.nodes.get(current.previousAttempt.storageId)?.occupant;
+    }
+  }
+  indexRestoredFrameworkMigrationAttemptLineage([...byStorageId.values()]);
+  return Object.freeze({ byStorageId, byDigest, byIdentity });
+}, (read, transaction, collision, _references, operation) =>
+  withFrameworkCollisionGraphLimits(read, transaction, collision.storageId, operation));
+
+function attemptMatchesSubjectReference(attempt: RestoredFrameworkMigrationAttemptStart, reference: AttemptEventReference): boolean {
+  switch (reference.kind) {
+    case "attemptStarted": return attempt.attempt.sha256 === reference.attemptStartSha256;
+    case "leaseRenewed": return attempt.attempt.frame.attemptId === reference.attemptId && attempt.attempt.frame.attemptFence === reference.attemptFence;
+    case "storedAttempt": return attempt.storageId === reference.attemptStorageId && attempt.attempt.frame.attemptId === reference.attemptId;
+  }
 }
 
 interface FrameworkMigrationAttemptStartOccupantLookups {
@@ -425,32 +524,7 @@ export const restoreStoredFrameworkMigrationAttemptStartReferenceBySha256InTrans
         FrameworkMigrationRepositoryError.storedCorruption(operation),
       );
     }
-    const attemptStartSha256Bytes = yield* Effect.fromResult(
-      Encoding.decodeHex(attemptStartSha256),
-    ).pipe(Effect.mapError(() =>
-      FrameworkMigrationRepositoryError.storedCorruption(operation)
-    ));
-    const rows = yield* runRepositoryStatement(
-      operation,
-      transaction.select(attemptStartReadSelection).from(
-        fxSystemFrameworkMigrationAttemptStarts,
-      ).where(and(
-        eq(
-          fxSystemFrameworkMigrationAttemptStarts.collisionStorageId,
-          preferredCollision.storageId,
-        ),
-        eq(
-          fxSystemFrameworkMigrationAttemptStarts.attemptStartSha256,
-          attemptStartSha256Bytes,
-        ),
-      )).limit(2),
-    ).pipe(Effect.map(detachDriverRows));
-    const row = rows[0];
-    if (row === undefined || rows.length !== 1) {
-      return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.storedCorruption(operation),
-      );
-    }
+    const row = yield* loadAttemptStartSubjectRoot(transaction, preferredCollision, { kind: "attemptStarted", attemptStartSha256 }, operation);
     const occupant = yield* restoreAttemptStartLineage(
       transaction,
       row,
@@ -485,24 +559,7 @@ export const restoreStoredFrameworkMigrationAttemptStartReferenceByIdentityInTra
         FrameworkMigrationRepositoryError.storedCorruption(operation),
       );
     }
-    const rows = yield* runRepositoryStatement(
-      operation,
-      transaction.select(attemptStartReadSelection).from(
-        fxSystemFrameworkMigrationAttemptStarts,
-      ).where(and(
-        eq(
-          fxSystemFrameworkMigrationAttemptStarts.collisionStorageId,
-          preferredCollision.storageId,
-        ),
-        eq(fxSystemFrameworkMigrationAttemptStarts.attemptId, attemptId),
-      )).limit(2),
-    ).pipe(Effect.map(detachDriverRows));
-    const row = rows[0];
-    if (row === undefined || rows.length !== 1) {
-      return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.storedCorruption(operation),
-      );
-    }
+    const row = yield* loadAttemptStartSubjectRoot(transaction, preferredCollision, { kind: "leaseRenewed", attemptId, attemptFence }, operation);
     const occupant = yield* restoreAttemptStartLineage(
       transaction,
       row,
@@ -758,6 +815,32 @@ const loadAttemptStartRootByStorageId = Effect.fn(
   return rows[0] === undefined ? Option.none() : Option.some(rows[0]);
 });
 
+const loadAttemptStartSubjectRoot = Effect.fn("FrameworkMigrationAttemptStartRepository.loadSubjectRoot")(
+  function* (transaction: FlarexMetadataTransaction, collision: RestoredFrameworkMigrationCollisionDomain,
+    reference: AttemptEventReference, operation: AttemptStartAggregateRepositoryOperation,
+  ): Effect.fn.Return<FrameworkMigrationAttemptStartDriverRow, FrameworkMigrationRepositoryError> {
+    if (reference.kind === "storedAttempt") {
+      const row = yield* loadAttemptStartRootByStorageId(transaction, reference.attemptStorageId, operation);
+      if (Option.isNone(row)) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      return row.value;
+    }
+    const selection = reference.kind === "attemptStarted"
+      ? eq(fxSystemFrameworkMigrationAttemptStarts.attemptStartSha256,
+        yield* Effect.fromResult(Encoding.decodeHex(reference.attemptStartSha256)).pipe(Effect.mapError(() =>
+          FrameworkMigrationRepositoryError.storedCorruption(operation))))
+      : eq(fxSystemFrameworkMigrationAttemptStarts.attemptId, reference.attemptId);
+    const rows = yield* runRepositoryStatement(operation,
+      transaction.select(attemptStartReadSelection).from(fxSystemFrameworkMigrationAttemptStarts)
+        .where(and(eq(fxSystemFrameworkMigrationAttemptStarts.collisionStorageId, collision.storageId), selection)).limit(2),
+    ).pipe(Effect.map(detachDriverRows));
+    const row = rows[0];
+    if (row === undefined || rows.length !== 1) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    return row;
+  },
+);
+
 const readAttemptLineage = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationAttemptStartOccupant>();
 
 const restoreAttemptStartLineage = Effect.fn(
@@ -769,6 +852,7 @@ const restoreAttemptStartLineage = Effect.fn(
   operation: AttemptStartAggregateRepositoryOperation,
   preferredPreviousAttempt?: RestoredFrameworkMigrationAttemptStart | null,
   preferredAdmission?: RestoredFrameworkMigrationPlanAdmission,
+  assembly?: AttemptLineageAssembly,
 ): Effect.fn.Return<
   RestoredFrameworkMigrationAttemptStartOccupant,
   FrameworkMigrationRepositoryError
@@ -786,12 +870,13 @@ const restoreAttemptStartLineage = Effect.fn(
     bigint,
     CachedFrameworkMigrationPlanAdmission
   >();
+  const admissions = assembly?.admissions ?? admissionsByStorageId;
   if (
     preferredAdmission !== undefined &&
     isRestoredFrameworkMigrationPlanAdmission(preferredAdmission) &&
     preferredAdmission.collision === preferredCollision
   ) {
-    admissionsByStorageId.set(preferredAdmission.storageId, Object.freeze({
+    admissions.set(preferredAdmission.storageId, Object.freeze({
       admissionSha256: preferredAdmission.admission.sha256,
       planStorageId: preferredAdmission.plan.storageId,
       value: preferredAdmission,
@@ -805,6 +890,7 @@ const restoreAttemptStartLineage = Effect.fn(
   const maximumAttempts = policy === "additive" ? 2 : policy === "binding" ? MAX_FRAMEWORK_BINDING_GRAPH_ROOTS : undefined;
   const bounded = maximumAttempts !== undefined;
   let followed = 0;
+  let anchoredDepth = 0;
   while (true) {
     if (maximumAttempts !== undefined && followed++ >= maximumAttempts) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
     const decoded = yield* decodeAttemptStartRoot(row, operation);
@@ -843,6 +929,18 @@ const restoreAttemptStartLineage = Effect.fn(
     }
     if (decoded.previousAttemptStorageId === null) break;
     if (maximumAttempts !== undefined && followed >= maximumAttempts) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+    const sharedPrevious = assembly?.nodes.get(decoded.previousAttemptStorageId);
+    if (sharedPrevious !== undefined) {
+      if (maximumAttempts !== undefined && rows.length + sharedPrevious.depth > maximumAttempts) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+      }
+      if (sharedPrevious.occupant.value.attempt.frame.attemptId !== decoded.frame.previousAttemptId) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      anchoredPreviousAttempt = sharedPrevious.occupant.value;
+      anchoredDepth = sharedPrevious.depth;
+      break;
+    }
     const previous = yield* loadAttemptStartRootByStorageId(
       transaction,
       decoded.previousAttemptStorageId,
@@ -873,7 +971,7 @@ const restoreAttemptStartLineage = Effect.fn(
         FrameworkMigrationRepositoryError.storedCorruption(operation),
       );
     }
-    const cachedAdmission = admissionsByStorageId.get(
+    const cachedAdmission = admissions.get(
       decoded.admissionStorageId,
     );
     let admission: RestoredFrameworkMigrationPlanAdmission;
@@ -888,7 +986,7 @@ const restoreAttemptStartLineage = Effect.fn(
         ).pipe(Effect.mapError(error =>
           mapStoredRepositoryError(operation, error)
         ));
-      admissionsByStorageId.set(decoded.admissionStorageId, Object.freeze({
+      admissions.set(decoded.admissionStorageId, Object.freeze({
         admissionSha256: decoded.frame.admissionSha256,
         planStorageId: decoded.planStorageId,
         value: admission,
@@ -924,6 +1022,10 @@ const restoreAttemptStartLineage = Effect.fn(
       admission,
       previousAttempt,
     }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
+    assembly?.nodes.set(restored.storageId, Object.freeze({
+      occupant: Object.freeze({ value: restored, previousAttempt }),
+      depth: anchoredDepth + rows.length - index,
+    }));
     if (index === 0) {
       rootPreviousAttempt = previousAttempt;
       restoredRoot = restored;
@@ -939,10 +1041,10 @@ const restoreAttemptStartLineage = Effect.fn(
     value: restoredRoot,
     previousAttempt: rootPreviousAttempt,
   });
-}, (read, transaction, root, collision, operation, previous?: RestoredFrameworkMigrationAttemptStart | null, admission?: RestoredFrameworkMigrationPlanAdmission) =>
-  readAttemptLineage(read, transaction, collision, previous, admission,
+}, (read, transaction, root, collision, operation, previous?: RestoredFrameworkMigrationAttemptStart | null, admission?: RestoredFrameworkMigrationPlanAdmission, assembly?: AttemptLineageAssembly) =>
+  assembly !== undefined ? read : readAttemptLineage(read, transaction, collision, previous, admission,
     ...frameworkGraphDriverRowReferences({ ...root })),
-withFrameworkGraphReadPass, (read, transaction, _root, preferredCollision, operation, _previous?: RestoredFrameworkMigrationAttemptStart | null, _admission?: RestoredFrameworkMigrationPlanAdmission) =>
+withFrameworkGraphReadPass, (read, transaction, _root, preferredCollision, operation, _previous?: RestoredFrameworkMigrationAttemptStart | null, _admission?: RestoredFrameworkMigrationPlanAdmission, _assembly?: AttemptLineageAssembly) =>
   withFrameworkCollisionGraphLimits(read, transaction, preferredCollision.storageId, operation));
 
 const decodeAttemptStartRoot = Effect.fn(
