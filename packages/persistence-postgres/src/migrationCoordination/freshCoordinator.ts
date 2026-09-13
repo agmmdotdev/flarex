@@ -34,7 +34,7 @@ import {
   type FreshFrameworkMigrationCoordinatorResult,
   coordinatorError,
 } from "./coordinatorContracts";
-import { readFrameworkMigrationClaimProgressEffect } from "./coordinatorClaim";
+import { type FrameworkMigrationClaim, readFrameworkMigrationClaimProgressEffect } from "./coordinatorClaim";
 import { ordinaryRequest } from "./coordinatorJournal";
 import {
   prepareCoordinatorGraphWithRecoveryEffect,
@@ -191,35 +191,47 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
   if (claimResult.kind === "busy" || claimResult.kind === "ready") {
     return claimResult;
   }
-  let completed = 0;
-  let lastProgress: FrameworkMigrationPendingResult | undefined;
-  while (completed < maximumSteps) {
-    const progress = yield* executeNextFrameworkMigrationStepEffect(
-      claimResult.claim,
-    );
-    if (progress.kind === "complete") {
-      return yield* finalizeFrameworkMigrationClaimEffect(claimResult.claim);
+  return yield* advanceFrameworkMigrationClaimBatchEffect(claimResult.claim, maximumSteps);
+});
+
+/** Continue the same prepared claim. Every step still opens its own transaction
+ * and rechecks durable authority; this retains no live transaction across batches. */
+export const advanceFrameworkMigrationClaimBatchEffect = Effect.fn("FrameworkMigrationCoordinator.advanceBatch")(
+  function* (claim: FrameworkMigrationClaim, maximumSteps: number): Effect.fn.Return<
+    FreshFrameworkMigrationCoordinatorResult, FrameworkMigrationCoordinatorFailure
+  > {
+    if (!Number.isSafeInteger(maximumSteps) || maximumSteps < 0 || maximumSteps > 16) {
+      return yield* Effect.fail(coordinatorError("step", "invalidInput", "Invalid coordinator batch size"));
     }
-    if (progress.kind === "not_ready") return progress;
-    lastProgress = Object.freeze({
-      kind: "pending",
-      claim: claimResult.claim,
-      completedStepCount: progress.completedStepCount,
-      requiredStepCount: progress.requiredStepCount,
-    });
-    completed += 1;
-  }
-  if (lastProgress !== undefined) return lastProgress;
-  const status = yield* readFrameworkMigrationClaimProgressEffect(
-    claimResult.claim,
-  );
-  return status.completedStepCount === status.requiredStepCount
-    ? yield* finalizeFrameworkMigrationClaimEffect(claimResult.claim)
-    : Object.freeze({
-      kind: "pending",
-      claim: claimResult.claim,
-      ...status,
-    });
+    let completed = 0;
+    let lastProgress: FrameworkMigrationPendingResult | undefined;
+    while (completed < maximumSteps) {
+      const progress = yield* executeNextFrameworkMigrationStepEffect(
+        claim,
+      );
+      if (progress.kind === "complete") {
+        return yield* finalizeFrameworkMigrationClaimEffect(claim);
+      }
+      if (progress.kind === "not_ready") return progress;
+      lastProgress = Object.freeze({
+        kind: "pending",
+        claim: claim,
+        completedStepCount: progress.completedStepCount,
+        requiredStepCount: progress.requiredStepCount,
+      });
+      completed += 1;
+    }
+    if (lastProgress !== undefined) return lastProgress;
+    const status = yield* readFrameworkMigrationClaimProgressEffect(
+      claim,
+    );
+    return status.completedStepCount === status.requiredStepCount
+      ? yield* finalizeFrameworkMigrationClaimEffect(claim)
+      : Object.freeze({
+        kind: "pending",
+        claim: claim,
+        ...status,
+      });
 });
 
 function isPositiveBoundedInteger(value: number): boolean {

@@ -1,3 +1,4 @@
+import { assertInstallerResume, assertInstallerDeadline } from "./frameworkInstallerTestSupport";
 import { assertExplicitFrameworkVerification, assertVerificationRefusesUnreceiptedDdl } from "./frameworkMigrationVerificationTestSupport";
 import * as structuralRunner from "../src/migrationCoordination/relationalStructuralRunner";
 import { assertHeadProgressCorruption, assertHeadProgressMigration, assertPersistedHeadProgress } from "./frameworkHeadProgressTestSupport";
@@ -25,6 +26,13 @@ import { ensureFrameworkMigrationCollisionDomainInTransactionEffect,
 const native = postgresUrl === null ? describe.skip : describe;
 
 native("native fresh framework migration coordinator", () => {
+  it("bounds continuation time and awaits cancellation cleanup", async () => {
+    await withNativeCoordinator(fixture => assertInstallerDeadline(fixture.input));
+  }, 180_000);
+  it("installs through the bounded installer and resumes durable state", async () => {
+    await withNativeCoordinator(fixture => assertInstallerResume(fixture.input));
+  }, 180_000);
+
   it("explicitly verifies absent, partial and settled state without advancing it", async () => {
     await withNativeCoordinator(async fixture => {
       await assertExplicitFrameworkVerification(fixture.persistence.drizzle, fixture.input, fixture.captured.artifact);

@@ -1,3 +1,4 @@
+import { assertAdditiveInstaller } from "./frameworkInstallerTestSupport";
 import { prepareUpgrade, admitCandidate } from "./frameworkCoordinatorAdditivePostgresTestSupport";
 import { setTimeout as delay } from "node:timers/promises";
 import { Effect, Result } from "effect";
@@ -11,6 +12,10 @@ import { postgresUrl } from "./postgresHelpers";
 
 const native = postgresUrl === null ? describe.skip : describe;
 native("native additive framework migration coordinator", () => {
+  it("installs through the bounded installer and resumes durable state", async () => {
+    await withNativeCoordinator(async fixture => assertAdditiveInstaller(await prepareUpgrade(fixture)));
+  }, 180_000);
+
   it("holds base availability against a concurrent status CAS through step commit", async () => {
     await withNativeCoordinator(async fixture => {
       const input = await prepareUpgrade(fixture);

@@ -6,8 +6,7 @@ import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
 import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTargetSnapshot } from "../src/frameworkSchema/target";
 import { makeFrameworkMigrationFixtureTarget } from "./frameworkMigrationFixtureTarget";
-import { runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
-import { withFrameworkMigrationPlanVerification } from "../src/migrationCoordination/canonical";
+import { makeFrameworkInstaller } from "../src/migrationCoordination/installer";
 import { prepareFrameworkSchemaArtifactAdmission, makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
 import { admitFrameworkSchemaArtifactEffect } from "../src/frameworkSchema/artifact/admission";
 import { makeFrameworkSchemaArtifactControlSessionStarter } from "../src/frameworkSchema/artifact/controlSession";
@@ -63,22 +62,15 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
     readTimeoutMilliseconds: 10000, attemptTimeoutMilliseconds: 10000, recoveryTimeoutMilliseconds: 10000, lockTimeoutMilliseconds: 2000 })) : makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence).repository;
   await runEffect(admitFrameworkSchemaArtifactEffect(repository, Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(descriptor.artifact))));
   const migrationTarget = await makeFrameworkMigrationFixtureTarget(persistence, base.target);
-  const migration = { target: migrationTarget, artifactRepository: repository, artifactIdentity: descriptor.artifact.identity, commerceProfile: prepared.profile,
-    attemptId: "commerce-install", leaseOwnerId: "commerce-test", leaseDurationMilliseconds: 120000, lockTimeoutMilliseconds: 5000, statementTimeoutMilliseconds: 30000, maximumStepsPerRun: 16 };
+  const installer = Result.getOrThrow(makeFrameworkInstaller({ target: migrationTarget, artifactRepository: repository,
+    policy: { leaseDurationMilliseconds: 120000, lockTimeoutMilliseconds: 5000, statementTimeoutMilliseconds: 30000,
+      runTimeoutMilliseconds: 120000, maximumStepsPerCall: 128 } }));
+  const request = { artifactIdentity: descriptor.artifact.identity, commerceProfile: prepared.profile,
+    attemptId: "commerce-install", leaseOwnerId: "commerce-test" };
   const installationStarted = performance.now();
-  const ready = await runEffect(Effect.gen(function* () {
-    const started = performance.now();
-    let result = yield* runFreshFrameworkMigrationCoordinatorEffect(migration);
-    for (let batch = 1; batch < 8 && result.kind === "pending"; batch++) {
-      if (process.env.FLAREX_PRODUCT_TIMINGS === "1") process.stdout.write(JSON.stringify({ batch, elapsedMs: Math.round(performance.now() - started), completed: result.completedStepCount, required: result.requiredStepCount }) + "\n");
-      result = yield* runFreshFrameworkMigrationCoordinatorEffect(migration);
-    }
-    return result;
-  // One fixture installation owns pure verification across its bounded batches.
-  // SQL rows/heads stay fresh; cold-profile reopening below starts a new scope.
-  }).pipe(withFrameworkMigrationPlanVerification, Effect.tap(result => result.kind !== "ready" ? Effect.void : Effect.gen(function* () {
+  const ready = await runEffect(installer.installFresh(request).pipe(Effect.tap(result => result.kind !== "ready" ? Effect.void : Effect.gen(function* () {
     const coldPrepared = yield* prepare(base.fixture.deploymentId, { physicalLocator: snapshot.physicalLocator, targetNamespace: snapshot.namespace });
-    expect((yield* runFreshFrameworkMigrationCoordinatorEffect({ ...migration, commerceProfile: coldPrepared.profile })).kind).toBe("ready");
+    expect((yield* installer.installFresh({ ...request, commerceProfile: coldPrepared.profile })).kind).toBe("ready");
     if (process.env.FLAREX_PRODUCT_TIMINGS === "1") process.stdout.write(JSON.stringify({ installationAndColdOpenMs: Math.round(performance.now() - installationStarted) }) + "\n");
   })), Effect.timeout(90000)));
   if (ready.kind !== "ready") throw new Error(`Commerce installation incomplete: ${ready.kind}`);

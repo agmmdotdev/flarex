@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, expect, it } from "vitest";
+import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { Effect, Result } from "effect";
 import { prepareProductSchemaProfile } from "../src/product-schema";
@@ -15,7 +15,8 @@ import { admitFrameworkSchemaArtifactEffect } from "../../persistence-postgres/s
 import { makePGliteFrameworkMigrationTargetEffect } from "../../persistence-postgres/test/frameworkMigrationPGliteTarget";
 import { makePostgresFrameworkMigrationFixtureTarget } from "../../persistence-postgres/test/frameworkMigrationPostgresFixture";
 import { frameworkMigrationTargetSnapshot } from "../../persistence-postgres/src/migrationCoordination/targetSession";
-import { runFreshFrameworkMigrationCoordinatorEffect } from "../../persistence-postgres/src/migrationCoordination/freshCoordinator";
+import { makeFrameworkInstaller } from "../../persistence-postgres/src/migrationCoordination/installer";
+import * as structuralRunner from "../../persistence-postgres/src/migrationCoordination/relationalStructuralRunner";
 import {
   registerCommerceProfile,
   requireCommerceProfile,
@@ -121,18 +122,14 @@ async function createFixture() {
       ),
     ),
   );
-  const migration = {
-    target,
-    artifactRepository: repository,
-    artifactIdentity: prepared.artifact.identity,
-    commerceProfile: prepared.profile,
-    attemptId: "product-install",
-    leaseOwnerId: "product-test",
-    leaseDurationMilliseconds: 120000,
-    lockTimeoutMilliseconds: 5000,
-    statementTimeoutMilliseconds: 30000,
-    maximumStepsPerRun: 16,
-  };
+  const installerInput = { target, artifactRepository: repository,
+    policy: { leaseDurationMilliseconds: 120000, lockTimeoutMilliseconds: 5000, statementTimeoutMilliseconds: 30000,
+      runTimeoutMilliseconds: 120000, maximumStepsPerCall: 128 } };
+  const installer = Result.getOrThrow(makeFrameworkInstaller(installerInput));
+  const partialInstaller = Result.getOrThrow(makeFrameworkInstaller({ ...installerInput,
+    policy: { ...installerInput.policy, maximumStepsPerCall: 1 } }));
+  const migration = { artifactIdentity: prepared.artifact.identity, commerceProfile: prepared.profile,
+    attemptId: "product-install", leaseOwnerId: "product-test" };
   const table = (name: string) => {
     const found = prepared.layout.frame.tables.find(
       (value) => value.identity.tableId === name,
@@ -166,6 +163,8 @@ async function createFixture() {
     prepared,
     prepare,
     migration,
+    installer,
+    partialInstaller,
     table,
     tableName,
     column,
@@ -185,25 +184,13 @@ describe("Product fresh schema on " + driver, () => {
   beforeAll(async () => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
-    const runMigration = (
-      input: Parameters<typeof runFreshFrameworkMigrationCoordinatorEffect>[0],
-    ) =>
-      Effect.runPromise(runFreshFrameworkMigrationCoordinatorEffect(input), {
-        signal: controller.signal,
-      });
     try {
       const started = performance.now();
-      const partial = await runMigration({
-        ...fixture.migration,
-        maximumStepsPerRun: 1,
-      });
+      const partial = await Effect.runPromise(fixture.partialInstaller.installFresh(fixture.migration), { signal: controller.signal });
       expect(partial.kind).not.toBe("ready");
       if (measureOnly) {
         const resumed = performance.now();
-        const second = await runMigration({
-          ...fixture.migration,
-          maximumStepsPerRun: 1,
-        });
+        const second = await Effect.runPromise(fixture.partialInstaller.installFresh(fixture.migration), { signal: controller.signal });
         process.stdout.write(
           JSON.stringify({
             firstMs: Math.round(resumed - started),
@@ -216,29 +203,21 @@ describe("Product fresh schema on " + driver, () => {
         );
         return;
       }
-      let ready = partial;
-      for (let run = 0; run < 16 && ready.kind !== "ready"; run++) {
-        const batchStarted = performance.now();
-        ready = await runMigration(fixture.migration);
-        if (process.env.FLAREX_PRODUCT_TIMINGS === "1")
-          process.stdout.write(
-            JSON.stringify({
-              batchMs: Math.round(performance.now() - batchStarted),
-              progress:
-                ready.kind === "pending"
-                  ? [ready.completedStepCount, ready.requiredStepCount]
-                  : ready.kind,
-            }) + "\n",
-          );
-      }
+      const preparation = vi.spyOn(structuralRunner, "issueRelationalStructuralRunnerTokenEffect");
+      const ready = await (async () => {
+        try {
+          const result = await Effect.runPromise(fixture.installer.installFresh(fixture.migration), { signal: controller.signal });
+          expect(preparation).toHaveBeenCalledTimes(1);
+          return result;
+        } finally { preparation.mockRestore(); }
+      })();
       expect(ready.kind).toBe("ready");
       const fresh = await fixture.prepare();
       expect(
         (
-          await runMigration({
-            ...fixture.migration,
-            commerceProfile: fresh.profile,
-          })
+          await Effect.runPromise(fixture.installer.installFresh({
+            ...fixture.migration, commerceProfile: fresh.profile,
+          }), { signal: controller.signal })
         ).kind,
       ).toBe("ready");
     } finally {

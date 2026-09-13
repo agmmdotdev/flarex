@@ -48,9 +48,11 @@ events; terminals retain their fence-bounded prefix. The [durable head progress]
 now stores the completed position and original receipt tail and checks them against
 authenticated events. Its CAS advances one completion atomically. The coordinator
 now separates [lifecycle operations](./81-coordinator-lifecycle-operations.md)
-behind its existing entry points. The optimized execution model, trusted installer
-facade, verification reorganization and performance acceptance are not yet
-implemented. Full current reconstruction remains in force; connection
+behind its existing entry points. The [trusted installer construction](./82-installer-construction-and-completion-gates.md)
+now owns fresh/additive batching and one prepared definition per installation
+call. Its diagnostic operations, the optimized execution model, verification
+reorganization and performance acceptance remain open. Full current
+reconstruction remains in force; connection
 protection is not permission to cache database authority or enable the proposed
 fast path before those remaining gates pass.
 

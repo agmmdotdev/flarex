@@ -1,3 +1,4 @@
+import { assertAdditiveInstaller } from "./frameworkInstallerTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { verifyFrameworkMigrationEffect } from "../src/migrationCoordination/verify";
 import { sql } from "drizzle-orm";
@@ -17,6 +18,11 @@ import { issueRelationalStructuralRunnerTokenEffect, executeRelationalStructural
 import { runFrameworkMigrationTargetTransactionEffect } from "../src/migrationCoordination/targetSession";
 
 describe("private additive framework migration coordinator", () => {
+  it("installs through the bounded installer and resumes durable state", async () => {
+    const fixture = await createAdditiveFixture();
+    await assertAdditiveInstaller(fixture.input);
+  }, 180_000);
+
   it("refuses an exact added table without its own receipt", async () => {
     const fixture = await createAdditiveFixture();
     const basePlan = fixture.base.readiness.installation.plan.plan;

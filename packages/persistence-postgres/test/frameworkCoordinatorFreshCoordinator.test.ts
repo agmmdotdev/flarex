@@ -1,3 +1,4 @@
+import { assertInstallerResume, assertInstallerDeadline } from "./frameworkInstallerTestSupport";
 import { assertExplicitFrameworkVerification, assertVerificationRefusesUnreceiptedDdl } from "./frameworkMigrationVerificationTestSupport";
 import * as structuralRunner from "../src/migrationCoordination/relationalStructuralRunner";
 import { assertHeadProgressCorruption, assertHeadProgressMigration, assertPersistedHeadProgress } from "./frameworkHeadProgressTestSupport";
@@ -42,6 +43,15 @@ type PublicFreshCoordinatorExport = Extract<
 >;
 
 describe("private fresh framework migration coordinator", () => {
+  it("bounds continuation time and awaits cancellation cleanup", async () => {
+    const fixture = await createCoordinatorFixture();
+    await assertInstallerDeadline(fixture.input);
+  }, 180_000);
+  it("installs through the bounded installer and resumes durable state", async () => {
+    const fixture = await createCoordinatorFixture();
+    await assertInstallerResume(fixture.input);
+  }, 180_000);
+
   it("explicitly verifies absent, partial and settled state without advancing it", async () => {
     const fixture = await createCoordinatorFixture();
     await assertExplicitFrameworkVerification(fixture.persistence.drizzle, fixture.input, fixture.captured.artifact);
