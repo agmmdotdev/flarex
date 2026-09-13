@@ -43,8 +43,10 @@ readiness subjects may exist without prerequisite events. Missing graph nodes ar
 resolved from actual stored references through their existing owner. It does not invent a new
 event-membership requirement or weaken the head verifier's inventory checks.
 
-The current event receipt graph and terminal inventory can still restore the
-same receipt in separate owner operations. Independent publication prerequisites
+The [shared receipt read graph](./86-receipt-evidence-across-event-and-terminal-subjects.md)
+now retains plan-local receipt and dependency evidence through event subjects and
+terminal prefixes. Terminal root inventory remains independent and actual reread
+bytes/digests must match any retained node. Independent publication prerequisites
 and admission subjects can still enter separate owner reads. Full work accounting,
 final graph consolidation and removal of
 displaced assembly remain open. The protected normal transition below is

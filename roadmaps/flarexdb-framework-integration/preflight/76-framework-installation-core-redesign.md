@@ -54,7 +54,9 @@ now owns fresh/additive batching and one prepared definition per installation
 call, with [explicit inspection and verification](./83-installer-inspection-and-verification.md)
 through the same construction. [Evidence handoff](./84-installation-evidence-graph-and-step-transition.md)
 now shares attempt lineage, terminal prefixes and publication prerequisites within
-event restoration, while explicit verification retains the head's issued receipt
+event restoration. A [per-plan receipt working graph](./86-receipt-evidence-across-event-and-terminal-subjects.md)
+shares receipt/edge issuance across event subjects and terminal inventories while
+retaining exact actual root rereads. Explicit verification retains the head's issued receipt
 prefix and independently checks its stored inventory. The protected normal
 command now reads fresh locked head/event/tail projections and direct completion
 references, then validates the actual receipt, sidecars, event and guarded head

@@ -1,7 +1,7 @@
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
-import { Brand, Effect, Encoding, Option, Schema } from "effect";
+import { Brand, Effect, Encoding, Option, Result, Schema } from "effect";
 
 import { detachDriverRows } from "../detachDriverRows";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
@@ -409,6 +409,36 @@ interface ReceiptRestorationContext {
   readonly eventAttempts: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart> | undefined;
 }
 
+/** Working storage owned by one read-only event assembly, not restored authority.
+ * Plan-local indexes cannot mix repeated step identifiers from different plans. */
+export interface FrameworkMigrationReceiptReadGraph {
+  readonly transaction: FlarexMetadataTransaction;
+  readonly contextsByPlan: Map<bigint, ReceiptRestorationContext>;
+}
+
+export function makeFrameworkMigrationReceiptReadGraph(
+  transaction: FlarexMetadataTransaction,
+): FrameworkMigrationReceiptReadGraph {
+  return Object.freeze({ transaction, contextsByPlan: new Map() });
+}
+
+function receiptReadContext(
+  transaction: FlarexMetadataTransaction,
+  graph: FrameworkMigrationReceiptReadGraph | undefined,
+  planStorageId: bigint,
+  attempts: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart> | undefined,
+  operation: StepReceiptAggregateRepositoryOperation,
+): Result.Result<ReceiptRestorationContext, FrameworkMigrationRepositoryError> {
+  if (graph === undefined) return Result.succeed(makeReceiptRestorationContext(attempts));
+  if (graph.transaction !== transaction) return Result.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+  let context = graph.contextsByPlan.get(planStorageId);
+  if (context === undefined) {
+    context = makeReceiptRestorationContext(attempts);
+    graph.contextsByPlan.set(planStorageId, context);
+  }
+  return Result.succeed(context);
+}
+
 interface PendingReceiptRestoration {
   readonly attempt: RestoredFrameworkMigrationAttemptStart;
   readonly row: FrameworkMigrationStepReceiptDriverRow;
@@ -626,17 +656,19 @@ const readReceiptDigestReference = makeFrameworkGraphReferenceRead<RestoredFrame
 /** Read-only event aggregates may restore their known receipt subjects together.
  * Queries still cover the global digest namespace, so duplicate/missing roots
  * cannot be hidden by a collision filter. Only fully restored successes enter
- * the existing pass; no raw inventory survives this call or any write. */
+ * the optional pass memo. Explicit working rows survive through the enclosing
+ * read-only event assembly's terminal phase, never into a writer or later read. */
 export const restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.restoreEventSubjects",
 )(function* (transaction: FlarexMetadataTransaction,
   collision: RestoredFrameworkMigrationCollisionDomain,
   digests: readonly FrameworkMigrationStepReceiptSha256[],
   operation: StepReceiptAggregateRepositoryOperation,
-  attempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>): Effect.fn.Return<
+  attempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>,
+  graph?: FrameworkMigrationReceiptReadGraph): Effect.fn.Return<
     ReadonlyMap<FrameworkMigrationStepReceiptSha256, RestoredFrameworkMigrationStepReceipt>, FrameworkMigrationRepositoryError
   > {
-  if (!isRestoredFrameworkMigrationCollisionDomain(collision)) {
+  if (!isRestoredFrameworkMigrationCollisionDomain(collision) || (graph !== undefined && graph.transaction !== transaction)) {
     return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
   }
   const restored = new Map<FrameworkMigrationStepReceiptSha256, RestoredFrameworkMigrationStepReceipt>();
@@ -646,8 +678,8 @@ export const restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect = 
     if (Option.isSome(prior)) restored.set(digest, prior.value);
     else pending.push(digest);
   }
-  // Keep one plan's working graph at a time. The explicit result retains only
-  // requested subjects, not every unrequested prerequisite from older plans.
+  // Independent subject reads keep one plan at a time. The connected event
+  // assembly retains plan-local graphs through its later terminal phase.
   let working: Readonly<{ planStorageId: bigint; context: ReceiptRestorationContext }> | undefined;
   for (let offset = 0; offset < pending.length; offset += 32) {
     const batch = pending.slice(offset, offset + 32);
@@ -679,7 +711,8 @@ export const restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect = 
       }
       const decoded = yield* decodeReceiptRoot(row, operation);
       if (working?.planStorageId !== decoded.planStorageId) {
-        working = { planStorageId: decoded.planStorageId, context: makeReceiptRestorationContext(attempts) };
+        working = { planStorageId: decoded.planStorageId,
+          context: yield* Effect.fromResult(receiptReadContext(transaction, graph, decoded.planStorageId, attempts, operation)) };
       }
       const occupant = yield* restoreReceiptDependencyClosure(transaction, row, collision, operation, undefined, working.context);
       if (occupant.value.receipt.sha256 !== digest) {
@@ -707,6 +740,7 @@ export const restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTrans
     lastStepReceiptSha256: unknown,
     operation: StepReceiptAggregateRepositoryOperation,
     eventAttempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>,
+    graph?: FrameworkMigrationReceiptReadGraph,
   ): Effect.fn.Return<
     readonly RestoredFrameworkMigrationStepReceipt[],
     FrameworkMigrationRepositoryError
@@ -743,6 +777,7 @@ export const restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTrans
         }),
       operation,
       eventAttempts,
+      graph,
     );
   });
 
@@ -861,6 +896,7 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
   tail: AttemptReceiptPrefixTail | null | undefined,
   operation: StepReceiptAggregateRepositoryOperation,
   eventAttempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>,
+  graph?: FrameworkMigrationReceiptReadGraph,
 ): Effect.fn.Return<
   readonly RestoredFrameworkMigrationStepReceipt[],
   FrameworkMigrationRepositoryError
@@ -893,7 +929,7 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
     ordinalByStepId.set(step.stepId, ordinal);
   }
 
-  const context = makeReceiptRestorationContext(eventAttempts);
+  const context = yield* Effect.fromResult(receiptReadContext(transaction, graph, attempt.plan.storageId, eventAttempts, operation));
   const rowsByOrdinal = new Map<
     number,
     FrameworkMigrationStepReceiptDriverRow
@@ -969,8 +1005,9 @@ const restoreCompleteStoredAttemptReceiptPrefix = Effect.fn(
     restored.push(occupant.value);
   }
   return Object.freeze(restored);
-}, withFrameworkGraphReadPass, (read, transaction, attempt, tail, operation, eventAttempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>) =>
-  eventAttempts === undefined ? readCompleteReceiptPrefix(read, transaction, attempt, tail === null,
+}, withFrameworkGraphReadPass, (read, transaction, attempt, tail, operation,
+  eventAttempts?: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>, graph?: FrameworkMigrationReceiptReadGraph) =>
+  eventAttempts === undefined && graph === undefined ? readCompleteReceiptPrefix(read, transaction, attempt, tail === null,
     tail?.storageId, tail?.sha256) : read);
 
 const prepareExpectedStepReceipt = Effect.fn(
@@ -1295,7 +1332,9 @@ const restoreReceiptDependencyClosure = Effect.fn(
     rootDecoded.storageId, rootDecoded.stepReceiptSha256);
   const cachedRoot = context.restoredByStorageId.get(rootDecoded.storageId) ?? Option.getOrUndefined(sharedRoot);
   if (cachedRoot !== undefined) {
-    if (!restoredAttemptExactlyMatches(cachedRoot.value.attempt, attempt)) {
+    if (!restoredAttemptExactlyMatches(cachedRoot.value.attempt, attempt) ||
+      cachedRoot.value.receipt.sha256 !== rootDecoded.stepReceiptSha256 ||
+      cachedRoot.value.receipt.canonicalJson !== rootDecoded.canonicalJson) {
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.storedCorruption(operation),
       );

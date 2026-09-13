@@ -50,6 +50,7 @@ import {
 } from "./migrationPlanAdmissionRepository";
 import {
   restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect,
+  makeFrameworkMigrationReceiptReadGraph,
   corroborateRestoredFrameworkMigrationStepReceiptInTransactionEffect,
 } from "./migrationStepReceiptRepository";
 import {
@@ -946,13 +947,14 @@ const restoreEventChain = Effect.fn(
   const attempts = yield* restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect(transaction, collision,
     [...chronologicalFrames.filter(frame => frame.kind === "attemptStarted" || frame.kind === "leaseRenewed"),
       ...(selectedAttempt === undefined ? [] : [{ kind: "storedAttempt" as const, ...selectedAttempt }])], operation);
+  const receiptGraph = makeFrameworkMigrationReceiptReadGraph(transaction);
   const receipts = yield* restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, collision,
     chronologicalFrames.flatMap(frame => frame.kind === "stepCompleted" ? [frame.stepReceiptSha256] : []),
-    operation, attempts.byStorageId);
+    operation, attempts.byStorageId, receiptGraph);
   const terminals = anchoredPrevious === undefined || anchoredPrevious === null
     ? yield* restoreFrameworkMigrationEventTerminalSubjectsInTransactionEffect(transaction, collision,
       chronologicalFrames.flatMap(frame => frame.kind === "attemptTerminated" ? [frame.terminalSha256] : []),
-      attempts.byStorageId, operation)
+      attempts.byStorageId, operation, receiptGraph)
     : undefined;
   const publication: EventPublicationEvidence | undefined = terminals === undefined ? undefined : {
     terminals: new Map([...terminals.values()].map(terminal => [terminal.storageId, terminal])), installations: new Map(),

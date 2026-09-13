@@ -6,7 +6,7 @@ import * as storedValues from "../src/migrationCoordination/storedRestoration";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import type { FrameworkMigrationStepReceiptSha256 } from "../src/migrationCoordination/identity";
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../src/migrationCoordination/graphReadPass";
-import { restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect } from "../src/migrationCoordination/migrationStepReceiptRepository";
+import { restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect, makeFrameworkMigrationReceiptReadGraph } from "../src/migrationCoordination/migrationStepReceiptRepository";
 import { runAdditiveFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
 import { fxSystemFrameworkMigrationAttemptStarts } from "../src/migrationCoordination/schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -66,7 +66,7 @@ describe("event receipt graph restoration", () => {
     }
   }, 90_000);
 
-  it("replaces producer state when switching plans and returning to the original plan", async () => {
+  it.each([false, true])("isolates producer state on A/B/A plan traversal with shared graph=%s", async shared => {
     const fixture = await createAdditiveFixture();
     const successor = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input));
     if (successor.kind !== "ready") throw new Error("Expected additive readiness");
@@ -78,7 +78,7 @@ describe("event receipt graph restoration", () => {
     const attempts = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptStart");
     try {
       const restored = await fixture.persistence.drizzle.transaction(transaction => runEffect(readSubjectsWithFullMemo(
-        transaction, fixture.base.readiness.installation.collision, requested.map(receipt => receipt.receipt.sha256))));
+        transaction, fixture.base.readiness.installation.collision, requested.map(receipt => receipt.receipt.sha256), shared)));
       expect(restored.size).toBe(requested.length);
       for (const receipt of requested) {
         const actual = restored.get(receipt.receipt.sha256);
@@ -86,8 +86,8 @@ describe("event receipt graph restoration", () => {
         expect(actual?.attempt.attempt.canonicalJson).toBe(receipt.attempt.attempt.canonicalJson);
         expect(actual?.attempt.plan.storageId).toBe(receipt.attempt.plan.storageId);
       }
-      // A -> B -> A releases the first working graph. Additive admission also
-      // authenticates its base history; do not count that as another receipt producer.
+      // The independent reader releases A; the explicit graph retains separate
+      // A/B contexts. Additive admission also authenticates base history.
       const producerRestorations = attempts.mock.calls.filter(([input]) => input.row.attemptStorageId ===
         successor.readiness.installation.terminal.attempt.storageId);
       expect(producerRestorations).toHaveLength(1);
@@ -119,10 +119,11 @@ describe("event receipt graph restoration", () => {
 
 const readSubjectsWithFullMemo = Effect.fn("EventReceiptGraphTest.readSubjectsWithFullMemo")(
   function* (transaction: FlarexMetadataTransaction, collision: storedValues.RestoredFrameworkMigrationCollisionDomain,
-    digests: readonly FrameworkMigrationStepReceiptSha256[]) {
+    digests: readonly FrameworkMigrationStepReceiptSha256[], shared = false) {
     // Consume the existing opportunistic budget without a production bypass.
     const fill = makeFrameworkGraphReferenceRead<number>();
     for (let index = 0; index < 512; index++) yield* fill(Effect.succeed(index), transaction, index);
-    return yield* restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, collision, digests, "readEvent");
+    return yield* restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, collision, digests, "readEvent",
+      undefined, shared ? makeFrameworkMigrationReceiptReadGraph(transaction) : undefined);
   }, withFrameworkGraphReadPass,
 );

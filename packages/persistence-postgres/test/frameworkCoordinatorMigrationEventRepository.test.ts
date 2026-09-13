@@ -97,6 +97,7 @@ describe("framework coordinator migration-event repository", () => {
     if (tail === undefined) throw new Error("Missing event tail");
     const attempts = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptStart");
     const terminals = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptTerminal");
+    const receipts = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationStepReceipt");
     try {
       const restored = await persistence.drizzle.transaction(transaction => runEffect(Effect.gen(function* () {
         const fill = makeFrameworkGraphReferenceRead<number>();
@@ -107,11 +108,12 @@ describe("framework coordinator migration-event repository", () => {
       expect(restored.event.canonicalJson).toBe(tail.event.canonicalJson);
       expect(attempts).toHaveBeenCalledTimes(1);
       expect(terminals).toHaveBeenCalledTimes(1);
+      expect(receipts).toHaveBeenCalledTimes(stored.graph.receipts.length);
       const terminalInput = terminals.mock.calls[0]?.[0];
       if (terminalInput === undefined) throw new Error("Missing terminal restoration");
       expect(await runEffectFailure(storedValues.restoreStoredFrameworkMigrationAttemptTerminal({ ...terminalInput,
         stepReceipts: { kind: "restoredFrameworkMigrationReceiptPrefix" } }))).toMatchObject({ reason: "storedStateCorrupt" });
-    } finally { attempts.mockRestore(); terminals.mockRestore(); }
+    } finally { attempts.mockRestore(); terminals.mockRestore(); receipts.mockRestore(); }
   }, PGLITE_TEST_TIMEOUT);
 
   it("keeps the event transaction kernel and authority source-private", async () => {

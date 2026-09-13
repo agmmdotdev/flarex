@@ -27,6 +27,7 @@ import {
 import {
   corroborateRestoredFrameworkMigrationStepReceiptPrefixInTransactionEffect,
   restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTransactionEffect,
+  type FrameworkMigrationReceiptReadGraph,
 } from "./migrationStepReceiptRepository";
 import {
   FRAMEWORK_MIGRATION_ATTEMPT_TERMINAL_FORMAT,
@@ -441,6 +442,7 @@ export const restoreFrameworkMigrationEventTerminalSubjectsInTransactionEffect =
   digests: readonly FrameworkMigrationAttemptTerminalSha256[],
   attempts: ReadonlyMap<bigint, RestoredFrameworkMigrationAttemptStart>,
   operation: AttemptTerminalAggregateRepositoryOperation,
+  receiptGraph?: FrameworkMigrationReceiptReadGraph,
 ): Effect.fn.Return<ReadonlyMap<FrameworkMigrationAttemptTerminalSha256, RestoredFrameworkMigrationAttemptTerminal>, FrameworkMigrationRepositoryError> {
   if (!isRestoredFrameworkMigrationCollisionDomain(collision)) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
   const roots: { digest: FrameworkMigrationAttemptTerminalSha256; row: FrameworkMigrationAttemptTerminalDriverRow;
@@ -478,7 +480,7 @@ export const restoreFrameworkMigrationEventTerminalSubjectsInTransactionEffect =
   }
   for (const { row, attempt } of latestByPlan.values()) {
     const receipts = yield* restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTransactionEffect(transaction, attempt,
-      row.lastReceiptStorageId, row.lastStepReceiptSha256, operation, resolvedAttempts);
+      row.lastReceiptStorageId, row.lastStepReceiptSha256, operation, resolvedAttempts, receiptGraph);
     const planPrefixes = yield* restoreFrameworkMigrationReceiptPrefixes(attempt.plan, receipts)
       .pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
     prefixes.set(attempt.plan.storageId, planPrefixes);

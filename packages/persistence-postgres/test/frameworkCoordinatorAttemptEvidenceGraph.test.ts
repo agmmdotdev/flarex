@@ -1,8 +1,9 @@
-import { Effect } from "effect";
+import { Effect, Encoding, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import * as driverRows from "../src/detachDriverRows";
 import * as storedValues from "../src/migrationCoordination/storedRestoration";
-import { captureFrameworkMigrationAttemptStart, captureFrameworkMigrationAttemptTerminal, captureFrameworkMigrationPlanAdmission } from "../src/migrationCoordination/canonical";
+import { captureFrameworkMigrationAttemptStart, captureFrameworkMigrationAttemptTerminal, captureFrameworkMigrationPlanAdmission,
+  encodeFrameworkMigrationStepReceiptFrame } from "../src/migrationCoordination/canonical";
 import { ensureFrameworkMigrationPlanAdmissionInTransactionEffect } from "../src/migrationCoordination/migrationPlanAdmissionRepository";
 import { ensureFreshRelationalMigrationPlanInTransactionEffect } from "../src/migrationCoordination/migrationPlanRepository";
 import { capturedAuthorityForAttemptTerminal } from "../src/migrationCoordination/authority";
@@ -16,6 +17,51 @@ import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 describe("attempt evidence graph", () => {
+  it("refuses a changed canonical root during the terminal inventory reread", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const values = await createSuccessfulTerminalPlanValues();
+    const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
+    const first = graph.receipts[0];
+    if (first === undefined) throw new Error("Missing first receipt");
+    const changed = await runEffect(encodeFrameworkMigrationStepReceiptFrame({ ...first.receipt.frame, completedAt: COORDINATOR_TERMINAL_AT }));
+    const bytes = new TextEncoder().encode(changed.canonicalJson);
+    const digest = Result.getOrThrow(Encoding.decodeHex(changed.sha256));
+    let terminalPhase = false;
+    let altered = false;
+    const detach = driverRows.detachDriverRows;
+    const reads = vi.spyOn(driverRows, "detachDriverRows").mockImplementation(rows => detach(rows).map(row => {
+      if (terminalPhase && "receiptStorageId" in row && row.receiptStorageId === first.storageId && "canonicalBytes" in row) {
+        altered = true;
+        return { ...row, canonicalBytes: bytes, canonicalByteLength: bytes.byteLength,
+          observedCanonicalByteLength: bytes.byteLength, stepReceiptSha256: digest };
+      }
+      return row;
+    }));
+    try {
+      await expect(persistence.drizzle.transaction(transaction => runEffect(Effect.gen(function* () {
+        const working = receiptRepository.makeFrameworkMigrationReceiptReadGraph(transaction);
+        const attempts = (yield* restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect(transaction, graph.collision,
+          [{ kind: "attemptStarted", attemptStartSha256: graph.attempt.attempt.sha256 }], "readEvent")).byStorageId;
+        yield* restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, graph.collision,
+          graph.receipts.map(receipt => receipt.receipt.sha256), "readEvent", attempts, working);
+        terminalPhase = true;
+        return yield* restoreFrameworkMigrationEventTerminalSubjectsInTransactionEffect(transaction, graph.collision,
+          [graph.terminal.terminal.sha256], attempts, "readEvent", working);
+      })))).rejects.toMatchObject({ reason: "storedCorruption" });
+      expect(altered).toBe(true);
+    } finally { reads.mockRestore(); }
+  }, 90_000);
+
+  it("refuses a receipt graph borrowed from a different transaction", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const values = await createSuccessfulTerminalPlanValues();
+    const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
+    const foreign = await persistence.drizzle.transaction(async transaction => receiptRepository.makeFrameworkMigrationReceiptReadGraph(transaction));
+    expect(await persistence.drizzle.transaction(transaction => runEffectFailure(
+      restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, graph.collision, [], "readEvent", undefined, foreign),
+    ))).toMatchObject({ reason: "storedCorruption" });
+  }, 90_000);
+
   it("retains an earlier empty terminal while later-fence receipts occupy the plan", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const values = await createSuccessfulTerminalPlanValues();
@@ -51,9 +97,9 @@ describe("attempt evidence graph", () => {
     expect(emptyAuthority?.stepReceipts).toBe(completeAuthority?.stepReceipts);
   }, 90_000);
 
-  it.each([4, 16])("reads and issues each of %i attempts once despite repeated leases and receipt subjects", async count => {
+  it.each([{ count: 4, extraTables: 0 }, { count: 16, extraTables: 0 }, { count: 4, extraTables: 14 }])("shares receipt evidence across $count attempts and $extraTables extra tables", async ({ count, extraTables }) => {
     const persistence = await createMigratedPGlitePersistence();
-    const values = await createSuccessfulTerminalPlanValues();
+    const values = await createSuccessfulTerminalPlanValues(extraTables);
     const graph = await persistence.drizzle.transaction(transaction => storeSuccessfulTerminalGraphInTransaction(transaction, values));
     const attempts = [graph.attempt];
     const terminals = [graph.terminal];
@@ -82,11 +128,18 @@ describe("attempt evidence graph", () => {
         attemptId: attempt.attempt.frame.attemptId, attemptFence: attempt.attempt.frame.attemptFence })),
     ]);
     let attemptRows = 0;
+    let receiptRows = 0;
+    let receiptBytes = 0;
+    let dependencyRows = 0;
     let canonicalBytes = 0;
     const detach = driverRows.detachDriverRows;
     const reads = vi.spyOn(driverRows, "detachDriverRows").mockImplementation(rows => {
       const detached = detach(rows);
       for (const row of detached) {
+        if ("receiptStorageId" in row && "canonicalBytes" in row && row.canonicalBytes instanceof Uint8Array) {
+          receiptRows++; receiptBytes += row.canonicalBytes.byteLength;
+        }
+        if ("dependencyOrdinal" in row && "receiptStorageId" in row) dependencyRows++;
         if (Object.hasOwn(row, "attemptStartSha256")) {
           attemptRows++;
           if ("canonicalBytes" in row && row.canonicalBytes instanceof Uint8Array) canonicalBytes += row.canonicalBytes.byteLength;
@@ -95,29 +148,46 @@ describe("attempt evidence graph", () => {
       return detached;
     });
     const issued = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptStart");
+    const receiptNodes = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationStepReceipt");
     const prefixReads = vi.spyOn(receiptRepository, "restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTransactionEffect");
     try {
       const result = await persistence.drizzle.transaction(transaction => runEffect(Effect.gen(function* () {
         const fill = makeFrameworkGraphReferenceRead<number>();
         for (let index = 0; index < 512; index++) yield* fill(Effect.succeed(index), transaction, index);
         const subjects = yield* restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect(transaction, graph.collision, references, "readEvent");
+        const receiptGraph = receiptRepository.makeFrameworkMigrationReceiptReadGraph(transaction);
         const receipts = yield* restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, graph.collision,
-          graph.receipts.map(receipt => receipt.receipt.sha256), "readEvent", subjects.byStorageId);
+          graph.receipts.map(receipt => receipt.receipt.sha256), "readEvent", subjects.byStorageId, receiptGraph);
         const terminalSubjects = yield* restoreFrameworkMigrationEventTerminalSubjectsInTransactionEffect(transaction, graph.collision,
-          terminals.map(terminal => terminal.terminal.sha256), subjects.byStorageId, "readEvent");
-        return { subjects, receipts, terminalSubjects };
+          terminals.map(terminal => terminal.terminal.sha256), subjects.byStorageId, "readEvent", receiptGraph);
+        return { subjects, receipts, terminalSubjects, receiptGraph };
       }).pipe(read => withFrameworkGraphReadPass(read, transaction))));
       expect(result.subjects.byStorageId.size).toBe(count);
       expect(result.receipts.size).toBe(graph.receipts.length);
       expect(issued).toHaveBeenCalledTimes(count);
+      expect(receiptNodes).toHaveBeenCalledTimes(graph.receipts.length);
+      expect(receiptRows).toBe(2 * graph.receipts.length);
+      expect(receiptBytes).toBe(2 * graph.receipts.reduce((bytes, receipt) => bytes + new TextEncoder().encode(receipt.receipt.canonicalJson).byteLength, 0));
+      expect(dependencyRows).toBe(graph.plan.plan.frame.steps.reduce((edges, step) => edges + step.dependencies.length, 0));
       expect(attemptRows).toBe(count);
       expect(prefixReads).toHaveBeenCalledTimes(1);
       expect(result.terminalSubjects.size).toBe(count);
+      expect(result.receiptGraph.contextsByPlan.size).toBe(1);
+      const retained = result.receiptGraph.contextsByPlan.get(graph.plan.storageId);
+      if (retained === undefined) throw new Error("Missing retained receipt graph");
+      expect(retained.rootsByStorageId.size).toBe(graph.receipts.length);
+      expect(retained.restoredByStorageId.size).toBe(graph.receipts.length);
+      const retainedCanonicalBytes = [...retained.rootsByStorageId.values()].reduce((bytes, row) =>
+        bytes + (row.canonicalBytes?.byteLength ?? 0), 0);
+      expect(retainedCanonicalBytes).toBe(receiptBytes / 2);
       const terminalReceiptArrays = new Set([...result.terminalSubjects.values()].map(terminal => {
         const authority = capturedAuthorityForAttemptTerminal(terminal.terminal);
         expect(authority?.completedStepCount).toBe(graph.receipts.length);
         expect(storedValues.restoredFrameworkMigrationAttemptTerminalStepReceipts(terminal)?.map(receipt => receipt.receipt.sha256))
           .toEqual(graph.receipts.map(receipt => receipt.receipt.sha256));
+        for (const receipt of storedValues.restoredFrameworkMigrationAttemptTerminalStepReceipts(terminal) ?? []) {
+          expect(receipt).toBe(result.receipts.get(receipt.receipt.sha256));
+        }
         return authority?.stepReceipts;
       }));
       expect(terminalReceiptArrays.size).toBe(1);
@@ -131,11 +201,11 @@ describe("attempt evidence graph", () => {
           (producerIndex < successorIndex && successorIndex < count - 1));
       }
       process.stdout.write(JSON.stringify({ attempts: count, eventReferences: references.length, attemptRows, canonicalBytes,
-        issuedAttempts: issued.mock.calls.length }) + "\n");
+        issuedAttempts: issued.mock.calls.length, receiptRows, receiptBytes, dependencyRows, receiptNodes: receiptNodes.mock.calls.length }) + "\n");
       expect(await persistence.drizzle.transaction(transaction => runEffectFailure(
         restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect(transaction, graph.collision,
           [{ kind: "leaseRenewed", attemptId: graph.attempt.attempt.frame.attemptId, attemptFence: "999" }], "readEvent"),
       ))).toMatchObject({ reason: "storedCorruption" });
-    } finally { reads.mockRestore(); issued.mockRestore(); prefixReads.mockRestore(); }
+    } finally { reads.mockRestore(); issued.mockRestore(); receiptNodes.mockRestore(); prefixReads.mockRestore(); }
   }, 120_000);
 });
