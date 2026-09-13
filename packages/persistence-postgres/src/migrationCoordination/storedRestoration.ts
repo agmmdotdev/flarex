@@ -34,6 +34,7 @@ import { isStoredRelationalPhysicalNameAssignmentFrame } from
   "../relationalSchema/physical/storedValidation";
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import {
+  capturedStepForPlan,
   registerCapturedFrameworkMigrationPlanAdmission,
   registerCapturedFrameworkMigrationAttemptStart,
   registerCapturedFrameworkMigrationAttemptTerminal,
@@ -999,9 +1000,7 @@ export const restoreStoredFrameworkMigrationStepReceipt = Effect.fn(
     sha256Hex: stored.sha256Hex,
   });
   const step = isStoredFrameworkMigrationStepReceiptFrame(frame)
-    ? input.plan.plan.frame.steps.find(candidate =>
-      candidate.stepId === frame.stepId
-    )
+    ? capturedStepForPlan(input.plan.plan, frame.stepId)
     : undefined;
   const expectedDependencies = step?.dependencies.toSorted((left, right) =>
     compareUtf16Strings(left.stepId, right.stepId)

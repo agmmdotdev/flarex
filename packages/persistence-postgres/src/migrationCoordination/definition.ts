@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
+import { capturedStepForPlan } from "./authority";
 import type { FrameworkMigrationStep, RelationalMigrationPlan } from "./model";
 import { issueRelationalStructuralRunnerTokenEffect,
   type RelationalStructuralRunnerToken } from "./relationalStructuralRunner";
@@ -21,11 +22,10 @@ export const prepareFrameworkMigrationDefinition = Effect.fn("FrameworkMigration
     // Issuance authenticates the captured plan/target and resolves every fixed
     // structural handler. It is the existing authority owner for this work.
     const runner = yield* issueRelationalStructuralRunnerTokenEffect(target, plan);
-    const ordinals = new Map(plan.frame.steps.map(step => [step.stepId, step.ordinal]));
     const steps = plan.frame.steps.map(step => Object.freeze({ step,
       dependencyOrdinals: Object.freeze(step.dependencies.toSorted((left, right) =>
         compareUtf16Strings(left.stepId, right.stepId)).map(reference => {
-        const ordinal = ordinals.get(reference.stepId);
+        const ordinal = capturedStepForPlan(plan, reference.stepId)?.ordinal;
         // An issued plan has already established an ordered dependency graph.
         if (ordinal === undefined || ordinal >= step.ordinal) throw new Error("Captured migration dependency invariant failed");
         return ordinal;

@@ -62,8 +62,8 @@ export const COORDINATOR_INSTALLED_AT = "2026-08-27T08:34:00.000Z";
 export const COORDINATOR_VALIDATED_AT = "2026-08-27T08:35:00.000Z";
 export const COORDINATOR_AVAILABLE_AT = "2026-08-27T08:36:00.000Z";
 
-export async function createSuccessfulTerminalPlanValues() {
-  const artifact = await syntheticSystemArtifact();
+export async function createSuccessfulTerminalPlanValues(extraTables = 0) {
+  const artifact = await syntheticSystemArtifact(extraTables);
   const targetValue = await frameworkTargetNamespace();
   const physicalLayout = await runEffect(captureRelationalPhysicalLayout({
     artifact: artifact.artifact,

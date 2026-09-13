@@ -50,7 +50,7 @@ export interface CapturedMigrationAttemptTerminalAuthority {
   readonly stepReceipts: readonly StepReceipt[];
 }
 
-const capturedPlans = new WeakSet<RelationalMigrationPlan>();
+const capturedPlans = new WeakMap<RelationalMigrationPlan, ReadonlyMap<string, FrameworkMigrationStep>>();
 const planAdmissionRequirements = new WeakMap<RelationalMigrationPlan, "ordinary" | "commerce">();
 const capturedPlanSteps = new WeakMap<
   FrameworkMigrationStep,
@@ -74,10 +74,12 @@ export function registerCapturedFreshRelationalMigrationPlan(
   plan: RelationalMigrationPlan,
   admissionRequirement?: "ordinary" | "commerce",
 ): void {
+  const stepsById = new Map<string, FrameworkMigrationStep>();
   for (const step of plan.frame.steps) {
     capturedPlanSteps.set(step, plan);
+    stepsById.set(step.stepId, step);
   }
-  capturedPlans.add(plan);
+  capturedPlans.set(plan, stepsById);
   if (admissionRequirement !== undefined) planAdmissionRequirements.set(plan, admissionRequirement);
 }
 
@@ -104,6 +106,14 @@ export function capturedPlanForStep(
   step: FrameworkMigrationStep,
 ): RelationalMigrationPlan | undefined {
   return capturedPlanSteps.get(step);
+}
+
+/** Exact issued step identity, indexed once with its immutable owning plan. */
+export function capturedStepForPlan(
+  plan: RelationalMigrationPlan,
+  stepId: string,
+): FrameworkMigrationStep | undefined {
+  return capturedPlans.get(plan)?.get(stepId);
 }
 
 export function registerCapturedFrameworkMigrationPlanAdmission(

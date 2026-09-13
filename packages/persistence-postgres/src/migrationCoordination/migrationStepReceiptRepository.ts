@@ -1585,8 +1585,8 @@ const loadReceiptDependencySidecars = Effect.fn(
   FrameworkMigrationRepositoryError
 > {
   const batch = yield* loadPlanReceiptSidecars(transaction, planStorageId, operation);
-  if (batch.length <= 4096) {
-    return batch.filter(row => row.receiptStorageId === receiptStorageId)
+  if (batch.kind === "indexed") {
+    return (batch.rowsByReceipt.get(receiptStorageId) ?? [])
       .slice(0, frame.dependencyReceipts.length + 1);
   }
   const query = transaction.select(receiptDependencyReadSelection).from(
@@ -1606,15 +1606,19 @@ const loadReceiptDependencySidecars = Effect.fn(
 // through each receipt's owner so a corrupt sidecar owner is still returned and
 // rejected by the existing projection decoder. Oversized histories retain the
 // original bounded per-receipt query.
-const readPlanSidecars = makeFrameworkGraphReferenceRead<readonly FrameworkMigrationStepReceiptDependencyDriverRow[]>();
+type PlanReceiptSidecars =
+  | Readonly<{ kind: "indexed"; rowsByReceipt: ReadonlyMap<unknown, readonly FrameworkMigrationStepReceiptDependencyDriverRow[]> }>
+  | Readonly<{ kind: "oversized" }>;
+
+const readPlanSidecars = makeFrameworkGraphReferenceRead<PlanReceiptSidecars>();
 const loadPlanReceiptSidecars = Effect.fn(
   "FrameworkMigrationStepReceiptRepository.loadPlanSidecars",
 )(function* (
   transaction: FlarexMetadataTransaction,
   planStorageId: bigint,
   operation: StepReceiptAggregateRepositoryOperation,
-): Effect.fn.Return<readonly FrameworkMigrationStepReceiptDependencyDriverRow[], FrameworkMigrationRepositoryError> {
-  return yield* runRepositoryStatement(operation,
+): Effect.fn.Return<PlanReceiptSidecars, FrameworkMigrationRepositoryError> {
+  const rows = yield* runRepositoryStatement(operation,
     transaction.select(receiptDependencyReadSelection)
       .from(fxSystemFrameworkMigrationStepReceiptDependencies)
       .innerJoin(fxSystemFrameworkMigrationStepReceipts, eq(
@@ -1625,6 +1629,19 @@ const loadPlanReceiptSidecars = Effect.fn(
       .orderBy(asc(fxSystemFrameworkMigrationStepReceiptDependencies.dependencyOrdinal))
       .limit(4097),
   ).pipe(Effect.map(detachDriverRows));
+  if (rows.length > 4096) return Object.freeze({ kind: "oversized" });
+  // Group detached transport rows once per read pass, without interpreting or
+  // coercing the foreign owner key. Exact row/cardinality/projection validation
+  // remains with each receipt's existing restorer, including malformed rows.
+  const rowsByReceipt = new Map<unknown, FrameworkMigrationStepReceiptDependencyDriverRow[]>();
+  for (const row of rows) {
+    const owner = row.receiptStorageId;
+    const group = rowsByReceipt.get(owner);
+    if (group === undefined) rowsByReceipt.set(owner, [row]);
+    else group.push(row);
+  }
+  for (const group of rowsByReceipt.values()) Object.freeze(group);
+  return Object.freeze({ kind: "indexed", rowsByReceipt });
 }, (read, transaction, planStorageId) => readPlanSidecars(read, transaction, planStorageId));
 
 const insertReceiptDependencySidecars = Effect.fn(

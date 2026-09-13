@@ -39,7 +39,9 @@ closed through existing repository and structural-runner error owners.
 ## Retained work and completion gates
 
 The explicit audit currently uses the full restoration owners and their existing
-graph bounds. It is not yet the O(N + E) verifier, privileged-repair workflow or
+graph bounds. [Receipt lookup indexes](./80-receipt-lookup-indexes.md) remove
+repeated plan-step and dependency-row scans within those readers. It is not yet
+the O(N + E) verifier, privileged-repair workflow or
 trusted installer facade. Those owners and the direct-dependency normal step
 must be completed before retiring ordinary full reconstruction. Final readiness
 continues through the existing coordinator's full validation/publication owner.
