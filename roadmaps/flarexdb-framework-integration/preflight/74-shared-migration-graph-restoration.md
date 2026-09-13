@@ -85,9 +85,12 @@ from the much smaller decoder bodies. Head advancement and event persistence
 dominate the measured step phases; head preparation and fresh post-update
 restoration are distinct major costs. The proposed
 [step-transition proof decision](./75-migration-step-transition-proof.md)
-addresses that ownership boundary explicitly. It is not approved implementation,
-does not relax this record's current rule, and does not establish that a new
-ledger, snapshot mode or transaction-wide cache is necessary.
+addressed that ownership boundary explicitly and is now superseded by the proposed
+[framework installation core redesign](./76-framework-installation-core-redesign.md).
+Neither is approved implementation or relaxes this record's current runtime rule.
+The broader proposal requires explicit metadata protection, progress and
+corruption-detection decisions; this research does not itself select their
+implementation or authorize a transaction-wide cache.
 
 ## Outcome And Owners
 

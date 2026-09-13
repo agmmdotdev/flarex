@@ -1,6 +1,9 @@
 # Migration Step Transition Proof
 
-Status: proposed contract decision, not approved for implementation. The
+Status: superseded proposal, never approved for implementation. The broader
+[framework installation core redesign](./76-framework-installation-core-redesign.md)
+is the current discussion direction; it addresses cross-step complexity,
+construction APIs and both Medusa and Payload structural consumers. The
 installer remains unchanged and the connected ShippingProfile gate remains
 open. This is not permission to restore the candidates withdrawn in record 74.
 

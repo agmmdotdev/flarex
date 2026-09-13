@@ -102,13 +102,15 @@ membership transport. Its approved candidate was withdrawn after failing the
 unchanged full-suite PGlite deadline; no runtime or verification change is
 retained. Isolated reconstruction reuse did not establish the required aggregate
 performance benefit. The installation problem and connected workflow gate remain
-unresolved; a larger transaction or ledger redesign is not established as necessary.
-The proposed [migration step-transition proof](./preflight/75-migration-step-transition-proof.md)
-separates incoming history authentication from exact command-owned writes after
-phase attribution identified repeated head/event restoration as the main target.
-It requires an explicit cross-write evidence and corruption-detection decision;
-it is not an approved implementation or a completed lineage-scale correction.
-That slice explicitly retains the private commerce error envelope rather than claiming
+unresolved. The narrower [migration step-transition proposal](./preflight/75-migration-step-transition-proof.md)
+is superseded by the proposed [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md).
+The discussion now covers protected immutable definitions/evidence, durable
+operational progress, explicit full verification and readable construction APIs.
+It includes future supported Medusa inventories and Payload's actual structural
+lifecycle consumer while preserving Application content-schema authority.
+The metadata protection and corruption-detection contract require approval;
+no replacement implementation, schema or performance gain is established.
+The connected ShippingProfile slice explicitly retains the private commerce error envelope rather than claiming
 the pinned test adapter's duplicate-name message or full Fulfillment parity.
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result
