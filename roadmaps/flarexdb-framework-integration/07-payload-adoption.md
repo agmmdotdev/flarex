@@ -228,6 +228,10 @@ reuses the existing static Drizzle metadata factory, retaining fresh client view
 and native transaction settlement. Repeated local comparisons support a modest
 read-median improvement with unchanged SQL counts; other timings remain mixed.
 No fresh catalog reads or accepting checks were removed.
+The proposed [single-pass manifest verification](./preflight/71-single-pass-application-manifest-verification.md)
+targets duplicate canonicalization within the shared Analysis dispatcher.
+It awaits owner-specific approval and preserves policy authentication and fresh
+database acceptance; it is not an implemented latency improvement.
 Inclusive spans are not additive; cold processes, isolated lock waits,
 contention and deployed latency remain unmeasured.
 Reusable immutable metadata must not become a cache of request authority.
