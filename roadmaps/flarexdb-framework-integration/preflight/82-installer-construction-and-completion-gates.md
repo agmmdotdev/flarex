@@ -39,9 +39,10 @@ wrappers. No parallel installation implementation or production export is added.
 
 ## Remaining sequence and completion gates
 
-1. Complete read-only `inspect` and `verify` construction with the verification
-   owner. Inspection must not silently perform a full audit. Full verification
-   must read each node and edge once in a bounded pass, retaining corruption,
+1. Read-only [`inspect` and `verify` construction](./83-installer-inspection-and-verification.md)
+   now delegates to the diagnostic and verification owners. Inspection does not
+   silently perform a full audit. Remaining full-verification work must read each
+   node and edge once in a bounded pass, retaining corruption,
    receipt inventory, lineage, target and catalog checks. An inspection report
    grants no execution or readiness authority.
 2. Replace normal full-history reconstruction with the protected direct-step

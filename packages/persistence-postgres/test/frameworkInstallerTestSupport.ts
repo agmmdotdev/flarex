@@ -23,7 +23,7 @@ export async function assertInstallerResume(input: RunFreshFrameworkMigrationCoo
     for (const maximumStepsPerCall of [0, 129, Number.NaN]) {
       expect(() => installerFixture(input, maximumStepsPerCall)).toThrow();
     }
-    expect(Object.keys(installer).sort()).toEqual(["installAdditive", "installFresh"]);
+    expect(Object.keys(installer).sort()).toEqual(["inspect", "installAdditive", "installFresh", "verify"]);
     const partial = await runEffect(installer.installFresh(input));
     expect(partial).toEqual({ kind: "pending", completedStepCount: 2, requiredStepCount: 7 });
     expect(preparation).toHaveBeenCalledTimes(1);
@@ -57,7 +57,7 @@ export async function assertInstallerDeadline(input: RunFreshFrameworkMigrationC
       policy: { leaseDurationMilliseconds: input.leaseDurationMilliseconds, lockTimeoutMilliseconds: input.lockTimeoutMilliseconds,
         statementTimeoutMilliseconds: input.statementTimeoutMilliseconds, runTimeoutMilliseconds: 25, maximumStepsPerCall: 128 } }));
     expect(await runEffectFailure(installer.installFresh(input))).toMatchObject({ reason: "resourceFailure",
-      message: "Framework installation deadline expired; resume from durable state" });
+      message: "Framework installer call deadline expired" });
     expect(continuation).toHaveBeenCalledTimes(1);
     expect(released).toBe(true);
   } finally { initial.mockRestore(); continuation.mockRestore(); }
@@ -69,6 +69,9 @@ export async function assertAdditiveInstaller(input: RunAdditiveFrameworkMigrati
   const pending = await runEffect(installer.installAdditive(input));
   expect(pending).toMatchObject({ kind: "pending", completedStepCount: 2 });
   expect(pending).not.toHaveProperty("claim");
+  expect(await runEffect(installer.inspect(input))).toMatchObject({ kind: "observed", completedStepCount: 2 });
+  expect(await runEffect(installer.verify(input))).toMatchObject({ kind: "verified", completedStepCount: 2, complete: false });
   expect(await runEffect(installerFixture(input).installAdditive(input))).toMatchObject({ kind: "ready", replayed: false });
   expect(await runEffect(installer.installAdditive(input))).toMatchObject({ kind: "ready", replayed: true });
+  expect(await runEffect(installer.verify(input))).toMatchObject({ kind: "verified", complete: true });
 }

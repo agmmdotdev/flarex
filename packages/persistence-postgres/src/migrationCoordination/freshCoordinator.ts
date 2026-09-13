@@ -2,30 +2,13 @@
  * Existing coordinator entry point and bounded run orchestration. Lifecycle operations
  * remain source-private; no new package exports or execution profile are introduced.
  */
-import { prepareFrameworkMigrationDefinition } from "./definition";
+import { captureFrameworkMigrationBaseReferenceEffect, loadFrameworkMigrationPlanEffect, prepareFrameworkMigrationDefinition } from "./definition";
 import {
   withFrameworkMigrationPlanVerification,
-  captureFreshRelationalMigrationPlan,
 } from "./canonical";
 import { withAdditiveMigrationGraphLimits } from "./graphLimits";
-import { isStoredMigrationBaseInstallation } from "./storedValidation";
-import { commerceSchemaPlanStepLimit } from "../commerceTransaction/profile";
 import { Effect, Option } from "effect";
-import { captureAdditiveRelationalMigrationPlan } from "./additivePlan";
-import { authenticateFrameworkMigrationBaseEffect } from "./baseRepository";
-import { getFrameworkSchemaArtifactEffect } from "../frameworkSchema/artifact/read";
-import { authenticateStoredRelationalSchemaArtifactEffect } from "../relationalSchema/artifact";
-import { captureRelationalPhysicalLayout } from "../relationalSchema/physical/canonical";
-import type { RelationalMigrationPlan, FrameworkMigrationBaseInstallation } from "./model";
-import {
-  ensureFrameworkMigrationCollisionDomainInTransactionEffect,
-  ensureFrameworkSchemaTargetNamespaceInTransactionEffect,
-} from "./targetCollisionRepository";
-import {
-  frameworkMigrationTargetSnapshot,
-  runFrameworkMigrationTargetTransactionEffect,
-  withFrameworkMigrationRawTransactionEffect,
-} from "./targetSession";
+import type { FrameworkMigrationBaseInstallation } from "./model";
 import {
   type FrameworkMigrationCoordinatorFailure,
   type RunFreshFrameworkMigrationCoordinatorInput,
@@ -35,7 +18,6 @@ import {
   coordinatorError,
 } from "./coordinatorContracts";
 import { type FrameworkMigrationClaim, readFrameworkMigrationClaimProgressEffect } from "./coordinatorClaim";
-import { ordinaryRequest } from "./coordinatorJournal";
 import {
   prepareCoordinatorGraphWithRecoveryEffect,
   claimCoordinatorAttemptEffect,
@@ -71,15 +53,10 @@ export const runFreshFrameworkMigrationCoordinatorEffect = Effect.fn(
 export const runAdditiveFrameworkMigrationCoordinatorEffect = Effect.fn("AdditiveFrameworkMigrationCoordinator.run")(
   (input: RunAdditiveFrameworkMigrationCoordinatorInput): Effect.Effect<
     FreshFrameworkMigrationCoordinatorResult, FrameworkMigrationCoordinatorFailure
-  > => Effect.suspend(() => isStoredMigrationBaseInstallation(input.baseInstallation)
-    ? withAdditiveMigrationGraphLimits(runCoordinatorEffect(input, Object.freeze({ ...input.baseInstallation,
-      identity: Object.freeze({ ...input.baseInstallation.identity,
-        artifact: Object.freeze({ ...input.baseInstallation.identity.artifact }),
-        physicalLocator: Object.freeze({ ...input.baseInstallation.identity.physicalLocator }),
-        targetNamespace: Object.freeze({ ...input.baseInstallation.identity.targetNamespace }),
-      }),
-    })))
-    : Effect.fail(coordinatorError("prepare", "invalidInput", "Additive migration requires an exact base reference"))),
+  > => Effect.gen(function* () {
+    const base = yield* captureFrameworkMigrationBaseReferenceEffect(input.baseInstallation);
+    return yield* withAdditiveMigrationGraphLimits(runCoordinatorEffect(input, base));
+  }),
 );
 
 const runCoordinatorEffect = Effect.fn("FrameworkMigrationCoordinator.run")((input: RunFreshFrameworkMigrationCoordinatorInput,
@@ -122,57 +99,7 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
       "Framework migration coordinator input is invalid",
     ));
   }
-  const artifact = yield* getFrameworkSchemaArtifactEffect(
-    input.artifactRepository,
-    input.artifactIdentity,
-  );
-  if (artifact === null) {
-    return yield* Effect.fail(coordinatorError(
-      "prepare",
-      "artifactMissing",
-      "Exact framework schema artifact is absent",
-    ));
-  }
-  const snapshot = frameworkMigrationTargetSnapshot(input.target);
-  if (snapshot === undefined) {
-    return yield* Effect.fail(coordinatorError(
-      "prepare",
-      "invalidInput",
-      "Framework migration target authority is invalid",
-    ));
-  }
-  const relationalArtifact = yield*
-    authenticateStoredRelationalSchemaArtifactEffect(artifact);
-  const physicalLayout = yield* captureRelationalPhysicalLayout({
-    artifact: relationalArtifact.artifact,
-    physicalLocator: snapshot.physicalLocator,
-    targetNamespace: snapshot.namespace,
-  });
-  let plan: RelationalMigrationPlan = yield* captureFreshRelationalMigrationPlan({
-    artifact,
-    physicalLayout,
-    ...(input.commerceProfile === undefined ? {} : { commerceProfile: input.commerceProfile }),
-  });
-  if (base !== undefined) {
-    const candidate = plan;
-    const readiness = yield* runFrameworkMigrationTargetTransactionEffect(input.target, ordinaryRequest(input),
-      transaction => withFrameworkMigrationRawTransactionEffect(transaction, input.target, raw => Effect.gen(function* () {
-        const target = yield* ensureFrameworkSchemaTargetNamespaceInTransactionEffect(raw, candidate.targetNamespace);
-        const collision = yield* ensureFrameworkMigrationCollisionDomainInTransactionEffect(raw, target, candidate);
-        return yield* authenticateFrameworkMigrationBaseEffect(raw, collision, base, "readPlan");
-      })));
-    if (readiness.installation.plan.plan.frame.steps.length > 7) {
-      return yield* Effect.fail(coordinatorError("prepare", "invalidInput", "Additive base exceeds seven steps"));
-    }
-    plan = yield* captureAdditiveRelationalMigrationPlan({ artifact, physicalLayout,
-      baseInstallation: readiness.installation.installation, baseReadiness: readiness.readiness });
-    if (plan.frame.steps.length > 8) return yield* Effect.fail(coordinatorError("prepare", "invalidInput", "Additive plan exceeds eight steps"));
-  }
-  const planStepLimit = commerceSchemaPlanStepLimit(input.commerceProfile);
-  if (plan.frame.steps.length > planStepLimit) {
-    return yield* Effect.fail(coordinatorError("prepare", "invalidInput",
-      `Fresh coordinator execution supports at most ${planStepLimit} plan steps`));
-  }
+  const plan = yield* loadFrameworkMigrationPlanEffect(input, base);
   const definition = yield* prepareFrameworkMigrationDefinition(input.target, plan);
 
   const graph = yield* prepareCoordinatorGraphWithRecoveryEffect(input, plan);

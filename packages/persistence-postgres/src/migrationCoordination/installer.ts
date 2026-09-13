@@ -7,6 +7,11 @@ import { coordinatorError, type FrameworkMigrationCoordinatorFailure,
 import { advanceFrameworkMigrationClaimBatchEffect, finalizeFrameworkMigrationClaimEffect,
   runFreshFrameworkMigrationCoordinatorEffect, runAdditiveFrameworkMigrationCoordinatorEffect } from "./freshCoordinator";
 import type { FrameworkMigrationTarget } from "./targetSession";
+import { captureFrameworkMigrationBaseReferenceEffect, loadFrameworkMigrationPlanEffect,
+  type FrameworkMigrationDefinitionSelection } from "./definition";
+import { inspectFrameworkMigrationEffect } from "./inspect";
+import { verifyFrameworkMigrationEffect } from "./verify";
+import { withAdditiveMigrationGraphLimits } from "./graphLimits";
 
 const timeout = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 600_000 }));
 const FrameworkInstallerPolicySchema = Schema.Struct({
@@ -23,6 +28,8 @@ export type FrameworkFreshInstallationRequest = Pick<RunFreshFrameworkMigrationC
   "artifactIdentity" | "commerceProfile" | "attemptId" | "leaseOwnerId">;
 export type FrameworkAdditiveInstallationRequest = FrameworkFreshInstallationRequest &
   Pick<RunAdditiveFrameworkMigrationCoordinatorInput, "baseInstallation">;
+export type FrameworkInstallationSelection = Pick<FrameworkFreshInstallationRequest, "artifactIdentity" | "commerceProfile"> &
+  Readonly<{ baseInstallation?: RunAdditiveFrameworkMigrationCoordinatorInput["baseInstallation"] }>;
 export type FrameworkInstallationResult = Exclude<FreshFrameworkMigrationCoordinatorResult, { kind: "pending" }> |
   Readonly<{ kind: "pending"; completedStepCount: number; requiredStepCount: number }>;
 
@@ -39,6 +46,20 @@ export function makeFrameworkInstaller(input: Readonly<{
     Result.mapError(cause => coordinatorError("prepare", "invalidInput", "Invalid framework installer policy", cause)),
     Result.map(decoded => {
       const policy = Object.freeze(decoded);
+      const withinBudget = <Value>(effect: Effect.Effect<Value, FrameworkMigrationCoordinatorFailure>) =>
+        Effect.raceFirst(effect, Effect.sleep(policy.runTimeoutMilliseconds).pipe(Effect.andThen(
+          Effect.fail(coordinatorError("prepare", "resourceFailure", "Framework installer call deadline expired")),
+        ))).pipe(withFrameworkMigrationPlanVerification);
+      const definitionInput = (selection: FrameworkInstallationSelection): FrameworkMigrationDefinitionSelection => ({
+        target, artifactRepository, artifactIdentity: selection.artifactIdentity,
+        ...(selection.commerceProfile === undefined ? {} : { commerceProfile: selection.commerceProfile }),
+        lockTimeoutMilliseconds: policy.lockTimeoutMilliseconds, statementTimeoutMilliseconds: policy.statementTimeoutMilliseconds,
+      });
+      const loadSelection = Effect.fn("FrameworkInstaller.loadSelection")(function* (selection: FrameworkInstallationSelection) {
+        if (selection.baseInstallation === undefined) return yield* loadFrameworkMigrationPlanEffect(definitionInput(selection));
+        const base = yield* captureFrameworkMigrationBaseReferenceEffect(selection.baseInstallation);
+        return yield* withAdditiveMigrationGraphLimits(loadFrameworkMigrationPlanEffect(definitionInput(selection), base));
+      });
       const firstBatch = Math.min(16, policy.maximumStepsPerCall);
       const coordinatorInput = (request: FrameworkFreshInstallationRequest): RunFreshFrameworkMigrationCoordinatorInput => ({
         artifactIdentity: request.artifactIdentity,
@@ -65,17 +86,21 @@ export function makeFrameworkInstaller(input: Readonly<{
           }
           return Object.freeze({ kind: "pending", completedStepCount: result.completedStepCount,
             requiredStepCount: result.requiredStepCount });
-        }).pipe(
-          effect => Effect.raceFirst(effect, Effect.sleep(policy.runTimeoutMilliseconds).pipe(
-            Effect.andThen(Effect.fail(coordinatorError("prepare", "resourceFailure",
-              "Framework installation deadline expired; resume from durable state"))))),
-          withFrameworkMigrationPlanVerification,
-        ));
+        }).pipe(withinBudget));
       return Object.freeze({
         installFresh: Effect.fn("FrameworkInstaller.installFresh")((request: FrameworkFreshInstallationRequest) =>
           run(runFreshFrameworkMigrationCoordinatorEffect(coordinatorInput(request)))),
         installAdditive: Effect.fn("FrameworkInstaller.installAdditive")((request: FrameworkAdditiveInstallationRequest) =>
           run(runAdditiveFrameworkMigrationCoordinatorEffect({ ...coordinatorInput(request), baseInstallation: request.baseInstallation }))),
+        inspect: Effect.fn("FrameworkInstaller.inspect")(function* (selection: FrameworkInstallationSelection) {
+          const plan = yield* loadSelection(selection);
+          return yield* inspectFrameworkMigrationEffect(target, plan, policy);
+        }, withinBudget),
+        verify: Effect.fn("FrameworkInstaller.verify")(function* (selection: FrameworkInstallationSelection) {
+          const plan = yield* loadSelection(selection);
+          const verification = verifyFrameworkMigrationEffect(target, plan, policy);
+          return yield* plan.frame.version === 2 ? withAdditiveMigrationGraphLimits(verification) : verification;
+        }, withinBudget),
       });
     }),
   );

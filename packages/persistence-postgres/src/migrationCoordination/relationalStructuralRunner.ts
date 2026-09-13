@@ -242,7 +242,7 @@ export const issueRelationalStructuralRunnerTokenEffect = Effect.fn(
   RelationalStructuralRunnerToken,
   RelationalStructuralRunnerError
 > {
-  yield* authenticateTargetPlan(target, plan, "preflight");
+  yield* authenticateRelationalMigrationTargetPlanEffect(target, plan, "preflight");
   const registeredSteps = new Map<
     FrameworkMigrationStep,
     RegisteredStructuralStep
@@ -513,7 +513,7 @@ const registeredStepEffect = Effect.fn(
   return Object.freeze({ state, registered });
 });
 
-function authenticateTargetPlan(
+export function authenticateRelationalMigrationTargetPlanEffect(
   target: FrameworkMigrationTarget,
   plan: RelationalMigrationPlan,
   operation: RelationalStructuralRunnerError["operation"],

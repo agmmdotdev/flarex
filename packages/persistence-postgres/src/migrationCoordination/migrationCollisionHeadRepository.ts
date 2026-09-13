@@ -1,7 +1,7 @@
 import { withFrameworkGraphReadPass } from "./graphReadPass";
 import { readFrameworkMigrationStepReceiptPrefixInTransactionEffect } from "./migrationStepReceiptRepository";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Encoding, Option, Schema } from "effect";
 
 import { detachDriverRows } from "../detachDriverRows";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
@@ -10,6 +10,7 @@ import {
   decodeStoredNonNegativeInt64TextResult,
   decodeStoredSha256HexResult,
   decodeStoredStorageIdResult,
+  storedDateMatchesCanonicalInstant,
 } from "../frameworkSchema/privateStoredMetadataValue";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import {
@@ -38,6 +39,7 @@ import {
   type CapturedFrameworkMigrationValue,
   type FrameworkMigrationCollisionCoordinate,
   type FrameworkMigrationCollisionHeadFrame,
+  type RelationalMigrationPlan,
 } from "./model";
 import {
   FrameworkMigrationRepositoryError,
@@ -149,6 +151,56 @@ interface DecodedFrameworkMigrationCollisionHeadRoot {
 }
 
 const UTF8 = new TextEncoder();
+
+const isProgressPosition = Schema.is(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })));
+
+/** Observed projections only: no restored authority, history authentication or
+ * catalog/readiness claim. The full verifier owns corroborating these counts. */
+export interface FrameworkMigrationProgressSnapshot {
+  readonly kind: "observed";
+  readonly planSha256: string;
+  readonly headRevision: string;
+  readonly completedStepCount: number;
+  readonly requiredStepCount: number;
+  readonly currentAttempt: FrameworkMigrationCollisionHeadFrame["currentAttempt"];
+}
+
+export const inspectFrameworkMigrationProgressInTransactionEffect = Effect.fn("FrameworkMigrationCollisionHeadRepository.inspect")(
+  function* (transaction: FlarexMetadataTransaction, collision: RestoredFrameworkMigrationCollisionDomain,
+    plan: RelationalMigrationPlan): Effect.fn.Return<Option.Option<FrameworkMigrationProgressSnapshot>, FrameworkMigrationRepositoryError> {
+    const operation = "readCollisionHead" as const;
+    const storedCollision = yield* corroborateCollision(transaction, collision, operation);
+    const selected = yield* loadCollisionHeadRoot(transaction, storedCollision.storageId, operation);
+    if (Option.isNone(selected)) return Option.none();
+    const row = selected.value;
+    const decoded = yield* decodeCollisionHeadRoot(row, operation);
+    if (decoded.collisionStorageId !== storedCollision.storageId ||
+      !sameCollisionCoordinate(decoded.frame.collision, storedCollision.coordinate)) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    if (decoded.frame.currentPlan.planSha256 !== plan.migrationPlanSha256) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+    }
+    if (!isProgressPosition(row.completedStepCount) || row.completedStepCount > plan.frame.steps.length ||
+      (decoded.frame.currentAttempt !== null && !storedDateMatchesCanonicalInstant(row.currentLeaseExpiresAt, decoded.frame.currentAttempt.leaseExpiresAt))) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    if (row.completedStepCount === 0) {
+      if (row.lastReceiptStorageId !== null || row.lastStepReceiptSha256 !== null) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+    } else {
+      yield* Effect.fromResult(decodeStoredStorageIdResult(row.lastReceiptStorageId,
+        () => FrameworkMigrationRepositoryError.storedCorruption(operation)));
+      yield* decodeStoredSha256(row.lastStepReceiptSha256, operation);
+    }
+    return Option.some(Object.freeze({ kind: "observed", planSha256: plan.migrationPlanSha256,
+      headRevision: decoded.frame.headRevision, completedStepCount: row.completedStepCount,
+      requiredStepCount: plan.frame.steps.length,
+      currentAttempt: decoded.frame.currentAttempt === null ? null : Object.freeze({ ...decoded.frame.currentAttempt }),
+    }));
+  },
+);
 
 export const initializeFrameworkMigrationCollisionHeadInTransactionEffect =
   Effect.fn("FrameworkMigrationCollisionHeadRepository.initialize")(

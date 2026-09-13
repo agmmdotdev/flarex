@@ -50,8 +50,9 @@ authenticated events. Its CAS advances one completion atomically. The coordinato
 now separates [lifecycle operations](./81-coordinator-lifecycle-operations.md)
 behind its existing entry points. The [trusted installer construction](./82-installer-construction-and-completion-gates.md)
 now owns fresh/additive batching and one prepared definition per installation
-call. Its diagnostic operations, the optimized execution model, verification
-reorganization and performance acceptance remain open. Full current
+call, with [explicit inspection and verification](./83-installer-inspection-and-verification.md)
+through the same construction. The optimized execution model, linear full
+verification and performance acceptance remain open. Full current
 reconstruction remains in force; connection
 protection is not permission to cache database authority or enable the proposed
 fast path before those remaining gates pass.
