@@ -33,6 +33,45 @@ of the aggregate reconstruction that remains, rather than assuming reduced row
 transport or an isolated cache hit meets the end-to-end requirement. The design
 and retention criteria below remain the boundary for that assessment.
 
+## Follow-up Attribution And Next Bounded Proof
+
+Installation-scoped diagnostic counters on both drivers show that the reference
+capacity is not exhausted. References are successfully reused within a pass,
+but many successive passes reconstruct the growing receipt/event history. Batch
+snapshots show increasing history-decoding work for equal numbers of new steps.
+These are decoder invocations and successful reference operations, not unique
+database rows, SQL execution times, or proof that every invocation is removable.
+
+There are concrete untouched repeated-work sites:
+
+- `restoreCompleteStoredAttemptReceiptPrefix` decodes its row inventory, then
+  calls `restoreReceiptDependencyClosure`, which decodes each root again.
+- `restoreReceiptDependencyClosure` decodes and resolves the attempt before
+  checking the shared verified-node slot. A successful node lookup therefore
+  does not mean the preceding decoding work was avoided.
+- Event receipt-subject restoration creates a new local receipt context for
+  each subject. Existing shared-node reuse helps, but the per-subject entry
+  work and full cold predecessor traversal remain.
+- Locked claim, event preparation, head preparation and post-write reads have
+  separate evidence lifetimes. Their repeated history work must not be removed
+  by silently reusing database evidence across writes.
+
+The next bounded proof should target the existing receipt/event aggregate:
+carry already decoded, owned root evidence through its prefix and closure
+operations and establish a coherent per-attempt restoration context within the
+existing read-only pass. Actual root projections, attempt/collision authority,
+dependency checks and first-failure ordering must still agree before reuse.
+Different attempts cannot share a step-ID inventory merely because their step
+names match. Cold, post-write and recovery reads remain fresh.
+
+This is a next implementation direction, not an implemented fix or a promised
+speedup. First demonstrate removed duplicate decoding and unchanged corruption
+refusal on a neutral aggregate, then apply the existing full-suite retention
+gate. Do not increase the cache limit, restore the failed membership candidate,
+or infer that a larger transaction/new ledger is required. Those would not
+follow from this evidence. Exact diagnostic samples belong in the local research
+artifact and Git receipt; runtime sources and native tests remain unchanged.
+
 ## Outcome And Owners
 
 Reduce repeated database transport and client-side reconstruction of the same
