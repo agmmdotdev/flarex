@@ -191,6 +191,7 @@ interface ReceiptRestorationContext {
     Map<bigint, RestoredFrameworkMigrationStepReceiptOccupant>;
   readonly storageIdByStepId: Map<string, bigint>;
   readonly storageIdByDigest: Map<string, bigint>;
+  readonly sidecarsByPlan: Map<bigint, PlanReceiptSidecars>;
 }
 
 interface PendingReceiptRestoration {
@@ -451,14 +452,22 @@ export const restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect = 
 )(function* (transaction: FlarexMetadataTransaction,
   collision: RestoredFrameworkMigrationCollisionDomain,
   digests: readonly FrameworkMigrationStepReceiptSha256[],
-  operation: StepReceiptAggregateRepositoryOperation) {
+  operation: StepReceiptAggregateRepositoryOperation): Effect.fn.Return<
+    ReadonlyMap<FrameworkMigrationStepReceiptSha256, RestoredFrameworkMigrationStepReceipt>, FrameworkMigrationRepositoryError
+  > {
   if (!isRestoredFrameworkMigrationCollisionDomain(collision)) {
     return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
   }
+  const restored = new Map<FrameworkMigrationStepReceiptSha256, RestoredFrameworkMigrationStepReceipt>();
   const pending: FrameworkMigrationStepReceiptSha256[] = [];
   for (const digest of new Set(digests)) {
-    if (Option.isNone(yield* readReceiptDigestReference.peek(transaction, collision, digest))) pending.push(digest);
+    const prior = yield* readReceiptDigestReference.peek(transaction, collision, digest);
+    if (Option.isSome(prior)) restored.set(digest, prior.value);
+    else pending.push(digest);
   }
+  // Keep one plan's working graph at a time. The explicit result retains only
+  // requested subjects, not every unrequested prerequisite from older plans.
+  let working: Readonly<{ planStorageId: bigint; context: ReceiptRestorationContext }> | undefined;
   for (let offset = 0; offset < pending.length; offset += 32) {
     const batch = pending.slice(offset, offset + 32);
     const digestBytes: Uint8Array[] = [];
@@ -487,76 +496,20 @@ export const restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect = 
       if (row === undefined) {
         return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
       }
-      yield* readReceiptDigestReference(restoreReceiptDigestRow(transaction, row, collision, digest, operation),
-        transaction, collision, digest);
+      const decoded = yield* decodeReceiptRoot(row, operation);
+      if (working?.planStorageId !== decoded.planStorageId) {
+        working = { planStorageId: decoded.planStorageId, context: makeReceiptRestorationContext() };
+      }
+      const occupant = yield* restoreReceiptDependencyClosure(transaction, row, collision, operation, undefined, working.context);
+      if (occupant.value.receipt.sha256 !== digest) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      restored.set(digest, occupant.value);
+      yield* readReceiptDigestReference(Effect.succeed(occupant.value), transaction, collision, digest);
     }
   }
-});
-
-const restoreReceiptDigestRow = Effect.fn("FrameworkMigrationStepReceiptRepository.restoreDigestRow")(
-  function* (transaction: FlarexMetadataTransaction, row: FrameworkMigrationStepReceiptDriverRow,
-    collision: RestoredFrameworkMigrationCollisionDomain, digest: FrameworkMigrationStepReceiptSha256,
-    operation: StepReceiptAggregateRepositoryOperation) {
-    const occupant = yield* restoreReceiptDependencyClosure(transaction, row, collision, operation,
-      undefined, makeReceiptRestorationContext());
-    if (occupant.value.receipt.sha256 !== digest) {
-      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
-    }
-    return occupant.value;
-  },
-);
-export const restoreStoredFrameworkMigrationStepReceiptReferenceBySha256InTransactionEffect =
-  Effect.fn(
-    "FrameworkMigrationStepReceiptRepository.restoreReferenceBySha256",
-  )(function* (
-    transaction: FlarexMetadataTransaction,
-    preferredCollision: RestoredFrameworkMigrationCollisionDomain,
-    stepReceiptSha256: FrameworkMigrationStepReceiptSha256,
-    operation: StepReceiptAggregateRepositoryOperation,
-  ): Effect.fn.Return<
-    RestoredFrameworkMigrationStepReceipt,
-    FrameworkMigrationRepositoryError
-  > {
-    if (!isRestoredFrameworkMigrationCollisionDomain(preferredCollision)) {
-      return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.storedCorruption(operation),
-      );
-    }
-    const stepReceiptSha256Bytes = yield* Effect.fromResult(
-      Encoding.decodeHex(stepReceiptSha256),
-    ).pipe(Effect.mapError(() =>
-      FrameworkMigrationRepositoryError.storedCorruption(operation)
-    ));
-    const rows = yield* runRepositoryStatement(
-      operation,
-      transaction.select(receiptReadSelection).from(
-        fxSystemFrameworkMigrationStepReceipts,
-      ).where(eq(
-        fxSystemFrameworkMigrationStepReceipts.stepReceiptSha256,
-        stepReceiptSha256Bytes,
-      )).limit(2),
-    ).pipe(Effect.map(detachDriverRows));
-    const row = rows[0];
-    if (row === undefined || rows.length !== 1) {
-      return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.storedCorruption(operation),
-      );
-    }
-    const occupant = yield* restoreReceiptDependencyClosure(
-      transaction,
-      row,
-      preferredCollision,
-      operation,
-      undefined,
-      makeReceiptRestorationContext(),
-    );
-    if (occupant.value.receipt.sha256 !== stepReceiptSha256) {
-      return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.storedCorruption(operation),
-      );
-    }
-    return occupant.value;
-  }, (read, transaction, collision, sha256) => readReceiptDigestReference(read, transaction, collision, sha256));
+  return restored;
+}, withFrameworkGraphReadPass);
 
 /**
  * Source-private restoration of the exact ordinal receipt prefix referenced by
@@ -1178,6 +1131,7 @@ const restoreReceiptDependencyClosure = Effect.fn(
     rootDecoded,
     attempt,
     operation,
+    context,
   );
   const stack: PendingReceiptRestoration[] = [firstPending];
   const visiting = new Set<bigint>([rootDecoded.storageId]);
@@ -1280,6 +1234,7 @@ const restoreReceiptDependencyClosure = Effect.fn(
         decodedDependency,
         attempt,
         operation,
+        context,
       );
       if (!isRestoredFrameworkMigrationAttemptAncestor(dependencyPending.attempt, pending.attempt) ||
         !registerDecodedReceiptRoot(context, decodedDependency)) {
@@ -1339,6 +1294,7 @@ const preparePendingReceiptRestoration = Effect.fn(
   decoded: DecodedFrameworkMigrationStepReceiptRoot,
   preferredAttempt: RestoredFrameworkMigrationAttemptStart,
   operation: StepReceiptAggregateRepositoryOperation,
+  context: ReceiptRestorationContext,
 ): Effect.fn.Return<
   PendingReceiptRestoration,
   FrameworkMigrationRepositoryError
@@ -1366,6 +1322,7 @@ const preparePendingReceiptRestoration = Effect.fn(
     decoded.frame,
     operation,
     attempt.plan.storageId,
+    context,
   );
   return {
     attempt,
@@ -1580,11 +1537,13 @@ const loadReceiptDependencySidecars = Effect.fn(
   frame: FrameworkMigrationStepReceiptFrame,
   operation: StepReceiptAggregateRepositoryOperation,
   planStorageId: bigint,
+  context: ReceiptRestorationContext,
 ): Effect.fn.Return<
   readonly FrameworkMigrationStepReceiptDependencyDriverRow[],
   FrameworkMigrationRepositoryError
 > {
-  const batch = yield* loadPlanReceiptSidecars(transaction, planStorageId, operation);
+  const batch = context.sidecarsByPlan.get(planStorageId) ?? (yield* loadPlanReceiptSidecars(transaction, planStorageId, operation));
+  context.sidecarsByPlan.set(planStorageId, batch);
   if (batch.kind === "indexed") {
     return (batch.rowsByReceipt.get(receiptStorageId) ?? [])
       .slice(0, frame.dependencyReceipts.length + 1);
@@ -1708,6 +1667,7 @@ function makeReceiptRestorationContext(): ReceiptRestorationContext {
     restoredByStorageId: new Map(),
     storageIdByStepId: new Map(),
     storageIdByDigest: new Map(),
+    sidecarsByPlan: new Map(),
   };
 }
 

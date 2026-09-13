@@ -31,7 +31,7 @@ import {
   verifyStoredFrameworkMigrationValue,
 } from "./canonical";
 import type { FrameworkMigrationValueError } from "./errors";
-import type { FrameworkMigrationEventSha256 } from "./identity";
+import type { FrameworkMigrationEventSha256, FrameworkMigrationStepReceiptSha256 } from "./identity";
 import {
   corroborateRestoredFrameworkMigrationAttemptStartInTransactionEffect,
   operationalFrameworkMigrationLeaseExpiryDate,
@@ -49,7 +49,6 @@ import {
 import {
   restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect,
   corroborateRestoredFrameworkMigrationStepReceiptInTransactionEffect,
-  restoreStoredFrameworkMigrationStepReceiptReferenceBySha256InTransactionEffect,
 } from "./migrationStepReceiptRepository";
 import {
   FRAMEWORK_MIGRATION_EVENT_FORMAT,
@@ -71,6 +70,7 @@ import {
   isRestoredFrameworkMigrationStepReceipt,
   type RestoredFrameworkMigrationAttemptStart,
   type RestoredFrameworkMigrationCollisionDomain,
+  type RestoredFrameworkMigrationStepReceipt,
 } from "./storedRestoration";
 import {
   isRestoredFrameworkMigrationEvent,
@@ -841,7 +841,7 @@ const restoreEventChain = Effect.fn(
     row = previous.value;
   }
 
-  yield* restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, collision,
+  const receipts = yield* restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, collision,
     decodedRows.toReversed().flatMap(decoded => decoded.frame.kind === "stepCompleted" ? [decoded.frame.stepReceiptSha256] : []),
     operation);
   let previous: RestoredFrameworkMigrationEvent | null =
@@ -860,6 +860,7 @@ const restoreEventChain = Effect.fn(
       collision,
       decoded.frame,
       operation,
+      receipts,
     );
     const value: RestoredFrameworkMigrationEvent = yield*
       restoreStoredFrameworkMigrationEvent({
@@ -894,6 +895,7 @@ const restoreStoredEventSubject = Effect.fn(
   collision: RestoredFrameworkMigrationCollisionDomain,
   frame: FrameworkMigrationEventFrame,
   operation: FrameworkMigrationRepositoryOperation,
+  receipts: ReadonlyMap<FrameworkMigrationStepReceiptSha256, RestoredFrameworkMigrationStepReceipt>,
 ): Effect.fn.Return<
   RestoredFrameworkMigrationEventSubject,
   FrameworkMigrationRepositoryError
@@ -933,17 +935,13 @@ const restoreStoredEventSubject = Effect.fn(
             operation,
           ),
       });
-    case "stepCompleted":
-      return Object.freeze({
-        kind: frame.kind,
-        receipt: yield*
-          restoreStoredFrameworkMigrationStepReceiptReferenceBySha256InTransactionEffect(
-            transaction,
-            collision,
-            frame.stepReceiptSha256,
-            operation,
-          ),
-      });
+    case "stepCompleted": {
+      const receipt = receipts.get(frame.stepReceiptSha256);
+      if (receipt === undefined) {
+        return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+      }
+      return Object.freeze({ kind: frame.kind, receipt });
+    }
     case "attemptTerminated":
       return Object.freeze({
         kind: frame.kind,
