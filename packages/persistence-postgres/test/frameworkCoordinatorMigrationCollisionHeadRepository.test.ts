@@ -15,6 +15,8 @@ import {
   MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
   captureFrameworkMigrationCollisionHead,
   captureFrameworkMigrationEvent,
+  captureFreshRelationalMigrationPlan,
+  captureFrameworkMigrationPlanAdmission,
 } from "../src/migrationCoordination/canonical";
 import type {
   CanonicalNonNegativeInt64,
@@ -42,6 +44,7 @@ import { fxSystemFrameworkMigrationCollisionHeads } from
   "../src/migrationCoordination/schema";
 import {
   restoredFrameworkMigrationCollisionHeadAuthority,
+  restoredFrameworkMigrationEventAuthority,
   type RestoredFrameworkMigrationCollisionHead,
   type RestoredFrameworkMigrationEvent,
 } from "../src/migrationCoordination/storedEventRestoration";
@@ -51,6 +54,11 @@ import {
   storeSuccessfulReadinessGraphInTransaction,
 } from "./frameworkCoordinatorRepositoryTestSupport";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
+import { syntheticSystemArtifact, FRAMEWORK_VALUE_LOCATOR } from "./frameworkMigrationValueFixtures";
+import { captureRelationalPhysicalLayout } from "../src/relationalSchema/physical/canonical";
+import { ensureRelationalPhysicalNameAssignmentsInTransactionEffect } from "../src/migrationCoordination/physicalNameAssignmentRepository";
+import { ensureFreshRelationalMigrationPlanInTransactionEffect } from "../src/migrationCoordination/migrationPlanRepository";
+import { ensureFrameworkMigrationPlanAdmissionInTransactionEffect } from "../src/migrationCoordination/migrationPlanAdmissionRepository";
 
 const PGLITE_TEST_TIMEOUT = 180_000;
 const eventSequence = Brand.nominal<CanonicalNonNegativeInt64>();
@@ -63,6 +71,79 @@ type FrameworkMigrationCollisionHead = CapturedFrameworkMigrationValue<
 >;
 
 describe("framework coordinator migration-collision-head repository", () => {
+  it("binds a plan switch to its exact admission event", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const fixture = await initializedCollisionHeadFixture(persistence);
+    const artifact = await syntheticSystemArtifact(1);
+    await persistence.drizzle.transaction(async transaction => {
+      const layout = await runEffect(captureRelationalPhysicalLayout({ artifact: artifact.artifact,
+        physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: fixture.graph.collision.targetNamespace.targetNamespace }));
+      const value = await runEffect(captureFreshRelationalMigrationPlan({ artifact: artifact.artifact, physicalLayout: layout }));
+      await runEffect(ensureRelationalPhysicalNameAssignmentsInTransactionEffect(transaction, fixture.graph.collision, layout.nameAssignments));
+      const plan = await runEffect(ensureFreshRelationalMigrationPlanInTransactionEffect(transaction, fixture.graph.collision, value));
+      const admissionValue = await runEffect(captureFrameworkMigrationPlanAdmission({ plan: plan.plan,
+        nameAssignments: plan.plan.physicalLayout.nameAssignments, previousPlanSha256: null, admittedAt: "2026-08-27T08:45:00.000Z" }));
+      const admission = await runEffect(ensureFrameworkMigrationPlanAdmissionInTransactionEffect(transaction, plan, null, admissionValue));
+      const incorrect = fixture.events.admitted;
+      expect(restoredFrameworkMigrationEventAuthority(incorrect)?.subject).toMatchObject({ kind: "planAdmitted" });
+      const nextHead = await runEffect(captureFrameworkMigrationCollisionHead({ admission: admission.admission,
+        headRevision: "2", attemptFence: fixture.initialized.head.frame.attemptFence, currentAttempt: null,
+        lastEvent: { sequence: incorrect.event.frame.sequence, eventSha256: incorrect.event.sha256 },
+        updatedAt: "2026-08-27T08:45:00.000Z" }));
+      expect(await runEffectFailure(compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect(transaction,
+        fixture.initialized, admission, null, incorrect, nextHead))).toMatchObject({ reason: "referenceRefusal" });
+      expect(Option.getOrThrow(await runEffect(readFrameworkMigrationCollisionHeadInTransactionEffect(transaction,
+        fixture.graph.collision))).head.sha256).toBe(fixture.initialized.head.sha256);
+      const admitted = await runEffect(captureFrameworkMigrationEvent({
+        format: FRAMEWORK_MIGRATION_EVENT_FORMAT, version: FRAMEWORK_MIGRATION_EVENT_VERSION,
+        collision: fixture.graph.collision.coordinate, sequence: eventSequence("20"),
+        previousEvent: { sequence: fixture.events.started.event.frame.sequence, eventSha256: fixture.events.started.event.sha256 },
+        recordedAt: admission.admission.frame.admittedAt, kind: "planAdmitted", admissionSha256: admission.admission.sha256,
+      }));
+      const correct = await runEffect(appendFrameworkMigrationEventInTransactionEffect(transaction,
+        fixture.graph.collision, fixture.events.started, { kind: "planAdmitted", admission }, admitted));
+      const correctHead = await runEffect(captureFrameworkMigrationCollisionHead({ admission: admission.admission,
+        headRevision: "2", attemptFence: fixture.initialized.head.frame.attemptFence, currentAttempt: null,
+        lastEvent: { sequence: correct.event.frame.sequence, eventSha256: correct.event.sha256 },
+        updatedAt: "2026-08-27T08:45:00.000Z" }));
+      const swapped = await runEffect(compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect(transaction,
+        fixture.initialized, admission, null, correct, correctHead));
+      expect(swapped.plan.storageId).toBe(plan.storageId);
+      expect(swapped.progress).toEqual({ completedStepCount: 0, lastReceipt: null });
+    });
+  }, PGLITE_TEST_TIMEOUT);
+
+  it.each([
+    { ordinals: [1], reason: "storedCorruption" },
+    { ordinals: [0, 0], reason: "storedCorruption" },
+    { ordinals: [0, 1], reason: "referenceRefusal" },
+  ])("refuses non-prefix, duplicate or batched progress: $ordinals", async ({ ordinals, reason }) => {
+    const persistence = await createMigratedPGlitePersistence();
+    const fixture = await initializedCollisionHeadFixture(persistence);
+    const before = await persistence.drizzle.select().from(fxSystemFrameworkMigrationCollisionHeads);
+    await persistence.drizzle.transaction(async transaction => {
+      let event = fixture.events.started;
+      for (const [index, ordinal] of ordinals.entries()) {
+        const receipt = fixture.graph.receipts[ordinal];
+        if (receipt === undefined) throw new Error("Missing completion fixture");
+        const value = await runEffect(captureFrameworkMigrationEvent({
+          format: FRAMEWORK_MIGRATION_EVENT_FORMAT, version: FRAMEWORK_MIGRATION_EVENT_VERSION,
+          collision: fixture.graph.collision.coordinate, sequence: eventSequence(String(20 + index)),
+          previousEvent: { sequence: event.event.frame.sequence, eventSha256: event.event.sha256 },
+          recordedAt: receipt.receipt.frame.completedAt, kind: "stepCompleted", stepReceiptSha256: receipt.receipt.sha256,
+        }));
+        event = await runEffect(appendFrameworkMigrationEventInTransactionEffect(transaction,
+          fixture.graph.collision, event, { kind: "stepCompleted", receipt }, value));
+      }
+      // Both immutable rows may exist, but only one next step may advance a head.
+      expect(await runEffectFailure(compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect(
+        transaction, fixture.initialized, fixture.graph.admission, fixture.graph.attempt, event,
+        await captureInitialHead(fixture.graph, event),
+      ))).toMatchObject({ reason });
+    });
+    expect(await persistence.drizzle.select().from(fxSystemFrameworkMigrationCollisionHeads)).toEqual(before);
+  }, PGLITE_TEST_TIMEOUT);
+
   it("keeps the mutable head kernel and dependency authority source-private", async () => {
     expect(
       "initializeFrameworkMigrationCollisionHeadInTransactionEffect" in

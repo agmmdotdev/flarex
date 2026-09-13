@@ -1,6 +1,6 @@
 import { withFrameworkGraphReadPass } from "./graphReadPass";
 import { readFrameworkMigrationStepReceiptPrefixInTransactionEffect } from "./migrationStepReceiptRepository";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { Effect, Encoding, Option } from "effect";
 
 import { detachDriverRows } from "../detachDriverRows";
@@ -55,6 +55,8 @@ import {
 } from "./storedRestoration";
 import {
   isRestoredFrameworkMigrationCollisionHead,
+  deriveFrameworkMigrationHeadProgress,
+  type FrameworkMigrationHeadProgress,
   isRestoredFrameworkMigrationEvent,
   restoreStoredFrameworkMigrationCollisionHead,
   restoredFrameworkMigrationCollisionHeadAuthority,
@@ -100,6 +102,8 @@ interface PreparedFrameworkMigrationCollisionHead {
 }
 
 interface CorroboratedFrameworkMigrationCollisionHeadDependencies {
+  readonly progress: FrameworkMigrationHeadProgress;
+  readonly lastStepReceiptSha256Bytes: Uint8Array | null;
   readonly collision: RestoredFrameworkMigrationCollisionDomain;
   readonly plan: RestoredFreshRelationalMigrationPlan;
   readonly admission: RestoredFrameworkMigrationPlanAdmission;
@@ -109,6 +113,9 @@ interface CorroboratedFrameworkMigrationCollisionHeadDependencies {
 
 interface FrameworkMigrationCollisionHeadDriverRow
   extends StoredFrameworkMigrationCollisionHeadRow {
+  readonly completedStepCount: number;
+  readonly lastReceiptStorageId: bigint | null;
+  readonly lastStepReceiptSha256: Uint8Array | null;
   readonly collisionStorageId: bigint;
   readonly currentPlanStorageId: bigint;
   readonly currentPlanSha256: Uint8Array;
@@ -354,6 +361,14 @@ export const compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect =
             fxSystemFrameworkMigrationCollisionHeads.collisionHeadSha256,
             expectedSha256Bytes,
           ),
+          eq(fxSystemFrameworkMigrationCollisionHeads.completedStepCount, expected.progress.completedStepCount),
+          expected.progress.lastReceipt === null
+            ? isNull(fxSystemFrameworkMigrationCollisionHeads.lastReceiptStorageId)
+            : eq(fxSystemFrameworkMigrationCollisionHeads.lastReceiptStorageId, expected.progress.lastReceipt.storageId),
+          expected.progress.lastReceipt === null
+            ? isNull(fxSystemFrameworkMigrationCollisionHeads.lastStepReceiptSha256)
+            : eq(fxSystemFrameworkMigrationCollisionHeads.lastStepReceiptSha256,
+              yield* decodeAuthenticatedSha256(expected.progress.lastReceipt.receipt.sha256)),
         )).returning({
           collisionStorageId:
             fxSystemFrameworkMigrationCollisionHeads.collisionStorageId,
@@ -422,6 +437,19 @@ const prepareStoredHeadSwap = Effect.fn("FrameworkMigrationCollisionHeadReposito
     const prepared = yield* prepareExpectedCollisionHead(current.collision, nextAdmission, nextAttempt, nextEvent, nextHead, operation);
     const dependencies = yield* corroborateCollisionHeadDependencies(transaction, prepared, operation);
     if (dependencies.collision.storageId !== current.collision.storageId) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+    }
+    const samePlan = dependencies.plan.storageId === current.plan.storageId;
+    const increment = dependencies.progress.completedStepCount - current.progress.completedStepCount;
+    const nextSubject = dependencies.lastEvent === null ? undefined :
+      restoredFrameworkMigrationEventAuthority(dependencies.lastEvent)?.subject;
+    if (samePlan ? (increment !== 0 && increment !== 1) ||
+      (increment === 0 && dependencies.progress.lastReceipt?.storageId !== current.progress.lastReceipt?.storageId) ||
+      (increment === 1 && (nextSubject?.kind !== "stepCompleted" ||
+        nextSubject.receipt.storageId !== dependencies.progress.lastReceipt?.storageId ||
+        dependencies.progress.lastReceipt?.attempt.storageId !== dependencies.currentAttempt?.storageId)) :
+      dependencies.progress.completedStepCount !== 0 || nextSubject?.kind !== "planAdmitted" ||
+        nextSubject.admission.storageId !== dependencies.admission.storageId) {
       return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
     }
     return { current, prepared, dependencies };
@@ -575,7 +603,12 @@ const corroborateCollisionHeadDependencies = Effect.fn(
       FrameworkMigrationRepositoryError.referenceRefusal(operation),
     );
   }
+  const progress = yield* deriveFrameworkMigrationHeadProgress(admission.plan, currentAttempt, lastEvent, prepared.head.frame.attemptFence)
+    .pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
   return Object.freeze({
+    progress,
+    lastStepReceiptSha256Bytes: progress.lastReceipt === null ? null :
+      yield* decodeAuthenticatedSha256(progress.lastReceipt.receipt.sha256),
     collision: admission.collision,
     plan: admission.plan,
     admission,
@@ -590,6 +623,9 @@ function collisionHeadWriteValues(
 ) {
   const currentAttempt = prepared.head.frame.currentAttempt;
   return {
+    completedStepCount: dependencies.progress.completedStepCount,
+    lastReceiptStorageId: dependencies.progress.lastReceipt?.storageId ?? null,
+    lastStepReceiptSha256: dependencies.lastStepReceiptSha256Bytes,
     currentPlanStorageId: dependencies.plan.storageId,
     currentPlanSha256: prepared.currentPlanSha256Bytes,
     currentAdmissionStorageId: dependencies.admission.storageId,
@@ -1005,11 +1041,12 @@ const loadCollisionHeadRoot = Effect.fn(
   ).where(eq(
     fxSystemFrameworkMigrationCollisionHeads.collisionStorageId,
     collisionStorageId,
-  )).limit(1);
+  )).limit(2);
   const rows = yield* runRepositoryStatement(
     operation,
     forUpdate ? query.for("update") : query,
   ).pipe(Effect.map(detachDriverRows));
+  if (rows.length > 1) return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
   return rows[0] === undefined ? Option.none() : Option.some(rows[0]);
 });
 
@@ -1155,6 +1192,9 @@ const collisionHeadCanonicalBytesWithinReadBounds = sql`
 `;
 
 const collisionHeadReadSelection = {
+  completedStepCount: fxSystemFrameworkMigrationCollisionHeads.completedStepCount,
+  lastReceiptStorageId: fxSystemFrameworkMigrationCollisionHeads.lastReceiptStorageId,
+  lastStepReceiptSha256: fxSystemFrameworkMigrationCollisionHeads.lastStepReceiptSha256,
   collisionStorageId:
     fxSystemFrameworkMigrationCollisionHeads.collisionStorageId,
   currentPlanStorageId:

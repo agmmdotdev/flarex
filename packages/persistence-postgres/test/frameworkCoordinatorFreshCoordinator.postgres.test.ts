@@ -1,3 +1,4 @@
+import { assertHeadProgressCorruption, assertHeadProgressMigration, assertPersistedHeadProgress } from "./frameworkHeadProgressTestSupport";
 import { prepareInstallationRuntime, acceptPreparedInstallation } from "../src/frameworkSchema/installation/runtime";
 import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
@@ -8,7 +9,7 @@ import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { executeNextFrameworkMigrationStepEffect, finalizeFrameworkMigrationClaimEffect,
-  runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
+  readFrameworkMigrationClaimProgressEffect, runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { countNativeRows, createNativeCoordinatorFixture, withNativeCoordinator,
   type NativeCoordinatorFixture } from "./frameworkCoordinatorPostgresFixture";
@@ -34,11 +35,23 @@ native("native fresh framework migration coordinator", () => {
     }, {}, 4);
   }, 180_000);
 
+  it("refuses corrupt operational progress without changing the claim", async () => {
+    await withNativeCoordinator(async fixture => {
+      const pending = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun: 2 }));
+      if (pending.kind !== "pending") throw new Error("Expected partial progress");
+      await assertHeadProgressCorruption(fixture.persistence.drizzle, () => runEffect(readFrameworkMigrationClaimProgressEffect(pending.claim)));
+      await assertHeadProgressMigration(fixture.persistence.drizzle);
+      expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input))).toMatchObject({ kind: "ready" });
+    });
+  }, 180_000);
+
   it("installs and exactly replays one durable readiness result", async () => {
     await withNativeCoordinator(async fixture => {
       const ready = await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input));
       expect(ready).toMatchObject({ kind: "ready", replayed: false });
       expect(await publicationCounts(fixture)).toEqual([1, 1, 1, 1]);
+      await assertPersistedHeadProgress(fixture.persistence.drizzle, 7);
+      await assertHeadProgressMigration(fixture.persistence.drizzle);
       const replay = await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input));
       expect(replay).toMatchObject({ kind: "ready", replayed: true });
       expect(await publicationCounts(fixture)).toEqual([1, 1, 1, 1]);
@@ -53,11 +66,13 @@ native("native fresh framework migration coordinator", () => {
     await withNativeCoordinator(async fixture => {
       const pending = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun: 0 }));
       if (pending.kind !== "pending") throw new Error("Expected claim");
+      await assertPersistedHeadProgress(fixture.persistence.drizzle, 0);
       for (let index = 0; index < 7; index += 1) {
         begins.length = 0;
         armed = true;
         const result = await runEffect(executeNextFrameworkMigrationStepEffect(pending.claim));
         expect(result).toMatchObject({ kind: "step", completedStepCount: index + 1 });
+        await assertPersistedHeadProgress(fixture.persistence.drizzle, index + 1);
         expect(begins.length).toBeGreaterThanOrEqual(2);
         expect(begins[1]).not.toBe(uncertainClient);
         expect(await countNativeRows(fixture, "fx_system_framework_migration_step_receipt")).toBe(index + 1);

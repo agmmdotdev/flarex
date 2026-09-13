@@ -135,7 +135,7 @@ stored frame, not to the current table name.
 | `fx_system_framework_migration_step_receipt_dependency` | immutable sidecar | Exact same-plan dependency receipt tokens with authenticated producer ancestry. |
 | `fx_system_framework_migration_attempt_terminal` | immutable | One exact terminal outcome per attempt. |
 | `fx_system_framework_migration_event` | immutable | Per-collision authenticated hash-chain event history. |
-| `fx_system_framework_migration_collision_head` | mutable CAS head | Current plan, attempt fence/lease, and last event for one collision lane. |
+| `fx_system_framework_migration_collision_head` | mutable CAS head | Current plan, attempt fence/lease, event tail, and completed prefix for one collision lane. |
 | `fx_system_framework_schema_installation` | immutable | Published physical-installation identity and receipt. |
 | `fx_system_framework_schema_readiness` | immutable | Exact structural validation/readiness receipt. |
 | `fx_system_framework_schema_availability_history` | immutable | Per-installation availability transition history. |
@@ -404,7 +404,9 @@ the event.
 - `attempt_fence`;
 - an all-or-none current attempt storage ID/ID/fence/owner/operational expiry
   tuple;
-- an all-or-none last event storage ID/sequence/digest tuple; and
+- an all-or-none last event storage ID/sequence/digest tuple;
+- `completed_step_count` and the nullable original receipt ID/digest tail, as
+  defined in [the progress contract](./78-collision-head-progress.md); and
 - the common collision-head frame columns and bytes.
 
 It references exact immutable plan, admission, attempt, and event rows. The
@@ -412,7 +414,7 @@ current-attempt foreign key includes the head's current admission identity, so
 the two cannot be composed from different admissions of one plan. If a current
 attempt exists, its fence equals the head's attempt fence. The only update is
 exact compare-and-swap on `(collision_storage_id, old_head_revision,
-old_collision_head_sha256)` to an already-captured next head. The later
+old_collision_head_sha256)` plus the old completed count/receipt tail to an already-captured next head. The later
 coordinator owns the additional policy
 that revision advances by exactly one, fences never decrease, and lease state
 matches database time; the checkpoint-2 kernel only applies a prevalidated
@@ -978,9 +980,11 @@ without exposing storage handles through the package surface.
 Compare-and-swap first corroborates the supplied restored expected head's
 complete private attempt/event authority and fully authenticates the current row
 against it, then updates with the exact database predicate
-`(collision_storage_id, old_head_revision, old_collision_head_sha256)`. A zero-
+`(collision_storage_id, old_head_revision, old_collision_head_sha256)` and the
+old completed count/receipt tail. A zero-
 row update is `staleHead`; a successful update is reloaded and verified against
-the captured next value. The kernel deliberately adds no revision increment,
+the captured next value. Progress advances by at most one exact next completion; plan admission resets
+the position. The kernel deliberately adds no revision increment,
 event freshness, lease-transition, retry, lock, or state-machine policy.
 
 Focused PGlite functional evidence covers source privacy, absence, exact

@@ -544,3 +544,13 @@ coordinator, with independent PGlite and bounded native PostgreSQL evidence.
 Checkpoint 3 itself remains open. Base-backed execution, bounded-lineage scale,
 and the production target/runner resolver remain mandatory before any adapter, runtime, hosted, public, or
 production claim.
+
+## Durable Completed Position
+
+The [collision-head progress contract](./78-collision-head-progress.md) stores
+the contiguous completed count and original receipt tail in the existing head.
+Execution, progress reads, recovery and finalization use this position after
+checking the current full receipt prefix. Claim, renewal, takeover and settlement
+preserve it; additive plan admission resets it. Per-step DDL, receipt, event and
+progress remain atomic. Full history reconstruction remains active until the
+remaining preflight 76 verifier and prepared-definition cutover is complete.

@@ -945,15 +945,15 @@ function executeNextStepInternal(
       state.target,
       raw => Effect.gen(function* () {
         let locked = yield* loadLockedClaimState(raw, state);
-        if (locked.receipts.length === locked.plan.frame.steps.length) {
+        if (locked.head.progress.completedStepCount === locked.plan.frame.steps.length) {
           return Object.freeze({
             kind: "complete" as const,
-            completedStepCount: locked.receipts.length,
+            completedStepCount: locked.head.progress.completedStepCount,
             requiredStepCount: locked.plan.frame.steps.length,
           });
         }
         locked = yield* renewClaimIfNeeded(raw, state, locked);
-        const step = locked.plan.frame.steps[locked.receipts.length];
+        const step = locked.plan.frame.steps[locked.head.progress.completedStepCount];
         if (step === undefined) {
           return yield* Effect.fail(corruption(
             "step",
@@ -1031,7 +1031,7 @@ function executeNextStepInternal(
         return Object.freeze({
           kind: "step" as const,
           receipt,
-          completedStepCount: locked.receipts.length + 1,
+          completedStepCount: locked.head.progress.completedStepCount + 1,
           requiredStepCount: locked.plan.frame.steps.length,
         });
       }),
@@ -1104,10 +1104,10 @@ function recoverUnidentifiedStepDecisionEffect(
       transaction,
       state.target,
       raw => Effect.map(loadLockedClaimState(raw, state), locked =>
-        locked.receipts.length === locked.plan.frame.steps.length
+        locked.head.progress.completedStepCount === locked.plan.frame.steps.length
           ? Object.freeze({
             kind: "complete" as const,
-            completedStepCount: locked.receipts.length,
+            completedStepCount: locked.head.progress.completedStepCount,
             requiredStepCount: locked.plan.frame.steps.length,
           })
           : Object.freeze({ kind: "pending" as const })
@@ -1173,7 +1173,7 @@ function recoverStepDecisionEffect(
             progress: Object.freeze({
               kind: "step" as const,
               receipt,
-              completedStepCount: locked.receipts.length,
+              completedStepCount: locked.head.progress.completedStepCount,
               requiredStepCount: locked.plan.frame.steps.length,
             }),
           });
@@ -1223,7 +1223,7 @@ export const readFrameworkMigrationClaimProgressEffect = Effect.fn(
       state.target,
       raw => Effect.map(loadLockedClaimState(raw, state), locked =>
         Object.freeze({
-          completedStepCount: locked.receipts.length,
+          completedStepCount: locked.head.progress.completedStepCount,
           requiredStepCount: state.plan.frame.steps.length,
         })
       ),
@@ -1307,7 +1307,7 @@ const finalizeInTransaction = Effect.fn(
   if (Option.isSome(existingReady)) return existingReady.value;
   const locked = yield* validateLockedClaimHead(raw, state, initialHead.value);
   yield* reserveAdditiveEvents(locked.head, 4);
-  if (locked.receipts.length !== state.plan.frame.steps.length) {
+  if (locked.head.progress.completedStepCount !== state.plan.frame.steps.length) {
     return yield* Effect.fail(coordinatorError(
       "finalize",
       "dependencyMissing",
@@ -1718,6 +1718,11 @@ const validateLockedClaimHead = Effect.fn(
   }
   const receipts = restoredReceipts ?? (yield*
     readFrameworkMigrationStepReceiptPrefixInTransactionEffect(raw, attempt));
+  const tail = receipts.at(-1);
+  if (receipts.length !== head.progress.completedStepCount ||
+    (tail?.storageId ?? null) !== (head.progress.lastReceipt?.storageId ?? null)) {
+    return yield* Effect.fail(corruption("step", "Collision progress does not match its complete receipt prefix"));
+  }
   const plan = attempt.plan.plan;
   const structuralRunner = yield*
     issueRelationalStructuralRunnerTokenEffect(state.target, plan);

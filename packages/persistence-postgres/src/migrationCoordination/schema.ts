@@ -1433,6 +1433,9 @@ export const fxSystemFrameworkMigrationCollisionHeads = pgTable(
     lastEventStorageId: bigint("last_event_storage_id", { mode: "bigint" }),
     lastEventSequence: bigint("last_event_sequence", { mode: "bigint" }),
     lastEventSha256: bytea("last_event_sha256"),
+    completedStepCount: integer("completed_step_count").notNull(),
+    lastReceiptStorageId: bigint("last_receipt_storage_id", { mode: "bigint" }),
+    lastStepReceiptSha256: bytea("last_step_receipt_sha256"),
     collisionHeadSha256: bytea("collision_head_sha256").notNull(),
     frameFormat: frameworkMetadataCollatedText("frame_format")
       .$type<typeof FRAMEWORK_MIGRATION_COLLISION_HEAD_FORMAT>()
@@ -1512,6 +1515,20 @@ export const fxSystemFrameworkMigrationCollisionHeads = pgTable(
         fxSystemFrameworkMigrationEvents.eventSha256,
       ],
     }).onUpdate("restrict").onDelete("restrict"),
+    foreignKey({
+      name: "fx_framework_migration_collision_head_receipt_fk",
+      columns: [table.lastReceiptStorageId, table.currentPlanStorageId, table.lastStepReceiptSha256],
+      foreignColumns: [fxSystemFrameworkMigrationStepReceipts.receiptStorageId,
+        fxSystemFrameworkMigrationStepReceipts.planStorageId,
+        fxSystemFrameworkMigrationStepReceipts.stepReceiptSha256],
+    }).onUpdate("restrict").onDelete("restrict"),
+    check("fx_framework_migration_collision_head_progress_check", sql`
+      (${table.completedStepCount} = 0 and ${table.lastReceiptStorageId} is null
+        and ${table.lastStepReceiptSha256} is null)
+      or (${table.completedStepCount} > 0 and ${table.lastReceiptStorageId} is not null
+        and ${table.lastStepReceiptSha256} is not null
+        and ${digestHasExactLength(table.lastStepReceiptSha256)})
+    `),
     check(
       "fx_framework_migration_collision_head_identity_check",
       sql`${table.headRevision} between 0 and ${sql.raw(MAX_INT64)}

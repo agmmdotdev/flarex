@@ -1183,6 +1183,9 @@ function storedRows(fresh: Awaited<ReturnType<typeof freshMigrationGraph>>) {
     };
   });
   const collisionHead = {
+    completedStepCount: 0,
+    lastReceiptStorageId: null,
+    lastStepReceiptSha256: null,
     collisionStorageId,
     currentPlanStorageId: planStorageId,
     currentPlanSha256: shaBytes(fresh.plan.migrationPlanSha256),

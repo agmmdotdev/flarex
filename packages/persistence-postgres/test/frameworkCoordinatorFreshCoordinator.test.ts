@@ -1,3 +1,4 @@
+import { assertHeadProgressCorruption, assertHeadProgressMigration, assertPersistedHeadProgress } from "./frameworkHeadProgressTestSupport";
 import { prepareInstallationRuntime, acceptPreparedInstallation } from "../src/frameworkSchema/installation/runtime";
 import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
@@ -143,6 +144,9 @@ describe("private fresh framework migration coordinator", () => {
     if (interrupted.kind !== "pending") throw new Error("Expected progress");
     expect(interrupted.completedStepCount).toBe(2);
     expect(interrupted.requiredStepCount).toBe(7);
+    await assertPersistedHeadProgress(fixture.persistence.drizzle, 2);
+    await assertHeadProgressMigration(fixture.persistence.drizzle);
+    await assertHeadProgressCorruption(fixture.persistence.drizzle, () => runEffect(readFrameworkMigrationClaimProgressEffect(interrupted.claim)));
     expect(await runEffect(readFrameworkMigrationClaimProgressEffect(
       interrupted.claim,
     ))).toEqual({ completedStepCount: 2, requiredStepCount: 7 });
@@ -153,6 +157,7 @@ describe("private fresh framework migration coordinator", () => {
     expect(third.kind).toBe("step");
     if (third.kind !== "step") throw new Error("Expected a step receipt");
     expect(third.completedStepCount).toBe(3);
+    await assertPersistedHeadProgress(fixture.persistence.drizzle, 3);
 
     const completed = await runEffect(
       runFreshFrameworkMigrationCoordinatorEffect(fixture.input),

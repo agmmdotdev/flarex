@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { headProgressMigrationStatements } from "./frameworkHeadProgressTestSupport";
 
 /** Test-only historical input matching migration 0080. Call inside an owned
  * fixture transaction; this is not a down migration or runtime repair path. */
@@ -9,6 +10,8 @@ export async function restoreAttemptScopedReceiptFixture(
   const dependency = "fx_system_framework_migration_step_receipt_dependency";
   const terminal = "fx_system_framework_migration_attempt_terminal";
   for (const statement of [
+    // Later head references must also be removed when reconstructing 0080.
+    `alter table fx_system_framework_migration_collision_head drop column completed_step_count, drop column last_receipt_storage_id, drop column last_step_receipt_sha256`,
     `alter table ${terminal} drop constraint fx_framework_migration_terminal_last_receipt_fk`,
     `alter table ${dependency} drop constraint fx_framework_migration_receipt_dependency_source_fk`,
     `alter table ${dependency} drop constraint fx_framework_migration_receipt_dependency_target_fk`,
@@ -31,6 +34,7 @@ export async function restoreAttemptScopedReceiptFixture(
 }
 
 export async function planReceiptMigrationStatements(): Promise<readonly string[]> {
-  return (await readFile(new URL("../drizzle/0101_framework_plan_receipts.sql", import.meta.url), "utf8"))
-    .split("--> statement-breakpoint").filter(statement => statement.trim().length > 0);
+  return [...(await readFile(new URL("../drizzle/0101_framework_plan_receipts.sql", import.meta.url), "utf8"))
+    .split("--> statement-breakpoint").filter(statement => statement.trim().length > 0),
+    ...await headProgressMigrationStatements()];
 }

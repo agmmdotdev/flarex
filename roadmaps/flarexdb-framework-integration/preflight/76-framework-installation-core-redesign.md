@@ -42,7 +42,9 @@ coordinator work. Construction still borrows a trusted caller-owned pool and
 does not itself certify any future connection. The [receipt storage cutover](./77-installation-progress-storage-map.md) makes
 completion unique per plan step while retaining the producing attempt and digest.
 Takeover reobserves the original prefix without cloning receipts or completion
-events; terminals retain their fence-bounded prefix. The optimized progress model,
+events; terminals retain their fence-bounded prefix. The [durable head progress](./78-collision-head-progress.md)
+now stores the completed position and original receipt tail and checks them against
+authenticated events. Its CAS advances one completion atomically. The optimized execution model,
 readable installer facade, verification reorganization and performance acceptance
 are not yet implemented. Full current reconstruction remains in force; connection
 protection is not permission to cache database authority or enable the proposed

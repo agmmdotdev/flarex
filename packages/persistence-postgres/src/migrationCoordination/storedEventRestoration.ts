@@ -37,6 +37,7 @@ import {
 } from "./model";
 import {
   isRestoredFrameworkMigrationAttemptStart,
+  isRestoredFrameworkMigrationAttemptAncestor,
   isRestoredFrameworkMigrationAttemptTerminal,
   isRestoredFrameworkMigrationCollisionDomain,
   isRestoredFrameworkMigrationPlanAdmission,
@@ -107,6 +108,9 @@ export interface RestoredFrameworkMigrationEvent {
 
 export interface StoredFrameworkMigrationCollisionHeadRow
   extends StoredCanonicalRow {
+  readonly completedStepCount: unknown;
+  readonly lastReceiptStorageId: unknown;
+  readonly lastStepReceiptSha256: unknown;
   readonly collisionStorageId: unknown;
   readonly currentPlanStorageId: unknown;
   readonly currentPlanSha256: unknown;
@@ -126,6 +130,7 @@ export interface StoredFrameworkMigrationCollisionHeadRow
 }
 
 export interface RestoredFrameworkMigrationCollisionHead {
+  readonly progress: FrameworkMigrationHeadProgress;
   readonly collision: RestoredFrameworkMigrationCollisionDomain;
   readonly plan: RestoredFreshRelationalMigrationPlan;
   readonly admission: RestoredFrameworkMigrationPlanAdmission;
@@ -312,7 +317,17 @@ export const restoreStoredFrameworkMigrationCollisionHead = Effect.fn(
   if (head.sha256 !== stored.sha256Hex || head.canonicalJson !== stored.canonicalJson) {
     return yield* corrupt();
   }
+  const progress = yield* deriveFrameworkMigrationHeadProgress(input.plan, input.currentAttempt, input.lastEvent, frame.attemptFence);
+  // These are projections of the already authenticated event commitment, not
+  // independently supplied values or another canonical head identity.
+  if (row.completedStepCount !== progress.completedStepCount ||
+    row.lastReceiptStorageId !== (progress.lastReceipt?.storageId ?? null) ||
+    !(progress.lastReceipt === null ? row.lastStepReceiptSha256 === null :
+      yield* nullableShaEquals(row.lastStepReceiptSha256, progress.lastReceipt.receipt.sha256))) {
+    return yield* corrupt();
+  }
   const restored = Object.freeze({
+    progress,
     collision: input.collision,
     plan: input.plan,
     admission: input.admission,
@@ -325,6 +340,55 @@ export const restoreStoredFrameworkMigrationCollisionHead = Effect.fn(
   }));
   return restored;
 });
+
+export interface FrameworkMigrationHeadProgress {
+  readonly completedStepCount: number;
+  readonly lastReceipt: RestoredFrameworkMigrationStepReceipt | null;
+}
+
+/** Full evidence pass over the selected event tail. Later unlinked events and
+ * receipts cannot advance this head. This is not the future normal-step read. */
+export const deriveFrameworkMigrationHeadProgress = Effect.fn("FrameworkMigrationCollisionHead.deriveProgress")(
+  function* (plan: RestoredFreshRelationalMigrationPlan,
+    attempt: RestoredFrameworkMigrationAttemptStart | null,
+    lastEvent: RestoredFrameworkMigrationEvent | null,
+    attemptFence: string,
+  ): Effect.fn.Return<FrameworkMigrationHeadProgress, FrameworkMigrationValueError> {
+    if (!isRestoredFreshRelationalMigrationPlan(plan) ||
+      (attempt !== null && (!isRestoredFrameworkMigrationAttemptStart(attempt) || attempt.plan.storageId !== plan.storageId))) {
+      return yield* corrupt();
+    }
+    const receipts: RestoredFrameworkMigrationStepReceipt[] = [];
+    let event = lastEvent;
+    let progressAttempt = attempt;
+    while (event !== null) {
+      const authority = restoredEventAuthorities.get(event);
+      if (authority === undefined || event.collision.storageId !== plan.collision.storageId) return yield* corrupt();
+      const subject = authority.subject;
+      // Settlement clears the live lease, while its terminal retains provenance.
+      if (progressAttempt === null && subject.kind === "attemptTerminated" &&
+        subject.terminal.attempt.plan.storageId === plan.storageId &&
+        subject.terminal.attempt.attempt.frame.attemptFence === attemptFence) {
+        progressAttempt = subject.terminal.attempt;
+      }
+      if (subject.kind === "stepCompleted" && subject.receipt.attempt.plan.storageId === plan.storageId) {
+        if (receipts.length >= plan.plan.frame.steps.length || progressAttempt === null ||
+          !isRestoredFrameworkMigrationAttemptAncestor(subject.receipt.attempt, progressAttempt)) return yield* corrupt();
+        receipts.push(subject.receipt);
+      }
+      event = authority.previous;
+    }
+    receipts.reverse();
+    for (let index = 0; index < receipts.length; index++) {
+      const receipt = receipts[index];
+      const step = plan.plan.frame.steps[index];
+      if (receipt === undefined || step === undefined ||
+        receipt.receipt.frame.stepId !== step.stepId || receipt.receipt.frame.stepSha256 !== step.stepSha256 ||
+        receipt.attempt.plan.plan.migrationPlanSha256 !== plan.plan.migrationPlanSha256) return yield* corrupt();
+    }
+    return Object.freeze({ completedStepCount: receipts.length, lastReceipt: receipts.at(-1) ?? null });
+  },
+);
 
 export function isRestoredFrameworkMigrationCollisionHead(
   input: RestoredFrameworkMigrationCollisionHead,
