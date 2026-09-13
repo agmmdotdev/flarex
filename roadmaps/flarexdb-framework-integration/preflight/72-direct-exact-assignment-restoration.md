@@ -1,8 +1,26 @@
 # Direct Exact Assignment Restoration
 
-Status: proposed; awaiting approval. No runtime change is implemented or
-authorized by this document. [Record 66](./66-connected-product-shipping-profile.md)
-remains paused at its shared installation gate.
+Status: approved candidate evaluated and withdrawn under the retention gate
+below. No runtime or candidate-specific test change is retained.
+[Record 66](./66-connected-product-shipping-profile.md) remains paused at its
+shared installation gate. The contract below records the evaluated candidate,
+not current runtime behavior or approval for a different optimization.
+
+## Disposition
+
+The first measured PGlite candidate failed the unchanged installation deadline
+before the native operation assertions ran. This fails the requirement that both
+candidate samples pass each full suite; the remaining comparison matrix was
+stopped rather than retried for a favorable sample. No candidate PostgreSQL
+performance conclusion or reproducible benefit is established.
+
+The direct-restoration implementation and its specific scaffolding are
+withdrawn. The existing synthetic-row path, ordinary restoration, SQL comparison
+and authority issuer remain unchanged. The failed retention gate does not prove
+that this candidate caused the timeout or identify the root cause of historical
+installation failures. Further shared-owner changes require their own evidence
+and approved preflight; no broader cache, timeout relaxation or consumer bypass
+is authorized. Numerical measurements and validation receipts belong in Git.
 
 ## Outcome, Owners And Scope
 

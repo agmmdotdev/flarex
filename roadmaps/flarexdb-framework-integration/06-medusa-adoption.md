@@ -91,10 +91,12 @@ dominating structural execution. A narrowly passing trace does not clear the
 gate or establish removable integrity checks. Implementation remains paused;
 no specific core defect or remedy has been established, and no timeout or
 installation bypass is authorized.
-The proposed [direct exact-assignment restoration](./preflight/72-direct-exact-assignment-restoration.md)
-would remove a shared reader's synthetic-row round trip while preserving verification
-and issuance; it awaits approval and is not implemented behavior.
-It explicitly retains the private commerce error envelope rather than claiming
+The approved [direct exact-assignment restoration candidate](./preflight/72-direct-exact-assignment-restoration.md)
+was withdrawn after its first measured PGlite run failed the unchanged
+installation deadline and therefore its retention gate. The existing reader
+remains unchanged; neither reproducible benefit nor a causal regression is
+established. The connected ShippingProfile slice remains paused.
+That slice explicitly retains the private commerce error envelope rather than claiming
 the pinned test adapter's duplicate-name message or full Fulfillment parity.
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result

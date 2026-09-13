@@ -274,7 +274,10 @@ restored unchanged. No additional core abstraction or specific optimization
 is approved by this reassessment. Exact commands and numerical receipts belong
 in Git; the existing fixture remains the failing witness.
 
-The proposed [direct exact-assignment restoration preflight](./72-direct-exact-assignment-restoration.md)
-targets the concrete synthetic-row round trip after exact SQL comparison. It
-requires fresh stored evidence and the existing pure verifier/authority issuer,
-not broader graph reuse. It awaits approval and does not clear this gate.
+The approved [direct exact-assignment restoration candidate](./72-direct-exact-assignment-restoration.md)
+targeted the synthetic-row round trip after exact SQL comparison, retaining fresh
+stored evidence and the existing pure verifier/authority issuer. It was withdrawn
+after its first measured PGlite run failed the unchanged installation deadline;
+the retention gate failed and the comparison matrix stopped early. No runtime
+change is retained, no causal regression or reproducible benefit is established,
+and this installation gate remains open.
