@@ -1,3 +1,4 @@
+import { assertInstallationWorkPhases } from "./frameworkInstallationWorkTestSupport";
 import { assertNormalCommandWorkingSet, assertNormalCommandRollback, assertLiveClaimRestart, normalCommandAlterations } from "./frameworkNormalCommandTestSupport";
 import { assertInstallerResume, assertInstallerDeadline } from "./frameworkInstallerTestSupport";
 import { assertExplicitFrameworkVerification, assertVerificationRefusesUnreceiptedDdl } from "./frameworkMigrationVerificationTestSupport";
@@ -44,6 +45,11 @@ type PublicFreshCoordinatorExport = Extract<
 >;
 
 describe("private fresh framework migration coordinator", () => {
+  it.each([0, 2, 4])("accounts for installation work by phase with %i extra tables", async extraTables => {
+    const fixture = await createCoordinatorFixture({ extraTables });
+    await assertInstallationWorkPhases(fixture.persistence.drizzle, fixture.input, "pglite");
+  }, 180_000);
+
   it.each([0, 4])("keeps normal command work proportional to steps and edges with %i extra tables", async extraTables => {
     const fixture = await createCoordinatorFixture({ extraTables });
     await assertNormalCommandWorkingSet(fixture.input);

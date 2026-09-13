@@ -1,3 +1,4 @@
+import { assertInstallationWorkPhases } from "./frameworkInstallationWorkTestSupport";
 import { assertNormalCommandWorkingSet, assertNormalCommandRollback, assertLiveClaimRestart, normalCommandAlterations } from "./frameworkNormalCommandTestSupport";
 import { assertInstallerResume, assertInstallerDeadline } from "./frameworkInstallerTestSupport";
 import { assertExplicitFrameworkVerification, assertVerificationRefusesUnreceiptedDdl } from "./frameworkMigrationVerificationTestSupport";
@@ -27,6 +28,10 @@ import { ensureFrameworkMigrationCollisionDomainInTransactionEffect,
 const native = postgresUrl === null ? describe.skip : describe;
 
 native("native fresh framework migration coordinator", () => {
+  it.each([0, 2, 4])("accounts for installation work by phase with %i extra tables", async extraTables => {
+    await withNativeCoordinator(fixture => assertInstallationWorkPhases(fixture.persistence.drizzle, fixture.input, "postgres"), {}, extraTables);
+  }, 180_000);
+
   it.each([0, 4])("keeps normal command work proportional to steps and edges with %i extra tables", async extraTables => {
     await withNativeCoordinator(fixture => assertNormalCommandWorkingSet(fixture.input), {}, extraTables);
   }, 180_000);
