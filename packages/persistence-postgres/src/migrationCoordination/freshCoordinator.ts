@@ -1,3 +1,5 @@
+import { prepareFrameworkMigrationDefinition, type PreparedFrameworkMigrationDefinition } from "./definition";
+import { verifyFrameworkMigrationReceiptProgress } from "./verify";
 import { withFrameworkMigrationPlanVerification } from "./canonical";
 import { withAdditiveMigrationGraphLimits } from "./graphLimits";
 import { isStoredMigrationBaseInstallation } from "./storedValidation";
@@ -5,7 +7,6 @@ import {
   canonicalIsoInstantFromDate,
   type CanonicalIsoInstant,
 } from "@flarex/time/iso-instant";
-import { compareUtf16Strings } from "@flarex/utils/strings";
 import { readFrameworkMigrationClaimGraphForUpdateInTransactionEffect } from "./migrationCollisionHeadRepository";
 import { commerceSchemaPlanStepLimit } from "../commerceTransaction/profile";
 import { Brand, Data, Effect, Option } from "effect";
@@ -112,9 +113,7 @@ import {
 import {
   captureRelationalStructuralValidationSha256Effect,
   executeRelationalStructuralStepEffect,
-  issueRelationalStructuralRunnerTokenEffect,
   observeRelationalStructuralStepEffect,
-  preflightRelationalStructuralPlanEffect,
   observeRelationalMigrationBaseEffect,
   type RelationalStructuralRunnerError,
   type RelationalStructuralRunnerToken,
@@ -250,9 +249,9 @@ export type FreshFrameworkMigrationCoordinatorResult =
   | FrameworkMigrationNotReadyResult;
 
 interface FrameworkMigrationClaimState {
+  readonly definition: PreparedFrameworkMigrationDefinition;
   readonly target: FrameworkMigrationTarget;
   readonly collision: RestoredFrameworkMigrationCollisionDomain;
-  readonly plan: RelationalMigrationPlan;
   readonly attemptId: string;
   readonly attemptFence: string;
   readonly leaseOwnerId: string;
@@ -436,9 +435,7 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
     return yield* Effect.fail(coordinatorError("prepare", "invalidInput",
       `Fresh coordinator execution supports at most ${planStepLimit} plan steps`));
   }
-  const structuralRunner = yield*
-    issueRelationalStructuralRunnerTokenEffect(input.target, plan);
-  yield* preflightRelationalStructuralPlanEffect(structuralRunner);
+  const definition = yield* prepareFrameworkMigrationDefinition(input.target, plan);
 
   const graph = yield* prepareCoordinatorGraphWithRecoveryEffect(input, plan);
   const existingReady = yield* readReadyResultEffect(
@@ -451,7 +448,7 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
   const claimResult = yield* claimCoordinatorAttemptEffect(
     input,
     graph,
-    plan,
+    definition,
   );
   if (claimResult.kind === "busy" || claimResult.kind === "ready") {
     return claimResult;
@@ -652,7 +649,7 @@ type ClaimCoordinatorAttemptResult =
 function claimCoordinatorAttemptEffect(
   input: RunFreshFrameworkMigrationCoordinatorInput,
   graph: PreparedCoordinatorGraph,
-  plan: RelationalMigrationPlan,
+  definition: PreparedFrameworkMigrationDefinition,
 ): Effect.Effect<ClaimCoordinatorAttemptResult, FrameworkMigrationCoordinatorFailure> {
   const run = (
     request: FrameworkMigrationTransactionRequest,
@@ -662,7 +659,7 @@ function claimCoordinatorAttemptEffect(
     transaction => claimCoordinatorAttemptInTransaction(
       input,
       graph,
-      plan,
+      definition,
       transaction,
     ),
   );
@@ -677,7 +674,7 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
 )(function* (
   input: RunFreshFrameworkMigrationCoordinatorInput,
   graph: PreparedCoordinatorGraph,
-  plan: RelationalMigrationPlan,
+  definition: PreparedFrameworkMigrationDefinition,
   transaction: FrameworkMigrationTransaction,
 ): Effect.fn.Return<ClaimCoordinatorAttemptResult, FrameworkMigrationCoordinatorFailure> {
   return yield* withFrameworkMigrationRawTransactionEffect(
@@ -729,7 +726,7 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
               claim: makeClaim(
                 input,
                 currentHead.collision,
-                plan,
+                definition,
                 currentProjection.attemptFence,
               ),
             });
@@ -850,7 +847,7 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
       yield* observePredecessorReceipts(
         raw,
         transaction,
-        input.target,
+        definition,
         attempt,
         predecessorReceipts,
       );
@@ -859,7 +856,7 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
         claim: makeClaim(
           input,
           attempt.collision,
-          plan,
+          definition,
           attempt.attempt.frame.attemptFence,
         ),
       });
@@ -873,14 +870,14 @@ const observePredecessorReceipts = Effect.fn(
 )(function* (
   raw: FlarexMetadataTransaction,
   transaction: FrameworkMigrationTransaction,
-  target: FrameworkMigrationTarget,
+  definition: PreparedFrameworkMigrationDefinition,
   attempt: RestoredFrameworkMigrationAttemptStart,
   predecessorReceipts: readonly RestoredFrameworkMigrationStepReceipt[],
 ): Effect.fn.Return<void, FrameworkMigrationCoordinatorFailure> {
   if (predecessorReceipts.length === 0) return;
-  const plan = attempt.plan.plan;
-  const runner = yield* issueRelationalStructuralRunnerTokenEffect(target, plan);
-  yield* preflightRelationalStructuralPlanEffect(runner);
+  yield* requireExactPlan(attempt.plan.plan, definition.plan, "claim");
+  const plan = definition.plan;
+  const runner = definition.runner;
   for (const [ordinal, predecessor] of predecessorReceipts.entries()) {
     const step = plan.frame.steps[ordinal];
     if (step === undefined ||
@@ -961,13 +958,13 @@ function executeNextStepInternal(
           ));
         }
         attemptedStep = step;
+        const preparedStep = state.definition.steps[step.ordinal];
+        if (preparedStep === undefined || preparedStep.step.stepSha256 !== step.stepSha256) {
+          return yield* Effect.fail(corruption("step", "Prepared operation does not match the stored plan"));
+        }
         const dependencyReceipts: RestoredFrameworkMigrationStepReceipt[] = [];
-        for (const reference of step.dependencies.toSorted((left, right) =>
-          compareUtf16Strings(left.stepId, right.stepId)
-        )) {
-          const receipt = locked.receipts.find(candidate =>
-            candidate.receipt.frame.stepId === reference.stepId
-          );
+        for (const ordinal of preparedStep.dependencyOrdinals) {
+          const receipt = locked.receipts[ordinal];
           if (receipt === undefined) {
             return yield* Effect.fail(coordinatorError(
               "step",
@@ -980,7 +977,7 @@ function executeNextStepInternal(
         const execution = yield* executeRelationalStructuralStepEffect(
           locked.structuralRunner,
           transaction,
-          step,
+          preparedStep.step,
         ).pipe(
           Effect.map(Option.some),
           Effect.catchTag("RelationalStructuralRunnerError", error =>
@@ -1132,7 +1129,7 @@ function recoverStepDecisionEffect(
       state.target,
       raw => Effect.gen(function* () {
         const locked = yield* loadLockedClaimState(raw, state, false);
-        const recoveredStep = locked.plan.frame.steps[step.ordinal];
+        const recoveredStep = state.definition.steps[step.ordinal]?.step;
         if (
           recoveredStep === undefined ||
           recoveredStep.stepId !== step.stepId ||
@@ -1224,7 +1221,7 @@ export const readFrameworkMigrationClaimProgressEffect = Effect.fn(
       raw => Effect.map(loadLockedClaimState(raw, state), locked =>
         Object.freeze({
           completedStepCount: locked.head.progress.completedStepCount,
-          requiredStepCount: state.plan.frame.steps.length,
+          requiredStepCount: state.definition.plan.frame.steps.length,
         })
       ),
     ),
@@ -1307,14 +1304,14 @@ const finalizeInTransaction = Effect.fn(
   if (Option.isSome(existingReady)) return existingReady.value;
   const locked = yield* validateLockedClaimHead(raw, state, initialHead.value);
   yield* reserveAdditiveEvents(locked.head, 4);
-  if (locked.head.progress.completedStepCount !== state.plan.frame.steps.length) {
+  if (locked.head.progress.completedStepCount !== state.definition.plan.frame.steps.length) {
     return yield* Effect.fail(coordinatorError(
       "finalize",
       "dependencyMissing",
       "Migration plan is incomplete",
     ));
   }
-  const validationStep = state.plan.frame.steps.at(-1);
+  const validationStep = state.definition.steps.at(-1)?.step;
   if (
     validationStep === undefined ||
     validationStep.operation.codec.format !==
@@ -1326,21 +1323,10 @@ const finalizeInTransaction = Effect.fn(
       "Migration plan lacks its final structural validation step",
     ));
   }
-  const lockedValidationStep = locked.plan.frame.steps.at(-1);
-  if (
-    lockedValidationStep === undefined ||
-    lockedValidationStep.stepId !== validationStep.stepId ||
-    lockedValidationStep.stepSha256 !== validationStep.stepSha256
-  ) {
-    return yield* Effect.fail(corruption(
-      "finalize",
-      "Stored validation step does not match the claimed migration plan",
-    ));
-  }
   const validationObservation = yield* observeRelationalStructuralStepEffect(
     locked.structuralRunner,
     transaction,
-    lockedValidationStep,
+    validationStep,
   ).pipe(
     Effect.map(Option.some),
     Effect.catchTag("RelationalStructuralRunnerError", error =>
@@ -1358,7 +1344,7 @@ const finalizeInTransaction = Effect.fn(
     attempt: locked.attempt.attempt,
     outcome: Object.freeze({
       kind: "succeeded",
-      requiredStepSetSha256: state.plan.requiredStepSetSha256,
+      requiredStepSetSha256: state.definition.plan.requiredStepSetSha256,
     }),
     stepReceipts: locked.receipts.map(receipt => receipt.receipt),
     terminalAt: clock.databaseNow,
@@ -1392,9 +1378,9 @@ const finalizeInTransaction = Effect.fn(
     plan: terminal.attempt.plan.plan,
     admission: terminal.attempt.admission.admission,
     terminal: terminal.terminal,
-    installedStructureSha256: state.plan.physicalLayout.layoutSha256,
+    installedStructureSha256: state.definition.plan.physicalLayout.layoutSha256,
     installedPhysicalCapabilities:
-      state.plan.physicalLayout.frame.requiredPhysicalCapabilities,
+      state.definition.plan.physicalLayout.frame.requiredPhysicalCapabilities,
     installedAt: clock.databaseNow,
   });
   const installation = yield* ensureFrameworkSchemaInstallationInTransactionEffect(
@@ -1426,11 +1412,11 @@ const finalizeInTransaction = Effect.fn(
       locked.receipts,
     );
   const capabilities =
-    state.plan.physicalLayout.frame.requiredPhysicalCapabilities;
+    state.definition.plan.physicalLayout.frame.requiredPhysicalCapabilities;
   const readinessValue = yield* captureFrameworkSchemaReadiness({
     installation: installation.installation,
     validationSha256,
-    validatedStructureSha256: state.plan.physicalLayout.layoutSha256,
+    validatedStructureSha256: state.definition.plan.physicalLayout.layoutSha256,
     validatedPhysicalCapabilities: capabilities,
     residualRequirements: capabilities.map(capability => Object.freeze({
       capability: capability.identity,
@@ -1685,7 +1671,7 @@ const validateLockedClaimHead = Effect.fn(
   requireUnexpiredLease = true,
   restoredReceipts?: readonly RestoredFrameworkMigrationStepReceipt[],
 ): Effect.fn.Return<LockedClaimState, FrameworkMigrationCoordinatorFailure> {
-  yield* requireExactPlan(head.plan.plan, state.plan, "step");
+  yield* requireExactPlan(head.plan.plan, state.definition.plan, "step");
   yield* requireAdmissibleBase(raw, head.collision, head.plan.plan);
   yield* reserveAdditiveEvents(head, 2);
   const authority = restoredFrameworkMigrationCollisionHeadAuthority(head);
@@ -1718,15 +1704,9 @@ const validateLockedClaimHead = Effect.fn(
   }
   const receipts = restoredReceipts ?? (yield*
     readFrameworkMigrationStepReceiptPrefixInTransactionEffect(raw, attempt));
-  const tail = receipts.at(-1);
-  if (receipts.length !== head.progress.completedStepCount ||
-    (tail?.storageId ?? null) !== (head.progress.lastReceipt?.storageId ?? null)) {
-    return yield* Effect.fail(corruption("step", "Collision progress does not match its complete receipt prefix"));
-  }
+  yield* verifyFrameworkMigrationReceiptProgress(head, receipts);
   const plan = attempt.plan.plan;
-  const structuralRunner = yield*
-    issueRelationalStructuralRunnerTokenEffect(state.target, plan);
-  yield* preflightRelationalStructuralPlanEffect(structuralRunner);
+  const structuralRunner = state.definition.runner;
   return Object.freeze({
     head,
     attempt,
@@ -1975,7 +1955,7 @@ const readDatabaseClock = Effect.fn(
 function makeClaim(
   input: RunFreshFrameworkMigrationCoordinatorInput,
   collision: RestoredFrameworkMigrationCollisionDomain,
-  plan: RelationalMigrationPlan,
+  definition: PreparedFrameworkMigrationDefinition,
   attemptFence: string,
 ): FrameworkMigrationClaim {
   const claim = Object.freeze({
@@ -1984,7 +1964,7 @@ function makeClaim(
   claimStates.set(claim, Object.freeze({
     target: input.target,
     collision,
-    plan,
+    definition,
     attemptId: input.attemptId,
     attemptFence,
     leaseOwnerId: input.leaseOwnerId,
@@ -2096,7 +2076,7 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 function withClaimGraphLimits<Value, Failure>(effect: Effect.Effect<Value, Failure>, claim: FrameworkMigrationClaim): Effect.Effect<Value, Failure> {
-  return claimStates.get(claim)?.plan.frame.version === 2 ? withAdditiveMigrationGraphLimits(effect) : effect;
+  return claimStates.get(claim)?.definition.plan.frame.version === 2 ? withAdditiveMigrationGraphLimits(effect) : effect;
 }
 
 function reserveAdditiveEvents(head: RestoredFrameworkMigrationCollisionHead, count: number): Effect.Effect<void, FrameworkMigrationCoordinatorError> {

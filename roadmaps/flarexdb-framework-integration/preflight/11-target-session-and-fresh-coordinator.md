@@ -552,5 +552,7 @@ the contiguous completed count and original receipt tail in the existing head.
 Execution, progress reads, recovery and finalization use this position after
 checking the current full receipt prefix. Claim, renewal, takeover and settlement
 preserve it; additive plan admission resets it. Per-step DDL, receipt, event and
-progress remain atomic. Full history reconstruction remains active until the
-remaining preflight 76 verifier and prepared-definition cutover is complete.
+progress remain atomic. The [prepared definition and explicit audit](./79-prepared-definition-and-explicit-audit.md)
+reuse immutable execution values and expose read-only verification. Full history
+reconstruction remains active until the direct-dependency transition and linear
+verifier cutover are complete.

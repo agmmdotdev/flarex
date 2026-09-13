@@ -451,6 +451,29 @@ export const captureRelationalStructuralValidationSha256Effect = Effect.fn(
   return brandValidationSha256(captured.sha256Hex);
 });
 
+/** Full catalog-prefix audit. The registry owns which operations observe shared
+ * structure rather than create an object, including future validation steps. */
+export const verifyRelationalStructuralPrefixEffect = Effect.fn("RelationalStructuralRunner.verifyPrefix")(
+  function* (token: RelationalStructuralRunnerToken, transaction: FrameworkMigrationTransaction,
+    completedStepCount: number): Effect.fn.Return<void, RelationalStructuralRunnerError | FrameworkMigrationTargetCompositionError> {
+    const state = yield* runnerStateEffect(token, "validate");
+    if (!Number.isSafeInteger(completedStepCount) || completedStepCount < 0 || completedStepCount > state.plan.frame.steps.length) {
+      return yield* Effect.fail(invalidAuthorityError("validate", "plan", null));
+    }
+    return yield* withFrameworkMigrationRawTransactionEffect(transaction, state.target, raw => Effect.gen(function* () {
+      for (const [step, registered] of state.steps) {
+        if (step.ordinal >= completedStepCount && registered.validation) continue;
+        const observation = yield* registered.observe(raw);
+        if (step.ordinal < completedStepCount ? observation !== "exact" : observation !== "absent") {
+          return yield* Effect.fail(runnerError("validate",
+            step.ordinal < completedStepCount ? "catalogMismatch" : "unreceiptedStructure",
+            registered.objectKind, registered.objectName, "Catalog does not match the verified migration prefix"));
+        }
+      }
+    }));
+  },
+);
+
 function runnerStateEffect(
   token: RelationalStructuralRunnerToken,
   operation: RelationalStructuralRunnerError["operation"],

@@ -1,7 +1,7 @@
 import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "./graphReadPass";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Encoding, Option, Schema } from "effect";
 
 import { detachDriverRows } from "../detachDriverRows";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
@@ -45,10 +45,12 @@ import {
   isRestoredFrameworkMigrationAttemptAncestor,
   isRestoredFrameworkMigrationCollisionDomain,
   isRestoredFrameworkMigrationStepReceipt,
+  isRestoredFreshRelationalMigrationPlan,
   restoreStoredFrameworkMigrationStepReceipt,
   type RestoredFrameworkMigrationAttemptStart,
   type RestoredFrameworkMigrationCollisionDomain,
   type RestoredFrameworkMigrationStepReceipt,
+  type RestoredFreshRelationalMigrationPlan,
   type StoredFrameworkMigrationStepReceiptDependencyRow,
   type StoredFrameworkMigrationStepReceiptRow,
 } from "./storedRestoration";
@@ -74,6 +76,35 @@ type StepReceiptAggregateRepositoryOperation =
   FrameworkMigrationRepositoryOperation;
 
 const RECEIPT_DEPENDENCY_INSERT_BATCH_SIZE = 256;
+
+const decodeReceiptInventory = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({
+  receiptStorageId: Schema.BigInt.check(Schema.isGreaterThanBigInt(0n)),
+})));
+
+/** Full-audit root inventory, including receipts outside the selected attempt's
+ * fence. Prefix restoration alone deliberately does not adopt those rows. */
+export const verifyFrameworkMigrationReceiptInventoryInTransactionEffect = Effect.fn("FrameworkMigrationStepReceiptRepository.verifyInventory")(
+  function* (transaction: FlarexMetadataTransaction, plan: RestoredFreshRelationalMigrationPlan,
+    receipts: readonly RestoredFrameworkMigrationStepReceipt[],
+  ): Effect.fn.Return<void, FrameworkMigrationRepositoryError> {
+    const operation = "readStepReceipt";
+    if (!isRestoredFreshRelationalMigrationPlan(plan) || receipts.some(receipt =>
+      !isRestoredFrameworkMigrationStepReceipt(receipt) || receipt.attempt.plan.storageId !== plan.storageId)) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+    }
+    const rows = yield* runRepositoryStatement(operation, transaction.select({
+      receiptStorageId: fxSystemFrameworkMigrationStepReceipts.receiptStorageId,
+    }).from(fxSystemFrameworkMigrationStepReceipts).where(eq(
+      fxSystemFrameworkMigrationStepReceipts.planStorageId, plan.storageId,
+    )).limit(plan.plan.frame.steps.length + 1));
+    const decoded = yield* decodeReceiptInventory(rows).pipe(Effect.mapError(() =>
+      FrameworkMigrationRepositoryError.storedCorruption(operation)));
+    const expected = new Set(receipts.map(receipt => receipt.storageId));
+    if (expected.size !== receipts.length || decoded.length !== expected.size || decoded.some(row => !expected.delete(row.receiptStorageId)) || expected.size !== 0) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+  },
+);
 
 interface PreparedFrameworkMigrationStepReceiptDependency {
   readonly receipt: RestoredFrameworkMigrationStepReceipt;

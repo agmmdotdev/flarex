@@ -1,3 +1,5 @@
+import { assertExplicitFrameworkVerification, assertVerificationRefusesUnreceiptedDdl } from "./frameworkMigrationVerificationTestSupport";
+import * as structuralRunner from "../src/migrationCoordination/relationalStructuralRunner";
 import { assertHeadProgressCorruption, assertHeadProgressMigration, assertPersistedHeadProgress } from "./frameworkHeadProgressTestSupport";
 import { prepareInstallationRuntime, acceptPreparedInstallation } from "../src/frameworkSchema/installation/runtime";
 import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
@@ -6,7 +8,7 @@ import { sql } from "drizzle-orm";
 import { setTimeout as delay } from "node:timers/promises";
 import { waitForFrameworkLeaseExpiry } from "./frameworkCoordinatorLeaseTestSupport";
 import { Effect, Exit } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { executeNextFrameworkMigrationStepEffect, finalizeFrameworkMigrationClaimEffect,
   readFrameworkMigrationClaimProgressEffect, runFreshFrameworkMigrationCoordinatorEffect } from "../src/migrationCoordination/freshCoordinator";
@@ -23,10 +25,25 @@ import { ensureFrameworkMigrationCollisionDomainInTransactionEffect,
 const native = postgresUrl === null ? describe.skip : describe;
 
 native("native fresh framework migration coordinator", () => {
+  it("explicitly verifies absent, partial and settled state without advancing it", async () => {
+    await withNativeCoordinator(async fixture => {
+      await assertExplicitFrameworkVerification(fixture.persistence.drizzle, fixture.input, fixture.captured.artifact);
+    });
+  }, 180_000);
+  it("explicit verification refuses unreceipted physical structure", async () => {
+    await withNativeCoordinator(async fixture => {
+      await assertVerificationRefusesUnreceiptedDdl(fixture.input, fixture.captured.artifact);
+    });
+  }, 180_000);
+
   it("installs and replays a fifteen-step plan within the default run budget", async () => {
     await withNativeCoordinator(async fixture => {
-      expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))
-        .toMatchObject({ kind: "ready", replayed: false });
+      const preparation = vi.spyOn(structuralRunner, "issueRelationalStructuralRunnerTokenEffect");
+      try {
+        expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))
+          .toMatchObject({ kind: "ready", replayed: false });
+        expect(preparation).toHaveBeenCalledTimes(1);
+      } finally { preparation.mockRestore(); }
       expect(await countNativeRows(fixture, "fx_system_framework_migration_step_receipt")).toBe(15);
       expect(await publicationCounts(fixture)).toEqual([1, 1, 1, 1]);
       expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))

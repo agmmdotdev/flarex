@@ -3,23 +3,13 @@ import { sql } from "drizzle-orm";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
-  captureFrameworkMigrationAttemptStart,
-  captureFrameworkMigrationAttemptTerminal,
   captureFreshRelationalMigrationPlan,
 } from "../src/migrationCoordination/canonical";
-import {
-  ensureFrameworkMigrationAttemptStartInTransactionEffect,
-} from "../src/migrationCoordination/migrationAttemptRepository";
-import {
-  ensureFrameworkMigrationAttemptTerminalInTransactionEffect,
-} from "../src/migrationCoordination/migrationAttemptTerminalRepository";
-import {
-  ensureFrameworkMigrationStepReceiptInTransactionEffect,
-} from "../src/migrationCoordination/migrationStepReceiptRepository";
 import type {
   FrameworkMigrationStep,
   RelationalMigrationPlan,
 } from "../src/migrationCoordination/model";
+import { verifyFrameworkMigrationReceiptInventoryInTransactionEffect } from "../src/migrationCoordination/migrationStepReceiptRepository";
 import {
   captureRelationalStructuralValidationSha256Effect,
   executeRelationalStructuralStepEffect,
@@ -62,7 +52,6 @@ import {
 import {
   currencyArtifact,
   FRAMEWORK_VALUE_LOCATOR,
-  completeFrameworkMigrationPlanSteps,
   frameworkTargetNamespace,
   syntheticSystemArtifact,
 } from "./frameworkMigrationValueFixtures";
@@ -670,89 +659,27 @@ describe("private relational structural runner", () => {
       restoredFrameworkMigrationAttemptTerminalStepReceipts(
         firstGraph.terminal,
       );
-    const secondAttemptTerminal = await firstPersistence.drizzle.transaction(
-      async transaction => {
-        const attemptValue = await runEffect(
-          captureFrameworkMigrationAttemptStart({
-            admission: firstGraph.admission.admission,
-            attemptId: "attempt-b",
-            attemptFence: "2",
-            leaseOwnerId: "worker-b",
-            leaseExpiresAt: "2026-08-27T08:40:00.000Z",
-            previousAttemptId: firstGraph.attempt.attempt.frame.attemptId,
-            startedAt: "2026-08-27T08:39:00.000Z",
-          }),
-        );
-        const attempt = await runEffect(
-          ensureFrameworkMigrationAttemptStartInTransactionEffect(
-            transaction,
-            firstGraph.admission,
-            firstGraph.attempt,
-            attemptValue,
-          ),
-        );
-        const receiptValues = await completeFrameworkMigrationPlanSteps(
-          attempt.plan.plan,
-          attempt.attempt,
-          "2026-08-27T08:41:00.000Z",
-        );
-        const restoredByStepId = new Map<
-          string,
-          RestoredFrameworkMigrationStepReceipt
-        >();
-        const receipts: RestoredFrameworkMigrationStepReceipt[] = [];
-        for (const receiptValue of receiptValues) {
-          const dependencies = receiptValue.frame.dependencyReceipts.map(
-            reference => {
-              const dependency = restoredByStepId.get(reference.stepId);
-              if (dependency === undefined) {
-                throw new Error("Fixture dependency receipt is missing");
-              }
-              return dependency;
-            },
-          );
-          const receipt = await runEffect(
-            ensureFrameworkMigrationStepReceiptInTransactionEffect(
-              transaction,
-              attempt,
-              dependencies,
-              receiptValue,
-            ),
-          );
-          restoredByStepId.set(receipt.receipt.frame.stepId, receipt);
-          receipts.push(receipt);
-        }
-        const terminalValue = await runEffect(
-          captureFrameworkMigrationAttemptTerminal({
-            attempt: attempt.attempt,
-            outcome: Object.freeze({
-              kind: "succeeded",
-              requiredStepSetSha256:
-                attempt.plan.plan.requiredStepSetSha256,
-            }),
-            stepReceipts: receiptValues,
-            terminalAt: "2026-08-27T08:42:00.000Z",
-          }),
-        );
-        return runEffect(
-          ensureFrameworkMigrationAttemptTerminalInTransactionEffect(
-            transaction,
-            attempt,
-            receipts,
-            terminalValue,
-          ),
-        );
-      },
-    );
+    // Plan-step receipts have one producer. Use an independent stored history
+    // to exercise mixed-attempt provenance without creating duplicate receipts.
+    const secondPersistence = await createMigratedPGlitePersistence();
+    const secondGraph = await secondPersistence.drizzle.transaction(transaction =>
+      storeSuccessfulTerminalGraphInTransaction(transaction, values, "attempt-b"));
     const secondAttemptReceipts =
       restoredFrameworkMigrationAttemptTerminalStepReceipts(
-        secondAttemptTerminal,
+        secondGraph.terminal,
       );
     expect(firstReceipts).toBeDefined();
     expect(secondAttemptReceipts).toBeDefined();
     if (firstReceipts === undefined || secondAttemptReceipts === undefined) {
       return;
     }
+    await firstPersistence.drizzle.transaction(async transaction => {
+      await runEffect(verifyFrameworkMigrationReceiptInventoryInTransactionEffect(transaction, firstGraph.plan, firstReceipts));
+      for (const incomplete of [firstReceipts.slice(1), [...firstReceipts, ...firstReceipts]]) {
+        expect(await runEffectFailure(verifyFrameworkMigrationReceiptInventoryInTransactionEffect(transaction, firstGraph.plan, incomplete)))
+          .toMatchObject({ reason: "storedCorruption" });
+      }
+    });
     const plan = firstGraph.plan.plan;
     const target = await makePGliteTarget(
       firstPersistence.drizzle,

@@ -1,10 +1,12 @@
+import { assertExplicitFrameworkVerification, assertVerificationRefusesUnreceiptedDdl } from "./frameworkMigrationVerificationTestSupport";
+import * as structuralRunner from "../src/migrationCoordination/relationalStructuralRunner";
 import { assertHeadProgressCorruption, assertHeadProgressMigration, assertPersistedHeadProgress } from "./frameworkHeadProgressTestSupport";
 import { prepareInstallationRuntime, acceptPreparedInstallation } from "../src/frameworkSchema/installation/runtime";
 import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { sql } from "drizzle-orm";
 import { Result } from "effect";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { admitFrameworkSchemaArtifactEffect } from
   "../src/frameworkSchema/artifact/admission";
@@ -40,6 +42,16 @@ type PublicFreshCoordinatorExport = Extract<
 >;
 
 describe("private fresh framework migration coordinator", () => {
+  it("explicitly verifies absent, partial and settled state without advancing it", async () => {
+    const fixture = await createCoordinatorFixture();
+    await assertExplicitFrameworkVerification(fixture.persistence.drizzle, fixture.input, fixture.captured.artifact);
+  }, TEST_TIMEOUT);
+  it("explicit verification refuses unreceipted physical structure", async () => {
+    const fixture = await createCoordinatorFixture();
+    await assertVerificationRefusesUnreceiptedDdl(fixture.input, fixture.captured.artifact);
+
+  }, 180_000);
+
   it("keeps claims source-private and rejects forged authority", async () => {
     expectTypeOf<PublicFreshCoordinatorExport>().toEqualTypeOf<never>();
     const packageJson = await import("../package.json", {
@@ -80,8 +92,12 @@ describe("private fresh framework migration coordinator", () => {
 
   it("installs and replays a fifteen-step plan within the default run budget", async () => {
     const fixture = await createCoordinatorFixture({ extraTables: 4 });
-    expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))
-      .toMatchObject({ kind: "ready", replayed: false });
+    const preparation = vi.spyOn(structuralRunner, "issueRelationalStructuralRunnerTokenEffect");
+    try {
+      expect(await runEffect(runFreshFrameworkMigrationCoordinatorEffect(fixture.input)))
+        .toMatchObject({ kind: "ready", replayed: false });
+      expect(preparation).toHaveBeenCalledTimes(1);
+    } finally { preparation.mockRestore(); }
     const counts = await coordinatorRootCounts(fixture.persistence);
     expect(counts.receipts).toBe(15);
     expect(await generatedTableNames(fixture.persistence)).toHaveLength(6);

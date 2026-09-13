@@ -80,6 +80,7 @@ export async function createSuccessfulTerminalPlanValues() {
 export async function storeSuccessfulTerminalGraphInTransaction(
   transaction: FlarexMetadataTransaction,
   values: Awaited<ReturnType<typeof createSuccessfulTerminalPlanValues>>,
+  attemptId = "attempt-a",
 ) {
   const { artifact, targetValue, physicalLayout, planValue } = values;
   const target = await runEffect(
@@ -127,7 +128,7 @@ export async function storeSuccessfulTerminalGraphInTransaction(
   );
   const attemptValue = await runEffect(captureFrameworkMigrationAttemptStart({
     admission: admission.admission,
-    attemptId: "attempt-a",
+    attemptId,
     attemptFence: "1",
     leaseOwnerId: "worker-a",
     leaseExpiresAt: COORDINATOR_TERMINAL_AT,

@@ -53,7 +53,11 @@ native("native additive framework migration coordinator", () => {
     await withNativeCoordinator(async fixture => {
       const input = await prepareUpgrade(fixture);
       const baseObjects = await fixture.persistence.query("select oid::text from pg_class where relnamespace = $1::regnamespace order by oid", [fixture.physicalSchema]);
-      expect(await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(input))).toMatchObject({ kind: "ready", replayed: false });
+      const ready = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(input));
+      expect(ready).toMatchObject({ kind: "ready", replayed: false });
+      if (ready.kind !== "ready") throw new Error("Expected additive readiness");
+      expect(await runEffect(verifyFrameworkMigrationEffect(input.target, ready.readiness.installation.plan.plan, input)))
+        .toMatchObject({ kind: "verified", complete: true });
       expect(await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(input))).toMatchObject({ kind: "ready", replayed: true });
       const objects = await fixture.persistence.query("select oid::text from pg_class where relnamespace = $1::regnamespace order by oid", [fixture.physicalSchema]);
       expect(objects.rows).toEqual(expect.arrayContaining(baseObjects.rows));
@@ -148,3 +152,4 @@ async function waitForLock(fixture: NativeCoordinatorFixture, predicate: string,
   }
   throw new Error("Native additive fixture did not reach its SQL lock barrier");
 }
+import { verifyFrameworkMigrationEffect } from "../src/migrationCoordination/verify";

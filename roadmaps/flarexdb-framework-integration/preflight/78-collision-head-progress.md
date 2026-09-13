@@ -52,5 +52,7 @@ Run populated migration and coordinator tests on PGlite and ordinary-role native
 PostgreSQL. PGlite remains functional-only; native target protection is unchanged.
 
 This step establishes durable progress, not the later O(N + E) execution claim.
-The explicit full verifier, prepared definition and direct-dependency transition
-must replace the existing reconstruction together before that fast path is kept.
+The [prepared definition and explicit audit](./79-prepared-definition-and-explicit-audit.md)
+now reuse immutable execution values and expose read-only full verification.
+The direct-dependency transition and linear verifier still must replace the
+existing reconstruction before that fast path is kept.

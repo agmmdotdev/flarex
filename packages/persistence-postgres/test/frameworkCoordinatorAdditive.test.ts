@@ -1,4 +1,5 @@
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
+import { verifyFrameworkMigrationEffect } from "../src/migrationCoordination/verify";
 import { sql } from "drizzle-orm";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
@@ -25,6 +26,8 @@ describe("private additive framework migration coordinator", () => {
       baseInstallation: fixture.base.readiness.installation.installation, baseReadiness: fixture.base.readiness.readiness }));
     const pending = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect({ ...fixture.input, maximumStepsPerRun: 1 }));
     if (pending.kind !== "pending") throw new Error("Expected verified base");
+    expect(await runEffect(verifyFrameworkMigrationEffect(fixture.input.target, plan, fixture.input)))
+      .toMatchObject({ kind: "verified", completedStepCount: 1, complete: false });
     const token = await runEffect(issueRelationalStructuralRunnerTokenEffect(fixture.input.target, plan));
     const create = plan.frame.steps[1];
     if (create?.operation.codec.format !== "flarex.relational-create-table") throw new Error("Expected table creation");
@@ -32,6 +35,8 @@ describe("private additive framework migration coordinator", () => {
     await runEffect(runFrameworkMigrationTargetTransactionEffect(fixture.input.target, { kind: "ordinary",
       lockTimeoutMilliseconds: 5_000, statementTimeoutMilliseconds: 30_000 },
     tx => executeRelationalStructuralStepEffect(token, tx, create)));
+    expect(await runEffectFailure(verifyFrameworkMigrationEffect(fixture.input.target, plan, fixture.input)))
+      .toMatchObject({ reason: "unreceiptedStructure" });
     expect(await runEffectFailure(executeNextFrameworkMigrationStepEffect(pending.claim))).toMatchObject({ reason: "unreceiptedStructure" });
     expect((await fixture.persistence.query("select * from fx_system_framework_migration_step_receipt")).rows).toHaveLength(4);
     expect((await fixture.persistence.query("select * from fx_system_framework_schema_installation")).rows).toHaveLength(1);
@@ -130,6 +135,8 @@ describe("private additive framework migration coordinator", () => {
     const result = await runEffect(runAdditiveFrameworkMigrationCoordinatorEffect(fixture.input));
     expect(result).toMatchObject({ kind: "ready", replayed: false });
     if (result.kind !== "ready") throw new Error("Expected successor readiness");
+    expect(await runEffect(verifyFrameworkMigrationEffect(fixture.input.target, result.readiness.installation.plan.plan, fixture.input)))
+      .toMatchObject({ kind: "verified", completedStepCount: 6, complete: true });
     expect(result.readiness.installation.plan.plan.frame.version).toBe(2);
     expect(result.readiness.installation.plan.plan.frame.steps).toHaveLength(6);
     const after = await fixture.persistence.query("select oid::text from pg_class where relnamespace = 'flarex_shared'::regnamespace order by oid");

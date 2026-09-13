@@ -3,7 +3,9 @@
 Status: approved, implementation in progress. This is the
 recommended replacement direction for the narrower, unapproved
 [step-transition proposal](./75-migration-step-transition-proof.md). Normal step execution still uses full
-reconstruction; takeover now retains original plan receipts. ShippingProfile remains
+reconstruction; takeover now retains original plan receipts. The coordinator
+[prepares execution definitions once per run and exposes an explicit read-only audit](./79-prepared-definition-and-explicit-audit.md).
+Direct-dependency execution and linear full verification remain open. ShippingProfile remains
 paused. Neither this document nor its examples activate future framework modules.
 
 ## Current Implementation Boundary
