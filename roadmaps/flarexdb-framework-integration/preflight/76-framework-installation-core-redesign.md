@@ -58,6 +58,38 @@ check alone does not narrow indexed access under a consumer's
 `noUncheckedIndexedAccess` setting. Missing/extra rows still fail through the
 existing materialization checks; no assertion or weakened row contract is needed.
 
+### Protected execution profile decision (pending)
+
+PGlite cannot currently prove the restricted-login integrity contract. In the
+installed PGlite 0.5.8 source, `defaultStartParams` selects PostgreSQL single-user
+mode and the `username` option executes `SET ROLE` after startup; it does not
+authenticate a new session. A reproducible in-memory witness creates a restricted
+login role, dumps the database, closes it, and reopens the snapshot with that
+`username`. `current_user` becomes the restricted role and its `rolsuper` is false,
+but `session_user` remains `postgres`; `SET SESSION AUTHORIZATION postgres`
+succeeds. Both database instances are disposable and closed after the probe.
+
+Therefore a current-role-only admission check, including one under `SET ROLE`,
+would falsely certify protection. Native admission must establish the actual
+login authority on the acquired execution connection, account for role/session
+reset and reachable owner privileges, and verify the exact protected objects and
+guards before coordinator work. A constructor-time probe on another pooled
+connection is insufficient. Provisioning remains separately privileged.
+
+Recommended decision, not yet activated: protected installer execution is a
+native PostgreSQL capability. Keep PGlite as an explicitly functional-only
+conformance lane for the shared algorithm and guard behavior; it must not issue
+or claim native restricted-login protection. Any test-only construction needed
+for that lane must remain outside ordinary runtime construction, with no public
+`skipProtection` option, permissive fallback, or PGlite-specific weakening of
+the shared integrity rules. Confirm this execution-profile split before issuing
+protected execution authority or enabling the optimized path.
+
+Sources: installed PGlite source-map `src/pglite.ts`, the
+[PGlite constructor contract](https://pglite.dev/docs/api), PostgreSQL
+[single-user authority](https://www.postgresql.org/docs/18/app-postgres.html),
+and [session authorization/reset](https://www.postgresql.org/docs/18/sql-set-session-authorization.html).
+
 ## Outcome And Scope
 
 Make structural installation understandable and efficient by separating the
