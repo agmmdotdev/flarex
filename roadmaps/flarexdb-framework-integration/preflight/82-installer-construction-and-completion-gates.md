@@ -1,8 +1,8 @@
 # Installer Construction and Redesign Completion Gates
 
 Status: installation construction implemented within approved preflight 76.
-The full redesign remains in progress. This record orders its remaining work;
-it introduces no new execution profile, authority, schema or activation decision.
+The bounded redesign sequence is complete in records 83–91. This construction
+introduces no new execution profile, authority, schema or activation decision.
 
 ## Installation construction
 
@@ -37,12 +37,11 @@ existing neutral fault-injection and lifecycle tests while those independent
 contracts remain needed. Delete displaced caller-owned loops and verification
 wrappers. No parallel installation implementation or production export is added.
 
-## Remaining sequence and completion gates
+## Connected sequence and completion gates
 
 1. Read-only [`inspect` and `verify` construction](./83-installer-inspection-and-verification.md)
    now delegates to the diagnostic and verification owners. Inspection does not
-   silently perform a full audit. Remaining full-verification work must read each
-   node and edge once in a bounded pass, retaining corruption,
+   silently perform a full audit. Full verification shares issued nodes and edges in a bounded pass, retaining corruption,
    receipt inventory, lineage, target and catalog checks. An inspection report
    grants no execution or readiness authority.
 2. Replace normal full-history reconstruction with the protected direct-step
@@ -61,7 +60,8 @@ wrappers. No parallel installation implementation or production export is added.
    and audit measurements. Verify native indexed query plans. Run record 74's
    alternating full-suite baseline/candidate timing acceptance with unchanged
    assertions and deadlines, recording censored baselines honestly. Agree any
-   tighter operational target from those measurements.
+   tighter operational target from those measurements; record 91 retains the
+   local fifteen-second fixture budget.
 
 Every retained slice requires affected checks, both scoped project reviews and
 one coherent commit. Passing construction tests does not complete the protected

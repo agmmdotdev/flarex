@@ -1,8 +1,8 @@
 # Protected Final Publication
 
 Status: implemented within approved preflight 76. Final publication reuses the
-initial complete evidence; settled replay and frozen acceptance remain separate
-open gates.
+initial complete evidence. Record 90 owns settled replay and record 91 owns
+completed bounded acceptance and cleanup.
 
 The coherent outcome is one full verification of the locked installation at
 finalization, followed by exact terminal, installation, readiness, availability,

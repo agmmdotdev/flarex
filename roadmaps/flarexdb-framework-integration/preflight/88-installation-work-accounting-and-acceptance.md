@@ -1,7 +1,8 @@
 # Installation Work Accounting and Acceptance
 
-Status: phase accounting implemented within approved preflight 76; frozen
-acceptance remains open. Records 85–87 replace the normal
+Status: bounded phase accounting and frozen acceptance are complete within
+approved preflight 76. The retained local regression budget is 15 seconds for the
+unchanged seventeen-table installation/reopen timer; it is not a deployment SLO. Records 85–87 replace the normal
 step and live-resume reconstruction paths.
 
 Neutral coordinator witnesses cover its admitted 7-, 11- and 15-step inventories
@@ -39,7 +40,8 @@ owners. Runtime composition accepts a schema target without installer privilege
 authority. Its cold verification must not be replaced by an installer-protection
 assumption. A bounded linear full pass at that boundary is acceptable under
 preflight 76; an implicit history audit during normal steps is not. The evidence
-will determine whether remaining repeated graph assembly requires a correction.
+now accounts for those full boundaries separately; records 89/90 remove the
+measured repeated publication and settled-readiness prerequisites.
 
 Retain independent repository readers where they still issue full evidence for
 publication, recovery, binding or explicit verification. Delete displaced private

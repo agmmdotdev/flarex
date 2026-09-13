@@ -1,96 +1,29 @@
 # Shared Migration Graph Restoration
 
-Status: both the membership/root-projection candidate and the receipt-aggregate
-follow-up were evaluated and withdrawn after failing the unchanged full-suite
-PGlite installation deadline. No runtime or test change from either candidate
-is retained. The connected
-ShippingProfile slice in [record 66](./66-connected-product-shipping-profile.md)
-remains incomplete. This is not another approval of the withdrawn candidates in
-records 68, 70 or 72.
+Status: the reconstruction-only proposal is superseded by the approved and
+implemented [framework installation core redesign](./76-framework-installation-core-redesign.md).
+Its unchanged full-suite timing and removed-work criteria remain the minimum
+acceptance method, completed within the bounded profiles in record 91.
+ShippingProfile's connected capability remains governed by record 66.
 
 ## Current Disposition
 
-The evaluated candidate added exact root-projection reuse for plan/admission
-lookup routes, bounded admission-membership comparison in PostgreSQL, and
-read-pass-local reuse of negative additive-policy lookups. A neutral witness
-confirmed that two admission lookup routes could share one node reconstruction;
-focused owner tests exercised the candidate's admission, plan and restoration
-paths. This did not establish a material improvement for the connected claim,
-receipt, event and head restoration workload.
+Earlier membership/root-projection and receipt-aggregate candidates were
+withdrawn after failing the unchanged full-suite installation deadline. They are
+not retained as modes or alternate runtime implementations. Isolated reduction
+in decoding or membership transport did not establish an end-to-end benefit.
 
-The first full candidate PGlite run timed out during fixture installation,
-before the native test cases ran. The acceptance sequence therefore stopped;
-the three-by-three timing matrix, candidate ordinary-role PostgreSQL validation,
-and final retained-code review were not completed. The candidate and its
-supporting test edits were removed, returning the touched files to the exact
-baseline. The unchanged connected fixture remains the failing performance
-witness. No timeout, integrity check, schema, transaction or public API changed.
+The accepted correction changes the integrity and execution contract explicitly:
+protected immutable metadata and sealed child sets, one durable progress owner,
+normal direct-completion reads, named full verification and shared publication
+prerequisites. It does not reuse a mutable decision across transactions or grant
+a transaction-wide stored-authority cache. The narrower record 75 proposal was
+never approved separately.
 
-This rejects the evaluated implementation, not every possible correction within
-the existing boundary. It establishes neither a causal slowdown nor the need
-for a new ledger or larger transaction. The installation performance problem
-remains unresolved. Further implementation needs a concrete, measured explanation
-of the aggregate reconstruction that remains, rather than assuming reduced row
-transport or an isolated cache hit meets the end-to-end requirement. The design
-and retention criteria below remain the boundary for that assessment.
-
-## Receipt-Aggregate Attribution And Disposition
-
-Installation-scoped diagnostic counters on both drivers show that the reference
-capacity is not exhausted. References are successfully reused within a pass,
-but many successive passes reconstruct the growing receipt/event history. Batch
-snapshots show increasing history-decoding work for equal numbers of new steps.
-These are decoder invocations and successful reference operations, not unique
-database rows, SQL execution times, or proof that every invocation is removable.
-
-There are concrete untouched repeated-work sites:
-
-- `restoreCompleteStoredAttemptReceiptPrefix` decodes its row inventory, then
-  calls `restoreReceiptDependencyClosure`, which decodes each root again.
-- `restoreReceiptDependencyClosure` decodes and resolves the attempt before
-  checking the shared verified-node slot. A successful node lookup therefore
-  does not mean the preceding decoding work was avoided.
-- Event receipt-subject restoration creates a new local receipt context for
-  each subject. Existing shared-node reuse helps, but the per-subject entry
-  work and full cold predecessor traversal remain.
-- Locked claim, event preparation, head preparation and post-write reads have
-  separate evidence lifetimes. Their repeated history work must not be removed
-  by silently reusing database evidence across writes.
-
-The evaluated follow-up carried decoded, privately owned receipt rows through
-prefix/closure restoration and shared attempt-local contexts among event receipt
-subjects. Its neutral prefix witness removed duplicate root decoding, and its
-mixed-attempt witness retained separate inventories for repeated step names.
-The focused receipt/event corruption cases passed. This established bounded
-removed work, not an end-to-end installation improvement.
-
-The unchanged baseline and the first full candidate PGlite installation both
-timed out. The candidate therefore failed the retention gate and was removed,
-including its test additions. The comparison stopped before the complete timing
-matrix, candidate PostgreSQL lane and final retained-code review. The event
-predecessor decoder and cross-write restoration lifetimes were not redesigned.
-This result does not prove a causal regression, that all within-pass corrections
-are exhausted, or that a larger transaction/new ledger is necessary.
-
-No further runtime optimization is selected by this record. A subsequent
-preflight needs an explicit account of which committed-history proofs dominate
-and which can be eliminated without changing the authority or corruption
-contract; another local reuse mechanism is not sufficient evidence. Do not
-increase cache limits, weaken cold/post-write/recovery checks, or restore either
-withdrawn candidate. Exact measurements belong in the local research artifact
-and Git receipt. Installation performance remains unresolved.
-
-Follow-up phase attribution separates complete write-side graph restoration
-from the much smaller decoder bodies. Head advancement and event persistence
-dominate the measured step phases; head preparation and fresh post-update
-restoration are distinct major costs. The proposed
-[step-transition proof decision](./75-migration-step-transition-proof.md)
-addressed that ownership boundary explicitly and is now superseded by the proposed
-[framework installation core redesign](./76-framework-installation-core-redesign.md).
-That broader direction is approved and its storage-protection foundation is being
-implemented. It does not yet replace current graph reconstruction or authorize a
-transaction-wide cache; protected-target admission and progress execution remain
-unfinished. The narrower step-transition proposal was never approved separately.
+The research and evaluated design below describe the former reconstruction-only
+boundary. Current owners, detection schedule, code and completion status are in
+records 76 and 84–91. Exact historical and frozen measurements remain in artifacts
+and Git history; this research must not override the accepted current design.
 
 ## Outcome And Owners
 

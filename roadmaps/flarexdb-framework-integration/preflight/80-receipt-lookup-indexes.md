@@ -73,7 +73,7 @@ identity for separately captured/restored plans.
 
 Retain repository/value, graph-pass, structural-runner and PGlite/native
 coordinator regressions, plus connected Product and Payload proofs. These
-indexes remove two repeated lookup costs; recursive prerequisite restoration,
-other full-history work and normal-step reconstruction remain. Preflight 76's
-linear full-verifier, direct-dependency transition and end-to-end scaling gates
-are still open.
+indexes remove two repeated lookup costs. Records 84–90 now own explicit graph
+handoff, protected normal execution and publication/replay consolidation. Record
+91 owns completed bounded accounting, cleanup and frozen acceptance; these indexes
+alone are not the evidence for the full redesign.

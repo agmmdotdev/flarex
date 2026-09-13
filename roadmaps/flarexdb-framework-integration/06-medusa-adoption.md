@@ -81,39 +81,29 @@ The proposed module source closure remains broader than its
 create/scalar-read table grants; full Fulfillment remains unadmitted.
 The approved [connected ShippingProfile slice](./preflight/66-connected-product-shipping-profile.md)
 selects native create/scalar reads and two homogeneous Link families under one
-resolver in the existing atomic workflow. The draft's seventeen-table inventory
-and bounded native ShippingProfile operations execute on ordinary PostgreSQL;
-full module and connected execution completion gates remain open. Reassessment
-after the passing inventory controls reproduced the PGlite installation timeout
-before any assertion ran. Phase tracing places a detailed PGlite timeout in
-finalization before cold reopen, with per-step stored-proof reconstruction
-dominating structural execution. A narrowly passing trace does not clear the
-gate or establish removable integrity checks. Implementation remains paused;
-no specific core defect or remedy has been established, and no timeout or
-installation bypass is authorized.
-The approved [direct exact-assignment restoration candidate](./preflight/72-direct-exact-assignment-restoration.md)
-was withdrawn after its first measured PGlite run failed the unchanged
-installation deadline and therefore its retention gate. The existing reader
-remains unchanged; neither reproducible benefit nor a causal regression is
-established. The connected ShippingProfile slice remains paused.
-The [shared migration graph-restoration preflight](./preflight/74-shared-migration-graph-restoration.md)
-uses server/client attribution to investigate reduced in-pass reconstruction and
-membership transport. Its approved candidate was withdrawn after failing the
-unchanged full-suite PGlite deadline; no runtime or verification change is
-retained. Isolated reconstruction reuse did not establish the required aggregate
-performance benefit. The installation problem and connected workflow gate remain
-unresolved. The narrower [migration step-transition proposal](./preflight/75-migration-step-transition-proof.md)
-is superseded by the approved [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md).
-The redesign covers protected immutable definitions/evidence, durable
-operational progress, explicit full verification and readable construction APIs.
-It includes future supported Medusa inventories and Payload's actual structural
-lifecycle consumer while preserving Application content-schema authority.
-Its first storage foundation guards immutable metadata and seals child sets at
-their creation transaction's commit. Protected-target admission and the new
-progress/verification execution path remain unfinished. Existing reconstruction
-still runs, and no installation speedup or connected workflow completion is claimed.
-The connected ShippingProfile slice explicitly retains the private commerce error envelope rather than claiming
-the pinned test adapter's duplicate-name message or full Fulfillment parity.
+resolver in the existing atomic workflow. Its connected module, Link and workflow
+gates remain open; no Fulfillment or ProductShippingProfile activation follows
+from an installer test.
+
+The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
+is complete within its approved bounded profiles. Persistence now owns protected
+immutable definitions/evidence, sealed child sets, durable operational progress,
+prepared construction, explicit full verification and exact publication handoff.
+Normal steps and live resume avoid growing historical reconstruction; settled
+replay reads current availability using its full head's readiness. Full verification,
+uncertain recovery and runtime cold construction retain their independent contracts.
+The unchanged seventeen-table fixture meets its frozen acceptance gate on both
+drivers. Exact samples live in artifacts and Git; this is not arbitrary-inventory
+or deployment proof. PGlite remains functional-only and native execution requires
+actual restricted logins on every acquired connection.
+
+Earlier reconstruction-only candidates remain withdrawn and the narrower record
+75 proposal is superseded. Medusa's current module/Link semantics and Payload's
+structural lifecycle consumer share the corrected installer while Application
+content-schema authority remains separate. ShippingProfile retains its private
+commerce error envelope and all remaining native/provenance/connected-workflow
+completion gates.
+
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result
 evidence, including reserved and Unicode keys. Shared idempotency rows retain an

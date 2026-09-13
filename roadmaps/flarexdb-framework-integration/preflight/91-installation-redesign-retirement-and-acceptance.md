@@ -1,12 +1,12 @@
 # Installation Redesign Retirement and Acceptance
 
-Status: final cleanup and acceptance gates within approved preflight 76.
+Status: cleanup and frozen acceptance complete within approved preflight 76.
 
 Normal execution, live resume, publication and settled replay now have explicit
-owners and evidence handoffs. Finish by removing displaced private lookup entry
-points, reconciling current domain descriptions, and running the frozen full
-seventeen-table comparison. Keep each framework's business and activation gates
-separate from structural installation acceptance.
+owners and evidence handoffs. Displaced private lookup entry points are removed,
+current domain descriptions are reconciled, and the frozen full seventeen-table
+comparison meets the acceptance gates. Each framework's business and activation
+gates remain separate from structural installation acceptance.
 
 ## Retain and retire
 
@@ -49,12 +49,14 @@ Freeze isolated revisions with identical Medusa fixture overlays, verify loaded
 workspace source paths and keep attribution separate from timing. Apply record
 74's alternating three samples per driver, unchanged assertions/deadline,
 median-reduction and censored-baseline rules. Derive a bounded local regression
-target from those measurements; no arbitrary inventory or deployment SLO follows.
+target from those measurements. The retained local budget is 15 seconds for the
+fixed seventeen-table installation/reopen timer, separate from its unchanged
+test deadline. No arbitrary inventory or deployment SLO follows.
 Current Product, Sales Channel, Link/workflow and Currency schema/value contracts,
 and Payload preferences/content/lifecycle/delete remain connected proofs.
 
-Completion requires the full frozen comparison and work-reduction evidence,
-scoped cleanup, current roadmaps and a coherent commit. Exact revisions, hashes,
+The full frozen comparison, targeted work-reduction evidence, scoped cleanup
+and current owner descriptions satisfy the bounded redesign acceptance gates. Exact revisions, hashes,
 samples and validation receipts belong in artifacts and Git history, not a
 chronological roadmap log. ShippingProfile's connected workflow and activation
 remain paused until their own remaining gates are handled.

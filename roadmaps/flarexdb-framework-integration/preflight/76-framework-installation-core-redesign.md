@@ -1,13 +1,14 @@
 # Framework Installation Core Redesign
 
-Status: approved, implementation in progress. This is the
-recommended replacement direction for the narrower, unapproved
+Status: completed within the approved bounded profiles. This replaces the
+narrower, unapproved
 [step-transition proposal](./75-migration-step-transition-proof.md). Normal step execution now uses the
 [protected direct-dependency command](./85-protected-normal-step-command.md);
 takeover retains original plan receipts. The coordinator
 [prepares execution definitions once per run and exposes an explicit read-only audit](./79-prepared-definition-and-explicit-audit.md).
-Linear full verification, settled cold-opening accounting and performance acceptance remain open. ShippingProfile remains
-paused. Neither this document nor its examples activate future framework modules.
+Full graph handoff, complete phase accounting, cleanup and frozen performance
+acceptance are complete. ShippingProfile remains paused at its own connected
+module/Link/workflow gates. Neither this document nor its examples activate future framework modules.
 
 ## Current Implementation Boundary
 
@@ -72,8 +73,10 @@ performs one complete head/inventory/catalog proof and hands its prerequisites t
 the existing publication writers; exact stored occupants, event transitions and
 head CAS remain mandatory. [Settled readiness replay](./90-settled-readiness-evidence-handoff.md)
 hands its authenticated readiness to fresh availability head/history restoration,
-removing repeated installation reconstruction. Complete phase accounting and
-frozen performance acceptance remain open.
+removing repeated installation reconstruction. [Retirement and acceptance](./91-installation-redesign-retirement-and-acceptance.md)
+cover the bounded structural-work accounting, unchanged full-suite comparison and
+retained independent owners. Runtime and ordinary audit costs retain the limits
+described there; this is not arbitrary-inventory or deployment performance proof.
 
 ### Connected validation boundaries
 
@@ -239,7 +242,7 @@ and genuine adapter extensions, not a new coordinator factory. Unsupported
 semantics still fail closed. General Medusa upgrades and Payload data migrations
 are not implied by better fresh-installation throughput.
 
-## Proposed Core Model
+## Core Model
 
 ### Definition: what is allowed to be installed
 
@@ -336,31 +339,17 @@ that exact decision rather than falling back to unenforced immutability.
 
 ## Small Construction API
 
-Current trusted callers assemble target/artifact repositories, repeat coordinator
-policy in the operation input and own a pure verification wrapper across batches.
-The commerce fixture's essential shape is:
+Trusted construction binds the existing target, artifact repository and policy.
+The source-private factory owns preparation and bounded batches; requests supply
+business selection and attempt identity. Existing capabilities still control
+artifact admission and target placement.
 
 ```ts
-const migration = {
-  target, artifactRepository, artifactIdentity, commerceProfile,
-  attemptId, leaseOwnerId, leaseDurationMilliseconds,
-  lockTimeoutMilliseconds, statementTimeoutMilliseconds, maximumStepsPerRun: 16,
-};
-// Repeat coordinator calls while pending, inside withFrameworkMigrationPlanVerification.
-yield* runFreshFrameworkMigrationCoordinatorEffect(migration);
-```
-
-Proposed naming/usage sketch, not existing exports or final TypeScript signatures:
-
-```ts
-// Trusted host composition only. Existing opaque capabilities, no raw DB escape.
-const installer = makeFrameworkInstaller({ target, artifactRepository, policy });
-
+const installer = Result.getOrThrow(makeFrameworkInstaller({
+  target, artifactRepository, policy,
+}));
 const result = yield* installer.installFresh({
-  artifactIdentity,
-  commerceProfile, // Existing exact commerce admission; absent for admitted non-commerce plans.
-  attemptId,
-  leaseOwnerId,
+  artifactIdentity, commerceProfile, attemptId, leaseOwnerId,
 });
 ```
 
@@ -384,22 +373,22 @@ installer instance is bound to one target; no global singleton, generic reposito
 factory or callback registry. Artifact admission remains a separate trusted
 authority; a small API must not secretly grant artifact publication rights.
 
-## Proposed Organization And Reading Order
+## Operation Organization And Reading Order
 
 Within the existing package, use one lifecycle-oriented owner:
 
 ```text
 migrationCoordination/
-  installer.ts       construction and install/inspect/verify operations
-  definition.ts      load, authenticate and prepare a structural plan
-  claim.ts           claim, renew and take over fenced execution
-  executeStep.ts     the complete single-step transaction, top to bottom
-  progress.ts        exact progress/receipt/event storage transitions
-  verify.ts          full bounded graph and catalog verification
-  recover.ts         uncertain settlement reconciliation
-  finalize.ts        verify completion; delegate readiness publication
-  schema.ts          authoritative metadata and constraints
-  targetSession.ts   existing driver/session/settlement owner
+  installer.ts                construction and install/inspect/verify operations
+  definition.ts               authenticate and prepare a structural plan
+  coordinatorPreparation.ts   preparation, admission and fenced claim opening
+  coordinatorClaim.ts         claim evidence and fresh locked progress checks
+  coordinatorStep.ts          one step and named uncertain-outcome recovery
+  verify.ts                   full graph, inventory and catalog verification
+  coordinatorFinalization.ts  complete proof and delegated readiness publication
+  schema.ts                   authoritative metadata and constraints
+  targetSession.ts            target transaction and recovery-session contracts
+  postgresTarget.ts           acquired-connection protection and settlement
 ```
 
 This is a reading map, not a mandate to force all remaining codecs or physical
@@ -476,8 +465,9 @@ workspace/application data or another task's fixtures.
 6. Retain record 74's full-suite timing comparison as a minimum, not an ambitious
    final SLO: unchanged native assertions/deadline, alternating samples on both
    drivers, censored baselines reported honestly. Agree a tighter operational
-   target from the resulting scaling measurements; do not promise seconds without
-   evidence. No bulk-DDL transaction shortcut or performance bypass for fixtures.
+   target from the resulting scaling measurements. The retained local regression
+   budget is 15 seconds for the fixed seventeen-table installation/reopen timer;
+   it is separate from the unchanged test deadline and is not a deployment SLO. No bulk-DDL transaction shortcut or performance bypass for fixtures.
 7. Readability acceptance: trace one successful step and one uncertain outcome
    through named operations; show Medusa and Payload callers with no private
    assembly imports. Review responsibility placement and hidden graph work, not
@@ -486,7 +476,11 @@ workspace/application data or another task's fixtures.
    roadmaps and commit coherent verified changes. Never retain a failed candidate
    behind a mode flag.
 
-## Approved Direction And Remaining Gates
+## Approved Direction And Deferred Capabilities
+
+The approved redesign and its bounded acceptance gates are complete. Production
+provisioning, Cloudflare deployment, online privileged repair, arbitrary framework
+migrations and ShippingProfile connected activation retain their separate gates.
 
 The user approved the architecture of protected immutable definitions/evidence,
 one durable operational progress owner, and explicit full verification, shared by
@@ -507,7 +501,8 @@ history. Merely renaming the existing loop cannot achieve the intended scaling.
 - Current `migrationCoordination/freshCoordinator.ts`, `schema.ts`, receipt/event/head repositories and `frameworkSchema/installation/storedMetadataRestoration.ts`; `test/commerceHostFixture.ts` is the before-call witness.
 - Pinned `third_party/medusa/SOURCE.json`, framework `migrations/migrator.ts` and utils `dal/mikro-orm/custom-db-migrator.ts`; installed Payload `3.88.0` database types and executing `packages/payload-adapter/src/adapter.ts`.
 - Checked-in Convex `crates/common/src/bootstrap_model/schema_state.rs` and `crates/application/src/schema_worker/mod.rs`, relative to the enclosing Convex checkout.
-- [PostgreSQL privileges](https://www.postgresql.org/docs/18/ddl-priv.html), [statement snapshots](https://www.postgresql.org/docs/18/transaction-iso.html#XACT-READ-COMMITTED) and [trigger behavior](https://www.postgresql.org/docs/18/trigger-definition.html). These establish mechanism constraints, not that this proposed protection is implemented.
+- [PostgreSQL privileges](https://www.postgresql.org/docs/18/ddl-priv.html), [statement snapshots](https://www.postgresql.org/docs/18/transaction-iso.html#XACT-READ-COMMITTED) and [trigger behavior](https://www.postgresql.org/docs/18/trigger-definition.html). These establish mechanism constraints; current schemas, code and tests establish the implemented protection.
 
-Exact prior timings and observer limitations remain in the research receipt;
-this document establishes no new performance result.
+Exact frozen revisions, samples, hashes, observer limitations and validation
+receipts belong in artifacts and Git history. The acceptance statement here is
+limited to the retained profiles and unchanged fixture.

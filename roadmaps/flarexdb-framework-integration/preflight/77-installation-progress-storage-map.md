@@ -107,10 +107,11 @@ with the exact nullable tail pair. Later successor completions cannot change an
 older terminal's prefix. An empty terminal must not absorb future completions.
 Canonical capture and stored restoration must agree on these rules.
 
-`freshCoordinator.ts` owns claim, takeover, execution, recovery and publication.
-Takeover closes the previous attempt, starts the successor, reobserves the
+`freshCoordinator.ts` orchestrates the named preparation, claim, step and
+finalization operations. Takeover closes the previous attempt, starts the successor, reobserves the
 authenticated prefix without DDL replay, and preserves original receipts/events.
-Ordinary progress and recovery read the plan prefix at the current attempt fence.
+Normal progress uses the protected head/event/tail and direct completion reads
+in record 85; recovery restores the full prefix at the current attempt fence.
 Finalization still requires a complete authenticated prefix and catalog check.
 `carryForwardPredecessorReceipts` and its receipt/event writes are retired.
 

@@ -3,7 +3,7 @@
 Status: implemented within approved preflight 76 and phase 84. Normal steps and
 claim progress reads use the protected command described here. Full finalization,
 recovery and independent stored-reference readers retain their verification
-contracts. Overall redesign and performance acceptance remain open.
+contracts. Record 91 owns completed bounded redesign acceptance and cleanup.
 
 ## Outcome and owners
 

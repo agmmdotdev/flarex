@@ -1,8 +1,8 @@
 # Installation Evidence Graph and Step Transition
 
-Status: implementation in progress under approved preflight 76. Records 82/83
-complete trusted construction; this phase addresses the remaining graph and
-execution algorithm. The [protected normal command](./85-protected-normal-step-command.md)
+Status: implemented under approved preflight 76. Records 82/83 own trusted
+construction; this phase supplies shared graph evidence and the protected
+execution algorithm. Records 88/91 own bounded accounting and acceptance. The [protected normal command](./85-protected-normal-step-command.md)
 now replaces full reconstruction during step execution and claim progress reads.
 Same-owner live restart now uses the [protected opening path](./87-live-claim-restart-without-history-replay.md).
 Positive readiness, other claim acquisition, finalization, uncertain recovery and
@@ -48,13 +48,12 @@ The [shared receipt read graph](./86-receipt-evidence-across-event-and-terminal-
 now retains plan-local receipt and dependency evidence through event subjects and
 terminal prefixes. Terminal root inventory remains independent and actual reread
 bytes/digests must match any retained node. Independent publication prerequisites
-and admission subjects can still enter separate owner reads. Full work accounting,
-final graph consolidation and removal of
-displaced assembly remain open. The protected normal transition below is
-implemented by record 85; record 87 replaces live-claim restart history replay.
-Settled cold-opening accounting remains a separate gate.
-This handoff alone does not establish the complete linear-verification or timing
-acceptance gates.
+and admission subjects retain their independent contracts. Record 85 supplies
+the protected normal transition and record 87 replaces live-claim restart history
+replay. Records 89/90 share final publication and settled readiness prerequisites;
+records 88/91 account for complete phases and retire unused assembly. The full
+bounded acceptance combines those witnesses with the unchanged frozen fixture;
+this graph handoff alone is not a timing or deployment guarantee.
 
 ## Repeated work that motivated this phase
 

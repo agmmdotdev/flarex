@@ -1,9 +1,9 @@
 # Installer Inspection and Verification
 
 Status: implemented within approved preflight 76. The trusted installer now has
-all four named operations. Linear full verification and protected direct-step
-execution remain open; this construction slice does not change normal execution's
-history checks or authorize a fast path.
+all four named operations. Records 84–90 own shared full-graph evidence, protected
+normal execution and publication/replay consolidation. This diagnostic interface
+does not itself authorize execution or weaken a history check.
 
 ## Definition and diagnostic ownership
 
@@ -52,8 +52,8 @@ explicit verification. Repair is followed by successful full verification. Both
 operations leave the head unchanged. Additive diagnostics cover partial and
 settled state through the same facade.
 
-The full verifier still uses the current reconstruction repositories. Reading
-each node/edge once, protected normal-step transitions, integrated recovery and
-finalization cleanup, consumer completion and measured scaling remain the gates
-in records 76 and 82. No larger cache, new readiness flag, private repair shortcut,
+The full verifier retains its existing repository issuers, shares established
+graph evidence and independently verifies receipt-root inventory. Integrated
+normal execution, finalization/recovery, consumer proofs and bounded scaling
+acceptance are complete under records 76 and 91. No larger cache, new readiness flag, private repair shortcut,
 schema change or package export is introduced here.

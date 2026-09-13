@@ -1,7 +1,7 @@
 # Settled Readiness Evidence Handoff
 
 Status: implemented within approved preflight 76. Settled replay now hands off
-its existing readiness; frozen acceptance remains open.
+its existing readiness. Record 91 owns completed bounded acceptance and cleanup.
 
 The outcome is one full locked migration-head proof on a settled coordinator
 open, followed by fresh availability head and history reads using that proof's

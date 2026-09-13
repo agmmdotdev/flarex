@@ -1,7 +1,8 @@
 # Connected Product Shipping Profile: Preflight
 
-Status: approved; implementation paused at the shared installation validation
-gate described below. This refines preflight 59 B
+Status: approved; implementation remains paused at its connected native
+module, Link and workflow completion gates. The shared installation redesign
+has completed its separate bounded validation and performance gate. This refines preflight 59 B
 after the implemented inequality, native batch-cardinality and scalar-Link
 storage foundations. It does not activate Fulfillment or a new workflow yet.
 
@@ -26,11 +27,11 @@ settlement, facts, publication and replay with Flarex. Adoption roadmap 06,
 workflow-foundations 09/10/11 and preflights 58/59/61/63 own the existing proof.
 
 The comparison source remains fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`
-(baseline 2.13.4), as recorded in `third_party/medusa/SOURCE.json`. Fulfillment
-and ProductShippingProfile currently exist only in that source island. Runtime
-module/Link/SDK code is the promoted `packages/medusa-*` source. This preflight
-inspects source and existing tests; it does not claim an executed Fulfillment
-constructor, compiled selected schema or stored ShippingProfile result.
+(baseline 2.13.4), as recorded in `third_party/medusa/SOURCE.json`. It defines the
+compatibility baseline for promoted `packages/medusa-*` runtime code. The
+uncommitted Fulfillment/ShippingProfile draft has only the bounded selected-fixture
+proof described below; native provenance, complete module and connected workflow
+completion remain separate gates.
 
 Native paths below are relative to the island's `packages/` directory:
 
@@ -200,96 +201,26 @@ defect remains a stop-and-approval boundary, not authority to glue-fix it here.
 
 ## Current Installation Gate
 
-The in-progress private Fulfillment source builds, and the selected artifact
-contains exactly the intended seventeen tables. Ordinary-role PostgreSQL
-installs and cold-reopens that artifact through the existing owner and executes
-the current native scalar/array/empty creation, scalar read/count, event,
-required-field, denied-hydration and duplicate-name rollback assertions. These
-are the draft's bounded adapter witnesses, not the complete retained upstream
-test file, full module coverage or connected-workflow completion.
+The shared installation stop is resolved by the approved
+[framework installation redesign](./76-framework-installation-core-redesign.md).
+The unchanged seventeen-table suite now completes installation and ready replay
+through the shared owner on both drivers and exercises its native scalar/array/
+empty creation, scalar read/count, event, required-field, denied-hydration and
+duplicate-name rollback assertions. Frozen acceptance is owned by record 91;
+exact samples and validation receipts belong in artifacts and Git history.
 
-The preserved witness is
-`packages/medusa-adapter/test/shipping-profile.test.ts`, run with
-`vitest.shipping-profile.config.ts`. With `FLAREX_TEST_DRIVER=pglite` and
-`FLAREX_PRODUCT_TIMINGS=1`, installation can exhaust the unchanged 90-second
-deadline in `commerceHostFixture` before operation tests execute. The full-suite
-gate reassessment reproduced that failure with heavy validation serialized,
-after the unchanged-core inventory controls in
-[record 70](./70-typed-physical-assignment-verification.md) had passed. Its last
-reported pending prefix was 96 of 106 steps, without the installation/cold-open
-completion marker. That prefix does not identify whether the remaining steps,
-finalization or cold reopen consumed the final interval. Neither a passing
-control nor the repeated timeout establishes the underlying cause.
+The historical witness was installation exhausting the existing Effect deadline
+before native assertions, with repeated growing-history restoration and repeated
+publication prerequisites. The correction is in persistence's protected progress,
+full verification and publication owners. No ShippingProfile-specific bypass,
+new transaction, weaker assertion or larger deadline was added. Earlier local
+restoration candidates remain withdrawn; their chronology does not describe the
+retained runtime.
 
-Phase tracing now distinguishes those costs. A detailed PGlite timeout reached
-all structural steps and the complete-prefix check, then exhausted its budget
-during finalization before cold preparation or reopening. A separate coarse
-PGlite trace completed with almost no deadline margin. Observation overhead and
-run variability prevent treating these traces as a controlled comparison or an
-explanation of every earlier failure. An inner finalization span returning after
-timeout does not prove transaction settlement or successful installation.
-
-The dominant measured work is enclosing per-step migration coordination, not
-physical structural execution or cold reopening. Source inspection connects it
-to locked claim restoration, receipt creation, event append and collision-head
-compare-and-swap. These operations corroborate overlapping plan/name-assignment
-and receipt/event dependencies. Finalization checks the full prefix and catalog
-before publishing terminal, installation and readiness evidence. Existing graph
-read passes already share some evidence within their exact transaction and
-read boundaries. Span invocation counts include memo hits and inclusive timings
-overlap; neither establishes which checks are removable or a history-scaling
-complexity bound.
-
-Expected: the actual configured installation and cold reopen complete through
-the shared owner within the existing validation budget, then both driver lanes
-exercise native operations and the connected workflow. Actual: the complete
-PostgreSQL draft suite passes, while PGlite can still fail in setup with all
-three assertions skipped despite a narrowly passing trace. The gate remains open;
-the prior inventory-only passes are insufficient to resume capability work.
-
-The connected owner to investigate is
-`packages/persistence-postgres/src/migrationCoordination/freshCoordinator.ts`
-and its migration-plan verification, receipt/event and collision-head dependencies;
-the deadline/cleanup boundary is in
-`packages/persistence-postgres/test/commerceHostFixture.ts`. No shared-owner
-defect or particular optimization has yet been established. Do not infer that
-ShippingProfile needs a special core case, relax the deadline, bypass cold
-reopening, or add a second installation path. Preserve this witness and
-preflight any demonstrated shared-owner correction before resuming capability
-completion. Draft two-Link/workflow code is unverified and uncommitted; source
-presence is not activation or completed integration.
-
-The [shared read-pass](./68-shared-installation-read-pass-overhead.md) and
-[typed assignment-verification](./70-typed-physical-assignment-verification.md)
-candidates were withdrawn under their reproducible-benefit gates. Record 69's
-static Drizzle metadata reuse remains implemented; neither withdrawn candidate
-is a runtime prerequisite. The phase investigation narrows the next design
-question to repeated stored-proof reconstruction in the per-step path. A focused
-preflight must distinguish genuinely duplicate reconstruction from required
-fresh stored-evidence checks, account for the existing graph-pass owner, and
-preserve write/lock, corruption, fencing and recovery boundaries. Cold-open
-shortcuts, module-specific cases and another unmeasured micro-optimization are
-not an established remedy. Temporary tracing has been removed and the fixture
-restored unchanged. No additional core abstraction or specific optimization
-is approved by this reassessment. Exact commands and numerical receipts belong
-in Git; the existing fixture remains the failing witness.
-
-The approved [direct exact-assignment restoration candidate](./72-direct-exact-assignment-restoration.md)
-targeted the synthetic-row round trip after exact SQL comparison, retaining fresh
-stored evidence and the existing pure verifier/authority issuer. It was withdrawn
-after its first measured PGlite run failed the unchanged installation deadline;
-the retention gate failed and the comparison matrix stopped early. No runtime
-change is retained, no causal regression or reproducible benefit is established,
-and this installation gate remains open.
-
-The [shared graph-restoration research and preflight](./74-shared-migration-graph-restoration.md)
-distinguishes database initialization, server statement work, query completion
-and client processing. It identifies repeated graph reconstruction and membership
-transport as the next connected correction, within existing read-only phases.
-The approved candidate failed this fixture's unchanged PGlite installation
-deadline and was withdrawn. Its narrower successful reconstruction witness did
-not establish the required end-to-end benefit. This fixture and all transaction,
-readiness and deadline gates remain unchanged; no runtime remedy is retained.
-The receipt-aggregate follow-up also failed the unchanged installation deadline
-despite removing duplicate decoding in a neutral prefix witness. It too was
-withdrawn; native ShippingProfile completion remains blocked by this gate.
+These remain bounded installer/adapter assertions. They do not establish the
+complete native Fulfillment test file, two-Link workflow, full module coverage,
+production routing or activation. The uncommitted connected ShippingProfile work
+must still satisfy this preflight's native construction, provenance, Link,
+workflow, failure/recovery and review gates before capability completion. Keep
+its private commerce error envelope rather than claiming the pinned test adapter's
+duplicate-name message or full Fulfillment parity.
