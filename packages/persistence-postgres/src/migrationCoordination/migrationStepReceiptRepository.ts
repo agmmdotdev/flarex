@@ -192,6 +192,7 @@ interface ReceiptRestorationContext {
   readonly storageIdByStepId: Map<string, bigint>;
   readonly storageIdByDigest: Map<string, bigint>;
   readonly sidecarsByPlan: Map<bigint, PlanReceiptSidecars>;
+  readonly attemptsByStorageId: Map<bigint, RestoredFrameworkMigrationAttemptStart>;
 }
 
 interface PendingReceiptRestoration {
@@ -1088,7 +1089,7 @@ const restoreReceiptDependencyClosure = Effect.fn(
       preferredAttempt.plan.storageId === rootDecoded.planStorageId &&
       preferredAttempt.attempt.frame.attemptId === rootDecoded.frame.attemptId
     ? preferredAttempt
-    : yield*
+    : context.attemptsByStorageId.get(rootDecoded.attemptStorageId) ?? (yield*
       restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect(
         transaction,
         actualCollision,
@@ -1097,16 +1098,22 @@ const restoreReceiptDependencyClosure = Effect.fn(
         operation,
       ).pipe(Effect.mapError(error =>
         mapStoredRepositoryError(operation, error)
-      ));
+      )));
   if (
+    attempt.storageId !== rootDecoded.attemptStorageId ||
     attempt.collision.storageId !== rootDecoded.collisionStorageId ||
     attempt.plan.storageId !== rootDecoded.planStorageId ||
+    attempt.attempt.frame.attemptId !== rootDecoded.frame.attemptId ||
     attempt.attempt.frame.attemptFence !== rootDecoded.frame.attemptFence
   ) {
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
     );
   }
+  // Producer evidence belongs to this read-only working graph. Retaining it
+  // here avoids re-authenticating its definition for each receipt when the
+  // optional pass memo is full; every receipt still checks its exact reference.
+  context.attemptsByStorageId.set(attempt.storageId, attempt);
   if (!registerDecodedReceiptRoot(context, rootDecoded)) {
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
@@ -1301,10 +1308,10 @@ const preparePendingReceiptRestoration = Effect.fn(
 > {
   const attempt = decoded.attemptStorageId === preferredAttempt.storageId
     ? preferredAttempt
-    : yield* restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect(
+    : context.attemptsByStorageId.get(decoded.attemptStorageId) ?? (yield* restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect(
       transaction, preferredAttempt.collision, decoded.attemptStorageId,
       decoded.frame.attemptId, operation,
-    );
+    ));
   if (
     decoded.collisionStorageId !== attempt.collision.storageId ||
     decoded.planStorageId !== attempt.plan.storageId ||
@@ -1316,6 +1323,7 @@ const preparePendingReceiptRestoration = Effect.fn(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
     );
   }
+  context.attemptsByStorageId.set(attempt.storageId, attempt);
   const dependencyRows = yield* loadReceiptDependencySidecars(
     transaction,
     decoded.storageId,
@@ -1668,6 +1676,7 @@ function makeReceiptRestorationContext(): ReceiptRestorationContext {
     storageIdByStepId: new Map(),
     storageIdByDigest: new Map(),
     sidecarsByPlan: new Map(),
+    attemptsByStorageId: new Map(),
   };
 }
 

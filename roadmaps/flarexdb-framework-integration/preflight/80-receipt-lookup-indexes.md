@@ -43,10 +43,22 @@ only requested subjects. Returning to an earlier plan can reconstruct its graph
 again. Existing lineage, duplicate, canonical-byte and projection checks remain
 with the full restoration owners, and the aggregate owns a read-only graph pass.
 
+The same working graph retains each resolved producer attempt by storage ID.
+Root and prerequisite receipts still corroborate its collision, plan, attempt ID
+and fence before reuse. Caller-issued preferred attempts retain their existing
+precedence. This removes repeated producer/definition authentication per receipt
+when the optional memo is exhausted. It does not share live lease authority or
+retain producer state across reads, transactions or working-plan changes.
+Distinct producer attempts still use the existing full attempt-lineage reader;
+overlapping predecessor histories can therefore be reconstructed more than once.
+
 Test forward and reverse dependency order across the digest batch boundary with
 the optional memo exhausted. Each node in a consecutive plan group is fully
 restored once; reverse order can fetch a prerequisite root before its digest
-batch and therefore fetch that root twice. Preserve multi-plan additive and
+batch and therefore fetch that root twice. A single-producer graph restores its
+producer once regardless of receipt count. Exercise A/B/A plan changes and detect
+changed producer bytes after a completed read, then accept corrected bytes after
+the failed read. Preserve multi-plan additive and
 takeover/restart regressions. These are bounded graph-work claims, not a complete
 linear-verifier or installation-performance result.
 
