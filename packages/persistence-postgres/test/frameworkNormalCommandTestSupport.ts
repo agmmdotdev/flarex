@@ -3,6 +3,8 @@ import * as driverRows from "../src/detachDriverRows";
 import * as restoredValues from "../src/migrationCoordination/storedRestoration";
 import * as restoredEvents from "../src/migrationCoordination/storedEventRestoration";
 import { getFrameworkMigrationClaimState } from "../src/migrationCoordination/coordinatorClaim";
+import { readReadyResultEffect } from "../src/migrationCoordination/coordinatorFinalization";
+import type { PreparedCoordinatorDefinition } from "../src/migrationCoordination/coordinatorContracts";
 import { executeNextFrameworkMigrationStepEffect, finalizeFrameworkMigrationClaimEffect, readFrameworkMigrationClaimProgressEffect,
   runFreshFrameworkMigrationCoordinatorEffect, type RunFreshFrameworkMigrationCoordinatorInput,
 } from "../src/migrationCoordination/freshCoordinator";
@@ -57,6 +59,50 @@ export async function assertNormalCommandWorkingSet(input: RunFreshFrameworkMigr
 }
 
 export const normalCommandAlterations = ["receipt", "sidecar", "event", "head", "casReturn"] as const;
+
+/** A candidate can publish between preparation and its caller's readiness probe.
+ * A stale prepared definition must not receive the successor's ready result. */
+export async function assertReadyProbePlanIdentity(input: RunFreshFrameworkMigrationCoordinatorInput,
+  previous: PreparedCoordinatorDefinition) {
+  await expect(runEffect(readReadyResultEffect(input.target, previous, input)))
+    .rejects.toMatchObject({ reason: "planConflict" });
+}
+
+export async function assertLiveClaimRestart(input: RunFreshFrameworkMigrationCoordinatorInput) {
+  const partial = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...input, maximumStepsPerRun: 2 }));
+  if (partial.kind !== "pending") throw new Error("Expected partial claim");
+  const receipts = vi.spyOn(restoredValues, "restoreStoredFrameworkMigrationStepReceipt");
+  const events = vi.spyOn(restoredEvents, "restoreStoredFrameworkMigrationEvent");
+  let receiptPayloads = 0;
+  let eventRows = 0;
+  const detach = driverRows.detachDriverRows;
+  const rows = vi.spyOn(driverRows, "detachDriverRows").mockImplementation(value => {
+    const detached = detach(value);
+    for (const row of detached) {
+      if ("canonicalBytes" in row && "receiptStorageId" in row) receiptPayloads++;
+      if ("canonicalBytes" in row && "eventStorageId" in row) eventRows++;
+    }
+    return detached;
+  });
+  let resumed;
+  try {
+    resumed = await runEffect(runFreshFrameworkMigrationCoordinatorEffect({ ...input, maximumStepsPerRun: 0 }));
+    expect(resumed).toMatchObject({ kind: "pending", completedStepCount: 2, requiredStepCount: partial.requiredStepCount });
+    if (resumed.kind !== "pending") throw new Error("Expected resumed claim");
+    expect(resumed.claim).not.toBe(partial.claim);
+    expect(receipts).not.toHaveBeenCalled();
+    expect(events).not.toHaveBeenCalled();
+    expect(receiptPayloads).toBe(0);
+    expect(eventRows).toBeGreaterThan(0);
+    expect(eventRows).toBeLessThanOrEqual(3);
+  } finally { receipts.mockRestore(); events.mockRestore(); rows.mockRestore(); }
+  if (resumed.kind !== "pending") throw new Error("Expected resumed claim");
+  for (let completed = 2; completed < resumed.requiredStepCount; completed++) {
+    expect(await runEffect(executeNextFrameworkMigrationStepEffect(resumed.claim)))
+      .toMatchObject({ kind: "step", completedStepCount: completed + 1 });
+  }
+  expect(await runEffect(finalizeFrameworkMigrationClaimEffect(resumed.claim))).toMatchObject({ kind: "ready" });
+}
 
 export async function assertNormalCommandRollback(input: RunFreshFrameworkMigrationCoordinatorInput,
   alteration: typeof normalCommandAlterations[number]) {

@@ -19,7 +19,7 @@ import {
 } from "./coordinatorContracts";
 import { type FrameworkMigrationClaim, readFrameworkMigrationClaimProgressEffect } from "./coordinatorClaim";
 import {
-  prepareCoordinatorGraphWithRecoveryEffect,
+  prepareCoordinatorDefinitionWithRecoveryEffect,
   claimCoordinatorAttemptEffect,
 } from "./coordinatorPreparation";
 import { executeNextFrameworkMigrationStepEffect } from "./coordinatorStep";
@@ -102,17 +102,17 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
   const plan = yield* loadFrameworkMigrationPlanEffect(input, base);
   const definition = yield* prepareFrameworkMigrationDefinition(input.target, plan);
 
-  const graph = yield* prepareCoordinatorGraphWithRecoveryEffect(input, plan);
+  const prepared = yield* prepareCoordinatorDefinitionWithRecoveryEffect(input, plan);
   const existingReady = yield* readReadyResultEffect(
     input.target,
-    graph,
+    prepared,
     input,
   );
   if (Option.isSome(existingReady)) return existingReady.value;
 
   const claimResult = yield* claimCoordinatorAttemptEffect(
     input,
-    graph,
+    prepared,
     definition,
   );
   if (claimResult.kind === "busy" || claimResult.kind === "ready") {

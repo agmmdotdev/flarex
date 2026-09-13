@@ -1,4 +1,4 @@
-import { assertNormalCommandWorkingSet, assertNormalCommandRollback, normalCommandAlterations } from "./frameworkNormalCommandTestSupport";
+import { assertNormalCommandWorkingSet, assertNormalCommandRollback, assertLiveClaimRestart, normalCommandAlterations } from "./frameworkNormalCommandTestSupport";
 import { assertInstallerResume, assertInstallerDeadline } from "./frameworkInstallerTestSupport";
 import { assertExplicitFrameworkVerification, assertVerificationRefusesUnreceiptedDdl } from "./frameworkMigrationVerificationTestSupport";
 import * as structuralRunner from "../src/migrationCoordination/relationalStructuralRunner";
@@ -52,6 +52,11 @@ describe("private fresh framework migration coordinator", () => {
   it.each(normalCommandAlterations)("rolls back the normal command after an altered %s result", async alteration => {
     const fixture = await createCoordinatorFixture();
     await assertNormalCommandRollback(fixture.input, alteration);
+  }, TEST_TIMEOUT);
+
+  it.each([0, 4])("reopens the live claim without receipt or event replay with %i extra tables", async extraTables => {
+    const fixture = await createCoordinatorFixture({ extraTables });
+    await assertLiveClaimRestart(fixture.input);
   }, TEST_TIMEOUT);
 
   it("bounds continuation time and awaits cancellation cleanup", async () => {

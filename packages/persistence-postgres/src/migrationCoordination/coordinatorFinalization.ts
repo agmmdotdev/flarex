@@ -29,7 +29,9 @@ import {
 } from "./migrationAttemptTerminalRepository";
 import {
   readFrameworkMigrationCollisionHeadForUpdateInTransactionEffect,
+  readFrameworkMigrationProgressRecordForUpdateInTransactionEffect,
 } from "./migrationCollisionHeadRepository";
+import { readFrameworkMigrationEventRecordInTransactionEffect } from "./migrationEventRepository";
 import {
   captureRelationalStructuralValidationSha256Effect,
   observeRelationalStructuralStepEffect,
@@ -52,7 +54,7 @@ import {
   type RunFreshFrameworkMigrationCoordinatorInput,
   type FrameworkMigrationReadyResult,
   type FrameworkMigrationNotReadyResult,
-  type PreparedCoordinatorGraph,
+  type PreparedCoordinatorDefinition,
   STRUCTURE_MISMATCH_RESULT,
   coordinatorError,
   corruption,
@@ -63,6 +65,7 @@ import {
   withClaimGraphLimits,
   validateLockedClaimHead,
   getFrameworkMigrationClaimState,
+  requireExactPlan,
 } from "./coordinatorClaim";
 import {
   appendEvent,
@@ -359,7 +362,7 @@ function recoverFinalizationDecisionEffect(
 
 export function readReadyResultEffect(
   target: FrameworkMigrationTarget,
-  graph: PreparedCoordinatorGraph,
+  prepared: PreparedCoordinatorDefinition,
   input: RunFreshFrameworkMigrationCoordinatorInput,
 ): Effect.Effect<
   Option.Option<FrameworkMigrationReadyResult>,
@@ -367,13 +370,13 @@ export function readReadyResultEffect(
 > {
   return readReadyResultForRequest(
     target,
-    graph,
+    prepared,
     ordinaryRequest(input),
   ).pipe(Effect.catchTag(
     "FrameworkMigrationDecisionUncertainIssue",
     issue => readReadyResultForRequest(
       target,
-      graph,
+      prepared,
       recoveryRequest(input, issue.sessionIdentity),
     ),
   ));
@@ -381,7 +384,7 @@ export function readReadyResultEffect(
 
 function readReadyResultForRequest(
   target: FrameworkMigrationTarget,
-  graph: PreparedCoordinatorGraph,
+  prepared: PreparedCoordinatorDefinition,
   request: FrameworkMigrationTransactionRequest,
 ): Effect.Effect<
   Option.Option<FrameworkMigrationReadyResult>,
@@ -394,10 +397,23 @@ function readReadyResultForRequest(
       transaction,
       target,
       raw => Effect.gen(function* () {
+        if (request.kind === "ordinary") {
+          const selected = yield* readFrameworkMigrationProgressRecordForUpdateInTransactionEffect(raw, prepared.collision);
+          if (Option.isNone(selected)) return yield* Effect.fail(corruption("prepare", "Collision head disappeared after preparation"));
+          const progress = selected.value;
+          if (progress.currentPlanStorageId !== prepared.plan.storageId || progress.head.frame.currentPlan.planSha256 !== prepared.plan.plan.migrationPlanSha256) {
+            return yield* Effect.fail(coordinatorError("prepare", "planConflict", "Migration collision lane contains another plan"));
+          }
+          const reference = progress.head.frame.lastEvent;
+          if (progress.lastEventStorageId === null || reference === null) return Option.none();
+          const event = yield* readFrameworkMigrationEventRecordInTransactionEffect(raw, progress.collision,
+            progress.lastEventStorageId, reference.sequence, reference.eventSha256);
+          if (event.event.frame.kind !== "readinessPublished") return Option.none();
+        }
         const head = yield*
           readFrameworkMigrationCollisionHeadForUpdateInTransactionEffect(
             raw,
-            graph.collision,
+            prepared.collision,
           );
         if (Option.isNone(head)) {
           return yield* Effect.fail(corruption(
@@ -405,6 +421,7 @@ function readReadyResultForRequest(
             "Collision head disappeared after preparation",
           ));
         }
+        yield* requireExactPlan(head.value.plan.plan, prepared.plan.plan, "prepare");
         return yield* readyFromLockedHead(raw, head.value, true);
       }),
     ),

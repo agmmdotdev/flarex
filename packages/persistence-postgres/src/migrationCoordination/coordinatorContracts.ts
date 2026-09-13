@@ -18,10 +18,8 @@ import type { FrameworkMigrationValueError } from "./errors";
 import type { FrameworkMigrationBaseInstallation } from "./model";
 import type { RelationalStructuralRunnerError } from "./relationalStructuralRunner";
 import type { FrameworkMigrationRepositoryError } from "./repositoryErrors";
-import type { RestoredFrameworkMigrationCollisionHead } from "./storedEventRestoration";
 import type {
   RestoredFrameworkMigrationCollisionDomain,
-  RestoredFrameworkMigrationPlanAdmission,
   RestoredFreshRelationalMigrationPlan,
 } from "./storedRestoration";
 import type {
@@ -116,11 +114,9 @@ export type FreshFrameworkMigrationCoordinatorResult =
   | FrameworkMigrationBusyResult
   | FrameworkMigrationNotReadyResult;
 
-export interface PreparedCoordinatorGraph {
+export interface PreparedCoordinatorDefinition {
   readonly collision: RestoredFrameworkMigrationCollisionDomain;
   readonly plan: RestoredFreshRelationalMigrationPlan;
-  readonly admission: RestoredFrameworkMigrationPlanAdmission;
-  readonly head: RestoredFrameworkMigrationCollisionHead;
 }
 
 export const STRUCTURE_MISMATCH_RESULT = Object.freeze({

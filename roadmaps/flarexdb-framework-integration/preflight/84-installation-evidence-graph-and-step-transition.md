@@ -4,8 +4,9 @@ Status: implementation in progress under approved preflight 76. Records 82/83
 complete trusted construction; this phase addresses the remaining graph and
 execution algorithm. The [protected normal command](./85-protected-normal-step-command.md)
 now replaces full reconstruction during step execution and claim progress reads.
-Opening, finalization, uncertain recovery and explicit verification retain full
-evidence contracts. This does not revive proposal 75, which still performed a
+Same-owner live restart now uses the [protected opening path](./87-live-claim-restart-without-history-replay.md).
+Positive readiness, other claim acquisition, finalization, uncertain recovery and
+explicit verification retain full evidence contracts. This does not revive proposal 75, which still performed a
 growing history read before every step.
 
 ## Current evidence handoff
@@ -50,7 +51,8 @@ bytes/digests must match any retained node. Independent publication prerequisite
 and admission subjects can still enter separate owner reads. Full work accounting,
 final graph consolidation and removal of
 displaced assembly remain open. The protected normal transition below is
-implemented by record 85; normal restart and cold opening remain separate gates.
+implemented by record 85; record 87 replaces live-claim restart history replay.
+Settled cold-opening accounting remains a separate gate.
 This handoff alone does not establish the complete linear-verification or timing
 acceptance gates.
 

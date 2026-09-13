@@ -1,3 +1,4 @@
+import { assertReadyProbePlanIdentity } from "./frameworkNormalCommandTestSupport";
 import { assertAdditiveInstaller } from "./frameworkInstallerTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { verifyFrameworkMigrationEffect } from "../src/migrationCoordination/verify";
@@ -21,6 +22,8 @@ describe("private additive framework migration coordinator", () => {
   it("installs through the bounded installer and resumes durable state", async () => {
     const fixture = await createAdditiveFixture();
     await assertAdditiveInstaller(fixture.input);
+    await assertReadyProbePlanIdentity(fixture.input, { collision: fixture.base.readiness.installation.collision,
+      plan: fixture.base.readiness.installation.plan });
   }, 180_000);
 
   it("refuses an exact added table without its own receipt", async () => {

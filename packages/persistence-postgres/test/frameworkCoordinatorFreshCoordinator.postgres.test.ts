@@ -1,4 +1,4 @@
-import { assertNormalCommandWorkingSet, assertNormalCommandRollback, normalCommandAlterations } from "./frameworkNormalCommandTestSupport";
+import { assertNormalCommandWorkingSet, assertNormalCommandRollback, assertLiveClaimRestart, normalCommandAlterations } from "./frameworkNormalCommandTestSupport";
 import { assertInstallerResume, assertInstallerDeadline } from "./frameworkInstallerTestSupport";
 import { assertExplicitFrameworkVerification, assertVerificationRefusesUnreceiptedDdl } from "./frameworkMigrationVerificationTestSupport";
 import * as structuralRunner from "../src/migrationCoordination/relationalStructuralRunner";
@@ -33,6 +33,10 @@ native("native fresh framework migration coordinator", () => {
 
   it.each(normalCommandAlterations)("rolls back the normal command after an altered %s result", async alteration => {
     await withNativeCoordinator(fixture => assertNormalCommandRollback(fixture.input, alteration));
+  }, 180_000);
+
+  it.each([0, 4])("reopens the live claim without receipt or event replay with %i extra tables", async extraTables => {
+    await withNativeCoordinator(fixture => assertLiveClaimRestart(fixture.input), {}, extraTables);
   }, 180_000);
 
   it("bounds continuation time and awaits cancellation cleanup", async () => {

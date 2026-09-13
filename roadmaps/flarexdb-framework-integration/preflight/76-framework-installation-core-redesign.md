@@ -6,7 +6,7 @@ recommended replacement direction for the narrower, unapproved
 [protected direct-dependency command](./85-protected-normal-step-command.md);
 takeover retains original plan receipts. The coordinator
 [prepares execution definitions once per run and exposes an explicit read-only audit](./79-prepared-definition-and-explicit-audit.md).
-Linear full verification, restart/opening consolidation and performance acceptance remain open. ShippingProfile remains
+Linear full verification, settled cold-opening accounting and performance acceptance remain open. ShippingProfile remains
 paused. Neither this document nor its examples activate future framework modules.
 
 ## Current Implementation Boundary
@@ -61,10 +61,14 @@ prefix and independently checks its stored inventory. The protected normal
 command now reads fresh locked head/event/tail projections and direct completion
 references, then validates the actual receipt, sidecars, event and guarded head
 write in one target-owned transaction. Its claim retains immutable definition and
-actual attempt lineage, never cached live progress or lease authority. Initial
-opening, finalization, uncertain recovery and explicit verification retain full
-evidence checks. Remaining graph consolidation, normal restart/cold opening,
-linear full verification and performance acceptance remain open.
+actual attempt lineage, never cached live progress or lease authority.
+[Live-claim restart](./87-live-claim-restart-without-history-replay.md) now
+authenticates the prepared admission and actual attempt lineage, then reuses fresh
+normal progress checks without replaying receipt/event history. Ordinary negative
+readiness probes issue no readiness authority. Positive readiness, new/expired or
+competing claims, finalization, uncertain recovery and explicit verification retain
+their full evidence owners. Remaining graph consolidation, settled cold-opening
+accounting, linear full verification and performance acceptance remain open.
 
 ### Connected validation boundaries
 
@@ -188,10 +192,10 @@ repositories or compensates for its cost.
 
 This is a metadata and execution-contract redesign. `freshCoordinator.ts` now
 owns bounded run orchestration over separate preparation, claim, step and
-finalization operations. The step path still restores a complete prefix, then
-receipt/event/head operations restore overlapping prerequisites again. The
-collision head's completed position selects the next step, but ordinary execution
-still corroborates it against that reconstructed prefix.
+finalization operations. Normal steps use the collision head's committed position
+and exact direct dependency completions; same-owner live restarts reauthenticate
+the definition and progress. Full restoration remains at named publication,
+takeover, recovery and verification boundaries.
 
 The nearest connected proof remains the seventeen-table Product/ShippingProfile
 installation, cold reopening and unchanged native operations. Include Payload's

@@ -16,7 +16,7 @@ import {
   captureFrameworkMigrationEvent,
   captureFrameworkMigrationPlanAdmission,
 } from "./canonical";
-import { ensureFrameworkMigrationAttemptStartInTransactionEffect } from "./migrationAttemptRepository";
+import { ensureFrameworkMigrationAttemptStartInTransactionEffect, restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect } from "./migrationAttemptRepository";
 import {
   ensureFrameworkMigrationAttemptTerminalInTransactionEffect,
   readFrameworkMigrationAttemptTerminalByAttemptInTransactionEffect,
@@ -25,10 +25,12 @@ import {
   compareAndSwapFrameworkMigrationCollisionHeadInTransactionEffect,
   initializeFrameworkMigrationCollisionHeadInTransactionEffect,
   readFrameworkMigrationCollisionHeadForUpdateInTransactionEffect,
+  readFrameworkMigrationProgressRecordForUpdateInTransactionEffect,
 } from "./migrationCollisionHeadRepository";
 import { appendFrameworkMigrationEventInTransactionEffect } from "./migrationEventRepository";
 import {
   ensureFrameworkMigrationPlanAdmissionInTransactionEffect,
+  restoreStoredFrameworkMigrationPlanAdmissionReferenceInTransactionEffect,
 } from "./migrationPlanAdmissionRepository";
 import { ensureFreshRelationalMigrationPlanInTransactionEffect } from "./migrationPlanRepository";
 import {
@@ -68,13 +70,15 @@ import {
   type RunFreshFrameworkMigrationCoordinatorInput,
   type FrameworkMigrationReadyResult,
   type FrameworkMigrationBusyResult,
-  type PreparedCoordinatorGraph,
+  type PreparedCoordinatorDefinition,
   coordinatorError,
   corruption,
 } from "./coordinatorContracts";
 import {
   type FrameworkMigrationClaim,
   makeClaim,
+  getFrameworkMigrationClaimState,
+  loadLockedClaimProgress,
   requireAdmissibleBase,
   requireExactPlan,
 } from "./coordinatorClaim";
@@ -91,29 +95,29 @@ import {
 } from "./coordinatorJournal";
 import { readyFromLockedHead } from "./coordinatorFinalization";
 
-function prepareCoordinatorGraphEffect(
+function prepareCoordinatorDefinitionEffect(
   input: RunFreshFrameworkMigrationCoordinatorInput,
   plan: RelationalMigrationPlan,
-): Effect.Effect<PreparedCoordinatorGraph, FrameworkMigrationCoordinatorFailure> {
+): Effect.Effect<PreparedCoordinatorDefinition, FrameworkMigrationCoordinatorFailure> {
   return runFrameworkMigrationTargetTransactionEffect(
     input.target,
     ordinaryRequest(input),
     transaction => withFrameworkMigrationRawTransactionEffect(
       transaction,
       input.target,
-      raw => prepareCoordinatorGraphInTransaction(raw, plan, input.commerceProfile),
+      raw => prepareCoordinatorDefinitionInTransaction(raw, plan, "ordinary", input.commerceProfile),
     ),
   );
 }
 
-export function prepareCoordinatorGraphWithRecoveryEffect(
+export function prepareCoordinatorDefinitionWithRecoveryEffect(
   input: RunFreshFrameworkMigrationCoordinatorInput,
   plan: RelationalMigrationPlan,
 ): Effect.Effect<
-  PreparedCoordinatorGraph,
+  PreparedCoordinatorDefinition,
   FrameworkMigrationCoordinatorFailure
 > {
-  return prepareCoordinatorGraphEffect(input, plan).pipe(Effect.catchTag(
+  return prepareCoordinatorDefinitionEffect(input, plan).pipe(Effect.catchTag(
     "FrameworkMigrationDecisionUncertainIssue",
     issue => runFrameworkMigrationTargetTransactionEffect(
       input.target,
@@ -121,19 +125,20 @@ export function prepareCoordinatorGraphWithRecoveryEffect(
       transaction => withFrameworkMigrationRawTransactionEffect(
         transaction,
         input.target,
-        raw => prepareCoordinatorGraphInTransaction(raw, plan, input.commerceProfile),
+        raw => prepareCoordinatorDefinitionInTransaction(raw, plan, "recovery", input.commerceProfile),
       ),
     ),
   ));
 }
 
-const prepareCoordinatorGraphInTransaction = Effect.fn(
-  "FreshFrameworkMigrationCoordinator.prepareGraph",
+const prepareCoordinatorDefinitionInTransaction = Effect.fn(
+  "FreshFrameworkMigrationCoordinator.prepareDefinition",
 )(function* (
   transaction: FlarexMetadataTransaction,
   planValue: RelationalMigrationPlan,
+  requestKind: FrameworkMigrationTransactionRequest["kind"],
   commerceProfile?: import("../commerceTransaction/profile").CommerceInstallationProfile,
-): Effect.fn.Return<PreparedCoordinatorGraph, FrameworkMigrationCoordinatorFailure> {
+): Effect.fn.Return<PreparedCoordinatorDefinition, FrameworkMigrationCoordinatorFailure> {
   const target = yield* ensureFrameworkSchemaTargetNamespaceInTransactionEffect(
     transaction,
     planValue.targetNamespace,
@@ -159,6 +164,22 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
     collision,
     planValue,
   );
+  if (requestKind === "ordinary") {
+    const selected = yield* readFrameworkMigrationProgressRecordForUpdateInTransactionEffect(transaction, collision);
+    if (Option.isSome(selected) && selected.value.head.frame.currentPlan.planSha256 === planValue.migrationPlanSha256) {
+      const head = selected.value;
+      const admission = yield* restoreStoredFrameworkMigrationPlanAdmissionReferenceInTransactionEffect(transaction, collision,
+        head.currentAdmissionStorageId, head.head.frame.currentPlan.admissionSha256, "readAdmission");
+      yield* requireExactPlan(admission.plan.plan, planValue, "prepare");
+      if (head.currentPlanStorageId !== admission.plan.storageId || head.completedStepCount > admission.plan.plan.frame.steps.length) {
+        return yield* Effect.fail(corruption("prepare", "Prepared head does not match its admitted definition"));
+      }
+      if ((admission.admission.frame.admissionProfile === "registered-commerce-fresh") !== (commerceProfile !== undefined)) {
+        return yield* Effect.fail(coordinatorError("prepare", "planConflict", "Commerce admission requires its exact live descriptor"));
+      }
+      return Object.freeze({ collision: admission.collision, plan: admission.plan });
+    }
+  }
   const existingHead = yield*
     readFrameworkMigrationCollisionHeadForUpdateInTransactionEffect(
       transaction,
@@ -172,8 +193,6 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
     return Object.freeze({
       collision: existingHead.value.collision,
       plan: existingHead.value.plan,
-      admission: existingHead.value.admission,
-      head: existingHead.value,
     });
   }
   if (planValue.frame.version === 1 && Option.isSome(existingHead)) {
@@ -245,7 +264,7 @@ const prepareCoordinatorGraphInTransaction = Effect.fn(
     event,
     headValue,
   );
-  return Object.freeze({ collision, plan, admission, head });
+  return Object.freeze({ collision: head.collision, plan: head.plan });
 });
 
 type ClaimCoordinatorAttemptResult =
@@ -255,7 +274,7 @@ type ClaimCoordinatorAttemptResult =
 
 export function claimCoordinatorAttemptEffect(
   input: RunFreshFrameworkMigrationCoordinatorInput,
-  graph: PreparedCoordinatorGraph,
+  prepared: PreparedCoordinatorDefinition,
   definition: PreparedFrameworkMigrationDefinition,
 ): Effect.Effect<ClaimCoordinatorAttemptResult, FrameworkMigrationCoordinatorFailure> {
   const run = (
@@ -265,9 +284,10 @@ export function claimCoordinatorAttemptEffect(
     request,
     transaction => claimCoordinatorAttemptInTransaction(
       input,
-      graph,
+      prepared,
       definition,
       transaction,
+      request.kind,
     ),
   );
   return run(ordinaryRequest(input)).pipe(Effect.catchTag(
@@ -276,22 +296,56 @@ export function claimCoordinatorAttemptEffect(
   ));
 }
 
+/** Reopening the exact live owner reauthenticates its immutable definition and
+ * lineage, then applies the normal command's fresh progress checks. Other claim
+ * lifecycle states remain with admission/takeover below. Failures never fall back. */
+const resumeLiveCoordinatorClaim = Effect.fn("FrameworkMigrationCoordinator.resumeLiveClaim")(
+  function* (raw: FlarexMetadataTransaction, input: RunFreshFrameworkMigrationCoordinatorInput,
+    prepared: PreparedCoordinatorDefinition, definition: PreparedFrameworkMigrationDefinition): Effect.fn.Return<
+      Option.Option<FrameworkMigrationClaim>, FrameworkMigrationCoordinatorFailure
+    > {
+    const selected = yield* readFrameworkMigrationProgressRecordForUpdateInTransactionEffect(raw, prepared.collision);
+    if (Option.isNone(selected)) return yield* Effect.fail(corruption("claim", "Collision head disappeared during claim"));
+    const head = selected.value;
+    if (head.currentPlanStorageId !== prepared.plan.storageId || head.head.frame.currentPlan.planSha256 !== prepared.plan.plan.migrationPlanSha256) {
+      return yield* Effect.fail(coordinatorError("claim", "planConflict", "Migration collision lane contains another plan"));
+    }
+    const current = head.head.frame.currentAttempt;
+    if (current === null || current.attemptId !== input.attemptId || current.leaseOwnerId !== input.leaseOwnerId) return Option.none();
+    const clock = yield* readDatabaseClock(raw, 1);
+    if (Date.parse(current.leaseExpiresAt) <= Date.parse(clock.databaseNow)) return Option.none();
+    if (head.currentAttemptStorageId === null) return yield* Effect.fail(corruption("claim", "Current attempt reference is missing"));
+    const attempt = yield* restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect(raw, prepared.collision,
+      head.currentAttemptStorageId, current.attemptId, "readAttemptStart");
+    const claim = yield* Effect.fromResult(makeClaim(input, attempt, definition));
+    const state = getFrameworkMigrationClaimState(claim);
+    if (state === undefined) return yield* Effect.fail(corruption("claim", "Resumed claim state is unavailable"));
+    yield* loadLockedClaimProgress(raw, state);
+    return Option.some(claim);
+  },
+);
+
 const claimCoordinatorAttemptInTransaction = Effect.fn(
   "FreshFrameworkMigrationCoordinator.claim",
 )(function* (
   input: RunFreshFrameworkMigrationCoordinatorInput,
-  graph: PreparedCoordinatorGraph,
+  prepared: PreparedCoordinatorDefinition,
   definition: PreparedFrameworkMigrationDefinition,
   transaction: FrameworkMigrationTransaction,
+  requestKind: FrameworkMigrationTransactionRequest["kind"],
 ): Effect.fn.Return<ClaimCoordinatorAttemptResult, FrameworkMigrationCoordinatorFailure> {
   return yield* withFrameworkMigrationRawTransactionEffect(
     transaction,
     input.target,
     raw => Effect.gen(function* () {
+      if (requestKind === "ordinary") {
+        const resumed = yield* resumeLiveCoordinatorClaim(raw, input, prepared, definition);
+        if (Option.isSome(resumed)) return Object.freeze({ kind: "claim" as const, claim: resumed.value });
+      }
       const lockedHead = yield*
         readFrameworkMigrationCollisionHeadForUpdateInTransactionEffect(
           raw,
-          graph.collision,
+          prepared.collision,
         );
       if (Option.isNone(lockedHead)) {
         return yield* Effect.fail(corruption(
@@ -300,7 +354,7 @@ const claimCoordinatorAttemptInTransaction = Effect.fn(
         ));
       }
       let currentHead = lockedHead.value;
-      yield* requireExactPlan(currentHead.plan.plan, graph.plan.plan, "claim");
+      yield* requireExactPlan(currentHead.plan.plan, prepared.plan.plan, "claim");
       const ready = yield* readyFromLockedHead(raw, currentHead, true);
       if (Option.isSome(ready)) return ready.value;
       yield* requireAdmissibleBase(raw, currentHead.collision, currentHead.plan.plan);
