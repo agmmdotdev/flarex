@@ -1,3 +1,4 @@
+import { isRestoredFrameworkSchemaInstallation, isRestoredFrameworkSchemaReadiness } from "../frameworkSchema/installation/storedMetadataRestoration";
 import { withFrameworkGraphReadPass } from "./graphReadPass";
 import { readFrameworkMigrationStepReceiptPrefixInTransactionEffect, type FrameworkMigrationCommittedCompletion } from "./migrationStepReceiptRepository";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -50,6 +51,8 @@ import {
 import { fxSystemFrameworkMigrationCollisionHeads } from "./schema";
 import {
   isRestoredFrameworkMigrationAttemptStart,
+  isRestoredFrameworkMigrationAttemptTerminal,
+  restoredFrameworkMigrationAttemptTerminalStepReceipts,
   isRestoredFrameworkMigrationCollisionDomain,
   isRestoredFrameworkMigrationPlanAdmission,
   type RestoredFrameworkMigrationAttemptStart,
@@ -67,6 +70,7 @@ import {
   restoredFrameworkMigrationEventAuthority,
   type RestoredFrameworkMigrationCollisionHead,
   type RestoredFrameworkMigrationEvent,
+  type RestoredFrameworkMigrationEventSubject,
   type StoredFrameworkMigrationCollisionHeadRow,
 } from "./storedEventRestoration";
 import { isStoredFrameworkMigrationCollisionHeadFrame } from
@@ -243,13 +247,72 @@ export const advanceFrameworkMigrationProgressRecordInTransactionEffect = Effect
       completedStepCount++;
       lastReceipt = Object.freeze({ storageId: completion.storageId, sha256: completion.sha256 });
     } else return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
-    const head = yield* captureFrameworkMigrationCollisionHead({ admission: attempt.admission.admission,
+    return yield* persistProgressTransition(transaction, expected, attempt.admission, event, attempt.storageId, currentAttempt, completedStepCount, lastReceipt);
+  },
+);
+
+
+type PublicationSubject = Extract<RestoredFrameworkMigrationEventSubject, { kind: "attemptTerminated" | "installationPublished" | "readinessPublished" }>;
+
+/** Only the protected finalizer advances these three publication events. The
+ * received subject is issued by its existing owner from actual stored rows. */
+export const advanceFrameworkMigrationPublicationProgressInTransactionEffect = Effect.fn(
+  "FrameworkMigrationCollisionHeadRepository.advancePublication",
+)(function* (transaction: FlarexMetadataTransaction, expected: FrameworkMigrationProgressRecord,
+  previous: FrameworkMigrationEventRecord, event: FrameworkMigrationEventRecord, subject: PublicationSubject,
+): Effect.fn.Return<FrameworkMigrationProgressRecord, FrameworkMigrationRepositoryError> {
+  const operation = "compareAndSwapCollisionHead" as const;
+  const frame = expected.head.frame;
+  const next = event.event.frame;
+  const terminal = subject.kind === "attemptTerminated" ? subject.terminal : subject.kind === "installationPublished" ? subject.installation.terminal : subject.readiness.installation.terminal;
+  if (!isRestoredFrameworkMigrationAttemptTerminal(terminal) ||
+    (subject.kind === "installationPublished" && !isRestoredFrameworkSchemaInstallation(subject.installation)) ||
+    (subject.kind === "readinessPublished" && !isRestoredFrameworkSchemaReadiness(subject.readiness))) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+  }
+  const attempt = terminal.attempt;
+  const receipts = restoredFrameworkMigrationAttemptTerminalStepReceipts(terminal);
+  if (terminal.terminal.frame.outcome.kind !== "succeeded" || receipts === undefined ||
+    expected.completedStepCount !== receipts.length || receipts.length !== attempt.plan.plan.frame.steps.length ||
+    expected.lastReceipt?.storageId !== receipts.at(-1)?.storageId || expected.lastReceipt?.sha256 !== receipts.at(-1)?.receipt.sha256 ||
+    expected.currentPlanStorageId !== attempt.plan.storageId || expected.currentAdmissionStorageId !== attempt.admission.storageId ||
+    expected.collision.storageId !== attempt.collision.storageId || frame.attemptFence !== attempt.attempt.frame.attemptFence ||
+    frame.currentPlan.planSha256 !== attempt.plan.plan.migrationPlanSha256 || frame.currentPlan.admissionSha256 !== attempt.admission.admission.sha256 ||
+    previous.storageId !== expected.lastEventStorageId || previous.collisionStorageId !== expected.collision.storageId ||
+    previous.event.sha256 !== frame.lastEvent?.eventSha256 || previous.event.frame.sequence !== frame.lastEvent.sequence ||
+    event.collisionStorageId !== expected.collision.storageId || event.previousEventStorageId !== previous.storageId ||
+    next.previousEvent?.eventSha256 !== previous.event.sha256 || next.previousEvent.sequence !== previous.event.frame.sequence ||
+    BigInt(next.sequence) !== BigInt(previous.event.frame.sequence) + 1n || next.kind !== subject.kind) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+  }
+  const matches = subject.kind === "attemptTerminated"
+    ? next.kind === "attemptTerminated" && next.terminalSha256 === terminal.terminal.sha256 &&
+      expected.currentAttemptStorageId === attempt.storageId && frame.currentAttempt?.attemptId === attempt.attempt.frame.attemptId &&
+      frame.currentAttempt.attemptFence === attempt.attempt.frame.attemptFence
+    : expected.currentAttemptStorageId === null && frame.currentAttempt === null && (subject.kind === "installationPublished"
+      ? next.kind === "installationPublished" && next.installationReceiptSha256 === subject.installation.installation.sha256 &&
+        previous.event.frame.kind === "attemptTerminated" && previous.event.frame.terminalSha256 === terminal.terminal.sha256
+      : next.kind === "readinessPublished" && next.readinessSha256 === subject.readiness.readiness.sha256 &&
+        previous.event.frame.kind === "installationPublished" && previous.event.frame.installationReceiptSha256 === subject.readiness.installation.installation.sha256);
+  if (!matches) return yield* Effect.fail(FrameworkMigrationRepositoryError.referenceRefusal(operation));
+  return yield* persistProgressTransition(transaction, expected, attempt.admission, event, null, null, expected.completedStepCount, expected.lastReceipt);
+});
+
+const persistProgressTransition = Effect.fn("FrameworkMigrationCollisionHeadRepository.persistProgressTransition")(
+  function* (transaction: FlarexMetadataTransaction, expected: FrameworkMigrationProgressRecord, admission: RestoredFrameworkMigrationPlanAdmission,
+    event: FrameworkMigrationEventRecord, currentAttemptStorageId: bigint | null, currentAttempt: FrameworkMigrationCollisionHeadFrame["currentAttempt"],
+    completedStepCount: number, lastReceipt: FrameworkMigrationProgressRecord["lastReceipt"],
+  ): Effect.fn.Return<FrameworkMigrationProgressRecord, FrameworkMigrationRepositoryError> {
+    const operation = "compareAndSwapCollisionHead" as const;
+    const frame = expected.head.frame;
+    const nextEvent = event.event.frame;
+    const head = yield* captureFrameworkMigrationCollisionHead({ admission: admission.admission,
       headRevision: String(BigInt(frame.headRevision) + 1n), attemptFence: frame.attemptFence, currentAttempt,
       lastEvent: { sequence: nextEvent.sequence, eventSha256: event.event.sha256 }, updatedAt: nextEvent.recordedAt,
     }).pipe(Effect.mapError(error => mapInputValueError(operation, error)));
     const values = yield* encodeCollisionHeadWriteValues(head, {
       currentPlanStorageId: expected.currentPlanStorageId, currentAdmissionStorageId: expected.currentAdmissionStorageId,
-      currentAttemptStorageId: attempt.storageId, lastEventStorageId: event.storageId, completedStepCount,
+      currentAttemptStorageId: currentAttemptStorageId, lastEventStorageId: event.storageId, completedStepCount,
       lastReceiptStorageId: lastReceipt?.storageId ?? null,
       lastStepReceiptSha256: lastReceipt === null ? null : yield* decodeAuthenticatedSha256(lastReceipt.sha256),
     }, operation);
@@ -259,7 +322,7 @@ export const advanceFrameworkMigrationProgressRecordInTransactionEffect = Effect
     const actual = yield* decodeProgressRecord(selected.value, expected.collision, operation);
     if (actual.head.sha256 !== head.sha256 || actual.head.canonicalJson !== head.canonicalJson || actual.completedStepCount !== completedStepCount ||
       actual.currentPlanStorageId !== expected.currentPlanStorageId || actual.currentAdmissionStorageId !== expected.currentAdmissionStorageId ||
-      actual.currentAttemptStorageId !== attempt.storageId || actual.lastEventStorageId !== event.storageId ||
+      actual.currentAttemptStorageId !== currentAttemptStorageId || actual.lastEventStorageId !== event.storageId ||
       actual.lastReceipt?.storageId !== lastReceipt?.storageId || actual.lastReceipt?.sha256 !== lastReceipt?.sha256) {
       return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
     }

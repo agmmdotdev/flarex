@@ -1,3 +1,5 @@
+import { FRAMEWORK_MIGRATION_EVENT_FORMAT, FRAMEWORK_MIGRATION_EVENT_VERSION } from "./model";
+import { verifyFrameworkMigrationReceiptInventoryInTransactionEffect } from "./migrationStepReceiptRepository";
 /**
  * Final validation, installation/readiness publication and uncertain-finalization
  * recovery.
@@ -10,28 +12,30 @@ import {
   captureFrameworkSchemaReadiness,
 } from "../frameworkSchema/installation/canonical";
 import {
-  appendFrameworkSchemaAvailabilityHistoryInTransactionEffect,
+  writeInitialFrameworkSchemaAvailabilityHistoryInTransactionEffect,
 } from "../frameworkSchema/installation/availabilityHistoryRepository";
 import {
-  initializeFrameworkSchemaAvailabilityHeadInTransactionEffect,
+  writeInitialFrameworkSchemaAvailabilityHeadInTransactionEffect,
   readFrameworkSchemaAvailabilityHeadInTransactionEffect,
 } from "../frameworkSchema/installation/availabilityHeadRepository";
 import {
-  ensureFrameworkSchemaInstallationInTransactionEffect,
+  writeFrameworkSchemaInstallationInTransactionEffect,
 } from "../frameworkSchema/installation/installationRepository";
 import {
-  ensureFrameworkSchemaReadinessInTransactionEffect,
+  writeFrameworkSchemaReadinessInTransactionEffect,
 } from "../frameworkSchema/installation/readinessRepository";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
-import { captureFrameworkMigrationAttemptTerminal } from "./canonical";
+import { captureFrameworkMigrationAttemptTerminal, captureFrameworkMigrationEvent } from "./canonical";
 import {
-  ensureFrameworkMigrationAttemptTerminalInTransactionEffect,
+  writeFrameworkMigrationAttemptTerminalInTransactionEffect,
 } from "./migrationAttemptTerminalRepository";
 import {
   readFrameworkMigrationCollisionHeadForUpdateInTransactionEffect,
   readFrameworkMigrationProgressRecordForUpdateInTransactionEffect,
+  advanceFrameworkMigrationPublicationProgressInTransactionEffect,
+  type FrameworkMigrationProgressRecord,
 } from "./migrationCollisionHeadRepository";
-import { readFrameworkMigrationEventRecordInTransactionEffect } from "./migrationEventRepository";
+import { readFrameworkMigrationEventRecordInTransactionEffect, appendFrameworkMigrationEventRecordInTransactionEffect, type FrameworkMigrationEventRecord } from "./migrationEventRepository";
 import {
   captureRelationalStructuralValidationSha256Effect,
   observeRelationalStructuralStepEffect,
@@ -40,6 +44,7 @@ import {
   restoredFrameworkMigrationCollisionHeadAuthority,
   restoredFrameworkMigrationEventAuthority,
   type RestoredFrameworkMigrationCollisionHead,
+  type RestoredFrameworkMigrationEventSubject,
 } from "./storedEventRestoration";
 import {
   type FrameworkMigrationSessionIdentity,
@@ -68,8 +73,7 @@ import {
   requireExactPlan,
 } from "./coordinatorClaim";
 import {
-  appendEvent,
-  advanceHead,
+  nextInt64,
   readDatabaseClock,
   ordinaryRequest,
   recoveryRequest,
@@ -148,9 +152,13 @@ const finalizeInTransaction = Effect.fn(
       "Collision head disappeared during finalization",
     ));
   }
+  yield* requireExactPlan(initialHead.value.plan.plan, state.definition.plan, "finalize");
   const existingReady = yield* readyFromLockedHead(raw, initialHead.value, true);
   if (Option.isSome(existingReady)) return existingReady.value;
-  const locked = yield* validateLockedClaimHead(raw, state, initialHead.value);
+  const graph = restoredFrameworkMigrationCollisionHeadAuthority(initialHead.value);
+  if (graph === undefined) return yield* Effect.fail(corruption("finalize", "Missing locked installation evidence"));
+  const locked = yield* validateLockedClaimHead(raw, state, initialHead.value, true, graph.receipts);
+  yield* verifyFrameworkMigrationReceiptInventoryInTransactionEffect(raw, locked.head.plan, locked.receipts);
   yield* reserveAdditiveEvents(locked.head, 4);
   if (locked.head.progress.completedStepCount !== state.definition.plan.frame.steps.length) {
     return yield* Effect.fail(coordinatorError(
@@ -188,6 +196,18 @@ const finalizeInTransaction = Effect.fn(
     validationObservation.value !== "exact"
   ) return STRUCTURE_MISMATCH_RESULT;
   const clock = yield* readDatabaseClock(raw, 1);
+  const selectedProgress = yield* readFrameworkMigrationProgressRecordForUpdateInTransactionEffect(raw, locked.head.collision);
+  if (Option.isNone(selectedProgress)) return yield* Effect.fail(corruption("finalize", "Missing locked publication progress"));
+  const progress = selectedProgress.value;
+  if (progress.head.sha256 !== locked.head.head.sha256 || progress.head.canonicalJson !== locked.head.head.canonicalJson ||
+    progress.currentPlanStorageId !== locked.head.plan.storageId || progress.currentAdmissionStorageId !== locked.attempt.admission.storageId ||
+    progress.currentAttemptStorageId !== locked.attempt.storageId || progress.completedStepCount !== locked.receipts.length ||
+    progress.lastReceipt?.storageId !== locked.receipts.at(-1)?.storageId || progress.lastReceipt?.sha256 !== locked.receipts.at(-1)?.receipt.sha256 ||
+    progress.lastEventStorageId === null || progress.head.frame.lastEvent === null) {
+    return yield* Effect.fail(corruption("finalize", "Publication progress changed after complete verification"));
+  }
+  const previousEvent = yield* readFrameworkMigrationEventRecordInTransactionEffect(raw, progress.collision, progress.lastEventStorageId,
+    progress.head.frame.lastEvent.sequence, progress.head.frame.lastEvent.eventSha256);
   const terminalValue = yield* captureFrameworkMigrationAttemptTerminal({
     attempt: locked.attempt.attempt,
     outcome: Object.freeze({
@@ -198,30 +218,13 @@ const finalizeInTransaction = Effect.fn(
     terminalAt: clock.databaseNow,
   });
   const terminal = yield*
-    ensureFrameworkMigrationAttemptTerminalInTransactionEffect(
+    writeFrameworkMigrationAttemptTerminalInTransactionEffect(
       raw,
       locked.attempt,
       locked.receipts,
       terminalValue,
     );
-  const terminatedEvent = yield* appendEvent(
-    raw,
-    locked.head,
-    clock.databaseNow,
-    Object.freeze({ kind: "attemptTerminated", terminal }),
-    Object.freeze({
-      kind: "attemptTerminated",
-      terminalSha256: terminal.terminal.sha256,
-    }),
-  );
-  let head = yield* advanceHead(
-    raw,
-    locked.head,
-    null,
-    null,
-    terminatedEvent,
-    clock.databaseNow,
-  );
+  let publication = yield* appendPublicationEvent(raw, progress, previousEvent, clock.databaseNow, { kind: "attemptTerminated", terminal });
   const installationValue = yield* captureFrameworkSchemaInstallation({
     plan: terminal.attempt.plan.plan,
     admission: terminal.attempt.admission.admission,
@@ -231,29 +234,12 @@ const finalizeInTransaction = Effect.fn(
       state.definition.plan.physicalLayout.frame.requiredPhysicalCapabilities,
     installedAt: clock.databaseNow,
   });
-  const installation = yield* ensureFrameworkSchemaInstallationInTransactionEffect(
+  const installation = yield* writeFrameworkSchemaInstallationInTransactionEffect(
     raw,
     terminal,
     installationValue,
   );
-  const installationEvent = yield* appendEvent(
-    raw,
-    head,
-    clock.databaseNow,
-    Object.freeze({ kind: "installationPublished", installation }),
-    Object.freeze({
-      kind: "installationPublished",
-      installationReceiptSha256: installation.installation.sha256,
-    }),
-  );
-  head = yield* advanceHead(
-    raw,
-    head,
-    null,
-    null,
-    installationEvent,
-    clock.databaseNow,
-  );
+  publication = yield* appendPublicationEvent(raw, publication.head, publication.event, clock.databaseNow, { kind: "installationPublished", installation });
   const validationSha256 = yield*
     captureRelationalStructuralValidationSha256Effect(
       locked.structuralRunner,
@@ -272,29 +258,12 @@ const finalizeInTransaction = Effect.fn(
     })),
     validatedAt: clock.databaseNow,
   });
-  const readiness = yield* ensureFrameworkSchemaReadinessInTransactionEffect(
+  const readiness = yield* writeFrameworkSchemaReadinessInTransactionEffect(
     raw,
     installation,
     readinessValue,
   );
-  const readinessEvent = yield* appendEvent(
-    raw,
-    head,
-    clock.databaseNow,
-    Object.freeze({ kind: "readinessPublished", readiness }),
-    Object.freeze({
-      kind: "readinessPublished",
-      readinessSha256: readiness.readiness.sha256,
-    }),
-  );
-  head = yield* advanceHead(
-    raw,
-    head,
-    null,
-    null,
-    readinessEvent,
-    clock.databaseNow,
-  );
+  yield* appendPublicationEvent(raw, publication.head, publication.event, clock.databaseNow, { kind: "readinessPublished", readiness });
   const historyValue = yield* captureFrameworkSchemaAvailabilityHistory({
     readiness: readiness.readiness,
     previous: null,
@@ -303,17 +272,16 @@ const finalizeInTransaction = Effect.fn(
     recordedAt: clock.databaseNow,
   });
   const history = yield*
-    appendFrameworkSchemaAvailabilityHistoryInTransactionEffect(
+    writeInitialFrameworkSchemaAvailabilityHistoryInTransactionEffect(
       raw,
       readiness,
-      null,
       historyValue,
     );
   const availabilityValue = yield* captureFrameworkSchemaAvailabilityHead(
     history.history,
   );
   const availability = yield*
-    initializeFrameworkSchemaAvailabilityHeadInTransactionEffect(
+    writeInitialFrameworkSchemaAvailabilityHeadInTransactionEffect(
       raw,
       history,
       availabilityValue,
@@ -325,6 +293,23 @@ const finalizeInTransaction = Effect.fn(
     availability,
   });
 });
+
+type PublicationSubject = Extract<RestoredFrameworkMigrationEventSubject, { kind: "attemptTerminated" | "installationPublished" | "readinessPublished" }>;
+
+const appendPublicationEvent = Effect.fn("FrameworkMigrationCoordinator.appendPublication")(
+  function* (raw: FlarexMetadataTransaction, head: FrameworkMigrationProgressRecord, previous: FrameworkMigrationEventRecord,
+    recordedAt: FrameworkMigrationEventRecord["event"]["frame"]["recordedAt"], subject: PublicationSubject) {
+    const variant = subject.kind === "attemptTerminated" ? { kind: subject.kind, terminalSha256: subject.terminal.terminal.sha256 } :
+      subject.kind === "installationPublished" ? { kind: subject.kind, installationReceiptSha256: subject.installation.installation.sha256 } :
+        { kind: subject.kind, readinessSha256: subject.readiness.readiness.sha256 };
+    const value = yield* captureFrameworkMigrationEvent({ format: FRAMEWORK_MIGRATION_EVENT_FORMAT, version: FRAMEWORK_MIGRATION_EVENT_VERSION,
+      collision: head.collision.coordinate, sequence: nextInt64(previous.event.frame.sequence),
+      previousEvent: { sequence: previous.event.frame.sequence, eventSha256: previous.event.sha256 }, recordedAt, ...variant });
+    const event = yield* appendFrameworkMigrationEventRecordInTransactionEffect(raw, head.collision, previous, value);
+    const advanced = yield* advanceFrameworkMigrationPublicationProgressInTransactionEffect(raw, head, previous, event, subject);
+    return { head: advanced, event };
+  },
+);
 
 function recoverFinalizationDecisionEffect(
   state: FrameworkMigrationClaimState,
@@ -351,6 +336,7 @@ function recoverFinalizationDecisionEffect(
             "Collision head disappeared during finalization recovery",
           ));
         }
+        yield* requireExactPlan(head.value.plan.plan, state.definition.plan, "recover");
         const ready = yield* readyFromLockedHead(raw, head.value, true);
         if (Option.isSome(ready)) return ready;
         yield* validateLockedClaimHead(raw, state, head.value, false);

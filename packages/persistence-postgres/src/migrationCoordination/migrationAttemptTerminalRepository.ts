@@ -180,13 +180,33 @@ export const ensureFrameworkMigrationAttemptTerminalInTransactionEffect =
       operation,
     );
 
+    return yield* writePreparedAttemptTerminal(transaction, storedAttempt, storedStepReceipts, prepared);
+  });
+
+/** Source-private protected finalization writer. The coordinator supplies the
+ * complete prefix authenticated under its locked head in this transaction.
+ * The independent ensure entry point first corroborates its own prerequisites. */
+export const writeFrameworkMigrationAttemptTerminalInTransactionEffect = Effect.fn(
+  "FrameworkMigrationAttemptTerminalRepository.write",
+)(function* (transaction: FlarexMetadataTransaction, attempt: RestoredFrameworkMigrationAttemptStart,
+  stepReceipts: readonly RestoredFrameworkMigrationStepReceipt[], terminal: FrameworkMigrationAttemptTerminal,
+) {
+  const prepared = yield* prepareExpectedAttemptTerminal(attempt, stepReceipts, terminal, "ensureAttemptTerminal");
+  return yield* writePreparedAttemptTerminal(transaction, attempt, stepReceipts, prepared);
+});
+
+const writePreparedAttemptTerminal = Effect.fn("FrameworkMigrationAttemptTerminalRepository.writePrepared")(
+  function* (transaction: FlarexMetadataTransaction, attempt: RestoredFrameworkMigrationAttemptStart,
+    stepReceipts: readonly RestoredFrameworkMigrationStepReceipt[], prepared: PreparedFrameworkMigrationAttemptTerminal,
+  ): Effect.fn.Return<RestoredFrameworkMigrationAttemptTerminal, FrameworkMigrationRepositoryError> {
+    const operation = "ensureAttemptTerminal" as const;
     const insertedRows = yield* runRepositoryStatement(
       operation,
       transaction.insert(fxSystemFrameworkMigrationAttemptTerminals).values({
-        collisionStorageId: storedAttempt.collision.storageId,
-        planStorageId: storedAttempt.plan.storageId,
-        attemptStorageId: storedAttempt.storageId,
-        admissionStorageId: storedAttempt.admission.storageId,
+        collisionStorageId: attempt.collision.storageId,
+        planStorageId: attempt.plan.storageId,
+        attemptStorageId: attempt.storageId,
+        admissionStorageId: attempt.admission.storageId,
         admissionSha256: prepared.admissionSha256Bytes,
         attemptId: prepared.terminal.frame.attemptId,
         attemptFence: prepared.attemptFence,
@@ -194,7 +214,7 @@ export const ensureFrameworkMigrationAttemptTerminalInTransactionEffect =
         requiredStepSetSha256: prepared.requiredStepSetSha256Bytes,
         failureReason: prepared.failureReason,
         evidenceSha256: prepared.evidenceSha256Bytes,
-        lastReceiptStorageId: storedStepReceipts.at(-1)?.storageId ?? null,
+        lastReceiptStorageId: stepReceipts.at(-1)?.storageId ?? null,
         lastStepReceiptSha256: prepared.lastStepReceiptSha256Bytes,
         attemptTerminalSha256: prepared.attemptTerminalSha256Bytes,
         frameFormat: prepared.terminal.frame.format,
@@ -221,19 +241,20 @@ export const ensureFrameworkMigrationAttemptTerminalInTransactionEffect =
 
     const resolved = yield* resolveExpectedAttemptTerminal(
       transaction,
-      storedAttempt,
-      storedStepReceipts,
+      attempt,
+      stepReceipts,
       prepared.terminal,
       prepared.attemptTerminalSha256Bytes,
       operation,
     );
-    if (Option.isNone(resolved)) {
+    if (Option.isNone(resolved) || (inserted !== undefined && inserted.terminalStorageId !== resolved.value.storageId)) {
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.storedCorruption(operation),
       );
     }
     return resolved.value;
-  });
+  },
+);
 
 export const readFrameworkMigrationAttemptTerminalInTransactionEffect =
   Effect.fn(
@@ -647,12 +668,14 @@ const resolveExpectedAttemptTerminal = Effect.fn(
           transaction,
           attempt,
           operation,
+          stepReceipts,
         ),
         readByDigest: () => loadAttemptTerminalOccupantByDigest(
           transaction,
           attempt,
           attemptTerminalSha256Bytes,
           operation,
+          stepReceipts,
         ),
       },
     );
@@ -664,6 +687,7 @@ const loadAttemptTerminalOccupantByAttempt = Effect.fn(
   transaction: FlarexMetadataTransaction,
   preferredAttempt: RestoredFrameworkMigrationAttemptStart,
   operation: AttemptTerminalRepositoryOperation,
+  stepReceipts?: readonly RestoredFrameworkMigrationStepReceipt[],
 ): Effect.fn.Return<
   Option.Option<RestoredFrameworkMigrationAttemptTerminalOccupant>,
   FrameworkMigrationRepositoryError
@@ -679,6 +703,7 @@ const loadAttemptTerminalOccupantByAttempt = Effect.fn(
     preferredAttempt,
     query,
     operation,
+    stepReceipts,
   );
 });
 
@@ -689,6 +714,7 @@ const loadAttemptTerminalOccupantByDigest = Effect.fn(
   preferredAttempt: RestoredFrameworkMigrationAttemptStart,
   attemptTerminalSha256: Uint8Array,
   operation: AttemptTerminalRepositoryOperation,
+  stepReceipts?: readonly RestoredFrameworkMigrationStepReceipt[],
 ): Effect.fn.Return<
   Option.Option<RestoredFrameworkMigrationAttemptTerminalOccupant>,
   FrameworkMigrationRepositoryError
@@ -704,6 +730,7 @@ const loadAttemptTerminalOccupantByDigest = Effect.fn(
     preferredAttempt,
     query,
     operation,
+    stepReceipts,
   );
 });
 
@@ -714,6 +741,7 @@ const loadAttemptTerminalOccupant = Effect.fn(
   preferredAttempt: RestoredFrameworkMigrationAttemptStart,
   query: PromiseLike<readonly FrameworkMigrationAttemptTerminalDriverRow[]>,
   operation: AttemptTerminalRepositoryOperation,
+  stepReceipts?: readonly RestoredFrameworkMigrationStepReceipt[],
 ): Effect.fn.Return<
   Option.Option<RestoredFrameworkMigrationAttemptTerminalOccupant>,
   FrameworkMigrationRepositoryError
@@ -728,6 +756,7 @@ const loadAttemptTerminalOccupant = Effect.fn(
     row,
     preferredAttempt.collision,
     operation,
+    stepReceipts === undefined ? undefined : { attempt: preferredAttempt, stepReceipts },
   ));
 });
 
@@ -738,6 +767,7 @@ const restoreAttemptTerminalOccupant = Effect.fn(
   row: FrameworkMigrationAttemptTerminalDriverRow,
   preferredCollision: RestoredFrameworkMigrationCollisionDomain,
   operation: AttemptTerminalAggregateRepositoryOperation,
+  evidence?: Readonly<{ attempt: RestoredFrameworkMigrationAttemptStart; stepReceipts: readonly RestoredFrameworkMigrationStepReceipt[] }>,
 ): Effect.fn.Return<
   RestoredFrameworkMigrationAttemptTerminalOccupant,
   FrameworkMigrationRepositoryError
@@ -750,7 +780,7 @@ const restoreAttemptTerminalOccupant = Effect.fn(
     preferredCollision,
     operation,
   );
-  const attempt = yield*
+  const attempt = evidence?.attempt.storageId === decoded.attemptStorageId ? evidence.attempt : (yield*
     restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect(
       transaction,
       actualCollision,
@@ -759,7 +789,7 @@ const restoreAttemptTerminalOccupant = Effect.fn(
       operation,
     ).pipe(Effect.mapError(error =>
       mapStoredRepositoryError(operation, error)
-    ));
+    )));
   if (
     attempt.collision.storageId !== decoded.collisionStorageId ||
     attempt.plan.storageId !== decoded.planStorageId ||
@@ -769,14 +799,14 @@ const restoreAttemptTerminalOccupant = Effect.fn(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
     );
   }
-  const stepReceipts = yield*
+  const stepReceipts = attempt === evidence?.attempt ? evidence.stepReceipts : (yield*
     restoreFrameworkMigrationStepReceiptPrefixForAttemptTerminalInTransactionEffect(
       transaction,
       attempt,
       row.lastReceiptStorageId,
       row.lastStepReceiptSha256,
       operation,
-    );
+    ));
   const value = yield* restoreStoredFrameworkMigrationAttemptTerminal({
     row,
     collision: attempt.collision,

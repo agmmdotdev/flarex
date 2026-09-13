@@ -83,6 +83,10 @@ export async function assertInstallationWorkPhases(database: FlarexMetadataDatab
   expect(lastStep.value).toMatchObject({ kind: "step", completedStepCount: count });
   const publication = await measure("publication", () => runEffect(finalizeFrameworkMigrationClaimEffect(claim)));
   if (publication.value.kind !== "ready") throw new Error("Expected readiness");
+  expect(publication.work.issued.receipts).toBe(count);
+  expect(publication.work.issued.attempts).toBe(1);
+  expect(publication.work.issued.terminals).toBe(1);
+  expect(publication.work.rootRows.receipt).toBe(count);
   const availability = publication.value.availability;
   const replay = await measure("settledReplay", () => runEffect(runFreshFrameworkMigrationCoordinatorEffect(input)));
   expect(replay.value).toMatchObject({ kind: "ready", replayed: true });

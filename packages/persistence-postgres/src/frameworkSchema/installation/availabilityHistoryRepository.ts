@@ -145,68 +145,86 @@ export const appendFrameworkSchemaAvailabilityHistoryInTransactionEffect =
         prepared,
         operation,
       );
-      const insertedRows = yield* runRepositoryStatement(
-        operation,
-        transaction.insert(fxSystemFrameworkSchemaAvailabilityHistory).values({
-          installationStorageId: dependencies.readiness.installation.storageId,
-          readinessStorageId: dependencies.readiness.storageId,
-          readinessSha256: prepared.readinessSha256Bytes,
-          availabilitySequence: prepared.availabilitySequence,
-          status: prepared.history.frame.status,
-          reasonSha256: prepared.reasonSha256Bytes,
-          historySha256: prepared.historySha256Bytes,
-          previousHistoryStorageId: dependencies.previous?.storageId ?? null,
-          previousAvailabilitySequence: dependencies.previous === null
-            ? null
-            : BigInt(
-              dependencies.previous.history.frame.availabilitySequence,
-            ),
-          previousHistorySha256: dependencies.previous === null
-            ? null
-            : yield* decodeAuthenticatedSha256(
-              dependencies.previous.history.sha256,
-            ),
-          previousStatus: dependencies.previous?.history.frame.status ?? null,
-          frameFormat: prepared.history.frame.format,
-          frameVersion: prepared.history.frame.version,
-          canonicalByteLength: prepared.canonicalBytes.byteLength,
-          canonicalBytes: prepared.canonicalBytes,
-        }).onConflictDoNothing().returning({
-          availabilityHistoryStorageId:
-            fxSystemFrameworkSchemaAvailabilityHistory
-              .availabilityHistoryStorageId,
-        }),
-      ).pipe(Effect.map(detachDriverRows));
-      if (insertedRows.length > 1) {
-        return yield* Effect.fail(
-          FrameworkMigrationRepositoryError.storedCorruption(operation),
-        );
-      }
-      const inserted = insertedRows[0];
-      if (inserted !== undefined) {
-        yield* Effect.fromResult(decodeStoredStorageIdResult(
-          inserted.availabilityHistoryStorageId,
-          () => FrameworkMigrationRepositoryError.storedCorruption(operation),
-        ));
-      }
-
-      const resolved = yield* resolveExpectedAvailabilityHistory(
-        transaction,
-        dependencies.readiness,
-        dependencies.previous,
-        prepared.history,
-        prepared.historySha256Bytes,
-        prepared.availabilitySequence,
-        operation,
-      );
-      if (Option.isNone(resolved)) {
-        return yield* Effect.fail(
-          FrameworkMigrationRepositoryError.storedCorruption(operation),
-        );
-      }
-      return resolved.value;
+      return yield* writePreparedAvailabilityHistory(transaction, dependencies, prepared);
     },
   );
+
+/** Initial protected publication uses the readiness just authenticated by its
+ * owner. The common writer still resolves and decodes actual history occupants. */
+export const writeInitialFrameworkSchemaAvailabilityHistoryInTransactionEffect = Effect.fn(
+  "FrameworkSchemaAvailabilityHistoryRepository.writeInitial",
+)(function* (transaction: FlarexMetadataTransaction, readiness: RestoredFrameworkSchemaReadiness, history: FrameworkSchemaAvailabilityHistory) {
+  const prepared = yield* prepareExpectedAvailabilityHistory(readiness, null, history, "appendAvailabilityHistory");
+  return yield* writePreparedAvailabilityHistory(transaction, { readiness, previous: null }, prepared);
+});
+
+const writePreparedAvailabilityHistory = Effect.fn("FrameworkSchemaAvailabilityHistoryRepository.writePrepared")(
+  function* (transaction: FlarexMetadataTransaction,
+    dependencies: Pick<PreparedFrameworkSchemaAvailabilityHistory, "readiness" | "previous">, prepared: PreparedFrameworkSchemaAvailabilityHistory,
+  ): Effect.fn.Return<RestoredFrameworkSchemaAvailabilityHistory, FrameworkMigrationRepositoryError> {
+    const operation = "appendAvailabilityHistory" as const;
+    const insertedRows = yield* runRepositoryStatement(
+      operation,
+      transaction.insert(fxSystemFrameworkSchemaAvailabilityHistory).values({
+        installationStorageId: dependencies.readiness.installation.storageId,
+        readinessStorageId: dependencies.readiness.storageId,
+        readinessSha256: prepared.readinessSha256Bytes,
+        availabilitySequence: prepared.availabilitySequence,
+        status: prepared.history.frame.status,
+        reasonSha256: prepared.reasonSha256Bytes,
+        historySha256: prepared.historySha256Bytes,
+        previousHistoryStorageId: dependencies.previous?.storageId ?? null,
+        previousAvailabilitySequence: dependencies.previous === null
+          ? null
+          : BigInt(
+            dependencies.previous.history.frame.availabilitySequence,
+          ),
+        previousHistorySha256: dependencies.previous === null
+          ? null
+          : yield* decodeAuthenticatedSha256(
+            dependencies.previous.history.sha256,
+          ),
+        previousStatus: dependencies.previous?.history.frame.status ?? null,
+        frameFormat: prepared.history.frame.format,
+        frameVersion: prepared.history.frame.version,
+        canonicalByteLength: prepared.canonicalBytes.byteLength,
+        canonicalBytes: prepared.canonicalBytes,
+      }).onConflictDoNothing().returning({
+        availabilityHistoryStorageId:
+          fxSystemFrameworkSchemaAvailabilityHistory
+            .availabilityHistoryStorageId,
+      }),
+    ).pipe(Effect.map(detachDriverRows));
+    if (insertedRows.length > 1) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const inserted = insertedRows[0];
+    if (inserted !== undefined) {
+      yield* Effect.fromResult(decodeStoredStorageIdResult(
+        inserted.availabilityHistoryStorageId,
+        () => FrameworkMigrationRepositoryError.storedCorruption(operation),
+      ));
+    }
+
+    const resolved = yield* resolveExpectedAvailabilityHistory(
+      transaction,
+      dependencies.readiness,
+      dependencies.previous,
+      prepared.history,
+      prepared.historySha256Bytes,
+      prepared.availabilitySequence,
+      operation,
+    );
+    if (Option.isNone(resolved) || (inserted !== undefined && inserted.availabilityHistoryStorageId !== resolved.value.storageId)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return resolved.value;
+  },
+);
 
 export const readFrameworkSchemaAvailabilityHistoryInTransactionEffect =
   Effect.fn("FrameworkSchemaAvailabilityHistoryRepository.read")(

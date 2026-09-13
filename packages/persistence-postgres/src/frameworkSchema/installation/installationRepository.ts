@@ -170,57 +170,73 @@ export const ensureFrameworkSchemaInstallationInTransactionEffect = Effect.fn(
       operation,
     );
 
-  const insertedRows = yield* runRepositoryStatement(
-    operation,
-    transaction.insert(fxSystemFrameworkSchemaInstallations).values({
-      collisionStorageId: storedTerminal.attempt.collision.storageId,
-      planStorageId: storedTerminal.attempt.plan.storageId,
-      migrationPlanSha256: prepared.migrationPlanSha256Bytes,
-      admissionStorageId: storedTerminal.attempt.admission.storageId,
-      admissionSha256: prepared.admissionSha256Bytes,
-      terminalStorageId: storedTerminal.storageId,
-      terminalOutcomeKind: "succeeded",
-      terminalSha256: prepared.terminalSha256Bytes,
-      installationSha256: prepared.installationSha256Bytes,
-      installationReceiptSha256:
-        prepared.installationReceiptSha256Bytes,
-      installedStructureSha256: prepared.installedStructureSha256Bytes,
-      frameFormat: prepared.installation.frame.format,
-      frameVersion: prepared.installation.frame.version,
-      canonicalByteLength: prepared.canonicalBytes.byteLength,
-      canonicalBytes: prepared.canonicalBytes,
-    }).onConflictDoNothing().returning({
-      installationStorageId:
-        fxSystemFrameworkSchemaInstallations.installationStorageId,
-    }),
-  ).pipe(Effect.map(detachDriverRows));
-  if (insertedRows.length > 1) {
-    return yield* Effect.fail(
-      FrameworkMigrationRepositoryError.storedCorruption(operation),
-    );
-  }
-  const inserted = insertedRows[0];
-  if (inserted !== undefined) {
-    yield* Effect.fromResult(decodeStoredStorageIdResult(
-      inserted.installationStorageId,
-      () => FrameworkMigrationRepositoryError.storedCorruption(operation),
-    ));
-  }
+  return yield* writePreparedInstallation(transaction, storedTerminal, prepared);
+});
 
-  const resolved = yield* resolveExpectedInstallation(
-    transaction,
-    storedTerminal,
-    prepared.installation,
-    prepared.installationSha256Bytes,
-    prepared.installationReceiptSha256Bytes,
-    operation,
-  );
-  if (Option.isNone(resolved)) {
-    return yield* Effect.fail(
-      FrameworkMigrationRepositoryError.storedCorruption(operation),
+/** Protected finalization supplies the authenticated prerequisite from the
+ * same locked transaction. Actual publication occupants still use this owner. */
+export const writeFrameworkSchemaInstallationInTransactionEffect = Effect.fn(
+  "FrameworkSchemaInstallationRepository.write",
+)(function* (transaction: FlarexMetadataTransaction, terminal: RestoredFrameworkMigrationAttemptTerminal, installation: FrameworkSchemaInstallation) {
+  const prepared = yield* prepareExpectedInstallation(terminal, installation, "ensureInstallation");
+  return yield* writePreparedInstallation(transaction, terminal, prepared);
+});
+
+const writePreparedInstallation = Effect.fn("FrameworkSchemaInstallationRepository.writePrepared")(
+  function* (transaction: FlarexMetadataTransaction, terminal: RestoredFrameworkMigrationAttemptTerminal, prepared: PreparedFrameworkSchemaInstallation,
+  ): Effect.fn.Return<RestoredFrameworkSchemaInstallation, FrameworkMigrationRepositoryError> {
+    const operation = "ensureInstallation" as const;
+    const insertedRows = yield* runRepositoryStatement(
+      operation,
+      transaction.insert(fxSystemFrameworkSchemaInstallations).values({
+        collisionStorageId: terminal.attempt.collision.storageId,
+        planStorageId: terminal.attempt.plan.storageId,
+        migrationPlanSha256: prepared.migrationPlanSha256Bytes,
+        admissionStorageId: terminal.attempt.admission.storageId,
+        admissionSha256: prepared.admissionSha256Bytes,
+        terminalStorageId: terminal.storageId,
+        terminalOutcomeKind: "succeeded",
+        terminalSha256: prepared.terminalSha256Bytes,
+        installationSha256: prepared.installationSha256Bytes,
+        installationReceiptSha256:
+          prepared.installationReceiptSha256Bytes,
+        installedStructureSha256: prepared.installedStructureSha256Bytes,
+        frameFormat: prepared.installation.frame.format,
+        frameVersion: prepared.installation.frame.version,
+        canonicalByteLength: prepared.canonicalBytes.byteLength,
+        canonicalBytes: prepared.canonicalBytes,
+      }).onConflictDoNothing().returning({
+        installationStorageId:
+          fxSystemFrameworkSchemaInstallations.installationStorageId,
+      }),
+    ).pipe(Effect.map(detachDriverRows));
+    if (insertedRows.length > 1) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const inserted = insertedRows[0];
+    if (inserted !== undefined) {
+      yield* Effect.fromResult(decodeStoredStorageIdResult(
+        inserted.installationStorageId,
+        () => FrameworkMigrationRepositoryError.storedCorruption(operation),
+      ));
+    }
+
+    const resolved = yield* resolveExpectedInstallation(
+      transaction,
+      terminal,
+      prepared.installation,
+      prepared.installationSha256Bytes,
+      prepared.installationReceiptSha256Bytes,
+      operation,
     );
-  }
-  return resolved.value;
+    if (Option.isNone(resolved) || (inserted !== undefined && inserted.installationStorageId !== resolved.value.storageId)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return resolved.value;
 });
 
 export const readFrameworkSchemaInstallationInTransactionEffect = Effect.fn(
@@ -534,6 +550,7 @@ const loadInstallationOccupant = Effect.fn(
     row,
     preferredTerminal.attempt.collision,
     operation,
+    new Map([[preferredTerminal.storageId, preferredTerminal]]),
   ));
 });
 

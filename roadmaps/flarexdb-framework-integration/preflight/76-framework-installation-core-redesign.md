@@ -66,8 +66,11 @@ actual attempt lineage, never cached live progress or lease authority.
 authenticates the prepared admission and actual attempt lineage, then reuses fresh
 normal progress checks without replaying receipt/event history. Ordinary negative
 readiness probes issue no readiness authority. Positive readiness, new/expired or
-competing claims, finalization, uncertain recovery and explicit verification retain
-their full evidence owners. Remaining graph consolidation, settled cold-opening
+competing claims, uncertain recovery and explicit verification retain their full
+evidence owners. [Protected final publication](./89-protected-final-publication.md)
+performs one complete head/inventory/catalog proof and hands its prerequisites to
+the existing publication writers; exact stored occupants, event transitions and
+head CAS remain mandatory. Remaining graph consolidation, settled cold-opening
 accounting, linear full verification and performance acceptance remain open.
 
 ### Connected validation boundaries

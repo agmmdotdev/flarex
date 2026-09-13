@@ -117,51 +117,67 @@ export const ensureFrameworkSchemaReadinessInTransactionEffect = Effect.fn(
       operation,
     );
 
-  const insertedRows = yield* runRepositoryStatement(
-    operation,
-    transaction.insert(fxSystemFrameworkSchemaReadiness).values({
-      installationStorageId: storedInstallation.storageId,
-      installationSha256: prepared.installationSha256Bytes,
-      installationReceiptSha256:
-        prepared.installationReceiptSha256Bytes,
-      readinessSha256: prepared.readinessSha256Bytes,
-      validationSha256: prepared.validationSha256Bytes,
-      validatedStructureSha256: prepared.validatedStructureSha256Bytes,
-      frameFormat: prepared.readiness.frame.format,
-      frameVersion: prepared.readiness.frame.version,
-      canonicalByteLength: prepared.canonicalBytes.byteLength,
-      canonicalBytes: prepared.canonicalBytes,
-    }).onConflictDoNothing().returning({
-      readinessStorageId:
-        fxSystemFrameworkSchemaReadiness.readinessStorageId,
-    }),
-  ).pipe(Effect.map(detachDriverRows));
-  if (insertedRows.length > 1) {
-    return yield* Effect.fail(
-      FrameworkMigrationRepositoryError.storedCorruption(operation),
-    );
-  }
-  const inserted = insertedRows[0];
-  if (inserted !== undefined) {
-    yield* Effect.fromResult(decodeStoredStorageIdResult(
-      inserted.readinessStorageId,
-      () => FrameworkMigrationRepositoryError.storedCorruption(operation),
-    ));
-  }
+  return yield* writePreparedReadiness(transaction, storedInstallation, prepared);
+});
 
-  const resolved = yield* resolveExpectedReadiness(
-    transaction,
-    storedInstallation,
-    prepared.readiness,
-    prepared.readinessSha256Bytes,
-    operation,
-  );
-  if (Option.isNone(resolved)) {
-    return yield* Effect.fail(
-      FrameworkMigrationRepositoryError.storedCorruption(operation),
+/** Protected finalization supplies the authenticated prerequisite from the
+ * same locked transaction. Actual publication occupants still use this owner. */
+export const writeFrameworkSchemaReadinessInTransactionEffect = Effect.fn(
+  "FrameworkSchemaReadinessRepository.write",
+)(function* (transaction: FlarexMetadataTransaction, installation: RestoredFrameworkSchemaInstallation, readiness: FrameworkSchemaReadiness) {
+  const prepared = yield* prepareExpectedReadiness(installation, readiness, "ensureReadiness");
+  return yield* writePreparedReadiness(transaction, installation, prepared);
+});
+
+const writePreparedReadiness = Effect.fn("FrameworkSchemaReadinessRepository.writePrepared")(
+  function* (transaction: FlarexMetadataTransaction, installation: RestoredFrameworkSchemaInstallation, prepared: PreparedFrameworkSchemaReadiness,
+  ): Effect.fn.Return<RestoredFrameworkSchemaReadiness, FrameworkMigrationRepositoryError> {
+    const operation = "ensureReadiness" as const;
+    const insertedRows = yield* runRepositoryStatement(
+      operation,
+      transaction.insert(fxSystemFrameworkSchemaReadiness).values({
+        installationStorageId: installation.storageId,
+        installationSha256: prepared.installationSha256Bytes,
+        installationReceiptSha256:
+          prepared.installationReceiptSha256Bytes,
+        readinessSha256: prepared.readinessSha256Bytes,
+        validationSha256: prepared.validationSha256Bytes,
+        validatedStructureSha256: prepared.validatedStructureSha256Bytes,
+        frameFormat: prepared.readiness.frame.format,
+        frameVersion: prepared.readiness.frame.version,
+        canonicalByteLength: prepared.canonicalBytes.byteLength,
+        canonicalBytes: prepared.canonicalBytes,
+      }).onConflictDoNothing().returning({
+        readinessStorageId:
+          fxSystemFrameworkSchemaReadiness.readinessStorageId,
+      }),
+    ).pipe(Effect.map(detachDriverRows));
+    if (insertedRows.length > 1) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const inserted = insertedRows[0];
+    if (inserted !== undefined) {
+      yield* Effect.fromResult(decodeStoredStorageIdResult(
+        inserted.readinessStorageId,
+        () => FrameworkMigrationRepositoryError.storedCorruption(operation),
+      ));
+    }
+
+    const resolved = yield* resolveExpectedReadiness(
+      transaction,
+      installation,
+      prepared.readiness,
+      prepared.readinessSha256Bytes,
+      operation,
     );
-  }
-  return resolved.value;
+    if (Option.isNone(resolved) || (inserted !== undefined && inserted.readinessStorageId !== resolved.value.storageId)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    return resolved.value;
 });
 
 export const readFrameworkSchemaReadinessInTransactionEffect = Effect.fn(
@@ -424,7 +440,7 @@ const resolveExpectedReadiness = Effect.fn(
     {
       readByInstallation: () => loadReadinessOccupant(
         transaction,
-        installation.collision,
+        installation,
         transaction.select(readinessReadSelection).from(
           fxSystemFrameworkSchemaReadiness,
         ).where(eq(
@@ -435,7 +451,7 @@ const resolveExpectedReadiness = Effect.fn(
       ),
       readByDigest: () => loadReadinessOccupant(
         transaction,
-        installation.collision,
+        installation,
         transaction.select(readinessReadSelection).from(
           fxSystemFrameworkSchemaReadiness,
         ).where(eq(
@@ -452,7 +468,7 @@ const loadReadinessOccupant = Effect.fn(
   "FrameworkSchemaReadinessRepository.loadOccupant",
 )(function* (
   transaction: FlarexMetadataTransaction,
-  preferredCollision: RestoredFrameworkMigrationCollisionDomain,
+  preferredInstallation: RestoredFrameworkSchemaInstallation,
   query: PromiseLike<readonly FrameworkSchemaReadinessDriverRow[]>,
   operation: FrameworkMigrationRepositoryOperation,
 ): Effect.fn.Return<
@@ -467,8 +483,9 @@ const loadReadinessOccupant = Effect.fn(
   return Option.some(yield* restoreReadinessOccupant(
     transaction,
     row,
-    preferredCollision,
+    preferredInstallation.collision,
     operation,
+    new Map([[preferredInstallation.storageId, preferredInstallation]]),
   ));
 });
 

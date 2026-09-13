@@ -123,50 +123,69 @@ export const initializeFrameworkSchemaAvailabilityHeadInTransactionEffect =
         prepared,
         operation,
       );
-      const insertedRows = yield* runRepositoryStatement(
-        operation,
-        transaction.insert(fxSystemFrameworkSchemaAvailabilityHeads).values({
-          installationStorageId: dependencies.installation.storageId,
-          ...availabilityHeadWriteValues(prepared, dependencies),
-        }).onConflictDoNothing().returning({
-          installationStorageId:
-            fxSystemFrameworkSchemaAvailabilityHeads.installationStorageId,
-        }),
-      ).pipe(Effect.map(detachDriverRows));
-      if (insertedRows.length > 1) {
-        return yield* Effect.fail(
-          FrameworkMigrationRepositoryError.storedCorruption(operation),
-        );
-      }
-      const inserted = insertedRows[0];
-      if (inserted !== undefined) {
-        yield* Effect.fromResult(decodeStoredStorageIdResult(
-          inserted.installationStorageId,
-          () => FrameworkMigrationRepositoryError.storedCorruption(operation),
-        ));
-      }
-      const restored = yield* loadRestoredAvailabilityHead(
-        transaction,
-        dependencies.installation,
-        operation,
-      );
-      if (Option.isNone(restored)) {
-        return yield* Effect.fail(
-          FrameworkMigrationRepositoryError.storedCorruption(operation),
-        );
-      }
-      if (!availabilityHeadExactlyMatches(
-        restored.value,
-        dependencies,
-        prepared.head,
-      )) {
-        return yield* Effect.fail(
-          FrameworkMigrationRepositoryError.staleHead(operation),
-        );
-      }
-      return restored.value;
+      return yield* writeInitialAvailabilityHead(transaction, dependencies, prepared);
     },
   );
+
+/** Protected finalization hands off the actual initial history. No mutable
+ * availability decision is retained across transactions or issued from a count. */
+export const writeInitialFrameworkSchemaAvailabilityHeadInTransactionEffect = Effect.fn(
+  "FrameworkSchemaAvailabilityHeadRepository.writeInitial",
+)(function* (transaction: FlarexMetadataTransaction, history: RestoredFrameworkSchemaAvailabilityHistory, head: FrameworkSchemaAvailabilityHead) {
+  const prepared = yield* prepareExpectedAvailabilityHead(history, head, "initializeAvailabilityHead");
+  return yield* writeInitialAvailabilityHead(transaction, { installation: history.installation, readiness: history.readiness, history }, prepared);
+});
+
+const writeInitialAvailabilityHead = Effect.fn("FrameworkSchemaAvailabilityHeadRepository.writePreparedInitial")(
+  function* (transaction: FlarexMetadataTransaction, dependencies: CorroboratedFrameworkSchemaAvailabilityHeadDependencies,
+    prepared: PreparedFrameworkSchemaAvailabilityHead,
+  ): Effect.fn.Return<RestoredFrameworkSchemaAvailabilityHead, FrameworkMigrationRepositoryError> {
+    const operation = "initializeAvailabilityHead" as const;
+    const insertedRows = yield* runRepositoryStatement(
+      operation,
+      transaction.insert(fxSystemFrameworkSchemaAvailabilityHeads).values({
+        installationStorageId: dependencies.installation.storageId,
+        ...availabilityHeadWriteValues(prepared, dependencies),
+      }).onConflictDoNothing().returning({
+        installationStorageId:
+          fxSystemFrameworkSchemaAvailabilityHeads.installationStorageId,
+      }),
+    ).pipe(Effect.map(detachDriverRows));
+    if (insertedRows.length > 1) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    const inserted = insertedRows[0];
+    if (inserted !== undefined) {
+      yield* Effect.fromResult(decodeStoredStorageIdResult(
+        inserted.installationStorageId,
+        () => FrameworkMigrationRepositoryError.storedCorruption(operation),
+      ));
+    }
+    const restored = yield* loadRestoredAvailabilityHead(
+      transaction,
+      dependencies.installation,
+      operation,
+      dependencies.history,
+    );
+    if (Option.isNone(restored) || (inserted !== undefined && inserted.installationStorageId !== restored.value.installation.storageId)) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.storedCorruption(operation),
+      );
+    }
+    if (!availabilityHeadExactlyMatches(
+      restored.value,
+      dependencies,
+      prepared.head,
+    )) {
+      return yield* Effect.fail(
+        FrameworkMigrationRepositoryError.staleHead(operation),
+      );
+    }
+    return restored.value;
+  },
+);
 
 export const readFrameworkSchemaAvailabilityHeadInTransactionEffect = Effect.fn(
   "FrameworkSchemaAvailabilityHeadRepository.read",
@@ -457,6 +476,7 @@ const loadRestoredAvailabilityHead = Effect.fn(
   transaction: FlarexMetadataTransaction,
   preferredInstallation: RestoredFrameworkSchemaInstallation,
   operation: FrameworkMigrationRepositoryOperation,
+  preferredHistory?: RestoredFrameworkSchemaAvailabilityHistory,
 ): Effect.fn.Return<
   Option.Option<RestoredFrameworkSchemaAvailabilityHead>,
   FrameworkMigrationRepositoryError
@@ -472,6 +492,7 @@ const loadRestoredAvailabilityHead = Effect.fn(
     row.value,
     preferredInstallation,
     operation,
+    preferredHistory,
   ));
 });
 
@@ -482,6 +503,7 @@ const restoreAvailabilityHeadOccupant = Effect.fn(
   row: FrameworkSchemaAvailabilityHeadDriverRow,
   preferredInstallation: RestoredFrameworkSchemaInstallation,
   operation: FrameworkMigrationRepositoryOperation,
+  preferredHistory?: RestoredFrameworkSchemaAvailabilityHistory,
 ): Effect.fn.Return<
   RestoredFrameworkSchemaAvailabilityHead,
   FrameworkMigrationRepositoryError
@@ -492,7 +514,7 @@ const restoreAvailabilityHeadOccupant = Effect.fn(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
     );
   }
-  const history = yield*
+  const history = preferredHistory?.storageId === decoded.availabilityHistoryStorageId ? preferredHistory : (yield*
     restoreStoredFrameworkSchemaAvailabilityHistoryReferenceInTransactionEffect(
       transaction,
       preferredInstallation,
@@ -501,7 +523,7 @@ const restoreAvailabilityHeadOccupant = Effect.fn(
       decoded.frame.status,
       decoded.frame.historySha256,
       operation,
-    ).pipe(Effect.mapError(error => mapStoredRepositoryError(operation, error)));
+    ).pipe(Effect.mapError(error => mapStoredRepositoryError(operation, error))));
   if (history.readiness.storageId !== decoded.readinessStorageId) {
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.storedCorruption(operation),

@@ -1,17 +1,17 @@
 # Installation Work Accounting and Acceptance
 
-Status: phase accounting implemented within approved preflight 76; publication
-consolidation and frozen acceptance remain open. Records 85–87 replace the normal
+Status: phase accounting implemented within approved preflight 76; settled
+replay consolidation and frozen acceptance remain open. Records 85–87 replace the normal
 step and live-resume reconstruction paths.
 
 Neutral coordinator witnesses cover its admitted 7-, 11- and 15-step inventories
 on both drivers. A full head read with the optional memo exhausted issues each
 receipt and attempt once, as do explicit audit and runtime cold construction for
 these inventories. Live resume issues no historical receipt/event evidence.
-Publication still enters repeated complete receipt/terminal reconstructions
-through its independent writers, and settled readiness replay repeats its
-installation prerequisites. These remain shared-owner correction candidates;
-the instrumentation establishes no arbitrary-inventory performance guarantee.
+Protected publication now hands its complete evidence to the existing common
+writers and requires one receipt issuance per step. Settled readiness replay
+still repeats installation prerequisites; this remains a shared-owner correction
+candidate. The instrumentation establishes no arbitrary-inventory performance guarantee.
 
 The native witness captures the actual normalized dependency and tail queries
 from a normal step and explains them using the restricted installer login. It
