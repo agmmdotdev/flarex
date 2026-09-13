@@ -24,10 +24,11 @@ import {
   corroborateRestoredFrameworkMigrationAttemptStartInTransactionEffect,
   operationalFrameworkMigrationLeaseExpiryDate,
   restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect,
+  type FrameworkMigrationEventAttemptSubjects,
 } from "./migrationAttemptRepository";
 import {
   corroborateRestoredFrameworkMigrationEventInTransactionEffect,
-  restoreStoredFrameworkMigrationEventReferenceInTransactionEffect,
+  restoreStoredFrameworkMigrationEventGraphReferenceInTransactionEffect,
 } from "./migrationEventRepository";
 import {
   corroborateRestoredFrameworkMigrationPlanAdmissionInTransactionEffect,
@@ -747,11 +748,33 @@ const restoreCollisionHeadOccupant = Effect.fn(
     preferredCollision,
     operation,
   );
+  const currentAttemptFrame = decoded.frame.currentAttempt;
+  if (decoded.currentAttemptStorageId !== null && currentAttemptFrame === null) {
+    return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+  }
+  let lastEvent: RestoredFrameworkMigrationEvent | null = null;
+  let eventAttempts: FrameworkMigrationEventAttemptSubjects | undefined;
+  if (decoded.lastEventStorageId !== null) {
+    const lastEventToken = decoded.frame.lastEvent;
+    if (lastEventToken === null) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    const graph = yield* restoreStoredFrameworkMigrationEventGraphReferenceInTransactionEffect(
+      transaction, collision, decoded.lastEventStorageId, lastEventToken.sequence, lastEventToken.eventSha256, operation,
+      decoded.currentAttemptStorageId === null || currentAttemptFrame === null ? undefined : {
+        attemptStorageId: decoded.currentAttemptStorageId, attemptId: currentAttemptFrame.attemptId,
+      },
+    ).pipe(Effect.mapError(error => mapStoredRepositoryError(operation, error)));
+    lastEvent = graph.event;
+    eventAttempts = graph.attempts;
+  }
   let plan: RestoredFreshRelationalMigrationPlan;
   let admission: RestoredFrameworkMigrationPlanAdmission;
   let currentAttempt: RestoredFrameworkMigrationAttemptStart | null;
   if (decoded.currentAttemptStorageId === null) {
-    admission = yield*
+    const graphAdmission = eventAttempts === undefined ? undefined : [...eventAttempts.byStorageId.values()]
+      .find(attempt => attempt.admission.storageId === decoded.currentAdmissionStorageId)?.admission;
+    admission = graphAdmission ?? (yield*
       restoreStoredFrameworkMigrationPlanAdmissionReferenceInTransactionEffect(
         transaction,
         collision,
@@ -760,17 +783,20 @@ const restoreCollisionHeadOccupant = Effect.fn(
         operation,
       ).pipe(Effect.mapError(error =>
         mapStoredRepositoryError(operation, error)
-      ));
+      )));
     plan = admission.plan;
     currentAttempt = null;
   } else {
-    const currentAttemptFrame = decoded.frame.currentAttempt;
     if (currentAttemptFrame === null) {
       return yield* Effect.fail(
         FrameworkMigrationRepositoryError.storedCorruption(operation),
       );
     }
-    currentAttempt = yield*
+    const graphAttempt = eventAttempts?.byStorageId.get(decoded.currentAttemptStorageId);
+    if (eventAttempts !== undefined && (graphAttempt === undefined || graphAttempt.attempt.frame.attemptId !== currentAttemptFrame.attemptId)) {
+      return yield* Effect.fail(FrameworkMigrationRepositoryError.storedCorruption(operation));
+    }
+    currentAttempt = graphAttempt ?? (yield*
       restoreStoredFrameworkMigrationAttemptStartReferenceInTransactionEffect(
         transaction,
         collision,
@@ -779,7 +805,7 @@ const restoreCollisionHeadOccupant = Effect.fn(
         operation,
       ).pipe(Effect.mapError(error =>
         mapStoredRepositoryError(operation, error)
-      ));
+      )));
     admission = currentAttempt.admission;
     plan = currentAttempt.plan;
   }
@@ -794,26 +820,6 @@ const restoreCollisionHeadOccupant = Effect.fn(
     return yield* Effect.fail(
       FrameworkMigrationRepositoryError.storedCorruption(operation),
     );
-  }
-  let lastEvent: RestoredFrameworkMigrationEvent | null = null;
-  if (decoded.lastEventStorageId !== null) {
-    const lastEventToken = decoded.frame.lastEvent;
-    if (lastEventToken === null) {
-      return yield* Effect.fail(
-        FrameworkMigrationRepositoryError.storedCorruption(operation),
-      );
-    }
-    lastEvent = yield*
-      restoreStoredFrameworkMigrationEventReferenceInTransactionEffect(
-        transaction,
-        collision,
-        decoded.lastEventStorageId,
-        lastEventToken.sequence,
-        lastEventToken.eventSha256,
-        operation,
-      ).pipe(Effect.mapError(error =>
-        mapStoredRepositoryError(operation, error)
-      ));
   }
   return yield* restoreStoredFrameworkMigrationCollisionHead({
     row,

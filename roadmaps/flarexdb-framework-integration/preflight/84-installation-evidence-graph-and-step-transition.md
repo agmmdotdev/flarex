@@ -18,6 +18,12 @@ checked even when a predecessor supplied the attempt. A compact ancestry index
 follows actual issued predecessor edges, preserving fork rejection and applicable
 traversal limits. Independent or nonmonotone evidence retains the original walk.
 The index retains one position per node rather than an ancestor map per node.
+The head supplies its exact selected attempt reference to that assembly and
+consumes the resulting issued attempt and admission. This preserves sparse
+histories without an attempt-start event and lets receipt ancestry use the same
+lineage positions as the live head. A head without an event still resolves its
+attempt independently. Head fields and canonical commitments remain checked by
+the existing head restorer.
 
 Terminal subjects share one fence-bounded receipt inventory per plan. The latest
 referenced terminal authenticates that inventory; earlier terminals must match
@@ -36,8 +42,9 @@ resolved from actual stored references through their existing owner. It does not
 event-membership requirement or weaken the head verifier's inventory checks.
 
 The current event receipt graph and terminal inventory can still restore the
-same receipt in separate owner operations. Head and event attempt assembly also
-remain separate. Full work accounting, final graph consolidation and removal of
+same receipt in separate owner operations. Independent publication prerequisites
+and admission subjects can still enter separate owner reads. Full work accounting,
+final graph consolidation and removal of
 displaced assembly remain open, alongside the protected normal transition below.
 This handoff alone does not establish the complete linear-verification or timing
 acceptance gates.

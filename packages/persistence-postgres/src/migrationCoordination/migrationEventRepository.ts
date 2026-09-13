@@ -152,6 +152,15 @@ interface RestoredFrameworkMigrationEventOccupant {
   readonly subject: RestoredFrameworkMigrationEventSubject;
 }
 
+interface RestoredFrameworkMigrationEventGraph extends RestoredFrameworkMigrationEventOccupant {
+  readonly attempts: FrameworkMigrationEventAttemptSubjects;
+}
+
+interface SelectedEventGraphAttempt {
+  readonly attemptStorageId: bigint;
+  readonly attemptId: string;
+}
+
 interface FrameworkMigrationEventOccupantLookups {
   readonly readBySequence: () => Effect.Effect<
     Option.Option<RestoredFrameworkMigrationEventOccupant>,
@@ -384,6 +393,31 @@ export const restoreStoredFrameworkMigrationEventReferenceInTransactionEffect =
       RestoredFrameworkMigrationEvent,
       FrameworkMigrationRepositoryError
     > {
+      const graph = yield* restoreStoredFrameworkMigrationEventGraphReferenceInTransactionEffect(
+        transaction, preferredCollision, eventStorageId, eventSequence, eventSha256, operation,
+      );
+      return graph.event;
+    }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationEvent>(),
+  );
+
+/** A full event read hands its issued attempts to the head that selected it.
+ * A separately selected head attempt joins the same lineage assembly even when
+ * no attempt-start event names it. This is evidence from this read, not a memo
+ * permission to reuse a previous transaction's graph. */
+export const restoreStoredFrameworkMigrationEventGraphReferenceInTransactionEffect =
+  Effect.fn("FrameworkMigrationEventRepository.restoreGraphReference")(
+    function* (
+      transaction: FlarexMetadataTransaction,
+      preferredCollision: RestoredFrameworkMigrationCollisionDomain,
+      eventStorageId: bigint,
+      eventSequence: string,
+      eventSha256: FrameworkMigrationEventSha256,
+      operation: FrameworkMigrationRepositoryOperation,
+      selectedAttempt?: SelectedEventGraphAttempt,
+    ): Effect.fn.Return<Readonly<{
+      event: RestoredFrameworkMigrationEvent;
+      attempts: FrameworkMigrationEventAttemptSubjects;
+    }>, FrameworkMigrationRepositoryError> {
       const row = yield* loadEventRootByStorageId(
         transaction,
         eventStorageId,
@@ -399,6 +433,8 @@ export const restoreStoredFrameworkMigrationEventReferenceInTransactionEffect =
         row.value,
         preferredCollision,
         operation,
+        undefined,
+        selectedAttempt,
       );
       if (
         occupant.value.event.frame.sequence !== eventSequence ||
@@ -408,8 +444,8 @@ export const restoreStoredFrameworkMigrationEventReferenceInTransactionEffect =
           FrameworkMigrationRepositoryError.storedCorruption(operation),
         );
       }
-      return occupant.value;
-    }, makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationEvent>(),
+      return Object.freeze({ event: occupant.value, attempts: occupant.attempts });
+    },
   );
 
 const prepareExpectedEvent = Effect.fn(
@@ -738,7 +774,7 @@ const loadEventOccupantByDigest = Effect.fn(
     ));
 });
 
-const readVerifiedEventNode = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationEventOccupant>();
+const readVerifiedEventNode = makeFrameworkGraphReferenceRead<RestoredFrameworkMigrationEventGraph>();
 const restoreEventChain = Effect.fn(
   "FrameworkMigrationEventRepository.restoreChain",
 )(function* (
@@ -747,8 +783,9 @@ const restoreEventChain = Effect.fn(
   preferredCollision: RestoredFrameworkMigrationCollisionDomain,
   operation: FrameworkMigrationRepositoryOperation,
   preferredPrevious?: RestoredFrameworkMigrationEvent | null,
+  selectedAttempt?: SelectedEventGraphAttempt,
 ): Effect.fn.Return<
-  RestoredFrameworkMigrationEventOccupant,
+  RestoredFrameworkMigrationEventGraph,
   FrameworkMigrationRepositoryError
 > {
   if (!isRestoredFrameworkMigrationCollisionDomain(preferredCollision)) {
@@ -798,7 +835,7 @@ const restoreEventChain = Effect.fn(
     }
     // A previously verified node includes its authenticated predecessor chain.
     // Preserve the bounded traversal limit even when that prefix is reused.
-    const shared = !bounded || BigInt(decoded.frame.sequence) + 1n <= BigInt(128 - rows.length)
+    const shared = selectedAttempt === undefined && (!bounded || BigInt(decoded.frame.sequence) + 1n <= BigInt(128 - rows.length))
       ? yield* readVerifiedEventNode.peek(transaction, collision, ...frameworkGraphDriverRowReferences({ ...row }))
       : Option.none();
     if (Option.isSome(shared)) {
@@ -851,7 +888,8 @@ const restoreEventChain = Effect.fn(
 
   const chronologicalFrames = decodedRows.toReversed().map(decoded => decoded.frame);
   const attempts = yield* restoreFrameworkMigrationEventAttemptSubjectsInTransactionEffect(transaction, collision,
-    chronologicalFrames.filter(frame => frame.kind === "attemptStarted" || frame.kind === "leaseRenewed"), operation);
+    [...chronologicalFrames.filter(frame => frame.kind === "attemptStarted" || frame.kind === "leaseRenewed"),
+      ...(selectedAttempt === undefined ? [] : [{ kind: "storedAttempt" as const, ...selectedAttempt }])], operation);
   const receipts = yield* restoreFrameworkMigrationEventReceiptSubjectsInTransactionEffect(transaction, collision,
     chronologicalFrames.flatMap(frame => frame.kind === "stepCompleted" ? [frame.stepReceiptSha256] : []),
     operation, attempts.byStorageId);
@@ -865,7 +903,7 @@ const restoreEventChain = Effect.fn(
   };
   let previous: RestoredFrameworkMigrationEvent | null =
     anchoredPrevious ?? null;
-  let rootOccupant: RestoredFrameworkMigrationEventOccupant | undefined;
+  let rootOccupant: RestoredFrameworkMigrationEventGraph | undefined;
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const eventRow = rows[index];
     const decoded = decodedRows[index];
@@ -891,10 +929,11 @@ const restoreEventChain = Effect.fn(
       previous,
       subject,
     }).pipe(Effect.mapError(error => mapStoredValueError(operation, error)));
-    const occupant: RestoredFrameworkMigrationEventOccupant = Object.freeze({
+    const occupant: RestoredFrameworkMigrationEventGraph = Object.freeze({
       value,
       previous,
       subject,
+      attempts,
     });
     yield* readVerifiedEventNode(Effect.succeed(occupant), transaction, collision,
       ...frameworkGraphDriverRowReferences({ ...eventRow }));
@@ -907,7 +946,7 @@ const restoreEventChain = Effect.fn(
     );
   }
   return rootOccupant;
-}, withFrameworkGraphReadPass, (read, transaction, root, _preferredCollision, operation, _previous?: RestoredFrameworkMigrationEvent | null) =>
+}, withFrameworkGraphReadPass, (read, transaction, root, _preferredCollision, operation, _previous?: RestoredFrameworkMigrationEvent | null, _selectedAttempt?: SelectedEventGraphAttempt) =>
   withFrameworkCollisionGraphLimits(read, transaction, root.collisionStorageId, operation));
 
 const restoreStoredEventSubject = Effect.fn(

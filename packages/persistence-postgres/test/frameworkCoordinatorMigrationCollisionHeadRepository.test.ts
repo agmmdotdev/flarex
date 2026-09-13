@@ -5,7 +5,10 @@ import {
 import type { CanonicalIsoInstant } from "@flarex/time/iso-instant";
 import { eq } from "drizzle-orm";
 import { Brand, Effect, Encoding, Option } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as storedValues from "../src/migrationCoordination/storedRestoration";
+import * as driverRows from "../src/detachDriverRows";
+import { makeFrameworkGraphReferenceRead, withFrameworkGraphReadPass } from "../src/migrationCoordination/graphReadPass";
 
 import * as persistenceRoot from "../src";
 
@@ -71,6 +74,50 @@ type FrameworkMigrationCollisionHead = CapturedFrameworkMigrationValue<
 >;
 
 describe("framework coordinator migration-collision-head repository", () => {
+  it.each(["started", "admitted"] as const)("shares the selected attempt with the %s event graph after memo exhaustion", async eventKind => {
+    const persistence = await createMigratedPGlitePersistence();
+    const values = await createSuccessfulTerminalPlanValues();
+    const prepared = await persistence.drizzle.transaction(async transaction => {
+      const fixture = await prepareCollisionHeadGraph(transaction, values);
+      const event = fixture.events[eventKind];
+      const value = await captureInitialHead(fixture.graph, event);
+      const head = await runEffect(initializeFrameworkMigrationCollisionHeadInTransactionEffect(transaction,
+        fixture.graph.collision, fixture.graph.admission, fixture.graph.attempt, event, value));
+      return { ...fixture, head };
+    });
+    let attemptRows = 0;
+    let attemptBytes = 0;
+    const detach = driverRows.detachDriverRows;
+    const rows = vi.spyOn(driverRows, "detachDriverRows").mockImplementation(input => {
+      const output = detach(input);
+      for (const row of output) if (Object.hasOwn(row, "attemptStartSha256")) {
+        attemptRows++;
+        if ("canonicalBytes" in row && row.canonicalBytes instanceof Uint8Array) attemptBytes += row.canonicalBytes.byteLength;
+      }
+      return output;
+    });
+    const issued = vi.spyOn(storedValues, "restoreStoredFrameworkMigrationAttemptStart");
+    try {
+      const restored = await persistence.drizzle.transaction(transaction => runEffect(Effect.gen(function* () {
+        const fill = makeFrameworkGraphReferenceRead<number>();
+        for (let index = 0; index < 512; index++) yield* fill(Effect.succeed(index), transaction, index);
+        return Option.getOrThrow(yield* readFrameworkMigrationCollisionHeadInTransactionEffect(transaction, prepared.graph.collision));
+      }).pipe(read => withFrameworkGraphReadPass(read, transaction))));
+      expect(restored.head.canonicalJson).toBe(prepared.head.head.canonicalJson);
+      expect(issued).toHaveBeenCalledTimes(1);
+      expect(attemptRows).toBe(1);
+      expect(attemptBytes).toBe(new TextEncoder().encode(prepared.graph.attempt.attempt.canonicalJson).byteLength);
+      const authority = restoredFrameworkMigrationCollisionHeadAuthority(restored);
+      expect(authority?.currentAttempt?.storageId).toBe(prepared.graph.attempt.storageId);
+      if (authority?.lastEvent === null || authority?.lastEvent === undefined) throw new Error("Missing selected event");
+      const subject = restoredFrameworkMigrationEventAuthority(authority.lastEvent)?.subject;
+      if (eventKind === "started") {
+        if (subject?.kind !== "attemptStarted") throw new Error("Missing attempt event");
+        expect(subject.attempt).toBe(authority.currentAttempt);
+      } else expect(subject?.kind).toBe("planAdmitted");
+    } finally { rows.mockRestore(); issued.mockRestore(); }
+  }, PGLITE_TEST_TIMEOUT);
+
   it("binds a plan switch to its exact admission event", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const fixture = await initializedCollisionHeadFixture(persistence);
