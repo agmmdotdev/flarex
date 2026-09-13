@@ -79,10 +79,15 @@ contention are covered independently of host serialization. No core capability
 changed, and no Fulfillment or ProductShippingProfile Link is activated.
 The proposed module source closure remains broader than its
 create/scalar-read table grants; full Fulfillment remains unadmitted.
-The focused [connected ShippingProfile proposal](./preflight/66-connected-product-shipping-profile.md)
+The approved [connected ShippingProfile slice](./preflight/66-connected-product-shipping-profile.md)
 selects native create/scalar reads and two homogeneous Link families under one
-resolver in the existing atomic workflow. Construction, seventeen-table schema
-and connected execution remain unproven; implementation approval is pending.
+resolver in the existing atomic workflow. The draft's seventeen-table inventory
+and bounded native ShippingProfile operations execute on ordinary PostgreSQL;
+full module and connected execution completion gates remain open. Reassessment
+after the passing inventory controls reproduced the PGlite installation timeout
+before any assertion ran. Implementation remains paused at that shared gate;
+no specific core defect or remedy has been established, and no timeout or
+installation bypass is authorized.
 It explicitly retains the private commerce error envelope rather than claiming
 the pinned test adapter's duplicate-name message or full Fulfillment parity.
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)

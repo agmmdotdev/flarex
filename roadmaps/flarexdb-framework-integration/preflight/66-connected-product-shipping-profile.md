@@ -1,6 +1,7 @@
 # Connected Product Shipping Profile: Preflight
 
-Status: proposed; implementation approval pending. This refines preflight 59 B
+Status: approved; implementation paused at the shared installation validation
+gate described below. This refines preflight 59 B
 after the implemented inequality, native batch-cardinality and scalar-Link
 storage foundations. It does not activate Fulfillment or a new workflow yet.
 
@@ -196,3 +197,55 @@ browser/source guards, lint and both required final reviewers. Preserve existing
 deadlines and stop owned resources. Reconcile durable roadmap truth and create
 one scoped implementation commit only after completion. Any newly exposed core
 defect remains a stop-and-approval boundary, not authority to glue-fix it here.
+
+## Current Installation Gate
+
+The in-progress private Fulfillment source builds, and the selected artifact
+contains exactly the intended seventeen tables. Ordinary-role PostgreSQL
+installs and cold-reopens that artifact through the existing owner and executes
+the current native scalar/array/empty creation, scalar read/count, event,
+required-field, denied-hydration and duplicate-name rollback assertions. These
+are the draft's bounded adapter witnesses, not the complete retained upstream
+test file, full module coverage or connected-workflow completion.
+
+The preserved witness is
+`packages/medusa-adapter/test/shipping-profile.test.ts`, run with
+`vitest.shipping-profile.config.ts`. With `FLAREX_TEST_DRIVER=pglite` and
+`FLAREX_PRODUCT_TIMINGS=1`, installation can exhaust the unchanged 90-second
+deadline in `commerceHostFixture` before operation tests execute. The full-suite
+gate reassessment reproduced that failure with heavy validation serialized,
+after the unchanged-core inventory controls in
+[record 70](./70-typed-physical-assignment-verification.md) had passed. Its last
+reported pending prefix was 96 of 106 steps, without the installation/cold-open
+completion marker. That prefix does not identify whether the remaining steps,
+finalization or cold reopen consumed the final interval. Neither a passing
+control nor the repeated timeout establishes the underlying cause.
+
+Expected: the actual configured installation and cold reopen complete through
+the shared owner within the existing validation budget, then both driver lanes
+exercise native operations and the connected workflow. Actual: the complete
+PostgreSQL draft suite passes, while the PGlite suite fails in setup and all
+three assertions are skipped. The installation gate therefore remains open;
+the prior inventory-only passes are insufficient to resume capability work.
+
+The connected owner to investigate is
+`packages/persistence-postgres/src/migrationCoordination/freshCoordinator.ts`
+and its migration-plan verification, installation and cold-open dependencies;
+the deadline/cleanup boundary is in
+`packages/persistence-postgres/test/commerceHostFixture.ts`. No shared-owner
+defect or particular optimization has yet been established. Do not infer that
+ShippingProfile needs a special core case, relax the deadline, bypass cold
+reopening, or add a second installation path. Preserve this witness and
+preflight any demonstrated shared-owner correction before resuming capability
+completion. Draft two-Link/workflow code is unverified and uncommitted; source
+presence is not activation or completed integration.
+
+The [shared read-pass](./68-shared-installation-read-pass-overhead.md) and
+[typed assignment-verification](./70-typed-physical-assignment-verification.md)
+candidates were withdrawn under their reproducible-benefit gates. Record 69's
+static Drizzle metadata reuse remains implemented; neither withdrawn candidate
+is a runtime prerequisite. Further investigation must distinguish the expensive
+installation phases and establish the responsible shared-owner work before
+proposing a correction. No additional core abstraction or specific optimization
+is approved by this reassessment. Exact commands and numerical receipts belong
+in Git; the existing fixture remains the failing witness.
