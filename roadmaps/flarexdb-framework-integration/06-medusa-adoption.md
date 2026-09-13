@@ -85,7 +85,10 @@ resolver in the existing atomic workflow. The draft's seventeen-table inventory
 and bounded native ShippingProfile operations execute on ordinary PostgreSQL;
 full module and connected execution completion gates remain open. Reassessment
 after the passing inventory controls reproduced the PGlite installation timeout
-before any assertion ran. Implementation remains paused at that shared gate;
+before any assertion ran. Phase tracing places a detailed PGlite timeout in
+finalization before cold reopen, with per-step stored-proof reconstruction
+dominating structural execution. A narrowly passing trace does not clear the
+gate or establish removable integrity checks. Implementation remains paused;
 no specific core defect or remedy has been established, and no timeout or
 installation bypass is authorized.
 It explicitly retains the private commerce error envelope rather than claiming

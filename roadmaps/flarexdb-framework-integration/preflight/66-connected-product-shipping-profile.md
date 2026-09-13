@@ -221,16 +221,35 @@ completion marker. That prefix does not identify whether the remaining steps,
 finalization or cold reopen consumed the final interval. Neither a passing
 control nor the repeated timeout establishes the underlying cause.
 
+Phase tracing now distinguishes those costs. A detailed PGlite timeout reached
+all structural steps and the complete-prefix check, then exhausted its budget
+during finalization before cold preparation or reopening. A separate coarse
+PGlite trace completed with almost no deadline margin. Observation overhead and
+run variability prevent treating these traces as a controlled comparison or an
+explanation of every earlier failure. An inner finalization span returning after
+timeout does not prove transaction settlement or successful installation.
+
+The dominant measured work is enclosing per-step migration coordination, not
+physical structural execution or cold reopening. Source inspection connects it
+to locked claim restoration, receipt creation, event append and collision-head
+compare-and-swap. These operations corroborate overlapping plan/name-assignment
+and receipt/event dependencies. Finalization checks the full prefix and catalog
+before publishing terminal, installation and readiness evidence. Existing graph
+read passes already share some evidence within their exact transaction and
+read boundaries. Span invocation counts include memo hits and inclusive timings
+overlap; neither establishes which checks are removable or a history-scaling
+complexity bound.
+
 Expected: the actual configured installation and cold reopen complete through
 the shared owner within the existing validation budget, then both driver lanes
 exercise native operations and the connected workflow. Actual: the complete
-PostgreSQL draft suite passes, while the PGlite suite fails in setup and all
-three assertions are skipped. The installation gate therefore remains open;
+PostgreSQL draft suite passes, while PGlite can still fail in setup with all
+three assertions skipped despite a narrowly passing trace. The gate remains open;
 the prior inventory-only passes are insufficient to resume capability work.
 
 The connected owner to investigate is
 `packages/persistence-postgres/src/migrationCoordination/freshCoordinator.ts`
-and its migration-plan verification, installation and cold-open dependencies;
+and its migration-plan verification, receipt/event and collision-head dependencies;
 the deadline/cleanup boundary is in
 `packages/persistence-postgres/test/commerceHostFixture.ts`. No shared-owner
 defect or particular optimization has yet been established. Do not infer that
@@ -244,8 +263,13 @@ The [shared read-pass](./68-shared-installation-read-pass-overhead.md) and
 [typed assignment-verification](./70-typed-physical-assignment-verification.md)
 candidates were withdrawn under their reproducible-benefit gates. Record 69's
 static Drizzle metadata reuse remains implemented; neither withdrawn candidate
-is a runtime prerequisite. Further investigation must distinguish the expensive
-installation phases and establish the responsible shared-owner work before
-proposing a correction. No additional core abstraction or specific optimization
+is a runtime prerequisite. The phase investigation narrows the next design
+question to repeated stored-proof reconstruction in the per-step path. A focused
+preflight must distinguish genuinely duplicate reconstruction from required
+fresh stored-evidence checks, account for the existing graph-pass owner, and
+preserve write/lock, corruption, fencing and recovery boundaries. Cold-open
+shortcuts, module-specific cases and another unmeasured micro-optimization are
+not an established remedy. Temporary tracing has been removed and the fixture
+restored unchanged. No additional core abstraction or specific optimization
 is approved by this reassessment. Exact commands and numerical receipts belong
 in Git; the existing fixture remains the failing witness.
