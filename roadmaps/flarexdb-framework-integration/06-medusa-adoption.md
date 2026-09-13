@@ -96,6 +96,10 @@ was withdrawn after its first measured PGlite run failed the unchanged
 installation deadline and therefore its retention gate. The existing reader
 remains unchanged; neither reproducible benefit nor a causal regression is
 established. The connected ShippingProfile slice remains paused.
+The [shared migration graph-restoration preflight](./preflight/74-shared-migration-graph-restoration.md)
+uses server/client attribution to propose reduced in-pass reconstruction and
+membership transport. It awaits approval; no runtime or verification boundary
+has changed, and it does not activate the connected workflow.
 That slice explicitly retains the private commerce error envelope rather than claiming
 the pinned test adapter's duplicate-name message or full Fulfillment parity.
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)

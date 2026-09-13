@@ -281,3 +281,10 @@ after its first measured PGlite run failed the unchanged installation deadline;
 the retention gate failed and the comparison matrix stopped early. No runtime
 change is retained, no causal regression or reproducible benefit is established,
 and this installation gate remains open.
+
+The [shared graph-restoration research and preflight](./74-shared-migration-graph-restoration.md)
+distinguishes database initialization, server statement work, query completion
+and client processing. It identifies repeated graph reconstruction and membership
+transport as the next connected correction, within existing read-only phases.
+The proposal awaits approval and retains this fixture and all transaction,
+readiness and deadline gates. No runtime remedy is yet implemented.
