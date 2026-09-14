@@ -64,6 +64,12 @@ The installation redesign must not be undone or confused with this request-path
 work. Installation timing, prepared-host construction, warm admission, business
 SQL and publication are separate measurements.
 
+The runtime evidence query selects dependencies of the prepared installation
+through captured root IDs, plan IDs and physical names; it does not scan every
+installation's history indiscriminately. Repeated hashing is source-confirmed,
+but its share of request latency is unmeasured. Measure selected dependency
+size and unrelated historical growth separately before attributing cost.
+
 ## A. Replace Total-Catalog Budgets With Operation Budgets
 
 ### Contract
@@ -130,8 +136,8 @@ specified independently.
 
 ### First Connected Exit
 
-Run actual Product and Link operations on a table larger than the old catalog
-ceiling, including selective reads, updates, complete small relations and
+Run actual Product and Link operations on a table larger than the old 4,096-row
+catalog ceiling, including selective reads, updates, complete small relations and
 intentional relation overflow. Preserve native assertions, row-size refusal,
 late rollback, scope isolation, replay and event/fact completeness. Updating
 only the resource schema or deleting `catalogBound` does not complete this gate.
@@ -175,6 +181,26 @@ measure its cost. Do not silently weaken the current contract for speed.
 This gate requires ordinary-role enforcement and explicit privileged-tamper
 scenarios as well as cold/warm measurements. Existing integrity tests must be
 preserved or deliberately relocated under the new, named contract.
+
+### Required Integrity Decision Before R2 Implementation
+
+R2 must first record the selected guarantee in the accepted design and the
+owning installation contract. A root check remains a proposal until that
+decision specifies the following:
+
+| Decision | Required contract and evidence |
+| --- | --- |
+| Protected dependency set | Name the immutable definitions, sealed child sets and mutable authority/progress fields that prepared execution depends on; reuse their existing owners. |
+| Permitted mutations and roles | Enumerate legitimate writers and the database protections that prevent ordinary roles from modifying protected evidence outside those paths. |
+| Invalidation and enforcement | Name the existing transition owner and specify how every permitted dependency change fences or replaces readiness before changed state can be accepted, including concurrent execution. |
+| Privileged corruption | Choose immediate request refusal or detection at named verification/audit boundaries; state the detection interval or triggering event, execution policy before detection, and fencing/recovery action afterward. |
+| Regression disposition | Map each existing integrity witness to unchanged refusal or an explicitly approved new detection boundary; prove ordinary-role enforcement and privileged edits with an unchanged root. |
+
+The recommendation is protected immutable metadata with fresh authority checks
+and explicit verification boundaries, conditional on that enforcement proof.
+If the required guarantee remains immediate detection of dependency corruption,
+retain the necessary evidence checks. A performance target does not authorize
+choosing a weaker guarantee or silently relocating a refusal test.
 
 ## C. Decouple Execution Protection From Publication Serialization
 
@@ -225,6 +251,39 @@ those decisions and give them a supported narrower lock/validation strategy;
 otherwise keep that capability unadmitted. Do not pretend foreign keys alone
 prevent lost updates, write skew or conflicting business decisions. Native
 Application OCC keeps its existing dependency/history semantics.
+
+### Required Invariant Contract Before R3 Implementation
+
+`READ COMMITTED` plus narrower locks is a candidate strategy, not a complete
+execution contract. For every operation admitted to concurrent execution,
+trace the native reads and decisions currently protected by scope exclusion.
+Record the invariant, its framework owner, the shared persistence capability
+that enforces it, when protection starts, and the decisive concurrent witness.
+At minimum, cover these cases where the selected operations require them:
+
+| Decision pattern | Required replacement proof |
+| --- | --- |
+| Read, decide, then update | Protect or validate the decision's inputs before applying its effects; locking only at the eventual write cannot repair an earlier stale decision. |
+| Missing row or predicate-defined set | Handle concurrent insertions and membership changes; locking the rows already found is not proof that an absent row or complete set stays unchanged. |
+| Multi-row or cross-module invariant | Define the complete protected key/set domain and acquisition order across participants; discover additional keys without reversing the common order. |
+| Upsert, lifecycle or Link mutation | Derive classification, affected rows, managed changes and emitted facts/events from the protected authoritative outcome. |
+| Coherent page/count or populated graph | Define one supported snapshot/validation boundary; separate statements at READ COMMITTED do not by themselves provide a coherent multi-query read. |
+
+Framework owners retain the business meaning. Core supplies the narrow shared
+enforcement capabilities through trusted admission, without per-module locking
+workarounds, raw lock handles for callers, or a speculative universal invariant
+registry. Ground each capability in a real consumer and reusable persistence
+semantics. Operations lacking a proven replacement remain outside the new
+concurrent profile; they must not use an automatic clock-first fallback over
+the same resources.
+
+Use distinct-connection PostgreSQL barriers to force the decision/write races,
+not only tests that show independent writes can overlap. Cover duplicate
+requests, absent-row insertion, conflicting membership changes and failure
+after a protected decision where those scenarios apply. Preserve existing
+native assertions and publication/recovery witnesses.
+
+### Read Snapshot Boundary
 
 For coherent standalone relational graph reads, evaluate a repeatable-read
 snapshot with a read-only data capability, not a shared lock on the publication
@@ -342,21 +401,34 @@ row/byte, scope, complete-fact, cancellation, replay and corruption coverage.
 Append-only migration policy and named durable environments retain their
 existing obligations until a specific inventory authorizes a reset/conversion.
 
+Each replacement gate includes its consumer switch, safety-witness migration,
+displaced-code removal and owning-roadmap reconciliation. R1 must retire the
+old catalog guards for its selected runtime; R2 must leave one explicit
+integrity contract; R3 must complete its coordinated lock-protocol cutover.
+Any retained path needs an evidenced compatibility obligation, named owner and
+retirement condition. Do not defer ordinary cleanup from R1-R3 until R5 or until
+a durable workflow is implemented. R5 audits the completed replacements and
+their remaining obligations; it is not the first cleanup or cutover step.
+
 ## Implementation Order And Decisive Proofs
 
 | Gate | Coherent deliverable | Acceptance evidence |
 | --- | --- | --- |
 | R0: full request attribution | Instrument existing physical/request owners, not only adapter method counts | Cold preparation, admission SQL, catalog checks, business SQL, lock wait/hold, publication, cleanup, database/host memory and bytes distinguished |
 | R1: operation-bounded storage | Replace catalog-dependent reads/writes and relationship completeness together for selected real consumers | Actual native Product/Link calls on larger tables; no unrelated catalog payload guard; deliberate overflow, rollback and replay remain correct |
-| R2: execution readiness | Extend existing prepared owner under the selected integrity contract | Warm admission cost independent of migration-history size; stale binding/revocation refusal; ordinary-role and privileged-tamper scenarios have explicit outcomes |
-| R3: concurrent publication | Implement one cross-owner fence/row/publication order with audited invariants | Distinct-connection PostgreSQL barriers prove independent operations overlap; same-invariant conflicts remain safe; mixed CMS/Application/commerce tests, activation races and lost COMMIT recovery pass |
+| R2: execution readiness | Extend existing prepared owner after the explicit integrity decision and enforcement proof | Warm admission cost measured against selected dependency size and unrelated history separately; any root-only path meets the agreed cost target; stale binding/revocation refusal and privileged-tamper outcomes match the accepted contract |
+| R3: concurrent publication | Implement one cross-owner fence/row/publication order after the operation-level invariant contract | Distinct-connection PostgreSQL barriers prove independent operations overlap and protected decision/write races stay correct; mixed CMS/Application/commerce tests, activation races and lost COMMIT recovery pass |
 | R4: durable workflow integration | Admit one real multi-commit consumer through existing execution and outcome owners | Crash/resume between steps, lost acknowledgements, stable external intent, cancellation, compensation failures and pinned revision recovery |
-| R5: cutover and retirement | Reconcile accepted design and all affected living roadmaps, switch eligible scopes and remove displaced runtime | No unowned fallback, duplicate recovery/commit owner, undocumented security downgrade or stale conformance-only production claim |
+| R5: final reconciliation | Audit the consumer switches, coordinated cutovers, removals and roadmap reconciliation completed within each preceding replacement | No deferred routine cleanup, unowned fallback, duplicate recovery/commit owner, undocumented security downgrade or stale conformance-only production claim |
 
-R0/R1 are the first implementation target. R2 and R3 are explicit owner changes,
-not prerequisites to writing down their design and not permissions to weaken
-current guarantees. R4 is selected when a real workflow requires durable
-execution; simple atomic workflows need not become sagas.
+R0/R1 are the first implementation target: attribute complete request cost, then
+replace catalog-dependent storage and relation completeness together for real
+Product/Link consumers. Preserve current scope locking and integrity checks
+through that slice. R2 and R3 require separately approved integrity and
+concurrency contracts; recording this direction does not approve their runtime
+changes. R4 is selected when a real workflow requires durable execution; simple
+atomic workflows need not become sagas. Runtime work starts only after its
+focused implementation preflight is approved.
 
 Run the fast PGlite semantic lane and ordinary-role real-Postgres lane. Genuine
 Postgres is required for concurrent connections, locks, isolation, SQL plans,

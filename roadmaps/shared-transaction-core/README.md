@@ -28,6 +28,11 @@ critical sections, and distinct atomic/durable workflow execution. This is a
 source-grounded design proposal, not an implemented runtime change. Existing
 lock order and admission guarantees remain in force until replacement proofs
 and the cross-owner protocol cutover are complete.
+Its first proposed slice measures complete request costs and replaces catalog
+bounds with operation bounds for actual Product/Link consumers, preserving
+current locking and integrity checks. Later admission and concurrency changes
+require explicit integrity and business-invariant contracts. Each replacement
+includes its own consumer migration, cleanup and roadmap reconciliation.
 
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;
