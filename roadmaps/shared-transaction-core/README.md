@@ -21,6 +21,14 @@ identity and fencing while clearing argument/grant/Application authority bodies
 in the same transaction. Index/unique, row representation and remaining
 execution-evidence replacements remain open.
 
+The owner-requested [runtime scalability redesign](./09-runtime-scalability-redesign.md)
+now records the next shared-core direction: operation-bounded relational work,
+prepared metadata with an explicit integrity contract, shorter publication
+critical sections, and distinct atomic/durable workflow execution. This is a
+source-grounded design proposal, not an implemented runtime change. Existing
+lock order and admission guarantees remain in force until replacement proofs
+and the cross-owner protocol cutover are complete.
+
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;
 replacement and cleanup obligations; and performance and completion gates.
@@ -168,6 +176,7 @@ include their consumer switches and logic cleanup; neither requires DDL.
 | [Named cross-domain command](./05-named-command-preflight.md) | Private Currency + scalar CMS + Application profile implemented | Actual domain paths, complete atomic publication, rollback and retained recovery proven |
 | [Atomic commerce composition](../workflow-foundations/09-atomic-composition.md) | Private Product/Currency profile implemented and validated | Exact installation-set admission, aggregate lifetime and complete relational publication through the existing owner |
 | [Application command invocation](./06-application-command-invocation-preflight.md) | Preflight complete; Action-first implementation proposed | Authenticated real Action callback, frozen-intent recovery and explicit shared effect contract; Task invocation separately gated |
+| [Runtime scalability redesign](./09-runtime-scalability-redesign.md) | Design recorded; runtime implementation and database validation pending | Selective work independent of total catalog size, explicit integrity/recovery guarantees, and proven concurrent publication across affected owners |
 | Overall redesign reconciliation | Open | All required audit findings resolved; retained boundaries justified; independent capabilities explicitly deferred |
 
 The [named-command contract](./05-named-command-preflight.md) is implemented
