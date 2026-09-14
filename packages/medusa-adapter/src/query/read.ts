@@ -5,6 +5,7 @@ import { populateCommerceRelations, readCommerceRelationRows } from "../commerce
 import { resolveCommerceRelationFilter } from "../commerce-relation-filter";
 import type { ReadCatalog } from "./catalog";
 import { projectRows, type ReadProjection } from "./projection";
+import type { PopulationFilter } from "./population";
 
 export type ReadContext = Pick<CommerceCommandContext, "manager" | "table" | "resources">;
 export interface CatalogSelection {
@@ -21,6 +22,7 @@ export interface ReadPlan {
   readonly paths: readonly string[];
   readonly withDeleted: boolean;
   readonly relationFilters: readonly { readonly path: string; readonly predicate: Json }[];
+  readonly populationFilters?: readonly PopulationFilter[];
   readonly ordering: ReadonlyMap<string, string>;
   readonly window: ReadWindow;
 }
@@ -52,7 +54,7 @@ export const executeRead: (
   const selection = yield* readWindow(ctx, plan.table, query, window);
   const countBefore = plan.window.kind === "catalog" || plan.window.countAt === "beforePopulation";
   let count = withCount && countBefore ? yield* selection.count : undefined;
-  const populated = yield* populateCommerceRelations(ctx, plan.table, selection.rows, plan.paths, catalog.relations, plan.ordering, plan.withDeleted);
+  const populated = yield* populateCommerceRelations(ctx, plan.table, selection.rows, plan.paths, catalog.relations, plan.ordering, plan.withDeleted, plan.populationFilters);
   const rows = yield* Effect.fromResult(projectRows(populated, plan.projection.node));
   if (withCount && !countBefore) count = yield* selection.count;
   return { rows, count };

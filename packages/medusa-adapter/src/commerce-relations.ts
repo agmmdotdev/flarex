@@ -5,6 +5,8 @@ import {
 } from "@medusajs/drizzle/relation-query";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { isSelectedPopulationPath, type PopulationFilter } from "./query/population";
+import type { Predicate } from "./query/predicate";
 
 export type CommerceRelation = ToManyRelation | {
   readonly name: string; readonly sourcePrimaryKeys: readonly string[];
@@ -45,13 +47,19 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
   relations: CommerceRelationLookup,
   ordering: ReadonlyMap<string, string>,
   withDeleted = false,
+  populationFilters: readonly PopulationFilter[] = [],
 ) {
+  const filters = new Map<string, Predicate>();
+  for (const filter of populationFilters) {
+    if (filters.has(filter.path) || !isSelectedPopulationPath(filter.path, paths)) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    filters.set(filter.path, filter.predicate);
+  }
   // Retain ordered scalar rows only, never a branch's mutable population. A
   // later primary-key read can reuse a complete subset of an earlier FK read.
   const fetched = new Map<string, readonly JsonObject[]>();
   const read = Effect.fn("MedusaAdapter.readRelation")(function* (
     targetTable: string, columns: readonly string[], parents: readonly JsonObject[],
-    parentColumns: readonly string[], softDelete: boolean, order: string, primaryLookup = false,
+    parentColumns: readonly string[], softDelete: boolean, order: string, primaryLookup = false, predicate?: Predicate,
   ) {
     const column = columns[0];
     const parentColumn = parentColumns[0];
@@ -67,7 +75,7 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
       values.push(value);
     }
     if (values.length === 0) return [];
-    const cacheKey = JSON.stringify([targetTable, softDelete, order]);
+    const cacheKey = JSON.stringify([targetTable, softDelete, order, predicate ?? null]);
     const previous = fetched.get(cacheKey);
     if (primaryLookup && previous !== undefined) {
       const ids = new Set(values);
@@ -76,32 +84,35 @@ export const populateCommerceRelations = Effect.fn("MedusaAdapter.populateRelati
     }
     const children: Json[] = [{ kind: "in", column, values: [...new Set(values)] }];
     if (softDelete && !withDeleted) children.push({ kind: "isNull", column: "deleted_at" });
+    if (predicate !== undefined) children.push(predicate);
     const loaded = yield* readCommerceRelationRows(ctx, targetTable, { kind: "and", children }, order);
     fetched.set(cacheKey, loaded);
     return loaded;
   });
   const populate = Effect.fn("MedusaAdapter.populateTree")(function* (
-    source: string, rows: readonly JsonObject[], tree: PopulateTree,
+    source: string, rows: readonly JsonObject[], tree: PopulateTree, prefix = "",
   ): Effect.fn.Return<JsonObject[], CommerceTransactionError> {
     const result = rows.map(row => ({ ...row }));
     for (const [name, nested] of tree) {
+      const path = prefix === "" ? name : prefix + "." + name;
+      const predicate = filters.get(path);
       const descriptor = relations.get(source)?.get(name);
       if (descriptor === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const order = ordering.get(descriptor.targetTable) ?? descriptor.targetPrimaryKeys[0];
       if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const join = descriptor.join;
       if (join.type === "belongsTo") {
-        const related = yield* read(descriptor.targetTable, descriptor.targetPrimaryKeys, rows, join.foreignKeys, true, order, true);
-        attachToOne(result, name, yield* populate(descriptor.targetTable, related, nested), descriptor.targetPrimaryKeys, join.foreignKeys);
+        const related = yield* read(descriptor.targetTable, descriptor.targetPrimaryKeys, rows, join.foreignKeys, true, order, true, predicate);
+        attachToOne(result, name, yield* populate(descriptor.targetTable, related, nested, path), descriptor.targetPrimaryKeys, join.foreignKeys);
         continue;
       }
       const pivotRows = join.type === "manyToMany"
         ? yield* read(join.pivotTable, join.sourceColumns, rows, descriptor.sourcePrimaryKeys, false, join.targetColumns[0] ?? "id")
         : [];
       const related = join.type === "hasMany"
-        ? yield* read(descriptor.targetTable, join.foreignKeys, rows, descriptor.sourcePrimaryKeys, true, order)
-        : yield* read(descriptor.targetTable, descriptor.targetPrimaryKeys, pivotRows, join.targetColumns, true, order, true);
-      const populated = yield* populate(descriptor.targetTable, related, nested);
+        ? yield* read(descriptor.targetTable, join.foreignKeys, rows, descriptor.sourcePrimaryKeys, true, order, false, predicate)
+        : yield* read(descriptor.targetTable, descriptor.targetPrimaryKeys, pivotRows, join.targetColumns, true, order, true, predicate);
+      const populated = yield* populate(descriptor.targetTable, related, nested, path);
       const grouped = join.type === "hasMany"
         ? groupHasManyRows(populated, join.foreignKeys)
         : groupManyToManyRows(populated, pivotRows, descriptor.targetPrimaryKeys, join.sourceColumns, join.targetColumns);

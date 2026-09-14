@@ -145,6 +145,14 @@ performance. This slice changes no installed deployment or live schema.
 
 ### A3. Per-path child population predicates
 
+Implemented. The shared read plan carries optional per-path population predicates. Its
+compiler resolves selected paths and checked target columns, using each
+module's explicit scalar `WherePolicy` and the existing predicate compiler;
+selector policies are refused. Population
+adds each predicate only to its target child read; pivots and root selection/count
+remain unchanged. Nested filters use full paths. The per-call fetched-row cache
+includes the predicate, preserving filtered/unfiltered and different-path reads.
+
 Add a small optional per-path predicate input to the existing Medusa read plan
 and population owner. Reuse checked column/predicate compilation and bounded
 scoped reads. Preserve root membership/count, child filtering, nested paths,
