@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-14
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -13,6 +13,28 @@ When another design note conflicts with this document, this document controls.
 Domain roadmaps own durable current status and target direction; Git owns
 chronological implementation history.
 
+## Shared Logical Storage Replacement
+
+The owner accepts [shared logical storage](./flarexdb-shared-logical-storage.md)
+for Application, Payload content and Medusa commerce. Logical tables, indexes,
+unique claims and relations use generic physical families; creating a shop or
+deployment does not create a dedicated commerce table/index set by default.
+This replaces the former document-versus-reserved-relational destination and
+the per-project physical-schema recommendation. The
+[redesign roadmap](../roadmaps/shared-logical-storage/README.md) owns execution.
+
+Core storage, relation, query, compilation and execution mechanics may be
+redesigned around all three consumers. The project is in development: unshipped
+internals do not require compatibility glue or dual paths. Preserve intended
+framework behavior, exact data semantics, scope confinement and singular
+settlement; inventory actual durable/public obligations before destructive
+replacement. Existing generic families are foundations, not frozen APIs.
+
+Current Medusa code still installs deployment-named physical module tables.
+That is the displaced implementation and regression baseline, not proof that
+the accepted shared logical target is implemented. Earlier physical receipts
+and bounded capability descriptions below remain evidence of that baseline.
+
 ## Verdict
 
 The storage backbone is good, but the original unified-runtime proposal was
@@ -22,9 +44,10 @@ Accept:
 
 ```text
 Postgres is the only authoritative committed data store.
-App/CMS rows use typed JSON plus derived indexes, edges, and unique keys.
-Medusa commerce uses Flarex-owned reserved relational storage behind
-Medusa-owned table/link semantics and transaction behavior.
+Application, Payload and Medusa logical records use shared physical storage
+families for rows, indexes, unique ownership and relations.
+Medusa retains table/link semantics and its admitted transaction behavior;
+commerce logical records are reserved by write authority, not physical DDL.
 Every authoritative write advances one scope-local commit stream and writes
 recovery metadata atomically.
 Cloudflare owns sandboxed execution, WebSockets/current delivery adaptation,
@@ -352,10 +375,13 @@ RLS or an equivalent transaction-local scope binding should provide defense in
 depth. In schema-per-scope or database-per-scope deployments, redundant scope
 columns may be omitted physically, but the logical authority remains the same.
 
-Use a shared physical Medusa schema only when the platform enforces one
-homogeneous Medusa schema and module set. Projects with staggered Medusa
-versions, custom modules, or custom repository/provider behavior should use a
-per-project schema or database until a safe compiled shared strategy is proven.
+Different deployments and shops may bind different admitted logical Medusa
+schemas over the shared physical families. Schema differences require logical
+compatibility/build/activation proofs, not automatic per-project commerce DDL.
+Capacity placement and explicit dedicated-database isolation remain separate
+decisions. The former homogeneous-physical-schema restriction is superseded by
+the shared logical storage replacement; unsupported logical capabilities fail
+closed rather than selecting the old physical-table path.
 
 ## Physical Identifier And Index Scalability Policy
 
@@ -2098,8 +2124,8 @@ commits. Flarex-native workflow tables must not be claimed as a lossless Medusa
 workflow store; Medusa workflow persistence is compiled from its own model or
 handled by an adapter-specific schema.
 
-Medusa storage is scope-bound reserved commerce schema inside the Flarex data
-plane. It is neither a separately authoritative Medusa database nor a set of
+Medusa storage is scope-bound logical commerce schema over the shared physical
+families. It is neither a separately authoritative Medusa database nor a set of
 public `ctx.db` tables. Flarex owns storage admission, scope/generation binding,
 the final transaction boundary, commit/feed/outbox integration, and operator
 capabilities. Medusa owns repository behavior, Module Link meaning, Query,
@@ -2114,18 +2140,18 @@ application/Payload relation
   authoritative document field -> derived current edges and adjacency versions
 
 Medusa module link
-  authoritative reserved link entity -> optional derived endpoint edges
+  authoritative logical link record -> derived endpoint indexes where required
 
 app/CMS to commerce reference
   app-owned stable reference -> no commerce mutation authority
 ```
 
 When a Medusa link has its own fields, lifecycle, soft-delete behavior, or
-identity, the reserved link row is authoritative. Flarex may reuse its edge,
-adjacency-OCC, query, and change-fact machinery as a derived endpoint index,
-but it must not create a second independently writable link authority. Useful
-relational columns, indexes, unique constraints, and physical foreign keys may
-remain part of the reserved schema where Medusa compatibility requires them.
+identity, the logical link record is authoritative. Flarex must reuse or
+redesign its edge, query, constraint and change-fact core for this contract,
+without creating a second independently writable link authority. Native index,
+unique, numeric and foreign-key semantics require proven logical enforcement;
+they do not authorize a physical module table as an adapter workaround.
 
 Reserved commerce tables are hidden from ordinary `ctx.db` and `.cms()`.
 Payload may manage a separate content or extension table that references a

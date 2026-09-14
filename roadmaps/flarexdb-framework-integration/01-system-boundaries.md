@@ -24,14 +24,15 @@ commerce behavior, physical migration DDL, or public API syntax.
 ## Accepted System Shape
 
 The system has one Flarex-managed committed-data authority, potentially spread
-across explicitly bound physical installations, two primary storage profiles,
-and three semantic lanes.
+across explicitly bound physical placements, generic physical storage families,
+and three semantic lanes. The [shared logical redesign](../shared-logical-storage/README.md)
+replaces deployment-owned commerce DDL as the target; implementation is pending.
 
 | Lane | Schema interpretation | Query/write surface | Storage |
 | --- | --- | --- | --- |
 | Application | Standard/Application | `ctx.db` | document rows and derived sidecars |
 | Payload | Payload config bound to application content plus lifecycle requirements | planned `ctx.cms` and Payload-compatible surfaces | document rows plus reserved lifecycle state |
-| Medusa | DML, complete configured supported module/link set for the candidate, Joiner/Links, migrations, capabilities | planned `ctx.commerce`, repositories, Query, workflows | reserved relational tables and authoritative link entities |
+| Medusa | DML, configured supported module/link set, Joiner/Links, logical migrations and capabilities | planned `ctx.commerce`, repositories, Query, workflows | logical records and authoritative Link entities in generic physical families |
 
 Shared storage does not make the semantic APIs interchangeable.
 

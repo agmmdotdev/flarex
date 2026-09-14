@@ -1,5 +1,20 @@
 # Shared Framework Integration Direction
 
+## Shared Logical Storage Authority
+
+The accepted [shared logical storage decision](./flarexdb-shared-logical-storage.md)
+and [redesign roadmap](../roadmaps/shared-logical-storage/README.md)
+replace the former deployment-owned commerce physical-table destination.
+Application, Payload and Medusa target generic physical families with logical
+tables, indexes, constraints and relations. Core and integration flows may be
+redesigned cleanly during development; adapters must not compensate for missing
+core contracts. Framework semantic ownership and singular settlement remain.
+
+Descriptions below of current generated commerce tables, SQL indexes/FKs,
+installation receipts and completed tests are baseline evidence. They do not
+override the replacement target or prove its implementation. Physical lifecycle
+work with retained system consumers must be inventoried before removal.
+
 Date: 2026-09-08.
 
 Status: accepted shared transaction/commit ownership direction with distinct
@@ -96,22 +111,21 @@ a model or installing all its tables does not admit every service operation.
 The working tree may contain unfinished slices; code presence alone is not a
 test or compatibility receipt.
 
-## Installation Is Separate From Requests
+## Logical Schema Evolution Is Separate From Requests
 
-Medusa DML becomes a captured Flarex relational schema artifact, then an
-installed physical layout. An application binding refers to that installation
-and its admitted capabilities. This currently does not merge Medusa models
-into the native Application document schema. Sharing core transaction and commit ownership
-does not require converting relational business tables into document rows.
+The accepted [shared logical storage replacement](./flarexdb-shared-logical-storage.md)
+compiles Medusa DML into logical table/index/constraint/relation definitions
+over generic physical families. Current code still installs physical module
+tables; that path is a regression baseline to replace, not the destination.
 
-Installation belongs to an admitted database/schema target. Ordinary requests
-reuse the installed schema and binding; they do not recreate it. A model change
-requires compilation, comparison with the installed base, an admitted migration,
-and updated readiness/binding evidence. Existing data is preserved according to
-that migration's contract, rather than replacing the installation wholesale.
+Physical core migrations belong to the platform. Logical schema changes require
+definition comparison, any necessary conversion/index build, and fresh
+readiness/binding evidence. Shop or deployment creation does not allocate a
+dedicated module schema. Ordinary requests use the admitted logical definitions.
 
-Example: create Product tables on initial setup, add a subtitle column through
-a later migration, and create individual products through ordinary data writes.
+Example: register a logical Product table, add a logical subtitle field through
+a compatible definition update, and maintain logical index entries in shared
+physical storage. Existing-record conversion remains explicit when needed.
 
 The current shared roadmap records fresh installation and one bounded
 fresh-base-to-additive-successor upgrade with independent database acceptance.
@@ -125,11 +139,12 @@ prove arbitrary Medusa model upgrades or destructive migrations. See
 | --- | --- | --- |
 | Native Flarex Application | Logical operations, read dependencies, OCC and admitted retry | Authoritative document/index/relation materialization and commit machinery |
 | Payload | Supported request lifecycle, hooks and bounded CMS transaction | Application document storage and owned materialization/publication primitives |
-| Medusa | Supported services and repositories inside bounded commerce transactions | Scoped relational storage, transaction authority and commit/publication infrastructure |
+| Medusa | Supported services and repositories inside bounded commerce transactions | Target shared logical storage; current generated relational storage remains the migration baseline |
 
 Payload does not need a second authoritative copy of Application documents.
-Medusa business tables use the reserved relational profile. Sharing authority
-does not require one physical row shape or identical framework lifecycle rules.
+Medusa business records are reserved by semantic write authority, not dedicated
+physical tables. Shared physical storage retains distinct framework lifecycle
+and execution profiles; current core internals may be redesigned to support it.
 See [the CMS implementation contract](../roadmaps/flarexdb-framework-integration/preflight/17-cms-request-transactions-and-application-publication.md).
 
 There are already private core APIs. Currency and Product also share request

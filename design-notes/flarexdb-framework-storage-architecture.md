@@ -1,5 +1,20 @@
 # FlarexDB Framework Storage Architecture
 
+## Shared Logical Storage Authority
+
+The accepted [shared logical storage decision](./flarexdb-shared-logical-storage.md)
+and [redesign roadmap](../roadmaps/shared-logical-storage/README.md)
+replace the former deployment-owned commerce physical-table destination.
+Application, Payload and Medusa target generic physical families with logical
+tables, indexes, constraints and relations. Core and integration flows may be
+redesigned cleanly during development; adapters must not compensate for missing
+core contracts. Framework semantic ownership and singular settlement remain.
+
+Descriptions below of current generated commerce tables, SQL indexes/FKs,
+installation receipts and completed tests are baseline evidence. They do not
+override the replacement target or prove its implementation. Physical lifecycle
+work with retained system consumers must be inventoried before removal.
+
 Status: accepted cross-domain architecture. The private artifact repository,
 relational/lifecycle values, coordinator metadata/repositories and no-base
 PGlite execution and bounded native PostgreSQL fresh installation/recovery are
@@ -75,17 +90,16 @@ document/OCC engine      CMS request lifecycle     repositories/workflows
                        PostgreSQL storage
 ```
 
-The physical data plane has two deliberate storage profiles:
+The accepted [shared logical storage replacement](./flarexdb-shared-logical-storage.md)
+uses generic physical row, index, unique and relation families for Application,
+Payload content and Medusa commerce. Logical definitions and scoped identities
+separate their data; semantic execution profiles remain distinct. Core may be
+redesigned to serve all three without adapter workarounds.
 
-1. **Document storage** for Flarex application data and ordinary Payload
-   content: authoritative typed row JSON plus derived index, uniqueness, and
-   relation sidecars.
-2. **Reserved relational storage** for Medusa commerce and framework lifecycle
-   state that genuinely requires normalized columns, constraints, indexes,
-   links, locks, or specialized query behavior.
-
-System and control tables remain a third internal physical category, but they
-are not an application or framework semantic lane.
+System/control and justified framework lifecycle tables remain separately
+inventoried platform storage. Their existence does not permit per-shop/module
+business-table generation. Current commerce relational DDL is a displaced
+implementation whose remaining consumers and removal gates must be inventoried.
 
 ## One Semantic Write Owner
 
@@ -96,7 +110,7 @@ ordinary write-policy owner.
 | --- | --- | --- | --- |
 | Application | `ctx.db` | document rows and sidecars | Standard/Application validation and OCC |
 | Payload-managed content | planned `ctx.cms` | document rows plus Payload lifecycle state | Payload access, defaults, validation, hooks, drafts, versions, and request transaction |
-| Medusa commerce | planned `ctx.commerce` | reserved relational tables and link entities | Medusa services, repositories, workflows, Link, and transaction manager |
+| Medusa commerce | planned `ctx.commerce` | logical records and rich Link entities in shared physical families | Medusa services, repositories, workflows, Link, and transaction manager |
 | Platform/system | no developer API | control and operational tables | trusted Flarex operators and internal services only |
 
 An additional UI, query facade, or reference does not create another write
@@ -193,9 +207,11 @@ physical structures.
 
 ### Installation
 
-Evidence that a specific artifact has been installed and validated at a
-specific physical database locator. Installation is distinct because shared
-relational DDL is physical-database state rather than tenant-local metadata.
+Evidence that the required definitions and storage/build state are ready at a
+specific physical database locator. In the target, distinguish platform physical
+family installation from tenant logical schema/index/constraint readiness.
+The existing relational DDL installation is a current implementation profile,
+not a requirement to create module tables for every deployment.
 
 Different scopes may bind installations at different locators. Artifacts whose
 writes claim one atomic scope commit must resolve to the same transaction-
@@ -263,7 +279,7 @@ There is no universal source schema.
 | --- | --- | --- |
 | Application | Standard/Application definition | application manifest and document-storage definitions |
 | Payload | Payload configuration plus explicit Application table references | authenticated Application content definitions; a Payload configuration/provenance overlay; and a separate optional lifecycle artifact when physical lifecycle structures exist |
-| Medusa | normalized DML and capability evidence from the admitted Cloudflare-oriented primary-fork snapshot, complete configured supported module/link set for the candidate, Joiner/Link configuration, explicit semantic migration intent, and recorded official-upstream provenance | value-only reserved relational schema plus Medusa-owned semantic migration intent |
+| Medusa | normalized DML and capability evidence from the admitted Cloudflare-oriented primary-fork snapshot, configured supported module/link set, Joiner/Link configuration and explicit semantic migration intent | shared logical table/index/constraint/relation definitions plus Medusa-owned semantic migration intent |
 
 The current `@flarex/managed-schema` remains application-specific. Its
 compatibility rules must not become a large conditional planner for every
@@ -376,11 +392,13 @@ matches. They retain separate authority profiles.
 The source application or Payload document field is authoritative. Current
 edge occurrences and adjacency versions are derived and rebuildable.
 
-### Relational foreign-key relation
+### Logical relational constraint
 
-An intra-module relational column or pivot is authoritative. A physical
-foreign key may enforce the relationship when both endpoints share a compatible
-local installation and lifecycle.
+An intra-module field or logical pivot/link record is authoritative. Shared
+core enforces target existence, ownership, cardinality and deletion semantics
+atomically, including concurrent insert/delete races. Generic physical FKs may
+protect storage identities; the former field-specific SQL FK is not a reason
+to allocate a separate module table or weaken enforcement in the adapter.
 
 ### Commerce link
 
@@ -452,11 +470,11 @@ process-global model set that can be overwritten while modules load in
 parallel. The complete resolved module and link set is compiled into one
 commerce schema candidate and activated coherently.
 
-The first supported shape uses one admitted clean snapshot of the
-Cloudflare-oriented primary Medusa fork, its recorded official-upstream
-provenance baseline, and one homogeneous module set over shared scope-qualified
-reserved tables. Staggered or per-scope custom module sets require separate
-physical-installation and compatibility proofs.
+The implemented baseline uses the pinned fork and homogeneous module sets over
+scope-qualified physical module tables. The accepted replacement retains source
+provenance and admits independently bound logical schemas over generic physical
+families. Different module sets require dependency, logical schema, build and
+compatibility proofs, not per-deployment physical commerce installation.
 
 ## Payload Boundary
 

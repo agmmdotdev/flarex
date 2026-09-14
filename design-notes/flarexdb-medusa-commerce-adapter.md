@@ -1,9 +1,10 @@
 # FlarexDB Medusa Commerce Adapter And Link Semantics
 
-Status: accepted adapter-boundary correction; no Flarex-backed Medusa adapter
-is implemented or production-authorized by this note
+Status: accepted semantic boundary with shared logical storage replacement;
+private physical-table consumers exist, while target migration and production
+activation remain pending
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-14
 
 This note owns the intended mapping from Medusa's persistence, repository,
 module-link, transaction, workflow, and locking contracts onto FlarexDB. It
@@ -53,13 +54,22 @@ semantic layer.
 Medusa APIs, modules, services, workflows, Query, and Link
   -> Medusa-owned semantic and transaction lane
   -> Flarex-backed Medusa persistence adapter
-  -> reserved scope-bound commerce tables and commerce-link entities
+  -> scope-bound logical commerce records and rich logical Link entities
+  -> shared physical row/index/unique/relation families
   -> shared Flarex transaction, commit, feed, outbox, and relation primitives
   -> authoritative Postgres storage
 ```
 
 This is one data-plane authority with several semantic lanes, not a universal
 database API and not two independently committing transactional cores.
+
+The [shared logical storage decision](./flarexdb-shared-logical-storage.md)
+supersedes physical module-table assumptions in older examples below. Core
+definitions, indexed queries, constraints, relations and mutation flows may be
+redesigned for Application, Payload and Medusa together. Medusa source-owned
+semantics remain evidence; old ORM/DDL/repository internals are not a reason
+for adapter glue. The [redesign roadmap](../roadmaps/shared-logical-storage/README.md)
+requires real Product/Variant/Pricing/Link parity and complete caller cleanup.
 
 The public application API remains document-first. Application developers use
 `ctx.db` and declared Flarex relations. They do not receive Medusa repository,
@@ -345,12 +355,12 @@ The following remain rejected:
 
 ## Current Verdict
 
-The native relation core should be retained as real application/document
-relation infrastructure, not a virtual-ID convention. Medusa can run on
-Flarex-owned storage, but its tables remain reserved commerce schema and its
-module links remain explicit commerce entities. The adapter may reuse proven
-identity, adjacency, OCC, and feed mechanics where semantics match; it must not
-treat current application edge storage as the commerce authority.
+The native relation core is real storage infrastructure that may be redesigned
+for Application, Payload and Medusa together. Commerce tables are logical
+records reserved by semantic ownership over generic physical families; Module
+Links remain rich logical entities. Reuse or correct identity, constraint,
+index, adjacency and feed owners, rather than maintaining a second commerce
+engine or treating a derived edge as the authoritative Link record.
 
 That gives Flarex one authoritative data plane without confusing one physical
 database with one universal semantic API.

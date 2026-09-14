@@ -1,5 +1,17 @@
 # Relational Installation And Migration Coordination Preflight
 
+## Shared Logical Storage Authority
+
+Storage target correction: [shared logical storage](../../../design-notes/flarexdb-shared-logical-storage.md)
+and its [replacement gates](../../shared-logical-storage/README.md)
+supersede this record's physical Medusa/module-table destination and any
+per-deployment schema recommendation. Retain applicable source provenance,
+framework semantics and completed implementation evidence. Generated-table DDL,
+physical index/FK mappings and their tests describe the displaced baseline;
+they are not a compatibility obligation or permission to extend it as the
+platform destination. Inventory retained system/lifecycle consumers separately.
+Target migration remains unimplemented.
+
 Status: accepted; checkpoint 1 private pure values and goldens and checkpoint 2
 private metadata, topological restoration, all thirteen repository families,
 and their serial PGlite functional gate are complete. Checkpoint 3 is now

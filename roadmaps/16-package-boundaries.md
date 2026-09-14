@@ -1,5 +1,17 @@
 # Package Boundaries
 
+## Shared Logical Storage Authority
+
+The accepted [shared logical storage replacement](../design-notes/flarexdb-shared-logical-storage.md)
+permits core schema, relation, query and execution redesign for Application,
+Payload and Medusa together. Extend existing protocol/definition, analysis,
+persistence and trusted execution owners by responsibility; do not create
+framework-specific storage engines, duplicate schema authorities, generic
+registries or adapter-local enforcement to preserve obsolete internals.
+Framework business and lifecycle policy stays in its framework owner.
+Existing physical families and exports may be replaced after connected parity
+and caller migration; a new package still requires a real dependency boundary.
+
 ## Status And Scope
 
 **Status:** Active domain authority.

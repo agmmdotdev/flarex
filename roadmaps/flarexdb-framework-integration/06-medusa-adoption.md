@@ -1,5 +1,20 @@
 # Medusa Adoption
 
+## Shared Logical Storage Authority
+
+The accepted [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
+and [redesign roadmap](../shared-logical-storage/README.md)
+replace the former deployment-owned commerce physical-table destination.
+Application, Payload and Medusa target generic physical families with logical
+tables, indexes, constraints and relations. Core and integration flows may be
+redesigned cleanly during development; adapters must not compensate for missing
+core contracts. Framework semantic ownership and singular settlement remain.
+
+Descriptions below of current generated commerce tables, SQL indexes/FKs,
+installation receipts and completed tests are baseline evidence. They do not
+override the replacement target or prove its implementation. Physical lifecycle
+work with retained system consumers must be inventoried before removal.
+
 ## Status And Scope
 
 Status: accepted source-backed adoption sequence. The private Currency, Product
@@ -159,9 +174,13 @@ or a complete module bootstrap/migration adapter. Other stored Module Links,
 workflows, distributed locks, durable business-event delivery, general module
 migrations, public serving, and production activation remain separately gated.
 
-This plan owns the ordered adoption of the Medusa fork onto FlarexDB reserved
-relational storage. It preserves Medusa's DML, module, repository, Query, Link,
-workflow, locking, idempotency, and commerce-event semantics.
+This plan owns Medusa semantic adoption and conformance. Its current physical
+module-table implementation is the baseline to replace under
+[shared logical storage](../shared-logical-storage/README.md). The target is
+generic physical families with logical commerce tables/indexes/constraints and
+rich Link records. Preserve intended DML, module, Query, Link, workflow,
+idempotency and event behavior; redesign core and fork seams rather than
+preserving inadequate repository/DDL internals through adapter workarounds.
 
 It does not turn Medusa tables into public application tables or make Flarex
 core depend on Medusa.

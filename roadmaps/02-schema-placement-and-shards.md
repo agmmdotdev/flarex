@@ -1,5 +1,20 @@
 # Schema Placement And Shards
 
+## Shared Logical Storage Authority
+
+The accepted [shared logical storage decision](../design-notes/flarexdb-shared-logical-storage.md)
+and [redesign roadmap](./shared-logical-storage/README.md)
+replace the former deployment-owned commerce physical-table destination.
+Application, Payload and Medusa target generic physical families with logical
+tables, indexes, constraints and relations. Core and integration flows may be
+redesigned cleanly during development; adapters must not compensate for missing
+core contracts. Framework semantic ownership and singular settlement remain.
+
+Descriptions below of current generated commerce tables, SQL indexes/FKs,
+installation receipts and completed tests are baseline evidence. They do not
+override the replacement target or prove its implementation. Physical lifecycle
+work with retained system consumers must be inventoried before removal.
+
 ## Current Native Scope Projection Boundary
 
 Canonical `scope_<uuid>` and `epoch_<uuid>` values remain the reversible

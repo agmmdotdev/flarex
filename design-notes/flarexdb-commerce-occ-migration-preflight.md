@@ -1,5 +1,20 @@
 # Shared Framework Transactions And Optional OCC Preflight
 
+## Shared Logical Storage Authority
+
+The accepted [shared logical storage decision](./flarexdb-shared-logical-storage.md)
+and [redesign roadmap](../roadmaps/shared-logical-storage/README.md)
+replace the former deployment-owned commerce physical-table destination.
+Application, Payload and Medusa target generic physical families with logical
+tables, indexes, constraints and relations. Core and integration flows may be
+redesigned cleanly during development; adapters must not compensate for missing
+core contracts. Framework semantic ownership and singular settlement remain.
+
+Descriptions below of current generated commerce tables, SQL indexes/FKs,
+installation receipts and completed tests are baseline evidence. They do not
+override the replacement target or prove its implementation. Physical lifecycle
+work with retained system consumers must be inventoried before removal.
+
 Status: accepted shared-core ownership direction with distinct execution
 profiles. Named atomic composition and general mixed sandbox OCC are separate
 capabilities requiring their own implementation contracts and proofs. This

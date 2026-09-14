@@ -1,5 +1,13 @@
 # Medusa Currency Host And Publication
 
+## Shared Logical Storage Authority
+
+The accepted [shared logical storage decision](../../../design-notes/flarexdb-shared-logical-storage.md) and
+[replacement gates](../../shared-logical-storage/README.md) supersede physical commerce-table
+expansion as the destination. This record retains current implementation and
+semantic regression evidence; it does not freeze core internals or authorize
+adapter workarounds. Target runtime migration is pending.
+
 ## Status And Decision
 
 Status: implemented private Currency capability on PGlite and ordinary-role
@@ -251,7 +259,6 @@ the affected shared preservation lanes once after integration; do not rebuild
 the comparison island or rerun unrelated PostgreSQL suites after each edit.
 Record setup, execution and total wall time separately. Missing native database
 access leaves its acceptance explicitly incomplete, never inferred from PGlite.
-
 
 Continuation: [Internal Product preflight](./45-medusa-internal-product.md)
 implements the approved private text-pattern predicate in the shared commerce

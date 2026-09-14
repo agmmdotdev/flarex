@@ -1,5 +1,13 @@
 # Medusa Currency Convergence And Schema Compatibility
 
+## Shared Logical Storage Authority
+
+The accepted [shared logical storage decision](../../../design-notes/flarexdb-shared-logical-storage.md) and
+[replacement gates](../../shared-logical-storage/README.md) supersede physical commerce-table
+expansion as the destination. This record retains current implementation and
+semantic regression evidence; it does not freeze core internals or authorize
+adapter workarounds. Target runtime migration is pending.
+
 ## Decision And Scope
 
 Status: implemented privately. Currency source relocation, actual DML-to-

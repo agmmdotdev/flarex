@@ -21,18 +21,18 @@ identity and fencing while clearing argument/grant/Application authority bodies
 in the same transaction. Index/unique, row representation and remaining
 execution-evidence replacements remain open.
 
-The owner-requested [runtime scalability redesign](./09-runtime-scalability-redesign.md)
-now records the next shared-core direction: operation-bounded relational work,
-prepared metadata with an explicit integrity contract, shorter publication
-critical sections, and distinct atomic/durable workflow execution. This is a
-source-grounded design proposal, not an implemented runtime change. Existing
-lock order and admission guarantees remain in force until replacement proofs
-and the cross-owner protocol cutover are complete.
-Its first proposed slice measures complete request costs and replaces catalog
-bounds with operation bounds for actual Product/Link consumers, preserving
-current locking and integrity checks. Later admission and concurrency changes
-require explicit integrity and business-invariant contracts. Each replacement
-includes its own consumer migration, cleanup and roadmap reconciliation.
+The accepted [shared logical storage redesign](../shared-logical-storage/README.md)
+now owns the next cross-consumer storage correction: generic physical families
+for Application, Payload and Medusa, with independent logical schemas and no
+per-deployment commerce table/index allocation. Core internals may be redesigned
+rather than preserving unshipped contracts through adapter workarounds.
+
+[Runtime scalability](./09-runtime-scalability-redesign.md) supplies operation
+bounds, integrity, concurrency and workflow requirements within that replacement.
+Begin with the GLS1 contract/baseline and GLS2/GLS3 connected generic storage
+proof; do not first expand the displaced physical commerce model. Existing
+locking and admission remain in force until their coordinated replacements are
+proven. Each gate includes consumer migration, cleanup and roadmap reconciliation.
 
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;

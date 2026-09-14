@@ -51,6 +51,16 @@ roadmap merely to legitimize an unreviewed divergence.
 | Legacy or superseded | Do not extend or implement from it. Use only for provenance and regression/migration context. |
 | Completed initiative record | Historical closeout and proof context. It is not an active backlog or architecture authority. |
 
+## Shared Storage Architecture Replacement
+
+The accepted [shared logical storage redesign](./shared-logical-storage/README.md)
+replaces deployment-owned physical Medusa module tables with logical commerce
+records over generic physical families shared with Application and Payload.
+It permits proper development-phase core redesign and owns connected parity,
+index/constraint/query proofs and retirement. Existing physical implementation
+receipts remain baseline evidence, not the target. Read this decision before
+new framework storage or runtime scalability work.
+
 ## Start Here
 
 For a first orientation to how one real FlarexDB point mutation crosses the
@@ -88,6 +98,7 @@ with domain rationale in
 
 | Roadmap | Domain authority |
 | --- | --- |
+| [Shared logical storage](./shared-logical-storage/README.md) | Cross-consumer generic physical storage, logical schema/index/constraint/relation contracts, core redesign and commerce physical-path retirement |
 | [`06-dynamic-worker-execution.md`](./06-dynamic-worker-execution.md) | Managed execution artifacts, local Miniflare and hosted Dynamic Workers, sandbox capabilities, runtime identity, and syscall execution. |
 | [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md) | Public SDK, generated APIs, clients/React, CLI/codegen/deploy, test package relationship, npm distribution, and later non-reactive relation ergonomics only after `SV-R Core`; reactive relation APIs remain gated by `SV-R Live`. |
 | [`10-runtime-validation.md`](./10-runtime-validation.md) | Layered validators, protocol decoding, active metadata checks, commit validation, stored corruption detection, and error boundaries. |

@@ -1,5 +1,24 @@
 # FlarexDB Payload Relational Adapter
 
+## Shared Logical Storage Authority
+
+The accepted [shared logical storage decision](./flarexdb-shared-logical-storage.md)
+and [redesign roadmap](../roadmaps/shared-logical-storage/README.md)
+replace the former deployment-owned commerce physical-table destination.
+Application, Payload and Medusa target generic physical families with logical
+tables, indexes, constraints and relations. Core and integration flows may be
+redesigned cleanly during development; adapters must not compensate for missing
+core contracts. Framework semantic ownership and singular settlement remain.
+
+Descriptions below of current generated commerce tables, SQL indexes/FKs,
+installation receipts and completed tests are baseline evidence. They do not
+override the replacement target or prove its implementation. Physical lifecycle
+work with retained system consumers must be inventoried before removal.
+
+Payload logical index compilation, indexed non-ID queries, and relation
+semantics must be proved through the shared core and native Local API. Current
+limited compiler/query support is baseline evidence, not complete indexing.
+
 Status: accepted adapter boundary; exact `payload@3.88.0` source audit, private
 adapter package, and bounded non-reactive scalar/relation conformance are
 implemented; public and production activation remain gated

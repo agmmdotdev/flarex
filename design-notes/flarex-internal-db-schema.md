@@ -1,5 +1,17 @@
 # Flarex Internal Database Schema Direction
 
+## Shared Logical Storage Authority
+
+Storage target correction: [shared logical storage](./flarexdb-shared-logical-storage.md)
+and its [replacement gates](../roadmaps/shared-logical-storage/README.md)
+supersede this record's physical Medusa/module-table destination and any
+per-deployment schema recommendation. Retain applicable source provenance,
+framework semantics and completed implementation evidence. Generated-table DDL,
+physical index/FK mappings and their tests describe the displaced baseline;
+they are not a compatibility obligation or permission to extend it as the
+platform destination. Inventory retained system/lifecycle consumers separately.
+Target migration remains unimplemented.
+
 Status: accepted logical target and physical-policy inventory with historical
 sketches; substantial private application storage and relation foundations are
 implemented, while exact current status belongs to the focused roadmaps
@@ -28,8 +40,8 @@ not chosen as core:
 
 current direction:
   Postgres/FlarexDB is source of truth
-  app/Payload data is stored as typed JSON rows plus relational sidecars
-  Medusa data is stored in Flarex-owned reserved relational system tables
+  app/Payload/Medusa logical data uses shared row/index/unique/relation families
+  Medusa logical records target the same generic physical storage foundation
   Flarex server query functions are the default sync unit
   one DeploymentSyncDO per scope tracks a contiguous commit cursor, reruns,
   and fanout

@@ -39,21 +39,25 @@ needed by Payload and Medusa, plus the ordered adapter conformance work that
 uses them. It coordinates those consumers without replacing the existing
 application foundation or making framework semantics part of a universal core.
 
-The accepted destination is one FlarexDB/Postgres authority, two storage
-profiles, and three semantic lanes:
+The accepted destination is one FlarexDB/Postgres authority, shared logical
+storage over generic physical families, and three semantic lanes:
 
 ```text
 Application                 Payload                     Medusa
 document schema/OCC         CMS request lifecycle       commerce modules/workflows
-document storage            document + lifecycle        reserved relational storage
+logical records             logical content records     logical commerce/link records
        \                         |                         /
+        shared rows / indexes / uniques / relations
         scope / schema lifecycle / migration / transaction
           commit publication / feed / outbox / query sync
 ```
 
-This roadmap does not authorize a public relational API, production framework
-activation, raw SQL access, a general cross-lane transaction, or a rewrite of
-the existing application commit path.
+The [shared logical storage redesign](../shared-logical-storage/README.md)
+owns the accepted development-phase core replacement and supersedes physical
+module-table expansion as the destination. Current DDL-based implementation
+receipts above remain baseline evidence. Proper core redesign is allowed;
+public APIs, production activation, raw SQL access and changed cross-lane
+atomicity require their own explicit contracts and proof.
 
 ## Current Sources Of Truth
 

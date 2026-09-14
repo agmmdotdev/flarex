@@ -1,5 +1,17 @@
 # Flarex Commerce CMS Sections and Blocks
 
+## Shared Logical Storage Authority
+
+Storage target correction: [shared logical storage](./flarexdb-shared-logical-storage.md)
+and its [replacement gates](../roadmaps/shared-logical-storage/README.md)
+supersede this record's physical Medusa/module-table destination and any
+per-deployment schema recommendation. Retain applicable source provenance,
+framework semantics and completed implementation evidence. Generated-table DDL,
+physical index/FK mappings and their tests describe the displaced baseline;
+they are not a compatibility obligation or permission to extend it as the
+platform destination. Inventory retained system/lifecycle consumers separately.
+Target migration remains unimplemented.
+
 Status: design note / long-term architecture superset
 
 Authoritative correction: see

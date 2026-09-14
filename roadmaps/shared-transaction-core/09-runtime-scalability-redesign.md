@@ -2,6 +2,14 @@
 
 ## Status And Scope
 
+The accepted [shared logical storage redesign](../shared-logical-storage/README.md)
+supersedes this document's original physical-storage assumption and execution
+order. Application, Payload and Medusa target generic physical families with
+logical tables/indexes/constraints/relations. Current commerce table code below
+is the baseline to replace. This document remains the owner of reusable runtime
+requirements, not authorization to optimize generated commerce tables as the
+destination. Core relational and execution internals may be redesigned cleanly.
+
 Status: owner-requested redesign direction, with a concrete replacement proposal
 and acceptance gates. Runtime implementation, database validation, measured
 improvements, and activation are pending. This document changes no executing
@@ -34,13 +42,15 @@ separate semantic execution profiles:
 | --- | --- | --- |
 | Native Application | Restricted sandbox calls, exact snapshots, dependency tracking, logical journal and OCC | Preserve semantics; coordinate its commit owner in any shared lock-protocol change |
 | Payload/CMS | Native Local API lifecycle, access and validation, supported hooks and nested request reuse | Benefit from shared transaction/publication corrections without moving CMS into commerce tables |
-| Medusa atomic command | Admitted module services and Links inside one bounded physical transaction | Operation-bounded SQL, efficient preparation/admission and narrow concurrency protection |
+| Medusa atomic command | Admitted module services and rich logical Links inside one bounded physical transaction | Shared logical storage with operation-bounded indexed queries, preparation/admission and narrow concurrency protection |
 | Durable workflow | Explicit committed steps, recovery, waits, external effects and compensation | Extend existing Task/workflow owners where their contracts fit; never keep a business transaction open across steps |
 
 Framework adapters translate native inputs, outputs, relationship semantics,
 errors and lifecycle events. Core owns SQL confinement, resource accounting,
 transaction lifetime, mutation evidence, authoritative settlement and recovery.
-Common guarantees do not require identical physical rows or query languages.
+Shared logical storage does not require identical framework query languages or
+one universal transaction API. Generic physical families may be redesigned to
+meet the admitted semantics of all three consumers.
 
 Do not rewrite working Medusa business logic to hide a core limit. Do not pass
 raw SQL, a driver connection, a transaction, or a finalizer to framework callers
@@ -421,14 +431,14 @@ their remaining obligations; it is not the first cleanup or cutover step.
 | R4: durable workflow integration | Admit one real multi-commit consumer through existing execution and outcome owners | Crash/resume between steps, lost acknowledgements, stable external intent, cancellation, compensation failures and pinned revision recovery |
 | R5: final reconciliation | Audit the consumer switches, coordinated cutovers, removals and roadmap reconciliation completed within each preceding replacement | No deferred routine cleanup, unowned fallback, duplicate recovery/commit owner, undocumented security downgrade or stale conformance-only production claim |
 
-R0/R1 are the first implementation target: attribute complete request cost, then
-replace catalog-dependent storage and relation completeness together for real
-Product/Link consumers. Preserve current scope locking and integrity checks
-through that slice. R2 and R3 require separately approved integrity and
-concurrency contracts; recording this direction does not approve their runtime
-changes. R4 is selected when a real workflow requires durable execution; simple
-atomic workflows need not become sagas. Runtime work starts only after its
-focused implementation preflight is approved.
+The shared logical redesign's GLS1 contract and baseline now lead the work.
+Use R0 instrumentation to measure the current baseline, then satisfy R1 through
+GLS2/GLS3 indexed generic storage and relation completeness for real consumers.
+Do not build a larger-catalog generated-table successor before that replacement.
+Preserve current locking and integrity until their own protocols change. R2/R3
+requirements feed GLS4/GLS5 with explicit integrity and concurrency decisions.
+R4 remains selected by a real durable workflow; simple atomic workflows need
+not become sagas. Each implementation starts from its focused approved contract.
 
 Run the fast PGlite semantic lane and ordinary-role real-Postgres lane. Genuine
 Postgres is required for concurrent connections, locks, isolation, SQL plans,

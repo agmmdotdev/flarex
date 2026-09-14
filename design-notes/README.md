@@ -95,10 +95,17 @@ native relational authority above.
     When an older general FlarexDB design note conflicts with it, this document
     controls.
 
+- `flarexdb-shared-logical-storage.md`
+  - Accepted development-phase replacement: Application, Payload and Medusa
+    logical schemas share generic physical storage. Owns index/query/constraint
+    semantics, independent deployments, core redesign authority and cleanup
+    policy. Runtime migration remains pending; the shared-logical-storage
+    roadmap owns the connected implementation gates.
+
 - `flarexdb-framework-storage-architecture.md`
   - Accepted cross-domain architecture for one Flarex-managed committed-data
-    authority, separate Application/Payload/Medusa semantic lanes, document and
-    reserved-relational storage profiles, schema artifact/install/binding
+    authority, separate Application/Payload/Medusa semantic lanes, shared
+    logical storage replacement, schema artifact/install/binding
     coordination, migration and transaction hosts, typed commit participation,
     relation authority profiles, and private framework adapters.
 
@@ -108,7 +115,8 @@ native relational authority above.
     System APIs, proved first by internal test producers, and made ergonomic
     later by developer APIs. Authoritative row values derive current edge
     sidecars; compatible Payload content adapts to this system. Medusa Module
-    Link semantics remain Medusa-owned over the separate relational substrate.
+    Link semantics remain Medusa-owned; their target records use shared logical
+    storage, with core relation redesign where required.
 
 - `flarexdb-payload-relational-adapter.md`
   - Accepted Payload adapter boundary over the native FlarexDB relation system.
@@ -143,8 +151,8 @@ native relational authority above.
     owner.
 - `flarex-internal-db-schema.md`
   - Proposed internal FlarexDB schema direction for platform catalog data,
-    typed app/Payload JSON rows, relational sidecars, Medusa reserved commerce
-    tables/link entities, commit/OCC metadata, outbox, sync cursors, locks,
+    shared logical records and relation sidecars, including Medusa-owned Link
+    records, commit/OCC metadata, outbox, sync cursors, locks,
     workflow state, and optional internal read models. Use its
     accepted-corrections section and the focused authority notes for
     implementation decisions.
