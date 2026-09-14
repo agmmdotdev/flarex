@@ -73,6 +73,17 @@ second logical migration engine or successful no-op migration methods. Platform
 physical upgrades remain distinct. Shared rows and standalone population tests
 do not establish cross-framework integrity or coordinated schema evolution.
 
+Scope warning: [advanced schema evolution](../../../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md)
+is deferred until after the core redesign, in separately approved sessions.
+Prepare identity, dependency, validation/build, readiness and recovery boundaries
+now; preserve existing safeguards and block unsupported transitions. Do not
+expand core work into populated-data conversions, full lifecycle upgrades or
+Application-to-Payload ownership transfers, or invent another migration host.
+When an integration needs that work, record the blocker, link the deferred
+note, explain the boundary and recommend a later approved slice. Continue
+independent core work and remove obsolete paths as consumers move; deferral
+does not authorize adapter workarounds or a legacy migration fallback.
+
 ## Reuse behavior and types from their real owners
 
 Before adding a helper, decoder, interface, field list, or dispatcher, search

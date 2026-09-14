@@ -273,6 +273,11 @@ binding and no readiness dependency on that lane.
 
 ## Schema Languages And Compilation
 
+The [deferred evolution boundary](../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md)
+separates core schema composition/readiness from advanced upgrade orchestration.
+Prepare shared owners and preserve admitted safeguards during core redesign;
+general conversions and coordinated ownership transitions are later sessions.
+
 There is no universal source schema.
 
 Different source languages must compose into the shared logical catalog and

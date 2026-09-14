@@ -272,6 +272,13 @@ a stale decision. Do not automatically replay arbitrary hooks or callbacks.
 
 ## Schema Evolution And Admission
 
+Implementation sequence: [advanced cross-framework evolution](../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md)
+is deferred to separate sessions after the core redesign. The contracts below
+state the eventual guarantees. Core work prepares shared owners and preserves
+existing safeguards, admitted builds and safe activation/refusal; it does not
+implement general framework upgrades, populated-data conversions or write-owner
+transfers now. No new migration package or table set is implied by modularity.
+
 Different shops/deployments can bind different logical schemas over the same
 physical families. Adding a field, module, logical index or link is logical
 definition/build work, not a tenant-owned ALTER TABLE. Changes requiring data

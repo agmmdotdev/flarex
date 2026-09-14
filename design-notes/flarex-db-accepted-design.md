@@ -46,6 +46,13 @@ Preserve one stable table identity and separate schema ownership from write
 policy. Prove private composition, conflict/dependency refusal and safe ownership
 boundaries before designing public syntax, generated APIs or CMS interfaces.
 
+Advanced cross-framework schema/data migration execution is
+[deferred until after core redesign](../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md).
+Prepare modular extension contracts and preserve existing safety checks now;
+unsupported transitions remain refused. General upgrades, conversions and
+write-owner transfers require later implementation sessions. This does not
+defer removal of obsolete storage/migration code displaced by the core cutover.
+
 Current Medusa code still installs deployment-named physical module tables.
 That is the displaced implementation and regression baseline, not proof that
 the accepted shared logical target is implemented. Earlier physical receipts

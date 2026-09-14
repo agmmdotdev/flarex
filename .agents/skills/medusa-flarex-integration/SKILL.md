@@ -76,6 +76,17 @@ contracts. Do not preserve overlapping migration engines behind a facade.
 Platform physical migrations remain distinct. Neither shared tables nor a
 standalone Medusa test proves cross-framework relations or migration support.
 
+Scope warning: [advanced schema evolution](../../../roadmaps/shared-logical-storage/deferred-framework-schema-evolution.md)
+is deferred until after the core redesign, in separately approved sessions.
+Prepare identity, dependency, validation/build, readiness and recovery boundaries
+now; preserve existing safeguards and block unsupported transitions. Do not
+expand core work into general Medusa model upgrades, populated-data conversions
+or coordinated ownership transfers, or invent a new migration engine/package.
+When a native upgrade needs that work, record the blocker, link the deferred
+note, explain the boundary and recommend a later approved slice. Continue
+independent core work and remove obsolete paths as consumers move; deferral
+does not authorize adapter workarounds or a legacy migration fallback.
+
 ## Reuse first; change the correct owner when necessary
 
 Before writing adapter logic, find the native owner of normalization, defaults,
