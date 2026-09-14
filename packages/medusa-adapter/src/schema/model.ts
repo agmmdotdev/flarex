@@ -23,7 +23,7 @@ export type SchemaTable = Readonly<Pick<DatabaseTable, "name">> & {
   readonly columns: readonly SchemaColumn[];
   readonly indexes: readonly (Readonly<Pick<DatabaseIndex, "name" | "unique">> & {
     readonly columns: readonly string[];
-    readonly where?: "deleted_at IS NULL";
+    readonly where?: "deleted_at IS NULL" | "deleted_at IS NULL AND status = 'active'";
   })[];
   readonly foreignKeys: readonly (Readonly<Pick<DatabaseForeignKey, "name" | "referencedTable" | "onDelete">> & {
     readonly columns: readonly string[];

@@ -85,7 +85,9 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
         predicate:
           index.where === undefined
             ? null
-            : { kind: "isNull", columnId: "deleted_at" },
+            : index.where === "deleted_at IS NULL"
+              ? { kind: "isNull", columnId: "deleted_at" }
+              : { kind: "isNullAndTextEquals", nullColumnId: "deleted_at", textColumnId: "status", value: "active" },
         origin: origin(index.name),
       }));
     if (primary.length !== 0)

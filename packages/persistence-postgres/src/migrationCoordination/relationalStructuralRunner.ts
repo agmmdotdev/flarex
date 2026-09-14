@@ -1105,7 +1105,7 @@ const observeIndex = Effect.fn(
       columns: index.columns,
       unique: index.kind === "uniqueBtree",
       primary: false,
-      predicateColumn: index.predicate?.column ?? null,
+      predicate: index.predicate,
     }),
     context,
   );
@@ -1386,7 +1386,7 @@ const referencedKeyMatches = Effect.fn(
         columns: candidate.columns,
         unique: true,
         primary: candidate.primary,
-        predicateColumn: null,
+        predicate: null,
       }),
       context,
     )) {
@@ -1429,7 +1429,7 @@ interface ExpectedIndexProjection {
   readonly columns: readonly string[];
   readonly unique: boolean;
   readonly primary: boolean;
-  readonly predicateColumn: string | null;
+  readonly predicate: RelationalPhysicalIndex["predicate"];
 }
 
 const indexProjectionMatches = Effect.fn(
@@ -1462,7 +1462,8 @@ const indexProjectionMatches = Effect.fn(
       index_row.indnatts::integer as total_attribute_count,
       index_row.indnullsnotdistinct as nulls_not_distinct,
       pg_get_expr(index_row.indexprs, index_row.indrelid) as expressions,
-      pg_get_expr(index_row.indpred, index_row.indrelid) as predicate
+      pg_get_expr(index_row.indpred, index_row.indrelid) as predicate,
+      current_setting('standard_conforming_strings') as standard_conforming_strings
     from pg_index as index_row
     join pg_class as index_relation
       on index_relation.oid = index_row.indexrelid
@@ -1582,13 +1583,14 @@ const indexProjectionMatches = Effect.fn(
       "expressions",
       context,
     ))) !== null ||
-    !isNullPredicateExpressionMatch(
+    !indexPredicateExpressionMatches(
       yield* Effect.fromResult(nullableTextMemberResult(
         row,
         "predicate",
         context,
       )),
-      expected.predicateColumn,
+      expected.predicate,
+      (yield* Effect.fromResult(textMemberResult(row, "standard_conforming_strings", context))) === "on",
     )
   ) {
     return false;
@@ -1758,7 +1760,7 @@ const keyConstraintMatches = Effect.fn(
       columns: expected.columns,
       unique: true,
       primary: expected.kind === "primary",
-      predicateColumn: null,
+      predicate: null,
     }),
     context,
   );
@@ -1908,14 +1910,18 @@ const buildIndexDdl = Effect.fn(
     ));
     columns.push(`${name} ASC NULLS LAST`);
   }
-  const predicate = index.predicate === null
-    ? ""
-    : ` WHERE ${yield* Effect.fromResult(quoteIdentifierResult(
-      index.predicate.column,
-      "execute",
-      "index",
-      index.name,
-    ))} IS NULL`;
+  let predicate = "";
+  if (index.predicate !== null) {
+    const selected = index.predicate;
+    const nullColumn = yield* Effect.fromResult(quoteIdentifierResult(
+      selected.kind === "isNull" ? selected.column : selected.nullColumn, "execute", "index", index.name));
+    predicate = ` WHERE ${nullColumn} IS NULL`;
+    if (selected.kind === "isNullAndTextEquals") {
+      const textColumn = yield* Effect.fromResult(quoteIdentifierResult(selected.textColumn, "execute", "index", index.name));
+      const value = yield* Effect.fromResult(dollarQuotedLiteralResult(selected.value, "execute", "index", index.name));
+      predicate += ` AND ${textColumn} = ${value}::text`;
+    }
+  }
   return `CREATE ${index.kind === "uniqueBtree" ? "UNIQUE " : ""}INDEX ${indexName} ON ${schemaName}.${tableName} ` +
     `USING btree (${columns.join(", ")})${predicate}`;
 });
@@ -2229,11 +2235,13 @@ function textSetCatalogExpression(
   // pg_get_expr uses ordinary literals, escaping backslashes only when the
   // current session treats them as escapes. quote_literal always uses E'' for
   // backslashes and therefore is not the catalog deparser's spelling.
-  const clauses = check.values.map(value => {
-    const escaped = (standardConformingStrings ? value : value.replaceAll("\\", "\\\\")).replaceAll("'", "''");
-    return `(${check.column} = '${escaped}'::text)`;
-  });
+  const clauses = check.values.map(value => textComparisonCatalogExpression(check.column, value, standardConformingStrings));
   return clauses.length === 1 ? clauses[0] ?? "" : `(${clauses.join(" OR ")})`;
+}
+
+function textComparisonCatalogExpression(column: string, value: string, standardConformingStrings: boolean): string {
+  const escaped = (standardConformingStrings ? value : value.replaceAll("\\", "\\\\")).replaceAll("'", "''");
+  return `(${column} = '${escaped}'::text)`;
 }
 
 function samePostgresTextLiteralExpression(
@@ -2302,7 +2310,7 @@ function catalogContext(
   return Object.freeze({ objectKind, objectName });
 }
 
-function catalogRows(
+const catalogRows = Effect.fn("RelationalStructuralRunner.catalogRows")(function (
   transaction: FlarexMetadataTransaction,
   query: SQL,
   context: CatalogContext,
@@ -2332,7 +2340,7 @@ function catalogRows(
       context,
     ))),
   );
-}
+});
 
 function catalogRowsResult(
   result: unknown,
@@ -2536,6 +2544,17 @@ function sameStringSet(
 ): boolean {
   return actual.length === expected.length &&
     actual.every(value => expected.includes(value));
+}
+
+function indexPredicateExpressionMatches(
+  actual: string | null,
+  expected: RelationalPhysicalIndex["predicate"],
+  standardConformingStrings: boolean,
+): boolean {
+  if (expected?.kind !== "isNullAndTextEquals") return isNullPredicateExpressionMatch(actual, expected?.column ?? null);
+  // Fixed physical identifiers and catalog-deparser literals; no expression
+  // parser that could misread AND or parentheses inside a quoted text value.
+  return actual === `((${expected.nullColumn} IS NULL) AND ${textComparisonCatalogExpression(expected.textColumn, expected.value, standardConformingStrings)})`;
 }
 
 function isNullPredicateExpressionMatch(

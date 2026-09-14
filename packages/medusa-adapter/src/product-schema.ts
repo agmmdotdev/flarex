@@ -70,6 +70,7 @@ const productSchemaFromCompiled = Effect.fn("MedusaProduct.normalizeCompiled")(
       compiled.tables.some(table => table.columns.some(column =>
         column.type === "bigNumber" || column.defaultValue === null ||
         typeof column.defaultValue === "object")) ||
+      compiled.tables.some(table => table.indexes.some(index => index.where !== undefined && index.where !== "deleted_at IS NULL")) ||
       compiled.tables.length !== expectedTables.length ||
       compiled.tables
         .map((table) => table.name)

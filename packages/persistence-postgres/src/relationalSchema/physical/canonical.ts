@@ -1107,6 +1107,12 @@ function physicalIndexPredicate(
   RelationalPhysicalValueError
 > {
   switch (predicate.kind) {
+    case "isNullAndTextEquals":
+      return Result.gen(function* () {
+        const nullColumn = yield* required(columnNames, columnIdentityKey(predicate.nullColumn));
+        const textColumn = yield* required(columnNames, columnIdentityKey(predicate.textColumn));
+        return Object.freeze({ kind: "isNullAndTextEquals" as const, nullColumn, textColumn, value: predicate.value });
+      });
     case "isNull":
       return Result.map(
         required(columnNames, columnIdentityKey(predicate.column)),
@@ -1305,6 +1311,8 @@ function indexPredicateCapabilityId(
   predicate: NonNullable<RelationalTableDefinition["indexes"][number]["predicate"]>,
 ): string {
   switch (predicate.kind) {
+    case "isNullAndTextEquals":
+      return "relational-schema.index-predicate.isNullAndTextEquals";
     case "isNull":
       return "relational-schema.index-predicate.isNull";
   }

@@ -136,6 +136,12 @@ export type RelationalPhysicalKey = Readonly<{
 export type RelationalPhysicalIndexPredicate =
   | null
   | (Readonly<{
+      readonly kind: "isNullAndTextEquals";
+      readonly nullColumn: string;
+      readonly textColumn: string;
+      readonly value: string;
+    }> & JsonObject)
+  | (Readonly<{
       readonly kind: "isNull";
       readonly column: string;
     }> & JsonObject);

@@ -363,8 +363,7 @@ function validatePhysicalLayoutSemantics(
         !sameTableIdentity(index.table, table.identity) ||
         !strictlyAfter(previousIndexId, indexId) ||
         !validateScopedColumns(index.columns, columnsByName) ||
-        (index.predicate !== null &&
-          !columnsByName.has(index.predicate.column)) ||
+        !indexPredicateMatchesTable(index.predicate, columnsByName, table.checks) ||
         !recordExpectedName(
           expectedNames,
           expectedSpellings,
@@ -1021,7 +1020,23 @@ export function isStoredRelationalPhysicalIndex(
     (input.predicate === null ||
       (isExactPrivateValueRecord(input.predicate, ["kind", "column"]) &&
         input.predicate.kind === "isNull" &&
-        isPhysicalIdentifier(input.predicate.column)));
+        isPhysicalIdentifier(input.predicate.column)) ||
+      (isExactPrivateValueRecord(input.predicate, ["kind", "nullColumn", "textColumn", "value"]) &&
+        input.predicate.kind === "isNullAndTextEquals" &&
+        isPhysicalIdentifier(input.predicate.nullColumn) && isPhysicalIdentifier(input.predicate.textColumn) &&
+        isPrivateValueText(input.predicate.value)));
+}
+
+function indexPredicateMatchesTable(
+  predicate: RelationalPhysicalIndex["predicate"],
+  columns: ReadonlyMap<string, RelationalPhysicalColumn>,
+  checks: readonly RelationalPhysicalCheck[],
+): boolean {
+  if (predicate === null) return true;
+  if (predicate.kind === "isNull") return columns.has(predicate.column);
+  return columns.has(predicate.nullColumn) && columns.get(predicate.textColumn)?.type === "text" &&
+    predicate.nullColumn !== predicate.textColumn && checks.every(check => check.kind !== "textSet" ||
+      check.column !== predicate.textColumn || check.values.includes(predicate.value));
 }
 
 function isPhysicalCheck(

@@ -114,6 +114,16 @@ are corruption; caller raw write fields remain outside the numeric write API.
 
 ### A2. Bounded compound partial-index predicates
 
+Implemented. The logical and physical predicate is `isNullAndTextEquals`, with explicit
+null-column, text-column and value fields. Its operand order is fixed: null test
+first, equality second. Distinct local column references, text type and any
+declared text-set membership are checked before lowering and on restoration.
+Existing null and `isNull` encodings remain unchanged. The Medusa boundary adds
+only the exact pinned `deleted_at IS NULL AND status = 'active'` spelling;
+arbitrary SQL strings remain unadmitted. Structural SQL uses the existing quoted
+identifier and dollar-quoted literal owners; catalog verification checks both
+atoms and the deparsed text value, including session backslash semantics.
+
 Extend the existing relational schema/index owner with a bounded conjunction of
 one null test and one text/enum equality atom, sufficient for the native PriceList
 index. Keep existing null/`isNull` encodings and identities unchanged. Validate

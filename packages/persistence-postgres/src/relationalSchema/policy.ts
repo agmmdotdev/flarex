@@ -420,6 +420,14 @@ function decodeIndexPredicate(
   return Result.gen(function* () {
     yield* consumeDecodeUnit(budget, path);
     const kind = yield* discriminant(input, path);
+    if (kind === "isNullAndTextEquals") {
+      const fields = yield* exactRecord(input, ["kind", "nullColumnId", "textColumnId", "value"], path);
+      const nullColumnId = yield* decodeIdentityString(fields.at(1), `${path}.nullColumnId`, brandColumnId);
+      const textColumnId = yield* decodeIdentityString(fields.at(2), `${path}.textColumnId`, brandColumnId);
+      const value = yield* decodeText(fields.at(3), `${path}.value`);
+      return Object.freeze({ kind, nullColumn: columnIdentity(coordinate, tableId, nullColumnId),
+        textColumn: columnIdentity(coordinate, tableId, textColumnId), value });
+    }
     if (kind !== "isNull") return yield* unsupported(`${path}.kind`, kind);
     const fields = yield* exactRecord(input, ["kind", "columnId"], path);
     const columnId = yield* decodeIdentityString(
@@ -821,9 +829,18 @@ function validateRelationalSchema(
         if (index.predicate !== null) {
           yield* requireColumn(
             columns,
-            index.predicate.column,
+            index.predicate.kind === "isNull" ? index.predicate.column : index.predicate.nullColumn,
             `${tablePath}.indexes[${index.identity.indexId}].predicate`,
           );
+          if (index.predicate.kind === "isNullAndTextEquals") {
+            const predicate = index.predicate;
+            const textColumn = yield* requireColumn(columns, predicate.textColumn, `${tablePath}.indexes[${index.identity.indexId}].predicate`);
+            if (textColumn.type !== "text" || predicate.nullColumn.columnId === predicate.textColumn.columnId ||
+              table.constraints.some(constraint => constraint.kind === "textSet" &&
+                constraint.column.columnId === predicate.textColumn.columnId && !constraint.values.includes(predicate.value))) {
+              return yield* Result.fail(RelationalSchemaError.invalidInput(`${tablePath}.indexes[${index.identity.indexId}].predicate`));
+            }
+          }
         }
       }
       tables.set(table.identity.tableId, {

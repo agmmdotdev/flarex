@@ -170,6 +170,10 @@ function sourceIndexInputFromStoredIndex(input: unknown) {
 
 function sourcePredicateInputFromStoredPredicate(input: unknown) {
   if (!isNonArrayRecord(input)) return input;
+  if (input.kind === "isNullAndTextEquals") return {
+    kind: input.kind, nullColumnId: storedColumnId(input.nullColumn),
+    textColumnId: storedColumnId(input.textColumn), value: input.value,
+  };
   return {
     kind: input.kind,
     columnId: storedColumnId(input.column),
